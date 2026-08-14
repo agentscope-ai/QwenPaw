@@ -382,7 +382,58 @@ class ChatExtensionsRegistry {
     };
   }
 
-  // ── Bulk dispose for plugin unload (future) ───────────────────────────────
+  // ── Bulk dispose for plugin unload ────────────────────────────────────────
+
+  detachAll(pluginId: string): { restore: () => void } {
+    const removedScalars = new Map<
+      ChatScalarField,
+      Array<[number, ScalarEntry<ChatScalarField>]>
+    >();
+    const removedListItems = new Map<
+      ChatListField,
+      Array<[number, ListEntry<unknown>]>
+    >();
+    for (const [field, stack] of this.scalarStacks) {
+      const entries = stack
+        .map(
+          (entry, index) =>
+            [index, entry] as [number, ScalarEntry<ChatScalarField>],
+        )
+        .filter(([, entry]) => entry.pluginId === pluginId);
+      if (entries.length > 0) removedScalars.set(field, entries.slice());
+    }
+    for (const field of Object.keys(this.listMaps) as ChatListField[]) {
+      const entries = (this.listMaps[field] as ListEntry<unknown>[])
+        .map((entry, index) => [index, entry] as [number, ListEntry<unknown>])
+        .filter(([, entry]) => entry.pluginId === pluginId);
+      if (entries.length > 0) removedListItems.set(field, entries.slice());
+    }
+
+    this.disposeAll(pluginId);
+    return {
+      restore: () => {
+        if (removedScalars.size === 0 && removedListItems.size === 0) return;
+        for (const [field, removed] of removedScalars) {
+          const stack = this.scalarStacks.get(field) ?? [];
+          for (const [index, entry] of removed) {
+            stack.splice(Math.min(index, stack.length), 0, entry);
+          }
+          this.scalarStacks.set(field, stack);
+        }
+        for (const [field, removed] of removedListItems) {
+          const entries = this.listMaps[field] as ListEntry<unknown>[];
+          for (const [index, entry] of removed) {
+            entries.splice(Math.min(index, entries.length), 0, entry);
+          }
+        }
+        this.rebuildScalarSnapshot();
+        for (const field of Object.keys(this.listMaps) as ChatListField[]) {
+          this.rebuildListSnapshot(field);
+        }
+        this.notify();
+      },
+    };
+  }
 
   disposeAll(pluginId: string): void {
     let mutated = false;

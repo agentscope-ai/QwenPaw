@@ -11,6 +11,8 @@ const hoisted = vi.hoisted(() => ({
   uninstall: vi.fn(),
   fetchMarketPlugins: vi.fn(),
   installPlugin: vi.fn(),
+  loadPawApp: vi.fn(),
+  routeSnapshot: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -40,7 +42,15 @@ vi.mock("@/api/modules/pawapp", () => ({
 }));
 
 vi.mock("@/plugins/registry/hooks", () => ({
-  useRoutes: () => [],
+  useRoutes: () => hoisted.routeSnapshot(),
+}));
+
+vi.mock("@/plugins/usePluginLoader", () => ({
+  loadPawApp: hoisted.loadPawApp,
+}));
+
+vi.mock("@/os/pawAppManifestStore", () => ({
+  syncPawAppManifests: vi.fn(),
 }));
 
 vi.mock("@/api/modules/pluginMarket", async () => {
@@ -101,6 +111,10 @@ describe("AppCenterPage", () => {
     hoisted.uninstall.mockReset();
     hoisted.fetchMarketPlugins.mockReset();
     hoisted.installPlugin.mockReset();
+    hoisted.loadPawApp.mockReset();
+    hoisted.routeSnapshot.mockReset();
+    hoisted.routeSnapshot.mockReturnValue([]);
+    hoisted.loadPawApp.mockRejectedValue(new Error("bundle unavailable"));
     hoisted.listApps.mockResolvedValue({
       apps: [makeApp("alpha-app"), makeApp("beta-app", { category: "games" })],
       total: 2,
@@ -277,17 +291,50 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
   });
 
-  it("opens an installed app in the embedded view on card click", async () => {
+  it("loads an installed app on demand on card click", async () => {
     renderPage();
     await screen.findByText("alpha-app");
 
     fireEvent.click(screen.getByText("alpha-app"));
 
-    // No route component is registered in this test, so the embedded view
-    // shows its not-loaded placeholder — proving the embed flow was entered.
+    await waitFor(() =>
+      expect(hoisted.loadPawApp).toHaveBeenCalledWith(
+        "alpha-app",
+        "/apps/alpha-app",
+      ),
+    );
     expect(
-      await screen.findByText("appCenter.appNotLoaded"),
+      await screen.findByText("appCenter.appLoadFailed"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /common.retry/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("retries a failed PawApp load and renders the registered page", async () => {
+    const AppPage = () => <div>Loaded PawApp</div>;
+    hoisted.loadPawApp
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockImplementationOnce(async () => {
+        hoisted.routeSnapshot.mockReturnValue([
+          {
+            id: "alpha.page",
+            path: "/apps/alpha-app",
+            source: "alpha-app",
+            Component: AppPage,
+          },
+        ]);
+        return undefined;
+      });
+    renderPage();
+    await screen.findByText("alpha-app");
+    fireEvent.click(screen.getByText("alpha-app"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /common.retry/ }),
+    );
+
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
+    expect(hoisted.loadPawApp).toHaveBeenCalledTimes(2);
   });
 
   it("restores an OS PawApp when navigating back and forward", async () => {
@@ -303,7 +350,7 @@ describe("AppCenterPage", () => {
       osPawAppId: "alpha-app",
     });
     expect(
-      await screen.findByText("appCenter.appNotLoaded"),
+      await screen.findByText("appCenter.appLoadFailed"),
     ).toBeInTheDocument();
 
     window.history.back();
@@ -313,7 +360,7 @@ describe("AppCenterPage", () => {
 
     window.history.forward();
     expect(
-      await screen.findByText("appCenter.appNotLoaded"),
+      await screen.findByText("appCenter.appLoadFailed"),
     ).toBeInTheDocument();
   });
 });

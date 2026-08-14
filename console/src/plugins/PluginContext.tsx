@@ -10,7 +10,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./hostExternals";
-import { loadAllPlugins } from "./usePluginLoader";
+import { loadEagerFrontendPlugins } from "./usePluginLoader";
 import type { PluginRouteDeclaration } from "./hostExternals";
 import {
   routeRegistry,
@@ -84,11 +84,9 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
       setPluginRoutes(derivePluginRoutes());
     });
 
-    // Load all installed plugins and PawApps (non-fatal: one bad module
-    // won’t block others). PawApps are 'app'-type plugins: the loader
-    // executes their ui bundle, which self-registers the /apps/{id} route
-    // so the App Center can render them inline.
-    loadAllPlugins().then(({ failed }) => {
+    // Load global frontend plugins. PawApp pages load when opened so App
+    // installation and browser route registration remain independent.
+    loadEagerFrontendPlugins().then(({ failed }) => {
       if (failed.length > 0) setError(failed.join("; "));
       setLoading(false);
     });

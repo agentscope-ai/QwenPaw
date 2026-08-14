@@ -25,14 +25,17 @@ import { openExternalLink } from "../utils/openExternalLink";
 import {
   fetchPlugins,
   uninstallPlugin,
+  type InstallPluginResult,
   type PluginInfo,
 } from "../api/modules/plugin";
+import { pawappApi } from "../api/modules/pawapp";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
-import { purgeAppState, purgePluginAppState } from "./osCleanup";
+import { purgeAppState, removePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 import { useOsAppMarket } from "./useOsAppMarket";
+import { usePawAppManifestStore } from "./pawAppManifestStore";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -75,6 +78,27 @@ export default function AppStore() {
       .finally(() => setAppsLoading(false));
   };
 
+  const refreshAllApps = () => {
+    void usePawAppManifestStore
+      .getState()
+      .refresh()
+      .catch(() => {});
+    refreshInstalledApps();
+  };
+
+  const syncInstalledApp = async (result: InstallPluginResult) => {
+    try {
+      const app = await pawappApi.get(result.id);
+      usePawAppManifestStore.getState().upsert(app);
+    } catch {
+      await usePawAppManifestStore
+        .getState()
+        .refresh()
+        .catch(() => {});
+    }
+    refreshInstalledApps();
+  };
+
   const {
     loading,
     error,
@@ -92,13 +116,13 @@ export default function AppStore() {
     // onInstalled: refresh the installed-apps section after a market
     // install/update so the new PawApp shows up without a full page reload.
   } = useOsAppMarket({
-    onInstalled: refreshInstalledApps,
+    onInstalled: syncInstalledApp,
   });
 
   const [searchInput, setSearchInput] = useState("");
 
   useEffect(() => {
-    refreshInstalledApps();
+    refreshAllApps();
   }, []);
 
   /** Matching market entry (same id) — enables the update affordance. */
@@ -115,16 +139,14 @@ export default function AppStore() {
       onOk: async () => {
         try {
           await uninstallPlugin(p.id);
-          // Confirmed uninstall: purge persisted desktop state before the
-          // reload drops the plugin's routes from the registry.
-          purgePluginAppState(p.id);
+          removePluginAppState(p.id);
+          refreshAllApps();
           message.success(
             t("os.uninstalledApp", {
               name: p.name,
               defaultValue: "Uninstalled",
             }),
           );
-          setTimeout(() => window.location.reload(), 600);
         } catch (err) {
           message.error(
             err instanceof Error

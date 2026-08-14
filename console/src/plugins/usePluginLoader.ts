@@ -1,47 +1,55 @@
 /**
- * usePluginLoader.ts — plugin loading utility
+ * Frontend plugin loading utilities.
  *
- * Fetches the plugin list, downloads each frontend bundle, and executes it
- * via a same-origin Blob URL so plugins can self-register into the
- * `pluginSystem` singleton (hostExternals.ts).
- *
- * Exports `loadAllPlugins()` — the single function PluginContext calls.
+ * Global plugins load eagerly during Console startup. PawApp pages load only
+ * when the user opens the app, keeping installed state independent from the
+ * browser's in-memory route registry.
  */
 
-import { getApiUrl, getApiToken } from "../api/config";
+import { getApiToken, getApiUrl } from "../api/config";
+import { routeRegistry } from "./registry/store";
+import {
+  detachPluginRuntime,
+  removePluginRuntime,
+} from "./pluginRuntimeCleanup";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Plugin manifest type (mirrors backend PluginInfo)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface PluginInfo {
+interface FrontendPluginInfo {
   id: string;
   name: string;
+  version: string;
+  plugin_type?: string;
   frontend_entry?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────────────────────
+export interface PluginLoadSummary {
+  loaded: number;
+  failed: string[];
+}
 
-/**
- * Resolve a backend-relative API path (e.g. `/plugins/…/files/index.js`)
- * to a full URL using the same base that all other API calls use.
- */
+const loadedApps = new Map<string, string>();
+const loadingPromises = new Map<string, Promise<void>>();
+
+function authHeaders(): Record<string, string> {
+  const token = getApiToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function resolveUrl(pluginId: string, apiPath: string): string {
   return getApiUrl(`frontend_plugin/${pluginId}/files/${apiPath}`);
 }
 
-/**
- * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
- * execute it via dynamic import.  Blob URL is revoked immediately after.
- */
-async function executePluginScript(entryUrl: string): Promise<void> {
-  const token = getApiToken();
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+async function fetchFrontendPlugins(): Promise<FrontendPluginInfo[]> {
+  const response = await fetch(getApiUrl("/frontend_plugin"), {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to list frontend plugins (${response.status})`);
+  }
+  return response.json();
+}
 
-  const response = await fetch(entryUrl, { headers });
+async function executePluginScript(entryUrl: string): Promise<void> {
+  const response = await fetch(entryUrl, { headers: authHeaders() });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }
@@ -57,60 +65,103 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Fetch the plugin list from `GET /api/plugins`, then load every plugin that
- * has a `frontend_entry` in parallel.  Failures are isolated per plugin so
- * one bad plugin never blocks the others.
- *
- * Returns a summary `{ loaded, failed }` for the caller to surface as an error.
- */
-export async function loadAllPlugins(): Promise<{
-  loaded: number;
-  failed: string[];
-}> {
-  const failed: string[] = [];
-
-  let plugins: PluginInfo[];
+/** Load non-App frontend plugins that provide global Console capabilities. */
+export async function loadEagerFrontendPlugins(): Promise<PluginLoadSummary> {
+  let plugins: FrontendPluginInfo[];
   try {
-    const token = getApiToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(getApiUrl("/frontend_plugin"), { headers });
-    if (!res.ok) {
-      console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
-      return { loaded: 0, failed: [] };
-    }
-    plugins = await res.json();
-  } catch (err) {
-    console.warn("[PluginLoader] failed to fetch plugin list:", err);
+    plugins = await fetchFrontendPlugins();
+  } catch (error) {
+    console.warn("[PluginLoader] failed to fetch plugin list:", error);
     return { loaded: 0, failed: [] };
   }
 
-  const frontendPlugins = plugins.filter((p) => p.frontend_entry);
-
+  const eagerPlugins = plugins.filter(
+    (plugin) => plugin.frontend_entry && plugin.plugin_type !== "app",
+  );
   const results = await Promise.allSettled(
-    frontendPlugins.map(async (p) => {
-      await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
-      console.info(`[PluginLoader] ✓ ${p.id}`);
+    eagerPlugins.map(async (plugin) => {
+      await executePluginScript(resolveUrl(plugin.id, plugin.frontend_entry!));
+      console.info(`[PluginLoader] loaded ${plugin.id}`);
     }),
   );
-
-  results.forEach((r, i) => {
-    if (r.status === "rejected") {
-      const msg = `${frontendPlugins[i].id}: ${r.reason}`;
-      console.error(`[PluginLoader] ✗ ${msg}`);
-      failed.push(msg);
+  const failed: string[] = [];
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      const message = `${eagerPlugins[index].id}: ${result.reason}`;
+      console.error(`[PluginLoader] failed ${message}`);
+      failed.push(message);
     }
   });
+  return { loaded: eagerPlugins.length - failed.length, failed };
+}
 
-  console.info(
-    `[PluginLoader] ${frontendPlugins.length - failed.length}/${
-      frontendPlugins.length
-    } plugin(s) loaded`,
-  );
-  return { loaded: frontendPlugins.length - failed.length, failed };
+/** Load and verify one PawApp page bundle on demand. */
+export function loadPawApp(
+  appId: string,
+  entryPage = `/apps/${appId}`,
+): Promise<void> {
+  const pending = loadingPromises.get(appId);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    const plugins = await fetchFrontendPlugins();
+    const plugin = plugins.find((item) => item.id === appId);
+    if (!plugin) {
+      throw new Error(`PawApp frontend plugin not found: ${appId}`);
+    }
+    if (plugin.plugin_type !== "app") {
+      throw new Error(`Plugin is not a PawApp: ${appId}`);
+    }
+    if (!plugin.frontend_entry) {
+      throw new Error(`PawApp has no frontend entry: ${appId}`);
+    }
+
+    const loadedVersion = loadedApps.get(appId);
+    const versionChanged = Boolean(
+      loadedVersion && loadedVersion !== plugin.version,
+    );
+    const alreadyRegistered = routeRegistry
+      .snapshot()
+      .some((route) => route.path === entryPage && route.source === appId);
+
+    if (loadedVersion === plugin.version && alreadyRegistered) return;
+
+    const previousRuntime = versionChanged ? detachPluginRuntime(appId) : null;
+
+    try {
+      if (!alreadyRegistered || versionChanged) {
+        const entryUrl = resolveUrl(plugin.id, plugin.frontend_entry);
+        await executePluginScript(
+          versionChanged
+            ? `${entryUrl}?version=${encodeURIComponent(plugin.version)}`
+            : entryUrl,
+        );
+      }
+
+      const registered = routeRegistry
+        .snapshot()
+        .some((route) => route.path === entryPage && route.source === appId);
+      if (!registered) {
+        throw new Error(
+          `PawApp ${appId} did not register entry page ${entryPage}`,
+        );
+      }
+    } catch (error) {
+      removePluginRuntime(appId);
+      previousRuntime?.restore();
+      throw error;
+    }
+    loadedApps.set(appId, plugin.version);
+  })().finally(() => {
+    loadingPromises.delete(appId);
+  });
+
+  loadingPromises.set(appId, promise);
+  return promise;
+}
+
+/** Reset module caches between unit tests. */
+export function resetPawAppLoaderForTests(): void {
+  loadedApps.clear();
+  loadingPromises.clear();
 }

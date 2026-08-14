@@ -26,7 +26,7 @@ import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
 import { useOsNotifyPoller } from "./useOsNotifyPoller";
-import { purgeAppState, purgePluginAppState } from "./osCleanup";
+import { purgeAppState, removePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
 import { baseFromRoutePath } from "./osRouteMap";
@@ -55,6 +55,9 @@ import {
   setActivePawAppId,
 } from "../plugins/pawapp-sdk/context";
 import { getOsRootHref } from "../utils/navigationMode";
+import { PawAppLoadState } from "../plugins/PawAppLoadState";
+import { usePawAppRuntime } from "../plugins/usePawAppRuntime";
+import { usePawAppManifestStore } from "./pawAppManifestStore";
 import "./osWindowBody.css";
 
 /** Session flag so the boot splash plays once per browser session. */
@@ -66,6 +69,26 @@ function shouldPlayBoot(): boolean {
   } catch {
     return true;
   }
+}
+
+function PawAppWindowContent({ app }: { app: OsAppDef }) {
+  const routes = useRoutes();
+  const runtime = usePawAppRuntime(app.source!, app.entryPage!);
+  const route = routes.find(
+    (item) => item.path === app.entryPage && item.source === app.source,
+  );
+
+  if (runtime.state === "ready" && route) {
+    const Component = route.Component;
+    return (
+      <WindowRouter
+        routeId={route.id}
+        base={baseFromRoutePath(route.path)}
+        element={<Component />}
+      />
+    );
+  }
+  return <PawAppLoadState className="os-pawapp-load-state" runtime={runtime} />;
 }
 
 export default function DesktopOS() {
@@ -105,8 +128,12 @@ export default function DesktopOS() {
   useSyncCodingMode();
   // Single app registry: desktop icons, window chrome and the launcher all
   // read from the same source (catalog + system + dynamic plugin apps).
-  const { apps: visibleApps, appById } = useOsApps();
+  const { apps: visibleApps, appById, manifestError } = useOsApps();
   const { wallpaperId } = useOsWallpaper();
+
+  useEffect(() => {
+    if (manifestError) message.error(manifestError);
+  }, [manifestError, message]);
 
   // Desktop right-click menu and wallpaper picker overlay.
   const [wpOpen, setWpOpen] = useState(false);
@@ -196,10 +223,12 @@ export default function DesktopOS() {
   // each app's MemoryRouter and never becomes a browser deep link.
   useEffect(() => {
     const activeRoute = activeId ? routeById.get(activeId) : undefined;
-    const pawAppId =
-      activeRoute?.source !== "core" && activeRoute?.path.startsWith("/apps/")
-        ? getPawAppIdFromPath(activeRoute.path)
-        : "";
+    const activeDef = activeId ? appById.get(activeId) : undefined;
+    const pawAppId = activeDef?.source
+      ? activeDef.source
+      : activeRoute?.source !== "core" && activeRoute?.path.startsWith("/apps/")
+      ? getPawAppIdFromPath(activeRoute.path)
+      : "";
     setActivePawAppId(pawAppId || null);
     const browserPath = getOsRootHref(window.location.pathname);
     if (
@@ -211,7 +240,7 @@ export default function DesktopOS() {
         browserPath,
       );
     }
-  }, [activeId, routeById]);
+  }, [activeId, appById, routeById]);
 
   const openWindows = order
     .map((id) => windows[id])
@@ -290,7 +319,13 @@ export default function DesktopOS() {
       key: "refresh",
       icon: <RefreshCw size={15} />,
       label: t("os.refreshDesktop", "Refresh desktop"),
-      onClick: () => window.location.reload(),
+      onClick: () => {
+        closeDesktopMenu();
+        void usePawAppManifestStore
+          .getState()
+          .refresh()
+          .catch(() => {});
+      },
     },
     { type: "divider" },
     {
@@ -311,21 +346,22 @@ export default function DesktopOS() {
     },
   ];
 
-  // Uninstall an app. Plugin apps (PawApps, carrying `source`) are removed on
-  // the backend (then reload to refresh the registry); built-in catalog apps
-  // are toggled off locally via osPluginStore. System apps aren't uninstallable.
+  // Plugin apps are removed from the backend and live frontend state. Built-in
+  // catalog apps are toggled locally; system apps are not uninstallable.
   const handleUninstall = async (a: OsAppDef) => {
     const name = t(a.labelKey, a.fallback);
     if (a.source) {
+      const source = a.source;
       try {
-        await uninstallPlugin(a.source);
-        // Confirmed uninstall: purge persisted desktop state before the
-        // reload drops the plugin's routes from the registry.
-        purgePluginAppState(a.source);
+        await uninstallPlugin(source);
+        removePluginAppState(source);
+        await usePawAppManifestStore
+          .getState()
+          .refresh()
+          .catch(() => {});
         message.success(
           t("os.uninstalledApp", { name, defaultValue: "Uninstalled" }),
         );
-        setTimeout(() => window.location.reload(), 600);
       } catch (err) {
         message.error(
           err instanceof Error
@@ -456,7 +492,9 @@ export default function DesktopOS() {
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);
-          if (!isStore && !isSettings && !Component) return null;
+          if (!isStore && !isSettings && !Component && !def.entryPage) {
+            return null;
+          }
           return (
             <WindowFrame
               key={win.id}
@@ -481,6 +519,8 @@ export default function DesktopOS() {
                     <AppStore />
                   ) : isSettings ? (
                     <SettingsApp />
+                  ) : def.entryPage ? (
+                    <PawAppWindowContent app={def} />
                   ) : Component ? (
                     <WindowRouter
                       routeId={win.id}

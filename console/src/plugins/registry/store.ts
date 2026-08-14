@@ -67,6 +67,43 @@ interface MenuEntry {
   registeredAt: number;
 }
 
+export interface SourceRegistrationSnapshot {
+  restore: () => void;
+}
+
+type RemovedEntries<K, T> = Map<K, Array<[number, T]>>;
+
+function detachEntries<K, T extends { source: string }>(
+  registry: Map<K, T[]>,
+  source: string,
+): RemovedEntries<K, T> {
+  const removed: RemovedEntries<K, T> = new Map();
+  for (const [key, entries] of registry) {
+    const matches = entries
+      .map((entry, index) => [index, entry] as [number, T])
+      .filter(([, entry]) => entry.source === source);
+    if (matches.length === 0) continue;
+    removed.set(key, matches);
+    const remaining = entries.filter((entry) => entry.source !== source);
+    if (remaining.length > 0) registry.set(key, remaining);
+    else registry.delete(key);
+  }
+  return removed;
+}
+
+function restoreEntries<K, T>(
+  registry: Map<K, T[]>,
+  removed: RemovedEntries<K, T>,
+): void {
+  for (const [key, matches] of removed) {
+    const entries = registry.get(key) ?? [];
+    for (const [index, entry] of matches) {
+      entries.splice(Math.min(index, entries.length), 0, entry);
+    }
+    registry.set(key, entries);
+  }
+}
+
 class MenuRegistryImpl {
   // Single source: each id has a STACK of entries (replace pushes, dispose pops).
   private stacks = new Map<string, MenuEntry[]>();
@@ -107,6 +144,22 @@ class MenuRegistryImpl {
       this.invalidate();
       notify();
     }
+  }
+
+  detachBySource(source: string): SourceRegistrationSnapshot {
+    const removed = detachEntries(this.stacks, source);
+    if (removed.size > 0) {
+      this.invalidate();
+      notify();
+    }
+    return {
+      restore: () => {
+        if (removed.size === 0) return;
+        restoreEntries(this.stacks, removed);
+        this.invalidate();
+        notify();
+      },
+    };
   }
 
   refresh(): void {
@@ -458,6 +511,37 @@ class RouteRegistryImpl {
     }
   }
 
+  detachBySource(source: string): SourceRegistrationSnapshot {
+    const removedBases = [...this.bases].filter(
+      ([, entry]) => entry.source === source,
+    );
+    for (const [id] of removedBases) this.bases.delete(id);
+    const detachedOverrides = detachEntries(this.overrides, source);
+    const detachedWraps = detachEntries(this.wraps, source);
+    const changed =
+      removedBases.length > 0 ||
+      detachedOverrides.size > 0 ||
+      detachedWraps.size > 0;
+    if (changed) {
+      this.invalidate();
+      notify();
+    }
+    return {
+      restore: () => {
+        if (!changed) return;
+        for (const [id, entry] of removedBases) this.bases.set(id, entry);
+        restoreEntries(this.overrides, detachedOverrides);
+        restoreEntries(this.wraps, detachedWraps);
+        this.invalidate();
+        notify();
+      },
+    };
+  }
+
+  removeBySource(source: string): void {
+    this.detachBySource(source);
+  }
+
   snapshot(): ResolvedRoute[] {
     return this.resolvedSnapshot;
   }
@@ -606,6 +690,20 @@ class SlotRegistryImpl {
     const built = this.buildSnapshot(name);
     this.snapshots.set(name, built);
     return built;
+  }
+
+  detachBySource(source: string): SourceRegistrationSnapshot {
+    const removed = detachEntries(this.slots, source);
+    for (const name of removed.keys()) this.snapshots.delete(name);
+    if (removed.size > 0) notify();
+    return {
+      restore: () => {
+        if (removed.size === 0) return;
+        restoreEntries(this.slots, removed);
+        for (const name of removed.keys()) this.snapshots.delete(name);
+        notify();
+      },
+    };
   }
 
   /** Debug: every registered slot across the registry. */

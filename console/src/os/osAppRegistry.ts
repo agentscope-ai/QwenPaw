@@ -14,7 +14,7 @@
  * snapshot in the same tick, with no effect-driven synchronisation and no
  * dependency on any component being mounted.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useRoutes } from "../plugins/registry/hooks";
 import { routeRegistry, menuRegistry } from "../plugins/registry/store";
 import { useOsPlugins } from "./osPluginStore";
@@ -25,14 +25,17 @@ import {
   SETTINGS_APP,
   findAppDef,
   buildPluginApps,
+  mergePawAppDefinitions,
   type OsAppDef,
 } from "./osApps";
+import { usePawAppManifestStore } from "./pawAppManifestStore";
 
 export interface OsAppsResult {
   /** Every visible app, in desktop display order. */
   apps: OsAppDef[];
   /** Route id -> app def for O(1) lookup. */
   appById: Map<string, OsAppDef>;
+  manifestError: string | null;
 }
 
 // Dynamic apps memoized on the registries' stable snapshot refs (both
@@ -40,17 +43,22 @@ export interface OsAppsResult {
 let routesKey: unknown = null;
 let menuKey: unknown = null;
 let dynamicCache = new Map<string, OsAppDef>();
+let manifestsKey: unknown = null;
 
 /** Current dynamic (plugin-derived) app defs, straight from the registry. */
 function dynamicApps(): Map<string, OsAppDef> {
   const routes = routeRegistry.snapshot();
   const menu = menuRegistry.snapshot();
-  if (routes !== routesKey || menu !== menuKey) {
+  const manifests = usePawAppManifestStore.getState().apps;
+  if (routes !== routesKey || menu !== menuKey || manifests !== manifestsKey) {
     routesKey = routes;
     menuKey = menu;
-    dynamicCache = new Map(
-      buildPluginApps(routes, menu).map((d) => [d.routeId, d]),
+    manifestsKey = manifests;
+    const pawApps = mergePawAppDefinitions(
+      manifests,
+      buildPluginApps(routes, menu),
     );
+    dynamicCache = new Map(pawApps.map((app) => [app.routeId, app]));
   }
   return dynamicCache;
 }
@@ -79,6 +87,17 @@ export function useOsApps(): OsAppsResult {
   const routes = useRoutes();
   const installed = useOsPlugins((s) => s.installed);
   const pluginApps = usePluginApps();
+  const pawApps = usePawAppManifestStore((state) => state.apps);
+  const manifestsLoaded = usePawAppManifestStore((state) => state.loaded);
+  const manifestsLoading = usePawAppManifestStore((state) => state.loading);
+  const manifestsError = usePawAppManifestStore((state) => state.error);
+  const refreshManifests = usePawAppManifestStore((state) => state.refresh);
+
+  useEffect(() => {
+    if (!manifestsLoaded && !manifestsLoading && !manifestsError) {
+      void refreshManifests().catch(() => {});
+    }
+  }, [manifestsError, manifestsLoaded, manifestsLoading, refreshManifests]);
 
   return useMemo(() => {
     const availableIds = new Set(routes.map((r) => r.id));
@@ -86,7 +105,12 @@ export function useOsApps(): OsAppsResult {
     const catalog = OS_APPS.filter(
       (a) => availableIds.has(a.routeId) && installedSet.has(a.routeId),
     );
-    const apps = [STORE_APP, ...catalog, ...pluginApps, SETTINGS_APP];
-    return { apps, appById: new Map(apps.map((a) => [a.routeId, a])) };
-  }, [routes, installed, pluginApps]);
+    const dynamicApps = mergePawAppDefinitions(pawApps, pluginApps);
+    const apps = [STORE_APP, ...catalog, ...dynamicApps, SETTINGS_APP];
+    return {
+      apps,
+      appById: new Map(apps.map((a) => [a.routeId, a])),
+      manifestError: manifestsError,
+    };
+  }, [routes, installed, pawApps, pluginApps, manifestsError]);
 }

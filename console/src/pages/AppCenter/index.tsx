@@ -23,11 +23,11 @@ import type { MenuProps } from "antd";
 import {
   AppWindow,
   BadgeCheck,
+  CircleX,
   LayoutGrid,
   Search,
   RefreshCw,
   Info,
-  RotateCcw,
   Store,
   X,
 } from "lucide-react";
@@ -35,6 +35,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import { useRoutes } from "../../plugins/registry/hooks";
+import { PawAppLoadState } from "../../plugins/PawAppLoadState";
+import { usePawAppRuntime } from "../../plugins/usePawAppRuntime";
+import { syncPawAppManifests } from "../../os/pawAppManifestStore";
 import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
 import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
@@ -57,7 +60,6 @@ const { Option } = Select;
 
 /** URL-persisted App Center views; unknown values fall back to installed. */
 type AppCenterView = "installed" | "official" | "market";
-
 // Featured installed apps (e.g. Creator) are pinned to the top of the grid.
 // Lower index = higher placement.
 const FEATURED_APP_IDS = ["qwenpaw-creator"];
@@ -67,11 +69,29 @@ function featuredRank(id: string): number {
   return index === -1 ? FEATURED_APP_IDS.length : index;
 }
 
+function PawAppRuntimeView({ app }: { app: AppCardData }) {
+  const routes = useRoutes();
+  const entryPage = app.entry_page || `/apps/${app.id}`;
+  const runtime = usePawAppRuntime(app.id, entryPage);
+  const route = routes.find(
+    (item) => item.path === entryPage && item.source === app.id,
+  );
+
+  if (runtime.state === "ready" && route) {
+    const Component = route.Component;
+    return (
+      <ChunkErrorBoundary resetKey={app.id}>
+        <Component />
+      </ChunkErrorBoundary>
+    );
+  }
+  return <PawAppLoadState className={styles.appLoadState} runtime={runtime} />;
+}
+
 export default function AppCenterPage() {
   const { t, i18n } = useTranslation();
   const { appId } = useParams();
   const { message } = useAppMessage();
-  const routes = useRoutes();
   const [searchParams, setSearchParams] = useSearchParams();
   const [apps, setApps] = useState<AppCardData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,6 +120,7 @@ export default function AppCenterPage() {
     setLoadError(false);
     try {
       const data = await pawappApi.list();
+      syncPawAppManifests(data.apps);
       setApps(
         data.apps.map((app) => ({
           id: app.id,
@@ -167,14 +188,6 @@ export default function AppCenterPage() {
   }, [apps, searchQuery, categoryFilter, i18n.language]);
 
   const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
-
-  // Resolve the registered route component for the active app so it can be
-  // rendered inline (no full-page navigation).
-  const activeRoute = useMemo(() => {
-    if (!activeApp) return null;
-    const target = appTarget(activeApp);
-    return routes.find((r) => r.path === target) ?? null;
-  }, [activeApp, routes]);
 
   const handleAppClick = (app: AppCardData) => {
     const target = appTarget(app);
@@ -275,21 +288,8 @@ export default function AppCenterPage() {
 
   // ── Embedded app view ─────────────────────────────────────────────────────
   if (activeApp) {
-    const AppComponent = activeRoute?.Component;
-
     // App menu items
     const appMenuItems: MenuProps["items"] = [
-      {
-        key: "refresh",
-        icon: <RotateCcw size={14} />,
-        label: t("appCenter.refreshApp", "刷新应用"),
-        onClick: () => {
-          // Force reload by unmounting and remounting the app component
-          setActiveApp(null);
-          setTimeout(() => setActiveApp(activeApp), 0);
-          message.success(t("appCenter.appRefreshed", "应用已刷新"));
-        },
-      },
       {
         key: "about",
         icon: <Info size={14} />,
@@ -361,34 +361,12 @@ export default function AppCenterPage() {
             onClick={handleBack}
             title={t("appCenter.backToListHint", "返回应用列表 (ESC)")}
           >
-            <svg
-              className={styles.capsuleCloseIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            >
-              <circle cx="12" cy="12" r="9" />
-            </svg>
+            <CircleX className={styles.capsuleCloseIcon} size={20} />
           </button>
         </div>
 
         <div className={styles.embedFrame}>
-          {AppComponent ? (
-            <ChunkErrorBoundary resetKey={activeApp.id}>
-              <AppComponent />
-            </ChunkErrorBoundary>
-          ) : (
-            <Empty
-              image={<AppWindow size={48} strokeWidth={1} />}
-              description={t(
-                "appCenter.appNotLoaded",
-                "This app is not loaded yet. Open it once from the sidebar, then retry.",
-              )}
-              style={{ marginTop: 48 }}
-            />
-          )}
+          <PawAppRuntimeView app={activeApp} />
         </div>
       </div>
     );

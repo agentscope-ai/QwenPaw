@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { MenuItem } from "../plugins/registry/types";
+import type { PawAppInfo } from "../api/modules/pawapp";
 
 export interface OsAppDef {
   /** Must match a route id in routeRegistry (e.g. "core.skills"). */
@@ -52,6 +53,8 @@ export interface OsAppDef {
    * backend (DELETE /plugins/{source}) vs. the local osPluginStore.
    */
   source?: string;
+  /** PawApp page path loaded on demand. */
+  entryPage?: string;
 }
 
 /**
@@ -320,4 +323,32 @@ export function buildPluginApps(
       source,
     };
   });
+}
+
+/** Build desktop entries from installed PawApp manifests before routes load. */
+export function buildPawAppManifestApps(apps: PawAppInfo[]): OsAppDef[] {
+  return apps.map((app) => ({
+    routeId: `pawapp:${app.id}`,
+    labelKey: app.name,
+    fallback: app.name,
+    Icon: Puzzle,
+    accent: hashAccent(app.id),
+    defaultW: 960,
+    defaultH: 680,
+    source: app.id,
+    entryPage: app.entry_page || `/apps/${app.id}`,
+  }));
+}
+
+/** Prefer installed manifests while retaining legacy route-only PawApps. */
+export function mergePawAppDefinitions(
+  manifests: PawAppInfo[],
+  routeApps: OsAppDef[],
+): OsAppDef[] {
+  const manifestApps = buildPawAppManifestApps(manifests);
+  const manifestSources = new Set(manifestApps.map((app) => app.source));
+  return [
+    ...manifestApps,
+    ...routeApps.filter((app) => !manifestSources.has(app.source)),
+  ];
 }

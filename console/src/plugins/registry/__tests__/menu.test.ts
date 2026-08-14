@@ -108,6 +108,21 @@ describe("menuRegistry.replace", () => {
       .find((i) => i.id === "x");
     expect(item?.label).toBe("P1");
   });
+
+  it("detaches and restores every item owned by one source", () => {
+    menuRegistry.add("core", { id: "x", label: "Core" });
+    menuRegistry.replace("plugin", "x", { id: "x", label: "Plugin" });
+    menuRegistry.add("plugin", { id: "plugin-only", label: "Only" });
+
+    const snapshot = menuRegistry.detachBySource("plugin");
+    expect(menuRegistry.snapshot().map((item) => item.label)).toEqual(["Core"]);
+
+    snapshot.restore();
+    expect(menuRegistry.snapshot().map((item) => item.label)).toEqual([
+      "Plugin",
+      "Only",
+    ]);
+  });
 });
 
 describe("menuRegistry topology (before/after/order)", () => {
