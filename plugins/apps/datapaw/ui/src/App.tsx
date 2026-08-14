@@ -10,16 +10,33 @@ import { ChatWorkspace } from "./ChatWorkspace";
 import { DataSources } from "./DataSources";
 import { EmbeddedConsole } from "./EmbeddedConsole";
 import { LayoutGridIcon, SettingsIcon, SparklesIcon } from "./icons";
+import {
+  LanguageProvider,
+  persistLanguage,
+  resolveInitialLanguage,
+  useT,
+} from "./language";
 import { WordmarkLogo } from "./LogoMark";
 import type { PawAppSdk } from "./sdk";
 import type { PawDependencyAction, PawDependencySnapshot } from "./sdk";
 import { buildAppStatusModel } from "./status";
+import {
+  localeTag,
+  translate,
+  type Language,
+  type StringKey,
+  type StringParams,
+} from "./strings";
 
 type Page = "analysis" | "manage" | "health";
 
-const NAVIGATION: Array<{ id: Page; icon: ReactNode; label: string }> = [
-  { id: "analysis", icon: <SparklesIcon />, label: "Analyze" },
-  { id: "manage", icon: <LayoutGridIcon />, label: "Manage" },
+const NAVIGATION: Array<{
+  id: Page;
+  icon: ReactNode;
+  labelKey: StringKey;
+}> = [
+  { id: "analysis", icon: <SparklesIcon />, labelKey: "nav.analyze" },
+  { id: "manage", icon: <LayoutGridIcon />, labelKey: "nav.manage" },
 ];
 
 /**
@@ -32,34 +49,32 @@ const CONSOLE_HOME = "/data-source";
 /** localStorage key the embedded console's i18next reads at boot. */
 const CONSOLE_LANGUAGE_KEY = "language";
 
-function currentConsoleLanguage(): "zh" | "en" {
-  try {
-    const stored = window.localStorage.getItem(CONSOLE_LANGUAGE_KEY);
-    if (stored === "zh" || stored === "en") return stored;
-  } catch {
-    /* storage unavailable */
-  }
-  return navigator.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
-}
-
 function StatusPanel({
   status,
   dependencies,
   selectedSourceId,
+  language,
   onOpenDetails,
 }: {
   status?: AppStatus;
   dependencies?: PawDependencySnapshot;
   selectedSourceId: string;
+  language: Language;
   onOpenDetails(): void;
 }) {
-  const model = buildAppStatusModel(status, dependencies, selectedSourceId);
+  const t = useT();
+  const model = buildAppStatusModel(
+    status,
+    dependencies,
+    selectedSourceId,
+    language,
+  );
   return (
     <div
       className={`datapaw-status-panel is-clickable is-${model.tone}`}
       role="button"
       tabIndex={0}
-      aria-label="Open runtime status details"
+      aria-label={t("status.openDetails")}
       onClick={onOpenDetails}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -87,11 +102,16 @@ function StatusPanel({
       <div className="datapaw-status-panel__footer">
         <span>
           {model.checkedAt
-            ? `Checked ${new Date(model.checkedAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}`
-            : "Waiting for first check"}
+            ? t("status.checked", {
+                time: new Date(model.checkedAt).toLocaleTimeString(
+                  localeTag(language),
+                  {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  },
+                ),
+              })
+            : t("status.waitingFirstCheck")}
         </span>
       </div>
     </div>
@@ -103,7 +123,7 @@ export function App({ paw }: { paw: PawAppSdk }) {
   const [page, setPage] = useState<Page>("analysis");
   const [consoleRoute, setConsoleRoute] = useState(CONSOLE_HOME);
   const [consoleEpoch, setConsoleEpoch] = useState(0);
-  const [language, setLanguage] = useState<"zh" | "en">(currentConsoleLanguage);
+  const [language, setLanguage] = useState<Language>(resolveInitialLanguage);
   const [status, setStatus] = useState<AppStatus>();
   const [dependencies, setDependencies] = useState<PawDependencySnapshot>();
   const [sources, setSources] = useState<DataSourceMetadata[]>([]);
@@ -164,7 +184,7 @@ export function App({ paw }: { paw: PawAppSdk }) {
     setSelectedId(id);
     await paw.storage.set("selected-source", id);
     await paw.toast(
-      id ? "Default data source updated" : "Using all available context",
+      translate(language, id ? "toast.sourceUpdated" : "toast.sourceAll"),
       "success",
     );
   }
@@ -190,11 +210,7 @@ export function App({ paw }: { paw: PawAppSdk }) {
 
   async function toggleLanguage() {
     const next = language === "zh" ? "en" : "zh";
-    try {
-      window.localStorage.setItem(CONSOLE_LANGUAGE_KEY, next);
-    } catch {
-      /* storage unavailable */
-    }
+    persistLanguage(next);
     setLanguage(next);
     // The embedded console reads the language at boot; remount it.
     setConsoleEpoch((epoch) => epoch + 1);
@@ -206,87 +222,93 @@ export function App({ paw }: { paw: PawAppSdk }) {
     );
   }
 
+  const t = (key: StringKey, params?: StringParams) =>
+    translate(language, key, params);
+
   return (
-    <div className="datapaw-app">
-      <header className="datapaw-topbar">
-        <WordmarkLogo />
-        <div className="datapaw-topbar__actions">
-          <button
-            type="button"
-            className="datapaw-topbar__icon"
-            title="Model settings"
-            aria-label="Model settings"
-            onClick={openModelSettings}
-          >
-            <SettingsIcon size={18} />
-          </button>
-          <button
-            type="button"
-            title={language === "zh" ? "Switch to English" : "切换为中文"}
-            aria-label="Switch language"
-            onClick={() => void toggleLanguage()}
-          >
-            {language === "zh" ? "中" : "EN"}
-          </button>
+    <LanguageProvider value={language}>
+      <div className="datapaw-app">
+        <header className="datapaw-topbar">
+          <WordmarkLogo />
+          <div className="datapaw-topbar__actions">
+            <button
+              type="button"
+              className="datapaw-topbar__icon"
+              title={t("topbar.modelSettings")}
+              aria-label={t("topbar.modelSettings")}
+              onClick={openModelSettings}
+            >
+              <SettingsIcon size={18} />
+            </button>
+            <button
+              type="button"
+              title={language === "zh" ? "Switch to English" : "切换为中文"}
+              aria-label="Switch language"
+              onClick={() => void toggleLanguage()}
+            >
+              {language === "zh" ? "中" : "EN"}
+            </button>
+          </div>
+        </header>
+        <div className="datapaw-body">
+          <aside className="datapaw-nav">
+            <nav aria-label={t("nav.aria")}>
+              {NAVIGATION.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={page === item.id ? "is-active" : ""}
+                  onClick={() => setPage(item.id)}
+                >
+                  <i aria-hidden="true">{item.icon}</i>
+                  <span>{t(item.labelKey)}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="datapaw-nav__bottom">
+              <StatusPanel
+                status={status}
+                dependencies={dependencies}
+                selectedSourceId={selectedId}
+                language={language}
+                onOpenDetails={() => setPage("health")}
+              />
+            </div>
+          </aside>
+          <main className="datapaw-main">
+            <div hidden={page !== "analysis"}>
+              <ChatWorkspace
+                paw={paw}
+                selectedSource={selectedSource}
+                sources={sources}
+                selectedSourceId={selectedId}
+                onSelectSource={(id) => void selectSource(id)}
+              />
+            </div>
+            <div hidden={page !== "manage"}>
+              <EmbeddedConsole
+                key={consoleEpoch}
+                route={consoleRoute}
+                active={page === "manage"}
+              />
+            </div>
+            {page === "health" ? (
+              <DataSources
+                selectedId={selectedId}
+                error={sourceError}
+                onReload={() => void loadSources()}
+                onOpenManage={() => {
+                  setConsoleRoute(CONSOLE_HOME);
+                  setPage("manage");
+                }}
+                lastUpdatedAt={sourcesUpdatedAt}
+                dependencies={dependencies?.dependencies ?? []}
+                onDependencyAction={runDependencyAction}
+              />
+            ) : null}
+          </main>
         </div>
-      </header>
-      <div className="datapaw-body">
-        <aside className="datapaw-nav">
-          <nav aria-label="QwenPaw-Data navigation">
-            {NAVIGATION.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={page === item.id ? "is-active" : ""}
-                onClick={() => setPage(item.id)}
-              >
-                <i aria-hidden="true">{item.icon}</i>
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </nav>
-          <div className="datapaw-nav__bottom">
-            <StatusPanel
-              status={status}
-              dependencies={dependencies}
-              selectedSourceId={selectedId}
-              onOpenDetails={() => setPage("health")}
-            />
-          </div>
-        </aside>
-        <main className="datapaw-main">
-          <div hidden={page !== "analysis"}>
-            <ChatWorkspace
-              paw={paw}
-              selectedSource={selectedSource}
-              sources={sources}
-              selectedSourceId={selectedId}
-              onSelectSource={(id) => void selectSource(id)}
-            />
-          </div>
-          <div hidden={page !== "manage"}>
-            <EmbeddedConsole
-              key={consoleEpoch}
-              route={consoleRoute}
-              active={page === "manage"}
-            />
-          </div>
-          {page === "health" ? (
-            <DataSources
-              selectedId={selectedId}
-              error={sourceError}
-              onReload={() => void loadSources()}
-              onOpenManage={() => {
-                setConsoleRoute(CONSOLE_HOME);
-                setPage("manage");
-              }}
-              lastUpdatedAt={sourcesUpdatedAt}
-              dependencies={dependencies?.dependencies ?? []}
-              onDependencyAction={runDependencyAction}
-            />
-          ) : null}
-        </main>
       </div>
-    </div>
+    </LanguageProvider>
   );
 }

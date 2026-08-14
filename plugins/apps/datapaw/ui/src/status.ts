@@ -4,6 +4,7 @@ import type {
   PawDependencySnapshot,
   PawDependencyStatus,
 } from "./sdk";
+import { translate, type Language } from "./strings";
 
 export type StatusTone = "ready" | "warning" | "error" | "checking";
 
@@ -16,7 +17,7 @@ export interface StatusCategory {
 }
 
 export interface AppStatusModel {
-  label: "Ready" | "Degraded" | "Unavailable" | "Checking";
+  label: string;
   detail: string;
   tone: StatusTone;
   checkedAt?: string;
@@ -90,7 +91,10 @@ export function buildAppStatusModel(
   status: AppStatus | undefined,
   snapshot: PawDependencySnapshot | undefined,
   selectedSourceId = "",
+  language: Language = "en",
 ): AppStatusModel {
+  const t = (key: Parameters<typeof translate>[1], params?: object) =>
+    translate(language, key, params as Record<string, string | number>);
   const dependencies = snapshot?.dependencies || [];
   const groups = groupDependencies(dependencies);
   const core = groups.find((group) => group.id === "core")?.dependencies || [];
@@ -116,41 +120,46 @@ export function buildAppStatusModel(
   const categories: StatusCategory[] = [
     {
       id: "core",
-      label: "Core",
-      detail: core.length ? `${coreReady}/${core.length} ready` : "Checking",
+      label: t("status.category.core"),
+      detail: core.length
+        ? t("status.detail.ready", { ready: coreReady, total: core.length })
+        : t("status.detail.checking"),
       tone: coreTone,
     },
     {
       id: "data",
-      label: "Data",
+      label: t("status.category.data"),
       detail: selectedSource
         ? selectedSource.health === "healthy"
-          ? "Source ready"
-          : "Source unavailable"
+          ? t("status.detail.sourceReady")
+          : t("status.detail.sourceUnavailable")
         : sources.length
-        ? `${sourceReady}/${sources.length} sources ready`
-        : "No sources discovered",
+        ? t("status.detail.sourcesReady", {
+            ready: sourceReady,
+            total: sources.length,
+          })
+        : t("status.detail.noSources"),
       tone: selectedTone,
     },
     {
       id: "graph",
-      label: "Graph",
+      label: t("status.category.graph"),
       detail: graph
         ? graph.health === "healthy"
-          ? "Grounding ready"
-          : "Optional unavailable"
-        : "Not configured",
+          ? t("status.detail.groundingReady")
+          : t("status.detail.optionalUnavailable")
+        : t("status.detail.notConfigured"),
       tone: graph ? toneForHealth(graph.health) : "checking",
       optional: true,
     },
     {
       id: "skills",
-      label: "Skills",
+      label: t("status.category.skills"),
       detail: skillsAvailable
         ? typeof skillCount === "number"
-          ? `${skillCount} loaded`
-          : "Loaded"
-        : "Not configured",
+          ? t("status.detail.skillsLoaded", { count: skillCount })
+          : t("status.detail.loaded")
+        : t("status.detail.notConfigured"),
       tone: skillsAvailable ? "ready" : "warning",
     },
   ];
@@ -163,12 +172,12 @@ export function buildAppStatusModel(
 
   const label =
     tone === "ready"
-      ? "Ready"
+      ? t("status.label.ready")
       : tone === "warning"
-      ? "Degraded"
+      ? t("status.label.degraded")
       : tone === "error"
-      ? "Unavailable"
-      : "Checking";
+      ? t("status.label.unavailable")
+      : t("status.label.checking");
   const checkedAt = dependencies
     .map((item) => item.last_checked_at)
     .filter(Boolean)
@@ -182,11 +191,14 @@ export function buildAppStatusModel(
     tone,
     detail: core.length
       ? coreReady < core.length
-        ? `${coreReady}/${core.length} required services ready`
+        ? t("status.detail.requiredReady", {
+            ready: coreReady,
+            total: core.length,
+          })
         : ""
       : status?.service.ready
-      ? "Discovering dependencies"
-      : "Context service unavailable",
+      ? t("status.detail.discovering")
+      : t("status.detail.contextUnavailable"),
     checkedAt,
     categories,
   };

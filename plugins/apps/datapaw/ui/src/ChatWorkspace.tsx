@@ -7,6 +7,7 @@ import {
   EllipsisIcon,
   PinIcon,
 } from "./icons";
+import { useLanguage, useT } from "./language";
 import { LogoMark } from "./LogoMark";
 import { renderMarkdown, splitCompletionMarker } from "./markdown";
 import type {
@@ -15,6 +16,12 @@ import type {
   PawChatSession,
   PawChatStreamEvent,
 } from "./sdk";
+import {
+  localeTag,
+  translate,
+  type Language,
+  type StringKey,
+} from "./strings";
 
 type TraceStatus = "running" | "completed" | "error";
 
@@ -58,17 +65,26 @@ export interface ChatStreamState {
   completed: boolean;
 }
 
-const STARTERS = [
-  "Summarize the key business domains and their north-star metrics.",
-  "Find the largest week-over-week movement and explain possible drivers.",
-  "Show which datasets can answer a customer retention question.",
+const STARTER_KEYS: StringKey[] = [
+  "chat.starter.domains",
+  "chat.starter.movement",
+  "chat.starter.retention",
 ];
 
-const TOOL_LABELS: Record<string, string> = {
-  datapaw_list_domains: "List business domains",
-  datapaw_explore_entity: "Explore semantic entity",
-  datapaw_search_context: "Search governed context",
-  datapaw_execute_sql: "Execute governed SQL",
+/** Default names a first question may overwrite, across both languages. */
+const DEFAULT_SESSION_NAMES = [
+  "New analysis",
+  "Previous analysis",
+  "New Chat",
+  "新分析",
+  "历史分析",
+];
+
+const TOOL_LABEL_KEYS: Record<string, StringKey> = {
+  datapaw_list_domains: "tool.listDomains",
+  datapaw_explore_entity: "tool.exploreEntity",
+  datapaw_search_context: "tool.searchContext",
+  datapaw_execute_sql: "tool.executeSql",
 };
 
 export function createChatStreamState(): ChatStreamState {
@@ -138,8 +154,9 @@ function finalAssistantMessage(event: PawChatStreamEvent) {
   return undefined;
 }
 
-function toolLabel(name: string): string {
-  if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+function toolLabel(name: string, language: Language = "en"): string {
+  const key = TOOL_LABEL_KEYS[name];
+  if (key) return translate(language, key);
   return name
     .replace(/^datapaw_/, "")
     .split("_")
@@ -148,7 +165,10 @@ function toolLabel(name: string): string {
     .join(" ");
 }
 
-function parseToolOutput(output: unknown): {
+function parseToolOutput(
+  output: unknown,
+  language: Language = "en",
+): {
   status: TraceStatus;
   detail?: string;
   result?: QueryResult;
@@ -163,7 +183,9 @@ function parseToolOutput(output: unknown): {
   if (!parsed) return { status: "completed" };
 
   if (parsed.exec_status === "error" || parsed.error) {
-    const detail = String(parsed.error || "Query failed").split("\n")[0];
+    const detail = String(
+      parsed.error || translate(language, "trace.queryFailed"),
+    ).split("\n")[0];
     return { status: "error", detail };
   }
 
@@ -176,7 +198,13 @@ function parseToolOutput(output: unknown): {
         : rows.length;
     return {
       status: "completed",
-      detail: `${total} row${total === 1 ? "" : "s"}`,
+      detail: translate(language, "trace.rows", {
+        count: total,
+        rowWord: translate(
+          language,
+          total === 1 ? "trace.row" : "trace.rowPlural",
+        ),
+      }),
       result: {
         columns,
         rows,
@@ -209,6 +237,7 @@ function upsertTrace(
 /** Rebuild DataPaw's transcript and trace cards from QwenPaw session events. */
 export function historyToChatMessages(
   history: PawChatHistoryMessage[],
+  language: Language = "en",
 ): ChatMessage[] {
   const transcript: ChatMessage[] = [];
   const grouped = new Map<string, ChatMessage>();
@@ -264,7 +293,7 @@ export function historyToChatMessages(
       message.trace = upsertTrace(message.trace || [], {
         id: callId,
         name,
-        label: toolLabel(name),
+        label: toolLabel(name, language),
         status: "running",
       });
       return;
@@ -273,8 +302,8 @@ export function historyToChatMessages(
       message.trace = upsertTrace(message.trace || [], {
         id: callId,
         name,
-        label: toolLabel(name),
-        ...parseToolOutput(data.output),
+        label: toolLabel(name, language),
+        ...parseToolOutput(data.output, language),
       });
     }
   });
@@ -299,6 +328,7 @@ export function historyToChatMessages(
 export function reduceChatStreamEvent(
   state: ChatStreamState,
   event: PawChatStreamEvent,
+  language: Language = "en",
 ): ChatStreamState {
   let next = state;
 
@@ -340,14 +370,14 @@ export function reduceChatStreamEvent(
         const hasOutput = Object.prototype.hasOwnProperty.call(data, "output");
         const parsed =
           hasOutput && event.status === "completed"
-            ? parseToolOutput(data.output)
+            ? parseToolOutput(data.output, language)
             : { status: "running" as const };
         next = {
           ...next,
           trace: upsertTrace(next.trace, {
             id: callId,
             name,
-            label: toolLabel(name),
+            label: toolLabel(name, language),
             ...parsed,
           }),
         };
@@ -388,34 +418,29 @@ function streamMessagePatch(state: ChatStreamState): Partial<ChatMessage> {
   };
 }
 
-export function analysisErrorMessage(error: unknown): string {
+export function analysisErrorMessage(
+  error: unknown,
+  language: Language = "en",
+): string {
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String(error.code || "")
       : "";
   if (code === "MODEL_NOT_CONFIGURED") {
-    return (
-      "No language model is configured for this QwenPaw workspace. " +
-      "Open Settings → Models, configure and activate a model, then retry."
-    );
+    return translate(language, "error.modelNotConfigured");
   }
   if (code === "UNAUTHORIZED_MODEL_ACCESS") {
-    return (
-      "The configured language model rejected its credentials. " +
-      "Open Settings → Models, update the API key, then retry."
-    );
+    return translate(language, "error.modelUnauthorized");
   }
   const detail = error instanceof Error ? error.message : String(error);
   if (/not found in config/i.test(detail)) {
-    return (
-      "The QwenPaw-Data agent is reloading (this happens briefly after an " +
-      "app update). Please retry in a few seconds."
-    );
+    return translate(language, "error.agentReloading");
   }
-  return `I could not run that analysis. ${detail}`;
+  return translate(language, "error.analysisFallback", { detail });
 }
 
 function ResultTable({ result }: { result: QueryResult }) {
+  const t = useT();
   if (!result.columns.length || !result.rows.length) return null;
   return (
     <div className="datapaw-trace-result">
@@ -439,7 +464,9 @@ function ResultTable({ result }: { result: QueryResult }) {
       </table>
       {result.truncated || result.rows.length > 100 ? (
         <small>
-          Showing the first {Math.min(result.rows.length, 100)} rows.
+          {t("trace.showingRows", {
+            count: Math.min(result.rows.length, 100),
+          })}
         </small>
       ) : null}
     </div>
@@ -447,6 +474,7 @@ function ResultTable({ result }: { result: QueryResult }) {
 }
 
 function AnalysisTrace({ message }: { message: ChatMessage }) {
+  const t = useT();
   const trace = message.trace || [];
   if (!message.activity && trace.length === 0) return null;
   return (
@@ -454,10 +482,13 @@ function AnalysisTrace({ message }: { message: ChatMessage }) {
       <summary>
         <span className={message.streaming ? "is-running" : ""} />
         {message.streaming
-          ? "Live analysis"
-          : `Analysis trace · ${trace.length} step${
-              trace.length === 1 ? "" : "s"
-            }`}
+          ? t("trace.live")
+          : t("trace.steps", {
+              count: trace.length,
+              stepWord: t(
+                trace.length === 1 ? "trace.step" : "trace.stepPlural",
+              ),
+            })}
       </summary>
       <div className="datapaw-analysis-trace__body">
         {message.activity ? (
@@ -505,11 +536,11 @@ export function nextActiveSessionId(
   return remaining[0]?.sessionId || "";
 }
 
-function sessionTimestamp(value: string): string {
+function sessionTimestamp(value: string, language: Language = "en"): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(localeTag(language), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -544,6 +575,8 @@ function DialogueHistory({
   const [renamingId, setRenamingId] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState("");
+  const language = useLanguage();
+  const t = useT();
   const ordered = sortChatSessions(sessions);
 
   function closeMenu() {
@@ -558,16 +591,16 @@ function DialogueHistory({
   }
 
   return (
-    <aside className="datapaw-history" aria-label="Session history">
+    <aside className="datapaw-history" aria-label={t("history.aria")}>
       <header className="datapaw-history__header">
-        <b>Sessions</b>
+        <b>{t("history.sessions")}</b>
         <button
           type="button"
           className="datapaw-new-chat"
           disabled={busy || creating}
           onClick={onCreate}
         >
-          {creating ? "Creating…" : "+ New chat"}
+          {creating ? t("history.creating") : t("history.newChat")}
         </button>
       </header>
       <ul className="datapaw-history__list">
@@ -595,7 +628,7 @@ function DialogueHistory({
                 >
                   <input
                     autoFocus
-                    aria-label="Dialogue name"
+                    aria-label={t("history.dialogueName")}
                     value={renameDraft}
                     maxLength={80}
                     onChange={(event) => setRenameDraft(event.target.value)}
@@ -621,13 +654,17 @@ function DialogueHistory({
                       ) : null}
                       {session.name}
                     </b>
-                    <small>{sessionTimestamp(session.updatedAt)}</small>
+                    <small>
+                      {sessionTimestamp(session.updatedAt, language)}
+                    </small>
                   </button>
                   {isLegacy ? null : (
                     <button
                       type="button"
                       className="datapaw-history__more"
-                      aria-label={`Actions for ${session.name}`}
+                      aria-label={t("history.actionsFor", {
+                        name: session.name,
+                      })}
                       aria-expanded={menuFor === session.id}
                       onClick={() =>
                         menuFor === session.id
@@ -653,7 +690,9 @@ function DialogueHistory({
                             onTogglePin(session);
                           }}
                         >
-                          {session.pinned ? "Unpin" : "Pin"}
+                          {session.pinned
+                            ? t("history.unpin")
+                            : t("history.pin")}
                         </button>
                         <button
                           type="button"
@@ -664,7 +703,7 @@ function DialogueHistory({
                             setRenamingId(session.id);
                           }}
                         >
-                          Rename
+                          {t("history.rename")}
                         </button>
                         <button
                           type="button"
@@ -674,7 +713,7 @@ function DialogueHistory({
                             onArchive(session);
                           }}
                         >
-                          Archive
+                          {t("history.archive")}
                         </button>
                         <button
                           type="button"
@@ -690,8 +729,8 @@ function DialogueHistory({
                           }}
                         >
                           {confirmDeleteId === session.id
-                            ? "Confirm delete"
-                            : "Delete"}
+                            ? t("history.confirmDelete")
+                            : t("history.delete")}
                         </button>
                       </div>
                     </>
@@ -744,6 +783,8 @@ export function ChatWorkspace({
   const [restoring, setRestoring] = useState(true);
   const [creatingSession, setCreatingSession] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const language = useLanguage();
+  const t = useT();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const sourceLabel = useMemo(
@@ -773,7 +814,7 @@ export function ChatWorkspace({
           next = [
             await paw.chatSessions.create({
               agentId: "datapaw",
-              name: "New analysis",
+              name: t("history.newAnalysis"),
             }),
           ];
         }
@@ -791,7 +832,7 @@ export function ChatWorkspace({
         const fallback: PawChatSession = {
           id: "legacy",
           sessionId: LEGACY_CHAT_SESSION_ID,
-          name: "Previous analysis",
+          name: t("history.previousAnalysis"),
           createdAt: "",
           updatedAt: "",
           archived: false,
@@ -800,10 +841,7 @@ export function ChatWorkspace({
         setSessions([fallback]);
         setActiveSessionId(fallback.sessionId);
         void paw
-          .toast(
-            "Dialogue management is unavailable; using legacy history",
-            "warning",
-          )
+          .toast(t("session.legacyFallback"), "warning")
           .catch(() => undefined);
       });
     return () => {
@@ -826,12 +864,12 @@ export function ChatWorkspace({
       })
       .then((history) => {
         if (cancelled) return;
-        setMessages(historyToChatMessages(history.messages));
+        setMessages(historyToChatMessages(history.messages, language));
       })
       .catch(() => {
         if (!cancelled) {
           void paw
-            .toast("Could not restore the analysis history", "warning")
+            .toast(t("session.restoreFailed"), "warning")
             .catch(() => undefined);
         }
       })
@@ -859,15 +897,15 @@ export function ChatWorkspace({
     try {
       const created = await paw.chatSessions.create({
         agentId: "datapaw",
-        name: "New analysis",
+        name: t("history.newAnalysis"),
       });
       setSessions((current) => [created, ...current]);
       setActiveSessionId(created.sessionId);
     } catch (error) {
       await paw.toast(
-        `Could not create a new dialogue. ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("session.createFailed", {
+          detail: error instanceof Error ? error.message : String(error),
+        }),
         "error",
       );
     } finally {
@@ -893,11 +931,12 @@ export function ChatWorkspace({
     });
   }
 
-  async function sessionActionFailed(action: string, error: unknown) {
+  async function sessionActionFailed(actionKey: StringKey, error: unknown) {
     await paw.toast(
-      `Could not ${action} the dialogue. ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      t("session.actionFailed", {
+        action: t(actionKey),
+        detail: error instanceof Error ? error.message : String(error),
+      }),
       "error",
     );
   }
@@ -906,14 +945,16 @@ export function ChatWorkspace({
     void paw.chatSessions
       .pin(session.id, !session.pinned, { agentId: "datapaw" })
       .then(updateSession)
-      .catch((error) => void sessionActionFailed("pin", error));
+      .catch((error) => void sessionActionFailed("session.action.pin", error));
   }
 
   function renameDialogue(session: PawChatSession, name: string) {
     void paw.chatSessions
       .rename(session.id, name, { agentId: "datapaw" })
       .then(updateSession)
-      .catch((error) => void sessionActionFailed("rename", error));
+      .catch(
+        (error) => void sessionActionFailed("session.action.rename", error),
+      );
   }
 
   async function dropDialogue(session: PawChatSession) {
@@ -934,12 +975,12 @@ export function ChatWorkspace({
     try {
       const created = await paw.chatSessions.create({
         agentId: "datapaw",
-        name: "New analysis",
+        name: t("history.newAnalysis"),
       });
       setSessions([created]);
       setActiveSessionId(created.sessionId);
     } catch (error) {
-      await sessionActionFailed("replace", error);
+      await sessionActionFailed("session.action.replace", error);
     }
   }
 
@@ -947,14 +988,18 @@ export function ChatWorkspace({
     void paw.chatSessions
       .archive(session.id, { agentId: "datapaw" })
       .then(() => dropDialogue(session))
-      .catch((error) => void sessionActionFailed("archive", error));
+      .catch(
+        (error) => void sessionActionFailed("session.action.archive", error),
+      );
   }
 
   function deleteDialogue(session: PawChatSession) {
     void paw.chatSessions
       .delete(session.id, { agentId: "datapaw" })
       .then(() => dropDialogue(session))
-      .catch((error) => void sessionActionFailed("delete", error));
+      .catch(
+        (error) => void sessionActionFailed("session.action.delete", error),
+      );
   }
 
   async function submit(question: string) {
@@ -964,9 +1009,7 @@ export function ChatWorkspace({
     const shouldNameSession =
       messages.length === 0 &&
       activeSession &&
-      ["New analysis", "Previous analysis", "New Chat"].includes(
-        activeSession.name,
-      ) &&
+      DEFAULT_SESSION_NAMES.includes(activeSession.name) &&
       activeSession.id !== "legacy";
     const now = Date.now();
     const assistantId = `assistant-${now}`;
@@ -1002,7 +1045,7 @@ export function ChatWorkspace({
         agentId: "datapaw",
         sessionId: sessionForTurn,
       })) {
-        streamState = reduceChatStreamEvent(streamState, event);
+        streamState = reduceChatStreamEvent(streamState, event, language);
         const patch = streamMessagePatch(streamState);
         setMessages((current) =>
           current.map((message) =>
@@ -1019,7 +1062,7 @@ export function ChatWorkspace({
           finalMessageId: fallbackId,
           finalText:
             (fallbackId && streamState.textByMessage[fallbackId]) ||
-            "The analysis completed without a text response.",
+            t("chat.noTextResponse"),
         };
         const patch = streamMessagePatch(streamState);
         setMessages((current) =>
@@ -1034,13 +1077,13 @@ export function ChatWorkspace({
           message.id === assistantId
             ? {
                 ...message,
-                text: analysisErrorMessage(error),
+                text: analysisErrorMessage(error, language),
                 streaming: false,
               }
             : message,
         ),
       );
-      await paw.toast("QwenPaw-Data analysis failed", "error");
+      await paw.toast(t("chat.analysisFailed"), "error");
     } finally {
       setSending(false);
       window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -1055,7 +1098,7 @@ export function ChatWorkspace({
   return (
     <section
       className={`datapaw-chat ${historyOpen ? "has-history" : ""}`.trim()}
-      aria-label="Data analysis chat"
+      aria-label={t("chat.aria")}
     >
       <div className="datapaw-chat__main">
         <div className="datapaw-chat__topline datapaw-chat__toolbar">
@@ -1063,11 +1106,11 @@ export function ChatWorkspace({
             <label className="datapaw-source-pill datapaw-source-pill--select">
               <span className="datapaw-source-pill__dot" />
               <select
-                aria-label="Default data source for analysis"
+                aria-label={t("chat.sourceSelect")}
                 value={selectedSourceId}
                 onChange={(event) => onSelectSource(event.target.value)}
               >
-                <option value="">All available context</option>
+                <option value="">{t("chat.allContext")}</option>
                 {sources.map((source) => (
                   <option
                     key={source.datasource_id}
@@ -1087,33 +1130,32 @@ export function ChatWorkspace({
         >
           {restoring ? (
             <div className="datapaw-welcome">
-              <h2>Restoring your analysis…</h2>
+              <h2>{t("chat.restoring")}</h2>
             </div>
           ) : messages.length === 0 ? (
             <div className="datapaw-welcome">
               <div className="datapaw-welcome__mark">
                 <LogoMark />
               </div>
-              <h2>What would you like to understand?</h2>
-              <p>
-                QwenPaw-Data can retrieve semantic definitions, inspect
-                relationships, and run governed queries through the selected
-                data source.
-              </p>
+              <h2>{t("chat.welcomeTitle")}</h2>
+              <p>{t("chat.welcomeBody")}</p>
               <div className="datapaw-starters">
-                {STARTERS.map((starter) => (
-                  <button
-                    key={starter}
-                    type="button"
-                    disabled={restoring}
-                    onClick={() => void submit(starter)}
-                  >
-                    <span>{starter}</span>
-                    <b aria-hidden="true">
-                      <ArrowUpRightIcon size={12} />
-                    </b>
-                  </button>
-                ))}
+                {STARTER_KEYS.map((starterKey) => {
+                  const starter = t(starterKey);
+                  return (
+                    <button
+                      key={starterKey}
+                      type="button"
+                      disabled={restoring}
+                      onClick={() => void submit(starter)}
+                    >
+                      <span>{starter}</span>
+                      <b aria-hidden="true">
+                        <ArrowUpRightIcon size={12} />
+                      </b>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -1124,7 +1166,7 @@ export function ChatWorkspace({
                   key={message.id}
                 >
                   <div className="datapaw-message__role">
-                    {message.role === "user" ? "You" : "QwenPaw-Data"}
+                    {message.role === "user" ? t("chat.you") : "QwenPaw-Data"}
                   </div>
                   {message.role === "assistant" ? (
                     <>
@@ -1134,7 +1176,7 @@ export function ChatWorkspace({
                       ) : message.streaming && !message.activity ? (
                         <div
                           className="datapaw-thinking"
-                          aria-label="Analyzing"
+                          aria-label={t("chat.analyzing")}
                         >
                           <i /> <i /> <i />
                         </div>
@@ -1155,7 +1197,7 @@ export function ChatWorkspace({
             value={draft}
             rows={2}
             disabled={restoring || !activeSessionId}
-            placeholder="Ask about a metric, trend, dataset, or business question…"
+            placeholder={t("chat.placeholder")}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -1167,14 +1209,11 @@ export function ChatWorkspace({
           <button
             type="submit"
             disabled={!draft.trim() || sending || restoring}
-            aria-label="Send"
+            aria-label={t("chat.send")}
           >
             <ArrowUpIcon size={16} />
           </button>
-          <div className="datapaw-composer__hint">
-            QwenPaw-Data may execute read-only queries. Verify important
-            decisions.
-          </div>
+          <div className="datapaw-composer__hint">{t("chat.hint")}</div>
         </form>
       </div>
       <div className="datapaw-history-rail">
@@ -1182,13 +1221,11 @@ export function ChatWorkspace({
           type="button"
           className="datapaw-history-tab"
           aria-expanded={historyOpen}
-          aria-label={
-            historyOpen ? "Collapse session history" : "Expand session history"
-          }
+          aria-label={historyOpen ? t("history.collapse") : t("history.expand")}
           onClick={toggleHistory}
         >
           <i aria-hidden="true">{historyOpen ? "›" : "‹"}</i>
-          <span>Sessions</span>
+          <span>{t("history.sessions")}</span>
         </button>
         {historyOpen ? (
           <DialogueHistory
