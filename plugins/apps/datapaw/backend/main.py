@@ -70,6 +70,11 @@ _context_service = app.managed_service(
     startup_timeout=45,
     display_name="Context API",
     capabilities=("context-search", "semantic-grounding", "governed-query"),
+    runtime_remediation=(
+        "Provision the plugin runtime with scripts/setup-dev.sh, or set "
+        "DATAPAW_CONTEXT_MODE=external with DATAPAW_CONTEXT_URL and "
+        "DATAPAW_CONTEXT_TOKEN"
+    ),
 )
 _gateway = ContextGateway(_context_service, _context_token)
 

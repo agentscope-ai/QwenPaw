@@ -11,6 +11,7 @@ import asyncio
 import ipaddress
 import logging
 import os
+import shutil
 import socket
 import urllib.error
 import urllib.request
@@ -139,6 +140,33 @@ class ManagedService:
     def is_external(self) -> bool:
         return self._external
 
+    def _external_configured(self) -> bool:
+        """Return whether the environment selects an external endpoint."""
+        if self._external:
+            return True
+        if self.spec.mode_env:
+            mode = os.getenv(self.spec.mode_env, "").strip().lower()
+            if mode == "external":
+                return True
+        if self.spec.external_url_env:
+            return bool(os.getenv(self.spec.external_url_env, "").strip())
+        return False
+
+    def runtime_available(self) -> bool:
+        """Return whether a managed start could locate its executable.
+
+        External mode never spawns a process, so it is always considered
+        available; otherwise the command's executable must exist as a file
+        or resolve on PATH.
+        """
+        if self._external_configured():
+            return True
+        executable = self.spec.command[0]
+        return (
+            Path(executable).is_file()
+            or shutil.which(executable) is not None
+        )
+
     def status(self) -> dict[str, object]:
         """Return browser-safe lifecycle state without endpoint details."""
         return {
@@ -200,6 +228,22 @@ class ManagedService:
             _replace_placeholders(part, host=self.spec.host, port=port)
             for part in self.spec.command
         ]
+        if not (
+            Path(command[0]).is_file()
+            or shutil.which(command[0]) is not None
+        ):
+            # Fail with an actionable message instead of the cryptic
+            # FileNotFoundError a doomed spawn would raise.
+            hint = (
+                f" or set {self.spec.mode_env}=external with "
+                f"{self.spec.external_url_env}"
+                if self.spec.mode_env and self.spec.external_url_env
+                else ""
+            )
+            raise RuntimeError(
+                f"managed service '{self.spec.name}' executable does not "
+                f"exist: {command[0]}. Provision the service runtime{hint}",
+            )
         environment = os.environ.copy()
         environment.update(
             {

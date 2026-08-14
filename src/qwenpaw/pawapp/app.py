@@ -34,6 +34,7 @@ Example (router mode):
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import re
@@ -80,9 +81,26 @@ def _resolve_app_session_id(ctx: Any, session_id: Optional[str]) -> str:
 
     Server-minted dialogue IDs are always app namespaced. Older PawApps may
     still pass custom IDs to chat/history; those remain readable for additive
-    compatibility but are not adopted into the app dialogue catalog.
+    compatibility but are not adopted into the app dialogue catalog. Explicit
+    IDs inside another app's ``pawapp:`` namespace are rejected so one app
+    can never read or append to a sibling app's transcript.
     """
-    return session_id or f"pawapp:{ctx.app_id}"
+    if not session_id:
+        return f"pawapp:{ctx.app_id}"
+    if session_id.startswith("pawapp:"):
+        namespace = f"pawapp:{ctx.app_id}"
+        owns_session = (
+            ctx.is_app_session_id(session_id)
+            if hasattr(ctx, "is_app_session_id")
+            else session_id == namespace
+            or session_id.startswith(f"{namespace}:")
+        )
+        if not owns_session:
+            raise HTTPException(
+                status_code=404,
+                detail="Unknown session",
+            )
+    return session_id
 
 
 def _configuration_error_detail(exc: ConfigurationException) -> dict:
@@ -611,6 +629,7 @@ class PawApp:
         capabilities: Sequence[str] = (),
         required: bool = True,
         expose_dependency: bool = True,
+        runtime_remediation: str | None = None,
     ) -> ManagedService:
         """Declare a process managed with the PawApp lifecycle."""
         service = ManagedService(
@@ -632,12 +651,32 @@ class PawApp:
 
             async def probe_service() -> DependencyHealth:
                 ready = await service.check_health()
+                if ready:
+                    return DependencyHealth(
+                        health="healthy",
+                        lifecycle="running",
+                        message="Ready",
+                    )
+                if not service.runtime_available():
+                    # Starting would only spawn a doomed process; report the
+                    # missing runtime with app-provided remediation instead.
+                    return DependencyHealth(
+                        health="unavailable",
+                        lifecycle="stopped",
+                        error_code="RUNTIME_MISSING",
+                        message="Service runtime is not provisioned",
+                        remediation=runtime_remediation
+                        or (
+                            "Provision the app runtime or attach an "
+                            "external endpoint"
+                        ),
+                    )
                 return DependencyHealth(
-                    health="healthy" if ready else "unavailable",
-                    lifecycle="running" if ready else "stopped",
-                    message="Ready" if ready else "Service is not running",
-                    error_code=None if ready else "SERVICE_STOPPED",
-                    remediation=None if ready else "Start the managed service",
+                    health="unavailable",
+                    lifecycle="stopped",
+                    message="Service is not running",
+                    error_code="SERVICE_STOPPED",
+                    remediation="Start the managed service",
                 )
 
             self.dependency(
@@ -803,7 +842,10 @@ class PawApp:
             async def ensure_profile(
                 selected_profile: ManagedAgentProfile = profile,
             ) -> None:
-                selected_profile.ensure()
+                # Profile provisioning copies files and rewrites config on
+                # disk; keep that off the event loop so a hot install never
+                # stalls concurrent requests.
+                await asyncio.to_thread(selected_profile.ensure)
                 registry = getattr(api, "_registry", None)
                 manager = (
                     registry.get_workspace_manager() if registry else None
@@ -817,7 +859,7 @@ class PawApp:
                 selected_profile: ManagedAgentProfile = profile,
                 **_kwargs,
             ) -> None:
-                selected_profile.detach()
+                await asyncio.to_thread(selected_profile.detach)
 
             api.register_startup_hook(
                 hook_name=(

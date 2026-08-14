@@ -107,10 +107,10 @@ export function renderMarkdown(text: string): ReactNode[] {
       continue;
     }
 
-    // Heading.
-    const heading = trimmed.match(/^(#{1,4})\s+(.*)$/);
+    // Heading (5-6 hashes render at the smallest supported level).
+    const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
-      const level = heading[1].length;
+      const level = Math.min(heading[1].length, 4);
       const content = renderInline(heading[2], `h${key}`);
       blocks.push(
         level === 1 ? (
@@ -235,6 +235,13 @@ export function renderMarkdown(text: string): ReactNode[] {
         break;
       }
       buffer.push(current);
+      i += 1;
+    }
+    // Guarantee progress: a line that resembles block syntax but failed its
+    // branch pattern (e.g. "#not-a-heading") reaches here with an empty
+    // buffer; consume it as plain text so the outer loop always advances.
+    if (buffer.length === 0) {
+      buffer.push(trimmed);
       i += 1;
     }
     blocks.push(

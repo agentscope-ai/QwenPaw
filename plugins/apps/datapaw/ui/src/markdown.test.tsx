@@ -63,6 +63,44 @@ describe("renderMarkdown", () => {
     expect(textOf(nodes)).toBe("<img src=x onerror=alert(1)>");
     expect(tags(nodes)).toEqual(["p"]);
   });
+
+  // Regression: every input below previously stalled the parser or could
+  // stall it — the outer loop must consume at least one line per pass.
+  it("terminates on a hash line that is not a heading", () => {
+    const nodes = renderMarkdown("#not-a-heading");
+    expect(tags(nodes)).toEqual(["p"]);
+    expect(textOf(nodes)).toBe("#not-a-heading");
+  });
+
+  it("terminates on consecutive special-prefix non-block lines", () => {
+    const nodes = renderMarkdown("#tag-one\n#tag-two\n>quoted-no-space");
+    expect(tags(nodes)).toEqual(["p", "p", "p"]);
+    expect(textOf(nodes)).toContain("quoted-no-space");
+  });
+
+  it("renders five and six hash headings at the smallest level", () => {
+    const nodes = renderMarkdown("##### five\n\n###### six");
+    expect(tags(nodes)).toEqual(["h4", "h4"]);
+    expect(textOf(nodes)).toBe("fivesix");
+  });
+
+  it("terminates on an unclosed fenced code block", () => {
+    const nodes = renderMarkdown("```sql\nSELECT 1");
+    expect(tags(nodes)).toEqual(["pre"]);
+    expect(textOf(nodes)).toBe("SELECT 1");
+  });
+
+  it("terminates on mixed ordered and unordered list runs", () => {
+    const nodes = renderMarkdown("1. first\n- second\n2. third");
+    expect(tags(nodes)).toEqual(["ol"]);
+    expect(textOf(nodes)).toBe("firstsecondthird");
+  });
+
+  it("terminates on a lone table-like row without a separator", () => {
+    const nodes = renderMarkdown("| a | b |");
+    expect(tags(nodes)).toEqual(["p"]);
+    expect(textOf(nodes)).toBe("| a | b |");
+  });
 });
 
 describe("splitCompletionMarker", () => {

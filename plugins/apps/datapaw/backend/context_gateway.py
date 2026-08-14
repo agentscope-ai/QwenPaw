@@ -171,11 +171,19 @@ class ContextGateway:
             )
 
         decoded = path
-        for _ in range(3):
+        # Match the frontend scope guard (scope.ts): eight decode passes, and
+        # a path that still is not at a fixed point is treated as hostile
+        # rather than validated against a partially decoded value.
+        for _ in range(8):
             next_value = unquote(decoded)
             if next_value == decoded:
                 break
             decoded = next_value
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Context route is not exposed",
+            )
         if "\\" in decoded or "?" in decoded or "#" in decoded:
             raise HTTPException(
                 status_code=404,

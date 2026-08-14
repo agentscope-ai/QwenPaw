@@ -67,6 +67,11 @@ def test_context_gateway_accepts_ui_and_cli_path_shapes(
         "/api/v1/../private",
         "/api/v1/%2e%2e/private",
         "/api/v1/%252e%252e/private",
+        # Four to seven encode layers: within the eight decode passes shared
+        # with the frontend scope guard.
+        "/api/v1/%25252525252e%25252525252e/private",
+        # Still not at a fixed point after eight passes: rejected outright.
+        "/api/v1/%" + "25" * 8 + "2e/private",
         "/api/v1/%2F..%2Fprivate",
         "/api/v1/private?token=leak",
         "/api/v1\\private",

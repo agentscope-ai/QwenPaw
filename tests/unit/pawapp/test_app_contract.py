@@ -220,6 +220,69 @@ def test_managed_service_rejects_non_loopback_host() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_managed_start_fails_actionably_without_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FIXTURE_MODE", raising=False)
+    monkeypatch.delenv("FIXTURE_URL", raising=False)
+    missing = tmp_path / ".venv-fixture" / "bin" / "python"
+    service = ManagedService(
+        ManagedServiceSpec(
+            name="fixture",
+            command=(str(missing), "-m", "fixture"),
+            external_url_env="FIXTURE_URL",
+            mode_env="FIXTURE_MODE",
+        ),
+    )
+
+    assert service.runtime_available() is False
+    with pytest.raises(RuntimeError, match="FIXTURE_MODE=external"):
+        await service.start()
+    assert service.is_ready is False
+
+
+def test_runtime_available_trusts_external_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FIXTURE_MODE", "external")
+    service = ManagedService(
+        ManagedServiceSpec(
+            name="fixture",
+            command=("/nonexistent/fixture-python",),
+            external_url_env="FIXTURE_URL",
+            mode_env="FIXTURE_MODE",
+        ),
+    )
+
+    assert service.runtime_available() is True
+
+
+@pytest.mark.asyncio
+async def test_managed_service_probe_reports_missing_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FIXTURE_MODE", raising=False)
+    monkeypatch.delenv("FIXTURE_URL", raising=False)
+    app = PawApp("Fixture", app_id="fixture")
+    app.managed_service(
+        "context",
+        command=(str(tmp_path / "missing-python"), "-m", "fixture"),
+        health_path="/",
+        external_url_env="FIXTURE_URL",
+        mode_env="FIXTURE_MODE",
+        runtime_remediation="Run scripts/setup-dev.sh",
+    )
+
+    payload = await app.dependencies.get("context", force=True)
+
+    assert payload["health"] == "unavailable"
+    assert payload["error_code"] == "RUNTIME_MISSING"
+    assert payload["remediation"] == "Run scripts/setup-dev.sh"
+
+
 def test_pawapp_delegates_extensions_through_plugin_api(
     tmp_path: Path,
 ) -> None:
@@ -451,6 +514,90 @@ def test_chat_history_defaults_to_the_app_session() -> None:
         "session_id": "pawapp:fixture",
         "messages": [],
     }
+
+
+def test_chat_routes_reject_foreign_app_namespace_sessions() -> None:
+    class ForeignSessionContext:
+        app_id = "fixture"
+
+        def is_app_session_id(self, session_id: str) -> bool:
+            return session_id == "pawapp:fixture" or session_id.startswith(
+                "pawapp:fixture:",
+            )
+
+        async def chat(self, *_args, **_kwargs):
+            raise AssertionError("foreign session must never reach chat")
+
+        def chat_stream(self, *_args, **_kwargs):
+            raise AssertionError("foreign session must never reach stream")
+
+        async def get_session_history(self, session_id):
+            raise AssertionError("foreign session must never be read")
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_ctx] = ForeignSessionContext
+    client = TestClient(fixture)
+
+    chat = client.post(
+        "/chat",
+        json={"message": "read it", "session_id": "pawapp:other"},
+    )
+    stream = client.post(
+        "/chat/stream",
+        json={"message": "read it", "session_id": "pawapp:other:x"},
+    )
+    history = client.get(
+        "/chat/history",
+        params={"session_id": "pawapp:other:dialogue:1"},
+    )
+
+    assert chat.status_code == 404
+    assert stream.status_code == 404
+    assert history.status_code == 404
+
+
+def test_session_guard_falls_back_to_prefix_scoping() -> None:
+    # Contexts without is_app_session_id (e.g. older stubs) still may not
+    # cross into a sibling namespace, including prefix collisions without
+    # the ':' separator.
+    class BareContext:
+        app_id = "fixture"
+
+        async def get_session_history(self, session_id):
+            raise AssertionError("foreign session must never be read")
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_ctx] = BareContext
+
+    response = TestClient(fixture).get(
+        "/chat/history",
+        params={"session_id": "pawapp:fixture-extra"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_chat_history_keeps_reading_legacy_custom_sessions() -> None:
+    class LegacyContext:
+        app_id = "fixture"
+
+        async def get_session_history(self, session_id):
+            assert session_id == "issue-42"
+            return []
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_ctx] = LegacyContext
+
+    response = TestClient(fixture).get(
+        "/chat/history",
+        params={"session_id": "issue-42"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "issue-42"
 
 
 def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
