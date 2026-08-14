@@ -1,26 +1,26 @@
 ---
-summary: "Memori jangka panjang agent — setup tool dan pelajaran yang dipelajari"
+summary: "Memori jangka panjang inti agent, dikelola bersama oleh pengguna dan agent"
 read_when:
-  - Bootstrapping workspace secara manual
+  - Preferensi, keputusan, setup tool, atau pelajaran jangka panjang diperlukan
 ---
 
-## Tool Setup
+## Memori Jangka Panjang Inti
 
-Skill mendefinisikan _cara_ tool bekerja. File ini untuk detail spesifik milikmu, yaitu hal-hal yang unik untuk setup pengguna.
+Ini adalah file memori jangka panjang inti agent. Pengguna dan agent dapat membaca, mengedit, dan memperbaruinya.
 
-### Apa yang Dicatat di Sini
+Catat informasi terpilih yang tetap berguna lintas sesi, seperti:
 
-Tambahkan apa pun yang membantu pekerjaanmu. Anggap ini sebagai catatan cepat.
+- Preferensi pengguna dan cara kerja yang stabil
+- Keputusan penting, batasan tetap, dan tujuan berkelanjutan
+- Setup tool seperti host SSH, alias, dan detail perangkat lokal
+- Pelajaran yang layak dipertahankan untuk jangka panjang
 
-Contohnya:
+Jangan salin log aktivitas harian atau percakapan lengkap ke sini; informasi tersebut berada di catatan harian basis pengetahuan pribadi. Jangan simpan kata sandi, token, atau informasi sensitif lain kecuali pengguna memintanya secara eksplisit. Baca isi yang ada sebelum memperbarui, pertahankan informasi valid yang ditulis pengguna atau sesi lain, lalu gabungkan tanpa duplikasi.
 
-- Host dan alias SSH
-- Pengaturan lain terkait pengguna saat menjalankan skill
+## Setup Tool
 
-### Contoh
+<!-- Catat setup tool khusus workspace yang berlaku jangka panjang di sini. -->
 
-```markdown
-### SSH
+## Keputusan dan Pelajaran Penting
 
-- home-server -> 192.168.1.100, user: admin
-```
+<!-- Catat keputusan, batasan, dan pelajaran yang harus bertahan lintas sesi di sini. -->

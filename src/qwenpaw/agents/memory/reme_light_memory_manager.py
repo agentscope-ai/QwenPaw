@@ -226,6 +226,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return build_memory_guidance_prompt(
             agent_config.language,
             memory_search_enabled=cfg.memory_search_enabled,
+            daily_dir=getattr(cfg, "daily_dir", "memory"),
+            digest_dir=getattr(cfg, "digest_dir", "digest"),
         )
 
     def get_memory_config(self) -> Any:

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from qwenpaw.agents.memory.prompts import build_memory_guidance_prompt
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
@@ -167,7 +168,8 @@ def test_memory_prompt_omits_disabled_search_tool() -> None:
         prompt = manager.get_memory_prompt()
 
     assert "memory_search" not in prompt
-    assert prompt == ""
+    assert "`MEMORY.md` is your core long-term memory" in prompt
+    assert "`memory/YYYY-MM-DD.md`" in prompt
 
 
 def test_memory_prompt_includes_enabled_search_tool() -> None:
@@ -178,6 +180,8 @@ def test_memory_prompt_includes_enabled_search_tool() -> None:
         running=SimpleNamespace(
             reme_light_memory_config=SimpleNamespace(
                 memory_search_enabled=True,
+                daily_dir="daily-notes",
+                digest_dir="knowledge",
             ),
         ),
     )
@@ -190,6 +194,25 @@ def test_memory_prompt_includes_enabled_search_tool() -> None:
 
     assert "memory_search" in prompt
     assert "personal knowledge base" in prompt
+    assert "`MEMORY.md` is your core long-term memory" in prompt
+    assert "`daily-notes` and `knowledge`" in prompt
+    assert "`daily-notes/YYYY-MM-DD/{topic}.md`" in prompt
+    assert "background asynchronous task" in prompt
+
+
+def test_zh_memory_prompt_describes_the_four_memory_surfaces() -> None:
+    prompt = build_memory_guidance_prompt(
+        "zh",
+        daily_dir="daily-notes",
+        digest_dir="knowledge",
+    )
+
+    assert "`MEMORY.md` 是你的核心长期记忆" in prompt
+    assert "`daily-notes/YYYY-MM-DD.md` 是你的日记本和每日笔记" in prompt
+    assert "`daily-notes/YYYY-MM-DD/{topic}.md`" in prompt
+    assert "`daily-notes` 和 `knowledge` 下的所有 Markdown 文件" in prompt
+    assert "先使用 `memory_search`" in prompt
+    assert "再使用 `read_file` 按路径渐进式展开" in prompt
 
 
 def test_reme_declares_its_enabled_cron_jobs() -> None:
