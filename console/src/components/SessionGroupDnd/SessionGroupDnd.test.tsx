@@ -3,9 +3,32 @@ import { describe, expect, it, vi } from "vitest";
 import { SessionGroupDndProvider } from "./index";
 
 vi.mock("@dnd-kit/core", () => ({
-  DndContext: ({ children, onDragEnd, onDragOver }: any) => (
+  DndContext: ({
+    children,
+    onDragStart,
+    onDragEnd,
+    onDragOver,
+    onDragCancel,
+  }: any) => (
     <div>
       {children}
+      <button
+        onClick={() =>
+          onDragStart({
+            active: {
+              data: {
+                current: {
+                  sessionId: "session-1",
+                  groupId: "work",
+                  label: "Conversation",
+                },
+              },
+            },
+          })
+        }
+      >
+        start dragging
+      </button>
       <button
         onClick={() =>
           onDragOver({ over: { data: { current: { groupId: "research" } } } })
@@ -31,6 +54,7 @@ vi.mock("@dnd-kit/core", () => ({
       >
         drop target
       </button>
+      <button onClick={onDragCancel}>cancel dragging</button>
     </div>
   ),
   DragOverlay: ({ children }: any) => children,
@@ -43,19 +67,42 @@ vi.mock("@dnd-kit/core", () => ({
 }));
 
 describe("SessionGroupDndProvider", () => {
-  it("expands the target group and moves only the dragged session", () => {
+  it("reports drag state and moves only the dragged session", () => {
     const onMove = vi.fn();
-    const onGroupHover = vi.fn();
+    const onDragStateChange = vi.fn();
     render(
-      <SessionGroupDndProvider onMove={onMove} onGroupHover={onGroupHover}>
+      <SessionGroupDndProvider
+        onMove={onMove}
+        onDragStateChange={onDragStateChange}
+      >
         <span>session list</span>
       </SessionGroupDndProvider>,
     );
 
+    fireEvent.click(screen.getByText("start dragging"));
     fireEvent.click(screen.getByText("hover target"));
     fireEvent.click(screen.getByText("drop target"));
 
-    expect(onGroupHover).toHaveBeenCalledWith("research");
+    expect(onDragStateChange).toHaveBeenNthCalledWith(1, true);
+    expect(onDragStateChange).toHaveBeenNthCalledWith(2, false);
     expect(onMove).toHaveBeenCalledWith("session-1", "research");
+  });
+
+  it("restores the list when dragging is cancelled", () => {
+    const onDragStateChange = vi.fn();
+    render(
+      <SessionGroupDndProvider
+        onMove={vi.fn()}
+        onDragStateChange={onDragStateChange}
+      >
+        <span>session list</span>
+      </SessionGroupDndProvider>,
+    );
+
+    fireEvent.click(screen.getByText("start dragging"));
+    fireEvent.click(screen.getByText("cancel dragging"));
+
+    expect(onDragStateChange).toHaveBeenNthCalledWith(1, true);
+    expect(onDragStateChange).toHaveBeenNthCalledWith(2, false);
   });
 });

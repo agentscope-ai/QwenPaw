@@ -31,6 +31,7 @@ import {
   type ChatDateGroup,
 } from "../utils/chatGroups";
 import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
+import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
 import SessionGroupHeader from "../components/SessionGroupHeader";
@@ -214,6 +215,7 @@ export default function SidebarSessionList({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  const [isSessionDragging, setIsSessionDragging] = useState(false);
   /** Collapsed chat groups — persisted so remounts keep the user's state */
   const { collapsedGroups, toggleGroup, expandGroup } =
     useCollapsedChatGroups();
@@ -282,14 +284,14 @@ export default function SidebarSessionList({
   });
 
   const handleMove = useCallback(
-    async (sessionId: string, groupId: string) => {
+    async (sessionId: string, groupId: string, expandTarget = true) => {
       const session = storeSessions.find((item) => item.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
       if (!backendId) return;
       try {
         await chatApi.updateChat(backendId, { group_id: groupId });
         await refreshSessions();
-        expandGroup(groupId);
+        if (expandTarget) expandGroup(groupId);
         const target = visibleChatGroups.find((group) => group.id === groupId);
         message.success(
           t("chat.groups.moveSuccess", "Moved to {{name}}", {
@@ -311,6 +313,13 @@ export default function SidebarSessionList({
       t,
       visibleChatGroups,
     ],
+  );
+
+  const handleDragMove = useCallback(
+    (sessionId: string, groupId: string) => {
+      void handleMove(sessionId, groupId, false);
+    },
+    [handleMove],
   );
 
   const handleCreateGroup = useCallback(async () => {
@@ -386,16 +395,7 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, visibleChatGroups],
   );
 
-  // Keep the active conversation reachable when its group is collapsed.
-  useEffect(() => {
-    if (!currentSessionId) return;
-    const active = sortedSessions.find(
-      (s) => s.id === currentSessionId || s.realId === currentSessionId,
-    );
-    if (active) {
-      expandGroup(resolveChatGroupId(active));
-    }
-  }, [currentSessionId, sortedSessions, expandGroup]);
+  useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -409,7 +409,8 @@ export default function SidebarSessionList({
     if (!groups) return [];
     const rows: FlatRow[] = [];
     for (const group of groups) {
-      const collapsed = collapsedGroups.has(group.group.id);
+      const collapsed =
+        isSessionDragging || collapsedGroups.has(group.group.id);
       rows.push({
         kind: "groupHeader",
         group: group.group,
@@ -435,7 +436,14 @@ export default function SidebarSessionList({
       }
     }
     return rows;
-  }, [groups, collapsedGroups, searchQuery, filteredSessions, t]);
+  }, [
+    groups,
+    collapsedGroups,
+    isSessionDragging,
+    searchQuery,
+    filteredSessions,
+    t,
+  ]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -455,6 +463,10 @@ export default function SidebarSessionList({
   const [listHeight, setListHeight] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   const listRef = useRef<VariableSizeList>(null);
+
+  useEffect(() => {
+    if (isSessionDragging) listRef.current?.scrollTo(0);
+  }, [isSessionDragging]);
 
   /** Reset virtual list cache when flatRows change */
   useEffect(() => {
@@ -623,10 +635,8 @@ export default function SidebarSessionList({
 
           {sortedSessions.length > 0 && listHeight > 0 && (
             <SessionGroupDndProvider
-              onMove={(sessionId, groupId) =>
-                void handleMove(sessionId, groupId)
-              }
-              onGroupHover={expandGroup}
+              onMove={handleDragMove}
+              onDragStateChange={setIsSessionDragging}
             >
               <VariableSizeList
                 ref={listRef}

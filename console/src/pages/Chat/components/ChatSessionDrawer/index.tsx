@@ -16,6 +16,7 @@ import {
 } from "@agentscope-ai/chat";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
 import { useCollapsedChatGroups } from "../../../../hooks/useCollapsedChatGroups";
+import { useRevealActiveChatGroup } from "../../../../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../../../../hooks/useChatGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
@@ -348,6 +349,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   } = useChatGroups(props.open);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const [isSessionDragging, setIsSessionDragging] = useState(false);
   const visibleChatGroups = useMemo(
     () =>
       localizeSystemGroups(chatGroups, {
@@ -656,7 +658,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   );
 
   const handleMove = useCallback(
-    async (sessionId: string, groupId: string) => {
+    async (sessionId: string, groupId: string, expandTarget = true) => {
       const session = sessions.find((item) => item.id === sessionId) as
         | ExtendedChatSession
         | undefined;
@@ -665,7 +667,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         await chatApi.updateChat(backendId, { group_id: groupId });
         await refreshSessions();
-        expandGroup(groupId);
+        if (expandTarget) expandGroup(groupId);
         const target = visibleChatGroups.find((group) => group.id === groupId);
         message.success(
           t("chat.groups.moveSuccess", "Moved to {{name}}", {
@@ -680,6 +682,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       }
     },
     [expandGroup, message, refreshSessions, sessions, t, visibleChatGroups],
+  );
+
+  const handleDragMove = useCallback(
+    (sessionId: string, groupId: string) => {
+      void handleMove(sessionId, groupId, false);
+    },
+    [handleMove],
   );
 
   const handleCreateGroup = useCallback(async () => {
@@ -754,19 +763,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sortedSessions, searchQuery, visibleChatGroups],
   );
 
-  // Keep the active conversation reachable: expand the (possibly
-  // collapsed) date group that contains it whenever it changes.
-  useEffect(() => {
-    if (!currentSessionId) return;
-    const active = sortedSessions.find(
-      (s) =>
-        s.id === currentSessionId ||
-        (s as ExtendedChatSession).realId === currentSessionId,
-    );
-    if (active) {
-      expandGroup(resolveChatGroupId(active as ExtendedChatSession));
-    }
-  }, [currentSessionId, sortedSessions, expandGroup]);
+  useRevealActiveChatGroup(
+    currentSessionId,
+    sortedSessions as ExtendedChatSession[],
+    expandGroup,
+  );
 
   /** Flatten groups into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -780,7 +781,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     if (!groups) return [];
     const rows: FlatRow[] = [];
     for (const group of groups) {
-      const collapsed = collapsedGroups.has(group.group.id);
+      const collapsed =
+        isSessionDragging || collapsedGroups.has(group.group.id);
       rows.push({
         kind: "groupHeader",
         group: group.group,
@@ -806,7 +808,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       }
     }
     return rows;
-  }, [groups, collapsedGroups, searchQuery, filteredSessions, t]);
+  }, [
+    groups,
+    collapsedGroups,
+    isSessionDragging,
+    searchQuery,
+    filteredSessions,
+    t,
+  ]);
 
   /** Row height calculator for VariableSizeList */
   const getRowHeight = useCallback(
@@ -826,6 +835,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const [listHeight, setListHeight] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   const listRef = useRef<VariableSizeList>(null);
+
+  useEffect(() => {
+    if (isSessionDragging) listRef.current?.scrollTo(0);
+  }, [isSessionDragging]);
 
   /** Reset virtual list cache when flatRows change (group collapse/expand) */
   useEffect(() => {
@@ -1022,8 +1035,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           </div>
         ) : (
           <SessionGroupDndProvider
-            onMove={(sessionId, groupId) => void handleMove(sessionId, groupId)}
-            onGroupHover={expandGroup}
+            onMove={handleDragMove}
+            onDragStateChange={setIsSessionDragging}
           >
             <VariableSizeList
               ref={listRef}

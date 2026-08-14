@@ -38,13 +38,13 @@ const DragStateContext = createContext<{
 interface SessionGroupDndProviderProps {
   children: ReactNode;
   onMove: (sessionId: string, groupId: string) => void;
-  onGroupHover: (groupId: string) => void;
+  onDragStateChange: (active: boolean) => void;
 }
 
 export function SessionGroupDndProvider({
   children,
   onMove,
-  onGroupHover,
+  onDragStateChange,
 }: SessionGroupDndProviderProps) {
   const sensors = useSensors(
     useSensor(MouseSensor, {
@@ -57,23 +57,29 @@ export function SessionGroupDndProvider({
   const [active, setActive] = useState<DragData | null>(null);
   const [overGroupId, setOverGroupId] = useState<string | null>(null);
 
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActive(event.active.data.current as DragData);
-    setOverGroupId(null);
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      setActive(event.active.data.current as DragData);
+      setOverGroupId(null);
+      onDragStateChange(true);
+    },
+    [onDragStateChange],
+  );
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const groupId = event.over?.data.current?.groupId;
+    if (typeof groupId === "string") {
+      setOverGroupId(groupId);
+    } else {
+      setOverGroupId(null);
+    }
   }, []);
 
-  const handleDragOver = useCallback(
-    (event: DragOverEvent) => {
-      const groupId = event.over?.data.current?.groupId;
-      if (typeof groupId === "string") {
-        setOverGroupId(groupId);
-        onGroupHover(groupId);
-      } else {
-        setOverGroupId(null);
-      }
-    },
-    [onGroupHover],
-  );
+  const handleDragCancel = useCallback(() => {
+    setActive(null);
+    setOverGroupId(null);
+    onDragStateChange(false);
+  }, [onDragStateChange]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -81,11 +87,12 @@ export function SessionGroupDndProvider({
       const groupId = event.over?.data.current?.groupId;
       setActive(null);
       setOverGroupId(null);
+      onDragStateChange(false);
       if (source && typeof groupId === "string" && groupId !== source.groupId) {
         onMove(source.sessionId, groupId);
       }
     },
-    [onMove],
+    [onDragStateChange, onMove],
   );
   const dragState = useMemo(
     () => ({ active: active !== null, overGroupId }),
@@ -97,10 +104,7 @@ export function SessionGroupDndProvider({
       sensors={sensors}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
-      onDragCancel={() => {
-        setActive(null);
-        setOverGroupId(null);
-      }}
+      onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
       <DragStateContext.Provider value={dragState}>
