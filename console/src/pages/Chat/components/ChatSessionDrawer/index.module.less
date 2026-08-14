@@ -55,7 +55,31 @@
 .headerRight {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
+}
+
+.headerIconButton {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  cursor: pointer;
+
+  &:hover {
+    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
+    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, #ff9d4d);
+    outline-offset: 1px;
+  }
 }
 
 .pinActive {
@@ -77,6 +101,31 @@
 .searchInput {
   border-radius: 6px;
   font-size: 12px;
+}
+
+.createGroupButton {
+  width: 100%;
+  height: 28px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+    color: var(--colorPrimary, #ff7f16);
+  }
+}
+
+.groupInput {
+  margin-top: 6px;
+  border-radius: 6px;
+  font-size: 11px;
 }
 
 .emptyState {

@@ -122,6 +122,10 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
   pinned?: boolean;
+  source?: ChatSpec["source"];
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +362,10 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
+    source: chat.source ?? "chat",
+    groupId: chat.group_id ?? null,
+    parentSessionId: chat.parent_session_id ?? null,
+    rootSessionId: chat.root_session_id ?? null,
     archived: chat.archived ?? false,
     archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;

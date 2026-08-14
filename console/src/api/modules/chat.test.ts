@@ -205,4 +205,35 @@ describe("chatApi CRUD", () => {
       }),
     );
   });
+
+  it("creates and renames chat groups", async () => {
+    await chatApi.createGroup("Work");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Work" }),
+      }),
+    );
+
+    await chatApi.updateGroup("group/1", "Projects");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/group%2F1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ name: "Projects" }),
+      }),
+    );
+  });
+
+  it("persists the complete chat-group order", async () => {
+    await chatApi.reorderGroups(["subagents", "default"]);
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/order",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ group_ids: ["subagents", "default"] }),
+      }),
+    );
+  });
 });

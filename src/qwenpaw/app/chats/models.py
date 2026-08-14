@@ -7,7 +7,13 @@ from enum import Enum
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    model_validator,
+)
 from qwenpaw.schemas import Message
 
 from ..channels.schema import DEFAULT_CHANNEL
@@ -21,6 +27,46 @@ class SessionSource(str, Enum):
 
     chat = "chat"
     cron = "cron"
+    subagent = "subagent"
+
+
+class ChatGroupKind(str, Enum):
+    """Distinguishes built-in and user-created chat groups."""
+
+    default = "default"
+    subagents = "subagents"
+    custom = "custom"
+
+
+DEFAULT_CHAT_GROUP_ID = "default"
+SUBAGENT_CHAT_GROUP_ID = "subagents"
+
+
+class ChatGroup(BaseModel):
+    """One persisted group in the Console chat list."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str = Field(min_length=1, max_length=64)
+    order: int = Field(default=0, ge=0)
+    kind: ChatGroupKind = Field(default=ChatGroupKind.custom)
+
+
+def default_chat_groups() -> list[ChatGroup]:
+    """Return the two non-deletable groups for a new chat registry."""
+    return [
+        ChatGroup(
+            id=DEFAULT_CHAT_GROUP_ID,
+            name="Uncategorized",
+            order=0,
+            kind=ChatGroupKind.default,
+        ),
+        ChatGroup(
+            id=SUBAGENT_CHAT_GROUP_ID,
+            name="Subagents",
+            order=1,
+            kind=ChatGroupKind.subagents,
+        ),
+    ]
 
 
 class ChatSpec(BaseModel):
@@ -68,6 +114,18 @@ class ChatSpec(BaseModel):
         default=SessionSource.chat,
         description="What initiated this session (chat, cron, …)",
     )
+    group_id: Optional[str] = Field(
+        default=None,
+        description="Persisted Console group identifier",
+    )
+    parent_session_id: Optional[str] = Field(
+        default=None,
+        description="Immediate parent session for a subagent chat",
+    )
+    root_session_id: Optional[str] = Field(
+        default=None,
+        description="Root session for a subagent chat tree",
+    )
 
     @computed_field  # type: ignore[misc]
     @property
@@ -91,6 +149,34 @@ class ChatUpdate(BaseModel):
         default=None,
         description="Whether the chat is pinned to the top",
     )
+    group_id: str | None = Field(
+        default=None,
+        description="Target Console group identifier",
+    )
+
+
+class ChatGroupCreate(BaseModel):
+    """Fields accepted when creating a custom chat group."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ChatGroupUpdate(BaseModel):
+    """Mutable chat-group fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ChatGroupOrderUpdate(BaseModel):
+    """Complete group order submitted by the Console."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    group_ids: list[str] = Field(min_length=2)
 
 
 class ChatHistory(BaseModel):
@@ -126,3 +212,14 @@ class ChatsFile(BaseModel):
 
     version: int = 1
     chats: list[ChatSpec] = Field(default_factory=list)
+    groups: list[ChatGroup] = Field(default_factory=default_chat_groups)
+
+    @model_validator(mode="after")
+    def ensure_system_groups(self) -> "ChatsFile":
+        """Ensure both non-deletable groups are present."""
+        by_id = {group.id: group for group in self.groups}
+        defaults = default_chat_groups()
+        for group in defaults:
+            if group.id not in by_id:
+                self.groups.append(group)
+        return self

@@ -15,9 +15,12 @@ import pytest
 
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import (
+    ChatGroupKind,
     ChatSpec,
     ChatUpdate,
+    DEFAULT_CHAT_GROUP_ID,
     SessionSource,
+    SUBAGENT_CHAT_GROUP_ID,
 )
 from qwenpaw.app.chats.repo import (
     JsonChatRepository,
@@ -150,6 +153,71 @@ async def test_get_or_create_chat_invalid_source_falls_back_to_chat(
     )
 
     assert spec.source == SessionSource.chat
+
+
+@pytest.mark.asyncio
+async def test_subagent_chat_keeps_relationship_and_default_group(
+    manager: ChatManager,
+):
+    spec = await manager.get_or_create_chat(
+        session_id="sub-worker",
+        user_id="u",
+        source=SessionSource.subagent,
+        parent_session_id="parent-session",
+        root_session_id="root-session",
+    )
+
+    assert spec.source == SessionSource.subagent
+    assert spec.group_id == SUBAGENT_CHAT_GROUP_ID
+    assert spec.parent_session_id == "parent-session"
+    assert spec.root_session_id == "root-session"
+
+
+@pytest.mark.asyncio
+async def test_chat_groups_support_rename_reorder_move_and_delete(
+    manager: ChatManager,
+):
+    work = await manager.create_group("Work")
+    research = await manager.create_group("Research")
+    assert work.kind == ChatGroupKind.custom
+
+    renamed = await manager.update_group(work.id, "Projects")
+    assert renamed is not None
+    assert renamed.name == "Projects"
+
+    reordered = await manager.reorder_groups(
+        [research.id, SUBAGENT_CHAT_GROUP_ID, work.id, DEFAULT_CHAT_GROUP_ID],
+    )
+    assert [group.id for group in reordered] == [
+        research.id,
+        SUBAGENT_CHAT_GROUP_ID,
+        work.id,
+        DEFAULT_CHAT_GROUP_ID,
+    ]
+
+    subagent = await manager.get_or_create_chat(
+        session_id="sub-worker",
+        user_id="u",
+        source=SessionSource.subagent,
+    )
+    moved = await manager.patch_chat(
+        subagent.id,
+        ChatUpdate(group_id=work.id),
+    )
+    assert moved is not None
+    assert moved.source == SessionSource.subagent
+    assert moved.group_id == work.id
+
+    assert await manager.delete_group(work.id) is True
+    restored = await manager.get_chat(subagent.id)
+    assert restored is not None
+    assert restored.group_id == SUBAGENT_CHAT_GROUP_ID
+
+
+@pytest.mark.asyncio
+async def test_system_chat_groups_cannot_be_deleted(manager: ChatManager):
+    with pytest.raises(ValueError, match="cannot be deleted"):
+        await manager.delete_group(DEFAULT_CHAT_GROUP_ID)
 
 
 @pytest.mark.asyncio

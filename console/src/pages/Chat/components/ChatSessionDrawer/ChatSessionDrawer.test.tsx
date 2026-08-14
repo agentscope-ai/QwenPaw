@@ -37,6 +37,7 @@ const {
   mockDeleteChat,
   mockUpdateChat,
   mockGetSessionList,
+  mockListGroups,
   mockNavigate,
   mockGetEffectiveSessionId,
 } = vi.hoisted(() => ({
@@ -46,6 +47,10 @@ const {
   mockDeleteChat: vi.fn().mockResolvedValue(undefined),
   mockUpdateChat: vi.fn().mockResolvedValue(undefined),
   mockGetSessionList: vi.fn().mockResolvedValue([]),
+  mockListGroups: vi.fn().mockResolvedValue([
+    { id: "default", name: "Uncategorized", order: 0, kind: "default" },
+    { id: "subagents", name: "Subagents", order: 1, kind: "subagents" },
+  ]),
   mockNavigate: vi.fn(),
   mockGetEffectiveSessionId: vi.fn((id: string) => id),
 }));
@@ -61,7 +66,15 @@ vi.mock("@agentscope-ai/chat", () => ({
 }));
 
 vi.mock("@/api/modules/chat", () => ({
-  chatApi: { deleteChat: mockDeleteChat, updateChat: mockUpdateChat },
+  chatApi: {
+    deleteChat: mockDeleteChat,
+    updateChat: mockUpdateChat,
+    listGroups: mockListGroups,
+    createGroup: vi.fn(),
+    updateGroup: vi.fn(),
+    reorderGroups: vi.fn(),
+    deleteGroup: vi.fn(),
+  },
   sessionApi: {
     listChats: vi.fn(),
     createChat: vi.fn(),
@@ -259,11 +272,7 @@ describe("ChatSessionDrawer", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
-    await user.click(
-      document
-        .querySelector('[data-icon="SparkOperateRightLine"]')!
-        .closest("button")!,
-    );
+    await user.click(screen.getByRole("button", { name: "common.close" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 

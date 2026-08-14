@@ -12,9 +12,13 @@ from typing import Optional
 from .models import (
     BatchArchiveResult,
     BatchFailure,
+    ChatGroup,
+    ChatGroupKind,
     ChatSpec,
     ChatUpdate,
+    DEFAULT_CHAT_GROUP_ID,
     SessionSource,
+    SUBAGENT_CHAT_GROUP_ID,
 )
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
@@ -25,7 +29,14 @@ logger = logging.getLogger(__name__)
 MAX_BATCH_SIZE = 500
 
 
-class ChatManager:
+def _default_group_id(source: SessionSource) -> str:
+    """Return the built-in group for a chat source."""
+    if source == SessionSource.subagent:
+        return SUBAGENT_CHAT_GROUP_ID
+    return DEFAULT_CHAT_GROUP_ID
+
+
+class ChatManager:  # pylint: disable=too-many-public-methods
     """Manages chat specifications in repository.
 
     Only handles ChatSpec CRUD operations.
@@ -110,6 +121,9 @@ class ChatManager:
         channel: str = DEFAULT_CHANNEL,
         name: str = "New Chat",
         source: str | SessionSource = SessionSource.chat,
+        group_id: str | None = None,
+        parent_session_id: str | None = None,
+        root_session_id: str | None = None,
     ) -> ChatSpec:
         """Get existing chat or create new one.
 
@@ -125,6 +139,10 @@ class ChatManager:
             Chat specification (existing or newly created)
         """
         async with self._lock:
+            try:
+                resolved_source = SessionSource(source)
+            except ValueError:
+                resolved_source = SessionSource.chat
             # Try to find existing by session_id
             logger.debug(
                 f"get_or_create_chat: Searching for existing chat: "
@@ -147,16 +165,15 @@ class ChatManager:
                 f"get_or_create_chat: Creating new chat for "
                 f"session_id={session_id}, source={source}",
             )
-            try:
-                resolved_source = SessionSource(source)
-            except ValueError:
-                resolved_source = SessionSource.chat
             spec = ChatSpec(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
                 name=name,
                 source=resolved_source,
+                group_id=group_id or _default_group_id(resolved_source),
+                parent_session_id=parent_session_id,
+                root_session_id=root_session_id,
             )
             logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
@@ -176,8 +193,102 @@ class ChatManager:
             Chat spec
         """
         async with self._lock:
+            if spec.group_id is None:
+                spec = spec.model_copy(
+                    update={"group_id": _default_group_id(spec.source)},
+                )
             await self._repo.upsert_chat(spec)
             return spec
+
+    async def list_groups(self) -> list[ChatGroup]:
+        """List persisted groups in display order."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            return sorted(chats_file.groups, key=lambda group: group.order)
+
+    async def create_group(self, name: str) -> ChatGroup:
+        """Create a custom group after the current final group."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Group name cannot be empty")
+        async with self._lock:
+            chats_file = await self._repo.load()
+            next_order = (
+                max(
+                    (group.order for group in chats_file.groups),
+                    default=-1,
+                )
+                + 1
+            )
+            group = ChatGroup(name=normalized_name, order=next_order)
+            chats_file.groups.append(group)
+            await self._repo.save(chats_file)
+            return group
+
+    async def update_group(
+        self,
+        group_id: str,
+        name: str,
+    ) -> ChatGroup | None:
+        """Rename a built-in or custom group."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Group name cannot be empty")
+        async with self._lock:
+            chats_file = await self._repo.load()
+            for index, group in enumerate(chats_file.groups):
+                if group.id != group_id:
+                    continue
+                updated = group.model_copy(update={"name": normalized_name})
+                chats_file.groups[index] = updated
+                await self._repo.save(chats_file)
+                return updated
+            return None
+
+    async def reorder_groups(self, group_ids: list[str]) -> list[ChatGroup]:
+        """Persist a complete, duplicate-free group order."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            current = {group.id: group for group in chats_file.groups}
+            if len(group_ids) != len(set(group_ids)):
+                raise ValueError("Group order contains duplicate IDs")
+            if set(group_ids) != set(current):
+                raise ValueError("Group order must contain every group ID")
+            chats_file.groups = [
+                current[group_id].model_copy(update={"order": index})
+                for index, group_id in enumerate(group_ids)
+            ]
+            await self._repo.save(chats_file)
+            return list(chats_file.groups)
+
+    async def delete_group(self, group_id: str) -> bool:
+        """Delete a custom group and return chats to their system group."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            target = next(
+                (group for group in chats_file.groups if group.id == group_id),
+                None,
+            )
+            if target is None:
+                return False
+            if target.kind != ChatGroupKind.custom:
+                raise ValueError("Built-in chat groups cannot be deleted")
+
+            chats_file.groups = [
+                group for group in chats_file.groups if group.id != group_id
+            ]
+            for index, chat in enumerate(chats_file.chats):
+                if chat.group_id != group_id:
+                    continue
+                chats_file.chats[index] = chat.model_copy(
+                    update={"group_id": _default_group_id(chat.source)},
+                )
+            for index, group in enumerate(
+                sorted(chats_file.groups, key=lambda item: item.order),
+            ):
+                group.order = index
+            await self._repo.save(chats_file)
+            return True
 
     async def patch_chat(
         self,
@@ -223,6 +334,12 @@ class ChatManager:
             existing = await self._repo.get_chat(chat_id)
             if existing is None:
                 return None
+
+        if "group_id" in patch.model_fields_set:
+            chats_file = await self._repo.load()
+            group_ids = {group.id for group in chats_file.groups}
+            if patch.group_id not in group_ids:
+                raise ValueError(f"Unknown chat group: {patch.group_id}")
 
         updates = patch.model_dump(
             exclude_none=True,

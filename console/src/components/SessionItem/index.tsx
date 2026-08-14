@@ -3,15 +3,18 @@ import { Dropdown, Input } from "antd";
 import type { InputRef } from "antd";
 import { useTranslation } from "react-i18next";
 import {
-  SparkMoreLine,
-  SparkDeleteLine,
-  SparkEditLine,
-  SparkMarkLine,
-  SparkMarkFill,
-  SparkAistorageLine,
-} from "@agentscope-ai/icons";
+  Archive,
+  Bot,
+  FolderInput,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from "lucide-react";
 import { ChannelIcon } from "../../pages/Control/Channels/components";
 import type { ChatStatus } from "../../api/types/chat";
+import type { ChatGroup } from "../../api/types/chat";
 import styles from "./sessionItem.module.less";
 
 export interface SessionItemProps {
@@ -24,6 +27,9 @@ export interface SessionItemProps {
   generating?: boolean;
   pinned?: boolean;
   archived?: boolean;
+  source?: "chat" | "cron" | "subagent";
+  groupId?: string | null;
+  groups?: ChatGroup[];
   time?: string; // Only used by the drawer variant
 
   // -- State --
@@ -41,6 +47,7 @@ export interface SessionItemProps {
   onDelete?: (sessionId: string) => void;
   onPin?: (sessionId: string) => void;
   onArchive?: (sessionId: string) => void;
+  onMove?: (sessionId: string, groupId: string) => void;
   onEditChange?: (value: string) => void;
   onEditSubmit?: () => void;
   onEditCancel?: () => void;
@@ -55,6 +62,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
   generating,
   pinned,
   archived,
+  source,
+  groupId,
+  groups = [],
   time,
   active,
   disabled,
@@ -66,6 +76,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onDelete,
   onPin,
   onArchive,
+  onMove,
   onEditChange,
   onEditSubmit,
   onEditCancel,
@@ -76,6 +87,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const isComposingRef = useRef(false);
 
   const inProgress = generating === true || chatStatus === "running";
+  const isSubagent = source === "subagent";
   const isIdle = !inProgress && !!chatStatus;
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
@@ -104,11 +116,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
     () => [
       {
         key: "pin",
-        icon: pinned ? (
-          <SparkMarkFill size={14} />
-        ) : (
-          <SparkMarkLine size={14} />
-        ),
+        icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
         label: pinned
           ? t("chat.contextMenu.unpin", "Unpin")
           : t("chat.contextMenu.pin", "Pin"),
@@ -116,13 +124,24 @@ const SessionItem: React.FC<SessionItemProps> = ({
       },
       {
         key: "rename",
-        icon: <SparkEditLine size={14} />,
+        icon: <Pencil size={14} />,
         label: t("chat.contextMenu.rename", "Rename"),
         onClick: handleStartEdit,
       },
       {
+        key: "move",
+        icon: <FolderInput size={14} />,
+        label: t("chat.contextMenu.moveToGroup", "Move to group"),
+        children: groups.map((group) => ({
+          key: `move-${group.id}`,
+          label: group.name,
+          disabled: group.id === groupId,
+          onClick: () => onMove?.(sessionId, group.id),
+        })),
+      },
+      {
         key: "archive",
-        icon: <SparkAistorageLine size={14} />,
+        icon: <Archive size={14} />,
         label: archived
           ? t("sessions.archive.unaction", "Unarchive")
           : t("sessions.archive.action", "Archive"),
@@ -131,7 +150,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       { type: "divider" as const },
       {
         key: "delete",
-        icon: <SparkDeleteLine size={14} />,
+        icon: <Trash2 size={14} />,
         label: t("chat.contextMenu.delete", "Delete"),
         danger: true,
         onClick: () => onDelete?.(sessionId),
@@ -145,6 +164,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
       onPin,
       onArchive,
       onDelete,
+      groupId,
+      groups,
+      onMove,
       handleStartEdit,
     ],
   );
@@ -236,6 +258,12 @@ const SessionItem: React.FC<SessionItemProps> = ({
         {variant === "drawer" && (
           <div className={styles.metaRow}>
             {time && <span className={styles.time}>{time}</span>}
+            {isSubagent && (
+              <span className={styles.sourceTag}>
+                <Bot size={11} />
+                <span>Subagent</span>
+              </span>
+            )}
             {(channelKey || channelLabel) && (
               <span
                 className={styles.channelTag}
@@ -260,6 +288,12 @@ const SessionItem: React.FC<SessionItemProps> = ({
         </span>
       )}
 
+      {!editing && variant === "sidebar" && isSubagent && (
+        <span className={styles.sourceIcon} title="Subagent">
+          <Bot size={13} />
+        </span>
+      )}
+
       {/* More button — unified for both variants */}
       {!editing && (
         <Dropdown
@@ -269,7 +303,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
           onOpenChange={setDropdownOpen}
         >
           <span className={styles.moreBtn} onClick={(e) => e.stopPropagation()}>
-            <SparkMoreLine size={14} />
+            <MoreHorizontal size={14} />
           </span>
         </Dropdown>
       )}

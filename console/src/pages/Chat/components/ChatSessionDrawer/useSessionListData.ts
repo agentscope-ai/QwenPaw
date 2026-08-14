@@ -37,7 +37,9 @@ function sessionsEqual(
       a.pinned !== b.pinned ||
       a.generating !== b.generating ||
       a.status !== b.status ||
-      a.archived !== b.archived
+      a.archived !== b.archived ||
+      a.groupId !== b.groupId ||
+      a.source !== b.source
     ) {
       return false;
     }
@@ -59,6 +61,10 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   pinned?: boolean;
   archivedAt?: string | null;
   archived?: boolean;
+  source?: "chat" | "cron" | "subagent";
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */

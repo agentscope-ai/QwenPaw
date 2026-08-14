@@ -2929,6 +2929,7 @@
       "rename": "重命名",
       "pin": "置顶",
       "unpin": "取消置顶",
+      "moveToGroup": "移动到分组",
       "delete": "删除"
     },
     "queue": {
@@ -2955,6 +2956,19 @@
       "week": "7天内",
       "month": "30天内",
       "older": "更早"
+    },
+    "groups": {
+      "create": "新建分组",
+      "namePlaceholder": "分组名称",
+      "uncategorized": "未分组",
+      "subagents": "Subagents",
+      "rename": "重命名",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "delete": "删除分组",
+      "manage": "管理分组",
+      "deleteTitle": "删除这个分组？",
+      "deleteHint": "组内会话将返回各自的系统分组。"
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",

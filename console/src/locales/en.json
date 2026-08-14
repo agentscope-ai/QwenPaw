@@ -3072,6 +3072,7 @@
       "rename": "Rename",
       "pin": "Pin",
       "unpin": "Unpin",
+      "moveToGroup": "Move to group",
       "delete": "Delete"
     },
     "queue": {
@@ -3098,6 +3099,19 @@
       "week": "Within 7 days",
       "month": "Within 30 days",
       "older": "Earlier"
+    },
+    "groups": {
+      "create": "New group",
+      "namePlaceholder": "Group name",
+      "uncategorized": "Uncategorized",
+      "subagents": "Subagents",
+      "rename": "Rename",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "delete": "Delete group",
+      "manage": "Manage group",
+      "deleteTitle": "Delete this group?",
+      "deleteHint": "Conversations will return to their built-in group."
     },
     "sessionPanel": {
       "searchConversations": "Search conversations…",

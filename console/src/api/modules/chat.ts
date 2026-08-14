@@ -6,6 +6,7 @@ import type {
   ChatHistory,
   ChatDeleteResponse,
   ChatUpdateRequest,
+  ChatGroup,
   BatchArchiveResult,
   Session,
 } from "../types";
@@ -121,6 +122,32 @@ export const chatApi = {
       method: "POST",
       body: JSON.stringify({ chat_ids: chatIds }),
     }),
+
+  listGroups: () => request<ChatGroup[]>("/chats/groups"),
+
+  createGroup: (name: string) =>
+    request<ChatGroup>("/chats/groups", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  updateGroup: (groupId: string, name: string) =>
+    request<ChatGroup>(`/chats/groups/${encodeURIComponent(groupId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+
+  reorderGroups: (groupIds: string[]) =>
+    request<ChatGroup[]>("/chats/groups/order", {
+      method: "PUT",
+      body: JSON.stringify({ group_ids: groupIds }),
+    }),
+
+  deleteGroup: (groupId: string) =>
+    request<{ success: boolean; group_id: string }>(
+      `/chats/groups/${encodeURIComponent(groupId)}`,
+      { method: "DELETE" },
+    ),
 
   stopChat: (chatId: string) =>
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {

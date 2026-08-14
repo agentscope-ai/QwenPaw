@@ -1,0 +1,95 @@
+.header {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  cursor: pointer;
+}
+
+.header:hover {
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+
+  .more {
+    opacity: 1;
+  }
+}
+
+.subagent {
+  margin-top: 6px;
+  border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  color: var(--colorPrimary, #ff7f16);
+}
+
+.chevron,
+.kindIcon,
+.more {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.chevron {
+  transition: transform 0.16s ease;
+}
+
+.collapsed {
+  transform: rotate(-90deg);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-flex;
+  min-width: 20px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+  font-size: 10px;
+}
+
+.more {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.more:hover {
+  background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+}
+
+.renameInput {
+  min-width: 0;
+  flex: 1;
+  height: 26px;
+  font-size: 11px;
+}
+
+@media (max-width: 768px) {
+  .more {
+    opacity: 1;
+  }
+}
