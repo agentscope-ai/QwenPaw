@@ -404,7 +404,9 @@
       "safety": "Защитная",
       "commit": "Коммит"
     },
-    "summary": { "total": "точек" },
+    "summary": {
+      "total": "точек"
+    },
     "snapshotDialog": {
       "title": "Создать снимок",
       "session": "Сеанс",
@@ -2371,6 +2373,10 @@
     "requiresConfig": "Требуется настройка",
     "configSaved": "Конфигурация сохранена",
     "configSaveError": "Не удалось сохранить конфигурацию",
+    "webSearchProviderLabel": "Провайдер",
+    "webSearchApiKeyLabel": "API-ключ (необязательно)",
+    "webSearchQuotaHintBefore": "Без регистрации: 100 вызовов/день. На ",
+    "webSearchQuotaHintAfter": ": 1000/день.",
     "active": "активно",
     "available": "Доступно",
     "noEnabled": "Нет включённых инструментов",

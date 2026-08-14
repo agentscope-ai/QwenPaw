@@ -580,7 +580,9 @@
       "safety": "An toàn",
       "commit": "Commit"
     },
-    "summary": { "total": "điểm" },
+    "summary": {
+      "total": "điểm"
+    },
     "snapshotDialog": {
       "title": "Tạo ảnh chụp",
       "session": "Phiên",
@@ -852,6 +854,10 @@
     "requiresConfig": "Cần cấu hình",
     "configSaved": "Đã lưu cấu hình",
     "configSaveError": "Lưu cấu hình thất bại",
+    "webSearchProviderLabel": "Nhà cung cấp",
+    "webSearchApiKeyLabel": "Khóa API (tùy chọn)",
+    "webSearchQuotaHintBefore": "Miễn phí 100 lần gọi/ngày. Đăng ký tại ",
+    "webSearchQuotaHintAfter": " để nhận 1.000 lần/ngày.",
     "active": "đang hoạt động",
     "available": "Có sẵn",
     "noEnabled": "Không có công cụ nào được bật",

@@ -404,7 +404,9 @@
       "safety": "安全",
       "commit": "コミット"
     },
-    "summary": { "total": "件" },
+    "summary": {
+      "total": "件"
+    },
     "snapshotDialog": {
       "title": "スナップショットを作成",
       "session": "セッション",
@@ -2356,6 +2358,10 @@
     "requiresConfig": "設定が必要です",
     "configSaved": "設定を保存しました",
     "configSaveError": "設定の保存に失敗しました",
+    "webSearchProviderLabel": "プロバイダー",
+    "webSearchApiKeyLabel": "APIキー（任意）",
+    "webSearchQuotaHintBefore": "未登録時は1日100回まで。",
+    "webSearchQuotaHintAfter": "で登録すると1日1,000回無料に。",
     "active": "個が有効",
     "available": "利用可能",
     "noEnabled": "有効なツールはありません",

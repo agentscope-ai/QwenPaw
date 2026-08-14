@@ -827,6 +827,10 @@
     "requiresConfig": "Perlu konfigurasi",
     "configSaved": "Konfigurasi tersimpan",
     "configSaveError": "Gagal menyimpan konfigurasi",
+    "webSearchProviderLabel": "Penyedia",
+    "webSearchApiKeyLabel": "Kunci API (opsional)",
+    "webSearchQuotaHintBefore": "Gratis 100 panggilan/hari. Daftar di ",
+    "webSearchQuotaHintAfter": " untuk 1.000/hari.",
     "active": "aktif",
     "available": "Tersedia",
     "noEnabled": "Tidak ada alat yang diaktifkan",
@@ -906,7 +910,9 @@
       "safety": "Pengaman",
       "commit": "Commit"
     },
-    "summary": { "total": "checkpoint" },
+    "summary": {
+      "total": "checkpoint"
+    },
     "snapshotDialog": {
       "title": "Buat snapshot",
       "session": "Sesi",

@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
 from qwenpaw.agents.tools.websearch import (
@@ -14,31 +17,75 @@ from qwenpaw.agents.tools.websearch import (
 )
 
 
+def _agent_config_with_provider(provider: str | None):
+    """Build a minimal stand-in for ``AgentProfileConfig`` whose
+    ``tools.builtin_tools["web_search"].config`` carries the given
+    provider choice (``None`` means the web_search tool config is absent
+    entirely, exercising the "not configured" fallback)."""
+    if provider is None:
+        builtin_tools = {}
+    else:
+        builtin_tools = {
+            "web_search": SimpleNamespace(config={"provider": provider}),
+        }
+    return SimpleNamespace(
+        tools=SimpleNamespace(builtin_tools=builtin_tools),
+    )
+
+
 def test_get_search_provider_defaults_to_tavily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("QWENPAW_WEBSEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.load_agent_config",
+        lambda agent_id: _agent_config_with_provider(None),
+    )
     assert isinstance(get_search_provider(), TavilyProvider)
 
 
 def test_get_search_provider_selects_anysearch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_WEBSEARCH_PROVIDER", "anysearch")
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.load_agent_config",
+        lambda agent_id: _agent_config_with_provider("anysearch"),
+    )
     assert isinstance(get_search_provider(), AnySearchProvider)
 
 
 def test_get_search_provider_selects_tavily_explicit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_WEBSEARCH_PROVIDER", "tavily")
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.load_agent_config",
+        lambda agent_id: _agent_config_with_provider("tavily"),
+    )
     assert isinstance(get_search_provider(), TavilyProvider)
 
 
 def test_get_search_provider_rejects_unknown_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_WEBSEARCH_PROVIDER", "bogus")
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.load_agent_config",
+        lambda agent_id: _agent_config_with_provider("bogus"),
+    )
     with pytest.raises(ValueError):
         get_search_provider()
 
@@ -76,6 +123,10 @@ async def test_anysearch_provider_parses_response(
         "qwenpaw.agents.tools.websearch._post",
         fake_post,
     )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        AsyncMock(return_value=""),
+    )
     provider = AnySearchProvider()
     results = await provider.search("qwen", max_results=3)
     assert results == [
@@ -101,7 +152,10 @@ async def test_anysearch_provider_sends_key_when_set(
         "qwenpaw.agents.tools.websearch._post",
         fake_post,
     )
-    monkeypatch.setenv("ANYSEARCH_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        AsyncMock(return_value="sk-test"),
+    )
     provider = AnySearchProvider()
     assert await provider.search("qwen") == []
 

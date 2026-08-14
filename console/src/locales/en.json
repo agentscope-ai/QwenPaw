@@ -610,7 +610,9 @@
       "safety": "Safety",
       "commit": "Commit"
     },
-    "summary": { "total": "checkpoints" },
+    "summary": {
+      "total": "checkpoints"
+    },
     "snapshotDialog": {
       "title": "Create snapshot",
       "session": "Session",
@@ -2996,6 +2998,10 @@
     "requiresConfig": "Requires configuration",
     "configSaved": "Configuration saved",
     "configSaveError": "Failed to save configuration",
+    "webSearchProviderLabel": "Provider",
+    "webSearchApiKeyLabel": "API Key (optional)",
+    "webSearchQuotaHintBefore": "Free: 100 calls/day. Register at ",
+    "webSearchQuotaHintAfter": " for 1,000/day.",
     "active": "active",
     "available": "Available",
     "noEnabled": "No tools enabled",

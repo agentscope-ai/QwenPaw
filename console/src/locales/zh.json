@@ -392,7 +392,9 @@
       "safety": "安全快照",
       "commit": "提交"
     },
-    "summary": { "total": "个检查点" },
+    "summary": {
+      "total": "个检查点"
+    },
     "snapshotDialog": {
       "title": "创建快照",
       "session": "会话",
@@ -2854,6 +2856,10 @@
     "requiresConfig": "需要配置",
     "configSaved": "配置已保存",
     "configSaveError": "配置保存失败",
+    "webSearchProviderLabel": "搜索服务商",
+    "webSearchApiKeyLabel": "API 密钥（可选）",
+    "webSearchQuotaHintBefore": "未注册每日限 100 次，前往 ",
+    "webSearchQuotaHintAfter": " 注册可享每日 1000 次免费额度。",
     "active": "个已激活",
     "available": "可用",
     "noEnabled": "暂无已启用的工具",
