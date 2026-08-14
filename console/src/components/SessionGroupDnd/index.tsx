@@ -1,6 +1,7 @@
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   MouseSensor,
   TouchSensor,
   useDraggable,
@@ -17,6 +18,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -55,11 +57,14 @@ export function SessionGroupDndProvider({
     }),
   );
   const [active, setActive] = useState<DragData | null>(null);
+  const activeRef = useRef<DragData | null>(null);
   const [overGroupId, setOverGroupId] = useState<string | null>(null);
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
-      setActive(event.active.data.current as DragData);
+      const source = event.active.data.current as DragData;
+      activeRef.current = source;
+      setActive(source);
       setOverGroupId(null);
       onDragStateChange(true);
     },
@@ -76,6 +81,7 @@ export function SessionGroupDndProvider({
   }, []);
 
   const handleDragCancel = useCallback(() => {
+    activeRef.current = null;
     setActive(null);
     setOverGroupId(null);
     onDragStateChange(false);
@@ -83,8 +89,9 @@ export function SessionGroupDndProvider({
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const source = event.active.data.current as DragData | undefined;
+      const source = activeRef.current;
       const groupId = event.over?.data.current?.groupId;
+      activeRef.current = null;
       setActive(null);
       setOverGroupId(null);
       onDragStateChange(false);
@@ -102,6 +109,12 @@ export function SessionGroupDndProvider({
   return (
     <DndContext
       sensors={sensors}
+      measuring={{
+        droppable: {
+          strategy: MeasuringStrategy.Always,
+          frequency: 16,
+        },
+      }}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragCancel={handleDragCancel}

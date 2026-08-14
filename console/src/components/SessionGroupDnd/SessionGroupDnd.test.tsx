@@ -9,8 +9,13 @@ vi.mock("@dnd-kit/core", () => ({
     onDragEnd,
     onDragOver,
     onDragCancel,
+    measuring,
   }: any) => (
-    <div>
+    <div
+      data-testid="dnd-context"
+      data-measuring-strategy={measuring?.droppable?.strategy}
+      data-measuring-frequency={measuring?.droppable?.frequency}
+    >
       {children}
       <button
         onClick={() =>
@@ -31,7 +36,7 @@ vi.mock("@dnd-kit/core", () => ({
       </button>
       <button
         onClick={() =>
-          onDragOver({ over: { data: { current: { groupId: "research" } } } })
+          onDragOver({ over: { data: { current: { groupId: "new-group" } } } })
         }
       >
         hover target
@@ -40,15 +45,9 @@ vi.mock("@dnd-kit/core", () => ({
         onClick={() =>
           onDragEnd({
             active: {
-              data: {
-                current: {
-                  sessionId: "session-1",
-                  groupId: "work",
-                  label: "Conversation",
-                },
-              },
+              data: { current: {} },
             },
-            over: { data: { current: { groupId: "research" } } },
+            over: { data: { current: { groupId: "new-group" } } },
           })
         }
       >
@@ -58,6 +57,7 @@ vi.mock("@dnd-kit/core", () => ({
     </div>
   ),
   DragOverlay: ({ children }: any) => children,
+  MeasuringStrategy: { Always: "always" },
   MouseSensor: class {},
   TouchSensor: class {},
   useSensor: vi.fn(),
@@ -67,7 +67,7 @@ vi.mock("@dnd-kit/core", () => ({
 }));
 
 describe("SessionGroupDndProvider", () => {
-  it("reports drag state and moves only the dragged session", () => {
+  it("moves the session after its source node is unmounted", () => {
     const onMove = vi.fn();
     const onDragStateChange = vi.fn();
     render(
@@ -85,7 +85,15 @@ describe("SessionGroupDndProvider", () => {
 
     expect(onDragStateChange).toHaveBeenNthCalledWith(1, true);
     expect(onDragStateChange).toHaveBeenNthCalledWith(2, false);
-    expect(onMove).toHaveBeenCalledWith("session-1", "research");
+    expect(onMove).toHaveBeenCalledWith("session-1", "new-group");
+    expect(screen.getByTestId("dnd-context")).toHaveAttribute(
+      "data-measuring-strategy",
+      "always",
+    );
+    expect(screen.getByTestId("dnd-context")).toHaveAttribute(
+      "data-measuring-frequency",
+      "16",
+    );
   });
 
   it("restores the list when dragging is cancelled", () => {
