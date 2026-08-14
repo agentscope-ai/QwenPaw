@@ -11,6 +11,7 @@ from agentscope.model import FinishedReason
 
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
+from qwenpaw.providers.model_capability_cache import get_capability_cache
 
 
 _AUDIO_MODAL_ERROR = (
@@ -161,7 +162,10 @@ async def test_audio_modal_error_strips_audio_and_retries_once(
     monkeypatch,
 ) -> None:
     _skip_media_strip(monkeypatch)
+    cache = get_capability_cache()
+    cache.clear()
     agent = make_agent(SeenTracker())
+    agent.model = SimpleNamespace(model_key="dashscope:qwen3.7-plus")
     agent._uses_request_time_media_normalization = lambda: True
     agent.formatter = SimpleNamespace(
         _qwenpaw_last_wire_media_count=1,
@@ -186,9 +190,22 @@ async def test_audio_modal_error_strips_audio_and_retries_once(
 
     monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
 
-    events = [event async for event in agent._reasoning()]
+    try:
+        events = [event async for event in agent._reasoning()]
+        next_events = [event async for event in agent._reasoning()]
 
-    assert calls == 2
-    assert isinstance(events[-1], Msg)
-    assert agent.formatter._qwenpaw_force_strip_audio is False
-    assert agent.formatter._qwenpaw_force_strip_media is False
+        assert calls == 3
+        assert isinstance(events[-1], Msg)
+        assert isinstance(next_events[-1], Msg)
+        assert (
+            cache.get(
+                "dashscope:qwen3.7-plus",
+                "rejects_audio",
+                False,
+            )
+            is True
+        )
+        assert agent.formatter._qwenpaw_force_strip_audio is False
+        assert agent.formatter._qwenpaw_force_strip_media is False
+    finally:
+        cache.clear()

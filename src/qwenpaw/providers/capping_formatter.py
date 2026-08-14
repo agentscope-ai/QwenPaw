@@ -53,6 +53,13 @@ from pydantic import Field
 # rationale.
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
+_DASHSCOPE_AUDIO_FORMAT_BY_MIME = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+}
+
 
 def _resolve_local_path(url: str) -> str | None:
     """Resolve a URL or bare path to a local filesystem path.
@@ -270,13 +277,18 @@ class _CappingDashScopeFormatter(
         # Base64Source audio data as a data URL.
         if isinstance(normalized_source, Base64Source):
             media_type = normalized_source.media_type
+            provider_format = _DASHSCOPE_AUDIO_FORMAT_BY_MIME.get(media_type)
+            if provider_format is None:
+                raise ValueError(
+                    f"Unsupported DashScope audio MIME type: {media_type}",
+                )
             return {
                 "type": "input_audio",
                 "input_audio": {
                     "data": (
                         f"data:{media_type};base64,{normalized_source.data}"
                     ),
-                    "format": media_type.split("/")[-1],
+                    "format": provider_format,
                 },
             }
         return super()._format_audio_source(normalized_source)

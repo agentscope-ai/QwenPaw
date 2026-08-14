@@ -504,6 +504,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         return get_capability_cache().get(key, "rejects_media", False)
 
+    def _model_rejects_audio(self) -> bool:
+        """Check the capability cache for a learned audio rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_audio", False)
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -580,7 +587,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
-        invalid_url = "provided url does not appear to be valid" in error_str
         invalid_modal = all(
             marker in error_str
             for marker in (
@@ -594,7 +600,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return (
             has_bad_request_status
             and "internalerror.algo.invalidparameter" in error_str
-            and (invalid_url or invalid_modal)
+            and invalid_modal
         )
 
     async def _prepare_model_input(self) -> dict[str, Any]:
@@ -753,11 +759,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
 
-        should_strip = (
+        should_strip_media = (
             not _supports_multimodal_for_current_model()
             or self._model_rejects_media()
         )
-        if should_strip:
+        should_strip_audio = (
+            not should_strip_media and self._model_rejects_audio()
+        )
+        if should_strip_media:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
             else:
@@ -768,6 +777,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         "_reasoning (model lacks multimodal support).",
                         n,
                     )
+        elif (
+            should_strip_audio
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_audio_strip(True)
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
@@ -813,6 +827,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and self._is_explicit_media_capability_error(e)
             )
             if not (audio_fallback_retry or media_capability_retry):
+                if self._uses_request_time_media_normalization():
+                    if should_strip_media:
+                        self._set_formatter_media_strip(False)
+                    if should_strip_audio:
+                        self._set_formatter_audio_strip(False)
                 raise
 
             model_key = self._get_model_key()
@@ -854,15 +873,22 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         "rejects_media",
                         True,
                     )
+                if model_key and audio_fallback_retry:
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_audio",
+                        True,
+                    )
             finally:
                 if self._uses_request_time_media_normalization():
-                    if audio_fallback_retry:
-                        self._set_formatter_audio_strip(False)
-                    else:
-                        self._set_formatter_media_strip(False)
+                    self._set_formatter_audio_strip(False)
+                    self._set_formatter_media_strip(False)
         else:
-            if should_strip and self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(False)
+            if self._uses_request_time_media_normalization():
+                if should_strip_media:
+                    self._set_formatter_media_strip(False)
+                if should_strip_audio:
+                    self._set_formatter_audio_strip(False)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)

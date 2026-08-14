@@ -323,7 +323,7 @@ async def test_dashscope_audio_strip_flag_preserves_other_media(
         "type": "input_audio",
         "input_audio": {
             "data": (f"data:audio/mpeg;base64,{audio_block.source.data}"),
-            "format": "mpeg",
+            "format": "mp3",
         },
     }
     assert formatter._qwenpaw_last_wire_media_count == 3
