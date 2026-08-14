@@ -18,6 +18,7 @@ import type {
 } from "./api";
 import { normalizeEdge, normalizeNode } from "./api";
 import { compactLabel, layoutGraph } from "./graph-layout";
+import { CloseIcon, PlayIcon, SearchIcon } from "./icons";
 import { PageHeader } from "./PageHeader";
 
 interface GraphApi {
@@ -211,7 +212,7 @@ export function GraphExplorer({
               placeholder="Search nodes and neighbors"
             />
             <button type="submit" aria-label="Search">
-              ⌕
+              <SearchIcon size={14} />
             </button>
           </form>
           <div className="datapaw-zone-list">
@@ -266,7 +267,10 @@ export function GraphExplorer({
                 spellCheck={false}
               />
               <button type="submit" disabled={loading}>
-                Run query <span>▶</span>
+                Run query{" "}
+                <span>
+                  <PlayIcon size={11} />
+                </span>
               </button>
             </form>
           ) : null}
@@ -402,7 +406,7 @@ export function GraphExplorer({
               onClick={() => setSelectedNodeId("")}
               aria-label="Close properties"
             >
-              ×
+              <CloseIcon size={14} />
             </button>
             <span className="datapaw-eyebrow">{selectedNode.zone}</span>
             <h2>{selectedNode.label}</h2>

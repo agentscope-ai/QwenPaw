@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DataSourceMetadata } from "./api";
+import {
+  ArrowUpIcon,
+  ArrowUpRightIcon,
+  EllipsisIcon,
+  PinIcon,
+} from "./icons";
 import { LogoMark } from "./LogoMark";
 import { renderMarkdown, splitCompletionMarker } from "./markdown";
 import type {
@@ -608,7 +614,11 @@ function DialogueHistory({
                     onClick={() => onSelect(session.sessionId)}
                   >
                     <b>
-                      {session.pinned ? <i aria-label="Pinned">📌</i> : null}
+                      {session.pinned ? (
+                        <i aria-label="Pinned">
+                          <PinIcon size={12} />
+                        </i>
+                      ) : null}
                       {session.name}
                     </b>
                     <small>{sessionTimestamp(session.updatedAt)}</small>
@@ -625,7 +635,7 @@ function DialogueHistory({
                           : setMenuFor(session.id)
                       }
                     >
-                      ⋯
+                      <EllipsisIcon size={14} />
                     </button>
                   )}
                   {menuFor === session.id ? (
@@ -1099,7 +1109,9 @@ export function ChatWorkspace({
                     onClick={() => void submit(starter)}
                   >
                     <span>{starter}</span>
-                    <b aria-hidden="true">↗</b>
+                    <b aria-hidden="true">
+                      <ArrowUpRightIcon size={12} />
+                    </b>
                   </button>
                 ))}
               </div>
@@ -1157,7 +1169,7 @@ export function ChatWorkspace({
             disabled={!draft.trim() || sending || restoring}
             aria-label="Send"
           >
-            ↑
+            <ArrowUpIcon size={16} />
           </button>
           <div className="datapaw-composer__hint">
             QwenPaw-Data may execute read-only queries. Verify important

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 
 import {
   createQwenPawDataApi,
@@ -8,6 +9,7 @@ import {
 import { ChatWorkspace } from "./ChatWorkspace";
 import { DataSources } from "./DataSources";
 import { EmbeddedConsole } from "./EmbeddedConsole";
+import { LayoutGridIcon, SettingsIcon, SparklesIcon } from "./icons";
 import { WordmarkLogo } from "./LogoMark";
 import type { PawAppSdk } from "./sdk";
 import type { PawDependencyAction, PawDependencySnapshot } from "./sdk";
@@ -15,9 +17,9 @@ import { buildAppStatusModel } from "./status";
 
 type Page = "analysis" | "manage" | "health";
 
-const NAVIGATION: Array<{ id: Page; icon: string; label: string }> = [
-  { id: "analysis", icon: "✦", label: "Analyze" },
-  { id: "manage", icon: "❖", label: "Manage" },
+const NAVIGATION: Array<{ id: Page; icon: ReactNode; label: string }> = [
+  { id: "analysis", icon: <SparklesIcon />, label: "Analyze" },
+  { id: "manage", icon: <LayoutGridIcon />, label: "Manage" },
 ];
 
 /**
@@ -216,7 +218,7 @@ export function App({ paw }: { paw: PawAppSdk }) {
             aria-label="Model settings"
             onClick={openModelSettings}
           >
-            ⚙︎
+            <SettingsIcon size={18} />
           </button>
           <button
             type="button"
