@@ -9,6 +9,10 @@ from typing import Any
 
 from .env_ref import env_alias, parse_env_template
 from ..credentials.types import CredentialRecord
+from ...security.secret_store import (  # pylint: disable=unused-import
+    mask_secret_value as mask_mcp_secret_value,
+    restore_masked_secret_value as restore_masked_value,
+)
 
 _SAFE_KEY_PATTERN = re.compile(r"[^a-z0-9_]+")
 
@@ -292,27 +296,3 @@ def binding_plain_keys(
     for key in dict(binding.get("secret_refs") or {}):
         result[str(key)] = ""
     return result
-
-
-def restore_masked_value(incoming: str, existing: str) -> str:
-    """Return the existing secret when incoming equals its masked display."""
-    if existing and incoming == mask_mcp_secret_value(existing):
-        return existing
-    return incoming
-
-
-def mask_mcp_secret_value(value: str) -> str:
-    """Mask a secret value for Console display."""
-    if not value:
-        return value
-    length = len(value)
-    if length <= 8:
-        return "*" * length
-    if length <= 12:
-        return f"{value[:1]}{'*' * max(length - 2, 4)}{value[-1:]}"
-    prefix_len = 3 if length > 2 and value[2] == "-" else 2
-    prefix = value[:prefix_len]
-    suffix_len = 4 if length >= 16 else 2
-    suffix = value[-suffix_len:]
-    masked_len = max(length - prefix_len - suffix_len, 4)
-    return f"{prefix}{'*' * masked_len}{suffix}"
