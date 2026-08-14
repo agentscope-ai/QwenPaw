@@ -17,7 +17,13 @@ import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../turnUsageStore";
+import sessionApi from "../sessionApi";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
+import {
+  syncSessionsGlobal,
+  useSessionListStore,
+  type ExtendedSession,
+} from "../../../stores/sessionListStore";
 import {
   getPendingModelOverride,
   setPendingModelOverride,
@@ -61,6 +67,24 @@ interface ModelSelectorProps {
   chatId?: string;
 }
 
+function getSessionModelSlot(
+  sessions: ExtendedSession[],
+  chatId?: string,
+): ActiveModelsInfo["active_llm"] | undefined {
+  if (!chatId) return undefined;
+  const session = sessions.find(
+    (item) => item.id === chatId || item.realId === chatId,
+  );
+  const runtimeContext = session?.meta?.runtime_context;
+  if (!runtimeContext || typeof runtimeContext !== "object") return undefined;
+  const value = (runtimeContext as Record<string, unknown>).model_slot_override;
+  if (!value || typeof value !== "object") return undefined;
+  const slot = value as Record<string, unknown>;
+  return typeof slot.provider_id === "string" && typeof slot.model === "string"
+    ? { provider_id: slot.provider_id, model: slot.model }
+    : undefined;
+}
+
 export default function ModelSelector({
   sessionId = "new",
   chatId,
@@ -92,7 +116,15 @@ export default function ModelSelector({
   const location = useLocation();
   const navigate = useNavigate();
   const { selectedAgent } = useAgentStore();
+  const sessions = useSessionListStore((state) => state.sessions);
   const canSelectModel = Boolean(chatId);
+  const sessionModel = useMemo(
+    () => getSessionModelSlot(sessions, chatId),
+    [chatId, sessions],
+  );
+  const [pendingModel, setPendingModel] = useState(() =>
+    getPendingModelOverride(selectedAgent, sessionId),
+  );
 
   const [showMoreFree, setShowMoreFree] = useState(false);
   const moreContentRef = useRef<HTMLDivElement>(null);
@@ -135,16 +167,12 @@ export default function ModelSelector({
         providerApi.getActiveModels({
           scope: "effective",
           agent_id: selectedAgent,
-          ...(chatId ? { chat_id: chatId } : {}),
         }),
       ]);
       if (Array.isArray(provData)) setProviders(provData);
       if (activeData) {
-        const pending = getPendingModelOverride(selectedAgent, sessionId);
-        setActiveModels(
-          pending ? { ...activeData, active_llm: pending } : activeData,
-        );
-        if (!pending) {
+        setActiveModels(activeData);
+        if (!pendingModel && !sessionModel) {
           publishActiveMaxInputLength(activeData.effective_max_input_length);
         }
       }
@@ -153,12 +181,13 @@ export default function ModelSelector({
     } finally {
       setLoading(false);
     }
-  }, [chatId, selectedAgent, sessionId]);
+  }, [pendingModel, selectedAgent, sessionModel]);
 
   useEffect(() => {
     if (!chatId) {
       setPendingModelOverride(selectedAgent, sessionId, null);
     }
+    setPendingModel(getPendingModelOverride(selectedAgent, sessionId));
   }, [chatId, selectedAgent, sessionId]);
 
   useEffect(() => {
@@ -174,18 +203,10 @@ export default function ModelSelector({
           value: ActiveModelsInfo["active_llm"] | null;
         }>
       ).detail;
-      if (
-        detail?.agentId !== selectedAgent ||
-        detail.sessionId !== sessionId ||
-        !detail.value
-      ) {
+      if (detail?.agentId !== selectedAgent || detail.sessionId !== sessionId) {
         return;
       }
-      const value = detail.value;
-      setActiveModels((current) => ({
-        ...(current ?? {}),
-        active_llm: value,
-      }));
+      setPendingModel(detail.value ?? null);
     };
     window.addEventListener(
       "session-model-override-changed",
@@ -202,7 +223,12 @@ export default function ModelSelector({
     const handleModelCommandCompleted = (event: Event) => {
       const detail = (event as CustomEvent<{ agentId?: string }>).detail;
       if (detail?.agentId && detail.agentId !== selectedAgent) return;
-      void fetchData();
+      void sessionApi
+        .refreshSessionList()
+        .then((nextSessions) => {
+          syncSessionsGlobal(nextSessions as ExtendedSession[]);
+        })
+        .catch(() => {});
     };
     window.addEventListener(
       "session-model-command-completed",
@@ -213,7 +239,7 @@ export default function ModelSelector({
         "session-model-command-completed",
         handleModelCommandCompleted,
       );
-  }, [fetchData, selectedAgent]);
+  }, [selectedAgent]);
 
   // Re-sync active model whenever the route switches back to /chat
   const prevPathRef = useRef(location.pathname);
@@ -227,15 +253,11 @@ export default function ModelSelector({
         .getActiveModels({
           scope: "effective",
           agent_id: selectedAgent,
-          ...(chatId ? { chat_id: chatId } : {}),
         })
         .then((activeData) => {
           if (activeData) {
-            const pending = getPendingModelOverride(selectedAgent, sessionId);
-            setActiveModels(
-              pending ? { ...activeData, active_llm: pending } : activeData,
-            );
-            if (!pending) {
+            setActiveModels(activeData);
+            if (!pendingModel && !sessionModel) {
               publishActiveMaxInputLength(
                 activeData.effective_max_input_length,
               );
@@ -244,7 +266,7 @@ export default function ModelSelector({
         })
         .catch(() => {});
     }
-  }, [chatId, location.pathname, selectedAgent, sessionId]);
+  }, [location.pathname, pendingModel, selectedAgent, sessionModel]);
 
   // Eligible providers: configured + has models, OR is_free_tier
   const eligibleProviders: EligibleProvider[] = providers
@@ -332,8 +354,20 @@ export default function ModelSelector({
     }
   }, [open]);
 
-  const activeProviderId = activeModels?.active_llm?.provider_id;
-  const activeModelId = activeModels?.active_llm?.model;
+  const effectiveModel =
+    pendingModel ?? sessionModel ?? activeModels?.active_llm;
+  const activeProviderId = effectiveModel?.provider_id;
+  const activeModelId = effectiveModel?.model;
+
+  useEffect(() => {
+    if (!pendingModel && !sessionModel) return;
+    const provider = providers.find((item) => item.id === activeProviderId);
+    const model = [
+      ...(provider?.models ?? []),
+      ...(provider?.extra_models ?? []),
+    ].find((item) => item.id === activeModelId);
+    publishActiveMaxInputLength(model?.max_input_length);
+  }, [activeModelId, activeProviderId, pendingModel, providers, sessionModel]);
 
   // Display label for trigger button
   const activeModelName = (() => {
@@ -433,7 +467,6 @@ export default function ModelSelector({
       ...(current ?? {}),
       active_llm: slot,
     }));
-    publishActiveMaxInputLength(targetModel?.max_input_length);
   };
 
   const handleOAuthSuccess = async () => {

@@ -46,18 +46,6 @@ describe("providerApi", () => {
     );
   });
 
-  it("getActiveModels sends the resolved chat id as a header", async () => {
-    await providerApi.getActiveModels({
-      scope: "effective",
-      agent_id: "agent-1",
-      chat_id: "chat-1",
-    });
-    expect(request).toHaveBeenCalledWith(
-      "/models/active?scope=effective&agent_id=agent-1",
-      { headers: { "X-Chat-Id": "chat-1" } },
-    );
-  });
-
   it("setActiveLlm sends a PUT request", async () => {
     const body = {
       provider_id: "openai",

@@ -920,9 +920,7 @@ class TestStreamWithTracker:
             yield mock_event
 
         base_channel._process = mock_process
-        mock_workspace = MagicMock()
-        mock_workspace.chat_manager = AsyncMock()
-        base_channel.set_workspace(mock_workspace)
+        base_channel.set_workspace(MagicMock())
 
         mock_payload = MagicMock()
         with patch.object(

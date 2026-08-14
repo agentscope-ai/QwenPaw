@@ -114,6 +114,10 @@ import {
   useSessionFilesDrawer,
 } from "../../stores/filesSurfaceStore";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
+import {
+  syncSessionsGlobal,
+  type ExtendedSession,
+} from "../../stores/sessionListStore";
 import RichFileReferenceInput, {
   RichFileReferenceInputProvider,
 } from "./RichFileReferenceInput";
@@ -1188,11 +1192,10 @@ export default function ChatPage() {
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
-  const [sessionResolutionVersion, setSessionResolutionVersion] = useState(0);
+  const [, setSessionResolutionVersion] = useState(0);
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
-  const backendChatId = useMemo(
-    () => resolveBackendChatId(chatId ?? sessionApi.lastActiveChatId),
-    [chatId, selectedAgent, sessionResolutionVersion],
+  const backendChatId = resolveBackendChatId(
+    chatId ?? sessionApi.lastActiveChatId,
   );
   const pendingProjectDir = backendChatId
     ? undefined
@@ -2738,19 +2741,26 @@ export default function ChatPage() {
         if (appliedProjectDir && projectSessionId) {
           setPendingProjectDirectory(selectedAgent, projectSessionId, null);
         }
-        if (appliedModelOverride && projectSessionId) {
-          setPendingModelOverride(selectedAgent, projectSessionId, null);
-        }
         sessionApi.triggerResolve(localIdToResolve);
       }
 
       return wrapChatResponseUsageStream(response, chatRef, () => {
-        if (!refreshModelAfterResponse) return;
-        window.dispatchEvent(
-          new CustomEvent("session-model-command-completed", {
-            detail: { agentId: selectedAgent },
-          }),
-        );
+        if (appliedModelOverride && projectSessionId) {
+          void sessionApi
+            .refreshSessionList()
+            .then((nextSessions) => {
+              syncSessionsGlobal(nextSessions as ExtendedSession[]);
+              setPendingModelOverride(selectedAgent, projectSessionId, null);
+            })
+            .catch(() => {});
+        }
+        if (refreshModelAfterResponse) {
+          window.dispatchEvent(
+            new CustomEvent("session-model-command-completed", {
+              detail: { agentId: selectedAgent },
+            }),
+          );
+        }
       });
     },
     [

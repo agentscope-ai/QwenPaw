@@ -1375,18 +1375,13 @@ def create_model_and_formatter(
     Example:
         >>> model, formatter = create_model_and_formatter()
     """
-    from ..app.agent_context import (
-        get_current_agent_id,
-        get_current_model_slot_override,
-    )
+    from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
-    from ..services.model_selection import resolve_effective_model_slot
+    from ..services.model_selection import get_current_model_slot
 
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
         agent_id = get_current_agent_id()
-    if model_slot_override is None:
-        model_slot_override = get_current_model_slot_override()
 
     manager = ProviderManager.get_instance()
     agent_model = None
@@ -1419,14 +1414,10 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    model_slot, _source = resolve_effective_model_slot(
+    model_slot, _source = get_current_model_slot(
+        agent_id=agent_id,
         request_override=model_slot_override,
         agent_model=agent_model,
-        global_model=(
-            manager.get_active_model()
-            if hasattr(manager, "get_active_model")
-            else None
-        ),
     )
 
     # Create the chat model from the unified request/session/agent/global slot.

@@ -104,7 +104,6 @@ export type ActiveModelScope = "effective" | "global" | "agent";
 export interface GetActiveModelsRequest {
   scope?: ActiveModelScope;
   agent_id?: string;
-  chat_id?: string;
 }
 
 export interface ModelSlotRequest {

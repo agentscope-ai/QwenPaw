@@ -4,6 +4,7 @@
 Shared by the web app lifespan and ACP server to eliminate duplicated
 bootstrap logic that previously drifted independently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -77,6 +78,9 @@ class WorkspaceBootstrapFactory:
                 ContextVarsSetupHook,
             )
             from ...hooks.request_setup.media_hook import MediaProcessHook
+            from ...hooks.request_setup.model_context_hook import (
+                ModelContextHook,
+            )
             from ...hooks.session.session_hook import (
                 SessionLoadHook,
                 SessionSaveHook,
@@ -100,6 +104,7 @@ class WorkspaceBootstrapFactory:
                 SkillEnvHook,
                 SkillEnvCleanupHook,
                 ContextVarsSetupHook,
+                ModelContextHook,
                 AgentContextVarsSetupHook,
                 MediaProcessHook,
                 ErrorNormalizeHook,

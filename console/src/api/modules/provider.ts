@@ -57,17 +57,10 @@ export const providerApi = {
     }),
 
   getActiveModels: (params?: GetActiveModelsRequest) => {
-    const path = buildActiveModelQuery(params);
-    const key = `${path}#${params?.chat_id ?? ""}`;
+    const key = buildActiveModelQuery(params);
     const cached = activeModelPromises.get(key);
     if (cached) return cached;
-    const promise = (
-      params?.chat_id
-        ? request<ActiveModelsInfo>(path, {
-            headers: { "X-Chat-Id": params.chat_id },
-          })
-        : request<ActiveModelsInfo>(path)
-    ).finally(() => {
+    const promise = request<ActiveModelsInfo>(key).finally(() => {
       activeModelPromises.delete(key);
     });
     activeModelPromises.set(key, promise);

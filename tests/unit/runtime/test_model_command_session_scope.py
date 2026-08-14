@@ -6,14 +6,25 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.runtime.commands.control.model_handler import ModelCommandHandler
+from qwenpaw.services.model_selection import (
+    clear_current_model_context,
+    ModelSelectionContext,
+    set_current_model_context,
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_model_context():
+    clear_current_model_context()
+    yield
+    clear_current_model_context()
 
 
 def _context():
-    chat = SimpleNamespace(id="chat-1", meta={})
     chat_manager = SimpleNamespace(
-        get_or_create_chat=AsyncMock(return_value=chat),
-        set_model_slot_override=AsyncMock(return_value=chat),
+        set_model_slot_override=AsyncMock(),
     )
     return SimpleNamespace(
         workspace=SimpleNamespace(
@@ -38,6 +49,14 @@ async def test_model_switch_updates_only_current_chat(monkeypatch):
         AsyncMock(return_value=(True, "")),
     )
     context = _context()
+    set_current_model_context(
+        ModelSelectionContext(
+            slot=ModelSlotConfig(provider_id="agent", model="default"),
+            source="agent",
+            chat_id="chat-1",
+            agent_slot=ModelSlotConfig(provider_id="agent", model="default"),
+        ),
+    )
     set_model_slot_override = (
         context.workspace.chat_manager.set_model_slot_override
     )
@@ -53,24 +72,25 @@ async def test_model_switch_updates_only_current_chat(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_model_reset_clears_only_current_chat(monkeypatch):
+async def test_model_reset_clears_only_current_chat():
     handler = ModelCommandHandler()
     context = _context()
+    set_current_model_context(
+        ModelSelectionContext(
+            slot=ModelSlotConfig(provider_id="openai", model="gpt-4o"),
+            source="session",
+            chat_id="chat-1",
+            session_slot=ModelSlotConfig(
+                provider_id="openai",
+                model="gpt-4o",
+            ),
+            agent_slot=ModelSlotConfig(provider_id="agent", model="default"),
+        ),
+    )
     set_model_slot_override = (
         context.workspace.chat_manager.set_model_slot_override
     )
     context.args["_raw_args"] = "reset"
-    monkeypatch.setattr(
-        handler,
-        "_effective_model",
-        AsyncMock(
-            return_value=(
-                SimpleNamespace(provider_id="agent", model="default"),
-                "agent",
-            ),
-        ),
-    )
-
     result = await handler.handle(context)
 
     set_model_slot_override.assert_awaited_once_with(

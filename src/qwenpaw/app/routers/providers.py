@@ -22,11 +22,7 @@ from qwenpaw.exceptions import (
 
 from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
-from ...config.config import (
-    load_agent_config,
-    load_agent_config_async,
-    save_agent_config,
-)
+from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
@@ -219,7 +215,7 @@ async def _load_agent_model(
 ) -> ModelSlotConfig | None:
     """Load the model configured for a specific agent."""
     workspace = await get_agent_for_request(request, agent_id=agent_id)
-    agent_config = await load_agent_config_async(workspace.agent_id)
+    agent_config = load_agent_config(workspace.agent_id)
     return agent_config.active_model
 
 
@@ -646,7 +642,7 @@ async def get_active_models(
 ) -> ActiveModelsInfo:
     """Get active model by scope.
 
-    - effective: Session-specific first, then agent and global fallback
+    - effective: agent-specific first, otherwise global fallback
     - global: ProviderManager global model only
     - agent: a specific agent's configured model only
     """
@@ -665,34 +661,21 @@ async def get_active_models(
         )
 
     try:
-        workspace = await get_agent_for_request(request, agent_id=agent_id)
-        agent_config = await load_agent_config_async(workspace.agent_id)
-        chat_meta = None
-        chat_id = request.headers.get("X-Chat-Id")
-        if chat_id:
-            chat = await workspace.chat_manager.get_chat(chat_id)
-            if chat is None:
-                raise HTTPException(status_code=404, detail="Chat not found")
-            chat_meta = chat.meta
+        target_agent_id = agent_id
+        if target_agent_id is None:
+            workspace = await get_agent_for_request(request)
+            target_agent_id = workspace.agent_id
 
-        from ...services.model_selection import resolve_effective_model_slot
-
-        active_model, source = resolve_effective_model_slot(
-            chat_meta=chat_meta,
-            agent_model=agent_config.active_model,
-            global_model=manager.get_active_model(),
-        )
-        if active_model:
+        agent_model = await _load_agent_model(request, target_agent_id)
+        if agent_model:
             logger.info(
-                "Returning %s model for %s: %s",
-                source,
-                workspace.agent_id,
-                active_model,
+                "Returning agent-specific model for %s: %s",
+                target_agent_id,
+                agent_model,
             )
-            return _active_models_info(manager, active_model)
-    except HTTPException:
-        raise
+            return _active_models_info(manager, agent_model)
     except (
+        HTTPException,
         OSError,
         ValueError,
         TypeError,

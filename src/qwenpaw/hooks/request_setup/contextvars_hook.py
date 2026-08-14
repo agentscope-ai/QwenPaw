@@ -41,7 +41,6 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_agent_id,
             set_current_approval_route,
             set_current_channel,
-            set_current_model_slot_override,
             set_current_root_session_id,
             set_current_session_id as _set_app_session_id,
             set_current_user_id,
@@ -59,9 +58,6 @@ class ContextVarsSetupHook(LifecycleHook):
         set_current_computer_use_turn_id(uuid.uuid4().hex)
         set_current_user_id(ctx.request.user_id)
         set_current_channel(getattr(ctx.request, "channel", None))
-        set_current_model_slot_override(
-            getattr(ctx.request, "model_slot_override", None),
-        )
         request_context = getattr(ctx.request, "request_context", None)
         if isinstance(request_context, dict) and request_context.get(
             "_spawn_subagent",

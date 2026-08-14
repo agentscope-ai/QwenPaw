@@ -17,7 +17,14 @@ vi.mock("@/api/modules/provider", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({ selectedAgent: "default" })),
+  useAgentStore: Object.assign(
+    vi.fn(() => ({ selectedAgent: "default" })),
+    { subscribe: vi.fn() },
+  ),
+}));
+
+vi.mock("../sessionApi", () => ({
+  default: { refreshSessionList: vi.fn() },
 }));
 
 vi.mock("react-i18next", () => ({
@@ -42,6 +49,11 @@ vi.mock("lucide-react", () => ({
 // ---------------------------------------------------------------------------
 
 import { providerApi } from "@/api/modules/provider";
+import sessionApi from "../sessionApi";
+import {
+  useSessionListStore,
+  type ExtendedSession,
+} from "@/stores/sessionListStore";
 
 const mockProvider = {
   id: "openai",
@@ -112,6 +124,7 @@ function renderEstablishedSelector() {
 describe("ModelSelector", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    useSessionListStore.setState({ sessions: [] });
     setupDefaultMocks();
   });
 
@@ -263,6 +276,40 @@ describe("ModelSelector", () => {
     ).toBeInTheDocument();
   });
 
+  it("displays the persisted model from chat metadata", async () => {
+    const switched = vi.fn();
+    window.addEventListener("model-switched", switched);
+    useSessionListStore.setState({
+      sessions: [
+        {
+          id: "chat-1",
+          name: "Chat",
+          messages: [],
+          meta: {
+            runtime_context: {
+              model_slot_override: {
+                provider_id: "openai",
+                model: "gpt-3.5-turbo",
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    renderEstablishedSelector();
+
+    expect(
+      (await screen.findAllByText("GPT-3.5 Turbo"))[0],
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(switched).toHaveBeenCalledWith(
+        expect.objectContaining({ detail: { maxInputLength: 16384 } }),
+      ),
+    );
+    window.removeEventListener("model-switched", switched);
+  });
+
   it("does not open model selection before the first message", async () => {
     sessionStorage.setItem(
       "qwenpaw-session-model-override:default:new",
@@ -298,9 +345,21 @@ describe("ModelSelector", () => {
   it("refreshes the displayed model after a model command completes", async () => {
     renderEstablishedSelector();
     await screen.findAllByText("GPT-4");
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      active_llm: { provider_id: "openai", model: "gpt-3.5-turbo" },
-    });
+    vi.mocked(sessionApi.refreshSessionList).mockResolvedValue([
+      {
+        id: "chat-1",
+        name: "Chat",
+        messages: [],
+        meta: {
+          runtime_context: {
+            model_slot_override: {
+              provider_id: "openai",
+              model: "gpt-3.5-turbo",
+            },
+          },
+        },
+      } as ExtendedSession,
+    ]);
 
     act(() => {
       window.dispatchEvent(
@@ -313,10 +372,6 @@ describe("ModelSelector", () => {
     expect(
       (await screen.findAllByText("GPT-3.5 Turbo"))[0],
     ).toBeInTheDocument();
-    expect(providerApi.getActiveModels).toHaveBeenLastCalledWith({
-      scope: "effective",
-      agent_id: "default",
-      chat_id: "chat-1",
-    });
+    expect(sessionApi.refreshSessionList).toHaveBeenCalledOnce();
   });
 });

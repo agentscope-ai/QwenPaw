@@ -133,34 +133,6 @@ async def _apply_session_project_dir(
     return updated or chat
 
 
-async def _apply_session_model_slot(workspace, chat, native_payload):
-    """Persist a request model selection or restore the Session selection."""
-    from ...services.model_selection import (
-        parse_model_slot,
-        session_model_slot,
-    )
-
-    raw_slot = native_payload.get("model_slot_override")
-    if raw_slot is not None:
-        slot = parse_model_slot(raw_slot)
-        if slot is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid model_slot_override",
-            )
-        updated = await workspace.chat_manager.set_model_slot_override(
-            chat.id,
-            slot.model_dump(),
-        )
-        chat = updated or chat
-    else:
-        slot = session_model_slot(chat.meta)
-
-    if slot is not None:
-        native_payload["model_slot_override"] = slot.model_dump()
-    return chat
-
-
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -341,11 +313,6 @@ async def post_console_chat(
             return _empty_sse_response()
     else:
         chat = await _apply_session_project_dir(
-            workspace,
-            chat,
-            native_payload,
-        )
-        chat = await _apply_session_model_slot(
             workspace,
             chat,
             native_payload,
@@ -768,11 +735,6 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         name=name,
     )
     chat = await _apply_session_project_dir(
-        workspace,
-        chat,
-        native_payload,
-    )
-    chat = await _apply_session_model_slot(
         workspace,
         chat,
         native_payload,

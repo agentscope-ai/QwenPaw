@@ -882,42 +882,6 @@ class BaseChannel(ABC):
                 parts.append(text)
         return "".join(parts)
 
-    async def _apply_session_model_slot(self, request: "AgentRequest") -> None:
-        """Persist or restore the model selection for one channel request."""
-        if self._workspace is None:
-            return
-
-        from ...services.model_selection import (
-            parse_model_slot,
-            session_model_slot,
-        )
-
-        session_id = getattr(request, "session_id", "") or ""
-        user_id = getattr(request, "user_id", "") or ""
-        channel_id = getattr(request, "channel", self.channel)
-        chat = await self._workspace.chat_manager.get_or_create_chat(
-            session_id,
-            user_id,
-            channel_id,
-        )
-
-        raw_slot = getattr(request, "model_slot_override", None)
-        if raw_slot is not None:
-            slot = parse_model_slot(raw_slot)
-            if slot is not None:
-                updated = (
-                    await self._workspace.chat_manager.set_model_slot_override(
-                        chat.id,
-                        slot.model_dump(),
-                    )
-                )
-                chat = updated or chat
-        else:
-            slot = session_model_slot(chat.meta)
-
-        if slot is not None:
-            request.model_slot_override = slot.model_dump()
-
     async def _stream_with_tracker(
         self,
         payload: Any,
@@ -929,7 +893,6 @@ class BaseChannel(ABC):
         """
         request = self._payload_to_request(payload)
         request.channel_instance = self
-        await self._apply_session_model_slot(request)
 
         if isinstance(payload, dict):
             send_meta = dict(payload.get("meta") or {})

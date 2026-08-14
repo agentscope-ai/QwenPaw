@@ -5,6 +5,7 @@
 This module provides utilities for building system prompts from
 markdown configuration files in the working directory.
 """
+
 import logging
 import re
 from pathlib import Path
@@ -394,23 +395,12 @@ def _get_active_model_info():
         when the active model cannot be resolved.
     """
     try:
-        from ..providers.provider_manager import ProviderManager
-        from ..services.model_selection import resolve_current_model_slot
+        from ..services.model_selection import get_current_model_info
 
-        manager = ProviderManager.get_instance()
-        active, _source = resolve_current_model_slot()
-
-        if not active:
+        model_info, active = get_current_model_info()
+        if model_info is None or active is None:
             return None, None
-
-        provider = manager.get_provider(active.provider_id)
-        if not provider:
-            return None, None
-
-        for m in provider.models + provider.extra_models:
-            if m.id == active.model:
-                return m, active.model
-        return None, None
+        return model_info, active.model
     except Exception:
         return None, None
 

@@ -38,30 +38,14 @@ class ModelCommandHandler(BaseControlCommandHandler):
     description = "Show or switch AI model"
 
     @staticmethod
-    async def _current_chat(context: ControlContext):
-        """Return the ChatSpec associated with the command request."""
-        channel_id = getattr(context.payload, "channel", None)
-        if not channel_id and context.channel is not None:
-            channel_id = getattr(context.channel, "channel", None)
-        return await context.workspace.chat_manager.get_or_create_chat(
-            context.session_id,
-            context.user_id,
-            channel_id or "console",
-        )
+    def _model_context():
+        """Return the model context prepared before command dispatch."""
+        from ....services.model_selection import get_current_model_context
 
-    @staticmethod
-    async def _effective_model(context: ControlContext):
-        """Resolve the current session model and its source."""
-        from ....providers.provider_manager import ProviderManager
-        from ....services.model_selection import resolve_effective_model_slot
-
-        chat = await ModelCommandHandler._current_chat(context)
-        manager = ProviderManager.get_instance()
-        return resolve_effective_model_slot(
-            chat_meta=chat.meta,
-            agent_model=context.workspace.config.active_model,
-            global_model=manager.get_active_model(),
-        )
+        model_context = get_current_model_context()
+        if model_context is None or not model_context.chat_id:
+            raise RuntimeError("Model context is unavailable")
+        return model_context
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /model command.
@@ -75,11 +59,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
         args_str = context.args.get("_raw_args", "").strip()
 
         if not args_str:
-            return await self._show_current_model(context)
+            return self._show_current_model()
         elif args_str.lower() in ("-h", "--help", "help"):
             return self._show_help()
         elif args_str.lower() == "list":
-            return await self._list_models(context)
+            return await self._list_models()
         elif args_str.lower() == "reset":
             return await self._reset_model(context)
         elif args_str.lower() == "info":
@@ -124,16 +108,15 @@ class ModelCommandHandler(BaseControlCommandHandler):
             "🎥 - Supports video input"
         )
 
-    async def _show_current_model(self, context: ControlContext) -> str:
+    def _show_current_model(self) -> str:
         """Show current active model for this agent.
 
         Args:
-            context: Control command context
-
         Returns:
             Formatted response with current model info
         """
-        active_model, source = await self._effective_model(context)
+        model_context = self._model_context()
+        active_model, source = model_context.slot, model_context.source
         if active_model is None or not active_model.provider_id:
             return (
                 "**No Active Model**\n\n"
@@ -154,19 +137,17 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"Model: `{active_model.model}` ✓"
         )
 
-    async def _list_models(self, context: ControlContext) -> str:
+    async def _list_models(self) -> str:
         """List all available providers and models.
 
         Args:
-            context: Control command context
-
         Returns:
             Formatted list of all providers and models
         """
         from ....providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        active_model, _source = await self._effective_model(context)
+        active_model = self._model_context().slot
 
         # Get all provider infos
         all_provider_infos = await manager.list_provider_info()
@@ -298,13 +279,17 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Use `/model list` to see available models."
             )
 
-        chat = await self._current_chat(context)
-        slot = {"provider_id": provider_id, "model": model_id}
+        from ....config.config import ModelSlotConfig
+        from ....services.model_selection import update_current_model_context
+
+        model_context = self._model_context()
+        slot = ModelSlotConfig(provider_id=provider_id, model=model_id)
         try:
             await context.workspace.chat_manager.set_model_slot_override(
-                chat.id,
-                slot,
+                model_context.chat_id,
+                slot.model_dump(),
             )
+            update_current_model_context(slot, "session")
         except Exception as e:
             logger.exception("Failed to save session model: %s", e)
             return (
@@ -337,10 +322,15 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Success message
         """
-        chat = await self._current_chat(context)
+        from ....services.model_selection import (
+            ModelSource,
+            update_current_model_context,
+        )
+
+        model_context = self._model_context()
         try:
             await context.workspace.chat_manager.set_model_slot_override(
-                chat.id,
+                model_context.chat_id,
                 None,
             )
         except Exception as e:
@@ -350,7 +340,15 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Failed to save configuration: {str(e)}"
             )
 
-        fallback_model, source = await self._effective_model(context)
+        fallback_model = model_context.agent_slot or model_context.global_slot
+        source: ModelSource = (
+            "agent"
+            if model_context.agent_slot
+            else "global"
+            if model_context.global_slot
+            else "none"
+        )
+        update_current_model_context(fallback_model, source)
         if fallback_model is None:
             return (
                 "**Model Reset**\n\n"
