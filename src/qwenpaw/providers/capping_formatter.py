@@ -265,9 +265,21 @@ class _CappingDashScopeFormatter(
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
-        return super()._format_audio_source(
-            self._local_source_to_base64(source),
-        )
+        normalized_source = self._local_source_to_base64(source)
+        # TODO: Remove this workaround after AgentScope formats DashScope
+        # Base64Source audio data as a data URL.
+        if isinstance(normalized_source, Base64Source):
+            media_type = normalized_source.media_type
+            return {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": (
+                        f"data:{media_type};base64,{normalized_source.data}"
+                    ),
+                    "format": media_type.split("/")[-1],
+                },
+            }
+        return super()._format_audio_source(normalized_source)
 
 
 class _CappingOpenAIResponseFormatter(

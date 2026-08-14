@@ -136,12 +136,44 @@ def _is_media_block(block: Any) -> bool:
     return False
 
 
-def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
+def _is_audio_block(block: Any) -> bool:
+    """Check if a block carries audio content."""
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        if block_type == "audio":
+            return True
+        if block_type == "data":
+            source = block.get("source")
+            media_type = (
+                source.get("media_type", "")
+                if isinstance(source, dict)
+                else ""
+            )
+            return media_type.startswith("audio/")
+        return False
+
+    block_type = getattr(block, "type", None)
+    if block_type == "audio":
+        return True
+    if block_type == "data":
+        source = getattr(block, "source", None)
+        media_type = getattr(source, "media_type", "") or ""
+        return media_type.startswith("audio/")
+    return False
+
+
+def _strip_media_blocks_in_place(
+    msgs: list[Msg],
+    *,
+    audio_only: bool = False,
+) -> int:
     """Strip media blocks from copied messages only.
 
-    Handles both 1.x dict blocks and 2.0 Pydantic block objects.
+    Handles both 1.x dict blocks and 2.0 Pydantic block objects. When
+    ``audio_only`` is true, image, video, and file blocks are preserved.
     """
     total_stripped = 0
+    should_strip = _is_audio_block if audio_only else _is_media_block
 
     for msg in msgs:
         if not isinstance(msg.content, list):
@@ -150,7 +182,7 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
         new_content = []
         stripped_this_message = 0
         for block in msg.content:
-            if _is_media_block(block):
+            if should_strip(block):
                 total_stripped += 1
                 stripped_this_message += 1
                 continue
@@ -168,9 +200,7 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
             )
             if btype == "tool_result" and isinstance(output, list):
                 original_len = len(output)
-                filtered = [
-                    item for item in output if not _is_media_block(item)
-                ]
+                filtered = [item for item in output if not should_strip(item)]
                 stripped_count = original_len - len(filtered)
                 total_stripped += stripped_count
                 stripped_this_message += stripped_count
@@ -242,6 +272,7 @@ def normalize_messages_for_model_request(
     *,
     supports_multimodal: bool,
     target_family: str = "openai",
+    strip_audio: bool = False,
 ) -> list[Msg]:
     """Return a normalized copy for provider request formatting.
 
@@ -251,6 +282,7 @@ def normalize_messages_for_model_request(
         target_family: Provider family of the *current* model
             (``"openai"`` | ``"anthropic"`` | ``"gemini"``).
             Used to strip fields that belong to other providers.
+        strip_audio: Whether to remove only audio blocks from the request copy.
     """
     normalized = _clone_messages(msgs)
     # Sanitize first: _repair_empty_tool_inputs needs raw_input to fix
@@ -264,6 +296,8 @@ def normalize_messages_for_model_request(
         _strip_unsigned_thinking_for_anthropic(normalized)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
+    elif strip_audio:
+        _strip_media_blocks_in_place(normalized, audio_only=True)
     return normalized
 
 

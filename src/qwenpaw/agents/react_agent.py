@@ -543,6 +543,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    def _set_formatter_audio_strip(self, enabled: bool) -> None:
+        """Toggle request-time audio stripping on the active formatter."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
+
     def _last_wire_request_had_media(self) -> bool:
         """Return whether the last completed formatting emitted media."""
         formatter = self._get_active_formatter()
@@ -553,6 +560,41 @@ class QwenPawAgent(CodingModeMixin, Agent):
             isinstance(count, int)
             and not isinstance(count, bool)
             and (count > 0)
+        )
+
+    def _last_wire_request_had_audio(self) -> bool:
+        """Return whether the last completed formatting emitted audio."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_audio_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    @staticmethod
+    def _is_audio_fallback_error(exc: Exception) -> bool:
+        """Return whether DashScope rejected the current audio payload."""
+        error_str = " ".join(str(exc).lower().split())
+        status = extract_status_code(exc)
+        has_bad_request_status = status == 400 or "<400>" in error_str
+        invalid_url = "provided url does not appear to be valid" in error_str
+        invalid_modal = all(
+            marker in error_str
+            for marker in (
+                "incorrect modal",
+                "audio",
+                "was entered",
+                "may not be supported by the model",
+                "wrong position",
+            )
+        )
+        return (
+            has_bad_request_status
+            and "internalerror.algo.invalidparameter" in error_str
+            and (invalid_url or invalid_modal)
         )
 
     async def _prepare_model_input(self) -> dict[str, Any]:
@@ -762,24 +804,40 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 else:
                     yield evt
         except Exception as e:
-            if not (
+            audio_fallback_retry = (
+                self._last_wire_request_had_audio()
+                and self._is_audio_fallback_error(e)
+            )
+            media_capability_retry = (
                 self._last_wire_request_had_media()
                 and self._is_explicit_media_capability_error(e)
-            ):
+            )
+            if not (audio_fallback_retry or media_capability_retry):
                 raise
 
             model_key = self._get_model_key()
-            learn_global_rejection = self._is_global_media_capability_error(e)
-            logger.warning(
-                "_reasoning failed because the provider explicitly rejected "
-                "the model's media capability (%s); "
-                "stripping media and retrying.",
-                e,
+            learn_global_rejection = (
+                media_capability_retry
+                and self._is_global_media_capability_error(e)
             )
-            if self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(True)
+            if audio_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected an "
+                    "audio payload (%s); stripping audio and retrying.",
+                    e,
+                )
+                self._set_formatter_audio_strip(True)
             else:
-                self._strip_media_blocks_from_memory()
+                logger.warning(
+                    "_reasoning failed because the provider explicitly "
+                    "rejected the model's media capability (%s); stripping "
+                    "media and retrying.",
+                    e,
+                )
+                if self._uses_request_time_media_normalization():
+                    self._set_formatter_media_strip(True)
+                else:
+                    self._strip_media_blocks_from_memory()
 
             try:
                 async for evt in super()._reasoning(
@@ -798,7 +856,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             finally:
                 if self._uses_request_time_media_normalization():
-                    self._set_formatter_media_strip(False)
+                    if audio_fallback_retry:
+                        self._set_formatter_audio_strip(False)
+                    else:
+                        self._set_formatter_media_strip(False)
         else:
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)

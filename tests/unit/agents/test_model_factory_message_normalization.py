@@ -35,6 +35,7 @@ from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.providers.capping_formatter import (
     _CappingAnthropicFormatter,
+    _CappingDashScopeFormatter,
     _CappingOpenAIFormatter,
 )
 from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
@@ -282,6 +283,63 @@ async def test_formatter_resets_wire_media_count_before_failure(
         await formatter.format([valid])
 
     assert formatter._qwenpaw_last_wire_media_count == 0
+
+
+@pytest.mark.asyncio
+async def test_dashscope_audio_strip_flag_preserves_other_media(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingDashScopeFormatter,
+    )
+    formatter = formatter_class()
+    audio_block = _base64_data_block("audio/mpeg", b"audio")
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            TextBlock(text="Mixed media"),
+            _base64_data_block("image/png", b"image"),
+            audio_block,
+            _base64_data_block("video/mp4", b"video"),
+        ],
+    )
+    original = msg.model_dump(mode="json")
+
+    first_request = await formatter.format([msg])
+
+    assert [block["type"] for block in first_request[0]["content"]] == [
+        "text",
+        "image_url",
+        "input_audio",
+        "video_url",
+    ]
+    assert first_request[0]["content"][2] == {
+        "type": "input_audio",
+        "input_audio": {
+            "data": (f"data:audio/mpeg;base64,{audio_block.source.data}"),
+            "format": "mpeg",
+        },
+    }
+    assert formatter._qwenpaw_last_wire_media_count == 3
+    assert formatter._qwenpaw_last_wire_audio_count == 1
+
+    formatter._qwenpaw_force_strip_audio = True
+    retry_request = await formatter.format([msg])
+
+    assert [block["type"] for block in retry_request[0]["content"]] == [
+        "text",
+        "image_url",
+        "video_url",
+    ]
+    assert formatter._qwenpaw_last_wire_media_count == 2
+    assert formatter._qwenpaw_last_wire_audio_count == 0
+    assert msg.model_dump(mode="json") == original
 
 
 def test_formatter_flags_returned_correctly() -> None:
