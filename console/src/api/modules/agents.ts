@@ -9,6 +9,39 @@ import type {
   ReorderAgentsResponse,
 } from "../types/agents";
 
+export interface ReMeComponentMemoryUsage {
+  bytes: number;
+  human: string;
+}
+
+export interface ReMeMemoryStatusResponse {
+  components: Record<string, Record<string, ReMeComponentMemoryUsage>>;
+  components_total: string;
+  process_rss: string;
+  runtime: {
+    worker: {
+      status: "idle" | "busy" | "stopping" | "error";
+      queue_pending: number;
+      tasks_running: number;
+    };
+    auto_memory: {
+      enabled: boolean;
+      interval: number;
+      active_sessions: number;
+      sessions_with_pending: number;
+      pending_turns: number;
+    };
+    recent: {
+      last_completed_at: string | null;
+      last_failed_at: string | null;
+      last_error: string | null;
+    };
+    reindexing: boolean;
+  };
+}
+
+export type ReMeMemoryRuntimeStatus = ReMeMemoryStatusResponse["runtime"];
+
 // Multi-agent management API
 export const agentsApi = {
   // List all agents
@@ -53,6 +86,20 @@ export const agentsApi = {
       method: "POST",
       timeout: 10 * 60 * 1000,
     }),
+
+  getMemoryStatus: (agentId: string, signal?: AbortSignal) => {
+    const path = `/agents/${agentId}/memory/status`;
+    return signal
+      ? request<ReMeMemoryStatusResponse>(path, { signal })
+      : request<ReMeMemoryStatusResponse>(path);
+  },
+
+  getMemoryRuntimeStatus: (agentId: string, signal?: AbortSignal) => {
+    const path = `/agents/${agentId}/memory/runtime-status`;
+    return signal
+      ? request<ReMeMemoryRuntimeStatus>(path, { signal })
+      : request<ReMeMemoryRuntimeStatus>(path);
+  },
 
   getMemoryGraph: (agentId: string) =>
     request<MemoryGraphSnapshot>(`/agents/${agentId}/memory/graph`),

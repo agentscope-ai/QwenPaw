@@ -8,8 +8,11 @@ configuration, running config, and system prompt files.
 from __future__ import annotations
 
 import asyncio
+import copy
 import io
 import json
+import logging
+import mimetypes
 import secrets
 import shutil
 import stat
@@ -21,6 +24,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -41,7 +45,16 @@ from ...config import (
     save_config,
     AgentsRunningConfig,
 )
-from ...config.config import load_agent_config, save_agent_config
+from ...config.config import (
+    load_agent_config,
+    save_agent_config,
+    update_agent_config_async,
+)
+from ...config.config import EmbeddingModelConfig
+from ...agents.memory.embedding_model import (
+    embedding_vector_space_fingerprint,
+    test_embedding_model,
+)
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
@@ -60,14 +73,15 @@ from ...services.workspace_files import (
     resolve_workspace_path,
     save_text_file,
 )
+from ...utils.io_utils import get_path_lock, run_sync_io
 from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
     get_project_dir_for_request,
 )
 
-
 router = APIRouter(prefix="/workspace", tags=["workspace"])
+logger = logging.getLogger(__name__)
 _FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
 _WATCH_HEARTBEAT_SECONDS = 30.0
 _WATCH_POLL_TIMEOUT_MS = 1_000
@@ -87,6 +101,16 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str = Field(..., description="File content")
+
+
+class EmbeddingTestResponse(BaseModel):
+    """Result of an AgentScope embedding connectivity request."""
+
+    success: bool
+    configured_dimensions: int
+    actual_dimensions: int | None = None
+    latency_ms: int
+    message: str
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -436,13 +460,20 @@ async def download_workspace_file(
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
 
-    def _resolve_download() -> tuple[Path, os.stat_result]:
+    def _resolve_download() -> tuple[Path, os.stat_result, str, str]:
         target = resolve_workspace_path(files_root, path)
-        return target, target.stat()
+        info = target.stat()
+        filename = target.name.replace('"', "")
+        media_type = (
+            mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        )
+        return target, info, filename, media_type
 
     try:
         async with _FILESYSTEM_SEMAPHORE:
-            target, info = await asyncio.to_thread(_resolve_download)
+            target, info, filename, media_type = await asyncio.to_thread(
+                _resolve_download,
+            )
         if not stat.S_ISREG(info.st_mode):
             raise FileNotFoundError(path)
     except InvalidWorkspacePath as exc:
@@ -455,13 +486,17 @@ async def download_workspace_file(
             while chunk := handle.read(chunk_size):
                 yield chunk
 
-    filename = target.name.replace('"', "")
+    quoted_filename = quote(filename)
+    if quoted_filename == filename:
+        content_disposition = f'attachment; filename="{filename}"'
+    else:
+        content_disposition = f"attachment; filename*=utf-8''{quoted_filename}"
     return StreamingResponse(
         _stream_file(),
-        media_type="application/octet-stream",
+        media_type=media_type,
         headers={
             "Accept-Ranges": "bytes",
-            "Content-Disposition": (f'attachment; filename="{filename}"'),
+            "Content-Disposition": content_disposition,
             "Content-Length": str(info.st_size),
             "ETag": file_etag(info),
         },
@@ -1461,6 +1496,44 @@ async def post_transcribe_audio(
             pass
 
 
+@router.post(
+    "/embedding/test",
+    response_model=EmbeddingTestResponse,
+    summary="Test embedding configuration",
+    description=(
+        "Create an AgentScope embedding model, perform a real request, and "
+        "validate the returned dimensions"
+    ),
+)
+async def test_embedding_configuration(
+    embedding_config: EmbeddingModelConfig = Body(...),
+    request: Request = None,
+) -> EmbeddingTestResponse:
+    """Test unsaved embedding settings and stage the model for hot apply."""
+    workspace = await get_agent_for_request(request)
+    memory_manager = workspace.memory_manager
+    if memory_manager is not None and hasattr(
+        memory_manager,
+        "test_and_stage_embedding",
+    ):
+        result = await memory_manager.test_and_stage_embedding(
+            embedding_config,
+        )
+    else:
+        _model, result = await test_embedding_model(embedding_config)
+
+    message = result.message
+    if embedding_config.api_key:
+        message = message.replace(embedding_config.api_key, "***")
+    return EmbeddingTestResponse(
+        success=result.success,
+        configured_dimensions=result.configured_dimensions,
+        actual_dimensions=result.actual_dimensions,
+        latency_ms=result.latency_ms,
+        message=message,
+    )
+
+
 @router.get(
     "/running-config",
     response_model=AgentsRunningConfig,
@@ -1472,10 +1545,143 @@ async def get_agents_running_config(
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
     running = agent_config.running or AgentsRunningConfig()
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
     return running
+
+
+class _ConfigRollbackConflict(RuntimeError):
+    """Raised when a field changed again after this request persisted it."""
+
+    def __init__(self, paths: list[str]):
+        super().__init__("configuration changed concurrently")
+        self.paths = paths
+
+
+def _conditionally_restore_config_changes(
+    current: BaseModel,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Three-way rollback without overwriting unrelated concurrent edits."""
+    candidate = current.model_copy(deep=True)
+    conflicts: list[str] = []
+
+    def restore(
+        target: BaseModel,
+        old: BaseModel,
+        saved: BaseModel,
+        prefix: str,
+    ) -> None:
+        for name in type(saved).model_fields:
+            old_value = getattr(old, name)
+            saved_value = getattr(saved, name)
+            if old_value == saved_value:
+                continue
+            current_value = getattr(target, name)
+            path = f"{prefix}.{name}" if prefix else name
+            if (
+                isinstance(current_value, BaseModel)
+                and isinstance(old_value, BaseModel)
+                and isinstance(saved_value, BaseModel)
+                and type(current_value) is type(old_value) is type(saved_value)
+            ):
+                restore(current_value, old_value, saved_value, path)
+            elif current_value == saved_value:
+                setattr(target, name, copy.deepcopy(old_value))
+            else:
+                conflicts.append(path)
+
+    restore(candidate, before, submitted, "")
+    if conflicts:
+        raise _ConfigRollbackConflict(conflicts)
+    for field_name in type(current).model_fields:
+        setattr(current, field_name, getattr(candidate, field_name))
+
+
+async def _apply_embedding_runtime(
+    memory_manager: Any,
+    embedding_config: EmbeddingModelConfig,
+    agent_id: str,
+) -> bool:
+    """Apply an embedding config to a running memory manager."""
+    if hasattr(memory_manager, "apply_tested_embedding"):
+        try:
+            if await memory_manager.apply_tested_embedding(embedding_config):
+                return True
+        except Exception as exc:
+            logger.warning(
+                "Embedding hot update failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            return bool(await memory_manager.reload_embedding_config())
+        except Exception as exc:
+            logger.warning(
+                "Embedding runtime reload failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    return False
+
+
+async def _rollback_embedding_update(
+    agent_id: str,
+    memory_manager: Any,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Roll back persistence and runtime after an embedding update fails."""
+    rollback_conflict: _ConfigRollbackConflict | None = None
+
+    def rollback_config(current_config: BaseModel) -> None:
+        _conditionally_restore_config_changes(
+            current_config,
+            before,
+            submitted,
+        )
+
+    try:
+        await update_agent_config_async(agent_id, rollback_config)
+    except _ConfigRollbackConflict as exc:
+        rollback_conflict = exc
+
+    runtime_restored = False
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            runtime_restored = bool(
+                await memory_manager.reload_embedding_config(),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to restore the previous embedding runtime "
+                "for agent '%s'",
+                agent_id,
+            )
+
+    raise HTTPException(
+        status_code=409 if rollback_conflict else 503,
+        detail={
+            "message": (
+                "Embedding configuration was not applied; "
+                + (
+                    "rollback was skipped because the configuration "
+                    "changed concurrently"
+                    if rollback_conflict
+                    else "the persisted changes were rolled back"
+                )
+            ),
+            "persisted": rollback_conflict is not None,
+            "runtime_applied": False,
+            "runtime_restored": runtime_restored,
+            "conflicts": rollback_conflict.paths if rollback_conflict else [],
+        },
+    )
 
 
 @router.put(
@@ -1493,14 +1699,79 @@ async def put_agents_running_config(
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    memory_manager = workspace.memory_manager
+    workspace_dir = getattr(workspace, "workspace_dir", ".")
+    config_path = Path(workspace_dir) / "agent.json"
+    async with get_path_lock(config_path):
+        old_agent_config = None
+        embedding_changed = False
+        memory_manager_backend_changed = False
+        new_embedding_config = (
+            running_config.reme_light_memory_config.embedding_model_config
+        )
+        new_memory_manager_backend = running_config.memory_manager_backend
 
-    if running_config.approval_level is not None:
-        agent_config.approval_level = running_config.approval_level
+        def persist_running_config(agent_config):
+            nonlocal old_agent_config, embedding_changed
+            nonlocal memory_manager_backend_changed
+            old_agent_config = agent_config.model_copy(deep=True)
+            old_running_config = agent_config.running or AgentsRunningConfig()
+            memory_manager_backend_changed = (
+                old_running_config.memory_manager_backend
+                != new_memory_manager_backend
+            )
+            old_memory_config = old_running_config.reme_light_memory_config
+            old_embedding_config = old_memory_config.embedding_model_config
+            vector_space_changed = embedding_vector_space_fingerprint(
+                old_embedding_config,
+            ) != embedding_vector_space_fingerprint(new_embedding_config)
+            running_config.reme_light_memory_config.needs_reindex = (
+                old_memory_config.needs_reindex or vector_space_changed
+            )
+            embedding_changed = old_embedding_config != new_embedding_config
+            if (
+                embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
+                and memory_manager is not None
+                and getattr(memory_manager, "is_reindexing", False) is True
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Embedding configuration cannot change while the "
+                        "memory index is rebuilding"
+                    ),
+                )
+            if running_config.approval_level is not None:
+                agent_config.approval_level = running_config.approval_level
+            running_config.approval_level = None
+            agent_config.running = running_config
 
-    running_config.approval_level = None
-    agent_config.running = running_config
-    save_agent_config(workspace.agent_id, agent_config)
+        agent_config = await update_agent_config_async(
+            workspace.agent_id,
+            persist_running_config,
+        )
+
+        if (
+            embedding_changed
+            and not memory_manager_backend_changed
+            and new_memory_manager_backend == "remelight"
+            and memory_manager is not None
+        ):
+            embedding_updated = await _apply_embedding_runtime(
+                memory_manager,
+                new_embedding_config,
+                workspace.agent_id,
+            )
+            if not embedding_updated:
+                assert old_agent_config is not None
+                await _rollback_embedding_update(
+                    workspace.agent_id,
+                    memory_manager,
+                    old_agent_config,
+                    agent_config,
+                )
 
     schedule_agent_reload(request, workspace.agent_id)
 

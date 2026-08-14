@@ -357,3 +357,66 @@ def test_visual_reference_resolution_fails_closed_for_missing_entity() -> None:
             R2VCreation(character_refs=["char:hero"]),
             [],
         )
+
+
+def test_validate_local_media_execution_rejects_pending_review_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The route-level precheck must mirror execute()'s review admission.
+
+    execute() raises ReviewPendingError before it persists the Task, so
+    without this precheck the render route would return 202 with a taskId
+    that never materializes and the frontend would silently mark the
+    compose as failed (auto-compose regression on the review-pending path).
+    """
+
+    from types import SimpleNamespace
+
+    from domain.enums import CreatorCommandType
+    from services.media_files import local_execution
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    services = CreatorFileServices.create(tmp_path.resolve())
+    services.projects.create(
+        Project.new(project_id="project-validate-review", name="Validate"),
+    )
+
+    resolved = SimpleNamespace(
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:timeline:main",
+        inputs=(SimpleNamespace(version_id="artifact-version-pending"),),
+    )
+    # Structural resolution of a composable timeline is covered elsewhere;
+    # this test pins the admission behaviour of the precheck itself.
+    monkeypatch.setattr(
+        local_execution,
+        "_resolve_execution",
+        lambda **_kwargs: resolved,
+    )
+    monkeypatch.setattr(
+        services.reviews,
+        "all_pending",
+        lambda _project_id: [_review()],
+    )
+
+    with pytest.raises(ReviewPendingError, match="不要继续下游生成"):
+        local_execution.validate_local_media_execution(
+            services,
+            project_id="project-validate-review",
+            command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+            target_ref="timeline:timeline:main",
+        )
+
+    # Once no review is pending the same precheck admits the compose.
+    monkeypatch.setattr(
+        services.reviews,
+        "all_pending",
+        lambda _project_id: [],
+    )
+    local_execution.validate_local_media_execution(
+        services,
+        project_id="project-validate-review",
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:timeline:main",
+    )

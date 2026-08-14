@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Tests for BaseMemoryManager abstract base class."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -97,41 +98,6 @@ class TestBaseMemoryManagerInit:
 
     def test_worker_task_is_none_initially(self, manager):
         assert manager._worker_task is None
-
-
-class TestBaseMemoryManagerAutoMemoryTurnState:
-    """P1: Auto-memory interval state is kept per session with TTL cleanup."""
-
-    def test_returns_same_state_for_same_session(self, manager):
-        state = manager.get_auto_memory_turn_state("session-1")
-        state["pending"].append("turn-1")
-
-        assert manager.get_auto_memory_turn_state("session-1") is state
-        assert manager.get_auto_memory_turn_state("session-1")["pending"] == [
-            "turn-1",
-        ]
-
-    def test_separates_sessions(self, manager):
-        manager.get_auto_memory_turn_state("session-1")["pending"].append(
-            "turn-1",
-        )
-
-        assert manager.get_auto_memory_turn_state("session-2")["pending"] == []
-
-    def test_cleans_expired_sessions_on_access(self, manager, monkeypatch):
-        monkeypatch.setattr(base_memory_manager.time, "monotonic", lambda: 0)
-        manager.get_auto_memory_turn_state("old-session")
-
-        now = base_memory_manager.AUTO_MEMORY_TURN_STATE_TTL_SECONDS + 1
-        monkeypatch.setattr(
-            base_memory_manager.time,
-            "monotonic",
-            lambda: now,
-        )
-        manager.get_auto_memory_turn_state("new-session")
-
-        assert "old-session" not in manager._auto_memory_turn_states
-        assert "new-session" in manager._auto_memory_turn_states
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +260,46 @@ class TestBaseMemoryManagerAddSummarizeTask:
         keep_running.set()
         worker.cancel()
         await asyncio.wait({worker}, timeout=0.5)
+
+    def test_runtime_status_excludes_session_owned_turn_state(self, manager):
+        manager.get_auto_memory_interval = MagicMock(return_value=5)
+        manager._summary_task_info = {
+            "task_1": {
+                "status": "completed",
+                "finished_at": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
+            },
+            "task_2": {
+                "status": "failed",
+                "finished_at": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    1,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
+                "error": "summary failed\nretry later",
+            },
+        }
+
+        status = manager.get_runtime_status()
+
+        assert status["worker"]["status"] == "idle"
+        assert status["auto_memory"] == {
+            "enabled": True,
+            "interval": 5,
+            "active_sessions": 0,
+            "sessions_with_pending": 0,
+            "pending_turns": 0,
+        }
+        assert status["recent"]["last_completed_at"] == (
+            "2026-08-10T00:00:00+00:00"
+        )
+        assert status["recent"]["last_error"] == ("summary failed retry later")
 
 
 class TestAutoMemorySearchSanitization:

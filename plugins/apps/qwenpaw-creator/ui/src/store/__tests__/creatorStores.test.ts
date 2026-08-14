@@ -988,6 +988,79 @@ describe("bounded frontend caches", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("tracks rate-limit retry notices until the throttled run fails", () => {
+    installMockFetch([]);
+    useCreatorSessionStore.setState({
+      projectId: "p1",
+      activeConversationId: "c1",
+      lastEventSeq: 0,
+      session: {
+        id: "s1",
+        projectId: "p1",
+        status: "RUNNING",
+        lastMessageSeq: 1,
+        lastConsumedMessageSeq: 1,
+        lastEventSeq: 0,
+      },
+    });
+
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvents([
+        {
+          eventId: "throttle-retry-1",
+          seq: 1,
+          type: "agent.model.rate_limit_retry",
+          projectId: "p1",
+          creatorSessionId: "s1",
+          at: "now",
+          data: {
+            runId: "run-throttled",
+            attempt: 1,
+            maxAttempts: 5,
+            delaySeconds: 2,
+          },
+        },
+      ]),
+    );
+
+    expect(useCreatorSessionStore.getState().rateLimitRetry).toEqual({
+      attempt: 1,
+      maxAttempts: 5,
+      runId: "run-throttled",
+    });
+
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvents([
+        {
+          eventId: "throttled-failed",
+          seq: 2,
+          type: "agent.run.failed",
+          projectId: "p1",
+          creatorSessionId: "s1",
+          at: "now",
+          data: {
+            runId: "run-throttled",
+            error: {
+              code: "MODEL_RATE_LIMITED",
+              message: "模型遭遇限流，已重试 5 次仍无法访问",
+              retryable: true,
+              details: { retryCount: 5 },
+            },
+          },
+        },
+      ]),
+    );
+
+    const state = useCreatorSessionStore.getState();
+    expect(state.rateLimitRetry).toBeNull();
+    expect(state.session?.error).toEqual({
+      code: "MODEL_RATE_LIMITED",
+      message: "模型遭遇限流，已重试 5 次仍无法访问",
+      retryable: true,
+      details: { retryCount: 5 },
+    });
+  });
+
   it("does not resurrect a failed draft while replaying a completed retry", () => {
     const durableRetry = {
       messageId: "assistant-retry",

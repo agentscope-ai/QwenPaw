@@ -160,8 +160,14 @@ export function creatorToolLabel(name: string): string {
     commit_source_intelligence: i18n.t(
       "presentation.tools.commit_source_intelligence",
     ),
+    s2v_generation: i18n.t("presentation.tools.s2v_generation"),
+    tts_generation: i18n.t("presentation.tools.tts_generation"),
+    create_character_voice: i18n.t("presentation.tools.create_character_voice"),
+    read_document: i18n.t("presentation.tools.read_document"),
+    query_source_memory: i18n.t("presentation.tools.query_source_memory"),
+    design_motion_overlays: i18n.t("presentation.tools.design_motion_overlays"),
   };
-  return labels[name] ?? i18n.t("presentation.processing");
+  return labels[name] ?? i18n.t("presentation.unknownTool");
 }
 
 export function creatorRoleLabel(name: string): string {
@@ -199,6 +205,12 @@ const TOOL_RUNNING_LABEL_KEYS: Record<string, string> = {
   transcribe_source_audio: "presentation.toolRunning.transcribe_source_audio",
   commit_source_intelligence:
     "presentation.toolRunning.commit_source_intelligence",
+  read_document: "presentation.toolRunning.read_document",
+  query_source_memory: "presentation.toolRunning.query_source_memory",
+  tts_generation: "presentation.toolRunning.tts_generation",
+  create_character_voice: "presentation.toolRunning.create_character_voice",
+  s2v_generation: "presentation.toolRunning.s2v_generation",
+  design_motion_overlays: "presentation.toolRunning.design_motion_overlays",
   ai_edit: "presentation.toolRunning.ai_edit",
   read_file: "presentation.toolRunning.read_file",
   write_file: "presentation.toolRunning.write_file",

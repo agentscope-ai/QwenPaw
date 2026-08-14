@@ -42,7 +42,6 @@ from domain.enums import TaskKind, TaskStatus
 from domain.errors import ValidationError
 from models import asr_model, embedding_model, vlm_model
 from models import config as model_config
-from models.media_transport import DASHSCOPE_TEMP_UPLOAD_MAX_BYTES
 from schemas.assets import (
     SemanticIndexEntry,
     SourceIntelligenceIndex,
@@ -50,6 +49,13 @@ from schemas.assets import (
     SourceModelRunRef,
 )
 from schemas.common import StrictModel
+from services.media.source_observation import (
+    clip_segment_for_transport_sync,
+    clip_segment_hq_sync,
+    clip_segment_sync,
+    clip_segment_within_budget_sync,
+    clip_size_budget_bytes,
+)
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
     ExecutionAuthorizationStatus,
@@ -61,32 +67,32 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
 )
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
-from vendor.mm_plugins.video_memory.aggregation import aggregate_hierarchy
-from vendor.mm_plugins.video_memory.embeddings import EmbeddingIndex
-from vendor.mm_plugins.video_memory.json_utils import extract_json
-from vendor.mm_plugins.video_memory.merge import (
+from vendor.media_toolkit.video_memory.aggregation import aggregate_hierarchy
+from vendor.media_toolkit.video_memory.embeddings import EmbeddingIndex
+from vendor.media_toolkit.video_memory.json_utils import extract_json
+from vendor.media_toolkit.video_memory.merge import (
     merged_graph_payload,
     prefix_graph_payload,
     prefix_index_nodes,
 )
-from vendor.mm_plugins.video_memory.prompts import (
+from vendor.media_toolkit.video_memory.prompts import (
     SUBGRAPH_CONSTRUCTION_PROMPT,
 )
-from vendor.mm_plugins.video_memory.schema import (
+from vendor.media_toolkit.video_memory.schema import (
     HierarchicalGraphMemory,
     MacroEvent,
     Subgraph,
 )
-from vendor.mm_plugins.video_memory.segmentation import (
+from vendor.media_toolkit.video_memory.segmentation import (
     compute_cut_scores,
     decode_jpeg_to_hls,
     plan_segments,
 )
-from vendor.mm_plugins.video_memory.subgraph import (
+from vendor.media_toolkit.video_memory.subgraph import (
     apply_subgraph_payload,
     build_segment_context,
 )
-from vendor.mm_plugins.video_memory.toolkit import MemoryToolkit
+from vendor.media_toolkit.video_memory.toolkit import MemoryToolkit
 
 logger = logging.getLogger("creator.source_memory")
 
@@ -99,65 +105,11 @@ DETECT_FPS = 0.25
 FRAME_WORKERS = 10
 MIN_SCENE_SEC = 30.0
 MAX_SCENE_SEC = 300.0
-# P2 clip encoding for the VLM segment observation. Non-DashScope
-# OpenAI-compatible gateways receive the clip as an inline base64 data
-# URL, so each macro clip must fit the configured inline transport
-# limit after Base64 expansion (~4/3); encoding steps down this
-# (max_dim, crf, fps) ladder until the segment fits.
-CLIP_ENCODE_LADDER = (
-    (720, 28, 8),
-    (512, 30, 8),
-    (384, 32, 6),
-    (320, 35, 4),
-    (256, 38, 3),
-)
-CLIP_SIZE_BUDGET_CAP_BYTES = 6 * 1024 * 1024
-_BASE64_EXPANSION = 4.0 / 3.0
-_CLIP_BUDGET_HEADROOM_BYTES = 64 * 1024
-_CLIP_MIN_WORKABLE_BUDGET_BYTES = 256 * 1024
-
-# P2 clip transport for DashScope-bound VLMs: the clip travels through
-# the model-bound temporary OSS upload (48h TTL, <=1GB) instead of an
-# inline base64 body, so segments keep a high-quality encode mirroring
-# the upstream OSS pipeline (max_dim 1024, crf 28, source frame rate).
-HQ_CLIP_MAX_DIM = 1024
-HQ_CLIP_CRF = 28
-HQ_CLIP_MAX_BYTES = DASHSCOPE_TEMP_UPLOAD_MAX_BYTES
 
 # Chunked P1→P2 pipeline (upstream ``build_memory.sh --chunk-sec``):
 # multi-hour sources are detected hour by hour and each chunk's subgraph
 # extraction starts while the next chunk is still being detected.
 CHUNK_SEC = 3600.0
-
-
-def _clip_size_budget_bytes() -> int:
-    """Raw clip budget derived from the active transport limit.
-
-    The inline pre-flight check in the VLM backend enforces
-    ``get_vlm_max_inline_bytes`` on the raw file, while the gateway sees
-    the Base64-expanded request body; budget against both, capped at a
-    conservative default. Configurations too small for any workable
-    segment clip are rejected up front instead of producing a budget
-    that transport would later refuse.
-    """
-    inline_limit = model_config.get_vlm_max_inline_bytes()
-    base64_safe = int(inline_limit / _BASE64_EXPANSION)
-    budget = (
-        min(
-            CLIP_SIZE_BUDGET_CAP_BYTES,
-            inline_limit,
-            base64_safe,
-        )
-        - _CLIP_BUDGET_HEADROOM_BYTES
-    )
-    if budget < _CLIP_MIN_WORKABLE_BUDGET_BYTES:
-        raise ValidationError(
-            "VLM max_inline_bytes is too small for source-memory clips: "
-            f"derived budget {budget} bytes is below the workable minimum "
-            f"{_CLIP_MIN_WORKABLE_BUDGET_BYTES} bytes",
-        )
-    return budget
-
 
 SUBGRAPH_MAX_TOKENS = 16384
 AGGREGATION_MAX_TOKENS = 8192
@@ -649,198 +601,15 @@ def _chunk_plan(duration_sec: float) -> list[tuple[float, float]]:
     return chunks
 
 
-def _clip_segment_sync(
-    local_path: Path,
-    out_path: Path,
-    start_sec: float,
-    end_sec: float,
-    max_dim: int,
-    crf: int,
-    fps: int,
-) -> Path:
-    """Encode one macro segment for VLM observation."""
-    ffmpeg = _require_ffmpeg()
-    duration = max(0.5, end_sec - start_sec)
-    scale = (
-        f"scale='min({max_dim},iw)':'min({max_dim},ih)':"
-        "force_original_aspect_ratio=decrease,"
-        "pad=ceil(iw/2)*2:ceil(ih/2)*2"
-    )
-    command = [
-        ffmpeg,
-        "-y",
-        "-v",
-        "error",
-        "-ss",
-        str(start_sec),
-        "-t",
-        str(duration),
-        "-i",
-        str(local_path),
-        "-vf",
-        scale,
-        "-r",
-        str(fps),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-crf",
-        str(crf),
-        "-an",
-        "-threads",
-        "4",
-        "-movflags",
-        "+faststart",
-        str(out_path),
-    ]
-    proc = subprocess.run(  # nosec B603
-        command,
-        capture_output=True,
-        timeout=1800,
-        check=False,
-        stdin=subprocess.DEVNULL,
-    )
-    if proc.returncode != 0 or not out_path.exists():
-        raise RuntimeError(
-            "ffmpeg segment clip failed: "
-            f"{proc.stderr.decode('utf-8', 'replace')[-300:]}",
-        )
-    return out_path
-
-
-def _clip_segment_within_budget_sync(
-    local_path: Path,
-    out_path: Path,
-    start_sec: float,
-    end_sec: float,
-) -> Path:
-    """Encode a segment, stepping down the ladder until it fits the
-    inline transport budget of OpenAI-compatible gateways."""
-    budget = _clip_size_budget_bytes()
-    last_size = 0
-    for max_dim, crf, fps in CLIP_ENCODE_LADDER:
-        _clip_segment_sync(
-            local_path,
-            out_path,
-            start_sec,
-            end_sec,
-            max_dim,
-            crf,
-            fps,
-        )
-        last_size = out_path.stat().st_size
-        if last_size <= budget:
-            return out_path
-        logger.info(
-            "segment clip %s too large at %dpx (%d bytes > %d), "
-            "stepping down",
-            out_path.name,
-            max_dim,
-            last_size,
-            budget,
-        )
-    raise RuntimeError(
-        f"segment clip stays above transport budget: {last_size} bytes",
-    )
-
-
-def _clip_segment_hq_sync(
-    local_path: Path,
-    out_path: Path,
-    start_sec: float,
-    end_sec: float,
-) -> Path:
-    """High-quality segment encode for the DashScope temporary-OSS path.
-
-    Mirrors the upstream ``clip_and_upload_video`` settings (1024px,
-    crf 28) and keeps the source frame rate; the temporary upload takes
-    files up to 1GB so no inline base64 budget applies."""
-    ffmpeg = _require_ffmpeg()
-    duration = max(0.5, end_sec - start_sec)
-    scale = (
-        f"scale='min({HQ_CLIP_MAX_DIM},iw)':'min({HQ_CLIP_MAX_DIM},ih)':"
-        "force_original_aspect_ratio=decrease,"
-        "pad=ceil(iw/2)*2:ceil(ih/2)*2"
-    )
-    command = [
-        ffmpeg,
-        "-y",
-        "-v",
-        "error",
-        "-ss",
-        str(start_sec),
-        "-t",
-        str(duration),
-        "-i",
-        str(local_path),
-        "-vf",
-        scale,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-crf",
-        str(HQ_CLIP_CRF),
-        "-an",
-        "-threads",
-        "4",
-        "-movflags",
-        "+faststart",
-        str(out_path),
-    ]
-    proc = subprocess.run(  # nosec B603
-        command,
-        capture_output=True,
-        timeout=1800,
-        check=False,
-        stdin=subprocess.DEVNULL,
-    )
-    if proc.returncode != 0 or not out_path.exists():
-        raise RuntimeError(
-            "ffmpeg hq segment clip failed: "
-            f"{proc.stderr.decode('utf-8', 'replace')[-300:]}",
-        )
-    if out_path.stat().st_size > HQ_CLIP_MAX_BYTES:
-        raise RuntimeError(
-            "hq segment clip exceeds the temporary upload limit: "
-            f"{out_path.stat().st_size} bytes",
-        )
-    return out_path
-
-
-def _clip_segment_for_transport_sync(
-    local_path: Path,
-    out_path: Path,
-    start_sec: float,
-    end_sec: float,
-) -> Path:
-    """Pick the encode matching the active VLM transport channel.
-
-    DashScope providers upload through the model-bound temporary OSS and
-    get the high-quality encode; any HQ failure (or a non-DashScope
-    gateway) falls back to the inline base64 ladder."""
-    if vlm_model.uses_dashscope_transport():
-        try:
-            return _clip_segment_hq_sync(
-                local_path,
-                out_path,
-                start_sec,
-                end_sec,
-            )
-        except Exception as error:  # pylint: disable=broad-except
-            logger.warning(
-                "hq clip failed for %s (%s); falling back to the inline "
-                "ladder",
-                out_path.name,
-                error,
-            )
-    return _clip_segment_within_budget_sync(
-        local_path,
-        out_path,
-        start_sec,
-        end_sec,
-    )
+# Clip encoding lives in services.media.source_observation (shared with
+# the observe_source_clip verification tool; the dependency is one-way:
+# this module imports from it). Private aliases keep the existing build
+# call sites and test patch points on this module working.
+_clip_size_budget_bytes = clip_size_budget_bytes
+_clip_segment_sync = clip_segment_sync
+_clip_segment_within_budget_sync = clip_segment_within_budget_sync
+_clip_segment_hq_sync = clip_segment_hq_sync
+_clip_segment_for_transport_sync = clip_segment_for_transport_sync
 
 
 def _segment_fps(duration_sec: float) -> float:
@@ -2098,6 +1867,11 @@ class SourceMemoryService:
                 prefix_assets,
             ),
         }
+        if payload["hitWindowsMs"]:
+            payload["verifyHint"] = (
+                "命中窗口是记忆索引的候选结论；用于剪辑选段前，请对每个"
+                "拟采纳的窗口调用 observe_source_clip 回原片核验。"
+            )
         if prefix_assets is not None:
             payload["sources"] = [
                 {"prefix": prefix, "assetId": asset_id}
@@ -2371,7 +2145,8 @@ top-k 估数；若怀疑漏计，调低 `minCosine`（默认 0.5）并换措辞�
 来源前缀，`hitWindowsMs` 附 assetId；`by_time` 不支持跨素材）；
 - 记忆永远是粗粒度且可能不准的：不要直接拿 SuperEvent 摘要作答，也永远不要跳过\
 查询凭印象作答；返回的 `hitWindowsMs` 是候选时间窗，结论必须回到原片窄窗核验：\
-按该窗口重新观察原生视频帧确认内容一致后才可写入素材理解或回复。"""
+对每个拟采纳的窗口调用 `observe_source_clip`（question 带上待验证的结论本身），\
+确认内容一致后才可写入素材理解或回复；核验不通过的窗口不得采纳。"""
 
 _MEMORY_GUIDANCE_UNAVAILABLE = """\
 ## 长素材记忆

@@ -10,6 +10,7 @@ Covers the highest-value flows:
 - ``DELETE /agents/{id}`` — happy path with manager.stop_agent
 - ``POST /agents/{id}/copy`` — selective config copy without assets
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -360,6 +361,192 @@ def test_rebuild_memory_index_rejects_concurrent_run(
 
 
 # ---------------------------------------------------------------------------
+# GET /agents/{id}/memory/status
+# ---------------------------------------------------------------------------
+
+
+def test_get_memory_runtime_status_does_not_run_a_reme_job(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    runtime_status = {
+        "worker": {
+            "status": "busy",
+            "queue_pending": 0,
+            "tasks_running": 0,
+        },
+        "auto_memory": {
+            "enabled": False,
+            "interval": 0,
+            "active_sessions": 0,
+            "sessions_with_pending": 0,
+            "pending_turns": 0,
+        },
+        "recent": {
+            "last_completed_at": None,
+            "last_failed_at": None,
+            "last_error": None,
+        },
+        "reindexing": True,
+    }
+    memory_manager = MagicMock()
+    memory_manager.get_runtime_status.return_value = runtime_status
+    memory_manager.reme_status = AsyncMock()
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/runtime-status")
+
+    assert response.status_code == 200
+    assert response.json() == runtime_status
+    memory_manager.reme_status.assert_not_awaited()
+
+
+def test_get_memory_status_returns_structured_reme_metrics(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    status_response = MagicMock(
+        success=True,
+        metadata={
+            "status": {
+                "memory": {
+                    "components": {
+                        "file_store": {
+                            "default": {"bytes": 2048, "human": "2.00 KiB"},
+                        },
+                    },
+                    "components_total": "2.00 KiB",
+                    "process_rss": "80.00 MiB",
+                },
+            },
+        },
+    )
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(return_value=status_response)
+    runtime_status = {
+        "worker": {
+            "status": "busy",
+            "queue_pending": 2,
+            "tasks_running": 1,
+        },
+        "auto_memory": {
+            "enabled": True,
+            "interval": 5,
+            "active_sessions": 2,
+            "sessions_with_pending": 1,
+            "pending_turns": 3,
+        },
+        "recent": {
+            "last_completed_at": "2026-08-10T10:18:00",
+            "last_failed_at": None,
+            "last_error": None,
+        },
+        "reindexing": False,
+    }
+    memory_manager.get_runtime_status.return_value = runtime_status
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        **status_response.metadata["status"]["memory"],
+        "runtime": runtime_status,
+    }
+    memory_manager.reme_status.assert_awaited_once_with()
+    memory_manager.get_runtime_status.assert_called_once_with(
+        auto_memory_interval=5,
+    )
+
+
+def test_get_memory_status_rejects_invalid_payload(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(
+        return_value=MagicMock(success=True, metadata={}),
+    )
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == (
+        "ReMe returned an invalid memory status payload"
+    )
+
+
+def test_get_memory_status_does_not_start_an_unloaded_agent(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    manager_mock.get_loaded_agent.return_value = None
+    manager_mock.get_agent = AsyncMock()
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Agent is not running"
+    manager_mock.get_loaded_agent.assert_called_once_with("bot")
+    manager_mock.get_agent.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
 # GET /agents/{id}/memory/graph
 # ---------------------------------------------------------------------------
 
@@ -382,11 +569,7 @@ def test_get_memory_graph_returns_reme_snapshot(
                     "description": "Root note",
                     "indexed": True,
                 },
-                {
-                    "id": "missing.md",
-                    "path": "missing.md",
-                    "indexed": False,
-                },
+                {"id": "missing.md", "path": "missing.md", "indexed": False},
             ],
             "edges": [
                 {

@@ -196,6 +196,10 @@ export function classifyElementTrack(
       return "ai";
     case "edit":
       return "clip";
+    case "motion_clip":
+      // Full-canvas motion documents carry the segment picture itself,
+      // so they ride the main clip track alongside edit segments.
+      return "clip";
     case "transition":
       return "transition";
     case "audio":

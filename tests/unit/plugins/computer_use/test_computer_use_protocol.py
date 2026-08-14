@@ -129,6 +129,64 @@ def test_close_window_maps_to_the_native_method() -> None:
     assert include_images is False
 
 
+def test_sequence_maps_a_bounded_keyboard_batch() -> None:
+    steps = [
+        {"action": "type", "text": "INV-001"},
+        {"action": "press_key", "key": "TAB"},
+    ]
+
+    method, params, include_images = _native_request("sequence", steps=steps)
+
+    assert method == "sequence"
+    assert params == {"steps": steps}
+    assert include_images is False
+
+
+def test_sequence_accepts_a_json_encoded_batch() -> None:
+    steps = json.dumps(
+        [
+            {"action": "type", "text": "INV-001"},
+            {"action": "press_key", "key": "TAB"},
+        ],
+    )
+
+    method, params, include_images = _native_request("sequence", steps=steps)
+
+    assert method == "sequence"
+    assert params["steps"][0]["text"] == "INV-001"
+    assert include_images is False
+
+
+def test_sequence_tool_schema_accepts_array_or_json_string() -> None:
+    import jsonschema
+
+    schema = FunctionTool(computer_use).input_schema
+    steps = [{"action": "type", "text": "INV-001"}]
+
+    jsonschema.validate({"action": "sequence", "steps": steps}, schema)
+    jsonschema.validate(
+        {"action": "sequence", "steps": json.dumps(steps)},
+        schema,
+    )
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [],
+        "not-json",
+        [{"action": "click", "x": 1, "y": 1}],
+        [{"action": "type", "text": "x", "extra": True}],
+        [{"action": "press_key", "key": " "}],
+        [{"action": "type", "text": "x"}] * 21,
+        [{"action": "type", "text": "x" * 513}],
+    ],
+)
+def test_sequence_rejects_inputs_outside_its_contract(steps: Any) -> None:
+    with pytest.raises(ValueError):
+        _native_request("sequence", steps=steps)
+
+
 def test_client_injects_its_private_observation() -> None:
     client = ComputerUseClient("session-1")
     client._observation_id = "observation-1"
@@ -136,6 +194,24 @@ def test_client_injects_its_private_observation() -> None:
     params = client._native_params("close_window", {})
 
     assert params == {"observation_id": "observation-1"}
+
+
+def test_partial_sequence_result_advances_the_private_observation() -> None:
+    client = ComputerUseClient("session-1")
+    client._observation_id = "observation-1"
+
+    result = client._accept_result(
+        "sequence",
+        {
+            "observation_id": "observation-2",
+            "completed_steps": 1,
+            "error": {"code": "input_failed"},
+        },
+    )
+
+    assert client._observation_id == "observation-2"
+    assert "observation_id" not in result
+    assert result["completed_steps"] == 1
 
 
 def test_client_rejects_action_before_observe() -> None:
@@ -181,6 +257,64 @@ def test_native_error_marks_the_tool_call_as_failed() -> None:
     assert isinstance(response, ToolChunk)
     assert response.state == ToolResultState.ERROR
     assert '"ok":false' in response.content[-1].text
+    assert '"requires_observe":true' in response.content[-1].text
+    assert '"next_action":"observe_window"' in response.content[-1].text
+
+
+def test_sequence_steps_count_against_the_action_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dispatch_module, "_action_times", [])
+    monkeypatch.setattr(dispatch_module, "_MAX_ACTIONS_PER_MINUTE", 3)
+
+    dispatch_module._check_rate_limit(3)
+
+    with pytest.raises(ComputerUseProtocolError) as refusal:
+        dispatch_module._check_rate_limit()
+    assert refusal.value.code == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_partial_sequence_is_an_error_with_a_fresh_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Enabled:
+        @staticmethod
+        def is_enabled() -> bool:
+            return True
+
+    class _PartialClient:
+        @staticmethod
+        async def execute(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "completed_steps": 1,
+                "error": {"code": "input_failed", "step_index": 1},
+                "screenshots": [],
+            }
+
+    monkeypatch.setattr(dispatch_module, "_check_rate_limit", lambda *_: None)
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_feature_state",
+        lambda: _Enabled(),
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "get_computer_use_client",
+        lambda: _PartialClient(),
+    )
+
+    response = await computer_use(
+        action="sequence",
+        steps=[
+            {"action": "type", "text": "A"},
+            {"action": "press_key", "key": "TAB"},
+        ],
+    )
+
+    assert response.state == ToolResultState.ERROR
+    assert '"ok":false' in response.content[-1].text
+    assert '"completed_steps":1' in response.content[-1].text
 
 
 @pytest.mark.asyncio
@@ -220,9 +354,10 @@ async def test_function_tool_preserves_intervention_error_state(
     assert response.is_last is True
     assert response.state == ToolResultState.ERROR
     assert '"code":"user_intervention"' in response.content[-1].text
+    assert '"requires_observe":true' in response.content[-1].text
 
 
-def test_uia_input_leaves_observation_to_client() -> None:
+def test_semantic_actions_leave_observation_to_client() -> None:
     method, params, _ = _native_request(
         "invoke",
         element_id="uia-7",
@@ -230,6 +365,17 @@ def test_uia_input_leaves_observation_to_client() -> None:
 
     assert method == "invoke_element"
     assert params == {"element_id": "uia-7"}
+
+    method, params, _ = _native_request(
+        "begin_text_edit",
+        element_id="uia-8",
+    )
+
+    assert method == "invoke_element"
+    assert params == {
+        "element_id": "uia-8",
+        "expects_text_input": True,
+    }
 
 
 class _FakeTransport(ComputerUseTransport):
@@ -267,6 +413,33 @@ class _FakeTransport(ComputerUseTransport):
         handler: ReverseRequestHandler,
     ) -> None:
         self.handler = handler
+
+
+@pytest.mark.asyncio
+async def test_failed_action_invalidates_the_private_observation() -> None:
+    class _ActionFailureTransport(_FakeTransport):
+        async def request(self, message: Mapping[str, Any]) -> dict[str, Any]:
+            if message["method"] == "hello":
+                return await super().request(message)
+            return {
+                "request_id": message["request_id"],
+                "ok": False,
+                "error": {
+                    "code": "target_not_at_point",
+                    "message": "Observe again.",
+                },
+            }
+
+    client = ComputerUseClient("session-1", lambda: _ActionFailureTransport())
+    client._observation_id = "observation-1"
+    set_current_computer_use_turn_id("turn-1")
+    try:
+        with pytest.raises(ComputerUseProtocolError):
+            await client.execute("click", {})
+    finally:
+        set_current_computer_use_turn_id(None)
+
+    assert client._observation_id is None
 
 
 @pytest.mark.asyncio
@@ -387,8 +560,8 @@ def test_the_approval_coordinator_holds_no_exemption_state() -> None:
     )
 
 
-def test_element_line_uses_bounds_centre_on_windows() -> None:
-    """Windows elements expose pixel bounds, rendered as a centre point."""
+def test_element_line_omits_windows_screen_bounds() -> None:
+    """Desktop UIA bounds do not map to screenshot coordinates."""
     line = _element_line(
         {
             "id": "uia-1",
@@ -399,7 +572,7 @@ def test_element_line_uses_bounds_centre_on_windows() -> None:
             "offscreen": False,
         },
     )
-    assert line == 'uia-1 Edit "text editor" screen@200,300'
+    assert line == 'uia-1 Edit "text editor"'
 
 
 def test_element_line_uses_value_on_macos() -> None:
@@ -416,6 +589,49 @@ def test_element_line_uses_value_on_macos() -> None:
     assert line == 'ax-2 Edit "note" =hello'
 
 
+def test_element_line_preserves_accessibility_depth() -> None:
+    """Native hierarchy remains visible in the compact model contract."""
+    line = _element_line(
+        {
+            "id": "uia-2",
+            "control_type_name": "ListItem",
+            "name": "餐饮",
+            "depth": 3,
+        },
+    )
+    assert line == '      uia-2 ListItem "餐饮"'
+
+
+def test_element_line_preserves_application_identifier() -> None:
+    """Stable command identities disambiguate localized menu labels."""
+    line = _element_line(
+        {
+            "id": "ax-3",
+            "control_type_name": "MenuItem",
+            "name": "复制",
+            "identifier": "cmdDuplicate:",
+        },
+    )
+    assert line == 'ax-3 MenuItem "复制" [identifier=cmdDuplicate:]'
+
+
+def test_element_line_normalizes_windows_semantic_capabilities() -> None:
+    """Windows UIA metadata uses the same compact contract as macOS AX."""
+    line = _element_line(
+        {
+            "id": "uia-4",
+            "control_type_name": "Button",
+            "name": "Continue",
+            "automation_id": "continue-button",
+            "actions": ["Invoke"],
+        },
+    )
+    assert line == (
+        'uia-4 Button "Continue" [identifier=continue-button] '
+        "[actions=Invoke]"
+    )
+
+
 def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
     """Both states stay in the listing: they inform the next decision."""
     line = _element_line(
@@ -428,7 +644,7 @@ def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
             "offscreen": True,
         },
     )
-    assert line == 'uia-9 Button "Save" screen@5,5 [disabled] [offscreen]'
+    assert line == 'uia-9 Button "Save" [disabled] [offscreen]'
 
 
 def test_compact_elements_preserves_protocol_fields() -> None:
@@ -451,6 +667,7 @@ def test_compact_elements_preserves_protocol_fields() -> None:
                     "id": "uia-1",
                     "control_type_name": "Button",
                     "name": "OK",
+                    "depth": 1,
                     "bounds": [10, 10, 30, 30],
                 },
             ],
@@ -462,7 +679,7 @@ def test_compact_elements_preserves_protocol_fields() -> None:
     assert result["window"] == {"id": "42", "title": "Editor"}
     assert result["accessibility"]["available"] is True
     assert result["accessibility"]["elements"] == (
-        'uia-0 Window "Editor" screen@50,50\n' 'uia-1 Button "OK" screen@20,20'
+        'uia-0 Window "Editor"\n' '  uia-1 Button "OK"'
     )
     # The original payload must not be mutated.
     accessibility = payload["accessibility"]
@@ -483,7 +700,7 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
         "action": "observe_window",
         "accessibility": {
             "available": True,
-            "focused_element": 'uia-1 Edit "text editor" screen@200,300',
+            "focused_element": 'uia-1 Edit "text editor"',
             "document_text": "hello world",
             "elements": [
                 {
@@ -500,10 +717,6 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
     assert "\n  " not in text
     decoded = json.loads(text)
     accessibility = decoded["accessibility"]
-    assert accessibility["focused_element"] == (
-        'uia-1 Edit "text editor" screen@200,300'
-    )
+    assert accessibility["focused_element"] == 'uia-1 Edit "text editor"'
     assert accessibility["document_text"] == "hello world"
-    assert accessibility["elements"] == (
-        'uia-1 Edit "text editor" screen@200,300'
-    )
+    assert accessibility["elements"] == 'uia-1 Edit "text editor"'

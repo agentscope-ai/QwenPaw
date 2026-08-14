@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import errno
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 import pytest
 
+from services.runtime_files import atomic_store as atomic_store_module
 from services.runtime_files import (
     AtomicJsonRecordStore,
     CorruptRecordError,
@@ -126,6 +129,66 @@ def test_failure_before_create_publish_never_exposes_partial_target(tmp_path):
 
     assert not path.exists()
     assert not list(tmp_path.glob(".record.json.*.tmp"))
+
+
+def test_atomic_bytes_tolerate_windows_like_missing_fchmod_and_dir_fsync(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "state.json"
+    real_open = os.open
+
+    def windows_like_open(target, flags, mode=0o777, *args, **kwargs):
+        if Path(target).is_dir():
+            raise PermissionError(errno.EACCES, "Permission denied", target)
+        return real_open(target, flags, mode, *args, **kwargs)
+
+    monkeypatch.delattr(atomic_store_module.os, "fchmod", raising=False)
+    monkeypatch.setattr(atomic_store_module.os, "open", windows_like_open)
+
+    atomic_store_module.atomic_replace_bytes(path, b'{"ok":true}\n')
+    assert path.read_bytes() == b'{"ok":true}\n'
+    assert not list(tmp_path.glob(".state.json.*.tmp"))
+
+    created = atomic_store_module.atomic_create_bytes(
+        tmp_path / "created.json",
+        b'{"created":true}\n',
+    )
+    assert created is True
+    assert (tmp_path / "created.json").read_bytes() == b'{"created":true}\n'
+
+
+def test_atomic_create_uses_windows_rename_without_hardlink(
+    tmp_path,
+    monkeypatch,
+):
+    def forbidden_link(*_args, **_kwargs):
+        raise AssertionError("Windows create path must not require hard links")
+
+    monkeypatch.setattr(atomic_store_module, "_is_windows", lambda: True)
+    monkeypatch.setattr(atomic_store_module.os, "link", forbidden_link)
+
+    path = tmp_path / "created.json"
+    assert atomic_store_module.atomic_create_bytes(path, b"created\n") is True
+    assert path.read_bytes() == b"created\n"
+
+
+def test_atomic_create_windows_rename_reports_existing_target(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "created.json"
+    path.write_bytes(b"existing\n")
+
+    def existing_rename(_source, _target):
+        raise FileExistsError("target exists")
+
+    monkeypatch.setattr(atomic_store_module, "_is_windows", lambda: True)
+    monkeypatch.setattr(atomic_store_module.os, "rename", existing_rename)
+
+    assert atomic_store_module.atomic_create_bytes(path, b"new\n") is False
+    assert path.read_bytes() == b"existing\n"
+    assert not list(tmp_path.glob(".created.json.*.tmp"))
 
 
 def test_non_standard_nonfinite_json_is_reported_as_corruption(tmp_path):
