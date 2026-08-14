@@ -1,12 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DataSourceMetadata } from "./api";
-import {
-  ArrowUpIcon,
-  ArrowUpRightIcon,
-  EllipsisIcon,
-  PinIcon,
-} from "./icons";
+import { ArrowUpIcon, ArrowUpRightIcon, EllipsisIcon, PinIcon } from "./icons";
 import { useLanguage, useT } from "./language";
 import { LogoMark } from "./LogoMark";
 import { renderMarkdown, splitCompletionMarker } from "./markdown";
@@ -16,12 +11,7 @@ import type {
   PawChatSession,
   PawChatStreamEvent,
 } from "./sdk";
-import {
-  localeTag,
-  translate,
-  type Language,
-  type StringKey,
-} from "./strings";
+import { localeTag, translate, type Language, type StringKey } from "./strings";
 
 type TraceStatus = "running" | "completed" | "error";
 

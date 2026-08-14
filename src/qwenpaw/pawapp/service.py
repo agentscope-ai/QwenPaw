@@ -163,8 +163,7 @@ class ManagedService:
             return True
         executable = self.spec.command[0]
         return (
-            Path(executable).is_file()
-            or shutil.which(executable) is not None
+            Path(executable).is_file() or shutil.which(executable) is not None
         )
 
     def status(self) -> dict[str, object]:
@@ -229,8 +228,7 @@ class ManagedService:
             for part in self.spec.command
         ]
         if not (
-            Path(command[0]).is_file()
-            or shutil.which(command[0]) is not None
+            Path(command[0]).is_file() or shutil.which(command[0]) is not None
         ):
             # Fail with an actionable message instead of the cryptic
             # FileNotFoundError a doomed spawn would raise.

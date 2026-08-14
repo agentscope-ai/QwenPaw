@@ -27,9 +27,7 @@ export function resolveInitialLanguage(): Language {
     /* storage unavailable */
   }
   if (stored === "zh" || stored === "en") return stored;
-  const fallback: Language = navigator.language
-    ?.toLowerCase()
-    .startsWith("zh")
+  const fallback: Language = navigator.language?.toLowerCase().startsWith("zh")
     ? "zh"
     : "en";
   try {

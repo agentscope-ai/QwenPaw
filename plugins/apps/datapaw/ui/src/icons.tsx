@@ -8,13 +8,7 @@ import type { ReactNode } from "react";
  * the host console's Lucide iconography (24px grid, 2px rounded strokes).
  */
 
-function Icon({
-  children,
-  size = 16,
-}: {
-  children: ReactNode;
-  size?: number;
-}) {
+function Icon({ children, size = 16 }: { children: ReactNode; size?: number }) {
   return (
     <svg
       aria-hidden="true"
