@@ -24,6 +24,7 @@ from ..constant import (
 )
 from ..config.utils import load_config
 from ..utils.startup_display import AgentStartupDisplay
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,9 @@ class MultiAgentManager:
         # Fast path: already loaded (no lock)
         if agent_id in self.agents:
             self._agent_startup_statuses[agent_id] = AgentStartupStatus.RUNNING
-            logger.debug(f"Returning cached agent: {agent_id}")
+            logger.debug(
+                f"Returning cached agent: {sanitize_log_value(agent_id)}",
+            )
             return self.agents[agent_id]
 
         should_start = False
@@ -105,7 +108,9 @@ class MultiAgentManager:
         async with self._lock:
             # Re-check under lock
             if agent_id in self.agents:
-                logger.debug(f"Returning cached agent: {agent_id}")
+                logger.debug(
+                    f"Returning cached agent: {sanitize_log_value(agent_id)}",
+                )
                 return self.agents[agent_id]
 
             if agent_id in self._pending_starts:
@@ -135,7 +140,9 @@ class MultiAgentManager:
             # Wait for the in-progress startup to finish
             await event.wait()
             if agent_id in self.agents:
-                logger.debug(f"Returning cached agent: {agent_id}")
+                logger.debug(
+                    f"Returning cached agent: {sanitize_log_value(agent_id)}",
+                )
                 return self.agents[agent_id]
             raise ConfigurationException(
                 config_key="agent",
@@ -158,7 +165,8 @@ class MultiAgentManager:
 
             elapsed = time.perf_counter() - t0
             logger.debug(
-                f"Workspace created and started: {agent_id} "
+                "Workspace created and started: "
+                f"{sanitize_log_value(agent_id)} "
                 f"({elapsed:.3f}s)",
             )
 
@@ -173,7 +181,10 @@ class MultiAgentManager:
 
             return instance
         except Exception as e:
-            logger.error(f"Failed to start workspace {agent_id}: {e}")
+            logger.error(
+                f"Failed to start workspace {sanitize_log_value(agent_id)}: "
+                f"{sanitize_log_value(e)}",
+            )
             raise
         finally:
             # Always clean up pending state and signal waiters
@@ -665,10 +676,16 @@ class MultiAgentManager:
         """
         try:
             await self.get_agent(agent_id)
-            logger.info(f"Successfully preloaded agent: {agent_id}")
+            logger.info(
+                "Successfully preloaded agent: "
+                f"{sanitize_log_value(agent_id)}",
+            )
             return True
         except Exception as e:
-            logger.error(f"Failed to preload agent {agent_id}: {e}")
+            logger.error(
+                f"Failed to preload agent {sanitize_log_value(agent_id)}: "
+                f"{sanitize_log_value(e)}",
+            )
             return False
 
     async def _wait_for_scheduled_startup(self, agent_id: str) -> None:

@@ -18,7 +18,7 @@ from qwenpaw.exceptions import (
 )
 
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
-from ..utils import schedule_agent_reload
+from ..utils import safe_join, schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -591,8 +591,7 @@ def _resolve_custom_workspace_dir(raw_workspace_dir: str) -> Path:
     home = Path.home().resolve()
     working_dir = Path(WORKING_DIR).expanduser().resolve()
     if candidate != home and (
-        candidate.is_relative_to(home)
-        or candidate.is_relative_to(working_dir)
+        candidate.is_relative_to(home) or candidate.is_relative_to(working_dir)
     ):
         return candidate
     raise HTTPException(
@@ -662,9 +661,11 @@ async def create_agent(
             request.workspace_dir,
         )
     else:
-        workspace_dir = Path(
-            f"{WORKING_DIR}/workspaces/{new_id}",
-        ).expanduser()
+        workspace_dir = await run_sync_io(
+            safe_join,
+            Path(f"{WORKING_DIR}/workspaces").expanduser(),
+            new_id,
+        )
     await run_sync_io(workspace_dir.mkdir, parents=True, exist_ok=True)
 
     from ...config.config import (
