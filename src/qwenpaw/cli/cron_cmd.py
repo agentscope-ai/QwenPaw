@@ -716,6 +716,9 @@ def _resolve_update_spec(
                         "content": [{"type": "text", "text": text.strip()}],
                     },
                 ]
+            # Keep the top-level 'text' summary in sync with the request
+            # payload so cron list/get show the updated prompt (issue #7048).
+            payload["text"] = text.strip()
         else:
             payload["text"] = text.strip()
 

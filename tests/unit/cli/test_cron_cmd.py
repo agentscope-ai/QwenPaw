@@ -259,6 +259,18 @@ def test_update_agent_text_replaces_prompt_keeps_extensions():
     assert result["request"]["request_context"] == {"source_tag": "ops"}
 
 
+def test_update_agent_text_syncs_top_level_text():
+    """--text on an agent job must keep top-level text in sync with the
+    request payload so cron list/get display the updated prompt (issue #7048).
+    """
+    result = _update(_agent_job_spec(), text="new prompt")
+
+    # Both copies of the prompt must reflect the new value.
+    assert result["text"] == "new prompt"
+    content = result["request"]["input"][0]["content"][0]
+    assert content["text"] == "new prompt"
+
+
 def test_update_agent_text_with_malformed_input_rebuilds():
     """--text on an agent job with empty/malformed input rebuilds it."""
     spec = _agent_job_spec()
