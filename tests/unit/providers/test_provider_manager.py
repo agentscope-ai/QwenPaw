@@ -981,6 +981,44 @@ async def test_async_provider_update_commits_only_after_snapshot_write(
     assert provider.api_key == "new-key"
 
 
+async def test_stale_async_update_restores_live_snapshot_on_disk(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """A write that lost the revision race must not stay on disk.
+
+    Without the compensating rewrite, the stale snapshot would silently
+    swallow the concurrent winning update on the next restart.
+    """
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    provider.api_key = "winning-key"
+    original_save = manager._save_provider_snapshot
+    saved_keys = []
+
+    def racing_save(provider_id, candidate, **kwargs):
+        saved_keys.append(candidate.api_key)
+        if len(saved_keys) == 1:
+            # A concurrent update wins the revision race while this
+            # detached snapshot is being written.
+            manager._bump_provider_revision("openai")
+        return original_save(provider_id, candidate, **kwargs)
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot", racing_save)
+
+    result = await manager.update_provider_async(
+        "openai",
+        {"api_key": "stale-key"},
+    )
+
+    assert result is False
+    assert provider.api_key == "winning-key"
+    # The stale write happened first, then the compensating rewrite
+    # restored the live provider state on disk.
+    assert saved_keys == ["stale-key", "winning-key"]
+
+
 async def test_async_provider_update_keeps_memory_on_write_failure(
     isolated_secret_dir,
     monkeypatch,

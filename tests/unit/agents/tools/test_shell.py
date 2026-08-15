@@ -2061,7 +2061,9 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
     assert code == -1
     kill_tree.assert_called_once_with(4321)
     proc.kill.assert_called_once_with()
-    assert proc.wait.call_args_list[-1].kwargs == {}
+    # The final reap is bounded so a child stuck in kernel I/O costs a
+    # leaked handle, not a worker thread parked forever.
+    assert proc.wait.call_args_list[-1].kwargs == {"timeout": 5.0}
 
 
 @pytest.mark.asyncio

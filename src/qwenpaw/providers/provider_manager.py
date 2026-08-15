@@ -251,9 +251,14 @@ class ProviderManager(
         )
 
         if not self._is_current_provider(provider_id, provider, revision):
+            # The provider changed while the snapshot was being written;
+            # restore the disk state from the winning update instead of
+            # leaving this stale snapshot to swallow it on next restart.
+            await self._restore_latest_snapshot(provider_id, provider_path)
             return False
         current = self.get_provider(provider_id)
         if current is None:
+            await self._restore_latest_snapshot(provider_id, provider_path)
             return False
         if provider_id in self.plugin_providers:
             self.plugin_providers[provider_id]["info"] = ProviderInfo(

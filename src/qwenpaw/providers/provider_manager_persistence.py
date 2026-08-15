@@ -381,6 +381,28 @@ class ProviderManagerPersistenceMixin(ProviderManagerHost):
                 provider_path=provider_path,
             )
 
+    async def _restore_latest_snapshot(
+        self,
+        provider_id: str,
+        provider_path: Path,
+    ) -> None:
+        """Rewrite the on-disk snapshot from the live provider state.
+
+        Compensates a detached write that lost the revision/generation
+        race: without the rewrite, the stale snapshot stays on disk and
+        the concurrent winning update is silently swallowed on the next
+        restart.
+        """
+        latest = self.get_provider(provider_id)
+        if latest is None:
+            return
+        await run_sync_io(
+            self._save_provider_snapshot_locked,
+            provider_id,
+            latest.model_copy(deep=True),
+            provider_path,
+        )
+
     def _merge_provider_snapshot(
         self,
         provider_id: str,

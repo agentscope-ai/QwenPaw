@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Literal
 from ..constant import EnvVarLoader
 from ..exceptions import ProviderError
 from ..utils.io_utils import run_async_to_completion, run_sync_io
+from ..utils.logging import sanitize_log_value
 from . import capability_baseline
 from . import model_catalog
 from .capability_baseline import (
@@ -240,14 +241,7 @@ class ProviderManagerDiscoveryMixin(ProviderManagerHost):
                 revision,
             )
         ):
-            latest = self.get_provider(provider_id)
-            if latest is not None:
-                await run_sync_io(
-                    self._save_provider_snapshot_locked,
-                    provider_id,
-                    latest.model_copy(deep=True),
-                    provider_path,
-                )
+            await self._restore_latest_snapshot(provider_id, provider_path)
             return False
         if provider_id in self.plugin_providers:
             self.plugin_providers[provider_id]["info"] = ProviderInfo(
@@ -550,7 +544,9 @@ class ProviderManagerDiscoveryMixin(ProviderManagerHost):
         for provider_id, result in zip(provider_ids, results):
             if isinstance(result, Exception):
                 logger.warning(
-                    f"Startup model sync failed for {provider_id}: {result}",
+                    "Startup model sync failed for %s: %s",
+                    sanitize_log_value(provider_id),
+                    sanitize_log_value(str(result)),
                 )
 
     async def sync_remote_catalogs(self) -> None:

@@ -113,6 +113,13 @@ class ProviderManagerHost:
     ) -> None:
         raise NotImplementedError
 
+    async def _restore_latest_snapshot(
+        self,
+        provider_id: str,
+        provider_path: Path,
+    ) -> None:
+        raise NotImplementedError
+
     async def _save_provider_config_locked(
         self,
         provider_id: str,
