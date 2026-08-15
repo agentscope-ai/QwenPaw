@@ -37,7 +37,12 @@ from .provider_model_availability import (
 logger = logging.getLogger(__name__)
 
 
-class ProviderManagerDiscoveryMixin(ProviderManagerHost):
+# The host's stubs are implemented by ProviderManager / the sibling
+# mixin once the class is assembled; this mixin never instantiates
+# standalone, so the inherited "abstract" members are intentional.
+class ProviderManagerDiscoveryMixin(
+    ProviderManagerHost,
+):  # pylint: disable=abstract-method
     """Provide discovery, availability, and catalog manager operations."""
 
     async def fetch_provider_models(

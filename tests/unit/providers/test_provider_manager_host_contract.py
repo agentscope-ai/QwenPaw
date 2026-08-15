@@ -89,8 +89,7 @@ def test_host_declarations_are_implemented_by_the_manager() -> None:
         name
         for name in host_declared
         if not any(name in vars(cls) for cls in ProviderManager.__mro__[:-2])
-        and name
-        not in getattr(ProviderManagerHost, "__annotations__", {})
+        and name not in getattr(ProviderManagerHost, "__annotations__", {})
         and name not in ("__init__",)
     ]
     # Instance attributes are created in __init__ and covered by the

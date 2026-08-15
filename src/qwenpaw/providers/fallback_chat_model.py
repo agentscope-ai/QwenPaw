@@ -167,16 +167,17 @@ class FallbackChatModel(ChatModelBase):
                     )
                     continue
                 if isinstance(response, AsyncGenerator):
-                    stream = self._consume_with_fallback(
+                    stream_token = token
+                    assert stream_token is not None
+                    token = None  # the stream wrapper owns the reset now
+                    return self._consume_with_fallback(
                         response,
                         index,
                         args,
                         kwargs,
                         fallback_events,
-                        token,
+                        stream_token,
                     )
-                    token = None  # the stream wrapper owns the reset now
-                    return stream
                 return self._annotate_response(
                     response,
                     fallback_events,

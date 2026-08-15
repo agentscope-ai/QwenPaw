@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
 """Remote media preparation must degrade failures, never raise.
 
 A dead media URL in history is a content problem, not a model failure.

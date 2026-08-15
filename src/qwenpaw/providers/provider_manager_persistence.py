@@ -50,7 +50,12 @@ logger = logging.getLogger(__name__)
 ProviderStorageKind = Literal["builtin", "custom", "plugin"]
 
 
-class ProviderManagerPersistenceMixin(ProviderManagerHost):
+# The host's stubs are implemented by ProviderManager / the sibling
+# mixin once the class is assembled; this mixin never instantiates
+# standalone, so the inherited "abstract" members are intentional.
+class ProviderManagerPersistenceMixin(
+    ProviderManagerHost,
+):  # pylint: disable=abstract-method
     """Provide provider snapshot persistence and migration operations."""
 
     async def _mutate_provider_async(
