@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Any, AsyncGenerator
 
 from agentscope.model import ChatModelBase
@@ -115,6 +115,28 @@ class FallbackChatModel(ChatModelBase):
         """Expose routing metadata from the model handling the request."""
         self._active_model = model
 
+    def _begin_request(self) -> Token:
+        """Activate the primary model and snapshot the pre-request state.
+
+        The returned token MUST be passed to :meth:`_end_request` once the
+        request settles (response returned, stream exhausted, or error
+        raised).  Without the reset, the last-served fallback would leak
+        into the between-requests window where the compaction manager
+        sizes the context budget and capability learning reads
+        ``model_key`` -- both must see the primary model, because the
+        next request always tries the primary first.
+        """
+        return self._active_model_var.set(self._models[0])
+
+    def _end_request(self, token: Token) -> None:
+        """Restore the pre-request active model."""
+        try:
+            self._active_model_var.reset(token)
+        except ValueError:
+            # The stream was consumed in a different context than the
+            # one that started the request; re-expose the primary there.
+            self._active_model_var.set(self._models[0])
+
     @property
     def model_key(self) -> str:
         """Return the key for the model handling the current request."""
@@ -129,34 +151,42 @@ class FallbackChatModel(ChatModelBase):
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         last_error: Exception | None = None
         fallback_events: list[dict[str, str]] = []
-        for index, model in enumerate(self._models):
-            self._activate_model(model)
-            try:
-                response = await model(*args, **kwargs)
-            except Exception as exc:
-                last_error = exc
-                if not self._can_try_next(index, exc):
-                    raise
-                following = self._models[index + 1]
-                fallback_events.append(
-                    self._record_fallback(model, following, exc),
-                )
-                continue
-            if isinstance(response, AsyncGenerator):
-                return self._consume_with_fallback(
+        token: Token | None = self._begin_request()
+        try:
+            for index, model in enumerate(self._models):
+                self._activate_model(model)
+                try:
+                    response = await model(*args, **kwargs)
+                except Exception as exc:
+                    last_error = exc
+                    if not self._can_try_next(index, exc):
+                        raise
+                    following = self._models[index + 1]
+                    fallback_events.append(
+                        self._record_fallback(model, following, exc),
+                    )
+                    continue
+                if isinstance(response, AsyncGenerator):
+                    stream = self._consume_with_fallback(
+                        response,
+                        index,
+                        args,
+                        kwargs,
+                        fallback_events,
+                        token,
+                    )
+                    token = None  # the stream wrapper owns the reset now
+                    return stream
+                return self._annotate_response(
                     response,
-                    index,
-                    args,
-                    kwargs,
                     fallback_events,
+                    model,
                 )
-            return self._annotate_response(
-                response,
-                fallback_events,
-                model,
-            )
-        assert last_error is not None
-        raise last_error
+            assert last_error is not None
+            raise last_error
+        finally:
+            if token is not None:
+                self._end_request(token)
 
     async def _consume_with_fallback(
         self,
@@ -165,46 +195,50 @@ class FallbackChatModel(ChatModelBase):
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         fallback_events: list[dict[str, str]],
+        reset_token: Token,
     ) -> AsyncGenerator[ChatResponse, None]:
-        current = stream
-        current_index = index
-        current_model = self._models[index]
-        emitted = False
-        while True:
-            fallback_error: Exception | None = None
-            try:
-                async for chunk in current:
-                    emitted = emitted or bool(chunk.content)
+        try:
+            current = stream
+            current_index = index
+            current_model = self._models[index]
+            emitted = False
+            while True:
+                fallback_error: Exception | None = None
+                try:
+                    async for chunk in current:
+                        emitted = emitted or bool(chunk.content)
+                        yield self._annotate_response(
+                            chunk,
+                            fallback_events,
+                            current_model,
+                        )
+                        fallback_events = []
+                    return
+                except Exception as exc:
+                    if emitted or not self._can_try_next(current_index, exc):
+                        raise
+                    fallback_error = exc
+                finally:
+                    await current.aclose()
+                assert fallback_error is not None
+                response, current_index = await self._start_fallback(
+                    current_index,
+                    fallback_error,
+                    args,
+                    kwargs,
+                    fallback_events,
+                )
+                current_model = self._models[current_index]
+                if not isinstance(response, AsyncGenerator):
                     yield self._annotate_response(
-                        chunk,
+                        response,
                         fallback_events,
                         current_model,
                     )
-                    fallback_events = []
-                return
-            except Exception as exc:
-                if emitted or not self._can_try_next(current_index, exc):
-                    raise
-                fallback_error = exc
-            finally:
-                await current.aclose()
-            assert fallback_error is not None
-            response, current_index = await self._start_fallback(
-                current_index,
-                fallback_error,
-                args,
-                kwargs,
-                fallback_events,
-            )
-            current_model = self._models[current_index]
-            if not isinstance(response, AsyncGenerator):
-                yield self._annotate_response(
-                    response,
-                    fallback_events,
-                    current_model,
-                )
-                return
-            current = response
+                    return
+                current = response
+        finally:
+            self._end_request(reset_token)
 
     async def _start_fallback(
         self,
@@ -334,25 +368,29 @@ class FallbackChatModel(ChatModelBase):
     ) -> Any:
         last_error: Exception | None = None
         fallback_events: list[dict[str, str]] = []
-        for index, model in enumerate(self._models):
-            self._activate_model(model)
-            try:
-                response = await model.generate_structured_output(
-                    *args,
-                    **kwargs,
-                )
-                return self._annotate_response(
-                    response,
-                    fallback_events,
-                    model,
-                )
-            except Exception as exc:
-                last_error = exc
-                if not self._can_try_next(index, exc):
-                    raise
-                following = self._models[index + 1]
-                fallback_events.append(
-                    self._record_fallback(model, following, exc),
-                )
-        assert last_error is not None
-        raise last_error
+        token = self._begin_request()
+        try:
+            for index, model in enumerate(self._models):
+                self._activate_model(model)
+                try:
+                    response = await model.generate_structured_output(
+                        *args,
+                        **kwargs,
+                    )
+                    return self._annotate_response(
+                        response,
+                        fallback_events,
+                        model,
+                    )
+                except Exception as exc:
+                    last_error = exc
+                    if not self._can_try_next(index, exc):
+                        raise
+                    following = self._models[index + 1]
+                    fallback_events.append(
+                        self._record_fallback(model, following, exc),
+                    )
+            assert last_error is not None
+            raise last_error
+        finally:
+            self._end_request(token)

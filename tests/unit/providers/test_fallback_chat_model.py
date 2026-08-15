@@ -166,8 +166,15 @@ async def test_identity_and_context_follow_fallback(
     response = await model(messages=[], tools=[])
 
     assert response.content[0]["text"] == "ok"
-    assert model.model == "fallback"
-    assert model.context_size == fallback_size
+    # During the request the response metadata reports the serving model;
+    # once the request settles, identity resets to the primary so the
+    # compaction budget and capability learning size for the model the
+    # NEXT request will try first.
+    actual = response.metadata["qwenpaw_actual_model"]
+    assert actual["model_id"] == "fallback"
+    assert actual["context_size"] == fallback_size
+    assert model.model == "primary"
+    assert model.context_size == primary_size
     assert response.metadata["qwenpaw_model_fallbacks"] == [
         {
             "type": "model_fallback",
@@ -399,19 +406,31 @@ async def test_concurrent_requests_keep_active_metadata_isolated() -> None:
     async def consume_first():
         response = await model(messages=[], tools=[])
         first_release.set()
-        chunks = [chunk async for chunk in response]
-        return chunks[-1], model.model_key, model.context_size
+        chunks = []
+        during = []
+        async for chunk in response:
+            chunks.append(chunk)
+            during.append((model.model_key, model.context_size))
+        return chunks[-1], during[-1]
 
     async def consume_second():
         response = await model(messages=[], tools=[])
         second_release.set()
-        chunks = [chunk async for chunk in response]
-        return chunks[-1], model.model_key, model.context_size
+        chunks = []
+        during = []
+        async for chunk in response:
+            chunks.append(chunk)
+            during.append((model.model_key, model.context_size))
+        return chunks[-1], during[-1]
 
     first, second = await asyncio.gather(consume_first(), consume_second())
 
-    assert first[1:] == ("fallback", 1_000_000)
-    assert second[1:] == ("primary", 128_000)
+    # While each stream is live, the tasks see their own serving model.
+    assert first[1] == ("fallback", 1_000_000)
+    assert second[1] == ("primary", 128_000)
+    # After both requests settle, identity is back on the primary.
+    assert model.model_key == "primary"
+    assert model.context_size == 128_000
     assert first[0].metadata["qwenpaw_actual_model"] == {
         "provider_id": "fallback-provider",
         "model_id": "fallback",
@@ -459,7 +478,9 @@ async def test_usage_and_model_key_follow_actual_fallback(
         "fallback-session",
     )
 
-    assert model.model_key == "fallback"
+    # Usage is attributed per slot by TokenRecordingModelWrapper; the
+    # wrapper's own identity resets to the primary once the stream ends.
+    assert model.model_key == "primary"
     assert usage is not None
     assert usage["provider_id"] == "fallback-provider"
     assert usage["model_name"] == "fallback"
@@ -507,8 +528,13 @@ async def test_structured_output_reports_multi_hop_fallback() -> None:
             "reason_kind": "rate_limited",
         },
     ]
-    assert model.model == "final-fallback"
-    assert model.context_size == 1_000_000
+    assert response.metadata["qwenpaw_actual_model"] == {
+        "provider_id": "final-provider",
+        "model_id": "final-fallback",
+        "context_size": 1_000_000,
+    }
+    assert model.model == "primary"
+    assert model.context_size == 32_768
 
 
 async def test_structured_output_rejects_ineligible_failure() -> None:
@@ -594,3 +620,58 @@ async def test_fallback_sink_records_events_and_actual_model() -> None:
     assert sink["events"][0]["type"] == "model_fallback"
     assert sink["events"][0]["to_model_id"] == "fallback"
     assert (sink["actual_model"] or {})["model_id"] == "fallback"
+
+
+async def test_active_model_resets_after_streamed_fallback() -> None:
+    """The last-served fallback must not leak past the stream's end."""
+    primary = FakeModel(
+        "primary",
+        HttpError(503),
+        context_size=32_768,
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: _stream(_response("ok")),
+        context_size=262_144,
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+    during: list[tuple[str, int]] = []
+    async for _chunk in cast(AsyncGenerator[ChatResponse, None], response):
+        during.append((model.model, model.context_size))
+
+    # While the fallback serves the stream, identity follows it ...
+    assert during == [("fallback", 262_144)]
+    # ... and once the stream settles it resets to the primary, which
+    # the next request tries first (compaction must budget for it).
+    assert model.model == "primary"
+    assert model.context_size == 32_768
+    assert model.model_key == "primary"
+
+
+async def test_active_model_resets_when_all_models_fail() -> None:
+    primary = FakeModel("primary", HttpError(503), context_size=32_768)
+    fallback = FakeModel("fallback", HttpError(503), context_size=262_144)
+    model = FallbackChatModel([primary, fallback])
+
+    with pytest.raises(HttpError):
+        await model(messages=[], tools=[])
+
+    assert model.model == "primary"
+    assert model.context_size == 32_768
+
+
+async def test_active_model_resets_after_structured_fallback() -> None:
+    primary = FakeModel("primary", HttpError(429), context_size=32_768)
+    fallback = FakeModel(
+        "fallback",
+        lambda: StructuredResponse(content={"answer": "ok"}),
+        context_size=262_144,
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    await model.generate_structured_output(messages=[], tools=[])
+
+    assert model.model == "primary"
+    assert model.context_size == 32_768

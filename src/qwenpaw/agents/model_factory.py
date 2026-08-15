@@ -56,6 +56,7 @@ from ..providers.retry_chat_model import (
 )
 from ..token_usage import TokenRecordingModelWrapper
 from ..utils.io_utils import run_sync_io
+from ..utils.logging import sanitize_log_value
 from ..utils.media_paths import (
     file_url_to_path as _file_url_to_path,
     local_media_path as _local_media_path,
@@ -116,6 +117,9 @@ class _LocalMediaRead:
     exists: bool
     size: int
     encoded: str | None
+    # False when only "larger than the limit" is known (bounded remote
+    # download aborted mid-stream), so messages must not quote `size`.
+    size_known: bool = True
 
 
 _FORMATTER_SEEN_MEDIA_KEYS: ContextVar[set[str] | None] = ContextVar(
@@ -269,34 +273,51 @@ async def _download_remote_media(
     url: str,
     max_bytes: int,
 ) -> _LocalMediaRead:
-    """Download bounded remote media without blocking the event loop."""
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=30.0,
-    ) as client:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            content_length = response.headers.get("content-length")
-            try:
-                reported_size = int(content_length or "")
-            except ValueError:
-                reported_size = 0
-            if 0 < max_bytes < reported_size:
-                return _LocalMediaRead(True, reported_size, None)
+    """Download bounded remote media without blocking the event loop.
 
-            content = bytearray()
-            async for chunk in response.aiter_bytes(
-                chunk_size=64 * 1024,
-            ):
-                if 0 < max_bytes:
-                    remaining = max_bytes - len(content)
-                    if len(chunk) > remaining:
-                        return _LocalMediaRead(
-                            True,
-                            max_bytes + 1,
-                            None,
-                        )
-                content.extend(chunk)
+    Failures resolve to a placeholder result instead of raising: a dead
+    media URL in history is a content problem, not a model failure.
+    Letting the error propagate would be misclassified by the model
+    error policy (404 -> model_not_found) and burn the whole fallback
+    chain on every turn, so this mirrors ``_read_local_media``, which
+    degrades unreadable files the same way.
+    """
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=30.0,
+        ) as client:
+            async with client.stream("GET", url) as response:
+                response.raise_for_status()
+                content_length = response.headers.get("content-length")
+                try:
+                    reported_size = int(content_length or "")
+                except ValueError:
+                    reported_size = 0
+                if 0 < max_bytes < reported_size:
+                    return _LocalMediaRead(True, reported_size, None)
+
+                content = bytearray()
+                async for chunk in response.aiter_bytes(
+                    chunk_size=64 * 1024,
+                ):
+                    if 0 < max_bytes:
+                        remaining = max_bytes - len(content)
+                        if len(chunk) > remaining:
+                            return _LocalMediaRead(
+                                True,
+                                max_bytes + 1,
+                                None,
+                                size_known=False,
+                            )
+                    content.extend(chunk)
+    except (httpx.HTTPError, OSError) as exc:
+        logger.warning(
+            "Remote media download failed for %s: %s",
+            sanitize_log_value(url),
+            exc,
+        )
+        return _LocalMediaRead(False, 0, None)
 
     data = bytes(content)
     encoded = await run_sync_io(_encode_media_bytes, data)
@@ -339,22 +360,26 @@ def _replace_media_reference(
 ) -> None:
     """Commit prepared media data into a copied request message."""
     if not prepared.exists:
+        detail = "file deleted from disk" if local else "download failed"
         reference.items[reference.index] = TextBlock(
             type="text",
-            text=(
-                f"[{reference.kind.title()} unavailable"
-                " - file deleted from disk]"
-            ),
+            text=f"[{reference.kind.title()} unavailable - {detail}]",
         )
         return
     if 0 < max_bytes < prepared.size:
         source = "local file" if local else "remote media"
+        if prepared.size_known:
+            detail = (
+                f"is {prepared.size} bytes, exceeds inline limit of "
+                f"{max_bytes} bytes"
+            )
+        else:
+            detail = f"exceeds inline limit of {max_bytes} bytes"
         reference.items[reference.index] = TextBlock(
             type="text",
             text=(
                 f"[{reference.kind} omitted from model context: {source} "
-                f"is {prepared.size} bytes, exceeds inline limit of "
-                f"{max_bytes} bytes]"
+                f"{detail}]"
             ),
         )
         return
@@ -433,7 +458,10 @@ async def _prepare_media_sources(
         prepared_keys.append(None)
 
     if pending:
-        await asyncio.gather(*pending.values())
+        # Preparation tasks resolve failures to placeholder results, so
+        # none should raise; return_exceptions keeps one unexpected
+        # error from abandoning the sibling downloads mid-flight.
+        await asyncio.gather(*pending.values(), return_exceptions=True)
 
     for reference, key in zip(references, prepared_keys):
         if key is None:
@@ -441,12 +469,21 @@ async def _prepare_media_sources(
         url = str(_media_source_value(reference.source, "url", "") or "")
         _replace_media_reference(
             reference,
-            pending[key].result(),
+            _prepared_task_result(pending[key]),
             url,
             base_formatter_class,
             local=key[0] == "local",
             max_bytes=max_bytes,
         )
+
+
+def _prepared_task_result(
+    task: "asyncio.Task[_LocalMediaRead]",
+) -> _LocalMediaRead:
+    """Return the task's media result, degrading failures to missing."""
+    if task.cancelled() or task.exception() is not None:
+        return _LocalMediaRead(False, 0, None)
+    return task.result()
 
 
 def _supports_multimodal_for_current_model() -> bool:
