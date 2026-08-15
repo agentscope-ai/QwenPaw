@@ -421,6 +421,7 @@
     "oauthWaitingDescription": "Silakan selesaikan otorisasi di jendela browser.",
     "oauthConnected": "Berhasil terhubung ke {{provider}}",
     "oauthFailed": "Otorisasi gagal, silakan coba lagi",
+    "oauthTimeout": "Otorisasi habis waktu, silakan coba lagi",
     "viewMore": "Lihat lebih ({{count}})"
   },
   "agent": {
@@ -1890,6 +1891,17 @@
     "executeDefault": "Jalankan alat"
   },
   "models": {
+    "discoveryOriginApi": "Terdeteksi via API",
+    "discoveryOriginCatalog": "Katalog resmi",
+    "discoveryOriginBoth": "API + katalog",
+    "availabilityAvailable": "Tersedia",
+    "availabilityPermissionDenied": "Tidak ada izin",
+    "availabilityNotFound": "Tidak ditemukan",
+    "availabilityIncompatible": "Tidak kompatibel dengan chat",
+    "availabilityRateLimited": "Dibatasi laju",
+    "availabilityTransientError": "Sementara tidak tersedia",
+    "availabilityUnverified": "Belum diverifikasi",
+    "modelAlreadyConfigured": "Sudah dikonfigurasi",
     "llmConfiguration": "Konfigurasi LLM",
     "providersTitle": "Penyedia",
     "providersDescription": "Konfigurasi API key dan endpoint untuk setiap penyedia.",

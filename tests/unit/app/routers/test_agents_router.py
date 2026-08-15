@@ -37,6 +37,7 @@ from qwenpaw.app.routers.agents import (
     reorder_agents,
     router as agents_router,
     update_backend_settings,
+    BackendSettingsRequest,
 )
 from qwenpaw.config.config import (
     AgentProfileConfig,
@@ -315,6 +316,54 @@ def test_update_backend_settings_from_chat(client):
     assert len(calls) == 1
 
 
+def test_backend_settings_patch_preserves_absent_fields(client):
+    """A field missing from the PATCH body must not be cleared."""
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="codex",
+        backend_settings={"model": "gpt-old", "reasoning_effort": "high"},
+    )
+
+    with patch(
+        "qwenpaw.app.routers.agents.mutate_agent_config",
+        side_effect=_agent_transaction(cfg),
+    ):
+        response = client.patch(
+            "/api/agents/bot/backend-settings",
+            json={"model": "gpt-new"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["backend_settings"] == {
+        "model": "gpt-new",
+        "reasoning_effort": "high",
+    }
+
+
+def test_backend_settings_patch_explicit_null_clears_field(client):
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="codex",
+        backend_settings={"model": "gpt-old", "reasoning_effort": "high"},
+    )
+
+    with patch(
+        "qwenpaw.app.routers.agents.mutate_agent_config",
+        side_effect=_agent_transaction(cfg),
+    ):
+        response = client.patch(
+            "/api/agents/bot/backend-settings",
+            json={"reasoning_effort": None},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["backend_settings"] == {"model": "gpt-old"}
+
+
 async def test_backend_settings_read_and_write_off_event_loop(monkeypatch):
     """Route backend config transaction through the I/O worker."""
     cfg = AgentProfileConfig(
@@ -336,11 +385,9 @@ async def test_backend_settings_read_and_write_off_event_loop(monkeypatch):
     )
 
     await update_backend_settings(
-        body=SimpleNamespace(
-            model_dump=lambda: {
-                "model": "gpt-test-codex",
-                "reasoning_effort": "high",
-            },
+        body=BackendSettingsRequest(
+            model="gpt-test-codex",
+            reasoning_effort="high",
         ),
         agentId="bot",
     )

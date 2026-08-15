@@ -27,14 +27,29 @@ export function OAuthConfirmModal({
   const [phase, setPhase] = useState<"confirm" | "waiting">("confirm");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards in-flight poll responses that resolve after close/unmount so
+  // a late "completed" cannot fire onSuccess (and navigation) from a
+  // dead modal.
+  const disposedRef = useRef(false);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    pollRef.current = null;
+    timeoutRef.current = null;
+  }, []);
 
   useEffect(() => {
+    disposedRef.current = false;
     if (!open) {
       setPhase("confirm");
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      stopPolling();
     }
-  }, [open]);
+    return () => {
+      disposedRef.current = true;
+      stopPolling();
+    };
+  }, [open, stopPolling]);
 
   const handleContinue = useCallback(async () => {
     try {
@@ -50,16 +65,15 @@ export function OAuthConfirmModal({
             providerId,
             state,
           );
+          if (disposedRef.current) return;
           if (status === "completed") {
-            if (pollRef.current) clearInterval(pollRef.current);
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            stopPolling();
             message.success(
               t("modelSelector.oauthConnected", { provider: providerName }),
             );
             onSuccess();
           } else if (status === "failed") {
-            if (pollRef.current) clearInterval(pollRef.current);
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            stopPolling();
             message.error(t("modelSelector.oauthFailed"));
             onCancel();
           }
@@ -68,9 +82,13 @@ export function OAuthConfirmModal({
         }
       }, 2000);
 
-      // Timeout after 5 minutes
+      // Timeout after 5 minutes: leave the user an explanation and a
+      // way out instead of an eternal spinner.
       timeoutRef.current = setTimeout(() => {
-        if (pollRef.current) clearInterval(pollRef.current);
+        stopPolling();
+        if (disposedRef.current) return;
+        message.error(t("modelSelector.oauthTimeout"));
+        onCancel();
       }, 300000);
     } catch (err) {
       message.error(
@@ -78,7 +96,15 @@ export function OAuthConfirmModal({
       );
       onCancel();
     }
-  }, [providerId, providerName, onSuccess, onCancel, message, t]);
+  }, [
+    providerId,
+    providerName,
+    onSuccess,
+    onCancel,
+    message,
+    t,
+    stopPolling,
+  ]);
 
   return (
     <Modal

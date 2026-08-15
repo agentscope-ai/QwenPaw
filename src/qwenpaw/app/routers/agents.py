@@ -545,7 +545,10 @@ async def update_backend_settings(
     agentId: str = PathParam(...),
 ) -> AgentProfileConfig:
     """Persist model controls owned by a third-party agent backend."""
-    values = body.model_dump()
+    # PATCH semantics: only fields the caller actually sent may change;
+    # a field absent from the request body must survive untouched, and
+    # an explicit null clears it.
+    values = {field: getattr(body, field) for field in body.model_fields_set}
 
     def apply_settings(agent_config: AgentProfileConfig) -> None:
         if agent_config.backend == "qwenpaw":
@@ -555,12 +558,15 @@ async def update_backend_settings(
             )
         provider = _get_available_third_party_provider(agent_config.backend)
         settings = dict(agent_config.backend_settings)
-        if provider.capabilities.model_selection:
+        if provider.capabilities.model_selection and "model" in values:
             if values["model"]:
                 settings["model"] = values["model"]
             else:
                 settings.pop("model", None)
-        if provider.capabilities.reasoning_effort:
+        if (
+            provider.capabilities.reasoning_effort
+            and "reasoning_effort" in values
+        ):
             if values["reasoning_effort"]:
                 settings["reasoning_effort"] = values["reasoning_effort"]
             else:
