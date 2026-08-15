@@ -150,7 +150,12 @@ def install_catalog_payload(
         _replace_with_retry(temp_path, destination)
     finally:
         if temp_path is not None and temp_path.exists():
-            temp_path.unlink()
+            try:
+                temp_path.unlink()
+            except OSError:
+                # Windows AV/indexers may still hold the handle; never
+                # let cleanup mask the original install error.
+                pass
 
 
 def verify_catalog_hash(

@@ -32,11 +32,7 @@ from .provider import (
 )
 from . import provider_catalog as _provider_catalog
 from . import model_catalog
-from .capability_baseline import (
-    CAPABILITY_URL_ENV,
-    ExpectedCapabilityRegistry,
-    update_capability_catalog,
-)
+from .capability_baseline import ExpectedCapabilityRegistry
 from .provider_catalog import (
     BUILTIN_PROVIDERS,
     BUILTIN_PROVIDER_CATALOG_KEYS,

@@ -13,6 +13,9 @@ import pytest
 import qwenpaw.providers.capability_baseline as capability_baseline_module
 import qwenpaw.providers.provider_manager as provider_manager_module
 import qwenpaw.providers.provider_persistence as provider_persistence_module
+from qwenpaw.providers import (
+    provider_manager_persistence as provider_manager_persistence_module,
+)
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.exceptions import ModelNotFoundException, ProviderError
 from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
@@ -102,6 +105,11 @@ LEGACY_PROVIDER = {
 def isolated_secret_dir(monkeypatch, tmp_path):
     secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
+    monkeypatch.setattr(
+        provider_manager_persistence_module,
+        "SECRET_DIR",
+        secret_dir,
+    )
     return secret_dir
 
 
@@ -2868,7 +2876,7 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
         if name
         in {
             provider_manager_module.model_catalog.CATALOG_URL_ENV,
-            provider_manager_module.CAPABILITY_URL_ENV,
+            capability_baseline_module.CAPABILITY_URL_ENV,
         }
         else "",
     )
@@ -2894,7 +2902,7 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
         lambda: {},
     )
     monkeypatch.setattr(
-        provider_manager_module,
+        capability_baseline_module,
         "update_capability_catalog",
         update_capability,
     )
@@ -3052,7 +3060,7 @@ async def test_remote_capability_sync_updates_documentation_annotations(
         provider_manager_module.EnvVarLoader,
         "get_str",
         lambda name: "https://example.invalid/capabilities.json"
-        if name == provider_manager_module.CAPABILITY_URL_ENV
+        if name == capability_baseline_module.CAPABILITY_URL_ENV
         else "",
     )
 
@@ -3060,7 +3068,7 @@ async def test_remote_capability_sync_updates_documentation_annotations(
         ota.write_text(json.dumps(updated), encoding="utf-8")
 
     monkeypatch.setattr(
-        provider_manager_module,
+        capability_baseline_module,
         "update_capability_catalog",
         update_capability,
     )

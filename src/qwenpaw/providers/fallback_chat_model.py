@@ -14,6 +14,26 @@ from .model_error_policy import classify_model_error, is_fallback_eligible
 
 logger = logging.getLogger(__name__)
 
+_FALLBACK_NOTICE_SINK: ContextVar[dict[str, Any] | None] = ContextVar(
+    "qwenpaw_fallback_notice_sink",
+    default=None,
+)
+
+
+def install_fallback_notice_sink() -> dict[str, Any]:
+    """Install a per-request sink for model-fallback transparency data.
+
+    The pinned agentscope release drops ``ChatResponse.metadata`` when
+    converting model output into agent events, so annotating responses
+    alone never reaches the Console or channel notifiers.  The reply
+    loop installs this sink before iterating events (same task context
+    as the model call); ``FallbackChatModel`` publishes each fallback
+    into it, and the agent re-attaches the data onto outgoing events.
+    """
+    sink: dict[str, Any] = {"events": [], "actual_model": None}
+    _FALLBACK_NOTICE_SINK.set(sink)
+    return sink
+
 
 class FallbackChatModel(ChatModelBase):
     """Try configured models in order before any response becomes visible."""
@@ -118,9 +138,8 @@ class FallbackChatModel(ChatModelBase):
                 if not self._can_try_next(index, exc):
                     raise
                 following = self._models[index + 1]
-                self._log_fallback(model, following, exc)
                 fallback_events.append(
-                    self._fallback_event(model, following, exc),
+                    self._record_fallback(model, following, exc),
                 )
                 continue
             if isinstance(response, AsyncGenerator):
@@ -200,9 +219,8 @@ class FallbackChatModel(ChatModelBase):
         for next_index in range(current_index + 1, len(self._models)):
             current_model = self._models[next_index - 1]
             next_model = self._models[next_index]
-            self._log_fallback(current_model, next_model, last_error)
             fallback_events.append(
-                self._fallback_event(current_model, next_model, last_error),
+                self._record_fallback(current_model, next_model, last_error),
             )
             self._activate_model(next_model)
             try:
@@ -214,7 +232,28 @@ class FallbackChatModel(ChatModelBase):
         raise last_error
 
     def _can_try_next(self, index: int, exc: Exception) -> bool:
-        return index + 1 < len(self._models) and is_fallback_eligible(exc)
+        if index + 1 >= len(self._models):
+            return False
+        # Only the primary model's error class decides whether fallback
+        # engages at all.  Once the chain is running, a broken candidate
+        # (revoked key, deleted model, ...) must not mask the healthy
+        # candidates behind it, so its own error never stops the walk.
+        return index > 0 or is_fallback_eligible(exc)
+
+    def _record_fallback(
+        self,
+        current: ChatModelBase,
+        following: ChatModelBase,
+        exc: Exception,
+    ) -> dict[str, str]:
+        """Log one fallback hop and publish it to the request sink."""
+        self._log_fallback(current, following, exc)
+        event = self._fallback_event(current, following, exc)
+        sink = _FALLBACK_NOTICE_SINK.get()
+        if sink is not None:
+            sink["events"].append(dict(event))
+            sink["actual_model"] = self._actual_model_dict(following)
+        return event
 
     @staticmethod
     def _model_identity(model: ChatModelBase) -> tuple[str, str]:
@@ -244,6 +283,19 @@ class FallbackChatModel(ChatModelBase):
             "reason_kind": classify_model_error(exc).kind,
         }
 
+    @classmethod
+    def _actual_model_dict(cls, active_model: ChatModelBase) -> dict[str, Any]:
+        provider_id, model_id = cls._model_identity(active_model)
+        return {
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "context_size": getattr(
+                active_model,
+                "context_size",
+                32_768,
+            ),
+        }
+
     @staticmethod
     def _annotate_response(
         response: ChatResponse,
@@ -256,18 +308,9 @@ class FallbackChatModel(ChatModelBase):
         if events:
             metadata["qwenpaw_model_fallbacks"] = list(events)
         if active_model is not None:
-            provider_id, model_id = FallbackChatModel._model_identity(
-                active_model,
-            )
-            metadata["qwenpaw_actual_model"] = {
-                "provider_id": provider_id,
-                "model_id": model_id,
-                "context_size": getattr(
-                    active_model,
-                    "context_size",
-                    32_768,
-                ),
-            }
+            metadata[
+                "qwenpaw_actual_model"
+            ] = FallbackChatModel._actual_model_dict(active_model)
         response.metadata = metadata
         return response
 
@@ -308,9 +351,8 @@ class FallbackChatModel(ChatModelBase):
                 if not self._can_try_next(index, exc):
                     raise
                 following = self._models[index + 1]
-                self._log_fallback(model, following, exc)
                 fallback_events.append(
-                    self._fallback_event(model, following, exc),
+                    self._record_fallback(model, following, exc),
                 )
         assert last_error is not None
         raise last_error

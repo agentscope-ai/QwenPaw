@@ -8,6 +8,7 @@ The /model command manages model configuration for the current agent.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
@@ -289,20 +290,27 @@ class ModelCommandHandler(BaseControlCommandHandler):
             )
 
         # Update agent config
-        from ....config.config import save_agent_config
+        from ....config.config import update_agent_config_async
         from ....config.config import ModelSlotConfig as ModelSlot
 
         workspace = context.workspace
         agent_config = workspace.config
 
-        agent_config.active_model = ModelSlot(
+        new_slot = ModelSlot(
             provider_id=provider_id,
             model=model_id,
         )
+        agent_config.active_model = new_slot
 
-        # Save to agent.json
+        def apply_active_model(persisted: Any) -> None:
+            persisted.active_model = new_slot
+
+        # Save to agent.json off the event loop (chat hot path)
         try:
-            save_agent_config(agent_config.id, agent_config)
+            await update_agent_config_async(
+                agent_config.id,
+                apply_active_model,
+            )
         except Exception as e:
             logger.exception(f"Failed to save agent config: {e}")
             return (
@@ -332,7 +340,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Success message
         """
-        from ....config.config import save_agent_config
+        from ....config.config import update_agent_config_async
         from ....providers.provider_manager import ProviderManager
 
         workspace = context.workspace
@@ -352,9 +360,12 @@ class ModelCommandHandler(BaseControlCommandHandler):
         # Clear agent-specific model (use None to indicate using global)
         agent_config.active_model = None
 
-        # Save to agent.json
+        def apply_reset(persisted: Any) -> None:
+            persisted.active_model = None
+
+        # Save to agent.json off the event loop (chat hot path)
         try:
-            save_agent_config(agent_config.id, agent_config)
+            await update_agent_config_async(agent_config.id, apply_reset)
         except Exception as e:
             logger.exception(f"Failed to save agent config: {e}")
             return (

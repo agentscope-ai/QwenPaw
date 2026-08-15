@@ -1839,18 +1839,31 @@ def _apply_model_fallbacks(
             continue
         if fallback_free_only and not fallback_info.is_free:
             continue
-        with agent_thinking_level(thinking_level):
-            fallback_model = fallback_provider.get_chat_model_instance(
-                fallback_slot.model,
+        # A broken fallback slot (stale provider config, deleted chat
+        # model class, ...) must never keep a healthy primary model
+        # from being built: skip the slot instead of propagating.
+        try:
+            with agent_thinking_level(thinking_level):
+                fallback_model = fallback_provider.get_chat_model_instance(
+                    fallback_slot.model,
+                )
+            fallback_provider_id = _bind_provider_id_to_model(
+                fallback_model,
+                fallback_provider_id,
             )
-        fallback_provider_id = _bind_provider_id_to_model(
-            fallback_model,
-            fallback_provider_id,
-        )
-        _install_model_formatter(
-            fallback_model,
-            provider_id=fallback_provider_id,
-        )
+            _install_model_formatter(
+                fallback_model,
+                provider_id=fallback_provider_id,
+            )
+        except Exception:
+            logger.warning(
+                "Skipping fallback model slot %s:%s "
+                "(failed to instantiate)",
+                fallback_provider_id,
+                fallback_slot.model,
+                exc_info=True,
+            )
+            continue
         if hasattr(fallback_model, "max_retries"):
             fallback_model.max_retries = 0
         recorded_model = TokenRecordingModelWrapper(

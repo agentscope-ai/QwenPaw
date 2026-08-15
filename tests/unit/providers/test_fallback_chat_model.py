@@ -11,7 +11,10 @@ from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse, StructuredResponse
 from agentscope.model._model_usage import ChatUsage
 
-from qwenpaw.providers.fallback_chat_model import FallbackChatModel
+from qwenpaw.providers.fallback_chat_model import (
+    FallbackChatModel,
+    install_fallback_notice_sink,
+)
 from qwenpaw.providers.rate_limiter import _limiters
 from qwenpaw.providers.retry_chat_model import (
     RateLimitConfig,
@@ -540,3 +543,54 @@ async def test_concurrent_structured_fallback_events_are_isolated() -> None:
         for response in responses
     )
     assert responses[0].metadata is not responses[1].metadata
+
+
+async def test_broken_candidate_does_not_block_rest_of_chain() -> None:
+    """A revoked-key candidate must not mask healthy models behind it."""
+    primary = FakeModel("primary", HttpError(429))
+    revoked = FakeModel("revoked", HttpError(401))
+    healthy = FakeModel("healthy", lambda: _response("ok"))
+    model = FallbackChatModel([primary, revoked, healthy])
+
+    response = await model()
+
+    assert revoked.calls == 1
+    assert healthy.calls == 1
+    events = response.metadata["qwenpaw_model_fallbacks"]
+    assert [event["to_model_id"] for event in events] == [
+        "revoked",
+        "healthy",
+    ]
+    actual = response.metadata["qwenpaw_actual_model"]
+    assert actual["model_id"] == "healthy"
+
+
+async def test_structured_output_skips_broken_candidate() -> None:
+    primary = FakeModel("primary", HttpError(503))
+    revoked = FakeModel("revoked", HttpError(401))
+    healthy = FakeModel(
+        "healthy",
+        lambda: StructuredResponse(content={"answer": "ok"}),
+    )
+    model = FallbackChatModel([primary, revoked, healthy])
+
+    response = await model.generate_structured_output(messages=[], tools=[])
+
+    assert healthy.calls == 1
+    events = response.metadata["qwenpaw_model_fallbacks"]
+    assert len(events) == 2
+
+
+async def test_fallback_sink_records_events_and_actual_model() -> None:
+    """The reply loop reads fallback data from the request sink."""
+    sink = install_fallback_notice_sink()
+    primary = FakeModel("primary", HttpError(429))
+    fallback = FakeModel("fallback", lambda: _response("ok"))
+    model = FallbackChatModel([primary, fallback])
+
+    await model()
+
+    assert len(sink["events"]) == 1
+    assert sink["events"][0]["type"] == "model_fallback"
+    assert sink["events"][0]["to_model_id"] == "fallback"
+    assert (sink["actual_model"] or {})["model_id"] == "fallback"

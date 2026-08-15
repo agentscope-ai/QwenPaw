@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Literal
 from ..constant import EnvVarLoader
 from ..exceptions import ProviderError
 from ..utils.io_utils import run_async_to_completion, run_sync_io
+from . import capability_baseline
 from . import model_catalog
 from .capability_baseline import (
     CAPABILITY_URL_ENV,
@@ -559,12 +560,10 @@ class ProviderManagerDiscoveryMixin:
                 ("model", model_catalog.update_model_catalog),
             )
         if EnvVarLoader.get_str(CAPABILITY_URL_ENV):
-            from . import provider_manager as provider_manager_module
-
             updates.append(
                 (
                     "capability",
-                    provider_manager_module.update_capability_catalog,
+                    capability_baseline.update_capability_catalog,
                 ),
             )
         for label, update in updates:
