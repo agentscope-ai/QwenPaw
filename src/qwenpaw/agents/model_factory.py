@@ -655,7 +655,13 @@ def _promote_tool_result_videos(
     new_messages: list[dict] = []
     for fmt_msg in messages:
         new_messages.append(fmt_msg)
-        tcid = fmt_msg.get("tool_call_id")
+        # OpenAI chat format: tool results carry `tool_call_id`. Responses API:
+        # only the `function_call_output` item is the tool result — the
+        # assistant `function_call` item also has `call_id` but must NOT be
+        # treated as a result (would duplicate the promoted video).
+        if fmt_msg.get("type") == "function_call":
+            continue
+        tcid = fmt_msg.get("tool_call_id") or fmt_msg.get("call_id")
         if not isinstance(tcid, str) or tcid not in promotions:
             continue
         tool_name, videos = promotions[tcid]
@@ -1179,11 +1185,7 @@ def _create_file_block_support_formatter(
                 )
                 _restore_video_blocks(normalized_msgs, video_subs)
 
-            if _needs_video and getattr(
-                self,
-                "promote_tool_result_images",
-                False,
-            ):
+            if _needs_video:
                 messages = _promote_tool_result_videos(
                     normalized_msgs,
                     messages,

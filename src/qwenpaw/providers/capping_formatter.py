@@ -51,7 +51,7 @@ from pydantic import Field
 # Maximum size (in bytes) of a local media file we are willing to inline as
 # base64 into the model request body.  See the module docstring for the
 # rationale.
-MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
+MAX_INLINE_MEDIA_BYTES = 48 * 1024 * 1024  # 48 MB (base64-inflated: 64MB wire cap / 1.33)
 
 
 def _resolve_local_path(url: str) -> str | None:
