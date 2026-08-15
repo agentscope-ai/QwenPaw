@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name
 """Load-time validation of the datapaw context-service configuration."""
 
 from __future__ import annotations

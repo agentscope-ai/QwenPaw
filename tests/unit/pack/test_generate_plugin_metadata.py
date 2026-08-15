@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Required-file validation in the plugin pack pipeline.
 
 A plugin whose declared ``entry`` files or ``pack_requires`` artifacts are
@@ -127,7 +128,7 @@ def test_missing_pack_requires_artifact_fails_the_pack(
     assert "Run scripts/vendor.sh first." in captured.err
 
 
-def test_required_relpaths_merges_entries_and_drops_unsafe(tmp_path) -> None:
+def test_required_relpaths_merges_entries_and_drops_unsafe() -> None:
     required = packer._required_relpaths(
         _manifest(
             pack_requires=[
