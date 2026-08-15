@@ -257,17 +257,17 @@ class DependencyRegistry:
         ]
 
     @staticmethod
-    def _reraise_unexpected(error: BaseException) -> bool:
+    def _reraise_unexpected(error: BaseException) -> None:
         """Swallow races with ``unregister``; anything else propagates."""
         if (
             isinstance(error, DependencyError)
             and error.code == "DEPENDENCY_NOT_FOUND"
         ):
-            return False
+            return
         raise error
 
     async def snapshot(self, *, force: bool = False) -> dict[str, Any]:
-        statuses = await asyncio.gather(
+        results = await asyncio.gather(
             *(
                 self.get(dependency_id, force=force)
                 for dependency_id in list(self._specs)
@@ -276,12 +276,12 @@ class DependencyRegistry:
         )
         # A dependency unregistered while the gather ran simply drops out of
         # the snapshot instead of failing the whole control plane.
-        statuses = [
-            status
-            for status in statuses
-            if not isinstance(status, BaseException)
-            or self._reraise_unexpected(status)
-        ]
+        statuses: list[dict[str, Any]] = []
+        for status in results:
+            if isinstance(status, BaseException):
+                self._reraise_unexpected(status)
+                continue
+            statuses.append(status)
         return {
             "schema_version": "1",
             "app_id": self._app_id(),
