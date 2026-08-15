@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import secrets
 import sys
 import time
@@ -13,6 +15,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
+
+logger = logging.getLogger(__name__)
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 if __package__ and __package__.startswith("plugin_"):
@@ -79,6 +83,65 @@ _context_service = app.managed_service(
     ),
 )
 _gateway = ContextGateway(_context_service, _context_token)
+
+
+def _context_runtime_issue() -> dict[str, str] | None:
+    """Detect a context-service misconfiguration at plugin load time.
+
+    The plugin runs in one of two supported modes. External mode (the
+    production mode for clean installs) proxies an operator-provided
+    Context service and needs a URL and token; managed mode spawns the
+    bundled sidecar and needs a provisioned Python runtime. Resolving the
+    problem here lets installation surface one actionable error instead
+    of registering a service that is doomed to fail its first start.
+    """
+    mode = os.getenv("DATAPAW_CONTEXT_MODE", "").strip().lower()
+    external_url = os.getenv("DATAPAW_CONTEXT_URL", "").strip()
+    if mode == "external" or external_url:
+        missing = [
+            name
+            for name in ("DATAPAW_CONTEXT_URL", "DATAPAW_CONTEXT_TOKEN")
+            if not os.getenv(name, "").strip()
+        ]
+        if missing:
+            return {
+                "code": "EXTERNAL_MODE_INCOMPLETE",
+                "message": (
+                    "External context mode is selected but "
+                    + " and ".join(missing)
+                    + (" is" if len(missing) == 1 else " are")
+                    + " not set"
+                ),
+                "remediation": (
+                    "Set DATAPAW_CONTEXT_URL and DATAPAW_CONTEXT_TOKEN to "
+                    "the operated Context service, or unset "
+                    "DATAPAW_CONTEXT_MODE to run the managed sidecar"
+                ),
+            }
+        return None
+    if not _context_service.runtime_available():
+        return {
+            "code": "RUNTIME_MISSING",
+            "message": (
+                "No managed context runtime is provisioned for this install"
+            ),
+            "remediation": (
+                "Provision the plugin runtime with scripts/setup-dev.sh, "
+                "or set DATAPAW_CONTEXT_MODE=external with "
+                "DATAPAW_CONTEXT_URL and DATAPAW_CONTEXT_TOKEN"
+            ),
+        }
+    return None
+
+
+_runtime_issue = _context_runtime_issue()
+if _runtime_issue is not None:
+    logger.error(
+        "datapaw context service cannot launch: %s [%s]. %s",
+        _runtime_issue["message"],
+        _runtime_issue["code"],
+        _runtime_issue["remediation"],
+    )
 
 
 async def _probe_graph() -> DependencyHealth:
@@ -341,6 +404,10 @@ async def status() -> dict[str, Any]:
     return {
         "app": "datapaw",
         "service": _context_service.status(),
+        "runtime": {
+            "ok": _runtime_issue is None,
+            "issue": _runtime_issue,
+        },
         "health": health,
         "skills_available": _skills is not None,
         "skills": {

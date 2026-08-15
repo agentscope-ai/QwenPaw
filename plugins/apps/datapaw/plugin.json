@@ -13,6 +13,17 @@
     "backend": "backend/main.py",
     "frontend": "ui/dist/index.js"
   },
+  "pack_requires": [
+    "ui/dist/index.js",
+    "ui/dist/context-console/index.html",
+    "ui/dist/app/logo-mark-v4.png"
+  ],
+  "pack_requires_hint": "Run scripts/sync-context-ui.sh to vendor the context console, then 'npm ci && npm run build' in ui/ to produce ui/dist.",
+  "pack_exclude": [
+    ".venv-datapaw",
+    ".datapaw-dev",
+    "ui/public/context-console"
+  ],
   "dependencies": [],
   "qwenpaw_version": {
     "min": "2.0.1",
