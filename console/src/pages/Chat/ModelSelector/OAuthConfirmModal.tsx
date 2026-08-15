@@ -96,15 +96,7 @@ export function OAuthConfirmModal({
       );
       onCancel();
     }
-  }, [
-    providerId,
-    providerName,
-    onSuccess,
-    onCancel,
-    message,
-    t,
-    stopPolling,
-  ]);
+  }, [providerId, providerName, onSuccess, onCancel, message, t, stopPolling]);
 
   return (
     <Modal
