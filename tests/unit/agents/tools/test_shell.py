@@ -31,6 +31,7 @@ import pytest
 from qwenpaw.agents.tools.shell import (
     _cancel_stderr_message,
     _collapse_embedded_newlines,
+    _ensure_user_bins_on_path,
     _execute_in_sandbox,
     _execute_posix_host,
     _execute_subprocess_sync,
@@ -212,6 +213,71 @@ class TestSanitizeWinCmd:
         # Mix of escaped and unescaped — don't strip
         cmd = 'echo \\"hello" world'
         assert _sanitize_win_cmd(cmd) == cmd
+
+
+# ---------------------------------------------------------------------------
+# _ensure_user_bins_on_path
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureUserBinsOnPath:
+    """Tests for _ensure_user_bins_on_path."""
+
+    def test_adds_existing_local_bin_when_missing(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        home = str(tmp_path)
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        env = {"PATH": "/usr/bin"}
+        result = _ensure_user_bins_on_path(env, user_home=home)
+        path = result["PATH"]
+        assert path.startswith(str(local_bin) + os.pathsep)
+        assert "/usr/bin" in path
+
+    def test_skips_nonexistent_local_bin(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        env = {"PATH": "/usr/bin"}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert result["PATH"] == "/usr/bin"
+
+    def test_does_not_duplicate_existing_entry(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        existing = os.pathsep.join([str(local_bin), "/usr/bin"])
+        env = {"PATH": existing}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert entries.count(str(local_bin)) == 1
+
+    def test_preserves_existing_path_order_after_prepending(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        existing = os.pathsep.join(["/a", "/b", "/c"])
+        env = {"PATH": existing}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert result["PATH"] == str(local_bin) + os.pathsep + existing
+
+    def test_uses_home_when_no_existing_path(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        env = {}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert result["PATH"] == str(local_bin)
+
+    def test_windows_adds_localapps_python_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "win32")
+        local_python = tmp_path / "Programs" / "Python"
+        local_python.mkdir(parents=True)
+        env = {"PATH": "/usr/bin", "LOCALAPPDATA": str(tmp_path)}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert str(local_python) in result["PATH"].split(os.pathsep)
 
 
 # ---------------------------------------------------------------------------

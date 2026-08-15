@@ -96,6 +96,73 @@ def _sanitize_win_cmd(cmd: str) -> str:
     return cmd
 
 
+def _ensure_user_bins_on_path(
+    env: dict[str, str],
+    user_home: str | None = None,
+) -> dict[str, str]:
+    """Prepend standard user-level bin directories onto ``env["PATH"]``.
+
+    When QwenPaw runs under a service manager (systemd, Launchd, Docker with
+    a stripped ``PATH``), the inherited ``PATH`` often omits the directories
+    where single-user toolchains install their CLIs:
+
+    * ``~/.local/bin`` on Unix — the standard location for user-installed
+      binaries (``gh``, ``cmake``, ``lark-cli``, etc.).
+    * ``%LOCALAPPDATA%\\Programs\\Python\\<version>\\Scripts`` on Windows —
+      where per-user Python installs place their ``Scripts`` directory.
+    * ``~/.local/share/fnm`` and ``~/.local/share/nvm`` on Unix — base
+      directories used by the most common single-user Node.js managers.
+      These are added so their shims (which resolve to real binaries at
+      runtime) are discoverable without changing the Python venv.
+
+    Only directories that *exist* on disk are added, and duplicates against
+    the existing ``PATH`` are skipped.  This keeps daemon subprocesses
+    consistent with what a logged-in user would see, while leaving the
+    already-configured ``python_bin_dir`` and existing ``PATH`` entries
+    untouched.
+    """
+    home = user_home if user_home is not None else str(Path.home())
+    candidate_dirs: list[str] = []
+    existing_path = env.get("PATH", "")
+    existing_lower = (
+        existing_path.lower().split(os.pathsep) if existing_path else []
+    )
+
+    if sys.platform != "win32":
+        candidate_dirs.extend(
+            [
+                os.path.join(home, ".local", "bin"),
+                os.path.join(home, ".local", "share", "fnm"),
+                os.path.join(home, ".local", "share", "nvm"),
+            ],
+        )
+    else:
+        local_apps = env.get("LOCALAPPDATA") or ""
+        if local_apps:
+            candidate_dirs.append(
+                os.path.join(local_apps, "Programs", "Python"),
+            )
+
+    additions: list[str] = []
+    for d in candidate_dirs:
+        if not d or d.lower() in existing_lower:
+            continue
+        d = os.path.normpath(d)
+        if not os.path.isdir(d):
+            continue
+        additions.append(d)
+
+    if not additions:
+        return env
+
+    # Keep existing PATH casing intact; just prepend new user-bin dirs.
+    existing_first: list[str] = (
+        existing_path.split(os.pathsep) if existing_path else []
+    )
+    env["PATH"] = os.pathsep.join(additions + existing_first)
+    return env
+
+
 def _read_output_snapshot(
     output_file: BinaryIO,
     max_bytes: int = _SHELL_OUTPUT_MAX_BYTES,
@@ -1045,8 +1112,10 @@ async def execute_shell_command(
             or WORKING_DIR
         )
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
+    # Ensure the venv Python is on PATH for subprocesses.  User-level bins
+    # (``~/.local/bin`` etc.) are added so that daemon subprocesses can
+    # locate user-installed CLIs — see ``_ensure_user_bins_on_path``.
+    env = _ensure_user_bins_on_path(os.environ.copy())
     python_bin_dir = str(Path(sys.executable).parent)
     existing_path = env.get("PATH", "")
     if existing_path:
