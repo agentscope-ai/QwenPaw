@@ -21,6 +21,7 @@ from .provider import (
     ProviderInfo,
 )
 from .provider_catalog import BUILTIN_PROVIDER_CATALOG_KEYS
+from .provider_manager_host import ProviderManagerHost
 from .provider_discovery import (
     ProviderModelDiscoveryResult,
     apply_discovery_metadata,
@@ -35,7 +36,7 @@ from .provider_model_availability import (
 logger = logging.getLogger(__name__)
 
 
-class ProviderManagerDiscoveryMixin:
+class ProviderManagerDiscoveryMixin(ProviderManagerHost):
     """Provide discovery, availability, and catalog manager operations."""
 
     async def fetch_provider_models(

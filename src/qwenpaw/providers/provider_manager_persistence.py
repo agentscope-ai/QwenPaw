@@ -29,6 +29,7 @@ from .openai_provider import OpenAIProvider
 from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
 from .provider import ModelInfo, Provider, ProviderInfo
+from .provider_manager_host import ProviderManagerHost
 from .provider_discovery import (
     DISCOVERY_MODEL_FIELDS as _DISCOVERY_MODEL_FIELDS,
 )
@@ -49,10 +50,8 @@ logger = logging.getLogger(__name__)
 ProviderStorageKind = Literal["builtin", "custom", "plugin"]
 
 
-class ProviderManagerPersistenceMixin:
+class ProviderManagerPersistenceMixin(ProviderManagerHost):
     """Provide provider snapshot persistence and migration operations."""
-
-    active_model: ModelSlotConfig | None
 
     async def _mutate_provider_async(
         self,
@@ -740,7 +739,7 @@ class ProviderManagerPersistenceMixin:
                     )
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext鈫抏ncrypted migration"
+                        "Deferred plaintext->encrypted migration"
                         " for provider '%s': %s",
                         provider_id,
                         enc_err,

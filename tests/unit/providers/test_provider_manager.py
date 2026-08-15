@@ -3659,7 +3659,7 @@ def test_dashscope_max_inline_media_bytes_defaults_when_absent(
     isolated_secret_dir,
 ) -> None:
     """An existing dashscope.json without the new key must fall back to the
-    built-in default (2 MB) 鈥?i.e. upgrading must not silently cap at 0."""
+    built-in default (2 MB) -- i.e. upgrading must not silently cap at 0."""
     builtin_path = isolated_secret_dir / "providers" / "builtin"
     builtin_path.mkdir(parents=True, exist_ok=True)
 

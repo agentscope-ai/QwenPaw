@@ -1018,7 +1018,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         Local-serving providers (Ollama) override this to ``False``: a model
         family's cloud window says nothing about a local serve that
-        truncates at ``num_ctx`` 鈥?assuming 262k for a local
+        truncates at ``num_ctx`` -- assuming 262k for a local
         ``qwen3-coder:30b`` would disable compression while the server
         silently drops the prompt head.
         """
@@ -1029,7 +1029,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         Feeds ``model.context_size`` (which drives automatic context
         compression) AND the display/usage path
-        (``config.get_model_max_input_length``) 鈥?both MUST go through this
+        (``config.get_model_max_input_length``) -- both MUST go through this
         method so the reported usage%% and the compaction trigger never
         diverge. Resolution lives in
         :func:`.context_windows.resolve_context_window`:
