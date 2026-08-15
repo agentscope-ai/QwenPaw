@@ -13,9 +13,6 @@ import pytest
 import qwenpaw.providers.capability_baseline as capability_baseline_module
 import qwenpaw.providers.provider_manager as provider_manager_module
 import qwenpaw.providers.provider_persistence as provider_persistence_module
-from qwenpaw.providers import (
-    provider_manager_persistence as provider_manager_persistence_module,
-)
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.exceptions import ModelNotFoundException, ProviderError
 from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
@@ -105,11 +102,6 @@ LEGACY_PROVIDER = {
 def isolated_secret_dir(monkeypatch, tmp_path):
     secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
-    monkeypatch.setattr(
-        provider_manager_persistence_module,
-        "SECRET_DIR",
-        secret_dir,
-    )
     return secret_dir
 
 

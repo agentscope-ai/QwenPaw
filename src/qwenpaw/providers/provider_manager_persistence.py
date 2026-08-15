@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Literal
 
 from ..config.config import ModelSlotConfig
-from ..constant import SECRET_DIR
 from ..exceptions import ProviderError
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
@@ -940,7 +939,10 @@ class ProviderManagerPersistenceMixin:
 
     def _migrate_legacy_providers(self):
         """Migrate from legacy providers.json format to the new structure."""
-        legacy_path = SECRET_DIR / "providers.json"
+        # Derive from the instance path (root_path = SECRET_DIR /
+        # "providers") so test isolation only needs to patch the
+        # manager's SECRET_DIR, never this module.
+        legacy_path = self.root_path.parent / "providers.json"
         if legacy_path.exists() and legacy_path.is_file():
             with open(legacy_path, "r", encoding="utf-8") as f:
                 legacy_data = json.load(f)
