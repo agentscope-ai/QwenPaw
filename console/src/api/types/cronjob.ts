@@ -37,10 +37,23 @@ export interface CronJobRuntime {
   tool_safety?: boolean;
 }
 
+export interface CronJobModelSlotOverride {
+  provider_id: string;
+  model: string;
+}
+
 export interface CronJobRequest {
   input: unknown;
   session_id?: string | null;
   user_id?: string | null;
+  /**
+   * Per-job model override, consumed by the backend as
+   * `request.model_slot_override` (takes precedence over the agent's
+   * active model). Accepts a "<provider_id>:<model>" string or a dict;
+   * the UI always submits the string form. Omit to follow the agent's
+   * active model.
+   */
+  model_slot_override?: string | CronJobModelSlotOverride | null;
   [key: string]: unknown;
 }
 

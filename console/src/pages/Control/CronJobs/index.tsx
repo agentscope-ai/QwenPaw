@@ -34,6 +34,10 @@ import {
   DEFAULT_FORM_VALUES,
 } from "./components";
 import { parseCron, serializeCron } from "./components/parseCron";
+import {
+  applyModelOverrideToRequest,
+  modelOverrideToFormValue,
+} from "./components/modelOverride";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -220,9 +224,17 @@ function CronJobsPage() {
         input: job.request?.input
           ? JSON.stringify(job.request.input, null, 2)
           : "",
+        // Normalize a persisted override (string or {provider_id, model}
+        // dict) into the "<provider_id>:<model>" string the select uses.
+        model_slot_override: modelOverrideToFormValue(
+          job.request?.model_slot_override,
+        ),
       },
       scheduleType: job.schedule?.type || "cron",
     };
+    if (formValues.request.model_slot_override === undefined) {
+      delete formValues.request.model_slot_override;
+    }
 
     if (job.schedule?.type === "once") {
       formValues.onceRunAt = job.schedule.run_at
@@ -390,6 +402,13 @@ function CronJobsPage() {
       if (!processedValues.request) {
         processedValues.request = {};
       }
+
+      // Normalize model override: keep a trimmed "<provider_id>:<model>"
+      // string, or drop the key so the job follows the agent's active model.
+      applyModelOverrideToRequest(
+        processedValues.request,
+        processedValues.request?.model_slot_override,
+      );
 
       // Parse request input JSON
       if (
