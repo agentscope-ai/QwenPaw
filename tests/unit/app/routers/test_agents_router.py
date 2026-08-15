@@ -256,7 +256,7 @@ def test_get_agent_returns_config(client):
 
 
 async def test_get_agent_loads_config_off_event_loop(monkeypatch):
-    """Route config reads through ``asyncio.to_thread``."""
+    """Route config reads through ``run_sync_io``."""
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
@@ -264,13 +264,13 @@ async def test_get_agent_loads_config_off_event_loop(monkeypatch):
     )
     calls = []
 
-    async def to_thread(func, *args):
+    async def fake_run_sync_io(func, *args):
         calls.append((func, args))
         return func(*args)
 
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.asyncio.to_thread",
-        to_thread,
+        "qwenpaw.app.routers.agents.run_sync_io",
+        fake_run_sync_io,
     )
     monkeypatch.setattr(
         "qwenpaw.app.routers.agents.load_agent_config",

@@ -24,6 +24,8 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
+from .multimodal_prober import evaluate_video_probe_answer
+from ..utils.logging import sanitize_log_value
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
 if TYPE_CHECKING:
@@ -619,9 +621,10 @@ class OpenAIProvider(Provider):
             evaluate_image_probe_answer,
         )
 
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Image probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -667,9 +670,9 @@ class OpenAIProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             # 400 or media-keyword error → definitive rejection.
@@ -683,9 +686,9 @@ class OpenAIProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
@@ -700,9 +703,10 @@ class OpenAIProvider(Provider):
         """Probe video support with automatic format fallback."""
         from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Video probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -724,7 +728,7 @@ class OpenAIProvider(Provider):
         elapsed = time.monotonic() - start_time
         logger.info(
             "Video probe done: model=%s result=False %.2fs",
-            model_id,
+            log_model,
             elapsed,
         )
         return False, f"Video not supported: {last_error_msg}"
@@ -786,7 +790,7 @@ class OpenAIProvider(Provider):
             if status == 400:
                 logger.debug(
                     "Video probe format rejected (400): %s",
-                    e,
+                    sanitize_log_value(e),
                 )
                 return None
             elapsed = time.monotonic() - start_time
@@ -796,9 +800,9 @@ class OpenAIProvider(Provider):
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                sanitize_log_value(model_id),
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Video {label}: {e}"
@@ -806,9 +810,9 @@ class OpenAIProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                sanitize_log_value(model_id),
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
@@ -824,70 +828,22 @@ class OpenAIProvider(Provider):
     ) -> tuple[bool, str]:
         """Evaluate video probe response.
 
-        Detection criteria:
-            The probe video is a solid-blue 64×64 H.264 MP4.  We ask
-            "What is the single dominant color?" and check for "blue"
-            or "蓝" in the reply or reasoning_content.
-
-            Special case for HTTP URL probes: if the model returns any
-            non-empty answer (even without "blue"), we accept it as
-            supported.  The HTTP URL points to an external video whose
-            content we do not control (not the blue probe video), so
-            colour-matching is impossible.  This relaxed check is safe
-            because ``probe_model_multimodal`` only reaches the video
-            probe after the image probe has already passed, which
-            filters out text-only models that silently accept media
-            payloads (e.g. qwen3-max).
+        Delegates to the shared
+        ``evaluate_video_probe_answer`` in
+        ``multimodal_prober`` so all providers use the same
+        colour-keyword list and logging.
         """
-        answer = (res.choices[0].message.content or "").lower().strip()
-        # Primary check: answer contains a blue-family color keyword.
-        # Models may describe the solid-blue video as "blue", "navy",
-        # "azure", "cobalt", "cyan", "indigo", "蓝" etc.
-        _BLUE_KW = ("blue", "navy", "azure", "cobalt", "cyan", "indigo", "蓝")
-        if any(kw in answer for kw in _BLUE_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Video supported (answer={answer!r})"
-        # Fallback: reasoning models may put analysis in reasoning_content.
+        answer = res.choices[0].message.content or ""
         reasoning = ""
         msg = res.choices[0].message
         if hasattr(msg, "reasoning_content") and msg.reasoning_content:
-            reasoning = msg.reasoning_content.lower()
-        if reasoning and any(kw in reasoning for kw in _BLUE_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return (
-                True,
-                f"Video supported (reasoning, answer={answer!r})",
-            )
-        # HTTP URL fallback: accept any non-empty response as evidence
-        # of video support (see docstring for safety rationale).
-        if is_http and answer:
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True (http) %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Video supported (http, answer={answer!r})"
-        elapsed = time.monotonic() - start_time
-        logger.info(
-            "Video probe done: model=%s result=False answer=%r %.2fs",
-            model_id,
+            reasoning = msg.reasoning_content
+        return evaluate_video_probe_answer(
             answer,
-            elapsed,
-        )
-        return (
-            False,
-            f"Model did not recognise video (answer={answer!r})",
+            model_id,
+            start_time,
+            reasoning=reasoning,
+            is_http=is_http,
         )
 
 

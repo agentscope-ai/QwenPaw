@@ -40,6 +40,7 @@ from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
+from ...utils.logging import sanitize_log_value
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -547,7 +548,7 @@ class BaseChannel(ABC):
 
         logger.info(
             f"_consume_with_tracker: chat_id={chat.id} "
-            f"session={session_id[:30]}",
+            f"session={sanitize_log_value(session_id[:30])}",
         )
 
         # Refresh updated_at so the session list surfaces this chat as the
@@ -579,13 +580,14 @@ class BaseChannel(ABC):
             except asyncio.CancelledError:
                 logger.info(
                     f"Task cancelled: chat_id={chat.id} "
-                    f"session={session_id[:30]}",
+                    f"session={sanitize_log_value(session_id[:30])}",
                 )
                 raise
         else:
             logger.warning(
                 f"Message ignored (task already running): "
-                f"chat_id={chat.id} session={session_id[:30]}. "
+                f"chat_id={chat.id} "
+                f"session={sanitize_log_value(session_id[:30])}. "
                 f"This should not happen with UnifiedQueueManager.",
             )
 
@@ -1020,9 +1022,10 @@ class BaseChannel(ABC):
                 self._on_reply_sent(self.channel, *args)
 
         except asyncio.CancelledError:
+            raw_session = getattr(request, "session_id", "")
             logger.info(
-                f"channel task cancelled: "
-                f"session={getattr(request, 'session_id', '')[:30]}",
+                "channel task cancelled: session="
+                f"{sanitize_log_value(raw_session)[:34]}",
             )
             self._clear_session_turn_usage(session_id)
             if process_iterator is not None:

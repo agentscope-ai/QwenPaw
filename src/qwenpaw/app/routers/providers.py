@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Dict, List, Literal, Optional
 from fastapi import (
@@ -36,6 +35,8 @@ from ...providers.provider import (
 )
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
+from ...utils.io_utils import run_sync_io
+from ...utils.logging import sanitize_log_value
 from ...providers.openrouter_provider import OpenRouterProvider
 from ...config.config import ModelSlotConfig
 
@@ -132,11 +133,11 @@ class ProviderConfigRequest(BaseModel):
 
 def _should_auto_discover(
     body: ProviderConfigRequest,
-    background_tasks: BackgroundTasks | None,
+    background_tasks: BackgroundTasks,
     provider: object | None,
 ) -> bool:
     """Return whether a saved provider should start discovery."""
-    if not body.auto_discover or background_tasks is None or provider is None:
+    if not body.auto_discover or provider is None:
         return False
     if not getattr(provider, "support_model_discovery", False):
         return False
@@ -273,7 +274,7 @@ async def _load_agent_model(
 ) -> ModelSlotConfig | None:
     """Load the model configured for a specific agent."""
     workspace = await get_agent_for_request(request, agent_id=agent_id)
-    agent_config = await asyncio.to_thread(
+    agent_config = await run_sync_io(
         load_agent_config,
         workspace.agent_id,
     )
@@ -326,7 +327,6 @@ async def configure_provider(
 
     provider = manager.get_provider(provider_id)
     if _should_auto_discover(body, background_tasks, provider):
-        assert background_tasks is not None
         background_tasks.add_task(
             manager.discover_provider_models,
             provider_id,
@@ -513,7 +513,6 @@ async def discover_models(
                 detail=f"Provider '{provider_id}' not found",
             )
 
-        provider_override = None
         overrides = {
             "api_key": body.api_key if body else None,
             "base_url": body.base_url if body else None,
@@ -561,9 +560,6 @@ async def test_model(
 ) -> TestConnectionResponse:
     """Test if a specific model works with the configured provider."""
     try:
-        provider = manager.get_provider(provider_id)
-        if provider is None:
-            raise ValueError(f"Provider '{provider_id}' not found")
         result = await manager.check_provider_model(
             provider_id,
             body.model_id,
@@ -783,7 +779,7 @@ async def get_active_models(
         if agent_model:
             logger.info(
                 "Returning agent-specific model for %s: %s",
-                target_agent_id,
+                sanitize_log_value(target_agent_id),
                 agent_model,
             )
             return _active_models_info(manager, agent_model)

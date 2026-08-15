@@ -445,8 +445,6 @@ async def update_tool_config(
             workspace.agent_id,
             apply_tool_config,
         )
-        if not agent_config.tools:
-            raise ValueError(f"Tool '{tool_name}' not found in agent")
         persisted_config = dict(
             agent_config.tools.builtin_tools[tool_name].config,
         )

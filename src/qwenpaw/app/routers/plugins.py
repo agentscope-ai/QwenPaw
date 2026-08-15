@@ -336,11 +336,13 @@ def _remove_named_tools_from_agents(
                     save_agent_config(agent_id, agent_cfg)
             except Exception as exc:
                 logger.warning(
-                    f"Failed to remove tools from agent '{agent_id}': {exc}",
+                    "Failed to remove tools from agent "
+                    f"'{_log_safe(agent_id)}': {_log_safe(exc)}",
                 )
     except Exception as exc:
         logger.warning(
-            f"Tool removal from agents skipped for '{plugin_id}': {exc}",
+            "Tool removal from agents skipped for "
+            f"'{_log_safe(plugin_id)}': {_log_safe(exc)}",
         )
 
 

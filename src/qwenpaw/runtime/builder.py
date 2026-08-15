@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
+from ..utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
     from ..agents.context.visual_compression.runtime.recovery import (
@@ -454,7 +455,7 @@ class AgentBuilder:
         _logger.info(
             "builder: built agent for session=%s agent=%s"
             " model=%s/%s tools=%d",
-            getattr(ctx, "session_id", ""),
+            sanitize_log_value(getattr(ctx, "session_id", "")),
             agent_id,
             active.provider_id,
             active.model,
@@ -669,7 +670,7 @@ class AgentBuilder:
                 _logger.warning(
                     "Rejecting fork_project_dir outside allowed worktree "
                     "subtree: %s",
-                    fork_raw,
+                    sanitize_log_value(fork_raw),
                 )
                 return agent_config
             raw_project_dir = str(validated)
@@ -678,7 +679,7 @@ class AgentBuilder:
         if not project_dir.is_dir():
             _logger.warning(
                 "Ignoring non-directory request project: %s",
-                raw_project_dir,
+                sanitize_log_value(raw_project_dir),
             )
             return agent_config
 

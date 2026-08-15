@@ -12,6 +12,7 @@ from agentscope.model import ChatModelBase, OpenAIResponseModel
 from .capping_formatter import _CappingOpenAIResponseFormatter
 from .openai_provider import OpenAIProvider
 from .provider import ModelConnectionResult
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ class OpenAIResponseProvider(OpenAIProvider):
 
         logger.info(
             "Image probe (responses) start: model=%s url=%s",
-            model_id,
+            sanitize_log_value(model_id),
             self.base_url,
         )
         start_time = time.monotonic()
@@ -269,8 +270,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "status_code", None)
@@ -281,8 +282,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
@@ -354,7 +355,7 @@ class OpenAIResponseProvider(OpenAIProvider):
             if status == 400:
                 logger.debug(
                     "Video probe format rejected (400): %s",
-                    e,
+                    sanitize_log_value(e),
                 )
                 return None
             elapsed = time.monotonic() - start_time
@@ -362,8 +363,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Video {label}: {e}"
@@ -371,8 +372,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"

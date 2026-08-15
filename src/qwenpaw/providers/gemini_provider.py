@@ -28,6 +28,7 @@ from qwenpaw.providers.provider import (
     ModelInfo,
     Provider,
 )
+from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -443,9 +444,10 @@ class GeminiProvider(Provider):
         """
         import base64
 
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Image probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -477,9 +479,9 @@ class GeminiProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "code", None)
@@ -490,9 +492,9 @@ class GeminiProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
@@ -506,9 +508,10 @@ class GeminiProvider(Provider):
 
         Asks the model whether the video contains moving content.
         """
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Video probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -540,7 +543,7 @@ class GeminiProvider(Provider):
                 elapsed = time.monotonic() - start_time
                 logger.info(
                     "Video probe done: model=%s result=%s %.2fs",
-                    model_id,
+                    log_model,
                     result[0],
                     elapsed,
                 )
@@ -552,7 +555,7 @@ class GeminiProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.info(
                 "Video probe done: model=%s result=%s %.2fs",
-                model_id,
+                log_model,
                 result[0],
                 elapsed,
             )
@@ -561,9 +564,9 @@ class GeminiProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "code", None)
@@ -574,9 +577,9 @@ class GeminiProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
 
 logger = logging.getLogger(__name__)
@@ -311,7 +312,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         logger.info(
             f"/model switch: agent={agent_config.id} "
-            f"provider={provider_id} model={model_id}",
+            f"provider={sanitize_log_value(provider_id)} "
+            f"model={sanitize_log_value(model_id)}",
         )
 
         return (

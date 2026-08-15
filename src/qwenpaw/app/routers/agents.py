@@ -4,7 +4,6 @@
 Provides RESTful API for managing multiple agent instances.
 """
 
-import asyncio
 import json
 import logging
 import shutil
@@ -40,6 +39,7 @@ from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 from ...utils.io_utils import run_sync_io, write_json_atomic
+from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -527,7 +527,7 @@ async def set_agent_pinned(
 async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
     """Get agent configuration."""
     try:
-        agent_config = await asyncio.to_thread(load_agent_config, agentId)
+        agent_config = await run_sync_io(load_agent_config, agentId)
         return agent_config
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -575,6 +575,33 @@ async def update_backend_settings(
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _resolve_custom_workspace_dir(raw_workspace_dir: str) -> Path:
+    """Resolve a caller-supplied workspace directory safely.
+
+    Restricts custom workspace paths to the user's home directory or
+    ``WORKING_DIR`` so a crafted request cannot make the server create
+    and populate directories in arbitrary filesystem locations.
+
+    Raises:
+        HTTPException(400): When the resolved path escapes both roots.
+    """
+    candidate = Path(raw_workspace_dir).expanduser().resolve()
+    home = Path.home().resolve()
+    working_dir = Path(WORKING_DIR).expanduser().resolve()
+    if candidate != home and (
+        candidate.is_relative_to(home)
+        or candidate.is_relative_to(working_dir)
+    ):
+        return candidate
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "workspace_dir must be a directory under your home "
+            "directory or the QwenPaw working directory"
+        ),
+    )
 
 
 def _generate_unique_id(existing_ids: set[str]) -> str:
@@ -629,9 +656,15 @@ async def create_agent(
     else:
         new_id = _generate_unique_id(existing_ids)
 
-    workspace_dir = Path(
-        request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
-    ).expanduser()
+    if request.workspace_dir:
+        workspace_dir = await run_sync_io(
+            _resolve_custom_workspace_dir,
+            request.workspace_dir,
+        )
+    else:
+        workspace_dir = Path(
+            f"{WORKING_DIR}/workspaces/{new_id}",
+        ).expanduser()
     await run_sync_io(workspace_dir.mkdir, parents=True, exist_ok=True)
 
     from ...config.config import (
@@ -697,7 +730,10 @@ async def create_agent(
         agent_config,
     )
 
-    logger.info(f"Created new agent: {new_id} (name={request.name})")
+    logger.info(
+        f"Created new agent: {sanitize_log_value(new_id)} "
+        f"(name={sanitize_log_value(request.name)})",
+    )
 
     if http_request is not None:
         manager = _get_multi_agent_manager(http_request)
@@ -876,9 +912,9 @@ async def copy_agent(
     logger.info(
         "Copied agent %s -> %s "
         "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
-        agentId,
-        new_id,
-        new_name,
+        sanitize_log_value(agentId),
+        sanitize_log_value(new_id),
+        sanitize_log_value(new_name),
         request.copy_agent_json,
         request.copy_md_files,
         request.copy_skills,
@@ -942,19 +978,6 @@ async def update_agent(
     return existing_config
 
 
-def _patch_agent_model_settings(
-    agent_id: str,
-    values: dict[str, Any],
-) -> AgentProfileConfig:
-    """Apply model-routing fields to the latest persisted agent config."""
-
-    def apply_settings(existing_config: AgentProfileConfig) -> None:
-        for key, value in values.items():
-            setattr(existing_config, key, value)
-
-    return mutate_agent_config(agent_id, apply_settings)
-
-
 @router.patch(
     "/{agentId}/model-settings",
     response_model=AgentProfileConfig,
@@ -968,11 +991,16 @@ async def update_agent_model_settings(
 ) -> AgentProfileConfig:
     """Patch model-routing fields without overwriting other settings."""
     values = {field: getattr(body, field) for field in body.model_fields_set}
+
+    def apply_settings(existing_config: AgentProfileConfig) -> None:
+        for key, value in values.items():
+            setattr(existing_config, key, value)
+
     try:
         updated = await run_sync_io(
-            _patch_agent_model_settings,
+            mutate_agent_config,
             agentId,
-            values,
+            apply_settings,
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1388,16 +1416,16 @@ def _install_initial_skills(
                 continue
             logger.warning(
                 "Failed to install initial skill %s for %s: %s",
-                skill_name,
-                workspace_dir,
-                result.get("reason", "unknown"),
+                sanitize_log_value(skill_name),
+                sanitize_log_value(workspace_dir),
+                sanitize_log_value(result.get("reason", "unknown")),
             )
         except Exception as e:
             logger.warning(
                 "Failed to install initial skill %s for %s: %s",
-                skill_name,
-                workspace_dir,
-                e,
+                sanitize_log_value(skill_name),
+                sanitize_log_value(workspace_dir),
+                sanitize_log_value(e),
             )
 
 

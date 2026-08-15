@@ -17,6 +17,7 @@ from qwenpaw.exceptions import ModelNotFoundException
 from ..config.config import ModelSlotConfig
 from ..constant import EnvVarLoader, SECRET_DIR
 from ..exceptions import ProviderError
+from ..utils.logging import sanitize_log_value
 from ..utils.io_utils import (
     get_sync_path_lock,
     run_async_to_completion,
@@ -601,8 +602,8 @@ class ProviderManager(
             result = await self.probe_model_multimodal(provider_id, model_id)
             logger.info(
                 "Auto-probe for %s/%s: image=%s, video=%s",
-                provider_id,
-                model_id,
+                sanitize_log_value(provider_id),
+                sanitize_log_value(model_id),
                 result.get("supports_image"),
                 result.get("supports_video"),
             )

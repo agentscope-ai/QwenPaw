@@ -28,6 +28,7 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
+from ..utils.logging import sanitize_log_value
 from .config import (
     Config,
     HeartbeatConfig,
@@ -927,8 +928,9 @@ def sanitize_mcp_clients(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                f"Agent '{agent_id}': skipping invalid "
-                f"MCP client '{key}': {exc}",
+                f"Agent '{sanitize_log_value(agent_id)}': skipping invalid "
+                f"MCP client '{sanitize_log_value(key)}': "
+                f"{sanitize_log_value(exc)}",
             )
             bad_keys.append(key)
     for key in bad_keys:

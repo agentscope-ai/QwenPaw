@@ -30,6 +30,7 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
+from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -415,9 +416,10 @@ class AnthropicProvider(Provider):
         Official Anthropic endpoints reject ``video`` blocks
         entirely; third-party providers may accept them.
         """
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Video probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -454,7 +456,7 @@ class AnthropicProvider(Provider):
         elapsed = time.monotonic() - start_time
         logger.info(
             "Video probe: model=%s ok=False %.2fs",
-            model_id,
+            log_model,
             elapsed,
         )
         return False, f"Video not supported: {last_err}"
@@ -475,6 +477,7 @@ class AnthropicProvider(Provider):
         error summary is appended to help callers log the
         actual rejection reason.
         """
+        log_model = sanitize_log_value(model_id)
         client = self._client(timeout=timeout)
         try:
             resp = await client.messages.create(
@@ -535,9 +538,9 @@ class AnthropicProvider(Provider):
             err_type = type(e).__name__
             logger.warning(
                 "Video probe error: model=%s %s %s %.2fs",
-                model_id,
+                log_model,
                 err_type,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             if _is_media_keyword_error(e):
@@ -548,9 +551,9 @@ class AnthropicProvider(Provider):
             err_type = type(e).__name__
             logger.warning(
                 "Video probe error: model=%s %s %s %.2fs",
-                model_id,
+                log_model,
                 err_type,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
@@ -573,9 +576,10 @@ class AnthropicProvider(Provider):
            processing them, so a pure API-error check would produce
            false positives.
         """
+        log_model = sanitize_log_value(model_id)
         logger.info(
             "Image probe start: model=%s url=%s",
-            model_id,
+            log_model,
             self.base_url,
         )
         start_time = time.monotonic()
@@ -617,9 +621,9 @@ class AnthropicProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "status_code", None)
@@ -630,9 +634,9 @@ class AnthropicProvider(Provider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
-                model_id,
+                log_model,
                 type(e).__name__,
-                e,
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
