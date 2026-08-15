@@ -68,7 +68,7 @@ def apply_history_window(
         if cut is not None:
             messages = messages[:cut]
 
-    if limit and limit > 0 and len(messages) > limit:
+    if 0 < limit < len(messages):
         return messages[-limit:], total, True
 
     return messages, total, False

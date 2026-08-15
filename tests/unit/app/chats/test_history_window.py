@@ -70,7 +70,7 @@ class TestApplyHistoryWindow:
 
     def test_limit_larger_than_length(self):
         history = make_history(3)
-        window, total, has_more = apply_history_window(history, limit=10)
+        window, _total, has_more = apply_history_window(history, limit=10)
         assert len(window) == 3
         assert has_more is False
 
@@ -89,7 +89,9 @@ class TestApplyHistoryWindow:
 
     def test_before_with_limit_pages_older_history(self):
         history = make_history(5)
-        window, total, has_more = apply_history_window(history, limit=1, before="msg-2")
+        window, total, has_more = apply_history_window(
+            history, limit=1, before="msg-2"
+        )
         assert ids(window) == ["msg-1"]
         assert total == 5
         assert has_more is True
