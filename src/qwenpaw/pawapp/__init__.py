@@ -21,7 +21,7 @@ from .dependency import (
     DependencyRegistry,
     DependencySpec,
 )
-from .deps import get_ctx
+from .deps import get_ctx, get_scoped_ctx
 from .service import ManagedService, ManagedServiceSpec
 
 __all__ = [
@@ -38,4 +38,5 @@ __all__ = [
     "PawApp",
     "PawAppContext",
     "get_ctx",
+    "get_scoped_ctx",
 ]

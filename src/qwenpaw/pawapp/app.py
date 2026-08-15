@@ -49,7 +49,7 @@ from pydantic import BaseModel, Field
 
 from qwenpaw.exceptions import ConfigurationException
 
-from .deps import get_ctx
+from .deps import get_ctx, get_scoped_ctx
 from .dependency import (
     DependencyHealth,
     DependencyLifecycle,
@@ -77,29 +77,29 @@ class _ChatSessionPin(BaseModel):
 
 
 def _resolve_app_session_id(ctx: Any, session_id: Optional[str]) -> str:
-    """Resolve the default app session without rewriting legacy explicit IDs.
+    """Resolve or validate the dialogue ID used by standard app routes.
 
-    Server-minted dialogue IDs are always app namespaced. Older PawApps may
-    still pass custom IDs to chat/history; those remain readable for additive
-    compatibility but are not adopted into the app dialogue catalog. Explicit
-    IDs inside another app's ``pawapp:`` namespace are rejected so one app
-    can never read or append to a sibling app's transcript.
+    Standard capability routes only operate on server-minted dialogue IDs
+    inside this app's ``pawapp:`` namespace. An absent ID selects the app's
+    default dialogue; any explicit ID outside the namespace — a sibling
+    app's namespace or an arbitrary host session key — is rejected so the
+    routes can never read or append to a transcript the app does not own.
+    Legacy PawApps that rely on custom session IDs keep that behavior on
+    their own registered routes through the Python context API.
     """
     if not session_id:
         return f"pawapp:{ctx.app_id}"
-    if session_id.startswith("pawapp:"):
-        namespace = f"pawapp:{ctx.app_id}"
-        owns_session = (
-            ctx.is_app_session_id(session_id)
-            if hasattr(ctx, "is_app_session_id")
-            else session_id == namespace
-            or session_id.startswith(f"{namespace}:")
+    namespace = f"pawapp:{ctx.app_id}"
+    owns_session = (
+        ctx.is_app_session_id(session_id)
+        if hasattr(ctx, "is_app_session_id")
+        else session_id == namespace or session_id.startswith(f"{namespace}:")
+    )
+    if not owns_session:
+        raise HTTPException(
+            status_code=404,
+            detail="Unknown session",
         )
-        if not owns_session:
-            raise HTTPException(
-                status_code=404,
-                detail="Unknown session",
-            )
     return session_id
 
 
@@ -119,13 +119,17 @@ def _configuration_error_detail(exc: ConfigurationException) -> dict:
 
 
 def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
-    """Build the standard frontend-to-host routes every PawApp receives."""
+    """Build the standard frontend-to-host routes every PawApp receives.
+
+    Every route resolves its context through ``get_scoped_ctx``: identity
+    comes from the authenticated principal, never from request parameters.
+    """
     import json
 
     router = APIRouter()
 
     @router.post("/chat")
-    async def chat(request: Request, ctx=Depends(get_ctx)):
+    async def chat(request: Request, ctx=Depends(get_scoped_ctx)):
         payload = await request.json()
         message = str(payload.get("message") or "").strip()
         if not message:
@@ -147,7 +151,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return {"text": reply.text}
 
     @router.post("/chat/stream")
-    async def chat_stream(request: Request, ctx=Depends(get_ctx)):
+    async def chat_stream(request: Request, ctx=Depends(get_scoped_ctx)):
         payload = await request.json()
         message = str(payload.get("message") or "").strip()
         if not message:
@@ -183,7 +187,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     @router.get("/chat/history")
     async def chat_history(
         session_id: Optional[str] = None,
-        ctx=Depends(get_ctx),
+        ctx=Depends(get_scoped_ctx),
     ):
         """Return the host-persisted transcript for one PawApp chat session.
 
@@ -209,13 +213,13 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         }
 
     @router.get("/chat/sessions")
-    async def chat_sessions(ctx=Depends(get_ctx)):
+    async def chat_sessions(ctx=Depends(get_scoped_ctx)):
         return {"sessions": await ctx.list_chat_sessions()}
 
     @router.post("/chat/sessions")
     async def create_chat_session(
         request: _ChatSessionCreate,
-        ctx=Depends(get_ctx),
+        ctx=Depends(get_scoped_ctx),
     ):
         return await ctx.create_chat_session(name=request.name)
 
@@ -223,7 +227,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     async def rename_chat_session(
         chat_id: str,
         request: _ChatSessionUpdate,
-        ctx=Depends(get_ctx),
+        ctx=Depends(get_scoped_ctx),
     ):
         try:
             result = await ctx.rename_chat_session(chat_id, name=request.name)
@@ -237,7 +241,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return result
 
     @router.post("/chat/sessions/{chat_id}/archive")
-    async def archive_chat_session(chat_id: str, ctx=Depends(get_ctx)):
+    async def archive_chat_session(chat_id: str, ctx=Depends(get_scoped_ctx)):
         result = await ctx.archive_chat_session(chat_id)
         if result is None:
             raise HTTPException(
@@ -250,7 +254,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
     async def pin_chat_session(
         chat_id: str,
         request: _ChatSessionPin,
-        ctx=Depends(get_ctx),
+        ctx=Depends(get_scoped_ctx),
     ):
         result = await ctx.pin_chat_session(chat_id, pinned=request.pinned)
         if result is None:
@@ -261,7 +265,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return result
 
     @router.delete("/chat/sessions/{chat_id}")
-    async def delete_chat_session(chat_id: str, ctx=Depends(get_ctx)):
+    async def delete_chat_session(chat_id: str, ctx=Depends(get_scoped_ctx)):
         deleted = await ctx.delete_chat_session(chat_id)
         if not deleted:
             raise HTTPException(
@@ -271,26 +275,30 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return {"ok": True}
 
     @router.get("/storage")
-    async def storage_keys(ctx=Depends(get_ctx)):
+    async def storage_keys(ctx=Depends(get_scoped_ctx)):
         return {"keys": await ctx.storage.keys()}
 
     @router.get("/storage/{key}")
-    async def storage_get(key: str, ctx=Depends(get_ctx)):
+    async def storage_get(key: str, ctx=Depends(get_scoped_ctx)):
         return {"value": await ctx.storage.get(key)}
 
     @router.put("/storage/{key}")
-    async def storage_set(key: str, request: Request, ctx=Depends(get_ctx)):
+    async def storage_set(
+        key: str,
+        request: Request,
+        ctx=Depends(get_scoped_ctx),
+    ):
         payload = await request.json()
         await ctx.storage.set(key, payload.get("value"))
         return {"ok": True}
 
     @router.delete("/storage/{key}")
-    async def storage_delete(key: str, ctx=Depends(get_ctx)):
+    async def storage_delete(key: str, ctx=Depends(get_scoped_ctx)):
         await ctx.storage.delete(key)
         return {"ok": True}
 
     @router.post("/toast")
-    async def toast(request: Request, ctx=Depends(get_ctx)):
+    async def toast(request: Request, ctx=Depends(get_scoped_ctx)):
         payload = await request.json()
         await ctx.toast(
             str(payload.get("message") or ""),
@@ -299,7 +307,7 @@ def _build_capability_router() -> APIRouter:  # pylint: disable=R0915
         return {"ok": True}
 
     @router.post("/notify")
-    async def notify(request: Request, ctx=Depends(get_ctx)):
+    async def notify(request: Request, ctx=Depends(get_scoped_ctx)):
         payload = await request.json()
         await ctx.notify(
             title=str(payload.get("title") or ""),

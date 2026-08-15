@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.exceptions import ConfigurationException
@@ -20,7 +20,7 @@ from qwenpaw.pawapp import (
 )
 from qwenpaw.pawapp.app import _build_capability_router
 from qwenpaw.pawapp.context import ChatReply
-from qwenpaw.pawapp.deps import get_ctx
+from qwenpaw.pawapp.deps import get_scoped_ctx
 from qwenpaw.pawapp import service as service_module
 
 
@@ -425,7 +425,7 @@ def test_chat_reports_missing_model_as_actionable_unavailable() -> None:
 
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = MissingModelContext
+    fixture.dependency_overrides[get_scoped_ctx] = MissingModelContext
 
     response = TestClient(fixture).post(
         "/chat",
@@ -473,7 +473,7 @@ def test_chat_history_reads_the_same_app_session() -> None:
     context = HistoryContext()
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = lambda: context
+    fixture.dependency_overrides[get_scoped_ctx] = lambda: context
 
     response = TestClient(fixture).get(
         "/chat/history",
@@ -505,7 +505,7 @@ def test_chat_history_defaults_to_the_app_session() -> None:
 
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = HistoryContext
+    fixture.dependency_overrides[get_scoped_ctx] = HistoryContext
 
     response = TestClient(fixture).get("/chat/history")
 
@@ -536,7 +536,7 @@ def test_chat_routes_reject_foreign_app_namespace_sessions() -> None:
 
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = ForeignSessionContext
+    fixture.dependency_overrides[get_scoped_ctx] = ForeignSessionContext
     client = TestClient(fixture)
 
     chat = client.post(
@@ -569,7 +569,7 @@ def test_session_guard_falls_back_to_prefix_scoping() -> None:
 
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = BareContext
+    fixture.dependency_overrides[get_scoped_ctx] = BareContext
 
     response = TestClient(fixture).get(
         "/chat/history",
@@ -579,25 +579,84 @@ def test_session_guard_falls_back_to_prefix_scoping() -> None:
     assert response.status_code == 404
 
 
-def test_chat_history_keeps_reading_legacy_custom_sessions() -> None:
+def test_chat_history_rejects_non_namespaced_session_ids() -> None:
+    # Arbitrary host session keys (the legacy custom-ID escape hatch) are
+    # not readable through the standard scoped routes; legacy PawApps keep
+    # that behavior on their own routes via the Python context API.
     class LegacyContext:
         app_id = "fixture"
 
         async def get_session_history(self, session_id):
-            assert session_id == "issue-42"
-            return []
+            raise AssertionError("non-namespaced session must never be read")
 
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = LegacyContext
+    fixture.dependency_overrides[get_scoped_ctx] = LegacyContext
 
     response = TestClient(fixture).get(
         "/chat/history",
         params={"session_id": "issue-42"},
     )
 
-    assert response.status_code == 200
-    assert response.json()["session_id"] == "issue-42"
+    assert response.status_code == 404
+
+
+def test_standard_routes_reject_forged_identity_claims() -> None:
+    # get_scoped_ctx binds user_id to the authenticated principal and pins
+    # the channel; explicit claims that disagree are refused, not trusted.
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    client = TestClient(fixture)
+
+    forged_user = client.get(
+        "/chat/history",
+        params={"user_id": "somebody-else"},
+    )
+    forged_user_header = client.get(
+        "/chat/history",
+        headers={"X-User-Id": "somebody-else"},
+    )
+    forged_channel = client.get(
+        "/chat/history",
+        params={"channel": "telegram"},
+    )
+
+    assert forged_user.status_code == 403
+    assert forged_user_header.status_code == 403
+    assert forged_channel.status_code == 403
+
+
+def test_scoped_ctx_binds_identity_to_the_authenticated_principal() -> None:
+    # AuthMiddleware populates request.state.user; the scoped dependency
+    # adopts it and accepts only matching explicit claims.
+    from fastapi import Request
+
+    fixture = FastAPI()
+
+    @fixture.middleware("http")
+    async def fake_auth(request: Request, call_next):
+        request.state.user = "alice"
+        return await call_next(request)
+
+    captured = {}
+
+    @fixture.get("/probe")
+    async def probe(ctx=Depends(get_scoped_ctx)):
+        captured["user_id"] = ctx.user_id
+        captured["channel"] = ctx.channel
+        return {"ok": True}
+
+    client = TestClient(fixture)
+
+    bound = client.get("/probe")
+    matching_claim = client.get("/probe", params={"user_id": "alice"})
+    forged_claim = client.get("/probe", params={"user_id": "bob"})
+
+    assert bound.status_code == 200
+    assert matching_claim.status_code == 200
+    assert forged_claim.status_code == 403
+    assert captured["user_id"] == "alice"
+    assert captured["channel"] == "console"
 
 
 def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
@@ -662,7 +721,7 @@ def test_chat_session_routes_delegate_to_the_app_scoped_catalog() -> None:
 
     fixture = FastAPI()
     fixture.include_router(_build_capability_router())
-    fixture.dependency_overrides[get_ctx] = SessionContext
+    fixture.dependency_overrides[get_scoped_ctx] = SessionContext
     client = TestClient(fixture)
 
     listed = client.get("/chat/sessions")
