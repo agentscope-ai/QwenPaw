@@ -4,7 +4,7 @@ import { useTurnUsageStore } from "./turnUsageStore";
 
 describe("turnUsageStore", () => {
   beforeEach(() => {
-    useTurnUsageStore.getState().reset();
+    useTurnUsageStore.getState().invalidateTurn();
   });
 
   it("rejects usage from an invalidated turn token", () => {
@@ -33,7 +33,7 @@ describe("turnUsageStore", () => {
     const oldTurn = useTurnUsageStore
       .getState()
       .beginTurn("agent-a", "session-a");
-    useTurnUsageStore.getState().invalidateTurn(false);
+    useTurnUsageStore.getState().invalidateTurn();
     const newTurn = useTurnUsageStore
       .getState()
       .beginTurn("agent-a", "session-a");

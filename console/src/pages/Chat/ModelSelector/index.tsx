@@ -100,7 +100,6 @@ export default function ModelSelector() {
   );
   const savingRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const proTabId = useId();
   const freeTabId = useId();
@@ -1127,7 +1126,6 @@ export default function ModelSelector() {
       >
         <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
           <button
-            ref={triggerRef}
             type="button"
             aria-expanded={open}
             aria-controls={panelId}

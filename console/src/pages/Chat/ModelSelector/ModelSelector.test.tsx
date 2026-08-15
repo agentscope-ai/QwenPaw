@@ -201,7 +201,7 @@ function deferred<T>() {
 describe("ModelSelector", () => {
   beforeEach(() => {
     localStorage.clear();
-    useTurnUsageStore.getState().reset();
+    useTurnUsageStore.getState().invalidateTurn();
     setupDefaultMocks();
   });
 
@@ -1060,7 +1060,6 @@ describe("ModelSelector", () => {
         {
           id: mockProvider.id,
           name: mockProvider.name,
-          chatModel: mockProvider.chat_model,
           models: mockProvider.models,
         },
       ],
@@ -1158,7 +1157,6 @@ describe("ModelSelector", () => {
         {
           id: mockProvider.id,
           name: mockProvider.name,
-          chatModel: mockProvider.chat_model,
           models: mockProvider.models,
         },
       ],
@@ -1222,7 +1220,6 @@ describe("ModelSelector", () => {
         {
           id: mockProvider.id,
           name: mockProvider.name,
-          chatModel: mockProvider.chat_model,
           models: mockProvider.models,
         },
       ],

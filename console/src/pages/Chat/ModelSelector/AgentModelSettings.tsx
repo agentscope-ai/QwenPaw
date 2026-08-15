@@ -23,7 +23,6 @@ import styles from "./index.module.less";
 interface SettingsProvider {
   id: string;
   name: string;
-  chatModel: string;
   models: ModelInfo[];
 }
 

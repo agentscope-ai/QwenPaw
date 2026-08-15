@@ -17,23 +17,11 @@ export interface ModelInfo {
   is_free?: boolean;
   is_recommended?: boolean;
   source?: "builtin" | "discovered" | "user";
-  discovered_at?: string | null;
   discovery_origin?: "api" | "catalog" | "both" | null;
   availability_status?: ModelAvailabilityStatus;
-  availability_message?: string | null;
-  availability_http_status?: number | null;
-  availability_retryable?: boolean;
-  availability_checked_at?: string | null;
-  availability_verification?:
-    | "live"
-    | "provider_only"
-    | "catalog"
-    | "unverified";
-  config_overrides?: string[];
   max_tokens: number;
   max_input_length: number;
   max_input_length_configured?: boolean;
-  max_input_length_auto_detected?: number | null;
   generate_kwargs: Record<string, unknown>;
   relay_reasoning: boolean;
   thinking_enabled: boolean | null;
@@ -64,16 +52,6 @@ export interface ProviderInfo {
   models_last_sync_error?: string | null;
   models_syncing?: boolean;
   hidden_model_ids?: string[];
-  discovery_strategy?:
-    | "openai_models"
-    | "anthropic_models"
-    | "gemini_models"
-    | "provider_specific"
-    | "catalog_only"
-    | "unsupported";
-  discovery_support_reason?: string;
-  discovery_requires_auth?: boolean;
-  model_sync_mode?: "startup" | "manual" | "disabled";
   is_custom: boolean;
   is_local: boolean;
   /** Whether this provider supports fetching available models from the provider's API. */
@@ -130,7 +108,6 @@ export interface ProviderConfigRequest {
   generate_kwargs?: Record<string, unknown>;
   custom_headers?: Record<string, string>;
   auth_mode?: "api_key" | "auth_token";
-  auto_discover?: boolean;
 }
 
 export interface ModelSlotConfig {
@@ -176,10 +153,6 @@ export interface AddModelRequest {
   supports_image?: boolean | null;
   supports_video?: boolean | null;
   probe_source?: string | null;
-}
-
-export interface ModelVisibilityRequest {
-  hidden: boolean;
 }
 
 export interface ModelConfigRequest {
@@ -261,10 +234,6 @@ export interface TestConnectionResponse {
   success: boolean;
   message: string;
   status?: ModelAvailabilityStatus;
-  http_status?: number | null;
-  retryable?: boolean;
-  checked_at?: string | null;
-  verification?: "live" | "provider_only" | "catalog" | "unverified";
 }
 
 export interface TestProviderRequest {
@@ -292,8 +261,6 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   discovered_count: number;
-  last_synced_at?: string | null;
-  used_static_fallback?: boolean;
   error_kind?: string | null;
 }
 

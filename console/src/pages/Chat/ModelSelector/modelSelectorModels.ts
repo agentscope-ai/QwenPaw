@@ -3,8 +3,6 @@ import type { ModelInfo, ProviderInfo } from "../../../api/types";
 export interface EligibleProvider {
   id: string;
   name: string;
-  chatModel: string;
-  base_url?: string;
   models: ProviderInfo["models"];
   is_free_tier?: boolean;
   is_custom?: boolean;
@@ -42,8 +40,6 @@ export function buildEligibleProviders(
     .map((provider) => ({
       id: provider.id,
       name: provider.name,
-      chatModel: provider.chat_model,
-      base_url: provider.base_url,
       models: [...(provider.models ?? []), ...(provider.extra_models ?? [])],
       is_free_tier: provider.is_free_tier,
       is_custom: provider.is_custom,

@@ -11,11 +11,10 @@ interface TurnUsageStore {
     turn: TurnUsageToken,
   ) => boolean;
   isTurnActive: (turn: TurnUsageToken) => boolean;
-  invalidateTurn: (preserveContext?: boolean) => void;
+  invalidateTurn: () => void;
   /** Current agent active model's effective context window (from ModelSelector). */
   activeMaxInputLength: number | null;
   setActiveMaxInputLength: (maxInputLength: number | null) => void;
-  reset: () => void;
 }
 
 export interface TurnUsageToken {
@@ -61,16 +60,8 @@ export const useTurnUsageStore = create<TurnUsageStore>((set, get) => ({
     return true;
   },
   isTurnActive: (turn) => isSameTurn(get().activeTurn, turn),
-  invalidateTurn: (preserveContext = true) =>
-    set((state) => ({
-      activeTurn: null,
-      snapshot:
-        preserveContext && state.snapshot?.context_usage
-          ? { usage: null, context_usage: state.snapshot.context_usage }
-          : null,
-    })),
+  invalidateTurn: () => set({ activeTurn: null, snapshot: null }),
   activeMaxInputLength: null,
   setActiveMaxInputLength: (activeMaxInputLength) =>
     set({ activeMaxInputLength }),
-  reset: () => set({ snapshot: null, activeTurn: null }),
 }));

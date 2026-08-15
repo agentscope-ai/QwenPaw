@@ -2471,7 +2471,7 @@ export default function ChatPage() {
       // agent store and claims the new epoch synchronously with the change,
       // so in-flight results owned by the previous agent are stale by now.
 
-      useTurnUsageStore.getState().invalidateTurn(false);
+      useTurnUsageStore.getState().invalidateTurn();
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the
       // SDK finishes reloading. Without this guard, scheduleNextSend could

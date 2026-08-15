@@ -6,7 +6,7 @@ import { useTurnUsageStore } from "./turnUsageStore";
 describe("schedulePatchLastResponseCardUsage", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    useTurnUsageStore.getState().reset();
+    useTurnUsageStore.getState().invalidateTurn();
   });
 
   afterEach(() => {
