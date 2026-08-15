@@ -7,9 +7,9 @@ Provider-specific probe logic lives in each provider class
 
 import logging
 import time
+from dataclasses import dataclass
 
 from ..utils.logging import sanitize_log_value
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 

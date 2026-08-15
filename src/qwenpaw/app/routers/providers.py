@@ -133,7 +133,6 @@ class ProviderConfigRequest(BaseModel):
 
 def _should_auto_discover(
     body: ProviderConfigRequest,
-    background_tasks: BackgroundTasks,
     provider: object | None,
 ) -> bool:
     """Return whether a saved provider should start discovery."""
@@ -326,7 +325,7 @@ async def configure_provider(
         )
 
     provider = manager.get_provider(provider_id)
-    if _should_auto_discover(body, background_tasks, provider):
+    if _should_auto_discover(body, provider):
         background_tasks.add_task(
             manager.discover_provider_models,
             provider_id,

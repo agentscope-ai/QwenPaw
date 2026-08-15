@@ -11,8 +11,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from functools import partial
-
-from ...utils.logging import sanitize_log_value
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -24,6 +22,8 @@ from typing import (
     Set,
     Union,
 )
+
+from ...utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
     from .workspace import Workspace
