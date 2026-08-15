@@ -24,7 +24,6 @@ from ..utils.io_utils import (
     run_sync_io,
 )
 from .provider import (
-    ModelConnectionResult,
     ModelInfo,
     Provider,
     ProviderInfo,
@@ -117,9 +116,6 @@ class ProviderManager(
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
         self._capability_registry = ExpectedCapabilityRegistry()
-        self._annotation_service = ProviderAnnotationService(
-            self._capability_registry,
-        )
         self._apply_default_annotations()
 
     def _prepare_disk_storage(self):
@@ -163,20 +159,11 @@ class ProviderManager(
         tasks += [
             provider.get_info() for provider in self.custom_providers.values()
         ]
-        tasks += [
-            self._get_plugin_provider_info(provider_info)
-            for provider_info in self._plugin_registry.list_provider_infos()
-        ]
 
         provider_infos = await asyncio.gather(*tasks)
-        return list(provider_infos)
-
-    async def _get_plugin_provider_info(
-        self,
-        provider_info: ProviderInfo,
-    ) -> ProviderInfo:
-        """Helper to return plugin provider info as async task."""
-        return provider_info
+        return list(provider_infos) + (
+            self._plugin_registry.list_provider_infos()
+        )
 
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
@@ -932,32 +919,6 @@ class ProviderManager(
                 "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
                 "extra_models": [setup_result.model_info],
             },
-        )
-
-    def register_plugin_provider(
-        self,
-        provider_id: str,
-        provider_class,
-        label: str,
-        base_url: str,
-        *,
-        metadata: Dict,
-    ):
-        """Register a plugin provider.
-
-        Args:
-            provider_id: Provider ID
-            provider_class: Provider class
-            label: Display label
-            base_url: API base URL
-            metadata: Additional metadata
-        """
-        self._plugin_registry.register(
-            provider_id,
-            provider_class,
-            label,
-            base_url,
-            metadata=metadata,
         )
 
     def unregister_plugin_provider(self, provider_id: str) -> bool:

@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 
 from ..constant import EnvVarLoader
 from ..exceptions import ProviderError
@@ -29,7 +29,6 @@ from .provider_discovery import (
 from .provider_model_availability import (
     ProviderModelCheckResult,
     classify_model_check,
-    extract_http_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,18 +98,16 @@ class ProviderManagerDiscoveryMixin:
             return None
         return None if ok else (detail or None)
 
-    async def _save_successful_discovery(
+    async def _save_discovery_locked(
         self,
         provider_id: str,
         provider: Provider,
         *,
         revision: int,
         generation: int | None,
-        fetched: List[ModelInfo],
-        models: List[ModelInfo],
-        synced_at: str,
+        **fields: Any,
     ) -> None:
-        """Persist a successful discovery if its snapshot is still current."""
+        """Persist a discovery outcome if its snapshot is still current."""
         lock = self._provider_save_locks.setdefault(
             provider_id,
             asyncio.Lock(),
@@ -122,34 +119,7 @@ class ProviderManagerDiscoveryMixin:
                     provider,
                     revision=revision,
                     generation=generation,
-                    fetched=fetched,
-                    models=models,
-                    synced_at=synced_at,
-                ),
-            )
-
-    async def _save_failed_discovery(
-        self,
-        provider_id: str,
-        provider: Provider,
-        *,
-        revision: int,
-        generation: int | None,
-        error: str,
-    ) -> None:
-        """Persist a discovery error if its snapshot is still current."""
-        lock = self._provider_save_locks.setdefault(
-            provider_id,
-            asyncio.Lock(),
-        )
-        async with lock:
-            await run_async_to_completion(
-                self._save_discovery_snapshot(
-                    provider_id,
-                    provider,
-                    revision=revision,
-                    generation=generation,
-                    error=error,
+                    **fields,
                 ),
             )
 
@@ -386,7 +356,7 @@ class ProviderManagerDiscoveryMixin:
             models = list(by_id.values())
 
             if save:
-                await self._save_successful_discovery(
+                await self._save_discovery_locked(
                     provider_id,
                     provider,
                     revision=revision,
@@ -414,7 +384,7 @@ class ProviderManagerDiscoveryMixin:
             )
             logger.warning("Model discovery failed; using static fallback")
             if save:
-                await self._save_failed_discovery(
+                await self._save_discovery_locked(
                     provider_id,
                     provider,
                     revision=revision,
@@ -434,11 +404,6 @@ class ProviderManagerDiscoveryMixin:
                 await self._clear_discovery_syncing(provider_id, generation)
 
     # pylint: enable=too-many-branches,too-many-statements
-
-    @staticmethod
-    def _extract_http_status(message: str) -> int | None:
-        """Compatibility wrapper for availability status extraction."""
-        return extract_http_status(message)
 
     @classmethod
     def _classify_model_check(

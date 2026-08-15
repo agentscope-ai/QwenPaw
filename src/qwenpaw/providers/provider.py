@@ -538,11 +538,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         )
         return message
 
-    @staticmethod
-    def _sanitize_connection_message(message: str) -> str:
-        """Keep the original private sanitizer for compatibility."""
-        return Provider.sanitize_connection_message(message)
-
     @classmethod
     def connection_error_message(cls, exc: Exception) -> str:
         """Format an SDK exception while preserving its HTTP status."""

@@ -36,10 +36,7 @@ from .provider_model_state import (
     restore_model_state,
     serialize_model_state,
 )
-from .provider_persistence import (
-    replace_with_retry,
-    write_provider_snapshot,
-)
+from . import provider_persistence
 from .provider_update_fields import (
     AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
     CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,
@@ -115,49 +112,6 @@ class ProviderManagerPersistenceMixin:
                 provider,
                 provider_path=provider_path,
             )
-
-    def _save_plugin_provider(self, provider: Provider):
-        """Save a plugin provider configuration to disk.
-
-        Sensitive fields (``api_key``) are encrypted before writing.
-        """
-        provider_path = self._provider_path_for_kind(
-            "plugin",
-            provider.id,
-        )
-        with get_sync_path_lock(provider_path):
-            self._save_provider_snapshot(
-                provider.id,
-                provider,
-                provider_path=provider_path,
-            )
-
-    def save_provider_config(
-        self,
-        provider_id: str,
-        provider: Provider | None = None,
-    ) -> None:
-        """Persist the current in-memory provider state to disk.
-
-        Args:
-            provider_id: The provider to save.
-            provider: Optional pre-resolved provider instance. When
-                supplied, this instance is saved directly 鈥?important
-                for plugin providers where ``get_provider`` returns a
-                fresh copy each time.
-        """
-        provider_id = self._normalize_provider_id(provider_id)
-        if provider is None:
-            provider = self.get_provider(provider_id)
-        if provider is None:
-            return
-        provider_path = self._provider_config_path(provider_id)
-        with get_sync_path_lock(provider_path):
-            if provider_id in self.plugin_providers:
-                self.plugin_providers[provider_id]["info"] = ProviderInfo(
-                    **provider.model_dump(),
-                )
-            self._save_provider_snapshot(provider_id, provider)
 
     @staticmethod
     def _copy_model_fields(
@@ -388,45 +342,6 @@ class ProviderManagerPersistenceMixin:
         if current is not None:
             self._copy_provider_state(current, snapshot)
 
-    def _merge_and_save_provider_snapshot(
-        self,
-        provider_id: str,
-        provider: Provider,
-        *,
-        update_kind: PluginUpdateKind,
-        model_id: str | None,
-        fields: set[str] | None,
-    ) -> Provider:
-        """Merge and persist one provider under the shared file lock."""
-        provider_path = self._provider_config_path(provider_id)
-        with get_sync_path_lock(provider_path):
-            if provider_id in self.plugin_providers:
-                snapshot = self._merge_plugin_snapshot(
-                    provider_id,
-                    provider,
-                    update_kind,
-                    model_id=model_id,
-                    fields=fields,
-                )
-            else:
-                snapshot = self._merge_provider_snapshot(
-                    provider_id,
-                    provider,
-                    update_kind,
-                    model_id=model_id,
-                    fields=fields,
-                )
-            self._save_provider_snapshot(provider_id, snapshot)
-            if provider_id in self.plugin_providers:
-                self.plugin_providers[provider_id][
-                    "info"
-                ] = ProviderInfo.model_validate(snapshot.model_dump())
-            else:
-                current = self.get_provider(provider_id)
-                if current is not None and current is not provider:
-                    self._copy_provider_state(current, snapshot)
-            return snapshot
-
     @staticmethod
     def _copy_provider_state(target: Provider, source: Provider) -> None:
         """Replace one in-memory provider state with a deep snapshot."""
@@ -620,17 +535,6 @@ class ProviderManagerPersistenceMixin:
                 )
         return {"info": provider_info, "class": provider_class}
 
-    @staticmethod
-    def _replace_with_retry(
-        src: str,
-        dst: str,
-        *,
-        attempts: int = 5,
-        delay: float = 0.1,
-    ) -> None:
-        """Compatibility wrapper for atomic replacement with retry."""
-        replace_with_retry(src, dst, attempts=attempts, delay=delay)
-
     def _save_provider_snapshot(
         self,
         provider_id: str,
@@ -644,10 +548,9 @@ class ProviderManagerPersistenceMixin:
                 provider_id,
                 provider.id,
             )
-        write_provider_snapshot(
+        provider_persistence.write_provider_snapshot(
             provider,
             provider_path,
-            replace_operation=self._replace_with_retry,
         )
 
     def _provider_config_path(
@@ -906,7 +809,10 @@ class ProviderManagerPersistenceMixin:
                 )
                 handle.flush()
                 os.fsync(handle.fileno())
-            self._replace_with_retry(temp_name, str(active_path))
+            provider_persistence.replace_with_retry(
+                temp_name,
+                str(active_path),
+            )
             try:
                 os.chmod(active_path, 0o600)
             except OSError:
@@ -935,34 +841,6 @@ class ProviderManagerPersistenceMixin:
                 self.active_model = snapshot
 
         await run_async_to_completion(save_and_commit())
-
-    def clear_active_model(self, provider_id: str | None = None) -> bool:
-        """Clear the active provider/model configuration.
-
-        If provider_id is provided, only clear when it matches the current
-        active provider.
-        """
-        if self.active_model is None:
-            return False
-        # Normalize provider ID for backward compatibility
-        if provider_id is not None:
-            provider_id = self._normalize_provider_id(provider_id)
-        if (
-            provider_id is not None
-            and self._normalize_provider_id(
-                self.active_model.provider_id,
-            )
-            != provider_id
-        ):
-            return False
-
-        self.active_model = None
-        active_path = self.root_path / "active_model.json"
-        try:
-            active_path.unlink()
-        except (FileNotFoundError, OSError):
-            pass
-        return True
 
     async def clear_active_model_async(
         self,

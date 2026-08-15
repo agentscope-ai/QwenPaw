@@ -30,7 +30,11 @@ from qwenpaw.providers.openai_provider import (
 )
 from qwenpaw.providers.openai_response_provider import OpenAIResponseProvider
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
-from qwenpaw.providers.provider import ModelInfo, ProviderInfo
+from qwenpaw.providers.provider import (
+    ModelConnectionResult,
+    ModelInfo,
+    ProviderInfo,
+)
 from qwenpaw.providers.provider_manager import ProviderManager
 
 LEGACY_PROVIDER = {
@@ -229,7 +233,7 @@ async def test_plugin_provider_rejects_casefold_collisions(
     )
 
     with pytest.raises(ProviderError, match="conflicts"):
-        manager.register_plugin_provider(
+        await manager.register_plugin_provider_async(
             "OPENAI",
             OpenAIProvider,
             "Builtin Collision",
@@ -747,13 +751,17 @@ def test_save_active_model_uses_atomic_replace(
 ) -> None:
     manager = ProviderManager()
     replacements: list[tuple[str, str]] = []
-    original_replace = manager._replace_with_retry
+    original_replace = provider_persistence_module.replace_with_retry
 
     def record_replace(source: str, destination: str) -> None:
         replacements.append((source, destination))
         original_replace(source, destination)
 
-    monkeypatch.setattr(manager, "_replace_with_retry", record_replace)
+    monkeypatch.setattr(
+        provider_persistence_module,
+        "replace_with_retry",
+        record_replace,
+    )
     manager.save_active_model(
         ModelSlotConfig(provider_id="openai", model="gpt-5"),
     )
@@ -1178,7 +1186,7 @@ async def test_stale_model_check_does_not_restore_old_failure(
         _ = model_id, timeout
         started.set()
         await release.wait()
-        return provider_manager_module.ModelConnectionResult(
+        return ModelConnectionResult(
             success=False,
             message="old credential",
             http_status=401,
@@ -2231,7 +2239,7 @@ def test_replace_with_retry_recovers_from_transient_lock(
         sleeps.append,
     )
 
-    ProviderManager._replace_with_retry(
+    provider_persistence_module.replace_with_retry(
         "src",
         "dst",
         attempts=5,
@@ -2260,7 +2268,7 @@ def test_replace_with_retry_reraises_when_always_locked(
     )
 
     with pytest.raises(PermissionError):
-        ProviderManager._replace_with_retry(
+        provider_persistence_module.replace_with_retry(
             "src",
             "dst",
             attempts=3,
@@ -2556,7 +2564,7 @@ async def test_plugin_discovery_and_check_update_fresh_provider_instance(
 
     async def check_model_connection(_self, model_id, timeout=5):
         _ = model_id, timeout
-        return provider_manager_module.ModelConnectionResult(
+        return ModelConnectionResult(
             success=True,
         )
 
@@ -2650,7 +2658,7 @@ async def test_plugin_availability_preserves_discovery_state(
         _ = model_id, timeout
         check_started.set()
         await release_check.wait()
-        return provider_manager_module.ModelConnectionResult(success=True)
+        return ModelConnectionResult(success=True)
 
     monkeypatch.setattr(
         OpenAIProvider,
@@ -2762,7 +2770,7 @@ async def test_model_check_uses_structured_http_status(
 
     async def check_model_connection(_self, model_id, timeout=5):
         _ = model_id, timeout
-        return provider_manager_module.ModelConnectionResult(
+        return ModelConnectionResult(
             success=False,
             message="request rejected",
             http_status=404,
@@ -2826,7 +2834,7 @@ async def test_provider_only_model_check_preserves_evidence(
 
     async def check_model_connection(_self, model_id, timeout=5):
         _ = model_id, timeout
-        return provider_manager_module.ModelConnectionResult(
+        return ModelConnectionResult(
             success=True,
             message="endpoint and credentials verified",
             verification="provider_only",
@@ -3217,12 +3225,9 @@ async def test_discovery_error_redacts_credentials_before_persisting(
     assert provider.models_last_sync_error == result.error
 
 
-def test_connection_message_sanitizer_keeps_private_compatibility() -> None:
+def test_connection_message_sanitizer_redacts_credentials() -> None:
     message = "authorization=Bearer discovery-secret"
 
-    assert OpenAIProvider.sanitize_connection_message(message) == (
-        OpenAIProvider._sanitize_connection_message(message)
-    )
     assert (
         "discovery-secret"
         not in OpenAIProvider.sanitize_connection_message(message)

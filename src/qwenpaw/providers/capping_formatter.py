@@ -77,14 +77,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
     relay_reasoning_content: bool = Field(default=True)
 
-    @staticmethod
-    def _inline_media_size(source: Any) -> int | None:
-        """Byte size of *source* if inlined locally, else ``None``.
-
-        Thin wrapper over :func:`inline_media_size` kept as a staticmethod
-        so callers (and tests) can invoke it on the class.
-        """
-        return inline_media_size(source)
+    _inline_media_size = staticmethod(inline_media_size)
 
     def _placeholder_text(self, kind: str, size: int) -> str:
         return (
@@ -136,17 +129,6 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             ),
         }
 
-    @staticmethod
-    def _local_source_to_base64(source: Any) -> Any:
-        """Return media prepared by the request formatter unchanged.
-
-        QwenPaw's request formatter converts local sources to
-        :class:`Base64Source` before this synchronous provider-shaping
-        stage. Keeping this method as a compatibility hook avoids local
-        filesystem access in the event-loop formatter call.
-        """
-        return source
-
 
 class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
     """OpenAI formatter that caps oversized local image/audio media."""
@@ -163,9 +145,7 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         unprepared = self._unprepared_local_placeholder(source, "image")
         if unprepared is not None:
             return unprepared
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_image_source(source)
 
     def _format_audio_source(
         self,
@@ -177,9 +157,7 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         unprepared = self._unprepared_local_placeholder(source, "audio")
         if unprepared is not None:
             return unprepared
-        return super()._format_audio_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_audio_source(source)
 
 
 class _CappingAnthropicFormatter(
@@ -198,9 +176,7 @@ class _CappingAnthropicFormatter(
         unprepared = self._unprepared_local_placeholder(source, "image")
         if unprepared is not None:
             return unprepared
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_image_source(source)
 
 
 class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
@@ -233,9 +209,7 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
         unprepared = self._unprepared_local_placeholder(source, "media")
         if unprepared is not None:
             return unprepared
-        return super()._format_media_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_media_source(source)
 
 
 class _CappingDashScopeFormatter(
@@ -256,9 +230,7 @@ class _CappingDashScopeFormatter(
         unprepared = self._unprepared_local_placeholder(source, "video")
         if unprepared is not None:
             return unprepared
-        return super()._format_video_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_video_source(source)
 
     def _format_image_source(
         self,
@@ -270,9 +242,7 @@ class _CappingDashScopeFormatter(
         unprepared = self._unprepared_local_placeholder(source, "image")
         if unprepared is not None:
             return unprepared
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_image_source(source)
 
     def _format_audio_source(
         self,
@@ -284,9 +254,7 @@ class _CappingDashScopeFormatter(
         unprepared = self._unprepared_local_placeholder(source, "audio")
         if unprepared is not None:
             return unprepared
-        return super()._format_audio_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_audio_source(source)
 
 
 class _CappingOpenAIResponseFormatter(
@@ -321,6 +289,4 @@ class _CappingOpenAIResponseFormatter(
         unprepared = self._unprepared_local_placeholder(source, "image")
         if unprepared is not None:
             return unprepared
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        return super()._format_image_source(source)

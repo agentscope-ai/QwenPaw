@@ -7,7 +7,6 @@ import json
 import os
 import tempfile
 import time
-from collections.abc import Callable
 from pathlib import Path
 
 from ..security.secret_store import (
@@ -39,8 +38,6 @@ def replace_with_retry(
 def write_provider_snapshot(
     provider: Provider,
     provider_path: Path,
-    *,
-    replace_operation: Callable[[str, str], None] = replace_with_retry,
 ) -> None:
     """Encrypt and atomically write one provider snapshot."""
     with get_sync_path_lock(provider_path):
@@ -59,7 +56,7 @@ def write_provider_snapshot(
                 json.dump(data, handle, ensure_ascii=False, indent=2)
                 handle.flush()
                 os.fsync(handle.fileno())
-            replace_operation(temp_name, str(provider_path))
+            replace_with_retry(temp_name, str(provider_path))
             try:
                 os.chmod(provider_path, 0o600)
             except OSError:

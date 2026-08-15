@@ -13,7 +13,6 @@ from qwenpaw.providers.capability_baseline import (
     ExpectedCapability,
     ExpectedCapabilityRegistry,
     compare_probe_result,
-    generate_summary,
 )
 
 # ---------------------------------------------------------------------------
@@ -40,7 +39,7 @@ def test_registry_get_expected_found() -> None:
         expected_image=True,
         expected_video=False,
     )
-    reg._register(cap)
+    reg._data[(cap.provider_id, cap.model_id)] = cap
     result = reg.get_expected("synth_provider", "synth_model")
     assert result is not None
     assert result.provider_id == "synth_provider"
@@ -79,32 +78,12 @@ def test_registry_get_all_for_provider_filters() -> None:
         expected_image=True,
         expected_video=True,
     )
-    reg._register(cap1)
-    reg._register(cap2)
-    reg._register(cap_other)
+    reg._data[(cap1.provider_id, cap1.model_id)] = cap1
+    reg._data[(cap2.provider_id, cap2.model_id)] = cap2
+    reg._data[(cap_other.provider_id, cap_other.model_id)] = cap_other
     caps = reg.get_all_for_provider("synth_prov")
     assert len(caps) >= 2
     assert all(c.provider_id == "synth_prov" for c in caps)
-
-
-def test_registry_register_overwrites() -> None:
-    reg = ExpectedCapabilityRegistry()
-    cap = ExpectedCapability(
-        provider_id="test",
-        model_id="model",
-        expected_image=True,
-        expected_video=False,
-    )
-    reg._register(cap)
-    assert reg.get_expected("test", "model") is cap
-    cap2 = ExpectedCapability(
-        provider_id="test",
-        model_id="model",
-        expected_image=False,
-        expected_video=True,
-    )
-    reg._register(cap2)
-    assert reg.get_expected("test", "model") is cap2
 
 
 # ---------------------------------------------------------------------------
@@ -173,52 +152,6 @@ def test_compare_both_fields_discrepant() -> None:
     assert len(logs) == 2
     fields = {log.field for log in logs}
     assert fields == {"image", "video"}
-
-
-# ---------------------------------------------------------------------------
-# generate_summary
-# ---------------------------------------------------------------------------
-
-
-def test_generate_summary_counts() -> None:
-    cap = ExpectedCapability(
-        "p",
-        "m",
-        expected_image=True,
-        expected_video=None,
-    )
-    results = [
-        (cap, True, False, "ok"),
-        (cap, False, False, "discrepancy"),
-        (cap, True, True, "failure"),
-    ]
-    summary = generate_summary(results)
-    assert summary.total_models == 3
-    assert summary.passed == 1
-    assert summary.discrepancies == 1
-    assert summary.failures == 1
-
-
-def test_generate_summary_empty() -> None:
-    summary = generate_summary([])
-    assert summary.total_models == 0
-    assert summary.passed == 0
-    assert not summary.details
-
-
-def test_generate_summary_details_populated() -> None:
-    cap = ExpectedCapability(
-        "p",
-        "m",
-        expected_image=True,
-        expected_video=None,
-    )
-    results = [
-        (cap, False, False, "discrepancy"),
-    ]
-    summary = generate_summary(results)
-    assert len(summary.details) == 1
-    assert summary.details[0].field == "image"
 
 
 def _write_capability_catalog(

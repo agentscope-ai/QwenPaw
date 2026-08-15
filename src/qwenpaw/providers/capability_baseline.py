@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -26,14 +25,6 @@ OTA_CAPABILITY_PATH = CAPABILITY_CACHE_DIR / "model_capabilities.json"
 LOCAL_CAPABILITY_PATH = CAPABILITY_CACHE_DIR / "model_capabilities.local.json"
 CAPABILITY_URL_ENV = "QWENPAW_MODEL_CAPABILITY_URL"
 CAPABILITY_SHA256_ENV = "QWENPAW_MODEL_CAPABILITY_SHA256"
-
-
-class ProbeSource(str, Enum):
-    """Source of probe result."""
-
-    DOCUMENTATION = "documentation"  # Default annotation from official docs
-    PROBED = "probed"  # Result from actual API probing
-    UNKNOWN = "unknown"  # Unknown / not yet probed
 
 
 @dataclass
@@ -82,17 +73,6 @@ class DiscrepancyLog:
     expected: bool | None
     actual: bool
     discrepancy_type: str  # "false_negative" or "false_positive"
-
-
-@dataclass
-class ComparisonSummary:
-    """Summary report of probe vs. expected comparison."""
-
-    total_models: int
-    passed: int
-    discrepancies: int
-    failures: int
-    details: list[DiscrepancyLog] = field(default_factory=list)
 
 
 class ExpectedCapabilityRegistry:
@@ -145,10 +125,6 @@ class ExpectedCapabilityRegistry:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
-
-    def _register(self, cap: ExpectedCapability) -> None:
-        """Register a single baseline entry."""
-        self._data[(cap.provider_id, cap.model_id)] = cap
 
     def _load_snapshot(
         self,
@@ -262,41 +238,3 @@ def compare_probe_result(
         )
 
     return logs
-
-
-def generate_summary(
-    results: list[tuple[ExpectedCapability, bool, bool, str]],
-) -> ComparisonSummary:
-    """Generate a comparison summary report.
-
-    Each element in results is
-    (expected_cap, actual_image, actual_video, status),
-    where status is "ok", "discrepancy", or "failure".
-
-    The returned ComparisonSummary guarantees
-    total_models == passed + discrepancies + failures,
-    and details only contains DiscrepancyLog entries from "discrepancy" items.
-    """
-    passed = 0
-    discrepancies = 0
-    failures = 0
-    details: list[DiscrepancyLog] = []
-
-    for expected_cap, actual_image, actual_video, status in results:
-        if status == "ok":
-            passed += 1
-        elif status == "discrepancy":
-            discrepancies += 1
-            details.extend(
-                compare_probe_result(expected_cap, actual_image, actual_video),
-            )
-        elif status == "failure":
-            failures += 1
-
-    return ComparisonSummary(
-        total_models=len(results),
-        passed=passed,
-        discrepancies=discrepancies,
-        failures=failures,
-        details=details,
-    )

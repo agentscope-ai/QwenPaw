@@ -251,15 +251,6 @@ def test_bare_local_path_size_is_deferred(tmp_path) -> None:
     assert inline_media_size(source) is None
 
 
-def test_bare_local_path_conversion_is_deferred(tmp_path) -> None:
-    """The capping hook never performs filesystem access itself."""
-    path = tmp_path / "photo.jpg"
-    path.write_bytes(b"\xff\xd8" + b"\0" * 100)
-    source = _source_with_bare_path(path, "image/jpeg")
-    result = _CappingOpenAIFormatter._local_source_to_base64(source)
-    assert result is source
-
-
 def test_prepared_image_is_formatted_without_file_access() -> None:
     """Prepared in-memory media produces the expected provider payload."""
     out = _CappingOpenAIFormatter()._format_image_source(
@@ -279,8 +270,5 @@ def test_non_http_remote_scheme_passthrough() -> None:
         "ftp://host/file.txt",
     ]:
         source = URLSource(url=scheme_url, media_type="image/png")
-        result = _CappingOpenAIFormatter._local_source_to_base64(source)
-        # Must return source unchanged (not try to open)
-        assert result is source, f"{scheme_url} was not passed through"
         # inline_media_size must return None (not try getsize)
         assert inline_media_size(source) is None
