@@ -1159,6 +1159,79 @@ class TestWeChatOnMessage:
         call_args = wechat_channel._enqueue.call_args[0][0]
         assert call_args["sender_id"] == "user123"
 
+    @pytest.mark.parametrize(
+        ("reply", "action"),
+        [("允许", "approve"), ("拒绝", "deny")],
+    )
+    async def test_on_message_maps_chinese_pending_approval_reply(
+        self,
+        wechat_channel,
+        mock_ilink_client,
+        reply,
+        action,
+    ):
+        """Exact Chinese replies resolve the current approval queue head."""
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
+        approval_service = MagicMock()
+        approval_service.get_pending_by_root_session = AsyncMock(
+            return_value=[MagicMock()],
+        )
+
+        with patch(
+            "qwenpaw.app.approvals.get_approval_service",
+            return_value=approval_service,
+        ):
+            await wechat_channel._on_message(
+                {
+                    "from_user_id": "user123",
+                    "context_token": f"ctx_{action}",
+                    "message_type": 1,
+                    "item_list": [
+                        {"type": 1, "text_item": {"text": reply}},
+                    ],
+                },
+                mock_ilink_client,
+            )
+
+        payload = wechat_channel._enqueue.call_args[0][0]
+        assert payload["content_parts"][0].text == f"/approval {action}"
+        approval_service.get_pending_by_root_session.assert_awaited_once_with(
+            "wechat:user123",
+        )
+
+    async def test_on_message_preserves_chinese_reply_without_pending_approval(
+        self,
+        wechat_channel,
+        mock_ilink_client,
+    ):
+        """Approval words remain normal chat when no approval is pending."""
+        wechat_channel._client = mock_ilink_client
+        wechat_channel._enqueue = MagicMock()
+        approval_service = MagicMock()
+        approval_service.get_pending_by_root_session = AsyncMock(
+            return_value=[],
+        )
+
+        with patch(
+            "qwenpaw.app.approvals.get_approval_service",
+            return_value=approval_service,
+        ):
+            await wechat_channel._on_message(
+                {
+                    "from_user_id": "user123",
+                    "context_token": "ctx_no_pending",
+                    "message_type": 1,
+                    "item_list": [
+                        {"type": 1, "text_item": {"text": "允许"}},
+                    ],
+                },
+                mock_ilink_client,
+            )
+
+        payload = wechat_channel._enqueue.call_args[0][0]
+        assert payload["content_parts"][0].text == "允许"
+
     async def test_on_message_skip_non_user_message(
         self,
         wechat_channel,

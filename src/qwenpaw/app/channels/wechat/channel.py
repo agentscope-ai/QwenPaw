@@ -58,6 +58,12 @@ _WECHAT_PROCESSED_IDS_MAX = 2000
 # Time window (seconds) for content-based dedup (same user + same text)
 _TEXT_DEDUP_TTL = 30.0
 
+# Exact replies accepted while this WeChat session has a pending approval.
+_APPROVAL_REPLY_ACTIONS = {
+    "允许": "approve",
+    "拒绝": "deny",
+}
+
 # Default token file path
 _DEFAULT_TOKEN_FILE = WORKING_DIR / "wechat_bot_token"
 
@@ -325,6 +331,30 @@ class WeChatChannel(BaseChannel):
             getattr(request, "user_id", "") or "",
             getattr(request, "session_id", "") or "",
         )
+
+    @staticmethod
+    async def _normalize_approval_reply(text: str, session_id: str) -> str:
+        """Translate exact Chinese approval replies for pending sessions."""
+        action = _APPROVAL_REPLY_ACTIONS.get(text)
+        if action is None:
+            return text
+
+        try:
+            from ...approvals import get_approval_service
+
+            pending = await get_approval_service().get_pending_by_root_session(
+                session_id,
+            )
+        except Exception:
+            logger.debug(
+                "wechat: failed to inspect pending approvals",
+                exc_info=True,
+            )
+            return text
+
+        if not pending:
+            return text
+        return f"/approval {action}"
 
     def build_agent_request_from_native(
         self,
@@ -834,14 +864,6 @@ class WeChatChannel(BaseChannel):
                     )
 
             text = "\n".join(text_parts).strip()
-            if text:
-                content_parts.insert(
-                    0,
-                    TextContent(type=ContentType.TEXT, text=text),
-                )
-            if not content_parts:
-                return
-
             is_group = bool(group_id)
             meta: Dict[str, Any] = {
                 "wechat_from_user_id": from_user_id,
@@ -850,6 +872,15 @@ class WeChatChannel(BaseChannel):
                 "wechat_group_id": group_id,
                 "is_group": is_group,
             }
+            session_id = self.resolve_session_id(from_user_id, meta)
+            text = await self._normalize_approval_reply(text, session_id)
+            if text:
+                content_parts.insert(
+                    0,
+                    TextContent(type=ContentType.TEXT, text=text),
+                )
+            if not content_parts:
+                return
 
             # Save latest context_token for proactive sends (heartbeat/cron)
             if from_user_id and context_token:
@@ -882,7 +913,6 @@ class WeChatChannel(BaseChannel):
                     description="start typing indicator",
                 )
 
-            session_id = self.resolve_session_id(from_user_id, meta)
             native = {
                 "channel_id": self.channel,
                 "sender_id": from_user_id,
