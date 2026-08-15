@@ -11,6 +11,7 @@ race).
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import asyncio
 import importlib
 from pathlib import Path
 
@@ -35,7 +36,12 @@ def _chunk(text: str):
 
 
 class _StreamingFakeService:
-    """run_turn emits two AgentMessageChunks back-to-back on a real client."""
+    """run_turn emits two AgentMessageChunks back-to-back on a real client.
+
+    Mimics the new service-layer behavior: waits on the client's
+    _assistant_text_event (with timeout) before calling finish_prompt(),
+    then retries once if finish_prompt() returns None but the event is set.
+    """
 
     def __init__(self, *, finish_event: bool = True) -> None:
         self._finish_event = finish_event
@@ -72,12 +78,23 @@ class _StreamingFakeService:
             session_id="chat",
             update=_chunk(" world"),
         )
-        if self._finish_event:
+
+        # New behavior: wait for the event signalling chunks have arrived,
+        # then call finish_prompt(). If it returns None but event is set,
+        # yield once and retry (mirrors _wait_for_prompt_outcome logic).
+        try:
+            await asyncio.wait_for(client._assistant_text_event.wait(), timeout=0.5)
+        except asyncio.TimeoutError:
+            pass
+
+        event = await client.finish_prompt()
+        if event is None and client._assistant_text_event.is_set():
+            await asyncio.sleep(0)
             event = await client.finish_prompt()
-        else:
-            # Simulate the original race: the prompt response resolved
-            # before the queued notification tasks ran, so finish_prompt()
-            # observes no text yet.
+
+        if not self._finish_event:
+            # Simulate a broken service that still returns None even after retry.
+            # This tests the fallback path in _stream_action_responses.
             event = None
         return {"status": "completed", "event": event}
 

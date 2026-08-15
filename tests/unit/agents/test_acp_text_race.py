@@ -10,10 +10,10 @@ final text (surfacing as "completed without text output" in
 ``delegate_external_agent``).
 
 These tests pin the two fixes:
-1. client: AgentMessageChunk notifications must emit accumulated text
-   immediately (in addition to the finish_prompt() flush).
-2. service: _wait_for_prompt_outcome() must yield to the event loop before
-   calling finish_prompt() so queued notifications get processed.
+1. client: AgentMessageChunk notifications set an event signalling new text
+   is available; the event is waited on (with timeout) before finish_prompt().
+2. service: _wait_for_prompt_outcome() waits on the client's event with a
+   bounded timeout, then retries finish_prompt() if it returned no text.
 """
 from __future__ import annotations
 
@@ -53,28 +53,22 @@ def _chunk(text: str):
 
 
 class TestACPAssistantTextEmission:
-    """AgentMessageChunk must emit text so streaming consumers see it."""
+    """AgentMessageChunk must signal new text availability."""
 
     @pytest.mark.asyncio
-    async def test_agent_message_chunk_emits_text_immediately(self) -> None:
+    async def test_agent_message_chunk_sets_event(self) -> None:
         client = _make_client()
-        messages: list[dict] = []
-        client._on_message = AsyncMock(  # noqa: W0212
-            side_effect=lambda payload, is_last: messages.append(payload),
-        )
+
+        # Event should be clear initially
+        assert not client._assistant_text_event.is_set()
 
         await client.session_update(
             session_id="sess-1",
             update=_chunk("Hello from ACP"),
         )
 
-        # Text must have been emitted during the notification itself, not
-        # only at finish_prompt() time.
-        assert messages, "expected on_message emission during session_update"
-        emitted = "".join(
-            m.get("text", "") for m in messages if m.get("type") == "text"
-        )
-        assert "Hello from ACP" in emitted
+        # Event should be set after processing a chunk
+        assert client._assistant_text_event.is_set()
 
     @pytest.mark.asyncio
     async def test_finish_prompt_returns_accumulated_text(self) -> None:
@@ -91,16 +85,15 @@ class TestACPAssistantTextEmission:
         assert result["text"] == "final answer"
 
 
-class TestACPServicePromptOutcomeYield:
-    """_wait_for_prompt_outcome must yield before finish_prompt()."""
+class TestACPServicePromptOutcomeWait:
+    """_wait_for_prompt_outcome waits on client event before finish_prompt()."""
 
     @pytest.mark.asyncio
-    async def test_yields_before_finish_prompt(self) -> None:
+    async def test_waits_on_event_before_finish_prompt(self) -> None:
         client = _make_client()
         client._on_message = AsyncMock()  # noqa: W0212
 
-        # A notification that is still queued (not awaited) when the prompt
-        # response resolves -- the exact race we protect against.
+        # A notification that is still queued when the prompt response resolves
         async def queued_notification() -> None:
             await client.session_update(
                 session_id="sess-1",
@@ -134,7 +127,6 @@ class TestACPServicePromptOutcomeYield:
                 on_message=AsyncMock(),
             )
         finally:
-            # Restore the real finish_prompt.
             client.finish_prompt = original_finish  # type: ignore
             notification_task.cancel()
             try:
@@ -147,3 +139,29 @@ class TestACPServicePromptOutcomeYield:
             "finish_prompt() should observe text that arrived via a "
             "notification queued before the prompt response resolved"
         )
+
+    @pytest.mark.asyncio
+    async def test_retries_finish_prompt_if_first_returns_none(self) -> None:
+        """If finish_prompt() returns None but event is set, retry once."""
+        client = _make_client()
+
+        # Pre-set the event (simulating chunks arrived) but don't actually
+        # add any text yet - this mimics a race where the notification
+        # task hasn't quite flushed _assistant_text when finish_prompt()
+        # is first called.
+        client._assistant_text_event.set()
+
+        # First call to finish_prompt should return None (no text yet)
+        result1 = await client.finish_prompt()
+        assert result1 is None
+
+        # Now add text (as if notification task flushed)
+        await client.session_update(
+            session_id="sess-1",
+            update=_chunk("recovered text"),
+        )
+
+        # Second call should return the text
+        result2 = await client.finish_prompt()
+        assert result2 is not None
+        assert result2["text"] == "recovered text"
