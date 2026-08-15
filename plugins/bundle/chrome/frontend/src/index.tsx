@@ -14,7 +14,7 @@ const antd = host.antd;
 const getApiUrl = host.getApiUrl;
 const getApiToken = host.getApiToken;
 
-const { Alert, Button, Collapse, Space, Spin, Typography, message } = antd;
+const { Alert, Button, Collapse, Space, Spin, Tag, Typography, message } = antd;
 const { Text, Title } = Typography;
 
 type InstallMode = "unpacked" | "cws";
@@ -41,6 +41,10 @@ interface ExtensionStatus {
   bridge_endpoint?: string;
   configured_endpoint?: string | null;
   bridge_endpoint_stale?: boolean;
+  endpoint_source?: string;
+  endpoint_error?: string | null;
+  remote?: boolean;
+  secure_transport?: boolean;
   chrome_extensions_url?: string;
   native_host_repair_required?: boolean;
   native_host_repair_instruction?: string;
@@ -837,6 +841,9 @@ function AdvancedInfo({
     { key: "config_path", label: "config" },
   ];
   const wsUrl = status?.bridge_endpoint || "not ready";
+  const remoteSetupCommand = status?.bridge_endpoint
+    ? `python3 extension_setup.py --ws-url ${status.bridge_endpoint} --token <server-token>`
+    : "";
 
   return (
     <Collapse
@@ -867,10 +874,54 @@ function AdvancedInfo({
                   {translate(locale, "bridgeEndpoint")}
                 </Text>
                 <code style={styles.advancedValue}>{wsUrl}</code>
+                <Tag
+                  color={status?.remote ? "geekblue" : "default"}
+                  style={{ marginInlineEnd: 0 }}
+                >
+                  {translate(
+                    locale,
+                    status?.remote ? "endpointRemote" : "endpointLocal",
+                  )}
+                </Tag>
                 <Button onClick={() => onCopy(wsUrl)}>
                   {translate(locale, "copyPath")}
                 </Button>
               </div>
+              {status?.endpoint_error ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={translate(locale, "endpointInvalid", {
+                    error: status.endpoint_error,
+                  })}
+                />
+              ) : null}
+              {status?.remote && !status?.secure_transport ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={translate(locale, "endpointInsecureWarning")}
+                />
+              ) : null}
+              {status?.remote ? (
+                <div style={styles.advancedRows}>
+                  <Text strong>{translate(locale, "remoteSetupTitle")}</Text>
+                  <Text type="secondary">
+                    {translate(locale, "remoteSetupDescription")}
+                  </Text>
+                  <div style={styles.advancedRow}>
+                    <Text type="secondary">
+                      {translate(locale, "remoteSetupCommandLabel")}
+                    </Text>
+                    <code style={styles.advancedValue}>
+                      {remoteSetupCommand}
+                    </code>
+                    <Button onClick={() => onCopy(remoteSetupCommand)}>
+                      {translate(locale, "copyCommand")}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ),
         },

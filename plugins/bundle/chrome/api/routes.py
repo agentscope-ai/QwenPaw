@@ -22,7 +22,10 @@ from qwenpaw.browser.control_link.chrome.bridge import (
 from ..extension_setup import (
     CHROME_EXTENSIONS_URL,
     atomic_write_json_0600,
+    bridge_endpoint_source,
+    endpoint_is_loopback,
     extension_install_status,
+    BridgeEndpointError,
     BridgeEndpointUnavailable,
     InstallModeError,
     open_extension_folder,
@@ -90,13 +93,33 @@ def configure_nm_bridge(
 async def get_extension_status() -> dict[str, Any]:
     """Return install state plus the core endpoint the host will contact."""
     status = extension_install_status()
-    bridge_endpoint = require_bridge_endpoint()
+    endpoint_error = None
+    try:
+        bridge_endpoint: str | None = require_bridge_endpoint()
+    except BridgeEndpointError as exc:
+        bridge_endpoint = None
+        endpoint_error = str(exc)
     configured_endpoint = status.pop("ws_url", None)
     return {
         **status,
         "bridge_endpoint": bridge_endpoint,
         "configured_endpoint": configured_endpoint,
-        "bridge_endpoint_stale": configured_endpoint != bridge_endpoint,
+        "bridge_endpoint_stale": (
+            bridge_endpoint is not None
+            and configured_endpoint != bridge_endpoint
+        ),
+        "endpoint_source": bridge_endpoint_source(),
+        "endpoint_error": endpoint_error,
+        "remote": (
+            not endpoint_is_loopback(bridge_endpoint)
+            if bridge_endpoint is not None
+            else False
+        ),
+        "secure_transport": (
+            bridge_endpoint.startswith("wss://")
+            if bridge_endpoint is not None
+            else False
+        ),
     }
 
 
