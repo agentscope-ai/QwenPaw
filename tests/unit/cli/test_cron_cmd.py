@@ -278,3 +278,24 @@ def test_update_agent_text_with_malformed_input_rebuilds():
 
     content2 = result2["request"]["input"][0]["content"][0]
     assert content2["text"] == "fresh prompt"
+
+
+def test_update_agent_text_syncs_top_level_text():
+    """--text on an agent job must sync the top-level text field too.
+
+    Agent jobs can carry the prompt in two places: the top-level ``text``
+    field and ``request.input[0].content[0].text``.  A single-field update
+    must update both copies so ``cron get``/``cron list`` surface the new
+    prompt (regression test for issue #7048).
+    """
+    spec = _agent_job_spec()
+    spec["text"] = "OLD-TOPLEVEL"
+
+    result = _update(spec, text="new prompt")
+
+    assert result["text"] == "new prompt"
+    content = result["request"]["input"][0]["content"][0]
+    assert content["text"] == "new prompt"
+    # untouched fields preserved
+    assert result["request"]["model"] == "custom-model"
+    assert result["name"] == "agent-job"

@@ -716,6 +716,10 @@ def _resolve_update_spec(
                         "content": [{"type": "text", "text": text.strip()}],
                     },
                 ]
+            # Keep the top-level "text" field in sync with the request-side
+            # prompt so cron get/list surface the updated value (agent jobs
+            # may carry both copies; they must be updated together).
+            payload["text"] = text.strip()
         else:
             payload["text"] = text.strip()
 
