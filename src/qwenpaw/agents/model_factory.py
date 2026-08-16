@@ -655,7 +655,12 @@ def _promote_tool_result_videos(
     new_messages: list[dict] = []
     for fmt_msg in messages:
         new_messages.append(fmt_msg)
+        # OpenAI chat format emits ``tool_call_id``; the Responses API
+        # format emits ``call_id``.  Match either so video promotion works
+        # on the OpenAI Responses path (issue #7059).
         tcid = fmt_msg.get("tool_call_id")
+        if not isinstance(tcid, str):
+            tcid = fmt_msg.get("call_id")
         if not isinstance(tcid, str) or tcid not in promotions:
             continue
         tool_name, videos = promotions[tcid]
@@ -1625,9 +1630,14 @@ def _create_formatter_instance(
         GeminiChatFormatter,
         OpenAIResponseFormatter,
     )
+    formatter = formatter_class(**kwargs)
+    # agentscope 2.0's ``FormatterBase`` has no ``promote_tool_result_images``
+    # field (it existed only on 1.x formatters), so passing it via kwargs is
+    # silently dropped by Pydantic.  Set the flag on the instance instead so
+    # ``FileBlockSupportFormatter.format`` can promote video blocks.
     if isinstance(base_formatter, _promote_types):
-        kwargs["promote_tool_result_images"] = True
-    return formatter_class(**kwargs)
+        object.__setattr__(formatter, "promote_tool_result_images", True)
+    return formatter
 
 
 __all__ = [
