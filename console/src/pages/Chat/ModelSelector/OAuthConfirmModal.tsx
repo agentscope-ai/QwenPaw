@@ -27,10 +27,12 @@ export function OAuthConfirmModal({
   const [phase, setPhase] = useState<"confirm" | "waiting">("confirm");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guards in-flight poll responses that resolve after close/unmount so
-  // a late "completed" cannot fire onSuccess (and navigation) from a
-  // dead modal.
-  const disposedRef = useRef(false);
+  // Guards in-flight poll/start responses that resolve after close or
+  // unmount so a late "completed" cannot fire onSuccess (and
+  // navigation) from a dead modal. True whenever the modal is not the
+  // open, live instance.
+  const disposedRef = useRef(!open);
+  const startingRef = useRef(false);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -40,9 +42,13 @@ export function OAuthConfirmModal({
   }, []);
 
   useEffect(() => {
-    disposedRef.current = false;
+    // Only an open modal is live: parents keep this component mounted
+    // and toggle `open`, so the close transition must leave the guard
+    // set or a late poll response would act on a dismissed modal.
+    disposedRef.current = !open;
     if (!open) {
       setPhase("confirm");
+      startingRef.current = false;
       stopPolling();
     }
     return () => {
@@ -52,8 +58,14 @@ export function OAuthConfirmModal({
   }, [open, stopPolling]);
 
   const handleContinue = useCallback(async () => {
+    if (startingRef.current) return; // ignore double-clicks
+    startingRef.current = true;
     try {
       const { authorize_url, state } = await providerApi.startOAuth(providerId);
+      if (disposedRef.current) return; // closed while starting
+      // Never stack timers from overlapping starts: the previous ids
+      // would be overwritten and leak unclearable.
+      stopPolling();
       setPhase("waiting");
 
       openExternalLink(authorize_url, "_blank", "popup,width=600,height=700");
@@ -91,10 +103,14 @@ export function OAuthConfirmModal({
         onCancel();
       }, 300000);
     } catch (err) {
-      message.error(
-        err instanceof Error ? err.message : t("modelSelector.oauthFailed"),
-      );
-      onCancel();
+      if (!disposedRef.current) {
+        message.error(
+          err instanceof Error ? err.message : t("modelSelector.oauthFailed"),
+        );
+        onCancel();
+      }
+    } finally {
+      startingRef.current = false;
     }
   }, [providerId, providerName, onSuccess, onCancel, message, t, stopPolling]);
 

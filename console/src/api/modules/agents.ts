@@ -81,7 +81,10 @@ export const agentsApi = {
 
   updateBackendSettings: (
     agentId: string,
-    settings: { model?: string; reasoning_effort?: string },
+    settings: {
+      model?: string | null;
+      reasoning_effort?: string | null;
+    },
   ) =>
     request<AgentProfileConfig>(`/agents/${agentId}/backend-settings`, {
       method: "PATCH",

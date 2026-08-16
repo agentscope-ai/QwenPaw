@@ -129,12 +129,22 @@ class FallbackChatModel(ChatModelBase):
         return self._active_model_var.set(self._models[0])
 
     def _end_request(self, token: Token) -> None:
-        """Restore the pre-request active model."""
+        """Restore the pre-request active model.
+
+        Ends by enforcing the invariant directly: between requests the
+        context must expose the primary model.  Token reset alone is not
+        enough -- an abandoned stream closed late resets out of order,
+        and CPython then silently restores the token's stale snapshot
+        instead of raising.
+        """
         try:
             self._active_model_var.reset(token)
         except ValueError:
             # The stream was consumed in a different context than the
-            # one that started the request; re-expose the primary there.
+            # one that started the request; fall through and repair the
+            # consumer's context below.
+            pass
+        if self._active_model_var.get() is not self._models[0]:
             self._active_model_var.set(self._models[0])
 
     @property

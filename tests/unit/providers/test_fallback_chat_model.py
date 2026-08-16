@@ -675,3 +675,34 @@ async def test_active_model_resets_after_structured_fallback() -> None:
 
     assert model.model == "primary"
     assert model.context_size == 32_768
+
+
+async def test_late_close_of_abandoned_stream_keeps_primary_active() -> None:
+    """Out-of-order token resets must not reinstate the leaked model.
+
+    Scenario: request 1's stream is abandoned without closing (token
+    still owned by the suspended generator), request 2 starts in the
+    same task, the abandoned stream is closed mid-request-2, and
+    request 2 then finishes.  CPython restores an outdated token's
+    snapshot silently, so without the invariant enforcement request 2's
+    reset would reinstate request 1's leaked fallback model.
+    """
+    primary = FakeModel("primary", HttpError(503), context_size=32_768)
+    fallback = FakeModel(
+        "fallback",
+        lambda: _stream(_response("one"), _response("two")),
+        context_size=262_144,
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    stream1 = await model(messages=[], tools=[])
+    first = await stream1.__anext__()
+    assert first.content[0]["text"] == "one"
+
+    primary.behavior = lambda: _stream(_response("ok"))
+    stream2 = await model(messages=[], tools=[])
+    await stream1.aclose()
+    _ = [chunk async for chunk in stream2]
+
+    assert model.model == "primary"
+    assert model.context_size == 32_768

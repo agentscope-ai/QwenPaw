@@ -396,10 +396,16 @@ class ProviderManagerPersistenceMixin(
         Compensates a detached write that lost the revision/generation
         race: without the rewrite, the stale snapshot stays on disk and
         the concurrent winning update is silently swallowed on the next
-        restart.
+        restart.  When the provider was removed mid-flight, the stale
+        write already resurrected its file -- delete it instead, or the
+        removed provider would come back on the next startup glob.
         """
         latest = self.get_provider(provider_id)
         if latest is None:
+            await run_sync_io(
+                self._remove_orphan_snapshot,
+                provider_path,
+            )
             return
         await run_sync_io(
             self._save_provider_snapshot_locked,
@@ -407,6 +413,18 @@ class ProviderManagerPersistenceMixin(
             latest.model_copy(deep=True),
             provider_path,
         )
+
+    @staticmethod
+    def _remove_orphan_snapshot(provider_path: Path) -> None:
+        """Delete a snapshot written for a since-removed provider."""
+        with get_sync_path_lock(provider_path):
+            try:
+                provider_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "Failed to remove orphan provider snapshot at %s",
+                    provider_path,
+                )
 
     def _merge_provider_snapshot(
         self,

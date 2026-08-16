@@ -3960,3 +3960,24 @@ async def test_activate_model_preserves_other_models_and_capabilities(
     assert cache.get("openai:gpt-5", "needs_reasoning_content", False) is True
     # another model's entries are untouched
     assert cache.get("ollama:llama3", "rejects_media", False) is True
+
+
+async def test_restore_latest_snapshot_removes_orphan_file(
+    isolated_secret_dir,
+) -> None:
+    """A stale write for a since-removed provider must not resurrect it.
+
+    The compensating rewrite runs after a detached snapshot write; when
+    the provider was removed mid-flight there is no live state to
+    restore, so the stale file must be deleted or the removed provider
+    would come back on the next startup glob.
+    """
+    manager = ProviderManager()
+    manager.custom_path.mkdir(parents=True, exist_ok=True)
+    orphan_path = manager.custom_path / "ghost.json"
+    orphan_path.write_text("{}", encoding="utf-8")
+
+    assert manager.get_provider("ghost") is None
+    await manager._restore_latest_snapshot("ghost", orphan_path)
+
+    assert not orphan_path.exists()
