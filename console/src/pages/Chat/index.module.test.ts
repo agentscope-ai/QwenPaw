@@ -42,6 +42,17 @@ describe("Chat message markdown layout styles", () => {
     expect(rule).toMatch(/overflow-x:\s*auto/);
     expect(rule).toMatch(/max-width:\s*100%/);
   });
+
+  it("allows selecting text inside chat message cards", () => {
+    const markerIndex = stylesSource.indexOf(".selectableMessageCard");
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("}", markerIndex) + 1,
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toMatch(/user-select:\s*text/);
+  });
 });
 
 describe("Chat attachment preview styles", () => {
