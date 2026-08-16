@@ -53,8 +53,16 @@ class CredentialProvider(ABC):
 
 
 class TokenExchanger(Protocol):
-    async def exchange(self, secrets: dict[str, Any]) -> tuple[str, int]:
-        """Return access_token and expires_in seconds."""
+    async def exchange(
+        self,
+        secrets: dict[str, Any],
+    ) -> tuple[str, int, str | None]:
+        """Return access_token, expires_in seconds, and rotated refresh_token.
+
+        The third element is the *new* ``refresh_token`` returned by a
+        rotating-token provider (``None`` when the response contains none,
+        e.g. client-credentials flows or non-rotating providers).
+        """
 
 
 class StandardOAuth2Exchanger:
@@ -96,7 +104,15 @@ class StandardOAuth2Exchanger:
             raise DriverCredentialProviderError(
                 f"OAuth token endpoint did not return access_token: {reason}",
             )
-        return access_token, int(data.get("expires_in", 3600))
+        # Rotating-token providers return a *new* refresh_token alongside
+        # the refreshed access_token; carry it out so callers can persist
+        # it instead of silently keeping a dead one.
+        rotated_refresh_token = data.get("refresh_token")
+        return (
+            access_token,
+            int(data.get("expires_in", 3600)),
+            str(rotated_refresh_token) if rotated_refresh_token else None,
+        )
 
 
 class NoneProvider(CredentialProvider):
@@ -190,7 +206,7 @@ class OAuth2CCProvider(CredentialProvider):
             record = await self._store.get(self._ref)
             values = record.values
             values["ref"] = self._ref
-            token, expires_in = await self._exchanger.exchange(values)
+            token, expires_in, _ = await self._exchanger.exchange(values)
             self._cached_token = token
             self._expires_at = time.time() + expires_in
             return ResolvedCredential(
@@ -249,11 +265,18 @@ class OAuth2AuthCodeProvider(CredentialProvider):
             if not values.get("refresh_token"):
                 raise OAuthRequiredError(self._ref)
             values["ref"] = self._ref
-            token, expires_in = await self._exchanger.exchange(values)
+            token, expires_in, rotated_refresh_token = (
+                await self._exchanger.exchange(values)
+            )
             public = dict(record.public)
             secrets = dict(record.secrets)
             public["expires_at"] = time.time() + expires_in
             secrets["access_token"] = token
+            if rotated_refresh_token:
+                # Persist the rotated refresh_token so a rotating provider
+                # does not permanently degrade to manual re-auth after the
+                # old refresh_token dies.
+                secrets["refresh_token"] = rotated_refresh_token
             await self._store.put(
                 CredentialRecord(
                     ref=record.ref,
