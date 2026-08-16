@@ -17,6 +17,7 @@ from qwenpaw.agents.model_factory import (
     _format_anthropic_video_data_block,
     _format_openai_video_block,
     _replace_video_placeholders,
+    _video_oversize_placeholder,
 )
 
 
@@ -304,3 +305,77 @@ def test_replace_placeholders_non_match_untouched() -> None:
     item = _first_content_item(msgs)
     assert item["type"] == "input_text"
     assert item["text"] == "hello"
+
+
+# ------------------------------------------------------- configurable cap
+
+
+def test_openai_url_video_under_default_but_over_custom_cap(tmp_path) -> None:
+    """A 3 MB video exceeds a 2 MB default but fits a 50 MB provider cap."""
+    url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
+    block = {"source": {"type": "url", "url": url}}
+
+    # Default 2 MB cap -> placeholder.
+    default_out = _format_openai_video_block(block)
+    assert default_out["type"] == "text"
+    assert "video omitted from model context" in default_out["text"]
+
+    # Provider-raised cap -> inlined (issue #7060).
+    custom_out = _format_openai_video_block(
+        block,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video_url"
+    assert custom_out["video_url"]["url"].startswith(
+        "data:video/mp4;base64,",
+    )
+
+
+def test_openai_base64_video_honors_custom_cap() -> None:
+    """base64 sources must also respect a configurable cap."""
+    import base64
+
+    data = base64.b64encode(b"\x00" * (3 * 1024 * 1024)).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+
+    default_out = _format_openai_video_block(block)
+    assert default_out["type"] == "text"
+
+    custom_out = _format_openai_video_block(
+        block,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video_url"
+
+
+def test_anthropic_url_video_honors_custom_cap(tmp_path) -> None:
+    """Anthropic path: provider cap must override the hardcoded 2 MB."""
+    url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
+    block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
+
+    default_out = _format_anthropic_video_data_block(block)
+    assert default_out["type"] == "text"
+    assert "video omitted from model context" in default_out["text"]
+
+    custom_out = _format_anthropic_video_data_block(
+        block,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video"
+    assert custom_out["source"]["type"] == "base64"
+
+
+def test_oversize_placeholder_reports_custom_limit() -> None:
+    """The placeholder text must echo the configurable cap, not 2 MB."""
+    out = _video_oversize_placeholder(
+        3 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert "52428800 bytes" in out["text"]
+    assert "2097152" not in out["text"]
