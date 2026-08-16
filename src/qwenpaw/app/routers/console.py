@@ -922,3 +922,34 @@ async def get_console_chat_task(task_id: str) -> dict:
     if bg.status == "finished" and bg.result is not None:
         response["result"] = bg.result
     return response
+
+
+@router.get(
+    "/chat/tasks",
+    status_code=200,
+    summary="List all background chat task statuses",
+)
+async def list_console_chat_tasks() -> dict:
+    """Return status summaries for all background chat tasks.
+
+    Lets callers query the whole task set in one request instead of
+    polling each task id individually (issue #7056). Each entry mirrors
+    the single-task response shape; finished tasks include their result.
+    """
+    async with _bg_lock:
+        task_ids = list(_bg_tasks.keys())
+    tasks: Dict[str, Any] = {}
+    for task_id in task_ids:
+        async with _bg_lock:
+            bg = _bg_tasks.get(task_id)
+        if bg is None:
+            continue
+        entry: Dict[str, Any] = {"status": bg.status}
+        if bg.started_at is not None:
+            entry["started_at"] = bg.started_at
+        if bg.finished_at is not None:
+            entry["finished_at"] = bg.finished_at
+        if bg.status == "finished" and bg.result is not None:
+            entry["result"] = bg.result
+        tasks[task_id] = entry
+    return {"tasks": tasks}
