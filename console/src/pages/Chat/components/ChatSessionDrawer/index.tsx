@@ -421,10 +421,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
+      const targetPath = buildChatPath(effectiveId, selectedAgent);
       navigate(targetPath);
     },
-    [currentSessionId, navigate],
+    [currentSessionId, navigate, selectedAgent],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.

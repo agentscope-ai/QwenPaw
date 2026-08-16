@@ -124,7 +124,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const currentSessionId = getSessionIdFromPath(location.pathname);
-  const chatPath = buildChatPath(currentSessionId);
+  const { selectedAgent, agents } = useAgentStore();
+  const chatPath = buildChatPath(currentSessionId, selectedAgent);
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -145,7 +146,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   // Sidebar mode: "simple" (only core items) or "full" (everything)
   const { mode: sidebarMode } = useSidebarModeStore();
-  const { selectedAgent, agents } = useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
   const backendCapabilities = useMemo(
     () =>
@@ -468,10 +468,10 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
+      const targetPath = buildChatPath(effectiveId, selectedAgent);
       navigate(targetPath);
     },
-    [navigate],
+    [navigate, selectedAgent],
   );
 
   const handleUpdateProfile = async (values: {

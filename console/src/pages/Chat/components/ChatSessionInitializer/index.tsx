@@ -10,12 +10,13 @@ import {
   useSessionListStore,
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
+import { useAgentStore } from "../../../../stores/agentStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
  *
- * Extracts the session ID from the canonical `/chat/<id>` URL.
+ * Extracts the session ID from `/chat/:agentId/:sessionId` or legacy `/chat/:id`.
  *
  * Only reacts to URL or session list changes. currentSessionId is read via ref
  * to avoid triggering the effect when the context changes from the other direction
@@ -156,7 +157,10 @@ const ChatSessionInitializer: React.FC = () => {
               sessionId,
               realId,
             );
-            const targetUrl = buildChatPath(effectiveId);
+            const targetUrl = buildChatPath(
+              effectiveId,
+              useAgentStore.getState().selectedAgent,
+            );
             sessionApi.trackNavigatedSession(effectiveId);
             sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });

@@ -8,6 +8,8 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { useAgentStore } from "../../../../stores/agentStore";
+import { buildChatPath } from "../../../../utils/sessionRoute";
 import styles from "./index.module.less";
 
 interface ChatSearchPanelProps {
@@ -58,6 +60,7 @@ const formatTimestamp = (raw: string | null | undefined): string => {
 const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const { sessions, setCurrentSessionId } = useChatAnywhereSessionsState();
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -244,15 +247,15 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         // Switch to that session
         setCurrentSessionId(session.id);
         // Navigate to the chat URL
-        navigate(`/chat/${session.id}`);
+        navigate(buildChatPath(session.id, selectedAgent));
       } else {
         // Session not in local list, navigate by chat ID directly
-        navigate(`/chat/${result.chatId}`);
+        navigate(buildChatPath(result.chatId, selectedAgent));
       }
 
       onClose();
     },
-    [sessions, setCurrentSessionId, navigate, onClose],
+    [sessions, setCurrentSessionId, navigate, onClose, selectedAgent],
   );
 
   return (

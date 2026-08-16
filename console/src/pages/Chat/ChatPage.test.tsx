@@ -226,6 +226,14 @@ describe("ChatPage", () => {
     expect(await screen.findByTestId("chat-ui")).toBeInTheDocument();
   });
 
+  it("switches selected agent from /chat/:agentId/:sessionId", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/sales/sess-1"],
+    });
+    expect(await screen.findByTestId("chat-ui")).toBeInTheDocument();
+    expect(mockSetSelectedAgent).toHaveBeenCalledWith("sales");
+  });
+
   it("renders child components ModelSelector / ChatActionGroup / ChatHeaderTitle", async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
     await screen.findByTestId("chat-ui");

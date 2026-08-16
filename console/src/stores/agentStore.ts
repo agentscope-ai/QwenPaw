@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type { AgentSummary } from "../api/types/agents";
 import { agentsApi } from "../api/modules/agents";
 import { menuRegistry } from "../plugins/registry/store";
+import { getAgentIdFromPath } from "../utils/sessionRoute";
 
 /**
  * Storage key used by both sessionStorage (per-tab state) and localStorage
@@ -37,15 +38,53 @@ interface AgentStore {
   getLastChatId: (agentId: string) => string | undefined;
 }
 
+function getAgentIdFromWindowPath(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return getAgentIdFromPath(window.location.pathname);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keep persist storage in sync so X-Agent-Id matches the URL agent. */
+function patchStoredSelectedAgent(agentId: string): void {
+  try {
+    localStorage.setItem(LAST_USED_AGENT_KEY, agentId);
+  } catch {
+    /* ignore */
+  }
+  for (const storage of [sessionStorage, localStorage]) {
+    try {
+      const raw = storage.getItem(STORAGE_KEY);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as { state?: { selectedAgent?: string } };
+      if (parsed?.state) {
+        parsed.state.selectedAgent = agentId;
+        storage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /**
  * Determines the initial selectedAgent for this tab.
  *
  * Priority:
- *  1. sessionStorage (returning to a tab that already picked an agent)
- *  2. localStorage lastUsedAgent (new tab inherits the most recent choice)
- *  3. "default"
+ *  1. `/chat/:agentId/:sessionId` in the current URL
+ *  2. sessionStorage (returning to a tab that already picked an agent)
+ *  3. localStorage lastUsedAgent (new tab inherits the most recent choice)
+ *  4. "default"
  */
 function getInitialSelectedAgent(): string {
+  const fromUrl = getAgentIdFromWindowPath();
+  if (fromUrl) {
+    patchStoredSelectedAgent(fromUrl);
+    return fromUrl;
+  }
+
   // 1. sessionStorage: returning to a tab that already picked an agent
   try {
     const sessionValue = sessionStorage.getItem(STORAGE_KEY);
@@ -206,6 +245,19 @@ export const useAgentStore = create<AgentStore>()(
           sessionStorage.removeItem(name);
           localStorage.removeItem(name);
         },
+      },
+      merge: (persistedState, currentState) => {
+        const raw = persistedState as
+          | ({ state?: Partial<AgentStore> } & Partial<AgentStore>)
+          | undefined;
+        const persisted = raw?.state ?? raw ?? {};
+        const fromUrl = getAgentIdFromWindowPath();
+        return {
+          ...currentState,
+          ...persisted,
+          selectedAgent:
+            fromUrl || persisted.selectedAgent || currentState.selectedAgent,
+        };
       },
     },
   ),
