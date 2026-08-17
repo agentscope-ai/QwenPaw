@@ -902,6 +902,33 @@
     background: #302946;
   }
 
+  .profileAddButton {
+    color: #b8a8ee;
+    border-color: color-mix(in srgb, #b8a8ee 45%, transparent);
+    background: color-mix(in srgb, #b8a8ee 7%, transparent);
+
+    &:hover {
+      border-color: #b8a8ee;
+      background: color-mix(in srgb, #b8a8ee 13%, transparent);
+    }
+  }
+
+  .profilePickerModal {
+    --profile-accent: #b8a8ee;
+    --profile-line: #4a435c;
+    --profile-muted: #aaa1bd;
+  }
+
+  .profilePickerSearch {
+    color: #f4efff;
+    background: #211d2a;
+    color-scheme: dark;
+
+    &::placeholder {
+      color: #81788f;
+    }
+  }
+
   .conflictModal {
     --files-bg: #181614;
     --files-panel: #211d1a;
