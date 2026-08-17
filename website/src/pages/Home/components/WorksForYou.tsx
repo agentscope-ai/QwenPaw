@@ -64,27 +64,17 @@ const cards: CardConfig[] = [
 
 const CARDS_PER_PAGE = 4;
 const pageCount = Math.ceil(cards.length / CARDS_PER_PAGE);
-const physicalPages = [
-  pageCount - 1,
-  ...Array.from({ length: pageCount }, (_, page) => page),
-  0,
-];
+const pages = Array.from({ length: pageCount }, (_, page) => page);
 const AUTO_ROTATE_MS = 5000;
-
-function jumpToPhysicalPage(carousel: HTMLDivElement, page: number) {
-  carousel.style.scrollBehavior = "auto";
-  carousel.scrollLeft = page * carousel.clientWidth;
-  requestAnimationFrame(() => {
-    carousel.style.scrollBehavior = "";
-  });
-}
 
 export function WorksForYou() {
   const { t } = useTranslation();
   const sectionRef = useRef<HTMLElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
   const scrollEndTimerRef = useRef<number | null>(null);
+  const isScrollingRef = useRef(false);
   const [activePage, setActivePage] = useState(0);
+  const [isScrolling, setIsScrolling] = useState(false);
   const [isInView, setIsInView] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== "undefined"
@@ -97,8 +87,8 @@ export function WorksForYou() {
     if (!isDesktop) return;
     const carousel = carouselRef.current;
     if (!carousel) return;
-    jumpToPhysicalPage(carousel, 1);
-  }, [isDesktop]);
+    carousel.scrollLeft = activePage * carousel.clientWidth;
+  }, [activePage, isDesktop]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 640px)");
@@ -127,20 +117,22 @@ export function WorksForYou() {
     const settleCarousel = () => {
       const pageWidth = carousel.clientWidth;
       if (!pageWidth) return;
-      const physicalPage = Math.round(carousel.scrollLeft / pageWidth);
-      const logicalPage = (physicalPage - 1 + pageCount) % pageCount;
+      const page = Math.min(
+        pageCount - 1,
+        Math.max(0, Math.round(carousel.scrollLeft / pageWidth)),
+      );
 
-      if (physicalPage === 0) {
-        jumpToPhysicalPage(carousel, pageCount);
-      } else if (physicalPage === pageCount + 1) {
-        jumpToPhysicalPage(carousel, 1);
-      }
-
-      setActivePage(logicalPage);
+      setActivePage(page);
+      isScrollingRef.current = false;
+      setIsScrolling(false);
     };
 
     const handleScroll = () => {
       if (carousel.scrollTop !== 0) carousel.scrollTop = 0;
+      if (!isScrollingRef.current) {
+        isScrollingRef.current = true;
+        setIsScrolling(true);
+      }
       if (scrollEndTimerRef.current !== null) {
         window.clearTimeout(scrollEndTimerRef.current);
       }
@@ -157,35 +149,40 @@ export function WorksForYou() {
   }, []);
 
   useEffect(() => {
-    if (reduceMotion || !isDesktop || !isInView || pageCount < 2) {
+    if (
+      reduceMotion ||
+      !isDesktop ||
+      !isInView ||
+      isScrolling ||
+      pageCount < 2
+    ) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       const carousel = carouselRef.current;
       if (!carousel) return;
-      const currentPhysicalPage = Math.round(
-        carousel.scrollLeft / carousel.clientWidth,
-      );
+      const nextPage = activePage === 0 ? 1 : 0;
       carousel.scrollTo({
-        left: (currentPhysicalPage + 1) * carousel.clientWidth,
+        left: nextPage * carousel.clientWidth,
         behavior: reduceMotion ? "auto" : "smooth",
       });
     }, AUTO_ROTATE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [activePage, isDesktop, isInView, reduceMotion]);
+  }, [activePage, isDesktop, isInView, isScrolling, reduceMotion]);
 
   const scrollToPage = (page: number) => {
     const carousel = carouselRef.current;
     if (!carousel) return;
     carousel.scrollTo({
-      left: (page + 1) * carousel.clientWidth,
+      left: page * carousel.clientWidth,
       behavior: reduceMotion ? "auto" : "smooth",
     });
   };
 
-  const autoProgressing = !reduceMotion && isDesktop && isInView;
+  const autoProgressing =
+    !reduceMotion && isDesktop && isInView && !isScrolling;
 
   return (
     <motion.section
@@ -239,9 +236,9 @@ export function WorksForYou() {
             tabIndex={0}
           >
             <div className="flex items-stretch">
-              {physicalPages.map((page, physicalPage) => (
+              {pages.map((page) => (
                 <div
-                  key={`${physicalPage}-${page}`}
+                  key={page}
                   className="grid w-full min-w-full shrink-0 basis-full snap-start grid-cols-1 gap-x-6 gap-y-0 sm:grid-cols-4 sm:gap-x-8 md:gap-x-10"
                 >
                   {cards
@@ -277,7 +274,7 @@ export function WorksForYou() {
             role="tablist"
             aria-label="Works for you pages"
           >
-            {Array.from({ length: pageCount }, (_, page) => (
+            {pages.map((page) => (
               <button
                 key={page}
                 type="button"
@@ -290,9 +287,7 @@ export function WorksForYou() {
                 <div className="relative h-0.5 w-14 overflow-hidden rounded-full bg-[#E3E0DC] leading-none transition-colors duration-300 group-hover:bg-[#D5D0CB]">
                   {activePage === page && (
                     <motion.div
-                      key={`${page}-${activePage}-${
-                        autoProgressing ? "timed" : "idle"
-                      }`}
+                      key={`${page}-${autoProgressing ? "timed" : "idle"}`}
                       className="absolute top-0 bottom-0 left-0 rounded-full bg-[linear-gradient(90deg,#FFB36F_0%,#FF9D4D_55%,#F7852D_100%)]"
                       initial={reduceMotion ? false : { width: "0%" }}
                       animate={{
