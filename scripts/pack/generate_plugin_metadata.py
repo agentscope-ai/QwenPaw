@@ -39,14 +39,6 @@ required file fails the pack for that plugin with an actionable error
 (``"pack_requires_hint"`` is printed verbatim when provided) and the run
 exits non-zero, so a broken artifact is never published silently.
 
-Declared ``entry`` files must exist on disk at pack time. A plugin whose
-build produces additional required artifacts (e.g. vendored static assets
-outside its own ``npm run build``) can declare ``"pack_requires"``: a list
-of plugin-root-relative files that must also exist. A missing entry or
-required file fails the pack for that plugin with an actionable error
-(``"pack_requires_hint"`` is printed verbatim when provided) and the run
-exits non-zero, so a broken artifact is never published silently.
-
 Pass ``--only <plugin_id>`` (repeatable) to pack a subset of plugins, e.g.
 for a standalone release of a single plugin driven by its own version bump.
 Conversely, ``--exclude <plugin_id>`` (repeatable) skips plugins that are
