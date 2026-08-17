@@ -89,7 +89,7 @@ describe("FilesNavigator system prompt interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getProjectDirectory.mockResolvedValue({
-      path: "/workspace",
+      path: "/project",
       workspace_dir: "/workspace",
     });
     mocks.listDirectory.mockResolvedValue({
@@ -170,5 +170,43 @@ describe("FilesNavigator system prompt interactions", () => {
       ]),
     );
     await act(async () => pending[1](["AGENTS.md", "SOUL.md"]));
+  });
+
+  it("ignores a stale profile response that finishes after a saved update", async () => {
+    mocks.listFiles.mockResolvedValue([mdFile("AGENTS.md"), mdFile("SOUL.md")]);
+    let resolveStaleProfile!: (files: string[]) => void;
+    mocks.getSystemPromptFiles
+      .mockResolvedValueOnce(["AGENTS.md"])
+      .mockImplementationOnce(
+        () =>
+          new Promise<string[]>((resolve) => {
+            resolveStaleProfile = resolve;
+          }),
+      );
+
+    renderNavigator();
+    await waitFor(() =>
+      expect(mocks.getSystemPromptFiles).toHaveBeenCalledTimes(1),
+    );
+    await openProfile();
+    await waitFor(() =>
+      expect(mocks.getSystemPromptFiles).toHaveBeenCalledTimes(2),
+    );
+    const agents = await screen.findByRole("switch", {
+      name: "Toggle AGENTS.md",
+    });
+
+    fireEvent.click(agents);
+    await waitFor(() =>
+      expect(mocks.setSystemPromptFiles).toHaveBeenLastCalledWith([]),
+    );
+    await act(async () => resolveStaleProfile(["AGENTS.md"]));
+
+    fireEvent.click(
+      await screen.findByRole("switch", { name: "Toggle SOUL.md" }),
+    );
+    await waitFor(() =>
+      expect(mocks.setSystemPromptFiles).toHaveBeenLastCalledWith(["SOUL.md"]),
+    );
   });
 });

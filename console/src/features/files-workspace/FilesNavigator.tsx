@@ -408,6 +408,7 @@ export default function FilesNavigator({
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   const uploadRef = useRef<HTMLInputElement>(null);
   const enabledFilesRef = useRef<string[]>([]);
+  const promptFilesMutationGenerationRef = useRef(0);
   const promptFilesSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -505,6 +506,8 @@ export default function FilesNavigator({
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
+      await promptFilesSaveQueueRef.current;
+      const mutationGeneration = promptFilesMutationGenerationRef.current;
       const [files, enabled] = await Promise.all([
         workspaceApi.listFiles(),
         workspaceApi.getSystemPromptFiles(),
@@ -518,9 +521,12 @@ export default function FilesNavigator({
         modified_at: file.modified_time,
         preview_kind: "text" as const,
       }));
+      setAllProfileFiles(mappedFiles);
+      if (mutationGeneration !== promptFilesMutationGenerationRef.current) {
+        return;
+      }
       enabledFilesRef.current = order;
       setEnabledFiles(order);
-      setAllProfileFiles(mappedFiles);
     } finally {
       setLoading(false);
     }
@@ -606,6 +612,7 @@ export default function FilesNavigator({
   const updateSystemPromptFiles = (
     update: (current: string[]) => string[],
   ): Promise<string[]> => {
+    promptFilesMutationGenerationRef.current += 1;
     const operation = promptFilesSaveQueueRef.current.then(async () => {
       const next = update(enabledFilesRef.current);
       const saved = await workspaceApi.setSystemPromptFiles(next);
