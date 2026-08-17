@@ -28,6 +28,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "cron", titleKey: "docs.cron" },
       { slug: "heartbeat", titleKey: "docs.heartbeat" },
       { slug: "memory", titleKey: "docs.memory" },
+      { slug: "embedding", titleKey: "docs.embedding" },
       {
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",

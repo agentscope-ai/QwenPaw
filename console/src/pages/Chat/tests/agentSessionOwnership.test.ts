@@ -69,6 +69,26 @@ afterEach(() => {
 });
 
 describe("agent session ownership epochs", () => {
+  it("requests only host-owned sessions and history in main Chat", async () => {
+    const listSpy = vi
+      .spyOn(api, "listChats")
+      .mockResolvedValue([makeChatSpec(A_CHAT, "console:a")]);
+    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    sessionApi.setActiveAgent("agent-a");
+
+    await sessionApi.getSessionList();
+    await sessionApi.getSession(A_CHAT);
+
+    expect(listSpy).toHaveBeenCalledWith({
+      archived: false,
+      include_app_owned: false,
+    });
+    expect(getSpy).toHaveBeenCalledWith(A_CHAT, {
+      signal: undefined,
+      include_app_owned: false,
+    });
+  });
+
   it("Test A: an old agent's list request cannot replace the new agent's list", async () => {
     const listSpy = vi.spyOn(api, "listChats");
     const onSessionSelected = vi.fn();

@@ -70,6 +70,9 @@ pub(super) const BMP_HEADER_BYTES: usize = 54;
 /// portion is what identifies the current state.
 pub(super) const DOC_TEXT_MAX: usize = 4000;
 
+/// Upper bound on actionable elements delivered with one observation.
+pub(super) const ACCESSIBILITY_MAX_ELEMENTS: usize = 300;
+
 /// Minimum idle time after our own input before another action may run.
 ///
 /// The input guard uses the same boundary. Keeping one value prevents a normal
@@ -422,6 +425,11 @@ mod tests {
             element_line("uia-1", "Edit", "text editor"),
             "uia-1 Edit \"text editor\""
         );
+    }
+
+    #[test]
+    fn accessibility_observations_are_bounded_to_300_elements() {
+        assert_eq!(ACCESSIBILITY_MAX_ELEMENTS, 300);
     }
 
     #[test]

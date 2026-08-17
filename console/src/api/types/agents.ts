@@ -23,6 +23,10 @@ export interface AgentSummary {
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;
   active_model?: ModelSlotConfig | null;
+  /** PawApp id when this profile is an app-owned execution engine. */
+  managed_by_app?: string | null;
+  /** False for app-owned profiles that must not appear in normal Chat. */
+  available_in_chat?: boolean;
 }
 
 export type AgentBackend = string;

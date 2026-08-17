@@ -11,12 +11,10 @@ metadata:
 
 Use Computer Use only for tasks that require a live desktop interface or
 visual verification. Prefer a purpose-built integration or command-line tool
-when it can complete and verify the task, but never switch automation methods
-in the middle of a Computer Use workflow unless the user requests it.
+when it can complete and verify the task.
 
 Use only the native desktop runtime. It operates on one approved application
 and one observed window at a time; it never accepts a free-form screen target.
-Do not operate QwenPaw itself.
 
 ## Operating Loop
 
@@ -34,12 +32,6 @@ Treat `dispatched: true` or an intermediate acknowledgement only as evidence
 that input was sent, not that the application completed the operation. If the
 final state is incomplete or uncertain, report that accurately.
 
-When the user says to stop on any failure, distinguish verification from a
-retry. A pending or transitional result may be checked only through the wait
-or observation required by its response. An explicit tool error, or an
-expected step result still absent after that check, is terminal. Do not switch
-to another control, shortcut, coordinate, application, or shell command.
-
 ## Discover the Target
 
 1. Call `list_apps` and select the canonical App ID.
@@ -55,10 +47,8 @@ use an explicit absolute executable path on Windows or application-bundle path
 on macOS. After launch, list its windows again because launch completion does
 not prove that a usable window already exists.
 
-On macOS, `screen_recording_permission_required` and
-`accessibility_permission_required` mean QwenPaw Computer Use needs a system
-permission. Stop and ask the user to grant it. Do not retry, open System
-Settings, or operate a permission prompt yourself.
+When the runtime reports a missing system permission, stop and ask the user to
+grant it. Do not retry until the user confirms the permission was granted.
 
 ## Read an Observation
 
@@ -72,6 +62,9 @@ Settings, or operate a permission prompt yourself.
 Each accessibility line begins with an `element_id`, control type, and name.
 Use labels, roles, identifiers, actions, and current state together; do not
 infer behavior from an opaque identifier alone.
+
+Indentation preserves the native accessibility hierarchy. Use parent and
+container context to distinguish controls with duplicate names.
 
 Common markers:
 
@@ -99,13 +92,15 @@ Interpret result fields conservatively:
   it does not rule out a visual-only change.
 - `effect: observed` verifies the edited buffer; `effect: unverified` requires
   confirmation from replacement state or a fresh observation.
-- `requires_observe` invalidates the old target. Follow `next_action` and its
-  returned window or rediscover the replacement window before more input.
+- Follow an explicit `next_action` before choosing another action; treat it as
+  bound to the returned state.
+- `requires_observe` invalidates the old target. Use its returned window or
+  rediscover the replacement window before more input.
 - `confirmation_required` or `pending_action` means the edit is not complete.
 
-When a visual result appears before its accessibility element, call `wait`
-once and observe again. Do not click or type into a screenshot-only control
-while waiting for an actionable element.
+When a visual result appears before its accessibility element, wait and observe
+again until it becomes actionable or the operation times out or stops making
+progress. Do not click or type into a screenshot-only control.
 
 ## Choose an Action
 
@@ -145,21 +140,20 @@ accessibility element, and verify the requested state change afterward.
 
 ### Text and Resource Editing
 
-Use `set_value` for an observed editable control, especially one marked
-`[settable]`. It replaces the complete edit buffer, so do not send a select-all
-shortcut first. Verify that the application committed the value; a changed
-edit buffer alone may still be pending.
+Use `set_value` only for an observed control marked `[settable]`. It replaces
+the complete edit buffer, so do not send a select-all shortcut first. Verify
+that the application committed the value; a changed edit buffer alone may
+still be pending.
 
-Never use `set_value` on a `[resource-backed]` label. Select the resource,
-observe its application menu or context menu, and use an enabled command whose
-semantics explicitly match the requested edit. Use `begin_text_edit` only on
-an observed `MenuItem` that opens a native name editor, never on the resource
-or an ordinary command.
+Never use `set_value` on a `[resource-backed]` label. Select the resource and
+inspect the replacement observation. To enter an editor, prefer an observed
+semantic action. When none is available, a platform-standard shortcut is
+acceptable only with a verified target and a verifiable postcondition.
 
-After `begin_text_edit`, type only when the replacement observation identifies
-editable focus. If the response instead reports `transient_text_ready: true`
-and `next_action: type`, send exactly one `type` action next. Complete the edit
-using the application's established completion action, then verify the durable
+After any action intended to open an editor, inspect the replacement
+observation and type only when it identifies editable focus. Complete the edit
+in a separate action using the application's established completion
+mechanism, then inspect the replacement observation and verify the durable
 resource state. Do not repeat an unverified write.
 
 When `set_value` returns `pending_action`, locate the matching completion
@@ -172,7 +166,7 @@ pending.
 `type` and `press_key` target the observed window and bring it to the
 foreground. If a control must first be selected, click it and inspect the
 replacement observation before typing. Use `type` only with verified editable
-focus or the one-shot transient editor described above.
+focus or an explicit `next_action: type` from the returned state.
 
 Use `sequence` only for deterministic `type` and `press_key` steps that stay in
 the same window and do not depend on an intermediate screen change. Split at
@@ -185,54 +179,27 @@ include `ENTER`, `TAB`, `ESC`, `SPACE`, `BACKSPACE`, `DELETE`, `HOME`, `END`,
 `PAGEUP`, `PAGEDOWN`, and the arrow keys. `DELETE` removes forward and
 `BACKSPACE` removes backward.
 
-A shortcut receipt proves only that keys were dispatched. If a shortcut should
-open a menu, editor, sheet, dialog, or another window, observe that state before
-typing or continuing.
-
-## Platform Conventions
-
-Apply only the subsection matching the runtime platform.
-
-### macOS
+## macOS Conventions
 
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
-- Use `set_value` only when `[settable]` is present.
-- `INSERT` is unavailable.
-
-### Windows
-
-- `CTRL`, `ALT`, and `WIN` retain their Windows meanings.
-- `list_apps` may omit an application that has no current window; use an
-  explicit executable path when necessary.
-- `INSERT` is available.
-
-These are platform conventions, not permission to guess application-specific
-shortcuts. For other commands, prefer an observed menu item; otherwise use a
-standard shortcut only with verified focus and a verifiable postcondition.
+- Use `begin_text_edit` only for an observed menu command whose semantics
+  require immediate text input; otherwise use `invoke`.
 
 ## Recover From Changes
 
 When an action opens another application, window, sheet, or dialog, follow the
-returned handoff instead of continuing against the old observation. Standard
-macOS sheets are separate targets.
+returned handoff instead of continuing against the old observation.
 
 `user_intervention` cancels only the current action and invalidates its
-observation. Never replay that action. Observe or rediscover once, then decide
-from fresh state whether work remains. If intervention happens again, stop and
-report that the user has control.
-
-Unless the user required immediate stop, handle an error carrying
-`requires_observe` by following its `next_action`, inspecting fresh state, and
-deciding whether the operation is still necessary. Never replay a failed
-action from a stale observation.
+observation. Never replay that action. Observe or rediscover, then decide from
+fresh state whether work remains. If the user remains active or safe
+continuation is unclear, stop and report that the user has control.
 
 ## Finish
 
-Observe the final target and check every requested postcondition. Do not report
-success when an item is missing, duplicated, left pending, or only inferred
-from a dispatched action. Resolve unexpected dialogs or errors when doing so
-is within the user's request; otherwise report them.
+Resolve unexpected dialogs or errors when doing so is within the user's
+request; otherwise report them.
 
 Close only windows or applications launched for this task. `close_window`
 requests a normal close and may reveal an unsaved-changes dialog. Never discard
@@ -263,5 +230,5 @@ Keep the user in control at consequential boundaries:
   navigation that stays within the user's request.
 
 Never use Computer Use to operate security or permission prompts. Do not fall
-back to shell commands, another desktop automation framework, saved-screen
-inspection, or non-image `view_image` calls to bypass a runtime restriction.
+back to another automation method or a stale capture to bypass a runtime
+restriction.

@@ -35,6 +35,13 @@ class TokenRecordingModelWrapper(ChatModelBase):
             context_size=getattr(model, "context_size", 32768),
         )
         self._model = model
+        # AgentScope 2.0.6 consults ``agent.model.formatter`` before the
+        # model call to validate incoming media blocks.  ChatModelBase does
+        # not define that attribute itself, so transparent wrappers must
+        # preserve the concrete provider model's formatter explicitly.
+        formatter = getattr(model, "formatter", None)
+        if formatter is not None:
+            self.formatter = formatter
         self._provider_id = provider_id
         # Auto-compaction threshold (fraction of the window) for the UI, or
         # None when compaction is disabled/unknown.
