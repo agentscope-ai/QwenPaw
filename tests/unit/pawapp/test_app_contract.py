@@ -23,6 +23,31 @@ from qwenpaw.pawapp.context import ChatReply
 from qwenpaw.pawapp.deps import get_scoped_ctx
 from qwenpaw.pawapp import service as service_module
 
+# Minimal loopback HTTP responder for managed-service fixtures. It is
+# deliberately raw-socket based: stdlib HTTPServer.server_bind() calls
+# socket.getfqdn() (a reverse DNS lookup) between bind() and listen(),
+# which hangs the whole startup window on hosts with broken localhost
+# resolution (GitHub macOS runners, actions/runner-images#6383) while
+# the socket sits bound but never listening.
+_LOOPBACK_SERVER_SCRIPT = """
+import socket
+import sys
+
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind((sys.argv[1], int(sys.argv[2])))
+server.listen()
+print("listening", flush=True)
+while True:
+    connection, _ = server.accept()
+    connection.recv(65536)
+    connection.sendall(
+        b"HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n"
+        b"Connection: close\\r\\n\\r\\nok",
+    )
+    connection.close()
+"""
+
 
 def _route_paths(router) -> set[str]:
     paths: set[str] = set()
@@ -46,11 +71,10 @@ async def test_managed_service_allocates_port_and_stops(
             name="fixture",
             command=(
                 sys.executable,
-                "-m",
-                "http.server",
-                "{port}",
-                "--bind",
+                "-c",
+                _LOOPBACK_SERVER_SCRIPT,
                 "{host}",
+                "{port}",
             ),
             health_path="/",
             cwd=tmp_path,
@@ -110,11 +134,10 @@ async def test_managed_service_preserves_non_sdk_braces(
     tmp_path: Path,
 ) -> None:
     script = (
-        "import http.server, os, sys; "
-        'assert sys.argv[3] == \'{"kind":"fixture"}\'; '
-        "assert os.environ['FIXTURE_JSON'] == '{\"kind\":\"fixture\"}'; "
-        "http.server.ThreadingHTTPServer((sys.argv[1], int(sys.argv[2])), "
-        "http.server.SimpleHTTPRequestHandler).serve_forever()"
+        "import os, sys\n"
+        'assert sys.argv[3] == \'{"kind":"fixture"}\'\n'
+        "assert os.environ['FIXTURE_JSON'] == '{\"kind\":\"fixture\"}'\n"
+        + _LOOPBACK_SERVER_SCRIPT
     )
     service = ManagedService(
         ManagedServiceSpec(
