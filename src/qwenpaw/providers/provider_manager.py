@@ -728,6 +728,30 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
     ),
 ]
 
+ATLASCLOUD_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="deepseek-ai/deepseek-v4-pro",
+        name="DeepSeek V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="deepseek-ai/deepseek-v4-flash",
+        name="DeepSeek V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+    ModelInfo(
+        id="qwen/qwen3.5-flash",
+        name="Qwen3.5 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="probed",
+    ),
+]
+
 VOLCENGINE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="doubao-seed-2-0-code-preview-260215",
@@ -1211,6 +1235,16 @@ PROVIDER_DEEPSEEK = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_ATLASCLOUD = OpenAIProvider(
+    id="atlascloud",
+    name="Atlas Cloud",
+    base_url="https://api.atlascloud.ai/v1",
+    api_key_prefix="",
+    models=ATLASCLOUD_MODELS,
+    freeze_url=True,
+    support_model_discovery=True,
+)
+
 PROVIDER_ANTHROPIC = AnthropicProvider(
     id="anthropic",
     name="Anthropic",
@@ -1429,6 +1463,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
         self._add_builtin(PROVIDER_DEEPSEEK)
+        self._add_builtin(PROVIDER_ATLASCLOUD)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_KIMI_CODINGPLAN)
