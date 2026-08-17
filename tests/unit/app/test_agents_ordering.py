@@ -105,6 +105,29 @@ async def test_list_agents_appends_missing_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_agents_marks_pawapp_profiles_as_app_managed(monkeypatch):
+    """PawApp execution profiles stay admin-visible but leave main Chat."""
+    config = _build_config(["default", "datapaw"])
+
+    def load_profile(agent_id: str) -> AgentProfileConfig:
+        profile = _agent_config(agent_id)
+        if agent_id == "datapaw":
+            profile.template_id = "pawapp:datapaw"
+        return profile
+
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(agents_router, "load_agent_config", load_profile)
+
+    response = await agents_router.list_agents()
+    by_id = {agent.id: agent for agent in response.agents}
+
+    assert by_id["default"].available_in_chat is True
+    assert by_id["default"].managed_by_app is None
+    assert by_id["datapaw"].available_in_chat is False
+    assert by_id["datapaw"].managed_by_app == "datapaw"
+
+
+@pytest.mark.asyncio
 async def test_list_agents_groups_default_and_pinned_without_reordering_peers(
     monkeypatch,
 ):

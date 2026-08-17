@@ -26,6 +26,7 @@ import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
 import { useOsNotifyPoller } from "./useOsNotifyPoller";
+import { isAgentAvailableInChat } from "../utils/agentVisibility";
 import { purgeAppState, removePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
@@ -160,7 +161,9 @@ export default function DesktopOS() {
       ) {
         e.preventDefault();
         const agentState = useAgentStore.getState();
-        const ids = agentState.agents.map((a) => a.id);
+        const ids = agentState.agents
+          .filter(isAgentAvailableInChat)
+          .map((a) => a.id);
         const current = agentState.selectedAgent;
         if (!ids.includes(current)) ids.unshift(current);
         if (ids.length < 2) return;

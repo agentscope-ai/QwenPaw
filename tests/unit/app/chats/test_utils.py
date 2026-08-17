@@ -155,6 +155,29 @@ def test_msg_to_message_hides_headline_in_history_path():
     assert "all set" in rendered
 
 
+def test_msg_to_message_omits_runtime_hints_from_history():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {
+                "type": "hint",
+                "hint": (
+                    "<system-reminder>private runtime state"
+                    "</system-reminder>"
+                ),
+                "source": '{"label": "System"}',
+            },
+            {"type": "text", "text": "visible answer"},
+        ],
+    )
+
+    [message] = agentscope_msg_to_message(msg)
+    rendered = "".join(c.text for c in message.content)
+    assert rendered == "visible answer"
+    assert "system-reminder" not in rendered
+
+
 def test_msg_to_message_omits_tagged_scroll_memory_placeholder():
     placeholder = Msg(
         name="memory",

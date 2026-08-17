@@ -14,14 +14,41 @@ import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
 
 
-def _make_provider() -> GeminiProvider:
+def _make_provider(**overrides) -> GeminiProvider:
+    config = {
+        "id": "gemini",
+        "name": "Gemini",
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key": "gem-test",
+        "chat_model": "GeminiChatModel",
+    }
+    config.update(overrides)
     return GeminiProvider(
-        id="gemini",
-        name="Gemini",
-        base_url="https://generativelanguage.googleapis.com",
-        api_key="gem-test",
-        chat_model="GeminiChatModel",
+        **config,
     )
+
+
+def test_chat_model_configures_persistent_client_headers(monkeypatch) -> None:
+    captured: list[dict] = []
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace()),
+    )
+
+    def create_client(**kwargs):
+        captured.append(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(gemini_provider_module.genai, "Client", create_client)
+
+    model = _make_provider(
+        custom_headers={"X-QwenPaw-Test": "enabled"},
+    ).get_chat_model_instance("gemini-2.5-flash")
+
+    assert model.client is fake_client
+    assert len(captured) == 1
+    assert captured[0]["http_options"].headers == {
+        "X-QwenPaw-Test": "enabled",
+    }
 
 
 async def test_summary_limit_is_adapted_without_mutating_thinking(

@@ -30,9 +30,9 @@ from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 logger = logging.getLogger(__name__)
 
 
-# TODO: Remove _flatten_json_schema and _sanitize_schema_for_gemini once
-#  agentscope >= 2.0.5 is released (these are upstreamed into
-#  GeminiChatModel._format_tools in newer versions).
+# Keep QwenPaw's schema normalization ahead of AgentScope's formatter so
+# custom OpenAI-compatible Gemini proxies receive the same conservative schema
+# shape as the native Gemini endpoint.
 
 
 def _flatten_json_schema(schema: dict) -> dict:
@@ -525,13 +525,18 @@ class _GeminiChatModelCompat:
 
         default_headers = kwargs.pop("default_headers", None)
         extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}
+        if default_headers:
+            client_kwargs = dict(kwargs.get("client_kwargs") or {})
+            client_kwargs["http_options"] = genai_types.HttpOptions(
+                headers=default_headers,
+            )
+            kwargs["client_kwargs"] = client_kwargs
 
         class _Compat(GeminiChatModel):
-            _qp_default_headers = default_headers
             _qp_extra_config_kwargs = extra_config_kwargs
 
-            # TODO: Remove this override once agentscope >= 2.0.5 is
-            #  released (upstream _format_tools will handle sanitization).
+            # Apply QwenPaw's proxy-compatible normalization before the
+            # AgentScope 2.0.6 formatter performs its native sanitization.
             def _format_tools(self, tools, tool_choice):
                 if tools:
                     sanitized = []
@@ -574,19 +579,6 @@ class _GeminiChatModelCompat:
 
                 from datetime import datetime
 
-                if self._qp_default_headers:
-                    client = genai.Client(
-                        api_key=self.credential.api_key.get_secret_value(),
-                        http_options=genai_types.HttpOptions(
-                            headers=self._qp_default_headers,
-                        ),
-                    )
-                else:
-                    client = genai.Client(
-                        api_key=self.credential.api_key.get_secret_value(),
-                        **self.client_kwargs,
-                    )
-
                 formatted = await self.formatter.format(messages)
                 config: dict[str, Any] = {**merged}
                 if self.parameters.max_tokens is not None:
@@ -623,14 +615,15 @@ class _GeminiChatModelCompat:
                 }
                 start = datetime.now()
                 if self.stream:
-                    stream_method = client.aio.models.generate_content_stream
+                    stream_method = (
+                        self.client.aio.models.generate_content_stream
+                    )
                     response = await stream_method(**call_kwargs)
                     return self._parse_stream_response(
                         start,
                         response,
-                        client,
                     )
-                response = await client.aio.models.generate_content(
+                response = await self.client.aio.models.generate_content(
                     **call_kwargs,
                 )
                 return self._parse_completion_response(start, response)
