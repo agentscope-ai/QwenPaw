@@ -15,6 +15,7 @@ from qwenpaw.app.console_static import ASSET_CACHE_CONTROL, ConsoleAssetFiles
 def _scope(
     path: str,
     *,
+    method: str = "GET",
     headers: list[tuple[bytes, bytes]] | None = None,
     extensions: dict | None = None,
 ) -> Scope:
@@ -22,7 +23,7 @@ def _scope(
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.4"},
         "http_version": "1.1",
-        "method": "GET",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
@@ -96,6 +97,58 @@ async def test_compresses_text_assets_and_sets_immutable_cache(
     assert gzip.decompress(_response_body(messages)) == javascript
 
 
+@pytest.mark.parametrize(
+    "accept_encoding", [b"GZip;q=1, identity;q=0", b"*;q=1, identity;q=0"]
+)
+async def test_normalizes_accepted_gzip_codings(
+    assets: tuple[ConsoleAssetFiles, bytes, bytes],
+    accept_encoding: bytes,
+) -> None:
+    app, javascript, _ = assets
+    messages = await _request(
+        app,
+        _scope(
+            "/app-12345678.js",
+            headers=[(b"accept-encoding", accept_encoding)],
+        ),
+    )
+
+    headers = _response_headers(messages)
+    assert headers["content-encoding"] == "gzip"
+    assert gzip.decompress(_response_body(messages)) == javascript
+
+
+async def test_head_matches_gzip_get_representation_headers(
+    assets: tuple[ConsoleAssetFiles, bytes, bytes],
+) -> None:
+    app, _, _ = assets
+    request_headers = [(b"accept-encoding", b"gzip, identity;q=0")]
+    get_messages = await _request(
+        app,
+        _scope("/app-12345678.js", headers=request_headers),
+    )
+    head_messages = await _request(
+        app,
+        _scope(
+            "/app-12345678.js",
+            method="HEAD",
+            headers=request_headers,
+        ),
+    )
+
+    get_headers = _response_headers(get_messages)
+    head_headers = _response_headers(head_messages)
+    for name in (
+        "cache-control",
+        "content-encoding",
+        "content-length",
+        "etag",
+        "vary",
+    ):
+        assert head_headers[name] == get_headers[name]
+    assert _response_body(head_messages) == b""
+
+
 async def test_forces_streaming_when_server_advertises_pathsend(
     assets: tuple[ConsoleAssetFiles, bytes, bytes],
 ) -> None:
@@ -136,7 +189,7 @@ async def test_compressible_variants_share_weak_etag(
 
 @pytest.mark.parametrize(
     "accept_encoding",
-    [b"identity", b"gzip;q=0", b"br"],
+    [b"identity", b"gzip;q=0", b"gzip;q=0, *;q=1", b"br"],
 )
 async def test_respects_clients_that_do_not_accept_gzip(
     assets: tuple[ConsoleAssetFiles, bytes, bytes],

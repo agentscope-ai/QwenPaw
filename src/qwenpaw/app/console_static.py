@@ -34,10 +34,17 @@ def _is_compressible_path(path: str) -> bool:
 
 
 def _accepts_gzip(headers: Headers) -> bool:
-    """Return whether ``Accept-Encoding`` explicitly permits gzip."""
+    """Return whether ``Accept-Encoding`` permits gzip.
+
+    An explicit gzip preference takes precedence over the wildcard, as
+    required for requests such as ``gzip;q=0, *;q=1``.
+    """
+    gzip_quality: float | None = None
+    wildcard_quality: float | None = None
     for item in headers.get("accept-encoding", "").split(","):
         coding, *parameters = (part.strip() for part in item.split(";"))
-        if coding.lower() != "gzip":
+        coding = coding.lower()
+        if coding not in {"gzip", "*"}:
             continue
         quality = 1.0
         for parameter in parameters:
@@ -47,8 +54,24 @@ def _accepts_gzip(headers: Headers) -> bool:
                     quality = float(value.strip())
                 except ValueError:
                     quality = 0.0
-        return quality > 0
-    return False
+        if coding == "gzip":
+            gzip_quality = quality
+        else:
+            wildcard_quality = quality
+    if gzip_quality is not None:
+        return gzip_quality > 0
+    return wildcard_quality is not None and wildcard_quality > 0
+
+
+def _gzip_scope(scope: Scope) -> Scope:
+    """Return a scope that reflects the already-negotiated gzip variant."""
+    headers = [
+        (name, value)
+        for name, value in scope.get("headers", [])
+        if name.lower() != b"accept-encoding"
+    ]
+    headers.append((b"accept-encoding", b"gzip"))
+    return {**scope, "headers": headers}
 
 
 class _ImmutableStaticFiles(StaticFiles):
@@ -115,8 +138,9 @@ class ConsoleAssetFiles:
             await send(message)
 
         asset_send = send_with_vary if is_compressible else send
+        method = scope.get("method")
         should_compress = (
-            scope.get("method") == "GET"
+            method in {"GET", "HEAD"}
             and is_compressible
             and _accepts_gzip(headers)
             and "range" not in headers
@@ -125,6 +149,25 @@ class ConsoleAssetFiles:
             await self._files(scope, receive, asset_send)
             return
 
+        # The negotiation decision above is authoritative. Normalize the
+        # header so GZipMiddleware does not reinterpret case or wildcard
+        # syntax differently.
+        scope = _gzip_scope(scope)
+
+        # A HEAD response must expose the same representation headers as GET.
+        # Generate the GET variant through the middleware, then suppress its
+        # body while preserving the compressed Content-Length and validators.
+        gzip_send = asset_send
+        if method == "HEAD":
+            scope = {**scope, "method": "GET"}
+
+            async def send_without_body(message) -> None:
+                if message["type"] == "http.response.body":
+                    message = {**message, "body": b""}
+                await asset_send(message)
+
+            gzip_send = send_without_body
+
         # FileResponse may delegate directly to servers that advertise
         # pathsend. Remove that optional fast path only for gzip responses so
         # the middleware always receives the file bytes to compress.
@@ -132,4 +175,4 @@ class ConsoleAssetFiles:
         if "http.response.pathsend" in extensions:
             extensions.pop("http.response.pathsend")
             scope = {**scope, "extensions": extensions}
-        await self._gzip_files(scope, receive, asset_send)
+        await self._gzip_files(scope, receive, gzip_send)
