@@ -21,7 +21,7 @@
     "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "1.1.73-beta.1785913513600",
+    "@agentscope-ai/chat": "^1.1.73-beta.1786415183789",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.67",
     "@ant-design/icons": "^5.0.1",
@@ -36,12 +36,14 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-window": "^1.8.8",
     "@vvo/tzdb": "^6.198.0",
+    "3d-force-graph": "1.80.0",
     "ahooks": "^3.9.6",
     "antd": "^5.29.1",
     "antd-style": "^3.7.1",
     "dayjs": "^1.11.13",
     "i18next": "^25.8.4",
     "jszip": "^3.10.1",
+    "katex": "^0.16.47",
     "lexical": "0.48.0",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.12.2",
@@ -57,6 +59,8 @@
     "react-syntax-highlighter": "^16.1.1",
     "react-window": "^1.8.10",
     "remark-gfm": "^4.0.1",
+    "three": "0.185.1",
+    "three-spritetext": "1.10.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
@@ -74,6 +78,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/three": "0.185.4",
     "@vitejs/plugin-react": "^4.4.1",
     "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9.25.0",

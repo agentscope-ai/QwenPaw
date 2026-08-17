@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dropdown, message, Modal } from "antd";
+import { createPortal } from "react-dom";
+import { Dropdown, message, Modal, Tooltip } from "antd";
 import {
   ChevronDown,
   Download,
   FileOutput,
+  Info,
   Loader2,
   RefreshCw,
 } from "lucide-react";
@@ -12,6 +14,7 @@ import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
+import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { getArtifactVersionMediaUrl, renderTimeline } from "@/api/creator";
 import {
   elementsAtTick,
@@ -24,6 +27,7 @@ import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 import { useProjectDraft } from "@/lib/useProjectDraft";
+import { useNarrowWorkspace, useDetailRail } from "@/lib/useNarrowWorkspace";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
 import ElementList from "@/components/timeline/ElementList";
 import ElementDetail from "@/components/timeline/ElementDetail";
@@ -90,8 +94,14 @@ export default function PlanPage() {
   >(null);
   const [composeFailed, setComposeFailed] = useState(false);
   const composeAttemptedGeneration = useRef<number | null>(null);
+  const hadPendingReviews = useRef(false);
   const handledComposeTask = useRef<string | null>(null);
   const generation = useProjectSnapshotStore((state) => state.generation);
+  // Media outputs awaiting user review are rejected by the compose admission
+  // gate (409 WAITING_REVIEW), so auto-compose must wait them out.
+  const pendingReviewCount = useFileProjectReviewStore((state) =>
+    state.projectId === id ? state.reviews.length : 0,
+  );
   // Explicit selection (range drag, block/lane clicks) pins a list; when
   // null, "content at the playhead" derives from timeline + playheadTick so
   // keyboard seeks, playback and span edits can never show stale elements.
@@ -236,6 +246,7 @@ export default function PlanPage() {
           element.creation.type === "i2v" ||
           element.creation.type === "s2v" ||
           element.creation.type === "edit" ||
+          element.creation.type === "motion_clip" ||
           (element.creation.type === "overlay" &&
             overlayContentKind(element.creation) !== "copy")),
     );
@@ -441,8 +452,25 @@ export default function PlanPage() {
   // up-to-date final cut; only one attempt per generation (no auto-retry on
   // failure — a manual retry entry remains); a short debounce absorbs
   // successive edits.
+  //
+  // Review decisions do not bump the project generation, so once the pending
+  // reviews drain, re-arm the one-attempt guard: the attempt blocked by the
+  // review gate must not permanently disable auto-compose for this
+  // generation.
   useEffect(() => {
-    if (!allReady || renderIsCurrent || isComposing) return;
+    if (pendingReviewCount > 0) {
+      hadPendingReviews.current = true;
+      return;
+    }
+    if (hadPendingReviews.current) {
+      hadPendingReviews.current = false;
+      composeAttemptedGeneration.current = null;
+    }
+  }, [pendingReviewCount]);
+
+  useEffect(() => {
+    if (!allReady || renderIsCurrent || isComposing || pendingReviewCount > 0)
+      return;
     if (
       generation !== null &&
       composeAttemptedGeneration.current === generation
@@ -453,7 +481,14 @@ export default function PlanPage() {
       void composeNow();
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [allReady, renderIsCurrent, isComposing, generation, composeNow]);
+  }, [
+    allReady,
+    renderIsCurrent,
+    isComposing,
+    generation,
+    composeNow,
+    pendingReviewCount,
+  ]);
 
   const downloadRender = useCallback(async () => {
     if (!freshRender) return;
@@ -512,6 +547,10 @@ export default function PlanPage() {
     const timer = window.setTimeout(() => setExportProgress(null), 5000);
     return () => window.clearTimeout(timer);
   }, [exportProgress]);
+
+  // Hooks must run unconditionally, before the loading early-returns.
+  const narrowWorkspace = useNarrowWorkspace();
+  const detailRail = useDetailRail(narrowWorkspace);
 
   if (!project) {
     if (syncStatus === "invalid" || syncStatus === "not_found") {
@@ -594,6 +633,28 @@ export default function PlanPage() {
       navigate(`${base}/element/${encodeURIComponent(element.element_id)}`),
     );
 
+  const elementDetailNode = (
+    <ElementDetail
+      project={project}
+      timeline={timeline}
+      element={elementDraft.value}
+      tasks={tasks}
+      applying={patching}
+      dirtyCount={elementDraft.dirtyCount}
+      conflictPaths={elementDraft.conflictPaths}
+      onClose={closeElementDetail}
+      onChange={(mutator) =>
+        elementDraft.update((draft) => {
+          if (draft) mutator(draft);
+        })
+      }
+      onApply={() => void applyElementDraft()}
+      onDiscard={elementDraft.discard}
+      onAcceptConflicts={elementDraft.acceptConflicts}
+      onOpenWorkbench={openElementWorkbench}
+    />
+  );
+
   return (
     <div
       data-plan-page
@@ -601,7 +662,9 @@ export default function PlanPage() {
         previewOpen ? "overflow-y-auto overscroll-contain" : "overflow-hidden"
       }`}
     >
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg-primary)]/60 px-5 py-3 backdrop-blur">
+      {/* Container queries are scoped to the header and the editor grid so
+          the TimelineCanvas subtree never gains size containment. */}
+      <header className="@container flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg-primary)]/60 px-5 py-3 backdrop-blur">
         <div data-onboarding-id="creative-brief" className="min-w-0">
           {project.strategy.creative_brief ||
           project.strategy.creative_direction ? (
@@ -632,17 +695,32 @@ export default function PlanPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 pr-5">
-          <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-            {sec(durationTick, timeline.ticks_per_second)}s
-          </span>
-          <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-            {project.settings.aspect_ratio}
-          </span>
-          <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-            {t("plan.items", {
+          {/* When the workspace runs out of width the three info chips fold
+              into one tooltip so the action buttons keep their room. */}
+          <div className="flex flex-wrap items-center gap-2 @max-[719px]:hidden">
+            <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+              {sec(durationTick, timeline.ticks_per_second)}s
+            </span>
+            <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+              {project.settings.aspect_ratio}
+            </span>
+            <span className="rounded-full border border-[var(--color-border)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+              {t("plan.items", {
+                count: Object.keys(timeline.elements_by_id).length,
+              })}
+            </span>
+          </div>
+          <Tooltip
+            title={`${sec(durationTick, timeline.ticks_per_second)}s · ${
+              project.settings.aspect_ratio
+            } · ${t("plan.items", {
               count: Object.keys(timeline.elements_by_id).length,
-            })}
-          </span>
+            })}`}
+          >
+            <span className="hidden rounded-full border border-[var(--color-border)] bg-white px-2 py-1 text-[var(--color-text-secondary)] @max-[719px]:inline-flex">
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          </Tooltip>
           {composeFailed && !isComposing && (
             <button
               type="button"
@@ -773,42 +851,47 @@ export default function PlanPage() {
         onActiveElementIdsChange={setExplicitActiveIds}
       />
 
-      <main
-        className={`grid min-h-0 gap-4 p-4 ${
-          previewOpen
-            ? "h-[340px] shrink-0 grid-cols-[minmax(280px,36fr)_minmax(0,64fr)]"
-            : "flex-1 grid-cols-[minmax(280px,36fr)_minmax(0,64fr)]"
+      {/* The wrapper is the size container for the editor grid: container
+          queries cannot match the querying element itself, and scoping it
+          here keeps the TimelineCanvas subtree free of size containment. */}
+      <div
+        className={`@container min-h-0 ${
+          previewOpen ? "h-[340px] shrink-0" : "flex-1"
         }`}
       >
-        <ElementList
-          timeline={timeline}
-          playheadTick={playheadTick}
-          activeElementIds={activeElementIds}
-          selectionPinned={explicitActiveIds !== null}
-          selectedElementId={selectedElementId}
-          tasks={tasks}
-          onSelect={selectElement}
-        />
-        <ElementDetail
-          project={project}
-          timeline={timeline}
-          element={elementDraft.value}
-          tasks={tasks}
-          applying={patching}
-          dirtyCount={elementDraft.dirtyCount}
-          conflictPaths={elementDraft.conflictPaths}
-          onClose={closeElementDetail}
-          onChange={(mutator) =>
-            elementDraft.update((draft) => {
-              if (draft) mutator(draft);
-            })
-          }
-          onApply={() => void applyElementDraft()}
-          onDiscard={elementDraft.discard}
-          onAcceptConflicts={elementDraft.acceptConflicts}
-          onOpenWorkbench={openElementWorkbench}
-        />
-      </main>
+        <main className="relative grid h-full min-h-0 grid-cols-[minmax(280px,36fr)_minmax(0,64fr)] gap-4 p-4 @max-[719px]:grid-cols-1">
+          <ElementList
+            timeline={timeline}
+            playheadTick={playheadTick}
+            activeElementIds={activeElementIds}
+            selectionPinned={explicitActiveIds !== null}
+            selectedElementId={selectedElementId}
+            tasks={tasks}
+            onSelect={selectElement}
+          />
+          {/* Narrow workspace with the dock open: the detail moves into the
+              right rail below the dock (portal). Otherwise it stays in the
+              grid, degrading to an in-workspace drawer per container query. */}
+          {detailRail && elementDraft.value ? (
+            createPortal(
+              <div className="grid h-full min-h-0 p-3">
+                {elementDetailNode}
+              </div>,
+              detailRail,
+            )
+          ) : (
+            <div
+              className={`grid min-h-0 ${
+                elementDraft.value
+                  ? "@max-[719px]:absolute @max-[719px]:inset-y-4 @max-[719px]:right-4 @max-[719px]:z-40 @max-[719px]:w-[min(calc(100%-32px),420px)] @max-[719px]:shadow-2xl"
+                  : "@max-[719px]:hidden"
+              }`}
+            >
+              {elementDetailNode}
+            </div>
+          )}
+        </main>
+      </div>
 
       {exportProgress && (
         <ExportProgressCard

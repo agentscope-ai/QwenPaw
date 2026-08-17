@@ -68,8 +68,30 @@ describe("agentApi", () => {
     expect(request).toHaveBeenCalledWith("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
+      timeout: 10 * 60 * 1000,
     });
     expect(result).toEqual(config);
+  });
+
+  it("testEmbedding sends unsaved embedding config", async () => {
+    const config = {
+      backend: "openai" as const,
+      api_key: "key",
+      base_url: "https://example.com/v1",
+      model_name: "embedding-model",
+      dimensions: 1024,
+      enable_cache: true,
+      use_dimensions: false,
+      max_cache_size: 10000,
+      max_input_length: 8192,
+      max_batch_size: 10,
+    };
+    await agentApi.testEmbedding(config);
+    expect(request).toHaveBeenCalledWith("/workspace/embedding/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: 30 * 1000,
+    });
   });
 
   it("updateAgentLanguage sends PUT with language in body", async () => {

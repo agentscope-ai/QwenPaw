@@ -119,6 +119,53 @@ describe("AgentSelector", () => {
     expect(screen.getByText("Agent Two")).toBeInTheDocument();
   });
 
+  it("does not expose app-managed execution profiles in Chat", async () => {
+    mocks.storeState.agents = [
+      ...agents,
+      {
+        id: "datapaw",
+        name: "QwenPaw-Data",
+        enabled: true,
+        pinned: true,
+        description: "",
+        workspace_dir: "",
+        startup_status: "running",
+        managed_by_app: "datapaw",
+        available_in_chat: false,
+      },
+    ];
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector />);
+
+    await user.click(screen.getByRole("combobox"));
+
+    expect(screen.queryByText("QwenPaw-Data")).not.toBeInTheDocument();
+  });
+
+  it("leaves a persisted app-managed agent selection for default Chat", async () => {
+    mocks.storeState.selectedAgent = "datapaw";
+    mocks.storeState.agents = [
+      ...agents,
+      {
+        id: "datapaw",
+        name: "QwenPaw-Data",
+        enabled: true,
+        pinned: true,
+        description: "",
+        workspace_dir: "",
+        startup_status: "running",
+        managed_by_app: "datapaw",
+        available_in_chat: false,
+      },
+    ];
+
+    renderWithProviders(<AgentSelector />);
+
+    await waitFor(() =>
+      expect(mocks.setSelectedAgent).toHaveBeenCalledWith("default"),
+    );
+  });
+
   it("keeps a pinned disabled agent visible and lets it be enabled", async () => {
     const pinnedDisabledAgent = {
       id: "agent-3",

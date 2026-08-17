@@ -104,6 +104,19 @@ class _ReasoningRetryMsgStreamModel:
 
 
 # ---------------------------------------------------------------------------
+# Wrapper contract
+# ---------------------------------------------------------------------------
+
+
+def test_retry_wrapper_exposes_inner_formatter() -> None:
+    """AgentScope can inspect media support on the outermost model."""
+    inner = _ReasoningRetryMsgStreamModel()
+    model = RetryChatModel(inner)  # type: ignore[arg-type]
+
+    assert model.formatter is inner.formatter
+
+
+# ---------------------------------------------------------------------------
 # _is_retryable
 # ---------------------------------------------------------------------------
 

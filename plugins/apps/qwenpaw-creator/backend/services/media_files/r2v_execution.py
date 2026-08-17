@@ -1029,9 +1029,12 @@ def _stage_materialized_video(
     """Stream a verified private scratch file into immutable Asset staging."""
 
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-    if not hasattr(os, "O_NOFOLLOW"):
-        raise RuntimeError("R2V Asset staging requires O_NOFOLLOW")
-    flags |= os.O_NOFOLLOW
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    else:
+        value = materialized.path.lstat()
+        if stat.S_ISLNK(value.st_mode):
+            raise ValidationError("R2V Asset staging refuses symlink output")
     descriptor = os.open(materialized.path, flags)
     try:
         details = os.fstat(descriptor)
@@ -1531,6 +1534,7 @@ class FileR2VExecutionService:
             self._find_in_flight_duplicate,
             project_id,
             command_hash,
+            target_ref,
         )
         if in_flight is not None:
             logger.info(
@@ -1782,22 +1786,42 @@ class FileR2VExecutionService:
         self,
         project_id: str,
         command_hash: str,
+        target_ref: str,
     ) -> TaskRecord | None:
-        """Return a live R2V Task already generating this exact command.
+        """Return a live R2V Task already generating for this target.
 
         The command hash covers command type, target and arguments but not
         the caller's idempotency key, so it identifies "the same video"
-        across independent submissions.
+        across independent submissions — the caller attaches to it.
+
+        A live task for the same target with a *different* hash is a
+        conflict, not a sibling: an Element owns exactly one video slot,
+        so two concurrent renders make the selected output depend on
+        completion order and double the provider bill (field run
+        2026-08-11: the scheduler dispatched the committed video_prompt
+        while a specialist re-submitted its own inline rewrite 39s
+        later — both rendered). The dispatcher fails such submissions
+        closed; the caller retries once the in-flight render settles.
         """
 
         for task in self.executions.list_tasks(project_id):
             if (
-                task.kind is TaskKind.R2V_GENERATION
-                and task.status not in _TERMINAL_TASKS
-                and str(task.metadata.get("commandRequestHash") or "")
+                task.kind is not TaskKind.R2V_GENERATION
+                or task.status in _TERMINAL_TASKS
+            ):
+                continue
+            if str(task.metadata.get("targetRef") or "") != target_ref:
+                continue
+            if (
+                str(task.metadata.get("commandRequestHash") or "")
                 == command_hash
             ):
                 return task
+            raise ConflictError(
+                f"目标 {target_ref} 已有一个不同内容的视频任务在生成中"
+                f"（task={task.task_id}）；同一 Element 同时只允许一个在飞渲染，"
+                "请等待其完成后再提交（若需替换请先取消在飞任务）",
+            )
         return None
 
     @staticmethod
@@ -4446,15 +4470,19 @@ class FileR2VExecutionService:
 
 
 def _has_accepted_provider_task(task_id: str, project_id: str) -> bool:
-    """Whether a billed provider task was accepted for this Creator Task."""
+    """Whether a *resumable* billed provider task exists for this Task.
+
+    Only ledger kinds the image resume supervisor supports count: handing
+    it an accepted-but-unresumable job (async image generation today) would
+    end supervision as "unsupported" and strand the Task in RUNNING, so
+    those fall through to the fail-closed terminalization below — the
+    billed ids stay named in the error for manual retrieval.
+    """
 
     try:
-        from models.provider_tasks import read_provider_tasks
+        from .image_execution import resumable_provider_entries
 
-        return any(
-            entry.get("providerTaskId")
-            for entry in read_provider_tasks(task_id, project_id)
-        )
+        return bool(resumable_provider_entries(task_id, project_id))
     except Exception:  # noqa: BLE001 - absence of a ledger is not an error
         return False
 
@@ -4529,11 +4557,12 @@ async def recover_interrupted_image_tasks(
                 recovered += 1
                 continue
             if task.status is TaskStatus.RUNNING:
-                # A server-side provider job (qwen-mt-image translation) is
-                # billed on acceptance and its id is durable, so hand it to
-                # the background poller rather than discarding a paid result
-                # or blocking startup on it. Only the one-shot synchronous
-                # calls stay fail-closed below.
+                # A resumable server-side provider job (qwen-mt-image
+                # translation) is billed on acceptance and its id is durable,
+                # so hand it to the background poller rather than discarding
+                # a paid result or blocking startup on it. Unresumable
+                # provider jobs and one-shot synchronous calls stay
+                # fail-closed below.
                 if _has_accepted_provider_task(task.task_id, project_id):
                     worker.schedule_resume(task)
                     recovered += 1

@@ -858,6 +858,50 @@ async def _read_controlled_local(
         raise ValidationError("provider 本地输出路径不安全")
 
     def read() -> bytes:
+        if (
+            os.name == "nt"
+            or not hasattr(os, "O_NOFOLLOW")
+            or os.open not in os.supports_dir_fd
+        ):
+            parent = allowed_root
+            for segment in relative.parts[:-1]:
+                parent = parent / segment
+                try:
+                    details = parent.lstat()
+                except OSError as exc:
+                    raise ValidationError(
+                        "provider 本地输出不存在、越界或包含 symlink",
+                    ) from exc
+                if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(
+                    details.st_mode,
+                ):
+                    raise ValidationError(
+                        "provider 本地输出不存在、越界或包含 symlink",
+                    )
+            target = parent / relative.parts[-1]
+            try:
+                details = target.lstat()
+            except OSError as exc:
+                raise ValidationError(
+                    "provider 本地输出不存在、越界或包含 symlink",
+                ) from exc
+            if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(
+                details.st_mode,
+            ):
+                raise ValidationError("provider 本地输出必须是普通文件")
+            if details.st_size <= 0 or details.st_size > max_bytes:
+                raise ValidationError("provider 图片为空或超过大小限制")
+            try:
+                with target.open("rb") as handle:
+                    content = handle.read(max_bytes + 1)
+            except OSError as exc:
+                raise ValidationError(
+                    "provider 本地输出不存在、越界或包含 symlink",
+                ) from exc
+            if not content or len(content) > max_bytes:
+                raise ValidationError("provider 图片为空或超过大小限制")
+            return content
+
         directory_flags = os.O_RDONLY
         if hasattr(os, "O_DIRECTORY"):
             directory_flags |= os.O_DIRECTORY
@@ -1026,6 +1070,31 @@ def _accepted_provider_task_hint(task_id: str, project_id: str) -> str:
     return f" (billed provider task(s): {', '.join(ids)})"
 
 
+# Only ledger kinds with a working resume implementation may keep a Task
+# RUNNING after a local failure: the supervisor polls exactly these to a
+# terminal state. An accepted-but-unresumable job (async image generation
+# today) must terminalize instead — resume_provider_task() reports it
+# "unsupported", so deferring it would strand the paid Task in RUNNING
+# forever with nothing left to finish it.
+RESUMABLE_PROVIDER_TASK_KINDS = frozenset({"image_translate"})
+
+
+def resumable_provider_entries(
+    task_id: str,
+    project_id: str,
+) -> list[dict[str, Any]]:
+    """The provider-task ledger entries the resume supervisor can poll."""
+
+    from models.provider_tasks import read_provider_tasks
+
+    return [
+        entry
+        for entry in read_provider_tasks(task_id, project_id)
+        if str(entry.get("kind") or "") in RESUMABLE_PROVIDER_TASK_KINDS
+        and entry.get("providerTaskId")
+    ]
+
+
 def _publish_snapshot(resolved: _ResolvedRequest) -> dict[str, Any]:
     """The subset of a resolved request needed to publish its output."""
 
@@ -1167,6 +1236,13 @@ class FileImageExecutionService:
                 is_transient_task_error(existing_task.error)
             ):
                 continue
+            if existing_task.status is TaskStatus.QUARANTINED:
+                rescued = await self._rescue_stale_quarantine(
+                    task=existing_task,
+                    slot_key=slot_key,
+                )
+                if rescued is not None:
+                    return rescued
             raise _terminated_task_conflict(existing_task)
         else:
             raise _terminated_task_conflict(
@@ -1340,6 +1416,13 @@ class FileImageExecutionService:
                     project_id,
                     ids,
                     "IMAGE_GENERATION_FAILED",
+                    message=(
+                        "IMAGE_GENERATION_FAILED"
+                        + _accepted_provider_task_hint(
+                            ids["task_id"],
+                            project_id,
+                        )
+                    ),
                 )
             raise
         except Exception as exc:
@@ -1362,7 +1445,8 @@ class FileImageExecutionService:
                 project_id,
                 ids,
                 "IMAGE_GENERATION_FAILED",
-                message=message,
+                message=message
+                + _accepted_provider_task_hint(ids["task_id"], project_id),
             )
             raise exc
 
@@ -1412,16 +1496,15 @@ class FileImageExecutionService:
         budget that expired, a dropped connection — must not terminalize the
         Task: the paid result still exists upstream, so the Task stays
         RUNNING and the background poller finishes it.
+
+        Only ledger kinds the supervisor can actually resume qualify. An
+        accepted job of any other kind must fail closed at the call site
+        (with the billed id named) instead of staying RUNNING behind a
+        supervisor that would drop it as "unsupported".
         """
 
-        from models.provider_tasks import read_provider_tasks
-
         try:
-            accepted = [
-                entry
-                for entry in read_provider_tasks(ids["task_id"], project_id)
-                if entry.get("providerTaskId")
-            ]
+            accepted = resumable_provider_entries(ids["task_id"], project_id)
         except Exception:  # noqa: BLE001 - bookkeeping must not mask errors
             return False
         if not accepted:
@@ -1935,14 +2018,7 @@ class FileImageExecutionService:
         leaves the Task active so the next recovery pass resumes again.
         """
 
-        from models.provider_tasks import read_provider_tasks
-
-        entries = [
-            entry
-            for entry in read_provider_tasks(task.task_id, task.project_id)
-            if str(entry.get("kind") or "") == "image_translate"
-            and entry.get("providerTaskId")
-        ]
+        entries = resumable_provider_entries(task.task_id, task.project_id)
         if not entries:
             return "unsupported"
         snapshot = task.metadata.get("requestSnapshot")
@@ -2135,6 +2211,9 @@ class FileImageExecutionService:
                 elif (
                     current.etag != latest.input_etag
                     or current.generation != latest.input_generation
+                ) and not self._read_set_still_current(
+                    current.project,
+                    latest,
                 ):
                     return "STALE", latest, current
                 else:
@@ -2286,6 +2365,77 @@ class FileImageExecutionService:
         return selected_version_id == artifact.version_id
 
     @staticmethod
+    def _read_set_still_current(
+        project: Project,
+        task: TaskRecord,
+    ) -> bool:
+        """True when the task's render inputs are unchanged in ``project``.
+
+        Whole-project etag drift treats every commit as fatal, but under
+        parallel fan-out the most common mid-render commit is a sibling
+        media import touching disjoint pointers — quarantining then
+        discards a finished, paid render (field run 2026-08-07: the
+        first commit of a four-wide storyboard wave staled the other
+        three). Publishing stays allowed when every frozen read-set
+        version still resolves to the same checksum and the target
+        still exists; anything else keeps the fail-closed quarantine.
+        """
+
+        metadata = task.metadata or {}
+        command = str(metadata.get("commandType") or "")
+        target_ref = str(metadata.get("targetRef") or "")
+        if not command or not target_ref:
+            return False
+        for item in task.read_set or []:
+            if not isinstance(item, Mapping):
+                return False
+            version_id = str(item.get("versionId") or "")
+            checksum = str(item.get("checksum") or "")
+            version = project.assets.source_versions_by_id.get(
+                version_id,
+            ) or project.assets.artifact_versions_by_id.get(version_id)
+            if version is None or version.checksum != checksum:
+                return False
+        return FileImageExecutionService._target_still_present(
+            project,
+            command=command,
+            target_ref=target_ref,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _target_still_present(
+        project: Project,
+        *,
+        command: str,
+        target_ref: str,
+        metadata: Mapping[str, Any],
+    ) -> bool:
+        if command == CreatorCommandType.GENERATE_STORYBOARD_IMAGE.value:
+            element_id = target_element_id(target_ref, command=command)
+            try:
+                find_timeline_element(project, element_id)
+            except NotFoundError:
+                return False
+            return True
+        if command == CreatorCommandType.GENERATE_CAST_LINEUP_IMAGE.value:
+            lineup_id = _target_id(target_ref, "lineup")
+            return lineup_id in project.visual.cast_lineups.items
+        entity_id = _target_id(target_ref, "asset")
+        entity = project.visual.entities.items.get(entity_id)
+        if entity is None:
+            return False
+        raw_snapshot = metadata.get("requestSnapshot")
+        variant_id = (
+            raw_snapshot.get("variantId")
+            if isinstance(raw_snapshot, Mapping)
+            else None
+        )
+        if variant_id:
+            return str(variant_id) in entity.variants.items
+        return True
+
+    @staticmethod
     def _apply_result(
         candidate: dict[str, Any],
         result: Mapping[str, Any],
@@ -2425,6 +2575,101 @@ class FileImageExecutionService:
             transition_task=False,
         )
         await self._finish_run(task.project_id, ids["run_id"], run_status)
+
+    async def _rescue_stale_quarantine(
+        self,
+        *,
+        task: TaskRecord,
+        slot_key: str,
+    ) -> FileImageExecutionResult | None:
+        """Import a quarantined-but-paid render whose inputs still hold.
+
+        Under parallel fan-out the whole-project staleness gate used to
+        quarantine every sibling of the first committed render; their
+        provider outputs were already published and billed. Re-dispatch
+        lands on the terminal durable slot, so instead of a
+        ConflictError wall the stored result is re-validated against
+        the current snapshot and committed — no second render, no
+        second bill. Any other quarantine reason keeps the wall.
+        """
+
+        error = task.error if isinstance(task.error, Mapping) else {}
+        if str(error.get("code") or "") != "PROJECT_INPUT_SNAPSHOT_STALE":
+            return None
+        result = task.result if isinstance(task.result, dict) else None
+        if result is None:
+            return None
+        try:
+            artifact = ArtifactVersion.model_validate(
+                result["artifactVersion"],
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        ids = self._ids(task.project_id, f"{slot_key}:rescue")
+
+        def commit_rescue() -> ProjectSnapshot | None:
+            with self.services.projects.lifecycle_lock(task.project_id):
+                current = self.services.projects.read(task.project_id)
+                if self._result_is_converged(current.project, result):
+                    return current
+                if not self._read_set_still_current(current.project, task):
+                    return None
+                candidate = current.project.model_dump(mode="json")
+                self._apply_result(candidate, result)
+                review_policy = media_review_policy()
+                review_boundary = (
+                    self.services.commits.runtime_review_boundary(
+                        task.project_id,
+                        run_id=str(task.run_id),
+                        request_id=task.caused_by_request_id,
+                    )
+                    if review_policy is ReviewPolicy.REQUIRE_REVIEW
+                    else None
+                )
+                commit = self.services.commits.commit(
+                    base=current,
+                    candidate=candidate,
+                    origin=ChangeOrigin.RUNTIME_TASK,
+                    review_policy=review_policy,
+                    review_boundary=review_boundary,
+                    caused_by_request_id=task.caused_by_request_id,
+                    round_id=ids["round_id"],
+                    transaction_id=ids["transaction_id"],
+                    advance_accepted_baseline=True,
+                    _lifecycle_lock_held=True,
+                )
+                return commit.snapshot
+
+        snapshot = await asyncio.to_thread(commit_rescue)
+        if snapshot is None:
+            return None
+        await asyncio.to_thread(self.services.poller.note_commit, snapshot)
+        logger.info(
+            "rescued quarantined image result | task=%s target=%s",
+            task.task_id,
+            result.get("targetRef"),
+        )
+        published = {
+            **result,
+            "projectEtag": snapshot.etag,
+            "projectGeneration": snapshot.generation,
+        }
+        schedule_media_review(
+            self.services,
+            project_id=task.project_id,
+            published_result=published,
+        )
+        return FileImageExecutionResult(
+            task_id=task.task_id,
+            run_id=str(task.run_id or ""),
+            transaction_id=str(
+                result.get("transactionId") or ids["transaction_id"],
+            ),
+            artifact_version_id=artifact.version_id,
+            project_etag=snapshot.etag,
+            project_generation=snapshot.generation,
+            replayed=True,
+        )
 
     async def _fail_if_running(
         self,

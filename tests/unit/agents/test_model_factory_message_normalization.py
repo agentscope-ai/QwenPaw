@@ -2,12 +2,14 @@
 """Tests for model_factory message normalization integration."""
 
 # pylint: disable=protected-access,redefined-outer-name
+import base64
 import json
 from types import SimpleNamespace
 
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
+    Base64Source,
     DataBlock,
     HintBlock,
     Msg,
@@ -31,12 +33,33 @@ except ImportError:
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
-from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingOpenAIFormatter,
+)
 from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
 
 
 def _data_block(media_type: str, url: str) -> DataBlock:
     return DataBlock(source=URLSource(url=url, media_type=media_type))
+
+
+def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
+    return DataBlock(
+        source=Base64Source(
+            media_type=media_type,
+            data=base64.b64encode(content).decode("ascii"),
+        ),
+    )
+
+
+def test_anthropic_dedup_key_uses_immutable_base64_directly() -> None:
+    block = _base64_data_block("image/png", b"immutable-content")
+
+    key = model_factory._anthropic_media_dedup_key(block.source)
+
+    assert key == ("base64", "image/png", block.source.data)
+    assert key[2] is block.source.data
 
 
 def _media_messages() -> list[Msg]:
@@ -179,6 +202,86 @@ def test_force_strip_media_flag_overrides_multimodal_support(
 
     assert normalized[0].content[0].type == "text"
     assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+@pytest.mark.asyncio
+async def test_anthropic_dedup_uses_complete_media_content(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    first = _base64_data_block("image/png", b"version-one")
+    second = _base64_data_block("image/png", b"version-two")
+    msg = Msg(name="user", role="user", content=[first, second])
+
+    formatted = await formatter.format([msg])
+
+    content = formatted[0]["content"]
+    assert [item["type"] for item in content] == ["image", "image"]
+    assert formatter._qwenpaw_last_wire_media_count == 2
+
+
+@pytest.mark.asyncio
+async def test_anthropic_dedup_omits_identical_media(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    first = _base64_data_block("image/png", b"same-version")
+    second = _base64_data_block("image/png", b"same-version")
+    msg = Msg(name="user", role="user", content=[first, second])
+
+    formatted = await formatter.format([msg])
+
+    content = formatted[0]["content"]
+    assert [item["type"] for item in content] == ["image", "text"]
+    assert "omitted" in content[1]["text"]
+    assert formatter._qwenpaw_last_wire_media_count == 1
+
+
+@pytest.mark.asyncio
+async def test_formatter_resets_wire_media_count_before_failure(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    valid = Msg(
+        name="user",
+        role="user",
+        content=[_base64_data_block("image/png", b"valid")],
+    )
+    await formatter.format([valid])
+    assert formatter._qwenpaw_last_wire_media_count == 1
+
+    async def fail_format(_self, _msgs):
+        raise RuntimeError("formatter failed")
+
+    monkeypatch.setattr(_CappingAnthropicFormatter, "format", fail_format)
+    with pytest.raises(RuntimeError, match="formatter failed"):
+        await formatter.format([valid])
+
+    assert formatter._qwenpaw_last_wire_media_count == 0
 
 
 def test_formatter_flags_returned_correctly() -> None:

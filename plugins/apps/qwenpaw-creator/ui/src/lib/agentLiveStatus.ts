@@ -44,6 +44,8 @@ export interface AgentLiveStatusInput {
   toolCalls: ToolCallPresentation[];
   tasks: TaskView[];
   project: ProjectDocument | null;
+  /** Latest model throttling retry, while the run keeps going. */
+  rateLimitRetry?: { attempt: number; maxAttempts: number } | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -271,6 +273,7 @@ export function deriveAgentLiveStatus(
     toolCalls,
     tasks,
     project,
+    rateLimitRetry,
   } = input;
 
   if (stopping || session?.status === "INTERRUPT_REQUESTED")
@@ -319,6 +322,12 @@ export function deriveAgentLiveStatus(
   if (working) {
     const progressPercent = quantifiedProgressPercent(tasks, agentStatusBar);
     const label =
+      (rateLimitRetry
+        ? i18n.t("liveStatus.rateLimitRetrying", {
+            attempt: rateLimitRetry.attempt,
+            max: rateLimitRetry.maxAttempts,
+          })
+        : null) ??
       activeSubagentToolLabel(subagentActivities, project) ??
       activeMainToolLabel(toolCalls, subagentActivities, project) ??
       (runningTask ? activeTaskLabel(runningTask, project) : null) ??

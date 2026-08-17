@@ -8,7 +8,10 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import random
 import threading
+from collections.abc import Callable
 from typing import Literal
+
+from utils.logger import setup_logger
 
 from .store import (
     ProjectIntegrityError,
@@ -42,6 +45,9 @@ class ProjectSnapshotCacheEntry:
         return self.snapshot.etag if self.snapshot is not None else None
 
 
+logger = setup_logger("creator.project_files.poller")
+
+
 class ProjectPoller:
     """Poll opened Project files without ever caching invalid raw JSON."""
 
@@ -64,6 +70,10 @@ class ProjectPoller:
         self._poll_counts: dict[str, int] = {}
         self._lock = threading.RLock()
         self._stop_event: asyncio.Event | None = None
+        # Post-commit listeners (e.g. the work-graph scheduler wake): media
+        # workers finish on thread-pool threads, so listeners must be
+        # thread-safe; failures never disturb the cache refresh itself.
+        self._commit_listeners: list[Callable[[str], None]] = []
 
     def open(self, project_id: str) -> ProjectSnapshotCacheEntry:
         with self._lock:
@@ -107,7 +117,29 @@ class ProjectPoller:
             )
         with self._lock:
             self._opened.add(project_id)
+        for listener in list(self._commit_listeners):
+            try:
+                listener(project_id)
+            except Exception:  # pylint: disable=broad-except
+                logger.exception("project commit listener failed")
         return entry
+
+    def add_commit_listener(
+        self,
+        listener: Callable[[str], None],
+    ) -> None:
+        """Register a thread-safe post-commit callback (project_id)."""
+        self._commit_listeners.append(listener)
+
+    def remove_commit_listener(
+        self,
+        listener: Callable[[str], None],
+    ) -> None:
+        """Unregister a listener; runtimes call this from their stop()."""
+        try:
+            self._commit_listeners.remove(listener)
+        except ValueError:
+            pass
 
     def poll_once(
         self,

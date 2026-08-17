@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -327,8 +328,6 @@ async def test_chat_with_agent_uses_async_collect_for_final_mode(monkeypatch):
 
 async def test_chat_with_agent_arms_kill_deadline_from_timeout(monkeypatch):
     """Caller timeout must register kill_deadline (may exceed hook offload)."""
-    import asyncio
-
     from qwenpaw.tool_calls import reset_call_context, set_call_context
     from qwenpaw.tool_calls._context import ToolCallContext
 
@@ -589,10 +588,10 @@ def test_coerce_bool_rejects_ambiguous_values():
             raise AssertionError(f"expected ValueError for {bad!r}")
 
 
-def test_coerce_timeout_accepts_numeric_and_rejects_non_positive():
-    assert agent_management._coerce_timeout("600") == 600
-    assert agent_management._coerce_timeout(30.9) == 30
-    assert agent_management._coerce_timeout(1) == 1
+def test_parse_positive_timeout_seconds_accepts_numeric_and_rejects_invalid():
+    assert agent_management._parse_positive_timeout_seconds("600") == 600
+    assert agent_management._parse_positive_timeout_seconds(30.9) == 30
+    assert agent_management._parse_positive_timeout_seconds(1) == 1
     # Truncation of (0, 1) must not silently become timeout=0.
     for bad in (
         0,
@@ -609,13 +608,248 @@ def test_coerce_timeout_accepts_numeric_and_rejects_non_positive():
         True,
         False,
         "",
+        10**1000,
     ):
         try:
-            agent_management._coerce_timeout(bad, field_name="timeout")
+            agent_management._parse_positive_timeout_seconds(
+                bad,
+                field_name="timeout",
+            )
         except ValueError as exc:
-            assert "timeout" in str(exc)
+            message = str(exc)
+            assert "timeout" in message
+            assert "got" in message
+            assert repr(bad) in message
         else:
             raise AssertionError(f"expected ValueError for {bad!r}")
+
+
+def test_foreground_wait_omitted_uses_spawn_constant():
+    from qwenpaw.constant import DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
+
+    assert (
+        agent_management._foreground_wait_seconds(None)
+        == DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
+    )
+    assert agent_management._foreground_wait_seconds(1800) == 1800
+
+
+def test_watchdog_timeout_prefers_submit_echo():
+    from qwenpaw.constant import DEFAULT_STREAM_TASK_TIMEOUT_SECONDS
+
+    assert (
+        agent_management._watchdog_timeout_from_submit_result(
+            {"task_id": "t", "timeout": 1800},
+        )
+        == 1800
+    )
+    assert (
+        agent_management._watchdog_timeout_from_submit_result(
+            {"task_id": "t"},
+        )
+        == DEFAULT_STREAM_TASK_TIMEOUT_SECONDS
+    )
+    assert (
+        agent_management._watchdog_timeout_from_submit_result(
+            {"timeout": "abc"},
+        )
+        == DEFAULT_STREAM_TASK_TIMEOUT_SECONDS
+    )
+
+
+def test_parse_positive_timeout_seconds_rejects_none():
+    try:
+        agent_management._parse_positive_timeout_seconds(
+            None,
+            field_name="task_timeout",
+        )
+    except ValueError as exc:
+        message = str(exc)
+        assert "task_timeout" in message
+        assert "got None" in message
+    else:
+        raise AssertionError("expected ValueError for None")
+
+
+def test_submit_to_agent_schema_accepts_task_timeout_string():
+    """Tool JSON schema must allow string so AgentScope validation passes."""
+    import jsonschema
+
+    tool = FunctionTool(agent_management.submit_to_agent)
+    schema = tool.input_schema
+    jsonschema.validate(
+        {
+            "to_agent": "worker",
+            "text": "do work",
+            "task_timeout": "30",
+        },
+        schema,
+    )
+    jsonschema.validate(
+        {
+            "to_agent": "worker",
+            "text": "do work",
+            "task_timeout": 30,
+        },
+        schema,
+    )
+    jsonschema.validate(
+        {"to_agent": "worker", "text": "do work"},
+        schema,
+    )
+
+
+def test_format_background_submission_text_includes_timeout():
+    text = agent_management.format_background_submission_text(
+        {"task_id": "task-abc", "timeout": 3600},
+        "sid-1",
+    )
+    assert "[TASK_ID: task-abc]" in text
+    assert "[SESSION: sid-1]" in text
+    assert "[TIMEOUT: 3600s]" in text
+
+
+async def test_submit_to_agent_string_timeout_reaches_submit(monkeypatch):
+    captured: dict = {}
+
+    def fake_submit(
+        _base,
+        _payload,
+        agent_id,
+        _timeout,
+        task_timeout=None,
+    ):
+        captured["agent_id"] = agent_id
+        captured["task_timeout"] = task_timeout
+        return {"task_id": "task-xyz", "timeout": task_timeout}
+
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(agent_context, "get_current_session_id", lambda: "s1")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_root_session_id",
+        lambda: "s1",
+    )
+
+    response = await agent_management.submit_to_agent(
+        to_agent="worker",
+        text="do work",
+        task_timeout="30",
+    )
+    assert captured["task_timeout"] == 30
+    assert "[TASK_ID: task-xyz]" in response.content[0].text
+    assert "[TIMEOUT: 30s]" in response.content[0].text
+
+
+async def test_submit_to_agent_invalid_timeout_returns_error(monkeypatch):
+    called = {"submit": False}
+
+    def fake_submit(*_args, **_kwargs):
+        called["submit"] = True
+        return {"task_id": "task-should-not"}
+
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda *_a, **_k: True,
+    )
+
+    response = await agent_management.submit_to_agent(
+        to_agent="worker",
+        text="do work",
+        task_timeout="abc",
+    )
+    assert called["submit"] is False
+    text = response.content[0].text
+    assert text.startswith("ERROR:")
+    assert "task_timeout" in text
+    assert "got 'abc'" in text
+
+
+async def test_submit_to_agent_huge_int_timeout_returns_error(monkeypatch):
+    """Values that overflow asyncio.sleep must be tool ERROR, not a submit."""
+    called = {"submit": False}
+
+    def fake_submit(*_args, **_kwargs):
+        called["submit"] = True
+        return {"task_id": "task-should-not"}
+
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda *_a, **_k: True,
+    )
+
+    response = await agent_management.submit_to_agent(
+        to_agent="worker",
+        text="do work",
+        task_timeout=10**1000,
+    )
+    assert called["submit"] is False
+    text = response.content[0].text
+    assert text.startswith("ERROR:")
+    assert "task_timeout" in text
+
+
+async def test_submit_to_agent_omitted_timeout_passes_none(monkeypatch):
+    captured: dict = {}
+
+    def fake_submit(
+        _base,
+        _payload,
+        _agent_id,
+        _timeout,
+        task_timeout=None,
+    ):
+        captured["task_timeout"] = task_timeout
+        return {"task_id": "task-def", "timeout": 3600}
+
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda *_a, **_k: True,
+    )
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(agent_context, "get_current_session_id", lambda: "s1")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_root_session_id",
+        lambda: "s1",
+    )
+
+    response = await agent_management.submit_to_agent(
+        to_agent="worker",
+        text="do work",
+    )
+    assert captured["task_timeout"] is None
+    assert "[TIMEOUT: 3600s]" in response.content[0].text
 
 
 @pytest.mark.parametrize(
@@ -1218,3 +1452,269 @@ async def test_spawn_subagent_batch_item_timeout_errors_before_dispatch(
     assert "timeout" in text3.lower()
     assert not submitted
     assert not forked
+
+
+def _patch_spawn_runtime(monkeypatch):
+    from qwenpaw.app import agent_context
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "bot-a")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_approval_route",
+        lambda: None,
+    )
+    monkeypatch.setattr(agent_context, "get_current_session_id", lambda: "s1")
+    monkeypatch.setattr(agent_context, "get_current_user_id", lambda: "u1")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_channel",
+        lambda: "console",
+    )
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_root_session_id",
+        lambda: "s1",
+    )
+
+
+async def test_spawn_background_omitted_timeout_passes_none(monkeypatch):
+    captured: dict = {}
+
+    def fake_submit(
+        _base,
+        _payload,
+        _agent_id,
+        _timeout,
+        task_timeout=None,
+    ):
+        captured["task_timeout"] = task_timeout
+        return {"task_id": "task-bg", "timeout": 3600}
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    response = await agent_management.spawn_subagent(
+        task="long work",
+        background=True,
+    )
+    assert captured["task_timeout"] is None
+    text = response.content[0].text
+    assert "ERROR" not in text
+    assert "[TIMEOUT: 3600s]" in text
+
+
+async def test_spawn_background_explicit_timeout_reaches_submit(monkeypatch):
+    captured: dict = {}
+
+    def fake_submit(
+        _base,
+        _payload,
+        _agent_id,
+        _timeout,
+        task_timeout=None,
+    ):
+        captured["task_timeout"] = task_timeout
+        return {"task_id": "task-bg", "timeout": task_timeout}
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    response = await agent_management.spawn_subagent(
+        task="long work",
+        background=True,
+        timeout="1800",
+    )
+    assert captured["task_timeout"] == 1800
+    assert "[TIMEOUT: 1800s]" in response.content[0].text
+
+
+async def test_spawn_foreground_omitted_timeout_waits_600(monkeypatch):
+    from qwenpaw.constant import DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
+
+    captured: dict = {}
+
+    def fake_collect(_base, _payload, _agent_id, timeout):
+        captured["timeout"] = timeout
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect,
+    )
+    response = await agent_management.spawn_subagent(task="do work")
+    assert captured["timeout"] == DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
+    assert "ERROR" not in response.content[0].text
+
+
+async def test_spawn_batch_omitted_timeout_passes_none(monkeypatch):
+    captured: list = []
+
+    def fake_submit(
+        _base,
+        _payload,
+        _agent_id,
+        _timeout,
+        task_timeout=None,
+    ):
+        captured.append(task_timeout)
+        return {"task_id": f"t-{len(captured)}", "timeout": 3600}
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    response = await agent_management.spawn_subagent(
+        task="",
+        batch=[
+            {"task": "a"},
+            {"task": "b", "timeout": 7200},
+        ],
+    )
+    assert "ERROR" not in response.content[0].text
+    assert captured == [None, 7200]
+
+
+async def test_spawn_fork_foreground_omitted_timeout_waits_600(monkeypatch):
+    from qwenpaw.constant import DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
+
+    captured: dict = {}
+
+    async def fake_fork_api(**_kwargs):
+        return {
+            "fork_session_id": "fork-s",
+            "worktree_path": "",
+            "worktree_branch": "",
+        }
+
+    def fake_collect(_base, _payload, _agent_id, timeout):
+        captured["timeout"] = timeout
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(agent_management, "_call_fork_api", fake_fork_api)
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect,
+    )
+    response = await agent_management.spawn_subagent(
+        task="do work",
+        fork=True,
+    )
+    assert captured["timeout"] == DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
+    assert "ERROR" not in response.content[0].text
+
+
+async def test_spawn_fork_background_uses_submit_echo_for_watchdog(
+    monkeypatch,
+):
+    from qwenpaw.agents import fork_project
+
+    captured: dict = {}
+    watch: dict = {}
+
+    async def fake_fork_api(**_kwargs):
+        return {
+            "fork_session_id": "fork-s",
+            "worktree_path": "/tmp/wt",
+            "worktree_branch": "fork/x",
+        }
+
+    def fake_submit(
+        _base,
+        _payload,
+        _agent_id,
+        _timeout,
+        task_timeout=None,
+    ):
+        captured["task_timeout"] = task_timeout
+        return {"task_id": "task-fork", "timeout": 3600}
+
+    async def fake_watch(*_args, **kwargs):
+        watch["timeout"] = kwargs.get("timeout")
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(agent_management, "_call_fork_api", fake_fork_api)
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        fake_submit,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "_watch_background_fork_finalize",
+        fake_watch,
+    )
+    monkeypatch.setattr(fork_project, "register_fork", lambda *a, **k: True)
+    monkeypatch.setattr(
+        fork_project,
+        "get_active_fork_scope",
+        lambda *_a, **_k: "scope",
+    )
+    monkeypatch.setattr(fork_project, "bind_fork_task", lambda *a, **k: None)
+
+    response = await agent_management.spawn_subagent(
+        task="do work",
+        fork=True,
+        background=True,
+    )
+    await asyncio.sleep(0)
+    assert captured["task_timeout"] is None
+    assert watch["timeout"] == 3600
+    assert "[TIMEOUT: 3600s]" in response.content[0].text
+
+
+async def test_spawn_batch_fork_omitted_timeout_is_none(monkeypatch):
+    forked: list[dict] = []
+
+    async def fake_forked(**kwargs):
+        forked.append(kwargs)
+        return agent_management._tool_text_response("forked")
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "_spawn_forked_subagent",
+        fake_forked,
+    )
+    response = await agent_management.spawn_subagent(
+        task="",
+        batch=[{"task": "a", "fork": True}],
+    )
+    assert "ERROR" not in response.content[0].text
+    assert forked[0]["timeout"] is None
+    assert forked[0]["background"] is True
+
+
+def test_spawn_subagent_schema_accepts_timeout_string_and_omission():
+    import jsonschema
+
+    tool = FunctionTool(agent_management.spawn_subagent)
+    schema = tool.input_schema
+    timeout_schema = schema["properties"]["timeout"]
+    assert timeout_schema.get("default") is None
+    jsonschema.validate({"task": "do work", "timeout": "1800"}, schema)
+    jsonschema.validate({"task": "do work", "timeout": 1800}, schema)
+    jsonschema.validate({"task": "do work"}, schema)

@@ -42,6 +42,16 @@ EXECUTION_AUTHORIZATION_REQUIRED = "required"
 EXECUTION_AUTHORIZATION_ALLOW_ALL = "allow_all"
 CREATION_CHECKPOINT_REQUIRED = "required"
 CREATION_CHECKPOINT_SKIP = "skip"
+
+# Upstream video-edit governance modes ("how much to ask mid-flight").
+EXECUTION_MODE_DELEGATED = "delegated"
+EXECUTION_MODE_CO_CREATION = "co_creation"
+EXECUTION_MODE_FINE_TUNING = "fine_tuning"
+_EXECUTION_MODES = (
+    EXECUTION_MODE_DELEGATED,
+    EXECUTION_MODE_CO_CREATION,
+    EXECUTION_MODE_FINE_TUNING,
+)
 MEDIA_REVIEW_REQUIRED = "required"
 MEDIA_REVIEW_AUTO_APPROVE = "auto_approve"
 CREATOR_CONFIG_TOOLS = (
@@ -317,6 +327,26 @@ def get_creation_checkpoint_mode() -> str:
     return CREATION_CHECKPOINT_REQUIRED
 
 
+def get_execution_mode() -> str:
+    """Return the mid-flight governance mode (upstream three modes).
+
+    Ladder consistency: ``creation_checkpoints.mode=skip`` (the YOLO
+    ladder stop) already means "no mid-flight gates", so it forces
+    ``delegated`` regardless of the stored ``execution_mode`` — the two
+    knobs can never contradict each other.
+    """
+
+    if get_creation_checkpoint_mode() == CREATION_CHECKPOINT_SKIP:
+        return EXECUTION_MODE_DELEGATED
+    section = _get_user_config().get("creation_checkpoints")
+    value = (
+        section.get("execution_mode") if isinstance(section, dict) else None
+    )
+    if value in _EXECUTION_MODES:
+        return value
+    return EXECUTION_MODE_CO_CREATION
+
+
 def get_media_review_mode() -> str:
     """Return the persisted mode for generated-media reviews.
 
@@ -335,7 +365,7 @@ def get_media_review_mode() -> str:
 
 DEFAULT_MAINLINE_MAX_MODEL_TURNS = 24
 DEFAULT_SPECIALIST_MAX_MODEL_TURNS = 16
-DEFAULT_MEDIA_PARALLELISM = 3
+DEFAULT_MEDIA_PARALLELISM = 5
 DEFAULT_MEDIA_CALL_BUDGET = 200
 
 
@@ -587,7 +617,6 @@ VIDEO_BASE_URL = os.environ.get(
 )
 VIDEO_API_KEY = os.environ.get("VIDEO_API_KEY", "")
 VIDEO_MODEL_NAME = os.environ.get("VIDEO_MODEL_NAME", "wan2.7-r2v")
-VIDEO_CONCURRENCY = _positive_int_env("VIDEO_CONCURRENCY", 1)
 
 
 # ── Dynamic request-scoped getters ───────────────────────────────────────────
@@ -618,7 +647,20 @@ def get_text_model_name() -> str:
     )
 
 
+def _vlm_use_llm() -> bool:
+    """Return True when the persisted VLM section reuses the text model.
+
+    ``use_llm`` means full reuse (key, endpoint, model). Any explicit values
+    left over in the VLM section are stale configuration and must not win,
+    otherwise requests go to a mismatched endpoint/key pair.
+    """
+    section = _get_user_config().get("vlm")
+    return bool(isinstance(section, dict) and section.get("use_llm"))
+
+
 def get_vlm_api_key() -> str:
+    if _vlm_use_llm():
+        return get_text_api_key()
     return (
         _explicit_configured_value(
             CREATOR_VLM_CONFIG_TOOL,
@@ -630,6 +672,8 @@ def get_vlm_api_key() -> str:
 
 
 def get_vlm_base_url() -> str:
+    if _vlm_use_llm():
+        return get_text_base_url()
     return (
         _explicit_configured_value(
             CREATOR_VLM_CONFIG_TOOL,
@@ -641,6 +685,8 @@ def get_vlm_base_url() -> str:
 
 
 def get_vlm_model_name() -> str:
+    if _vlm_use_llm():
+        return get_text_model_name()
     return (
         _explicit_configured_value(
             CREATOR_VLM_CONFIG_TOOL,
@@ -1253,31 +1299,73 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.casefold() in {"1", "true", "yes", "on"}
 
 
-# Code-level master switch for the render self-review module (WT4). Not
-# exposed through plugin.json, schemas or the frontend contract.
-SELF_REVIEW_ENABLED = _bool_env("CREATOR_SELF_REVIEW_ENABLED", False)
+# Review tiers resolve at decision time through the ``is_*_review_enabled()``
+# functions below: an explicitly set environment variable wins (CI and
+# emergency override), otherwise the persisted ``self_review`` section of
+# model_config.json (settings center) decides. The former module-level
+# startup snapshots were removed: nothing imported them, and a stale
+# snapshot diverging from the runtime getters was a latent trap.
+
+
+def _review_tier_enabled(env_name: str, config_key: str) -> bool:
+    """Resolve one review tier: explicit env wins, else persisted config.
+
+    An explicitly set environment variable (even ``0``/``false``) keeps
+    full control so existing deployments behave exactly as before; only
+    when it is absent does the ``self_review`` section of the user's
+    model_config.json decide, defaulting to off.
+    """
+    raw = os.environ.get(env_name, "").strip()
+    if raw:
+        return raw.casefold() in {"1", "true", "yes", "on"}
+    section = _get_user_config().get("self_review")
+    if isinstance(section, dict):
+        return bool(section.get(config_key, False))
+    return False
 
 
 def is_self_review_enabled() -> bool:
-    """Read the switch live so tests and restarts pick up env changes."""
-    return _bool_env("CREATOR_SELF_REVIEW_ENABLED", False)
+    """Final-cut render review (tier 3): env override, else user config."""
+    return _review_tier_enabled(
+        "CREATOR_SELF_REVIEW_ENABLED",
+        "render_enabled",
+    )
 
 
-# Code-level switches for the in-run review bypass (run_review). Advisory
-# only, independent from the final-render self review above; neither is
-# exposed through plugin.json, schemas or the frontend contract.
-SYNC_REVIEW_ENABLED = _bool_env("CREATOR_SYNC_REVIEW_ENABLED", False)
-MEDIA_REVIEW_ENABLED = _bool_env("CREATOR_MEDIA_REVIEW_ENABLED", False)
+_REVIEW_TIER_ENV_VARS = (
+    "CREATOR_SYNC_REVIEW_ENABLED",
+    "CREATOR_MEDIA_REVIEW_ENABLED",
+    "CREATOR_SELF_REVIEW_ENABLED",
+)
+
+
+def forced_review_env_overrides() -> dict[str, str]:
+    """Review tier env vars that are explicitly set and shadow the UI.
+
+    The settings center owns these switches when the environment stays
+    silent; an explicitly set variable takes full control, which is easy
+    to forget (field incident: review ran with the UI toggled off).
+    Startup logs this map so the override is loud instead of a ghost.
+    """
+
+    return {
+        name: os.environ[name].strip()
+        for name in _REVIEW_TIER_ENV_VARS
+        if os.environ.get(name, "").strip()
+    }
 
 
 def is_sync_review_enabled() -> bool:
     """In-run synchronous review of low-cost text/motion artifacts."""
-    return _bool_env("CREATOR_SYNC_REVIEW_ENABLED", False)
+    return _review_tier_enabled("CREATOR_SYNC_REVIEW_ENABLED", "sync_enabled")
 
 
 def is_media_review_enabled() -> bool:
     """Async bypass review of generated image/video artifacts."""
-    return _bool_env("CREATOR_MEDIA_REVIEW_ENABLED", False)
+    return _review_tier_enabled(
+        "CREATOR_MEDIA_REVIEW_ENABLED",
+        "media_enabled",
+    )
 
 
 def _image_provider():
@@ -1325,12 +1413,32 @@ def get_image_translate_model_name() -> str:
 
 
 def get_video_api_key() -> str:
-    return _configured_value(
+    """Video credential: explicit value first, else optionally reuse LLM.
+
+    Bailian video generation runs on the same DashScope credential as the
+    text model, so when no video-specific key is configured and the
+    persisted ``video.reuse_llm_key`` flag (default on) allows it, the text
+    key is reused — mirroring the tts/s2v sections.
+    """
+
+    configured = _configured_value(
         CREATOR_VIDEO_CONFIG_TOOL,
         "api_key",
         "VIDEO_API_KEY",
         VIDEO_API_KEY,
     )
+    if configured:
+        return configured
+    # Reuse only applies to the DashScope (wan/happyhorse) backend: a
+    # Volcano Engine deployment has its own credential namespace.
+    if get_video_backend() != "wan":
+        return ""
+    section = _get_user_config().get("video", {})
+    reuse = not isinstance(section, dict) or section.get(
+        "reuse_llm_key",
+        True,
+    )
+    return get_text_api_key() if reuse else ""
 
 
 def get_video_base_url() -> str:
@@ -1348,6 +1456,23 @@ def get_video_model_name() -> str:
         "model",
         "VIDEO_MODEL_NAME",
         VIDEO_MODEL_NAME,
+    )
+
+
+def get_video_concurrency() -> int:
+    """Semaphore cap for model_slot("video").
+
+    Defaults to the scheduler's dispatch cap so the provider semaphore
+    never silently serializes renders behind a parallel-looking work
+    graph (same coupling as the image providers); explicit env/config
+    still wins.
+    """
+
+    return _configured_int(
+        CREATOR_VIDEO_CONFIG_TOOL,
+        "concurrency",
+        "VIDEO_CONCURRENCY",
+        get_media_parallelism(),
     )
 
 
@@ -1515,3 +1640,141 @@ def get_video_task_url(task_id: str) -> str:
     suffix = "/services/aigc/video-generation/video-synthesis"
     api_root = base[: -len(suffix)] if base.endswith(suffix) else base
     return f"{api_root}/tasks/{task_id}"
+
+
+# ── External skills config (from skills_config.json) ────────────────────────────
+
+
+def _get_skills_config_path() -> Path:
+    configured = os.environ.get("CREATOR_SKILLS_CONFIG_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve(strict=False)
+    data_root = os.environ.get("CREATOR_DATA_ROOT", "").strip()
+    if data_root:
+        return (
+            Path(data_root).expanduser().resolve(strict=False)
+            / "config"
+            / "skills_config.json"
+        )
+    # Read-only sentinel: skill configuration has no source-tree fallback.
+    return Path("/__qwenpaw_creator_unconfigured__/skills_config.json")
+
+
+_SKILLS_CONFIG_CACHE: tuple[list, list] | None = None
+_SKILLS_CONFIG_CACHE_PATH: Path | None = None
+_SKILLS_CONFIG_CACHE_FINGERPRINT: tuple[int, int, int] | None = None
+
+
+def _issue_entry_name(raw: object, index: int) -> str:
+    if isinstance(raw, Mapping):
+        name = str(raw.get("name") or "").strip()
+        if name:
+            return name
+    return f"entry-{index}"
+
+
+def _load_skills_config_document() -> tuple[list, list]:
+    """Return ``(valid SkillEntry items, diagnostics)`` from disk/cache.
+
+    Mirrors the ``_get_user_config`` fingerprint cache. The file holds no
+    secrets (key-like values are referenced indirectly via env variable
+    names), so nothing is decrypted. Any read/parse/validation failure is
+    isolated — never raised — but stays observable: broken documents and
+    rejected entries are reported as diagnostics
+    ``{"name", "path", "reason"}`` so callers can surface an unavailable
+    skill with a readable reason.
+    """
+
+    global _SKILLS_CONFIG_CACHE
+    global _SKILLS_CONFIG_CACHE_PATH, _SKILLS_CONFIG_CACHE_FINGERPRINT
+    from schemas.skills import SkillEntry
+
+    path = _get_skills_config_path()
+    fingerprint = _user_config_fingerprint(path)
+    if (
+        _SKILLS_CONFIG_CACHE is not None
+        and _SKILLS_CONFIG_CACHE_PATH == path
+        and _SKILLS_CONFIG_CACHE_FINGERPRINT == fingerprint
+    ):
+        entries, issues = _SKILLS_CONFIG_CACHE
+        return list(entries), list(issues)
+    if fingerprint is None:
+        return [], []
+    entries: list[SkillEntry] = []
+    issues: list[dict] = []
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        raw_items = (
+            document.get("skills") if isinstance(document, dict) else None
+        )
+        if not isinstance(raw_items, list):
+            issues.append(
+                {
+                    "name": "skills-config",
+                    "path": str(path),
+                    "reason": 'document must be {"skills": [...]}',
+                },
+            )
+            raw_items = []
+        seen_names: set[str] = set()
+        for index, raw in enumerate(raw_items):
+            try:
+                entry = SkillEntry.model_validate(raw)
+            except Exception as exc:
+                issues.append(
+                    {
+                        "name": _issue_entry_name(raw, index),
+                        "path": str(
+                            raw.get("path", "")
+                            if isinstance(raw, Mapping)
+                            else "",
+                        ),
+                        "reason": f"schema validation failed: {exc}"[:400],
+                    },
+                )
+                continue
+            if entry.name in seen_names:
+                issues.append(
+                    {
+                        "name": entry.name,
+                        "path": entry.path,
+                        "reason": "duplicate skill name; first entry wins",
+                    },
+                )
+                continue
+            seen_names.add(entry.name)
+            entries.append(entry)
+    except Exception as exc:
+        return [], [
+            {
+                "name": "skills-config",
+                "path": str(path),
+                "reason": f"document parse failed: {exc}"[:400],
+            },
+        ]
+    _SKILLS_CONFIG_CACHE = (entries, issues)
+    _SKILLS_CONFIG_CACHE_PATH = path
+    _SKILLS_CONFIG_CACHE_FINGERPRINT = fingerprint
+    return list(entries), list(issues)
+
+
+def load_skills_config() -> list:
+    """Return the validated ``SkillEntry`` items from skills_config.json."""
+
+    entries, _issues = _load_skills_config_document()
+    return entries
+
+
+def load_skills_config_issues() -> list:
+    """Return diagnostics for configuration entries that were rejected."""
+
+    _entries, issues = _load_skills_config_document()
+    return issues
+
+
+def _clear_skills_config_cache():
+    global _SKILLS_CONFIG_CACHE
+    global _SKILLS_CONFIG_CACHE_PATH, _SKILLS_CONFIG_CACHE_FINGERPRINT
+    _SKILLS_CONFIG_CACHE = None
+    _SKILLS_CONFIG_CACHE_PATH = None
+    _SKILLS_CONFIG_CACHE_FINGERPRINT = None

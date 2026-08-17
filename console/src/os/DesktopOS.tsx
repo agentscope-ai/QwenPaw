@@ -9,14 +9,7 @@
  * Reachable at /os (registered in App.tsx) — isolated from MainLayout so the
  * classic sidebar layout is untouched.
  */
-import {
-  Suspense,
-  useMemo,
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-} from "react";
+import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
 import { Grid2X2, Image as ImageIcon, RefreshCw, Trash2 } from "lucide-react";
@@ -33,11 +26,11 @@ import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
 import { useOsNotifyPoller } from "./useOsNotifyPoller";
+import { isAgentAvailableInChat } from "../utils/agentVisibility";
 import { purgeAppState, purgePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
-import { baseFromRoutePath, pathToRouteId } from "./osRouteMap";
-import { useOsRoute } from "./osRouteStore";
+import { baseFromRoutePath } from "./osRouteMap";
 import MenuBar from "./MenuBar";
 import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
@@ -62,11 +55,7 @@ import {
   getPawAppIdFromPath,
   setActivePawAppId,
 } from "../plugins/pawapp-sdk/context";
-import {
-  getOsAppHref,
-  getOsRootHref,
-  stripRouterBasename,
-} from "../utils/navigationMode";
+import { getOsRootHref } from "../utils/navigationMode";
 import "./osWindowBody.css";
 
 /** Session flag so the boot splash plays once per browser session. */
@@ -172,7 +161,9 @@ export default function DesktopOS() {
       ) {
         e.preventDefault();
         const agentState = useAgentStore.getState();
-        const ids = agentState.agents.map((a) => a.id);
+        const ids = agentState.agents
+          .filter(isAgentAvailableInChat)
+          .map((a) => a.id);
         const current = agentState.selectedAgent;
         if (!ids.includes(current)) ids.unshift(current);
         if (ids.length < 2) return;
@@ -204,21 +195,8 @@ export default function DesktopOS() {
     return map;
   }, [routes]);
 
-  const restoredDeepLink = useRef(false);
-  useEffect(() => {
-    if (restoredDeepLink.current) return;
-    restoredDeepLink.current = true;
-    const appPath = stripRouterBasename(window.location.pathname).replace(
-      /^\/os(?=\/|$)/,
-      "",
-    );
-    if (!appPath || appPath === "/") return;
-    const routeId = pathToRouteId(appPath, routes);
-    if (routeId) useOsRoute.getState().openApp(routeId, appPath);
-  }, [routes]);
-
-  // Keep the browser path OS-owned and expose the focused PawApp id to the
-  // legacy SDK without letting app windows navigate the top-level document.
+  // The desktop has one browser entry point: /os. Window navigation stays in
+  // each app's MemoryRouter and never becomes a browser deep link.
   useEffect(() => {
     const activeRoute = activeId ? routeById.get(activeId) : undefined;
     const pawAppId =
@@ -226,16 +204,15 @@ export default function DesktopOS() {
         ? getPawAppIdFromPath(activeRoute.path)
         : "";
     setActivePawAppId(pawAppId || null);
-    const browserPath = pawAppId
-      ? getOsAppHref(
-          window.location.pathname,
-          baseFromRoutePath(activeRoute?.path),
-        )
-      : getOsRootHref(window.location.pathname);
+    const browserPath = getOsRootHref(window.location.pathname);
     if (
       `${window.location.pathname}${window.location.search}` !== browserPath
     ) {
-      window.history.replaceState({ osApp: activeId }, "", browserPath);
+      window.history.replaceState(
+        { ...window.history.state, osApp: activeId },
+        "",
+        browserPath,
+      );
     }
   }, [activeId, routeById]);
 
@@ -243,9 +220,8 @@ export default function DesktopOS() {
     .map((id) => windows[id])
     .filter((w): w is NonNullable<typeof w> => Boolean(w));
 
-  // Auto-hide chrome: menu bar hides only while a window is maximized; the
-  // Spaces panel reveals on top-edge hover. The Dock stays visible by default.
-  const anyMaximized = isMobile || openWindows.some((w) => w.maximized);
+  // Desktop keeps the menu bar visible above maximized windows. Mobile uses
+  // full-screen windows and keeps the menu bar hidden.
   const { topHot } = useEdgeReveal();
 
   // Persisted desktop icon positions + transient drag handlers. While a
@@ -534,7 +510,7 @@ export default function DesktopOS() {
       <ConsolePollService />
 
       <SpacesPanel visible={topHot} />
-      <MenuBar hidden={anyMaximized} />
+      <MenuBar hidden={isMobile} />
       <Dock />
 
       {ctxMenu && (

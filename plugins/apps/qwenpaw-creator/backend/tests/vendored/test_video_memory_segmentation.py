@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from vendor.mm_plugins.video_memory.segmentation import (
+from vendor.media_toolkit.video_memory.segmentation import (
     compute_cut_scores,
     decode_jpeg_to_hls,
     find_optimal_threshold,

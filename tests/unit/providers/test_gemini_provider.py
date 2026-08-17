@@ -3,23 +3,52 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from types import SimpleNamespace
 
 import pytest
 from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
 
 
-def _make_provider() -> GeminiProvider:
+def _make_provider(**overrides) -> GeminiProvider:
+    config = {
+        "id": "gemini",
+        "name": "Gemini",
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key": "gem-test",
+        "chat_model": "GeminiChatModel",
+    }
+    config.update(overrides)
     return GeminiProvider(
-        id="gemini",
-        name="Gemini",
-        base_url="https://generativelanguage.googleapis.com",
-        api_key="gem-test",
-        chat_model="GeminiChatModel",
+        **config,
     )
+
+
+def test_chat_model_configures_persistent_client_headers(monkeypatch) -> None:
+    captured: list[dict] = []
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace()),
+    )
+
+    def create_client(**kwargs):
+        captured.append(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(gemini_provider_module.genai, "Client", create_client)
+
+    model = _make_provider(
+        custom_headers={"X-QwenPaw-Test": "enabled"},
+    ).get_chat_model_instance("gemini-2.5-flash")
+
+    assert model.client is fake_client
+    assert len(captured) == 1
+    assert captured[0]["http_options"].headers == {
+        "X-QwenPaw-Test": "enabled",
+    }
 
 
 async def test_summary_limit_is_adapted_without_mutating_thinking(
@@ -489,6 +518,55 @@ def test_sanitize_all_null_anyOf_becomes_object() -> None:
     }
     result = _sanitize_schema_for_gemini(schema)
     assert "anyOf" not in result
+
+
+def test_format_tools_strips_schema_metadata_before_sdk_validation() -> None:
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search",
+                "description": "Search for a query.",
+                "parameters": {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "$schema": (
+                                "http://json-schema.org/draft-07/schema#"
+                            ),
+                            "type": "string",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    ]
+    original_tools = copy.deepcopy(tools)
+
+    model = _make_provider().get_chat_model_instance("gemini-2.5-flash")
+    formatted_tools, tool_config = model._format_tools(tools, None)
+
+    config = genai_types.GenerateContentConfig(tools=formatted_tools)
+    assert tool_config is None
+    assert config.tools is not None
+    assert formatted_tools == [
+        {
+            "function_declarations": [
+                {
+                    "name": "search",
+                    "description": "Search for a query.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                        "required": ["query"],
+                    },
+                },
+            ],
+        },
+    ]
+    assert tools == original_tools
 
 
 # -- update_config ------------------------------------------------------------

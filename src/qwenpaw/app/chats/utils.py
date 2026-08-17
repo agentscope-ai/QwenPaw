@@ -36,6 +36,28 @@ from ...constant import (
 logger = logging.getLogger(__name__)
 
 
+def _process_local_tz():
+    """Return the process-local timezone used by ``datetime.now()``."""
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
+    """Normalize a Msg timestamp string into the user's timezone.
+
+    AgentScope writes ``Msg.created_at`` with ``datetime.now().isoformat()``,
+    so a naive value is a process-local wall clock — not UTC and not
+    ``user_timezone``. Aware values keep their encoded offset.
+    Unparseable inputs are returned unchanged.
+    """
+    try:
+        dt_obj = datetime.fromisoformat(ts_value)
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=_process_local_tz())
+        return dt_obj.astimezone(user_tz).isoformat()
+    except (ValueError, TypeError):
+        return ts_value
+
+
 def _is_scroll_memory_placeholder(msg: Msg) -> bool:
     """Return whether *msg* is model-only Scroll context, not transcript.
 
@@ -530,13 +552,7 @@ def agentscope_msg_to_message(
 
         ts_value = msg.timestamp
         if ts_value:
-            try:
-                dt_obj = datetime.fromisoformat(ts_value)
-                if dt_obj.tzinfo is None:
-                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-                ts_value = dt_obj.astimezone(user_tz).isoformat()
-            except (ValueError, TypeError):
-                pass
+            ts_value = _normalize_msg_timestamp(ts_value, user_tz)
 
         metadata = {
             "original_id": msg.id,
@@ -606,6 +622,13 @@ def agentscope_msg_to_message(
                     ),
                 )
                 current_message.add_content(new_content=text_content)
+
+            elif btype == "hint":
+                # Hint blocks are runtime/model-facing state (for example,
+                # current-time reminders). They belong in the agent context,
+                # but never in a user-visible transcript restored by either
+                # the console chat UI or a PawApp.
+                continue
 
             elif btype == "thinking":
                 if current_type != MessageType.REASONING:

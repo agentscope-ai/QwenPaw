@@ -2115,4 +2115,34 @@ describe("AgentDock origin/main visible fidelity", () => {
       responseFlow?.querySelector("[data-agent-thinking]"),
     ).not.toBeInTheDocument();
   });
+
+  it("recomputes the live status label on a runtime language switch", async () => {
+    // TC-PL-02 F-1: liveStatus is memoized from agent state; switching the
+    // locale must still refresh the label on the mounted component, both
+    // directions, without a remount.
+    const i18n = (await import("@/i18n")).default;
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+
+    const row = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(
+        "[data-agent-live-status]",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(row.textContent).toContain("待命中");
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(row.textContent).toContain("Idle, ready");
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh");
+      });
+    }
+    expect(row.textContent).toContain("待命中");
+  });
 });

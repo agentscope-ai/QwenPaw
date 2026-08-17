@@ -35,6 +35,7 @@ NATIVE_METHODS = frozenset(
         "observe_window",
         "press_key",
         "scroll",
+        "sequence",
         "set_value",
         "type_text",
     },
