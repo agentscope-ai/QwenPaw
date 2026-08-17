@@ -1380,7 +1380,7 @@ def _strip_top_level_message_name(
     return messages
 
 
-def _resolve_model_slot_override(model_slot_override: Any):
+def resolve_model_slot_override(model_slot_override: Any):
     """Parse an optional per-request model override into a model slot."""
     from ..config.config import ModelSlotConfig
 
@@ -1500,7 +1500,7 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    slot = _resolve_model_slot_override(model_slot_override)
+    slot = resolve_model_slot_override(model_slot_override)
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 

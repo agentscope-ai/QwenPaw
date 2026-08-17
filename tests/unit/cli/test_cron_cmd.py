@@ -31,6 +31,7 @@ def _agent_spec(**overrides):
         "enabled": True,
         "mode": "final",
         "silent": False,
+        "model": None,
     }
     values.update(overrides)
     return _build_spec_from_cli(**values)
@@ -52,6 +53,42 @@ def test_create_help_exposes_silent_delivery_flag():
 
     assert result.exit_code == 0
     assert "--silent / --no-silent" in result.output
+
+
+def test_build_agent_spec_includes_model_override():
+    payload = _agent_spec(model="openai/gpt-4o-mini")
+
+    assert payload["request"]["model_slot_override"] == {
+        "provider_id": "openai",
+        "model": "gpt-4o-mini",
+    }
+
+
+def test_build_agent_spec_allows_slash_in_model_id():
+    payload = _agent_spec(model="openrouter/meta-llama/llama-3.3-70b")
+
+    assert payload["request"]["model_slot_override"] == {
+        "provider_id": "openrouter",
+        "model": "meta-llama/llama-3.3-70b",
+    }
+
+
+@pytest.mark.parametrize("model", ["gpt-4o-mini", "/gpt-4o-mini", "openai/"])
+def test_build_agent_spec_rejects_invalid_model_override(model):
+    with pytest.raises(click.UsageError, match="provider/model"):
+        _agent_spec(model=model)
+
+
+def test_build_text_spec_rejects_model_override():
+    with pytest.raises(click.UsageError, match="only supported.*agent"):
+        _agent_spec(task_type="text", model="openai/gpt-4o-mini")
+
+
+def test_create_help_exposes_model_option():
+    result = CliRunner().invoke(cron_group, ["create", "--help"])
+
+    assert result.exit_code == 0
+    assert "--model" in result.output
 
 
 # --- _resolve_update_spec regression tests (issue #6176) ---
@@ -77,6 +114,8 @@ def _update(full_spec: dict, **overrides) -> dict:
         "enabled": None,
         "mode": None,
         "silent": None,
+        "model": None,
+        "clear_model": False,
         "save_result_to_inbox": None,
         "share_session": None,
         "timeout_seconds": None,
@@ -171,6 +210,52 @@ def test_update_preserves_request_extensions():
     assert result["name"] == "renamed-agent"
     assert result["request"]["model"] == "custom-model"
     assert result["request"]["request_context"] == {"source_tag": "ops"}
+
+
+def test_update_sets_model_override():
+    result = _update(
+        _agent_job_spec(),
+        model="openai/gpt-4o-mini",
+    )
+
+    assert result["request"]["model_slot_override"] == {
+        "provider_id": "openai",
+        "model": "gpt-4o-mini",
+    }
+
+
+def test_update_clears_model_override():
+    spec = _agent_job_spec()
+    spec["request"]["model_slot_override"] = {
+        "provider_id": "openai",
+        "model": "gpt-4o-mini",
+    }
+
+    result = _update(spec, clear_model=True)
+
+    assert "model_slot_override" not in result["request"]
+
+
+def test_update_rejects_model_and_clear_model_together():
+    with pytest.raises(click.UsageError, match="cannot be used together"):
+        _update(
+            _agent_job_spec(),
+            model="openai/gpt-4o-mini",
+            clear_model=True,
+        )
+
+
+def test_update_rejects_model_override_for_text_job():
+    with pytest.raises(click.UsageError, match="only supported.*agent"):
+        _update(_text_job_spec(), model="openai/gpt-4o-mini")
+
+
+def test_update_help_exposes_model_options():
+    result = CliRunner().invoke(cron_group, ["update", "--help"])
+
+    assert result.exit_code == 0
+    assert "--model" in result.output
+    assert "--clear-model" in result.output
 
 
 def test_update_preserves_meta_and_dispatch_meta():

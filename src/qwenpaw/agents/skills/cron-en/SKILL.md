@@ -2,7 +2,7 @@
 name: cron
 description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/update/pause/resume/delete/run, and always pass --agent-id explicitly.
 metadata:
-  builtin_skill_version: "1.7"
+  builtin_skill_version: "1.8"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -32,6 +32,7 @@ Use this skill only when you need to **automatically execute something at a futu
 4. **All cron commands must explicitly include `--agent-id`**
 5. **Do not rely on the default agent, or the task may end up in the default workspace**
 6. **For an agent task that should run without channel output, add `--silent`; execution, session history, trace, and optional Inbox recording still continue**
+7. **When the user requests a fixed model for an agent task, pass `--model provider/model`; use `--clear-model` on update to restore runtime defaults**
 
 ---
 
@@ -160,7 +161,18 @@ qwenpaw cron create \
   --target-user "CHANGEME" \
   --target-session "CHANGEME" \
   --text "What are my pending tasks?" \
+  --model openai/gpt-4o-mini \
   --timeout 600
+```
+
+`--model` is optional and only valid for `agent` tasks. It fixes that job's
+model without changing the agent configuration. Model IDs may contain `/`
+after the provider separator. To remove the override:
+
+```bash
+qwenpaw cron update <job_id> \
+  --agent-id <agent_id> \
+  --clear-model
 ```
 
 For a background agent task, add `--silent` to the command above. Do not use it
@@ -266,6 +278,7 @@ to find the correct `job_id`.
 - When showing commands to the user, provide complete, copy-pasteable versions
 - If the user mentions "save to inbox" (or not), explicitly include `--save-result-to-inbox` or `--no-save-result-to-inbox`
 - If the user asks for background or silent execution with no channel reply, use `--silent` on an `agent` task
+- If the user names a model for an `agent` task, use `--model provider/model`; never add it to a `text` task
 - Before creating, you can run `qwenpaw chats list --agent-id <agent_id>` to get valid `target-user` and `target-session`
 
 ---

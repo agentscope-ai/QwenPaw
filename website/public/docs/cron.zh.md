@@ -136,8 +136,13 @@ qwenpaw cron create \
   --channel dingtalk \
   --target-user "你的用户ID" \
   --target-session "你的会话ID" \
-  --text "请检查我的待办，并输出优先级最高的三项。"
+  --text "请检查我的待办，并输出优先级最高的三项。" \
+  --model openai/gpt-4o-mini
 ```
+
+`agent` 任务可通过 `--model provider/model` 固定该任务使用的模型，且不会修改
+智能体的活跃模型。执行 `qwenpaw cron update <job_id> --clear-model` 可恢复为
+运行时默认模型。
 
 如果 `agent` 任务只需在后台运行、不向渠道发送回复，可添加 `--silent`。
 任务仍会保留会话和追踪记录，是否写入收件箱仍由 `--save-result-to-inbox` 独立控制。
@@ -182,6 +187,8 @@ qwenpaw cron create \
 - `--schedule-type cron`：需要 `--cron`
 - `--schedule-type scheduled`：需要 `--run-at`
 - `scheduled` 重复任务：需要 `--repeat-every-days`，并搭配结束条件（`count/until/never`）
+- `--model provider/model` 仅适用于 `agent` 任务；模型 ID 可继续包含 `/`
+- `--clear-model` 用于在 `cron update` 时移除已有模型覆盖
 - `--silent` 仅适用于 `agent` 任务，只抑制渠道投递，不跳过任务执行
 - 可选设置结果是否入收件箱：`--save-result-to-inbox` 或 `--no-save-result-to-inbox`
 

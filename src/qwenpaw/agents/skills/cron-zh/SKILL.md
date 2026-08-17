@@ -2,7 +2,7 @@
 name: cron
 description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/update/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
 metadata:
-  builtin_skill_version: "1.7"
+  builtin_skill_version: "1.8"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -32,6 +32,7 @@ metadata:
 4. **所有 cron 命令都必须显式传 `--agent-id`**
 5. **不要依赖默认 agent，否则任务可能落到 default workspace**
 6. **如果 agent 任务只需后台执行、不向渠道输出，添加 `--silent`；执行、会话历史、追踪和可选收件箱记录仍会继续**
+7. **用户要求 agent 任务固定模型时，传 `--model provider/model`；更新时用 `--clear-model` 恢复运行时默认模型**
 
 ---
 
@@ -160,7 +161,17 @@ qwenpaw cron create \
   --target-user "CHANGEME" \
   --target-session "CHANGEME" \
   --text "我有什么待办事项？" \
+  --model openai/gpt-4o-mini \
   --timeout 600
+```
+
+`--model` 是可选参数，且仅适用于 `agent` 任务。它只固定当前任务的模型，
+不会修改智能体配置；provider 后的模型 ID 可以继续包含 `/`。移除覆盖值：
+
+```bash
+qwenpaw cron update <job_id> \
+  --agent-id <agent_id> \
+  --clear-model
 ```
 
 如果是后台 agent 任务，可在上面的命令中添加 `--silent`。`text` 任务不能使用该参数。
@@ -265,6 +276,7 @@ qwenpaw cron list --agent-id <agent_id>
 - 给用户展示命令时，提供完整、可直接复制的版本
 - 用户提到“结果进收件箱/不进收件箱”时，显式加 `--save-result-to-inbox` 或 `--no-save-result-to-inbox`，否则不要添加该项。
 - 用户要求后台或静默执行且不向渠道回复时，对 `agent` 任务添加 `--silent`。
+- 用户为 `agent` 任务指定模型时，使用 `--model provider/model`；不要对 `text` 任务添加该参数。
 
 ---
 

@@ -215,6 +215,18 @@ def _build_schedule_from_cli(
     return {"type": "cron", "cron": cron, "timezone": timezone}
 
 
+def _parse_model_option(model: str) -> Dict[str, str]:
+    provider_id, separator, model_id = model.strip().partition("/")
+    if not separator or not provider_id.strip() or not model_id.strip():
+        raise click.UsageError(
+            "--model must use the provider/model format",
+        )
+    return {
+        "provider_id": provider_id.strip(),
+        "model": model_id.strip(),
+    }
+
+
 def _build_spec_from_cli(
     task_type: str,
     schedule_type: str,
@@ -233,6 +245,7 @@ def _build_spec_from_cli(
     enabled: bool,
     mode: str,
     silent: bool,
+    model: Optional[str] = None,
     save_result_to_inbox: Optional[bool] = None,
     share_session: bool = True,
     timeout_seconds: int = 120,
@@ -265,6 +278,10 @@ def _build_spec_from_cli(
         "tool_safety": tool_safety,
     }
     if task_type == "text":
+        if model is not None:
+            raise click.UsageError(
+                "--model is only supported when task type is 'agent'",
+            )
         if silent:
             raise click.UsageError(
                 "--silent is only supported when task type is 'agent'",
@@ -293,21 +310,25 @@ def _build_spec_from_cli(
                 "--text is required when task type is 'agent' "
                 "(the question/prompt sent to the agent)",
             )
+        request = {
+            "input": [
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": [{"type": "text", "text": text.strip()}],
+                },
+            ],
+        }
+        if model is not None:
+            request["model_slot_override"] = _parse_model_option(model)
+
         payload = {
             "id": "",
             "name": name,
             "enabled": enabled,
             "schedule": schedule,
             "task_type": "agent",
-            "request": {
-                "input": [
-                    {
-                        "role": "user",
-                        "type": "message",
-                        "content": [{"type": "text", "text": text.strip()}],
-                    },
-                ],
-            },
+            "request": request,
             "dispatch": dispatch,
             "runtime": runtime,
             "meta": {},
@@ -445,6 +466,15 @@ def _build_spec_from_cli(
     ),
 )
 @click.option(
+    "--model",
+    default=None,
+    metavar="PROVIDER/MODEL",
+    help=(
+        "For agent tasks, use this model instead of the agent's active model. "
+        "Example: openai/gpt-4o-mini."
+    ),
+)
+@click.option(
     "--timezone",
     default=None,
     help=(
@@ -539,6 +569,7 @@ def create_job(
     target_user: Optional[str],
     target_session: Optional[str],
     text: Optional[str],
+    model: Optional[str],
     timezone: Optional[str],
     enabled: bool,
     mode: str,
@@ -598,6 +629,7 @@ def create_job(
             target_user=target_user or "",
             target_session=target_session or "",
             text=text,
+            model=model,
             timezone=timezone,
             enabled=enabled,
             mode=mode,
@@ -629,6 +661,8 @@ def _resolve_update_spec(
     target_user: Optional[str],
     target_session: Optional[str],
     text: Optional[str],
+    model: Optional[str],
+    clear_model: bool,
     timezone: Optional[str],
     enabled: Optional[bool],
     mode: Optional[str],
@@ -644,8 +678,8 @@ def _resolve_update_spec(
     Deep-copies the existing spec and only patches fields explicitly
     provided by the CLI.  Unspecified fields — including advanced
     runtime settings (``max_concurrency``, ``misfire_grace_seconds``)
-    and request extensions (``model``, ``request_context``, …) — are
-    preserved as-is.  Returns a payload dict suitable for
+    and request extensions (``model_slot_override``, ``request_context``, …)
+    — are preserved as-is.  Returns a payload dict suitable for
     PUT /cron/jobs/{id}.
     """
     payload = copy.deepcopy(spec)
@@ -656,6 +690,24 @@ def _resolve_update_spec(
         payload["enabled"] = enabled
     if task_type is not None:
         payload["task_type"] = task_type
+
+    if model is not None and clear_model:
+        raise click.UsageError(
+            "--model and --clear-model cannot be used together",
+        )
+    if model is not None or clear_model:
+        if payload.get("task_type") != "agent":
+            raise click.UsageError(
+                "--model and --clear-model are only supported for agent jobs",
+            )
+        request = payload.get("request")
+        if not isinstance(request, dict):
+            request = {}
+            payload["request"] = request
+        if model is not None:
+            request["model_slot_override"] = _parse_model_option(model)
+        else:
+            request.pop("model_slot_override", None)
 
     # --- schedule ---
     sch = payload.setdefault("schedule", {})
@@ -810,6 +862,18 @@ def _resolve_update_spec(
     help="Text content or agent prompt.",
 )
 @click.option(
+    "--model",
+    default=None,
+    metavar="PROVIDER/MODEL",
+    help="For agent jobs, override the agent's active model.",
+)
+@click.option(
+    "--clear-model",
+    is_flag=True,
+    default=False,
+    help="Remove an agent job's model override.",
+)
+@click.option(
     "--timezone",
     default=None,
     help="Timezone for the schedule.",
@@ -883,6 +947,8 @@ def update_job(
     target_user: Optional[str],
     target_session: Optional[str],
     text: Optional[str],
+    model: Optional[str],
+    clear_model: bool,
     timezone: Optional[str],
     enabled: Optional[bool],
     mode: Optional[str],
@@ -929,6 +995,8 @@ def update_job(
             target_user=target_user,
             target_session=target_session,
             text=text,
+            model=model,
+            clear_model=clear_model,
             timezone=timezone,
             enabled=enabled,
             mode=mode,

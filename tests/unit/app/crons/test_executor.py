@@ -7,6 +7,7 @@ import pytest
 
 from qwenpaw.app.crons.executor import CronExecutor
 from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.schemas import Event, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
 
@@ -17,8 +18,10 @@ class _Workspace:
     def __init__(self, events=None) -> None:
         self.events_consumed = 0
         self.events = events if events is not None else ("first", "second")
+        self.last_request = None
 
-    async def stream_query(self, _request):
+    async def stream_query(self, request):
+        self.last_request = request
         for event in self.events:
             self.events_consumed += 1
             yield event
@@ -54,6 +57,11 @@ async def test_silent_agent_job_runs_without_channel_delivery(monkeypatch):
         target=DispatchTarget(user_id="u1", session_id="console:u1"),
         silent=True,
     )
+    assert job.request is not None
+    job.request.model_slot_override = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4o-mini",
+    )
 
     finalize_trace = _patch_trace_storage(monkeypatch)
 
@@ -63,6 +71,10 @@ async def test_silent_agent_job_runs_without_channel_delivery(monkeypatch):
     ).execute(job)
 
     assert workspace.events_consumed == 2
+    assert workspace.last_request["model_slot_override"] == {
+        "provider_id": "openai",
+        "model": "gpt-4o-mini",
+    }
     channel_manager.send_event.assert_not_awaited()
     assert result["delivery_status"] == "suppressed"
     finalize_trace.assert_awaited_once_with(result["run_id"], status="success")

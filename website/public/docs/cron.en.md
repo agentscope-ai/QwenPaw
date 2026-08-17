@@ -158,8 +158,13 @@ qwenpaw cron create \
   --channel dingtalk \
   --target-user "your_user_id" \
   --target-session "your_session_id" \
-  --text "Please review my todos and list the top three priorities."
+  --text "Please review my todos and list the top three priorities." \
+  --model openai/gpt-4o-mini
 ```
+
+For an `agent` task, `--model provider/model` fixes the model for that job
+without changing the agent's active model. Run
+`qwenpaw cron update <job_id> --clear-model` to return to the runtime default.
 
 Add `--silent` to an `agent` task when it should run in the background without
 sending its response to the channel. The task still keeps its session and
@@ -205,6 +210,8 @@ Parameter notes:
 - `--schedule-type cron`: requires `--cron`
 - `--schedule-type scheduled`: requires `--run-at`
 - For repeating `scheduled` tasks, pass `--repeat-every-days` and an end condition (`count` / `until` / `never`)
+- `--model provider/model` is available for `agent` tasks only; model IDs may contain additional `/` characters
+- `--clear-model` removes an existing override during `cron update`
 - `--silent` is available for `agent` tasks only and suppresses channel delivery, not execution
 - To control Inbox delivery, explicitly pass `--save-result-to-inbox` or `--no-save-result-to-inbox`
 
