@@ -1758,6 +1758,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 },
             )
 
+        # Apply documented capability template for known models so custom
+        # providers benefit from built-in capability knowledge (and probing
+        # is skipped for models whose capabilities are already documented).
+        self._apply_documented_capabilities(provider, model_info)
+
         # Save provider config to appropriate location
         is_plugin = provider_id in self.plugin_providers
         if is_plugin:
@@ -2367,8 +2372,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         from .capability_baseline import ExpectedCapabilityRegistry
 
         registry = ExpectedCapabilityRegistry()
-        for provider in self.builtin_providers.values():
-            for model in provider.models:
+        # Custom providers are included so user-added providers also benefit
+        # from documented capabilities instead of falling back to probing.
+        # Custom models live in extra_models while builtin models live in
+        # models, so iterate both.
+        providers = list(self.builtin_providers.values()) + list(
+            self.custom_providers.values(),
+        )
+        for provider in providers:
+            for model in provider.models + provider.extra_models:
                 # Already fully annotated (e.g. by a prior probe) → skip
                 if model.supports_multimodal is not None:
                     continue
@@ -2384,7 +2396,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     continue
 
                 # No annotations at all → fall back to registry
+                # Prefer provider-specific lookup, then model-id only lookup
+                # (custom provider ids are not part of the baseline registry).
                 expected = registry.get_expected(provider.id, model.id)
+                if expected is None:
+                    expected = registry.get_expected_by_model_id(model.id)
                 if expected:
                     model.supports_image = expected.expected_image
                     model.supports_video = expected.expected_video
@@ -2392,6 +2408,38 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                         expected.expected_image or expected.expected_video,
                     )
                     model.probe_source = "documentation"
+
+    def _apply_documented_capabilities(
+        self,
+        provider: Provider,
+        model_info: ModelInfo,
+    ) -> None:
+        """Apply documented capability template to a single model.
+
+        Used when a model is added to a (possibly custom) provider at
+        runtime, so known models get their documented capabilities instead
+        of falling back to probing.  Models whose capabilities are already
+        known (non-None supports_multimodal) are left untouched.  Lookup
+        prefers the provider-specific baseline entry, then falls back to a
+        provider-agnostic bare model-id lookup (custom provider ids are not
+        part of the baseline registry).
+        """
+        if model_info.supports_multimodal is not None:
+            return
+
+        from .capability_baseline import ExpectedCapabilityRegistry
+
+        registry = ExpectedCapabilityRegistry()
+        expected = registry.get_expected(provider.id, model_info.id)
+        if expected is None:
+            expected = registry.get_expected_by_model_id(model_info.id)
+        if expected:
+            model_info.supports_image = expected.expected_image
+            model_info.supports_video = expected.expected_video
+            model_info.supports_multimodal = bool(
+                expected.expected_image or expected.expected_video,
+            )
+            model_info.probe_source = "documentation"
 
     async def _resume_local_model(self, local_manager) -> None:
         """Resume the active local model server from the previous run."""
