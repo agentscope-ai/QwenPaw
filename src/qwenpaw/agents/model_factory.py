@@ -45,6 +45,7 @@ from agentscope.formatter import OpenAIResponseFormatter
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
+from .remote_media_cache import localize_remote_url, remote_media_cache_enabled
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
@@ -1272,6 +1273,33 @@ def _fixup_media_list(items: list) -> None:
                         f" — file deleted from disk]"
                     ),
                 )
+            elif (
+                url.startswith(("http://", "https://"))
+                and remote_media_cache_enabled()
+            ):
+                # Remote media URLs are fetched client-side and swapped
+                # for a cached local path.  Some backends (e.g. vLLM)
+                # fetch URLs server-side and reject the *whole request*
+                # when the fetch fails (hotlink-protected hosts, 403,
+                # firewalled networks) — one dead URL would poison
+                # every subsequent turn of the session.
+                local_path, err = localize_remote_url(url)
+                if local_path:
+                    source["url"] = local_path
+                else:
+                    logger.warning(
+                        "Failed to localize remote media %s (%s), "
+                        "replacing with placeholder",
+                        url,
+                        err,
+                    )
+                    items[i] = TextBlock(
+                        type="text",
+                        text=(
+                            f"[{btype.title()} unavailable"
+                            f" — remote fetch failed: {err}]"
+                        ),
+                    )
         elif btype == "data":
             # 2.0 DataBlock — decode percent-encoded file:// URLs and
             # check if local file still exists.  Pydantic's AnyUrl
@@ -1298,6 +1326,33 @@ def _fixup_media_list(items: list) -> None:
                     )
                 elif source is not None:
                     source.url = local_path
+            elif (
+                url_str.startswith(("http://", "https://"))
+                and remote_media_cache_enabled()
+            ):
+                # Same rationale as the dict-block branch above: fetch
+                # remote media client-side so the backend never has to.
+                remote_local_path, remote_err = localize_remote_url(
+                    url_str
+                )
+                if remote_local_path:
+                    source.url = remote_local_path
+                else:
+                    mt = getattr(source, "media_type", "") or ""
+                    media_name = mt.split("/")[0] or "media"
+                    logger.warning(
+                        "Failed to localize remote media %s (%s), "
+                        "replacing with placeholder",
+                        url_str,
+                        remote_err,
+                    )
+                    items[i] = TextBlock(
+                        type="text",
+                        text=(
+                            f"[{media_name.title()} unavailable"
+                            f" — remote fetch failed: {remote_err}]"
+                        ),
+                    )
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}
