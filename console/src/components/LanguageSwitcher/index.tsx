@@ -3,29 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Button, type MenuProps } from "antd";
 import { settingsApi } from "../../api/modules/language";
 import styles from "./index.module.less";
-import {
-  SparkChinese02Line,
-  SparkEnglish02Line,
-  SparkJapanLine,
-  SparkRusLine,
-  SparkPtLine,
-} from "@agentscope-ai/icons";
+import { LANGUAGE_LIST } from "../../constants/languageList";
 
-interface LanguageConfig {
-  key: string;
-  label: string;
-  icon: React.ReactElement;
-}
-
-export const LANGUAGE_LIST: LanguageConfig[] = [
-  { key: "en", label: "English", icon: <SparkEnglish02Line /> },
-  { key: "zh", label: "简体中文", icon: <SparkChinese02Line /> },
-  { key: "ja", label: "日本語", icon: <SparkJapanLine /> },
-  { key: "ru", label: "Русский", icon: <SparkRusLine /> },
-  { key: "pt-BR", label: "Português (Brasil)", icon: <SparkPtLine /> },
-  { key: "id", label: "Bahasa Indonesia", icon: <SparkEnglish02Line /> },
-  { key: "vi", label: "Tiếng Việt", icon: <SparkEnglish02Line /> },
-];
+// Re-exported for backward compatibility with existing importers (e.g. Header,
+// which already renders <LanguageSwitcher />). New consumers that only need the
+// list should import it directly from "../../constants/languageList" instead.
+export { LANGUAGE_LIST };
 
 const KNOWN_LANG_KEYS = new Set(LANGUAGE_LIST.map((lang) => lang.key));
 

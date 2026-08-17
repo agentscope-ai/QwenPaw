@@ -9,7 +9,7 @@ import {
   SparkFullscreenLine,
   SparkExitFullscreenLine,
 } from "@agentscope-ai/icons";
-import { LANGUAGE_LIST } from "../components/LanguageSwitcher";
+import { LANGUAGE_LIST } from "../constants/languageList";
 import { settingsApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
