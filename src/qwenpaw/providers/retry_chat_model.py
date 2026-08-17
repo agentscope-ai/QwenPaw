@@ -170,6 +170,15 @@ def _is_retryable(exc: Exception) -> bool:
     return False
 
 
+def is_retryable_llm_error(exc: Exception) -> bool:
+    """Public wrapper around ``_is_retryable``.
+
+    Returns *True* if *exc* is a transient LLM error (rate limit, timeout,
+    connection error, 5xx) that is safe to retry or fallback on.
+    """
+    return _is_retryable(exc)
+
+
 def _is_rate_limit(exc: Exception) -> bool:
     """Return *True* if *exc* is specifically a 429 rate-limit error."""
     return _extract_status_code(exc) == 429
