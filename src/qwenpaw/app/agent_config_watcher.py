@@ -210,6 +210,10 @@ class AgentConfigWatcher:
             f"heartbeat: {old_heartbeat_hash} -> {new_heartbeat_hash})",
         )
         try:
+            # The on-disk config changed: bump the generation so a
+            # reload already mid-build cannot re-install the pre-change
+            # snapshot after this one delivers the fresh state.
+            manager.note_agent_config_changed(self._agent_id)
             await manager.reload_agent(self._agent_id)
         except Exception:
             logger.exception(

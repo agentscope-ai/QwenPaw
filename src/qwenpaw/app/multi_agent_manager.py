@@ -55,7 +55,24 @@ class MultiAgentManager:
             CUSTOM_AGENT_STARTUP_CONCURRENCY,
         )
         self._cleanup_tasks: Set[asyncio.Task] = set()
+        self._config_generations: Dict[str, int] = {}
         logger.debug("MultiAgentManager initialized")
+
+    def note_agent_config_changed(self, agent_id: str) -> int:
+        """Record that the agent's persisted configuration just changed.
+
+        ``reload_agent`` captures this counter when it starts and aborts
+        its swap when the counter moved while the replacement workspace
+        was being built.  Without the guard, a zero-downtime rebuild
+        that began before a config write could finish after it and
+        re-install the pre-write snapshot -- readers would see a fresh
+        PUT revert until the next reload landed.  Every config-writer
+        path must bump: API writers via ``schedule_agent_reload``, disk
+        writers via ``AgentConfigWatcher``.
+        """
+        value = self._config_generations.get(agent_id, 0) + 1
+        self._config_generations[agent_id] = value
+        return value
 
     def _create_workspace(
         self,
@@ -462,6 +479,11 @@ class MultiAgentManager:
             bool: True if agent was reloaded, False if not running
         """
         # Step 1: Check if agent exists (quick check with lock)
+        # Capture the config generation first: any write bumping it
+        # after this point invalidates the snapshot this rebuild will
+        # be based on, and the swap below aborts in favour of the
+        # newer writer's own scheduled reload.
+        generation = self._config_generations.get(agent_id, 0)
         async with self._lock:
             if agent_id not in self.agents:
                 logger.debug(
@@ -559,6 +581,19 @@ class MultiAgentManager:
                 logger.warning(
                     f"Agent {agent_id} was removed during reload, "
                     f"stopping new instance",
+                )
+                await new_instance.stop()
+                return False
+
+            if self._config_generations.get(agent_id, 0) != generation:
+                # The configuration changed while this replacement was
+                # being built: installing it would revert the newer
+                # write. The writer's own reload delivers the fresh
+                # state; the current (already patched in memory)
+                # instance keeps serving until then.
+                logger.info(
+                    f"Discarding stale reload for {agent_id}: "
+                    f"configuration changed during rebuild",
                 )
                 await new_instance.stop()
                 return False

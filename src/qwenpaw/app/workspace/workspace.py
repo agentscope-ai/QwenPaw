@@ -77,6 +77,7 @@ class Workspace:
 
         # Non-service state
         self._config = None  # Loaded before start()
+        self._config_mtime: float | None = None
         self._started = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
@@ -139,9 +140,28 @@ class Workspace:
 
     @property
     def config(self):
-        """Get agent configuration."""
-        self._config = load_agent_config(self.agent_id)
+        """Agent configuration pinned to this workspace instance.
+
+        ``load_agent_config`` hands out detached copies to protect its
+        cache, but the ubiquitous write idiom -- mutate
+        ``workspace.config`` in place, then
+        ``save_agent_config(workspace.config)`` -- needs BOTH property
+        accesses to observe the same object, or the save silently
+        persists an unpatched fresh copy and the write is lost.  The
+        snapshot is therefore pinned per workspace and refreshed only
+        when agent.json's mtime moves (any save or external edit).
+        """
+        current_mtime = self._agent_config_file_mtime()
+        if self._config is None or current_mtime != self._config_mtime:
+            self._config = load_agent_config(self.agent_id)
+            self._config_mtime = current_mtime
         return self._config
+
+    def _agent_config_file_mtime(self) -> float | None:
+        try:
+            return (self.workspace_dir / "agent.json").stat().st_mtime
+        except OSError:
+            return None
 
     @property
     def local_workspace(self) -> QwenPawLocalWorkspace:

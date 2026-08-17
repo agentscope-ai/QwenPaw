@@ -136,6 +136,10 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
                 exc_info=True,
             )
 
+    # The caller just persisted a config change: bump the generation so
+    # any reload already mid-build aborts its (now stale) swap and this
+    # reload delivers the fresh state.
+    manager.note_agent_config_changed(agent_id)
     asyncio.create_task(reload_in_background())
 
 
