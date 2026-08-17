@@ -8,6 +8,7 @@ import pytest
 
 from qwenpaw.agents import model_factory
 from qwenpaw.config import config as config_module
+from qwenpaw.exceptions import ConfigurationException
 from qwenpaw.providers import provider_manager
 from qwenpaw.runtime.builder import AgentBuilder
 
@@ -44,7 +45,10 @@ async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
     builder = AgentBuilder.__new__(AgentBuilder)
     ctx = SimpleNamespace(agent_id="agent-1")
 
-    with pytest.raises(RuntimeError, match="No active model configured"):
+    with pytest.raises(
+        ConfigurationException,
+        match="No active model configured",
+    ):
         await builder.build(ctx)
 
     assert len(calls) == 1
