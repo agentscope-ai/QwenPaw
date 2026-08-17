@@ -10,12 +10,19 @@
  */
 
 import { ExternalLink, FileWarning, LoaderCircle } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
+import {
+  getArtifactPreviewLimit,
+  type WorkspaceArtifactLocator,
+  type WorkspaceArtifactPreviewKind,
+} from "../../types/workspaceArtifacts";
+import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock";
 import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
@@ -34,6 +41,7 @@ const IMAGE_EXTS = new Set([
   "jpeg",
   "gif",
   "webp",
+  "avif",
   "svg",
   "ico",
   "bmp",
@@ -45,15 +53,35 @@ export type PreviewType =
   | "markdown"
   | "html"
   | "csv"
+  | "text"
   | "none";
+
+const TEXT_EXTS = new Set([
+  "css",
+  "ini",
+  "js",
+  "json",
+  "log",
+  "py",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "xml",
+  "yaml",
+  "yml",
+]);
 
 export function getPreviewType(filePath: string): PreviewType {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   if (IMAGE_EXTS.has(ext)) return "image";
   if (ext === "pdf") return "pdf";
-  if (ext === "md" || ext === "mdx") return "markdown";
+  if (ext === "md" || ext === "markdown" || ext === "mdx") {
+    return "markdown";
+  }
   if (ext === "html" || ext === "htm") return "html";
-  if (ext === "csv") return "csv";
+  if (ext === "csv" || ext === "tsv") return "csv";
+  if (TEXT_EXTS.has(ext)) return "text";
   return "none";
 }
 
@@ -65,7 +93,7 @@ export function isPreviewable(filePath: string): boolean {
 // CSV parser (no external dep)
 // ---------------------------------------------------------------------------
 
-function parseCsv(raw: string): string[][] {
+function parseCsv(raw: string, delimiter = ","): string[][] {
   const lines = raw.trimEnd().split(/\r?\n/);
   return lines.map((line) => {
     const cells: string[] = [];
@@ -80,7 +108,7 @@ function parseCsv(raw: string): string[][] {
         } else {
           inQuote = !inQuote;
         }
-      } else if (ch === "," && !inQuote) {
+      } else if (ch === delimiter && !inQuote) {
         cells.push(cur);
         cur = "";
       } else {
@@ -103,6 +131,9 @@ function useAuthBlobUrl(
   chatId?: string,
   binaryUrl?: string,
   root?: WorkspaceRoot,
+  artifactLocator?: WorkspaceArtifactLocator,
+  artifactSize?: number,
+  previewKind?: WorkspaceArtifactPreviewKind,
 ): {
   blobUrl: string | null;
   loading: boolean;
@@ -115,25 +146,75 @@ function useAuthBlobUrl(
 
   useEffect(() => {
     let revoked = false;
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
     setLoading(true);
     setFailed(false);
+    const resolvedPreviewKind = previewKind ?? getPreviewType(filePath);
+    const previewLimit =
+      resolvedPreviewKind === "html"
+        ? null
+        : getArtifactPreviewLimit(resolvedPreviewKind);
+    if (
+      artifactSize !== undefined &&
+      previewLimit !== null &&
+      artifactSize > previewLimit
+    ) {
+      setLoading(false);
+      setFailed(true);
+      return () => controller.abort();
+    }
 
     const loadBlob = async (): Promise<Blob | null> => {
-      const url = binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
+      if (isDesktopTauriRuntime() && !artifactLocator) {
+        try {
+          const response = await invoke<ArrayBuffer | number[]>(
+            "read_workspace_binary_file",
+            {
+              filePath,
+              agentId: selectedAgent,
+            },
+          );
+          const bytes = Array.isArray(response)
+            ? new Uint8Array(response)
+            : new Uint8Array(response);
+          return new Blob([bytes], { type: guessMimeType(filePath) });
+        } catch {
+          // Fall back to the authenticated HTTP endpoint.
+        }
+      }
+      const url = artifactLocator
+        ? workspaceApi.getArtifactPreviewUrl(artifactLocator)
+        : binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
+      const requestChatId = artifactLocator?.chatId ?? chatId;
       const res = await fetch(url, {
         headers: {
           ...buildAuthHeaders(),
-          ...(chatId ? { "X-Chat-Id": chatId } : {}),
+          ...(requestChatId ? { "X-Chat-Id": requestChatId } : {}),
         },
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`${res.status}`);
-      return res.blob();
+      const contentLength = Number(res.headers.get("Content-Length"));
+      if (
+        previewLimit !== null &&
+        Number.isFinite(contentLength) &&
+        contentLength > previewLimit
+      ) {
+        throw new Error("Preview file is too large");
+      }
+      const blob = await res.blob();
+      if (previewLimit !== null && blob.size > previewLimit) {
+        throw new Error("Preview file is too large");
+      }
+      return blob;
     };
 
     loadBlob()
       .then((blob) => {
         if (revoked || !blob) return;
-        setBlobUrl(URL.createObjectURL(blob));
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
         setLoading(false);
       })
       .catch(() => {
@@ -146,14 +227,42 @@ function useAuthBlobUrl(
 
     return () => {
       revoked = true;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       setBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
+        if (prev && prev !== objectUrl) URL.revokeObjectURL(prev);
         return null;
       });
     };
-  }, [binaryUrl, chatId, filePath, root, selectedAgent]);
+  }, [
+    artifactLocator,
+    artifactSize,
+    binaryUrl,
+    chatId,
+    filePath,
+    previewKind,
+    root,
+    selectedAgent,
+  ]);
 
   return { blobUrl, loading, failed };
+}
+
+function guessMimeType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const mimeMap: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    avif: "image/avif",
+    svg: "image/svg+xml",
+    ico: "image/x-icon",
+    bmp: "image/bmp",
+    pdf: "application/pdf",
+  };
+  return mimeMap[ext] ?? "application/octet-stream";
 }
 
 // ---------------------------------------------------------------------------
@@ -165,11 +274,17 @@ function ImagePreview({
   chatId,
   binaryUrl,
   root,
+  artifactLocator,
+  artifactSize,
+  previewKind,
 }: {
   filePath: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  artifactLocator?: WorkspaceArtifactLocator;
+  artifactSize?: number;
+  previewKind?: WorkspaceArtifactPreviewKind;
 }) {
   const { t } = useTranslation();
   const { blobUrl, loading, failed } = useAuthBlobUrl(
@@ -177,6 +292,9 @@ function ImagePreview({
     chatId,
     binaryUrl,
     root,
+    artifactLocator,
+    artifactSize,
+    previewKind,
   );
   if (loading) {
     return (
@@ -208,11 +326,17 @@ function PdfPreview({
   chatId,
   binaryUrl,
   root,
+  artifactLocator,
+  artifactSize,
+  previewKind,
 }: {
   filePath: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  artifactLocator?: WorkspaceArtifactLocator;
+  artifactSize?: number;
+  previewKind?: WorkspaceArtifactPreviewKind;
 }) {
   const { t } = useTranslation();
   const { blobUrl, loading, failed } = useAuthBlobUrl(
@@ -220,6 +344,9 @@ function PdfPreview({
     chatId,
     binaryUrl,
     root,
+    artifactLocator,
+    artifactSize,
+    previewKind,
   );
   if (loading) {
     return (
@@ -402,8 +529,17 @@ function HtmlPreview({
 const MAX_CSV_ROWS = 500;
 const MAX_CSV_COLS = 50;
 
-function CsvPreview({ content }: { content: string }) {
-  const rows = useMemo(() => parseCsv(content), [content]);
+function CsvPreview({
+  content,
+  delimiter,
+}: {
+  content: string;
+  delimiter: string;
+}) {
+  const rows = useMemo(
+    () => parseCsv(content, delimiter),
+    [content, delimiter],
+  );
   const header = rows[0] ?? [];
   const body = rows.slice(1, MAX_CSV_ROWS + 1);
   const truncatedCols = header.length > MAX_CSV_COLS;
@@ -443,31 +579,58 @@ function CsvPreview({ content }: { content: string }) {
   );
 }
 
+function TextPreview({
+  filePath,
+  content,
+}: {
+  filePath: string;
+  content: string;
+}) {
+  const extension = filePath.split(".").pop()?.toLowerCase() || "text";
+  return (
+    <div className={styles.textWrap}>
+      <RenderableCodeBlock block lang={extension}>
+        {content}
+      </RenderableCodeBlock>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export interface FilePreviewProps {
-  filePath: string;
-  /** Text content – used by Markdown and CSV renderers. */
+interface FilePreviewBaseProps {
+  /** Text content — used by Markdown and CSV renderers. */
   content: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
   projectDirOverride?: string;
   workspaceBacked?: boolean;
+  artifactSize?: number;
+  previewKind?: WorkspaceArtifactPreviewKind;
 }
 
-export default function FilePreview({
-  filePath,
-  content,
-  chatId,
-  binaryUrl,
-  root,
-  projectDirOverride,
-  workspaceBacked,
-}: FilePreviewProps) {
-  const type = getPreviewType(filePath);
+export interface FilePreviewProps extends FilePreviewBaseProps {
+  filePath: string;
+  artifactLocator?: WorkspaceArtifactLocator;
+}
+
+export default function FilePreview(props: FilePreviewProps) {
+  const {
+    content,
+    chatId,
+    binaryUrl,
+    root,
+    projectDirOverride,
+    workspaceBacked,
+    artifactLocator,
+    artifactSize,
+    previewKind,
+  } = props;
+  const filePath = artifactLocator?.path ?? props.filePath;
+  const type = previewKind ?? getPreviewType(filePath);
 
   if (type === "image") {
     return (
@@ -476,6 +639,9 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
+        artifactLocator={artifactLocator}
+        artifactSize={artifactSize}
+        previewKind={previewKind}
       />
     );
   }
@@ -486,6 +652,9 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
+        artifactLocator={artifactLocator}
+        artifactSize={artifactSize}
+        previewKind={previewKind}
       />
     );
   }
@@ -502,6 +671,16 @@ export default function FilePreview({
       />
     );
   }
-  if (type === "csv") return <CsvPreview content={content} />;
-  return null;
+  if (type === "csv") {
+    const delimiter = filePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+    return <CsvPreview content={content} delimiter={delimiter} />;
+  }
+  if (type === "text") {
+    return <TextPreview filePath={filePath} content={content} />;
+  }
+  return (
+    <PreviewStatus icon={<FileWarning size={18} />}>
+      {"Preview unavailable"}
+    </PreviewStatus>
+  );
 }

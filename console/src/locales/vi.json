@@ -625,6 +625,8 @@
     }
   },
   "workspace": {
+    "openInFileManager": "Mở trong trình quản lý tệp",
+    "openFailed": "Không thể mở workspace trong trình quản lý tệp",
     "title": "Tệp tin",
     "workspacePath": "Workspace:",
     "noFiles": "Không có tệp tin",

@@ -1,0 +1,8 @@
+[[permission]]
+identifier = "open-workspace"
+description = "Allows opening the current agent workspace in the system file manager."
+commands.allow = [
+    "open_workspace_directory",
+    "open_workspace_artifact",
+    "reveal_workspace_artifact",
+]

@@ -12,10 +12,11 @@ import {
 } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import type { AgentSummary } from "@/api/types/agents";
+import type { AgentSummary, AgentWorkspaceRoot } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
+import { agentsApi } from "@/api/modules/agents";
 import { skillApi } from "@/api/modules/skill";
 import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
@@ -57,6 +58,11 @@ export function AgentModal({
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [workspaceRoots, setWorkspaceRoots] = useState<AgentWorkspaceRoot[]>(
+    [],
+  );
+  const [loadingWorkspaceRoots, setLoadingWorkspaceRoots] = useState(false);
+  const [workspaceRootsFailed, setWorkspaceRootsFailed] = useState(false);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
@@ -129,6 +135,38 @@ export function AgentModal({
     open,
     selectedBackend,
   ]);
+
+  useEffect(() => {
+    if (!open || editingAgent) return;
+
+    let active = true;
+    setLoadingWorkspaceRoots(true);
+    setWorkspaceRootsFailed(false);
+    agentsApi
+      .listWorkspaceRoots()
+      .then((data) => {
+        if (!active) return;
+        setWorkspaceRoots(data.roots);
+        const selectedRootId = form.getFieldValue("workspace_root_id");
+        if (!data.roots.some((root) => root.id === selectedRootId)) {
+          form.setFieldValue("workspace_root_id", data.roots[0]?.id);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setWorkspaceRoots([]);
+          setWorkspaceRootsFailed(true);
+          form.setFieldValue("workspace_root_id", undefined);
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingWorkspaceRoots(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [editingAgent, form, open]);
 
   const handleProviderChange = (providerId: string) => {
     form.setFieldsValue({
@@ -296,16 +334,34 @@ export function AgentModal({
             />
           </Space.Compact>
         </Form.Item>
-        <Form.Item
-          name="workspace_dir"
-          label={t("agent.workspace")}
-          help={!editingAgent ? t("agent.workspaceHelp") : undefined}
-        >
-          <Input
-            placeholder="~/.qwenpaw/workspaces/my-agent"
-            disabled={!!editingAgent}
-          />
-        </Form.Item>
+        {editingAgent ? (
+          <Form.Item name="workspace_dir" label={t("agent.workspace")}>
+            <Input disabled />
+          </Form.Item>
+        ) : (
+          <Form.Item
+            name="workspace_root_id"
+            label={t("agent.workspaceRoot")}
+            help={t("agent.workspaceRootHelp")}
+            rules={[{ required: true }]}
+          >
+            <Select
+              loading={loadingWorkspaceRoots}
+              disabled={workspaceRootsFailed}
+              showSearch
+              optionFilterProp="label"
+              options={workspaceRoots.map((root) => ({
+                value: root.id,
+                label: root.label,
+              }))}
+              notFoundContent={
+                workspaceRootsFailed
+                  ? t("agent.workspaceRootLoadFailed")
+                  : undefined
+              }
+            />
+          </Form.Item>
+        )}
       </Form>
 
       <div

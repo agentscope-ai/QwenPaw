@@ -22,9 +22,11 @@ from ...config.context import (
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from ..artifacts import register_current_artifact
 from ...utils.io_utils import (
     append_text_async,
     get_path_lock,
+    run_sync_io,
     write_text_atomic_async,
 )
 
@@ -316,6 +318,7 @@ async def write_file(
                 encoding=encoding,
                 new_file_mode=_USER_FILE_MODE,
             )
+        await run_sync_io(register_current_artifact, file_path)
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
@@ -444,6 +447,7 @@ async def edit_file(
                 encoding=encoding,
                 new_file_mode=_USER_FILE_MODE,
             )
+            await run_sync_io(register_current_artifact, resolved_path)
         except Exception as e:
             return ToolChunk(
                 is_last=True,
@@ -513,6 +517,7 @@ async def append_file(
             content,
             encoding=encoding,
         )
+        await run_sync_io(register_current_artifact, file_path)
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

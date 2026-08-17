@@ -11,6 +11,11 @@ from typing import Any
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from ..agents.artifacts import (
+    merge_artifact_manifests,
+    merge_artifact_root_mappings,
+)
+
 from ..runtime._state_utils import StateProxy
 from ..schemas import AgentResponse, Message, MessageType
 from .events import HarnessHistoryItem, HarnessHistoryKind
@@ -71,6 +76,8 @@ class HarnessSessionBridge:
         request: Any,
         response: AgentResponse,
         backend: str,
+        manifest: dict[str, Any] | None = None,
+        root_mappings: dict[str, dict[str, str]] | None = None,
     ) -> None:
         """Append one request and its normalized output atomically."""
         session_id = str(getattr(request, "session_id", "") or "default")
@@ -92,6 +99,14 @@ class HarnessSessionBridge:
         context.extend(self._request_messages(request, backend))
         context.extend(self._response_messages(response, backend))
         state["context"] = context
+        manifests = merge_artifact_manifests(agent_data, manifest)
+        if manifests:
+            agent_data["workspace_artifact_manifests"] = manifests
+        agent_data["workspace_artifact_roots"] = merge_artifact_root_mappings(
+            agent_data,
+            manifests,
+            root_mappings,
+        )
 
         proxy = StateProxy()
         agent_data["state"] = state
@@ -112,7 +127,11 @@ class HarnessSessionBridge:
     ) -> None:
         """Replace a materialized third-party transcript with empty state."""
         proxy = StateProxy()
-        proxy.data = {"state": AgentState().model_dump(mode="json")}
+        proxy.data = {
+            "state": AgentState().model_dump(mode="json"),
+            "workspace_artifact_manifests": [],
+            "workspace_artifact_roots": {},
+        }
         await self._session.save_session_state(
             session_id=session_id,
             user_id=user_id,

@@ -9,9 +9,9 @@ loop) and from ``app/channels`` command routing.
 Three return semantics (``HookAction``):
 
 * ``CONTINUE``      — default; proceed to the next hook / phase.
-* ``SHORT_CIRCUIT`` — Runtime emits the payload and ends; current phase
-                      stops, but ``ON_ERROR`` (if any) and ``FINALLY``
-                      still run.
+* ``SHORT_CIRCUIT``: Runtime emits the payload, skips dispatch and agent
+                     execution, then runs response finalization and
+                     ``FINALLY`` cleanup.
 * ``SKIP_AGENT``    — only the two fixed steps (``AgentBuilder.build`` and
                       ``AgentExecutor.run``) are skipped; all hook phases
                       still execute in order.
@@ -57,8 +57,8 @@ class HookResult:
 
     ``payload`` is contractually a ``Msg`` instance when
     ``action == SHORT_CIRCUIT``; the envelope state machine uses it to emit
-    a complete SSE sequence. Other shapes are rejected by the envelope
-    layer.
+    a completed command message. Other shapes are rejected by the envelope
+    layer. The runtime owns the single response-finalization event.
     """
 
     action: HookAction = HookAction.CONTINUE

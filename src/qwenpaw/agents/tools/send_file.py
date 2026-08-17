@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long,too-many-return-statements
 import os
 import mimetypes
+import stat
 import unicodedata
 from urllib.parse import unquote
 
@@ -11,7 +12,18 @@ from agentscope.message import ToolResultState
 from agentscope.message import TextBlock, DataBlock, URLSource
 
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
+from ..artifacts import register_current_artifact
 from .file_io import _resolve_file_path, _path_to_file_url
+
+
+def _inspect_file(file_path: str) -> str:
+    """Return the regular-file status without blocking the event loop."""
+    try:
+        file_stat = os.stat(file_path)
+    except OSError:
+        return "missing"
+    return "file" if stat.S_ISREG(file_stat.st_mode) else "not_file"
 
 
 @tool_descriptor(
@@ -47,7 +59,9 @@ async def send_file_to_user(
     # Resolve relative paths to absolute paths based on workspace directory
     file_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(file_path):
+    file_status = await run_sync_io(_inspect_file, file_path)
+
+    if file_status == "missing":
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
@@ -58,7 +72,7 @@ async def send_file_to_user(
             ],
         )
 
-    if not os.path.isfile(file_path):
+    if file_status != "file":
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
@@ -76,6 +90,7 @@ async def send_file_to_user(
         mime_type = "application/octet-stream"
 
     try:
+        await run_sync_io(register_current_artifact, file_path)
         file_url = _path_to_file_url(file_path)
 
         return ToolChunk(

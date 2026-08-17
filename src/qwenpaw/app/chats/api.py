@@ -14,6 +14,12 @@ from pydantic import BaseModel, Field
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from ...agents.artifacts import parse_manifest
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
+from ...services.project_directory import (
+    resolve_effective_project_dir,
+    session_project_dir,
+)
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
@@ -22,12 +28,11 @@ from .models import (
     ChatUpdate,
     ChatHistory,
 )
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
-from ...services.project_directory import (
-    resolve_effective_project_dir,
-    session_project_dir,
+from .utils import (
+    agentscope_msg_to_message,
+    merge_artifact_manifests,
+    parse_legacy_memory_state,
 )
-from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,17 @@ async def get_session(
     """
     workspace = await get_workspace(request)
     return workspace.session
+
+
+def _get_workspace_artifact_manifests(
+    state: dict,
+    agent_raw: dict,
+) -> list | object:
+    """Read manifests from the agent state with legacy root fallback."""
+    manifests = agent_raw.get("workspace_artifact_manifests")
+    if manifests is None:
+        manifests = state.get("workspace_artifact_manifests", [])
+    return manifests
 
 
 class ProjectDirectoryUpdate(BaseModel):
@@ -437,6 +453,14 @@ async def get_chat(
             memories, _summary = parse_legacy_memory_state(memory_raw)
 
     messages = agentscope_msg_to_message(memories)
+    manifests = _get_workspace_artifact_manifests(state, agent_raw)
+    if isinstance(manifests, list):
+        valid_manifests = []
+        for manifest in manifests:
+            parsed = parse_manifest(manifest)
+            if parsed is not None:
+                valid_manifests.append(parsed)
+        messages = merge_artifact_manifests(messages, valid_manifests)
     return ChatHistory(messages=messages, status=status)
 
 

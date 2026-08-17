@@ -14,6 +14,7 @@ parallel startup) is inherited unchanged.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from .multi_agent_manager import MultiAgentManager
@@ -34,7 +35,7 @@ class WorkspaceRegistry(MultiAgentManager):
         self.app_services = app_services
         self._bootstrap_kwargs = bootstrap_plugins_kwargs or {}
 
-    def _create_workspace(self, agent_id: str, workspace_dir: str) -> Any:
+    def _create_workspace(self, agent_id: str, workspace_dir: Path) -> Any:
         """Override to run bootstrap_plugins after creation."""
         from .workspace import Workspace
 

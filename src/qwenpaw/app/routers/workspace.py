@@ -35,7 +35,12 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import ORJSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    ORJSONResponse,
+    Response,
+    StreamingResponse,
+)
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
@@ -310,6 +315,60 @@ async def _resolve_files_root(
         status_code=400,
         detail="root must be project or workspace",
     )
+
+
+async def _resolve_artifact_root(
+    request: Request,
+    workspace: Any,
+    root: str,
+    root_ref: str | None,
+) -> Path:
+    """Resolve a pinned historical root or use the legacy resolver."""
+    if root_ref is None:
+        return await _resolve_files_root(request, workspace, root)
+    chat_id = request.headers.get("X-Chat-Id")
+    if not chat_id:
+        raise HTTPException(
+            status_code=400,
+            detail="X-Chat-Id is required with root_ref",
+        )
+    chat = await workspace.chat_manager.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    state = await workspace.session.get_session_state_dict(
+        chat.session_id,
+        chat.user_id,
+        chat.channel,
+    )
+    agent_state = state.get("agent", {})
+    roots = (
+        agent_state.get("workspace_artifact_roots", {})
+        if isinstance(agent_state, dict)
+        else {}
+    )
+    entry = roots.get(root_ref) if isinstance(roots, dict) else None
+    if not isinstance(entry, dict) or entry.get("root") != root:
+        raise HTTPException(status_code=404, detail="Artifact root not found")
+    raw_path = entry.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise HTTPException(status_code=404, detail="Artifact root not found")
+
+    def _resolve() -> Path:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            raise ValueError("Artifact root is not absolute")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_dir():
+            raise NotADirectoryError(str(resolved))
+        return resolved
+
+    try:
+        return await asyncio.to_thread(_resolve)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Artifact root is unavailable",
+        ) from exc
 
 
 @router.get(
@@ -828,6 +887,9 @@ async def list_code_files(request: Request) -> list[dict]:
 
 _CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _BINARY_FILE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+_ARTIFACT_FILE_MAX_BYTES = 250 * 1024 * 1024  # 250 MB
+_ARTIFACT_TEXT_PREVIEW_MAX_BYTES = 5 * 1024 * 1024
+_ARTIFACT_BINARY_PREVIEW_MAX_BYTES = 50 * 1024 * 1024
 
 _MIME_MAP: dict[str, str] = {
     # Images
@@ -844,6 +906,67 @@ _MIME_MAP: dict[str, str] = {
     # Data
     "csv": "text/csv",
 }
+
+_ARTIFACT_PREVIEW_MIME_MAP: dict[str, str] = {
+    **_MIME_MAP,
+    "avif": "image/avif",
+    "markdown": "text/markdown",
+    "md": "text/markdown",
+    "mdx": "text/markdown",
+    "tsv": "text/tab-separated-values",
+    "css": "text/css",
+    "html": "text/html",
+    "ini": "text/plain",
+    "js": "text/javascript",
+    "json": "application/json",
+    "log": "text/plain",
+    "py": "text/plain",
+    "toml": "text/plain",
+    "ts": "text/plain",
+    "tsx": "text/plain",
+    "txt": "text/plain",
+    "xml": "application/xml",
+    "yaml": "text/yaml",
+    "yml": "text/yaml",
+}
+_ARTIFACT_TEXT_PREVIEW_EXTENSIONS = frozenset(
+    {
+        "css",
+        "html",
+        "ini",
+        "js",
+        "json",
+        "log",
+        "markdown",
+        "md",
+        "mdx",
+        "py",
+        "toml",
+        "ts",
+        "tsv",
+        "tsx",
+        "txt",
+        "xml",
+        "yaml",
+        "yml",
+    },
+)
+
+
+def _resolve_artifact_file(workspace_dir: Path, file_path: str) -> Path:
+    """Resolve one existing regular file inside an agent workspace."""
+    target = safe_join(workspace_dir, file_path)
+    try:
+        stat_result = target.stat()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not stat.S_ISREG(stat_result.st_mode):
+        raise HTTPException(status_code=404, detail="File not found")
+    if stat_result.st_size > _ARTIFACT_FILE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Artifact is too large")
+    return target
 
 
 @router.get(
@@ -901,6 +1024,128 @@ async def read_binary_file(
         media_type=mime,
         headers={"Content-Length": str(size)},
     )
+
+
+@router.get(
+    "/artifacts/{file_path:path}",
+    summary="Download a workspace artifact",
+)
+async def download_artifact_file(
+    file_path: str,
+    request: Request,
+    root: str = Query(default="workspace"),
+    root_ref: str | None = Query(default=None),
+) -> FileResponse:
+    """Download one regular file from a controlled artifact root."""
+    workspace = await get_agent_for_request(request)
+    artifact_root = await _resolve_artifact_root(
+        request,
+        workspace,
+        root,
+        root_ref,
+    )
+    target = await asyncio.to_thread(
+        _resolve_artifact_file,
+        artifact_root,
+        file_path,
+    )
+    return FileResponse(
+        target,
+        filename=target.name,
+        media_type=mimetypes.guess_type(target.name)[0]
+        or "application/octet-stream",
+    )
+
+
+def _resolve_artifact_preview_file(
+    workspace_dir: Path,
+    file_path: str,
+) -> tuple[Path, str]:
+    """Resolve an artifact and enforce the smaller preview size limits."""
+    target = safe_join(workspace_dir, file_path)
+    extension = target.suffix.lstrip(".").lower()
+    media_type = _ARTIFACT_PREVIEW_MIME_MAP.get(extension)
+    if media_type is None:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Preview not supported for .{extension} files",
+        )
+
+    try:
+        stat_result = target.stat()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not stat.S_ISREG(stat_result.st_mode):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    limit = (
+        _ARTIFACT_TEXT_PREVIEW_MAX_BYTES
+        if extension in _ARTIFACT_TEXT_PREVIEW_EXTENSIONS
+        else _ARTIFACT_BINARY_PREVIEW_MAX_BYTES
+    )
+    if stat_result.st_size > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Artifact preview is too large ({stat_result.st_size} bytes"
+                f" > {limit} bytes limit)"
+            ),
+        )
+    return target, media_type
+
+
+@router.get(
+    "/artifact-previews/{file_path:path}",
+    summary="Preview one workspace artifact",
+)
+async def preview_artifact_file(
+    file_path: str,
+    request: Request,
+    root: str = Query(default="workspace"),
+    root_ref: str | None = Query(default=None),
+) -> FileResponse:
+    """Serve an artifact with the smaller preview-specific size limit."""
+    workspace = await get_agent_for_request(request)
+    artifact_root = await _resolve_artifact_root(
+        request,
+        workspace,
+        root,
+        root_ref,
+    )
+    target, media_type = await asyncio.to_thread(
+        _resolve_artifact_preview_file,
+        artifact_root,
+        file_path,
+    )
+    return FileResponse(target, media_type=media_type)
+
+
+@router.get(
+    "/artifact-file-uri/{file_path:path}",
+    summary="Resolve one artifact for a local desktop action",
+)
+async def artifact_file_uri(
+    file_path: str,
+    request: Request,
+    root: str = Query(default="workspace"),
+    root_ref: str | None = Query(default=None),
+) -> dict[str, str]:
+    """Return a validated file URI for the loopback desktop bridge."""
+    workspace = await get_agent_for_request(request)
+    artifact_root = await _resolve_artifact_root(
+        request,
+        workspace,
+        root,
+        root_ref,
+    )
+    target = await asyncio.to_thread(
+        _resolve_artifact_file,
+        artifact_root,
+        file_path,
+    )
+    return {"uri": target.as_uri()}
 
 
 def _file_etag(stat_result: os.stat_result) -> str:

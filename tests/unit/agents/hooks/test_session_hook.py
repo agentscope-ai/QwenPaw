@@ -20,6 +20,9 @@ class _FakeSession:
         self.saved = False
         self.load_payload = {}
         self.saved_payload = {}
+        self.state_dict = {"agent": {}}
+        self.updated_key = None
+        self.updated_value = None
         self.save_error = save_error
 
     async def load_session_state(self, *args, **kwargs) -> None:
@@ -34,6 +37,15 @@ class _FakeSession:
         self.saved = True
         self.saved_payload = kwargs["agent"].state_dict()
 
+    async def get_session_state_dict(self, *args, **kwargs) -> dict:
+        del args, kwargs
+        return self.state_dict
+
+    async def update_session_state(self, *args, **kwargs) -> None:
+        del args
+        self.updated_key = kwargs["key"]
+        self.updated_value = kwargs["value"]
+
 
 def _ctx(session: _FakeSession, *, ephemeral: bool):
     return SimpleNamespace(
@@ -46,6 +58,7 @@ def _ctx(session: _FakeSession, *, ephemeral: bool):
         agent=SimpleNamespace(state_dict=lambda: {"context": []}),
         session_id="warmup-session",
         mode_state={},
+        session_state=None,
         extras={},
     )
 
@@ -87,3 +100,30 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
 
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+async def test_manifest_is_persisted_without_built_agent():
+    session = _FakeSession()
+    session.state_dict = {
+        "agent": {
+            "workspace_artifact_manifests": [
+                {"version": 1, "turn_id": "turn-1"},
+            ],
+        },
+    }
+    ctx = _ctx(session, ephemeral=False)
+    ctx.agent = None
+    ctx.extras["workspace_artifact_manifest"] = {
+        "version": 1,
+        "turn_id": "turn-2",
+    }
+
+    await SessionSaveHook().run(ctx)
+
+    assert session.saved is True
+    assert session.saved_payload["workspace_artifact_manifests"] == [
+        {"version": 1, "turn_id": "turn-1"},
+        {"version": 1, "turn_id": "turn-2"},
+    ]
+    assert session.saved_payload["workspace_artifact_roots"] == {}
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is True

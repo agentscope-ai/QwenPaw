@@ -9,6 +9,7 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     AgentsConfig,
     Config,
+    ToolsConfig,
     load_agent_config,
     migrate_channel_display_fields,
 )
@@ -89,13 +90,20 @@ def test_loaded_agent_config_migration_persists(
     raw["channels"] = {"slack": {"filter_tool_messages": True}}
     agent_config_path.write_text(json.dumps(raw), encoding="utf-8")
 
+    monkeypatch.setattr(
+        "qwenpaw.config.paths.WORKING_DIR",
+        tmp_path,
+    )
     root_config = Config(
+        tools=ToolsConfig(builtin_tools={}),
         agents=AgentsConfig(
             active_agent="agent",
             profiles={
                 "agent": AgentProfileRef(
                     id="agent",
                     workspace_dir=str(workspace_dir),
+                    workspace_root_id="default",
+                    workspace_name="agent",
                 ),
             },
         ),

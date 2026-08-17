@@ -11,6 +11,7 @@ Each Workspace represents a standalone agent workspace with its own:
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
 import logging
+import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Iterable, Optional
 
@@ -32,6 +33,8 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
+from ...agents.artifacts import ArtifactCoordinator, ArtifactTurn
+from ...services.project_directory import resolve_effective_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +53,17 @@ class Workspace:
     to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(self, agent_id: str, workspace_dir: Path):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
-            workspace_dir: Path to agent's workspace directory
+            workspace_dir: Trusted, resolved agent workspace directory
         """
+        if not isinstance(workspace_dir, Path):
+            raise TypeError("workspace_dir must be a resolved Path")
         self.agent_id = agent_id
-        self.workspace_dir = Path(workspace_dir).expanduser()
+        self.workspace_dir = workspace_dir
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
         # Per-workspace pluggable registries (tools, hooks, commands, prompts)
@@ -79,6 +84,7 @@ class Workspace:
         self._started = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
+        self.artifact_coordinator = ArtifactCoordinator()
         self._app_services: Any = None
         self._harness_runtime = None
 
@@ -314,13 +320,50 @@ class Workspace:
                 "user_id": getattr(request, "user_id", None),
                 "channel": getattr(request, "channel", None) or "console",
             }
-            async for item in self.harness_runtime.stream(
-                backend=backend,
-                request=request,
-                cwd=self.workspace_dir.resolve(),
-                settings=settings,
-            ):
-                yield item
+            trusted_override = request_context.get("project_dir")
+            if not isinstance(trusted_override, str):
+                trusted_override = None
+            project_dir, _source = resolve_effective_project_dir(
+                self.workspace_dir,
+                agent_project_dir=getattr(config, "project_dir", None),
+                trusted_override=trusted_override,
+            )
+            artifact_turn = ArtifactTurn(
+                coordinator=self.artifact_coordinator,
+                workspace_dir=self.workspace_dir,
+                project_dir=project_dir,
+                agent_id=self.agent_id,
+                session_id=str(
+                    getattr(request, "session_id", None) or "default",
+                ),
+                turn_id=uuid.uuid4().hex,
+            )
+            try:
+                await artifact_turn.begin()
+            except Exception:
+                logger.debug(
+                    "Harness artifact pre-scan failed",
+                    exc_info=True,
+                )
+                artifact_turn = None
+            try:
+                async for item in self.harness_runtime.stream(
+                    backend=backend,
+                    request=request,
+                    cwd=project_dir,
+                    settings=settings,
+                    artifact_turn=artifact_turn,
+                ):
+                    yield item
+            finally:
+                if artifact_turn is not None:
+                    try:
+                        await artifact_turn.cleanup()
+                    except Exception:
+                        logger.debug(
+                            "Harness artifact cleanup failed",
+                            exc_info=True,
+                        )
             return
 
         from ...runtime import Runtime

@@ -10,6 +10,8 @@ mod external_link;
 mod runtime_env;
 mod tray;
 mod updates;
+mod workspace;
+mod workspace_resolver;
 
 use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
 
@@ -40,6 +42,9 @@ pub fn run() {
             backend::backend_startup_error,
             backend::restart_backend,
             external_link::open_external_link,
+            workspace::open_workspace_directory,
+            workspace::open_workspace_artifact,
+            workspace::reveal_workspace_artifact,
             external_link::open_workspace_html,
             updates::check_desktop_update,
             updates::install_desktop_update,

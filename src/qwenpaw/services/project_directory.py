@@ -6,10 +6,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..constant import WORKING_DIR
 
-def normalize_project_dir(value: str | Path) -> Path:
-    """Normalize one configured project directory for the current platform."""
-    return Path(value).expanduser().resolve()
+
+def normalize_project_dir(
+    value: str | Path,
+    *,
+    working_dir: Path | None = None,
+) -> Path:
+    """Resolve a project path against the QwenPaw working directory."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (working_dir or WORKING_DIR) / path
+    return path.resolve()
 
 
 def session_project_dir(meta: dict[str, Any] | None) -> str | None:
@@ -25,11 +34,13 @@ def session_project_dir(meta: dict[str, Any] | None) -> str | None:
 
 def resolve_effective_project_dir(
     workspace_dir: Path,
+    *,
     agent_project_dir: str | None = None,
     session_override: str | None = None,
     trusted_override: str | None = None,
     active_mode_override: str | None = None,
     fork_project_dir: str | None = None,
+    working_dir: Path | None = None,
 ) -> tuple[Path, str]:
     """Resolve one immutable project directory snapshot and its source."""
     candidates = (
@@ -41,5 +52,8 @@ def resolve_effective_project_dir(
     )
     for source, value in candidates:
         if isinstance(value, str) and value.strip():
-            return normalize_project_dir(value), source
+            return (
+                normalize_project_dir(value, working_dir=working_dir),
+                source,
+            )
     return workspace_dir.expanduser().resolve(), "workspace_fallback"

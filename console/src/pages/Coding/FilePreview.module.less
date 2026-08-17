@@ -14,6 +14,20 @@
   font-size: 13px;
 }
 
+.previewState {
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+}
+
+.textWrap {
+  min-height: 100%;
+  overflow: auto;
+}
+
 .spinning {
   display: inline-flex;
   animation: preview-spin 900ms linear infinite;

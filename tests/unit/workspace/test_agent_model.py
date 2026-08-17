@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
 """Tests for per-agent model configuration."""
+# pylint: disable=no-name-in-module
+import json
 from pathlib import Path
 
 import pytest
-from qwenpaw.exceptions import (
-    ConfigurationException,
-)
 
+from qwenpaw.config import paths as config_paths
+from qwenpaw.config import utils as config_utils
 from qwenpaw.config.config import (
     AgentProfileConfig,
+    AgentProfileRef,
+    AgentsConfig,
     AgentsRunningConfig,
+    Config,
+    ModelSlotConfig,
     load_agent_config,
     save_agent_config,
 )
@@ -18,22 +23,21 @@ from qwenpaw.constant import (
     LLM_BACKOFF_CAP,
     LLM_MAX_RETRIES,
 )
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.exceptions import ConfigurationException
 
 
 @pytest.fixture
 def mock_agent_workspace(tmp_path, monkeypatch):
     """Create a temporary agent workspace for testing."""
-    import json
-    from qwenpaw.config.utils import get_config_path
-    from qwenpaw.config.config import Config, AgentsConfig, AgentProfileRef
-
     # Setup workspace directory
     workspace_dir = tmp_path / "workspaces" / "test_agent"
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr("qwenpaw.config.utils.WORKING_DIR", tmp_path)
     monkeypatch.setattr("qwenpaw.config.config.WORKING_DIR", tmp_path)
+    monkeypatch.setattr(config_paths, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(config_utils, "_config_cache", None)
+    monkeypatch.setattr(config_utils, "_config_mtime", None)
 
     # Create root config with this agent
     root_config = Config(
@@ -43,12 +47,16 @@ def mock_agent_workspace(tmp_path, monkeypatch):
                 "test_agent": AgentProfileRef(
                     id="test_agent",
                     workspace_dir=str(workspace_dir),
+                    workspace_root_id=(
+                        config_paths.DEFAULT_AGENT_WORKSPACE_ROOT_ID
+                    ),
+                    workspace_name="test_agent",
                 ),
             },
         ),
     )
 
-    config_path = Path(get_config_path())
+    config_path = Path(config_utils.get_config_path())
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(root_config.model_dump(exclude_none=True), f)
@@ -139,16 +147,11 @@ def test_different_agents_have_independent_models(tmp_path, monkeypatch):
     """Test that different agents can have different model configs."""
     monkeypatch.setattr("qwenpaw.config.utils.WORKING_DIR", tmp_path)
     monkeypatch.setattr("qwenpaw.config.config.WORKING_DIR", tmp_path)
+    monkeypatch.setattr(config_paths, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(config_utils, "_config_cache", None)
+    monkeypatch.setattr(config_utils, "_config_mtime", None)
 
     # Create two agents
-    import json
-    from qwenpaw.config.config import (
-        Config,
-        AgentsConfig,
-        AgentProfileRef,
-    )
-    from qwenpaw.config.utils import get_config_path
-
     agent1_dir = tmp_path / "workspaces" / "agent1"
     agent2_dir = tmp_path / "workspaces" / "agent2"
     agent1_dir.mkdir(parents=True, exist_ok=True)
@@ -162,16 +165,24 @@ def test_different_agents_have_independent_models(tmp_path, monkeypatch):
                 "agent1": AgentProfileRef(
                     id="agent1",
                     workspace_dir=str(agent1_dir),
+                    workspace_root_id=(
+                        config_paths.DEFAULT_AGENT_WORKSPACE_ROOT_ID
+                    ),
+                    workspace_name="agent1",
                 ),
                 "agent2": AgentProfileRef(
                     id="agent2",
                     workspace_dir=str(agent2_dir),
+                    workspace_root_id=(
+                        config_paths.DEFAULT_AGENT_WORKSPACE_ROOT_ID
+                    ),
+                    workspace_name="agent2",
                 ),
             },
         ),
     )
 
-    config_path = Path(get_config_path())
+    config_path = Path(config_utils.get_config_path())
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(root_config.model_dump(exclude_none=True), f)
@@ -219,8 +230,6 @@ def test_model_config_excluded_when_none(
     save_agent_config("test_agent", agent_config)
 
     # Read the raw JSON file
-    import json
-
     agent_json_path = mock_agent_workspace / "agent.json"
     with open(agent_json_path, "r", encoding="utf-8") as f:
         raw_data = json.load(f)
@@ -241,8 +250,6 @@ def test_model_config_included_when_set(
     save_agent_config("test_agent", agent_config)
 
     # Read the raw JSON file
-    import json
-
     agent_json_path = mock_agent_workspace / "agent.json"
     with open(agent_json_path, "r", encoding="utf-8") as f:
         raw_data = json.load(f)

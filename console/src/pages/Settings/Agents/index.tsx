@@ -40,7 +40,7 @@ export default function AgentsPage() {
     setEditingAgent(null);
     form.resetFields();
     form.setFieldsValue({
-      workspace_dir: "",
+      workspace_root_id: "default",
       active_model_provider: undefined,
       active_model_model: undefined,
       backend: "qwenpaw",
@@ -138,12 +138,6 @@ export default function AgentsPage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const workspaceRaw = values.workspace_dir;
-      const workspace_dir =
-        typeof workspaceRaw === "string"
-          ? workspaceRaw.trim() || undefined
-          : workspaceRaw;
-
       const providerId = values.active_model_provider;
       const modelId = values.active_model_model;
       const active_model =
@@ -151,8 +145,13 @@ export default function AgentsPage() {
           ? { provider_id: providerId, model: modelId }
           : null;
 
-      const { active_model_provider, active_model_model, ...rest } = values;
-      const payload = { ...rest, workspace_dir, active_model };
+      const {
+        active_model_provider,
+        active_model_model,
+        workspace_dir,
+        workspace_root_id,
+        ...rest
+      } = values;
 
       if (editingAgent) {
         const previousInstalledSkills = installedSkillsRef.current;
@@ -169,7 +168,11 @@ export default function AgentsPage() {
             targets: [{ workspace_id: editingAgent.id }],
           });
         }
-        await agentsApi.updateAgent(editingAgent.id, payload);
+        await agentsApi.updateAgent(editingAgent.id, {
+          ...rest,
+          workspace_dir,
+          active_model,
+        });
         installedSkillsRef.current = [
           ...previousInstalledSkills,
           ...newSkills.filter(
@@ -180,7 +183,9 @@ export default function AgentsPage() {
         message.success(t("agent.updateSuccess"));
       } else {
         const result = await agentsApi.createAgent({
-          ...payload,
+          ...rest,
+          workspace_root_id,
+          active_model,
           language: i18n.language,
           skill_names: values.backend === "qwenpaw" ? selectedSkills : [],
         });

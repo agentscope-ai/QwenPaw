@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for persisted agent ordering."""
+# pylint: disable=no-name-in-module
 
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     Config,
 )
+from qwenpaw.config import paths as config_paths
 from qwenpaw.config.utils import load_config, save_config
 from qwenpaw.app.routers import agents as agents_router
 
@@ -25,7 +27,9 @@ def _build_config(
     config.agents.profiles = {
         agent_id: AgentProfileRef(
             id=agent_id,
-            workspace_dir=f"/tmp/{agent_id}",
+            workspace_dir=f"workspaces/{agent_id}",
+            workspace_root_id=config_paths.DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+            workspace_name=agent_id,
             pinned=agent_id in (pinned_ids or set()),
         )
         for agent_id in profile_ids
@@ -290,6 +294,11 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
         "generate_short_agent_id",
         lambda: "beta",
     )
+    monkeypatch.setattr(
+        agents_router,
+        "resolve_workspace_identity",
+        lambda _root_id, workspace_name: tmp_path / workspace_name,
+    )
     manager = SimpleNamespace(schedule_agent_startup=lambda agent_id: None)
     scheduled_ids: list[str] = []
     manager.schedule_agent_startup = scheduled_ids.append
@@ -302,7 +311,7 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     await agents_router.create_agent(
         agents_router.CreateAgentRequest(
             name="Beta",
-            workspace_dir=str(tmp_path / "beta"),
+            workspace_root_id=config_paths.DEFAULT_AGENT_WORKSPACE_ROOT_ID,
             backend="codex",
         ),
         http_request=http_request,

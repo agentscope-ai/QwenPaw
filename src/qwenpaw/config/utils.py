@@ -19,6 +19,7 @@ from json_repair import repair_json
 
 from pydantic import ValidationError
 
+from ..exceptions import ConfigurationException
 from ..constant import (
     HEARTBEAT_FILE,
     JOBS_FILE,
@@ -28,6 +29,7 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
+from ..utils.io_utils import write_json_atomic
 from .config import (
     Config,
     HeartbeatConfig,
@@ -37,6 +39,7 @@ from .config import (
     migrate_channel_display_fields,
     save_agent_config,
 )
+from .paths import migrate_legacy_agent_workspace_profiles
 
 logger = logging.getLogger(__name__)
 
@@ -530,7 +533,7 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def _load_and_validate_config(
+def _load_and_validate_config(  # pylint: disable=too-many-statements
     config_path: Path,
     data: dict,
 ) -> Config:
@@ -544,6 +547,17 @@ def _load_and_validate_config(
     migrated_display = migrate_channel_display_fields(channels)
     migrated_data = data
     data = _normalize_working_dir_bound_paths(data)
+    try:
+        migrated_workspaces = migrate_legacy_agent_workspace_profiles(data)
+    except ValueError as exc:
+        _backup_config_file(
+            config_path,
+            f"invalid agent workspace path: {exc}",
+        )
+        raise ConfigurationException(
+            config_key="agents.profiles",
+            message=f"Invalid agent workspace configuration: {exc}",
+        ) from exc
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
@@ -572,7 +586,27 @@ def _load_and_validate_config(
             )
             return Config()
 
-    if migrated_weixin or migrated_display:
+    if migrated_workspaces:
+        try:
+            backup_path = config_path.with_suffix(
+                f".{uuid.uuid4().hex[:8]}.workspace-migrate.bak",
+            )
+            shutil.copy2(config_path, backup_path)
+            write_json_atomic(
+                config_path,
+                config.model_dump(mode="json", by_alias=True),
+            )
+            logger.warning(
+                "Migrated agent workspace identities in %s (backup: %s)",
+                config_path,
+                backup_path,
+            )
+        except OSError:
+            logger.warning(
+                "Failed to persist workspace identity migration: %s",
+                config_path,
+            )
+    elif migrated_weixin or migrated_display:
         try:
             migration_name = (
                 "channel-display" if migrated_display else "weixin"
@@ -661,6 +695,10 @@ def strict_validate_config_file(
         return False, f"unreadable or invalid JSON — {config_path}"
 
     data = _normalize_working_dir_bound_paths(data)
+    try:
+        migrate_legacy_agent_workspace_profiles(data)
+    except ValueError as exc:
+        return False, f"{config_path}: {exc}"
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
         if "host" not in la and "last_api_host" in data:

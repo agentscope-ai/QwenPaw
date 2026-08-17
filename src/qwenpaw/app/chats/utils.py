@@ -903,3 +903,85 @@ def agentscope_msg_to_message(
             results.append(current_message.completed())
 
     return results
+
+
+def artifact_manifest_to_messages(manifest: dict) -> List[Message]:
+    """Convert a stored workspace manifest to the standard tool pair."""
+    call_id = f"workspace_artifacts_{manifest.get('turn_id', '')}"
+    call = Message(
+        type=MessageType.PLUGIN_CALL,
+        role="assistant",
+        content=[
+            DataContent(
+                data=FunctionCall(
+                    call_id=call_id,
+                    name="workspace_artifacts",
+                    arguments="{}",
+                ).model_dump(),
+                delta=False,
+                index=None,
+            ),
+        ],
+    )
+    metadata = {
+        "timestamp": manifest.get("created_at"),
+        "workspace_artifact": True,
+        "agent_id": manifest.get("agent_id"),
+    }
+    call.metadata = metadata
+    result = Message(
+        type=MessageType.PLUGIN_CALL_OUTPUT,
+        role="tool",
+        content=[
+            DataContent(
+                data=FunctionCallOutput(
+                    call_id=call_id,
+                    name="workspace_artifacts",
+                    output=json.dumps(manifest, ensure_ascii=False),
+                ).model_dump(),
+                delta=False,
+                index=None,
+            ),
+        ],
+    )
+    result.metadata = metadata
+    return [call.completed(), result.completed()]
+
+
+def _parse_history_timestamp(value: object) -> datetime | None:
+    """Parse an ISO timestamp into an aware UTC datetime."""
+    if not value:
+        return None
+    try:
+        timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc)
+
+
+def merge_artifact_manifests(
+    messages: List[Message],
+    manifests: list[dict],
+) -> List[Message]:
+    """Insert stored artifact tool pairs near their originating turns."""
+    merged = list(messages)
+    ordered = sorted(
+        manifests,
+        key=lambda item: _parse_history_timestamp(item.get("created_at"))
+        or datetime.max.replace(tzinfo=timezone.utc),
+    )
+    for manifest in ordered:
+        created_at = _parse_history_timestamp(manifest.get("created_at"))
+        insert_at = len(merged)
+        if created_at:
+            for index, message in enumerate(merged):
+                metadata = message.metadata or {}
+                timestamp = _parse_history_timestamp(metadata.get("timestamp"))
+                if timestamp and timestamp > created_at:
+                    insert_at = index
+                    break
+        pair = artifact_manifest_to_messages(manifest)
+        merged[insert_at:insert_at] = pair
+    return merged

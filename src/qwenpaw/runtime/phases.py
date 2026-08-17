@@ -34,6 +34,7 @@ class Phase(str, Enum):
     POST_AGENT_BUILD = "post_agent_build"
     PRE_EXECUTE = "pre_execute"
     POST_RESPONSE = "post_response"
+    FINALIZE_TURN = "finalize_turn"
     ON_ERROR = "on_error"
     FINALLY = "finally"
 

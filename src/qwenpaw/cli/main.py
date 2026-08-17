@@ -173,6 +173,11 @@ def _looks_like_project_path(value: str) -> bool:
         "auth": ("qwenpaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "agent": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
+        "workspace-root": (
+            "qwenpaw.cli.workspace_roots_cmd",
+            "workspace_roots_group",
+            ".workspace_roots_cmd",
+        ),
         "plugin": (
             "qwenpaw.cli.plugin_commands",
             "plugin",

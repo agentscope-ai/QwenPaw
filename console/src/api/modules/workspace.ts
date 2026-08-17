@@ -14,6 +14,7 @@ import type {
   FileMetadata,
   WorkspaceRoot,
 } from "../../features/files-workspace/types";
+import type { WorkspaceArtifactLocator } from "../../types/workspaceArtifacts";
 
 function getSelectedAgentId(): string {
   try {
@@ -48,6 +49,10 @@ function generateFallbackFilename(): string {
 
 function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
+}
+
+function getAgentWorkspaceUrl(agentId: string, route: string): string {
+  return getApiUrl(`/agents/${encodeURIComponent(agentId)}/workspace${route}`);
 }
 
 function workspaceQuery(
@@ -467,5 +472,32 @@ export const workspaceApi = {
         .split("/")
         .map(encodeURIComponent)
         .join("/")}`,
+    ),
+
+  getArtifactFileUrl: (locator: WorkspaceArtifactLocator) =>
+    getAgentWorkspaceUrl(
+      locator.agentId,
+      workspaceQuery(`/artifacts/${encodePath(locator.path)}`, {
+        root: locator.root,
+        root_ref: locator.rootRef,
+      }),
+    ),
+
+  getArtifactPreviewUrl: (locator: WorkspaceArtifactLocator) =>
+    getAgentWorkspaceUrl(
+      locator.agentId,
+      workspaceQuery(`/artifact-previews/${encodePath(locator.path)}`, {
+        root: locator.root,
+        root_ref: locator.rootRef,
+      }),
+    ),
+
+  getArtifactFileUriUrl: (locator: WorkspaceArtifactLocator) =>
+    getAgentWorkspaceUrl(
+      locator.agentId,
+      workspaceQuery(`/artifact-file-uri/${encodePath(locator.path)}`, {
+        root: locator.root,
+        root_ref: locator.rootRef,
+      }),
     ),
 };

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import (
     Any,
@@ -32,6 +33,14 @@ from qwenpaw.exceptions import (
     ConfigurationException,
 )
 
+from .paths import (
+    DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+    resolve_agent_workspace_roots,
+    resolve_workspace_child_path,
+    resolve_workspace_identity,
+    sanitize_agent_path_segment,
+    sanitize_workspace_root_id,
+)
 from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
@@ -50,6 +59,7 @@ from ..constant import (
 )
 from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
+from ..services.project_directory import normalize_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -1797,7 +1807,15 @@ class AgentProfileRef(BaseModel):
     id: str = Field(..., description="Unique agent ID")
     workspace_dir: str = Field(
         ...,
-        description="Path to agent's workspace directory",
+        description="Resolved workspace path for compatibility and display",
+    )
+    workspace_root_id: str | None = Field(
+        default=None,
+        description="Server-configured root containing this workspace",
+    )
+    workspace_name: str | None = Field(
+        default=None,
+        description="Single safe directory name below the workspace root",
     )
     enabled: bool = Field(
         default=True,
@@ -1807,6 +1825,28 @@ class AgentProfileRef(BaseModel):
         default=False,
         description="Whether agent is pinned in agent selectors",
     )
+
+    @field_validator("workspace_root_id")
+    @classmethod
+    def _validate_workspace_root_id(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        """Validate a persisted workspace root identifier."""
+        if value is None:
+            return None
+        return sanitize_workspace_root_id(value)
+
+    @field_validator("workspace_name")
+    @classmethod
+    def _validate_workspace_name(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        """Validate a persisted workspace directory name."""
+        if value is None:
+            return None
+        return sanitize_agent_path_segment(value)
 
 
 class PlanConfig(BaseModel):
@@ -1928,6 +1968,18 @@ class AgentProfileConfig(BaseModel):
         description="Coding Mode configuration for this agent",
     )
 
+    @field_validator("project_dir", mode="before")
+    @classmethod
+    def _normalize_project_dir(cls, value: Any) -> str | None:
+        """Persist one cross-runtime absolute project directory value."""
+        if value is None:
+            return None
+        if not isinstance(value, (str, Path)):
+            return value
+        if not str(value).strip():
+            return None
+        return str(normalize_project_dir(value))
+
 
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
@@ -1945,6 +1997,8 @@ class AgentsConfig(BaseModel):
             "default": AgentProfileRef(
                 id="default",
                 workspace_dir=f"{WORKING_DIR}/workspaces/default",
+                workspace_root_id=DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+                workspace_name="default",
             ),
         },
         description="Agent profile references (ID and workspace path only)",
@@ -2708,6 +2762,32 @@ class Config(BaseModel):
         "listed, downloaded to a workspace, and deleted.",
     )
 
+    @model_validator(mode="after")
+    def _resolve_agent_workspace_references(self) -> "Config":
+        """Canonicalize compatibility paths from trusted identities."""
+        roots = resolve_agent_workspace_roots()
+        for agent_id, agent_ref in self.agents.profiles.items():
+            root_id = agent_ref.workspace_root_id
+            workspace_name = agent_ref.workspace_name
+            if root_id is None or workspace_name is None:
+                root_id = DEFAULT_AGENT_WORKSPACE_ROOT_ID
+                workspace_name = sanitize_agent_path_segment(agent_id)
+                workspace_dir = resolve_workspace_identity(
+                    root_id,
+                    workspace_name,
+                    roots=roots,
+                )
+                agent_ref.workspace_root_id = root_id
+                agent_ref.workspace_name = workspace_name
+            else:
+                workspace_dir = resolve_workspace_identity(
+                    root_id,
+                    workspace_name,
+                    roots=roots,
+                )
+            agent_ref.workspace_dir = str(workspace_dir)
+        return self
+
 
 ChannelConfigUnion = Union[
     IMessageChannelConfig,
@@ -2734,9 +2814,80 @@ ChannelConfigUnion = Union[
 # Agent configuration utility functions
 
 
+def resolve_agent_profile_workspace(
+    agent_id: str,
+    config: Config | None = None,
+    *,
+    roots: Mapping[str, Path] | None = None,
+) -> Path:
+    """Resolve an agent workspace from its trusted persisted identity."""
+    if config is None:
+        from .utils import load_config
+
+        config = load_config()
+
+    safe_agent_id = sanitize_agent_path_segment(agent_id)
+    if safe_agent_id not in config.agents.profiles:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' not found in config",
+        )
+
+    agent_ref = config.agents.profiles[safe_agent_id]
+    root_id = getattr(agent_ref, "workspace_root_id", None)
+    workspace_name = getattr(agent_ref, "workspace_name", None)
+    if root_id is None or workspace_name is None:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' has no registered workspace identity",
+        )
+    workspace_dir = resolve_workspace_identity(
+        root_id,
+        workspace_name,
+        roots=roots,
+    )
+
+    agent_ref.workspace_dir = str(workspace_dir)
+    return workspace_dir
+
+
+def resolve_agent_profile_config_path(
+    agent_id: str,
+    config: Config | None = None,
+) -> Path:
+    """Resolve one agent.json below a trusted agent workspace."""
+    workspace_dir = resolve_agent_profile_workspace(agent_id, config)
+    return resolve_workspace_child_path(workspace_dir, "agent.json")
+
+
+def resolve_registered_agent_profile_workspace(
+    agent_id: str,
+    config: Config,
+    *,
+    roots: Mapping[str, Path] | None = None,
+) -> Path:
+    """Resolve a workspace using only its persisted trusted identity."""
+    safe_agent_id = sanitize_agent_path_segment(agent_id)
+    agent_ref = config.agents.profiles[safe_agent_id]
+    root_id = agent_ref.workspace_root_id
+    workspace_name = agent_ref.workspace_name
+    if root_id is None or workspace_name is None:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' has no registered workspace identity",
+        )
+    return resolve_workspace_identity(
+        root_id,
+        workspace_name,
+        roots=roots,
+    )
+
+
 def build_fallback_agent_profile_config(
     agent_id: str,
     config: "Config",
+    *,
+    roots: Mapping[str, Path] | None = None,
 ) -> AgentProfileConfig:
     """Build the same profile as when ``agent.json``
     is missing (no disk read/write).
@@ -2747,8 +2898,11 @@ def build_fallback_agent_profile_config(
     if agent_id not in config.agents.profiles:
         raise ValueError(f"Agent '{agent_id}' not found in config")
 
-    agent_ref = config.agents.profiles[agent_id]
-    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+    workspace_dir = resolve_registered_agent_profile_workspace(
+        agent_id,
+        config,
+        roots=roots,
+    )
     return AgentProfileConfig(
         id=agent_id,
         name=agent_id.title(),
@@ -2899,6 +3053,9 @@ def migrate_project_directory_config(data: object) -> bool:
 
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
+    *,
+    config: Config | None = None,
+    roots: Mapping[str, Path] | None = None,
 ) -> AgentProfileConfig:
     """Load agent's complete configuration from workspace/agent.json with
     mtime-based caching.
@@ -2920,36 +3077,62 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         _agent_config_lock,
     )
 
-    config = load_config()
+    safe_agent_id = sanitize_agent_path_segment(agent_id)
+    if config is None:
+        config = load_config()
 
-    if agent_id not in config.agents.profiles:
+    if safe_agent_id not in config.agents.profiles:
         raise ConfigurationException(
             config_key="agent",
             message=f"Agent '{agent_id}' not found in config",
         )
 
-    agent_ref = config.agents.profiles[agent_id]
-    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-    agent_config_path = workspace_dir / "agent.json"
+    workspace_dir = resolve_registered_agent_profile_workspace(
+        safe_agent_id,
+        config,
+        roots=roots,
+    )
+    agent_config_path = resolve_workspace_child_path(
+        workspace_dir,
+        "agent.json",
+    )
 
     if not agent_config_path.exists():
-        fallback_config = build_fallback_agent_profile_config(agent_id, config)
+        fallback_config = build_fallback_agent_profile_config(
+            safe_agent_id,
+            config,
+            roots=roots,
+        )
         # Save for future use
-        save_agent_config(agent_id, fallback_config)
+        save_agent_config(
+            safe_agent_id,
+            fallback_config,
+            config=config,
+            roots=roots,
+        )
         return fallback_config
 
     # Check mtime to see if we can use cached config
     try:
         current_mtime = agent_config_path.stat().st_mtime
     except OSError:
-        fallback_config = build_fallback_agent_profile_config(agent_id, config)
-        save_agent_config(agent_id, fallback_config)
+        fallback_config = build_fallback_agent_profile_config(
+            safe_agent_id,
+            config,
+            roots=roots,
+        )
+        save_agent_config(
+            safe_agent_id,
+            fallback_config,
+            config=config,
+            roots=roots,
+        )
         return fallback_config
 
     with _agent_config_lock:
         # Return cached config if mtime hasn't changed
-        if agent_id in _agent_config_cache:
-            cached_config, cached_mtime = _agent_config_cache[agent_id]
+        if safe_agent_id in _agent_config_cache:
+            cached_config, cached_mtime = _agent_config_cache[safe_agent_id]
             if cached_mtime == current_mtime:
                 return cached_config
 
@@ -3048,13 +3231,16 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         # entire agent from loading.
         from .utils import sanitize_mcp_clients
 
-        sanitize_mcp_clients(data, agent_id)
-        _sanitize_loop_config(data, agent_id)
+        sanitize_mcp_clients(data, safe_agent_id)
+        _sanitize_loop_config(data, safe_agent_id)
 
         agent_config = AgentProfileConfig(**data)
 
         # Cache the config with its mtime
-        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+        _agent_config_cache[safe_agent_id] = (
+            agent_config,
+            current_mtime,
+        )
 
         return agent_config
 
@@ -3062,6 +3248,9 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 def save_agent_config(
     agent_id: str,
     agent_config: AgentProfileConfig,
+    *,
+    config: Config | None = None,
+    roots: Mapping[str, Path] | None = None,
 ) -> None:
     """Save agent configuration to workspace/agent.json and invalidate cache.
 
@@ -3078,23 +3267,33 @@ def save_agent_config(
         _agent_config_lock,
     )
 
-    config = load_config()
+    safe_agent_id = sanitize_agent_path_segment(agent_id)
+    if config is None:
+        config = load_config()
 
-    if agent_id not in config.agents.profiles:
+    if safe_agent_id not in config.agents.profiles:
         raise ConfigurationException(
             config_key="agent",
             message=f"Agent '{agent_id}' not found in config",
         )
 
-    agent_ref = config.agents.profiles[agent_id]
-    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-    agent_config_path = workspace_dir / "agent.json"
+    workspace_dir = resolve_registered_agent_profile_workspace(
+        safe_agent_id,
+        config,
+        roots=roots,
+    )
+    agent_config_path = resolve_workspace_child_path(
+        workspace_dir,
+        "agent.json",
+    )
+    agent_config.id = safe_agent_id
+    agent_config.workspace_dir = str(workspace_dir)
     with _agent_config_lock:
         write_json_atomic(
             agent_config_path,
             agent_config.model_dump(exclude_none=True),
         )
-        _agent_config_cache.pop(agent_id, None)
+        _agent_config_cache.pop(safe_agent_id, None)
 
 
 async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
@@ -3140,12 +3339,14 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 
     # Check if already migrated (new structure has only AgentProfileRef)
     if "default" in config.agents.profiles:
-        agent_ref = config.agents.profiles["default"]
         # If it's already a AgentProfileRef, migration done
+        agent_ref = config.agents.profiles["default"]
         if isinstance(agent_ref, AgentProfileRef):
             # Check if default agent config exists
-            workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-            agent_config_path = workspace_dir / "agent.json"
+            agent_config_path = resolve_agent_profile_config_path(
+                "default",
+                config,
+            )
             if agent_config_path.exists():
                 return False  # Already migrated
 
@@ -3253,6 +3454,8 @@ def migrate_legacy_config_to_multi_agent() -> bool:
             "default": AgentProfileRef(
                 id="default",
                 workspace_dir=str(default_workspace),
+                workspace_root_id=DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+                workspace_name="default",
             ),
         },
         # Preserve legacy fields with values from migrated agent config

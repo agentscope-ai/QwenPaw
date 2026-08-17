@@ -185,6 +185,26 @@ class Envelope:
         self._message_started = False
         self._text_blocks = {}
 
+    async def finalize_message(self) -> AsyncGenerator[Any, None]:
+        """Finalize pending assistant content without completing response."""
+        from ..schemas import ContentType, TextContent
+
+        if self._message_started and not self._completed_message.content:
+            for state in self._text_blocks.values():
+                text = state.get("text", "")
+                if text:
+                    self._completed_message.content.append(
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=text,
+                            delta=False,
+                            index=state.get("index", 0),
+                        ),
+                    )
+        if self._should_finalize_text_message():
+            async for obj in self._finalize_text_message():
+                yield obj
+
     # ------------------------------------------------------------------
     # Event translation
     # ------------------------------------------------------------------
@@ -771,10 +791,8 @@ class Envelope:
     # ------------------------------------------------------------------
 
     async def from_msg(self, cmd_msg: Any) -> AsyncGenerator[Any, None]:
-        """Translate a completed ``Msg`` from a slash
-        command into a full envelope sequence.
-        """
-        from ..schemas import ContentType, RunStatus, TextContent
+        """Append a completed command message without finalizing response."""
+        from ..schemas import ContentType, TextContent
 
         cmd_text = cmd_msg.get_text_content() or ""
 
@@ -792,19 +810,11 @@ class Envelope:
         yield self._tag_seq(tc)
 
         self._completed_message.content.append(tc)
-        self._completed_message.status = RunStatus.Completed
         self._completed_message.metadata = (
             getattr(cmd_msg, "metadata", None) or {}
         )
-        self._response.output.append(self._completed_message)
-        yield self._tag_seq(self._completed_message)
-
-        self._response.status = RunStatus.Completed
-        self._response.completed_at = datetime.now(timezone.utc).isoformat(
-            timespec="seconds",
-        )
-        yield self._tag_seq(self._response)
-        self._finalized = True
+        async for obj in self._finalize_text_message():
+            yield obj
 
     # ------------------------------------------------------------------
     # Error / Cancel
@@ -828,6 +838,17 @@ class Envelope:
     # Finalize
     # ------------------------------------------------------------------
 
+    async def append_artifact_manifest(
+        self,
+        manifest: dict[str, Any],
+    ) -> AsyncGenerator[Any, None]:
+        """Append a completed internal tool call and result pair."""
+        from .artifact_messages import build_artifact_messages
+
+        for message in build_artifact_messages(manifest):
+            self._response.output.append(message)
+            yield self._tag_seq(message)
+
     async def finalize(self) -> AsyncGenerator[Any, None]:
         if self._finalized:
             return
@@ -835,31 +856,13 @@ class Envelope:
             yield obj
 
     async def _finalize_response(self) -> AsyncGenerator[Any, None]:
-        from ..schemas import ContentType, RunStatus, TextContent
+        from ..schemas import RunStatus
 
         if self._finalized:
             return
 
-        if self._message_started:
-            # Back-fill any partially accumulated text blocks that were
-            # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
-            if not self._completed_message.content:
-                for state in self._text_blocks.values():
-                    text = state.get("text", "")
-                    if text:
-                        self._completed_message.content.append(
-                            TextContent(
-                                type=ContentType.TEXT,
-                                text=text,
-                                delta=False,
-                                index=state.get("index", 0),
-                            ),
-                        )
-
-            if self._completed_message.content:
-                self._completed_message.status = RunStatus.Completed
-                self._response.output.append(self._completed_message)
-                yield self._tag_seq(self._completed_message)
+        async for obj in self.finalize_message():
+            yield obj
 
         if self._error_text:
             self._response.status = RunStatus.Failed
@@ -888,9 +891,8 @@ class Envelope:
         * ``("text", text)`` — from text blocks (reset on every tool-call
           start, so they belong to the current iteration only).
 
-        This is a public-API entry point so that callers (e.g.
-        ``Runtime._try_save_on_cancel``) do not need to reach into
-        private state.
+        This public API lets the interrupted-turn finalizer inspect
+        accumulated output without reaching into private state.
         """
         from ..schemas import RunStatus
 

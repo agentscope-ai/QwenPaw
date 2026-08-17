@@ -453,7 +453,7 @@ class QwenPawACPAgent(Agent):
 
             workspace = Workspace(
                 agent_id=agent_id,
-                workspace_dir=str(workspace_dir),
+                workspace_dir=workspace_dir,
             )
             app_services = await self._ensure_app_services()
             workspace.bootstrap_plugins(

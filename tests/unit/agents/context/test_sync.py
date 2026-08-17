@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
+# pylint: disable=no-name-in-module
 """Unit tests for the ``sessions/*.json`` → ``history.db`` startup sync.
 
 Pins the rollout-critical guarantees: non-destructive (source files untouched),
@@ -26,6 +27,7 @@ from qwenpaw.agents.context.scroll.sync import (
     sync_sessions_to_history,
 )
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.config import paths as config_paths
 
 
 def _sample_msgs() -> list[Msg]:
@@ -922,7 +924,21 @@ def _stub_config_loaders(
             ),
         ),
     )
-    profiles = {"a1": SimpleNamespace(workspace_dir=str(workspace))}
+    working_dir = workspace.parent / ".qwenpaw"
+    root_id = "sync-test"
+    monkeypatch.setattr(config_paths, "WORKING_DIR", working_dir)
+    config_paths.register_agent_workspace_root(
+        root_id,
+        workspace.parent,
+        working_dir=working_dir,
+    )
+    profiles = {
+        "a1": SimpleNamespace(
+            workspace_dir=str(workspace),
+            workspace_root_id=root_id,
+            workspace_name=workspace.name,
+        ),
+    }
     config = SimpleNamespace(agents=SimpleNamespace(profiles=profiles))
     import qwenpaw.config as cfg
     import qwenpaw.config.config as cfgcfg

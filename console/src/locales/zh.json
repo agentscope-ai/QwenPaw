@@ -442,6 +442,8 @@
     }
   },
   "workspace": {
+    "openInFileManager": "在文件管理器中打开",
+    "openFailed": "无法在文件管理器中打开工作区",
     "title": "文件",
     "workspacePath": "工作区路径：",
     "noFiles": "没有文件",
@@ -508,6 +510,9 @@
     "namePlaceholder": "例如：我的智能体",
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
     "workspaceHelp": "留空将自动生成在 ~/.qwenpaw/workspaces/<id> 目录",
+    "workspaceRoot": "工作区位置",
+    "workspaceRootHelp": "新智能体目录将创建在服务端批准的根目录下。",
+    "workspaceRootLoadFailed": "加载工作区位置失败",
     "dragHandleTooltip": "拖拽调整智能体顺序",
     "reorderSuccess": "智能体顺序已保存",
     "reorderFailed": "保存智能体顺序失败",

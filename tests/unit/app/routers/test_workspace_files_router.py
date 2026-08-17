@@ -21,14 +21,41 @@ def fixture_files_client(
 ) -> TestClient:
     """Create a workspace router client bound to a temporary project."""
     project_dir = tmp_path / "project"
+    pinned_project_dir = tmp_path / "pinned-project"
     workspace_dir = tmp_path / "workspace"
     project_dir.mkdir()
+    pinned_project_dir.mkdir()
     workspace_dir.mkdir()
+
+    class ChatManager:
+        async def get_chat(self, chat_id: str):
+            if chat_id != "chat-1":
+                return None
+            return SimpleNamespace(
+                session_id="session-1",
+                user_id="user-1",
+                channel="console",
+            )
+
+    class Session:
+        async def get_session_state_dict(self, *_args, **_kwargs):
+            return {
+                "agent": {
+                    "workspace_artifact_roots": {
+                        "root-pinned": {
+                            "root": "project",
+                            "path": str(pinned_project_dir),
+                        },
+                    },
+                },
+            }
 
     async def get_workspace(_request):
         return SimpleNamespace(
             agent_id="files-test",
             workspace_dir=workspace_dir,
+            chat_manager=ChatManager(),
+            session=Session(),
         )
 
     monkeypatch.setattr(
@@ -47,6 +74,7 @@ def fixture_files_client(
     )
     app = FastAPI()
     app.state.project_dir = project_dir
+    app.state.pinned_project_dir = pinned_project_dir
     app.state.workspace_dir = workspace_dir
     app.include_router(workspace_router.router, prefix="/api")
     return TestClient(app)
@@ -261,6 +289,95 @@ def test_workspace_root_is_independent_from_project_root(
     assert [entry["name"] for entry in workspace_tree["entries"]] == [
         "AGENTS.md",
     ]
+
+
+def test_artifact_endpoints_resolve_project_root(
+    files_client: TestClient,
+) -> None:
+    """Artifact download and preview honor the manifest root selector."""
+    project_dir = files_client.app.state.project_dir
+    workspace_dir = files_client.app.state.workspace_dir
+    (project_dir / "report.txt").write_text(
+        "project",
+        encoding="utf-8",
+    )
+    (workspace_dir / "report.txt").write_text(
+        "workspace",
+        encoding="utf-8",
+    )
+
+    download = files_client.get(
+        "/api/workspace/artifacts/report.txt",
+        params={"root": "project"},
+    )
+    preview = files_client.get(
+        "/api/workspace/artifact-previews/report.txt",
+        params={"root": "project"},
+    )
+
+    assert download.status_code == 200
+    assert download.text == "project"
+    assert preview.status_code == 200
+    assert preview.text == "project"
+
+
+def test_artifact_endpoints_use_pinned_historical_root(
+    files_client: TestClient,
+) -> None:
+    """A root reference must ignore the agent's current project path."""
+    current = files_client.app.state.project_dir
+    pinned = files_client.app.state.pinned_project_dir
+    (current / "report.txt").write_text("current", encoding="utf-8")
+    artifact = pinned / "report.txt"
+    artifact.write_text("historical", encoding="utf-8")
+    params = {"root": "project", "root_ref": "root-pinned"}
+    headers = {"X-Chat-Id": "chat-1"}
+
+    download = files_client.get(
+        "/api/workspace/artifacts/report.txt",
+        params=params,
+        headers=headers,
+    )
+    file_uri = files_client.get(
+        "/api/workspace/artifact-file-uri/report.txt",
+        params=params,
+        headers=headers,
+    )
+
+    assert download.status_code == 200
+    assert download.text == "historical"
+    assert file_uri.status_code == 200
+    assert file_uri.json() == {"uri": artifact.resolve().as_uri()}
+
+
+def test_artifact_root_reference_requires_owning_chat(
+    files_client: TestClient,
+) -> None:
+    response = files_client.get(
+        "/api/workspace/artifacts/report.txt",
+        params={"root": "project", "root_ref": "root-pinned"},
+        headers={"X-Chat-Id": "other-chat"},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/api/workspace/artifacts/report.txt",
+        "/api/workspace/artifact-previews/report.txt",
+    ],
+)
+def test_artifact_endpoints_reject_unknown_root(
+    files_client: TestClient,
+    endpoint: str,
+) -> None:
+    """Artifact endpoints share the controlled Files root contract."""
+    response = files_client.get(endpoint, params={"root": "unknown"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "root must be project or workspace"
 
 
 def test_watch_rejects_an_unknown_root(files_client: TestClient) -> None:

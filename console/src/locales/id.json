@@ -950,6 +950,8 @@
     }
   },
   "workspace": {
+    "openInFileManager": "Buka di Pengelola File",
+    "openFailed": "Gagal membuka workspace di pengelola file",
     "title": "File",
     "workspacePath": "Workspace:",
     "noFiles": "Tidak ada file",
