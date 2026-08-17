@@ -2746,6 +2746,14 @@
     "visualCompactQualityNote": "Uma compactação maior não melhora necessariamente a qualidade da resposta.",
     "visualCompactCapabilityNote": "Só funciona com modelos que aceitam entrada de imagem.",
     "remeLightMemoryTitle": "Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext Memory",
+    "powercontextConfig": {
+      "title": "PowerContext Memory Configuration",
+      "baseUrl": "Server URL",
+      "token": "Bearer Token",
+      "scopeId": "Memory Scope",
+      "timeout": "Request Timeout"
+    },
     "dialogPath": "Dialog Storage Caminho",
     "dialogPathTooltip": "Relative path for dialog persistence storage (relative to working_dir)",
     "dialogPathPlaceholder": "dialog",

@@ -22,8 +22,14 @@ def test_adbpg_auto_memory_search_defaults():
 def test_powercontext_memory_defaults():
     cfg = PowerContextMemoryConfig()
     assert cfg.scope_id == "workspace:qwenpaw"
-    assert cfg.fallback_backend == "remelight"
     assert cfg.auto_memory_search_config.enabled is True
+
+
+def test_powercontext_memory_ignores_removed_fallback_backend():
+    cfg = PowerContextMemoryConfig.model_validate(
+        {"fallback_backend": "remelight"},
+    )
+    assert "fallback_backend" not in cfg.model_dump()
 
 
 def test_reme_light_job_notifications_default_to_enabled():

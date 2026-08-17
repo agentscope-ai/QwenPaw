@@ -3377,6 +3377,14 @@
     "contextStrategyNative": "Native",
     "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
+    "powercontextMemoryTitle": "Memori PowerContext",
+    "powercontextConfig": {
+      "title": "Konfigurasi Memori PowerContext",
+      "baseUrl": "URL Server",
+      "token": "Token Bearer",
+      "scopeId": "Ruang Lingkup Memori",
+      "timeout": "Batas Waktu Permintaan"
+    },
     "adbpgConfig": {
       "title": "Konfigurasi Memori ADBPG",
       "apiMode": "Mode API",

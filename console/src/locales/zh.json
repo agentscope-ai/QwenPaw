@@ -3014,6 +3014,14 @@
     "contextStrategyNative": "Native",
     "backendRestartWarning": "切换后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
     "adbpgMemoryTitle": "ADBPG 长期记忆",
+    "powercontextMemoryTitle": "PowerContext 记忆",
+    "powercontextConfig": {
+      "title": "PowerContext 记忆配置",
+      "baseUrl": "服务地址",
+      "token": "Bearer Token",
+      "scopeId": "记忆作用域",
+      "timeout": "请求超时"
+    },
     "adbpgConfig": {
       "title": "ADBPG 记忆配置",
       "restBaseUrl": "REST Base URL",

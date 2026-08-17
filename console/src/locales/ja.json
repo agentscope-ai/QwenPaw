@@ -2518,6 +2518,14 @@
     "saveLevelSuccess": "ツール承認モードを保存しました",
     "saveLevelFailed": "ツール承認モードの保存に失敗しました",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext メモリ",
+    "powercontextConfig": {
+      "title": "PowerContext メモリ設定",
+      "baseUrl": "サーバー URL",
+      "token": "Bearer トークン",
+      "scopeId": "メモリスコープ",
+      "timeout": "リクエストタイムアウト"
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

@@ -1779,6 +1779,14 @@
     "memoryManagerBackend": "Backend quản lý bộ nhớ dài hạn",
     "memoryManagerBackendTooltip": "Chọn remelight (file cục bộ) hoặc adbpg (cơ sở dữ liệu đám mây).",
     "memoryManagerBackendRestartWarning": "Đổi backend quản lý bộ nhớ dài hạn yêu cầu khởi động lại QwenPaw.",
+    "powercontextMemoryTitle": "Bộ nhớ PowerContext",
+    "powercontextConfig": {
+      "title": "Cấu hình bộ nhớ PowerContext",
+      "baseUrl": "URL máy chủ",
+      "token": "Bearer Token",
+      "scopeId": "Phạm vi bộ nhớ",
+      "timeout": "Thời gian chờ yêu cầu"
+    },
     "maxIters": "Số vòng lặp tối đa",
     "maxItersTooltip": "Số vòng lặp suy luận-hành động tối đa của ReAct agent",
     "maxItersPlaceholder": "Nhập số vòng lặp",

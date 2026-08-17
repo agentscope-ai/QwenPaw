@@ -860,7 +860,6 @@ class PowerContextMemoryConfig(BaseModel):
     token: str = ""
     scope_id: str = "workspace:qwenpaw"
     timeout: float = Field(default=10.0, ge=1.0)
-    fallback_backend: str = "remelight"
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=lambda: AutoMemorySearchConfig(enabled=True, max_results=3),
     )

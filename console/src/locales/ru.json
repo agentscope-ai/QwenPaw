@@ -2533,6 +2533,14 @@
     "saveLevelSuccess": "Режим одобрения инструментов сохранён",
     "saveLevelFailed": "Не удалось сохранить режим одобрения инструментов",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "Память PowerContext",
+    "powercontextConfig": {
+      "title": "Конфигурация памяти PowerContext",
+      "baseUrl": "URL сервера",
+      "token": "Bearer-токен",
+      "scopeId": "Область памяти",
+      "timeout": "Тайм-аут запроса"
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

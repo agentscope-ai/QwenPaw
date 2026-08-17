@@ -3156,6 +3156,14 @@
     "contextStrategyNative": "Native",
     "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
+    "powercontextMemoryTitle": "PowerContext Memory",
+    "powercontextConfig": {
+      "title": "PowerContext Memory Configuration",
+      "baseUrl": "Server URL",
+      "token": "Bearer Token",
+      "scopeId": "Memory Scope",
+      "timeout": "Request Timeout"
+    },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
       "restBaseUrl": "REST Base URL",

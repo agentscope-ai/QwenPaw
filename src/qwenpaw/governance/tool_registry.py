@@ -427,7 +427,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
 
     Exception path for dynamic / mode-scoped tools that must not appear in
     the global builtin set (scroll ``recall_history*``, memory manager
-    ``memory_search``). Keep this list documented when adding similar tools.
+    tools). Keep this list documented when adding similar tools.
     """
     # Scroll strategy tools — hand-built descriptors, not global builtins.
     register_tool_governance(
@@ -447,15 +447,21 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         sandbox_required=True,
         owner="builtin",
     )
-    # Memory manager tool — registered dynamically outside agents.tools.
-    register_tool_governance(
-        registry,
-        python_name="memory_search",
-        tool_type="internal",
-        target_param="",
-        policy_name="MemorySearch",
-        owner="builtin",
-    )
+    # Memory manager tools are registered dynamically outside agents.tools.
+    # Search remains a read-only internal operation. Explicit remember can
+    # persist data through an external backend, so it is network-scoped.
+    for python_name, policy_name, tool_type in (
+        ("memory_search", "MemorySearch", "internal"),
+        ("memory_remember", "MemoryRemember", "network"),
+    ):
+        register_tool_governance(
+            registry,
+            python_name=python_name,
+            tool_type=tool_type,
+            target_param="",
+            policy_name=policy_name,
+            owner="builtin",
+        )
     # Visual compact recovery is feature-scoped and collected by AgentBuilder,
     # so it stays out of the global @tool_descriptor builtin set.
     register_tool_governance(
