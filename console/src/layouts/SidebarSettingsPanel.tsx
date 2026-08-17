@@ -6,15 +6,11 @@ import { Select } from "antd";
 import {
   SparkSunLine,
   SparkMoonLine,
-  SparkChinese02Line,
-  SparkEnglish02Line,
-  SparkJapanLine,
-  SparkRusLine,
-  SparkPtLine,
   SparkFullscreenLine,
   SparkExitFullscreenLine,
 } from "@agentscope-ai/icons";
-import { languageApi } from "../api/modules/language";
+import { LANGUAGE_LIST } from "../components/LanguageSwitcher";
+import { settingsApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { isTauriRuntime } from "../tauri/backendRuntime";
@@ -30,15 +26,9 @@ import { getOsRootHref } from "../utils/navigationMode";
 type CloseBehavior = "ask" | CloseAction;
 
 // ── Language config ────────────────────────────────────────────────────────
-
-const LANGS = [
-  { key: "en", label: "English", icon: <SparkEnglish02Line size={14} /> },
-  { key: "zh", label: "简体中文", icon: <SparkChinese02Line size={14} /> },
-  { key: "ja", label: "日本語", icon: <SparkJapanLine size={14} /> },
-  { key: "ru", label: "Русский", icon: <SparkRusLine size={14} /> },
-  { key: "pt-BR", label: "Português", icon: <SparkPtLine size={14} /> },
-];
-const KNOWN_KEYS = new Set(LANGS.map((l) => l.key));
+// Reuse the shared list from the top-right language dropdown (Header /
+// LanguageSwitcher) so both selectors always offer the same set of languages.
+const KNOWN_KEYS = new Set(LANGUAGE_LIST.map((l) => l.key));
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -63,7 +53,7 @@ export default function SidebarSettingsPanel({
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
-    languageApi.updateLanguage(lang).catch(() => {});
+    settingsApi.updateLanguage(lang).catch(() => {});
   };
 
   const changeCloseBehavior = (value: CloseBehavior) => {
@@ -105,7 +95,7 @@ export default function SidebarSettingsPanel({
           {t("sidebar.settings.language", "Language")}
         </span>
         <div className={styles.options}>
-          {LANGS.map(({ key, label, icon }) => (
+          {LANGUAGE_LIST.map(({ key, label, icon }) => (
             <button
               key={key}
               title={label}
@@ -114,7 +104,7 @@ export default function SidebarSettingsPanel({
               }`}
               onClick={() => changeLanguage(key)}
             >
-              {icon}
+              {React.cloneElement(icon, { size: 14 })}
             </button>
           ))}
         </div>

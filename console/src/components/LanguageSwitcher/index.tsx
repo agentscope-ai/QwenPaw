@@ -1,7 +1,7 @@
 import { Dropdown } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { Button, type MenuProps } from "antd";
-import { languageApi } from "../../api/modules/language";
+import { settingsApi } from "../../api/modules/language";
 import styles from "./index.module.less";
 import {
   SparkChinese02Line,
@@ -40,7 +40,7 @@ export default function LanguageSwitcher() {
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
-    languageApi
+    settingsApi
       .updateLanguage(lang)
       .catch((err) =>
         console.error("Failed to save language preference:", err),
