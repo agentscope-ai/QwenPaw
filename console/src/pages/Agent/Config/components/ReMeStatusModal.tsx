@@ -2,49 +2,73 @@ import { Alert, Button, Modal } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 
-import type { ReMeMemoryStatusResponse } from "@/api/modules/agents";
+import type {
+  ReMeMemoryRuntimeStatus,
+  ReMeMemoryStatusResponse,
+} from "@/api/modules/agents";
 import styles from "../index.module.less";
 
 interface ReMeStatusModalProps {
-  open: boolean;
+  view: "tasks" | "diagnostics" | null;
   loading: boolean;
   error: string;
-  memoryStatus: ReMeMemoryStatusResponse | null;
+  runtime: ReMeMemoryRuntimeStatus | null;
+  diagnostics: ReMeMemoryStatusResponse | null;
   statusBadge: { className: string };
   statusBadgeLabel: string;
-  workerStatusLabel: string;
-  queueHint: string;
   onRefresh: () => void;
   onClose: () => void;
 }
 
 export function ReMeStatusModal({
-  open,
+  view,
   loading,
   error,
-  memoryStatus,
+  runtime,
+  diagnostics,
   statusBadge,
   statusBadgeLabel,
-  workerStatusLabel,
-  queueHint,
   onRefresh,
   onClose,
 }: ReMeStatusModalProps) {
   const { t } = useTranslation();
   const formatRuntimeTime = (value: string | null) =>
     value ? new Date(value).toLocaleString() : t("agentConfig.memoryNeverRun");
+  const worker = runtime?.worker;
+  const autoMemory = runtime?.auto_memory;
+  const tasks = runtime?.tasks;
+  const recent = runtime?.recent;
+  let queueSummary = "";
+  if (worker) {
+    queueSummary =
+      worker.tasks_running === 0 && worker.queue_pending === 0
+        ? t("agentConfig.memoryQueueIdleSummary")
+        : t("agentConfig.memoryQueueSummary", {
+            running: worker.tasks_running,
+            pending: worker.queue_pending,
+          });
+  }
 
   return (
     <Modal
-      open={open}
-      width={740}
+      open={view !== null}
+      width={680}
       title={
         <div className={styles.memoryStatusModalTitle}>
-          <span className={styles.memoryStatusModalIcon}>R</span>
-          <div>
-            <strong>{t("agentConfig.remeStatusTitle")}</strong>
-            <span>{t("agentConfig.remeStatusDescription")}</span>
-          </div>
+          <strong>
+            {t(
+              view === "tasks"
+                ? "agentConfig.memoryBackgroundTasks"
+                : "agentConfig.memoryDiagnostics",
+            )}
+          </strong>
+          <span>
+            {t(
+              view === "tasks"
+                ? "agentConfig.memoryRuntimeActivityDescription"
+                : "agentConfig.memoryResourceUsageDescription",
+            )}
+          </span>
         </div>
       }
       onCancel={onClose}
@@ -59,7 +83,7 @@ export function ReMeStatusModal({
         </div>
       }
     >
-      {loading && !memoryStatus ? (
+      {loading && !(view === "tasks" ? runtime : diagnostics) ? (
         <div className={styles.memoryStatusLoading}>
           <Spin />
           <span>{t("agentConfig.remeStatusLoading")}</span>
@@ -71,121 +95,121 @@ export function ReMeStatusModal({
           message={t("agentConfig.remeStatusFailed")}
           description={error}
         />
-      ) : memoryStatus ? (
+      ) : runtime || diagnostics ? (
         <div className={styles.memoryStatusContent}>
-          <section className={styles.memoryRuntimeSection}>
-            <div className={styles.memoryRuntimeSectionHeader}>
-              <div>
-                <h4>{t("agentConfig.memoryRuntimeActivity")}</h4>
-                <p>{t("agentConfig.memoryRuntimeActivityDescription")}</p>
-              </div>
-              <strong
-                className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
-              >
-                <i />
-                {statusBadgeLabel}
-              </strong>
-            </div>
-            <div className={styles.memoryRuntimeGrid}>
-              <div>
-                <span>{t("agentConfig.memoryWorker")}</span>
-                <strong>{workerStatusLabel}</strong>
-                <small>{queueHint}</small>
-              </div>
-              <div>
-                <span>{t("agentConfig.memoryQueue")}</span>
-                <strong>{memoryStatus.runtime.worker.queue_pending}</strong>
-                <small>{t("agentConfig.memoryQueuePendingHint")}</small>
-              </div>
-              <div>
-                <span>{t("agentConfig.memoryPendingTurns")}</span>
-                <strong>
-                  {memoryStatus.runtime.auto_memory.enabled
-                    ? memoryStatus.runtime.auto_memory.pending_turns
-                    : "—"}
+          {view === "tasks" ? (
+            <section className={styles.memoryTaskPanel}>
+              <div className={styles.memoryTaskSummary}>
+                <div>
+                  <strong>{queueSummary}</strong>
+                  <span>
+                    {autoMemory?.enabled
+                      ? t("agentConfig.memoryAutoMemoryEnabledSummary", {
+                          interval: autoMemory.interval,
+                        })
+                      : t("agentConfig.memoryAutoRecordDisabledHint")}
+                  </span>
+                </div>
+                <strong
+                  className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
+                >
+                  <i />
+                  {statusBadgeLabel}
                 </strong>
-                <small>
-                  {memoryStatus.runtime.auto_memory.enabled
-                    ? t("agentConfig.memoryActiveSessionsHint", {
-                        sessions:
-                          memoryStatus.runtime.auto_memory.active_sessions,
-                      })
-                    : t("agentConfig.memoryAutoRecordDisabledHint")}
-                </small>
               </div>
-            </div>
-            <div className={styles.memoryRecentActivity}>
-              <div>
-                <span>{t("agentConfig.memoryLastCompleted")}</span>
-                <strong>
-                  {formatRuntimeTime(
-                    memoryStatus.runtime.recent.last_completed_at,
+              {recent?.last_error ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={t("agentConfig.memoryLastError")}
+                  description={recent.last_error}
+                />
+              ) : null}
+              <div className={styles.memoryAutoMemoryHistory}>
+                <div className={styles.memoryAutoMemoryHistoryHeader}>
+                  <strong>{t("agentConfig.memoryRecentTasks")}</strong>
+                </div>
+                {tasks?.length ? (
+                  <div className={styles.memoryAutoMemoryHistoryList}>
+                    {tasks.map((run) => (
+                      <details key={run.task_id}>
+                        <summary>
+                          <span>
+                            {t(`agentConfig.memoryTaskStatus.${run.status}`)}
+                          </span>
+                          <strong>
+                            {formatRuntimeTime(
+                              run.finished_at ?? run.queued_at,
+                            )}
+                          </strong>
+                          <small>
+                            {t("agentConfig.memoryTaskMessages", {
+                              count: run.message_count,
+                            })}
+                          </small>
+                        </summary>
+                        <pre>
+                          {run.result ??
+                            run.error ??
+                            t("agentConfig.memoryTaskNoResult")}
+                        </pre>
+                      </details>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={styles.memoryAutoMemoryHistoryEmpty}>
+                    {t("agentConfig.memoryRecentTasksEmpty")}
+                  </p>
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {view === "diagnostics" ? (
+            <>
+              <div className={styles.memoryStatusMetrics}>
+                <div>
+                  <span>{t("agentConfig.remeStatusComponentsTotal")}</span>
+                  <strong>{diagnostics?.components_total}</strong>
+                  <small>{t("agentConfig.remeStatusEstimated")}</small>
+                </div>
+                <div>
+                  <span>{t("agentConfig.remeStatusProcessRss")}</span>
+                  <strong>{diagnostics?.process_rss}</strong>
+                  <small>{t("agentConfig.remeStatusProcessRssHint")}</small>
+                </div>
+              </div>
+
+              <div className={styles.memoryStatusComponentSection}>
+                <h4>{t("agentConfig.remeStatusComponents")}</h4>
+                <div className={styles.memoryStatusComponentList}>
+                  {Object.entries(diagnostics?.components ?? {}).flatMap(
+                    ([componentType, components]) =>
+                      Object.entries(components).map(([name, usage]) => (
+                        <div
+                          className={styles.memoryStatusComponentRow}
+                          key={`${componentType}:${name}`}
+                        >
+                          <span>
+                            {t(
+                              `agentConfig.remeStatusComponent.${componentType}`,
+                              { defaultValue: componentType },
+                            )}
+                          </span>
+                          <code>{name}</code>
+                          <strong>{usage.human}</strong>
+                        </div>
+                      )),
                   )}
-                </strong>
+                </div>
               </div>
-              <div>
-                <span>{t("agentConfig.memoryLastFailed")}</span>
-                <strong>
-                  {formatRuntimeTime(
-                    memoryStatus.runtime.recent.last_failed_at,
-                  )}
-                </strong>
+
+              <div className={styles.memoryStatusNote}>
+                <span>i</span>
+                <p>{t("agentConfig.remeStatusEstimateNote")}</p>
               </div>
-            </div>
-            {memoryStatus.runtime.recent.last_error ? (
-              <Alert
-                type="error"
-                showIcon
-                message={t("agentConfig.memoryLastError")}
-                description={memoryStatus.runtime.recent.last_error}
-              />
-            ) : null}
-          </section>
-
-          <div className={styles.memoryResourceHeading}>
-            <h4>{t("agentConfig.memoryResourceUsage")}</h4>
-            <p>{t("agentConfig.memoryResourceUsageDescription")}</p>
-          </div>
-          <div className={styles.memoryStatusMetrics}>
-            <div>
-              <span>{t("agentConfig.remeStatusComponentsTotal")}</span>
-              <strong>{memoryStatus.components_total}</strong>
-              <small>{t("agentConfig.remeStatusEstimated")}</small>
-            </div>
-            <div>
-              <span>{t("agentConfig.remeStatusProcessRss")}</span>
-              <strong>{memoryStatus.process_rss}</strong>
-              <small>{t("agentConfig.remeStatusProcessRssHint")}</small>
-            </div>
-          </div>
-
-          <div className={styles.memoryStatusComponentSection}>
-            <h4>{t("agentConfig.remeStatusComponents")}</h4>
-            <div className={styles.memoryStatusComponentList}>
-              {Object.entries(memoryStatus.components).flatMap(
-                ([componentType, components]) =>
-                  Object.entries(components).map(([name, usage]) => (
-                    <div
-                      className={styles.memoryStatusComponentRow}
-                      key={`${componentType}:${name}`}
-                    >
-                      <span>
-                        {t(`agentConfig.remeStatusComponent.${componentType}`, {
-                          defaultValue: componentType,
-                        })}
-                      </span>
-                      <code>{name}</code>
-                      <strong>{usage.human}</strong>
-                    </div>
-                  )),
-              )}
-            </div>
-          </div>
-
-          <div className={styles.memoryStatusNote}>
-            <span>i</span>
-            <p>{t("agentConfig.remeStatusEstimateNote")}</p>
-          </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </Modal>

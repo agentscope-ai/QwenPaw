@@ -15,7 +15,7 @@ You give it a customer interview report and ask it to read the project's changel
 
 A few weeks later, you may wonder: Where is the generated file? Does the Agent still remember the database decision? Will it apply that writing preference next time?
 
-None of this has to remain trapped in the chat. QwenPaw stores project materials, Agent profile files, daily records, and long-term knowledge as files you can inspect directly. **Files** is the single place where you work with all of them.
+None of this has to remain scattered across chat history. QwenPaw stores project materials, Agent profile files, daily records, and long-term knowledge as files you can inspect directly. **Files** gives you one place to view and manage them all.
 
 ![An overview of the QwenPaw Files workspace](https://img.alicdn.com/imgextra/i4/O1CN01GjiXT3fTIrJ5Bkx9_!!6000000006529-2-tps-2556-1223.png)
 
@@ -25,20 +25,20 @@ Open Files and you will see four sections: **Workspace, Profile, Daily, and Know
 
 Think of them as four drawers for your Agent:
 
-| Section            | Think of it as                               | What it contains                                                                |
-| ------------------ | -------------------------------------------- | ------------------------------------------------------------------------------- |
-| **Workspace**      | The desk where current work happens          | Project files, reference material, code, and task outputs                       |
-| **Profile**        | The Agent's profile and working instructions | Identity, behavior, persistent context, and proactive-task instructions         |
-| **Daily**          | A work journal organized by date             | Useful facts, decisions, preferences, and readings extracted from conversations |
-| **Knowledge Base** | A library of reusable knowledge              | Personal context, methods, and conclusions distilled from repeated experience   |
+| Section            | Think of it as                               | What it contains                                                              |
+| ------------------ | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Workspace**      | The desk where current work happens          | Project files, reference material, code, and task outputs                     |
+| **Profile**        | The Agent's profile and working instructions | Identity, behavior, persistent context, and proactive check instructions      |
+| **Daily**          | A work journal organized by date             | Useful facts, decisions, preferences, and insights from source material       |
+| **Knowledge Base** | A library of reusable knowledge              | Personal context, methods, and conclusions distilled from repeated experience |
 
-They are all file-based, but each serves a different purpose. Workspace answers “What are we working on now?” Profile answers “How should this Agent work?” Daily records “What happened recently?” Knowledge Base preserves “What will still be useful later?”
+They are all file-based, but each has a distinct role. Workspace answers “What are we working on now?” Profile answers “How should this Agent work?” Daily records “What happened recently?” Knowledge Base preserves “What will still be useful later?”
 
 ## Workspace: Where the Current Task Lives
 
 Workspace is the part that feels most like a familiar file manager. You can expand folders and inspect project materials, code, configuration, and results produced by the Agent.
 
-When Lin asks QwenPaw to prepare release notes, the customer interviews, changelog, and generated Markdown can all live in Workspace. She does not have to guess which conversation contains a file or download it before she can open it.
+When you ask QwenPaw to prepare release notes, the customer interviews, changelog, and generated Markdown can all live in Workspace. You do not have to guess which conversation contains a file or download it before opening it.
 
 <img class="blog-image--compact" src="https://img.alicdn.com/imgextra/i4/O1CN016kKPfi0G9MI1B8dh_!!6000000000228-0-tps-581-576.jpg" alt="Workspace brings together the project files and working materials used by the Agent" />
 
@@ -47,9 +47,9 @@ The directory switcher at the top lets you move between two locations:
 - **Project Directory** contains the code, materials, and outputs for the current project.
 - **Agent Configuration Directory** contains the Agent's own configuration, memory, skills, and other internal files.
 
-This distinction keeps the two roles clear. Selecting a Project Directory updates both the project root shown in Files and the effective project directory inherited by the current Chat during ordinary tasks. The Agent Configuration Directory remains the place for the Agent's own files.
+The boundary between them is clear. Project Directory determines which project Files displays and becomes the project directory that the current Chat uses by default for ordinary tasks. Agent Configuration Directory remains the place for the Agent's own files.
 
-Project Directory also supports inheritance and per-conversation selection. An Agent can define a default directory, while an individual Chat can select its own directory and keep that choice with the conversation. Files uses the directory currently in effect for that Chat. During an ordinary Chat task, the Agent's file reading, writing, and search tools, Shell, and code analysis use this directory as their default root unless another path or Shell working directory is specified. Git operations in Files use it as well. Clearing the Chat selection makes it inherit the Agent default again. Task modes and forked workspaces can use dedicated directories with higher precedence when their work must remain isolated.
+Project Directory supports inheritance and per-conversation selection. An Agent can define a default directory, while an individual Chat can choose its own and retain that choice with the conversation. Files always shows the directory currently in effect for that Chat. Unless you specify another file path or Shell working directory, file operations, search, Shell, code analysis, and Git operations in Files use it as their default root. Clear the Chat-specific selection to inherit the Agent default again. Task modes and forked workspaces can use higher-priority dedicated directories when they need isolated runtimes.
 
 ## Profile: Tell the Agent Who It Is and How It Should Work
 
@@ -62,7 +62,7 @@ Common profile files include:
 - `MEMORY.md`: stable information that should remain readily available;
 - `HEARTBEAT.md`: instructions for proactive checks or recurring attention.
 
-You can open and edit these files, enable or disable them, and change their order. If Lin wants every release note to use less jargon and lead with user value, she can put that durable instruction in the appropriate profile file.
+You can open and edit these files, enable or disable them, and change their order. If you want QwenPaw to use less jargon and lead with user value in release notes, you can put that durable instruction in the appropriate profile file.
 
 <img class="blog-image--compact" src="https://img.alicdn.com/imgextra/i4/O1CN01gOFlhZbUFHF1BW2y_!!6000000001829-0-tps-584-552.jpg" alt="Profile manages the files that shape how the Agent behaves" />
 
@@ -82,7 +82,7 @@ Daily organizes those records by date. A long discussion about a database migrat
 
 <img class="blog-image--medium" src="https://img.alicdn.com/imgextra/i2/O1CN01f7mMLhPmiXB3rvvy_!!6000000001706-0-tps-1906-1188.jpg" alt="Daily keeps useful records from conversations and tasks organized by date" />
 
-These notes are not an unwieldy copy of the entire chat. They preserve the useful parts. Notes produced by ReMe Light's automatic memory flow also record the source conversation identifier in file metadata, making it possible to verify which conversation they came from.
+These notes are not copies of entire chats. They distill the parts worth keeping. Notes produced by ReMe Light's automatic memory flow also record the source conversation identifier in file metadata, so you can return to the original conversation and verify the context.
 
 Daily records are ordinary Markdown files. You can correct a mistake, update something that has changed, or open an important note and continue working from it.
 
@@ -90,7 +90,7 @@ Daily records are ordinary Markdown files. You can correct a mistake, update som
 
 Daily notes alone are not enough. After months of use, dozens or hundreds of dated records can still be difficult to navigate.
 
-Knowledge Base consolidates repeated experiences into more stable, reusable knowledge. After several product releases, for example, feedback scattered across different dates may become one clear guideline:
+Knowledge Base consolidates repeated experiences into more stable, reusable knowledge. After several product releases, for example, feedback scattered across different dates may gradually become one clear guideline:
 
 > Lead release notes with what users will gain, then explain the technical changes. Pair important changes with a real-world use case whenever possible.
 
@@ -104,7 +104,7 @@ When ReMe Light is the memory backend, Knowledge Base also provides a relationsh
 
 ![Knowledge Base visualizes the relationships between memories and knowledge](https://img.alicdn.com/imgextra/i1/O1CN01JBjN5c3diWC49o9I_!!6000000000514-0-tps-2048-1024.jpg)
 
-The graph keeps these files from becoming isolated notes. Nodes represent indexed Daily and Knowledge Base files or category roots, while edges come from wiki links in those files. You can open indexed files from the graph and, when a knowledge file links to a related daily note or method, follow that connection to inspect it.
+The graph keeps these files from becoming isolated notes. Nodes represent indexed Daily and Knowledge Base files or category roots, while edges come from wiki links in those files. You can open an indexed file directly from the graph or follow its connections to related daily notes and methods.
 
 In short, Daily answers “What happened that day?” Knowledge Base answers “What did we learn from all of it?”
 
@@ -120,11 +120,11 @@ Once you find a file, you do not have to leave QwenPaw to continue working with 
 
 ![Open a file preview from Chat, then expand into the full Files workspace](https://img.alicdn.com/imgextra/i3/O1CN01TTmgqymDpqH5CGAk_!!6000000002889-0-tps-2560-1226.jpg)
 
-The Agent can produce a first draft while you keep final control. Files does not decide which edits are acceptable; it puts the original, the changes, and the review controls in one place.
+The Agent can produce a first draft while you retain final review. Files does not decide whether to accept an edit; it brings the original, the proposed changes, and the review controls together in one place.
 
-## Files Can Enter a Task and Return to Chat
+## Move Files Between Tasks and Chat
 
-Files connects both ends of a task:
+Files connects a task's inputs and outputs:
 
 - Upload material to the current project or Agent configuration directory.
 - Download files produced by the Agent.
@@ -132,28 +132,28 @@ Files connects both ends of a task:
 - Reference a whole file or selected passage in Chat.
 - Return from Chat attachments and tool outputs to the same preview experience.
 
-When you reference a file, QwenPaw preserves its path and, where relevant, its line information. If you say “rewrite this section,” both you and the Agent can tell exactly which file and passage you mean instead of relying on copied text with no source.
+When you reference a file, QwenPaw preserves its path and, where relevant, its line information. If you say “rewrite this section,” the Agent can identify the exact file and passage instead of relying on copied text detached from its source.
 
 ## Putting One Product Release Together
 
-Here is Lin's complete workflow:
+Here is how the complete workflow comes together:
 
-1. She places the customer interviews and project changelog in **Workspace**.
+1. You place the customer interviews and project changelog in **Workspace**.
 2. **Profile** tells the Agent to keep release notes concise and lead with user value.
-3. QwenPaw drafts the release notes; Lin reads them in Preview and adjusts the wording in Edit.
+3. QwenPaw drafts the release notes; you read them in Preview and adjust the wording in Edit.
 4. The team's database decision is organized into that day's **Daily** notes.
 5. Lessons collected across several releases gradually enter the **Knowledge Base**.
-6. The next time Lin prepares release notes, the Agent can work with the current project files, durable instructions, and lessons from the past.
+6. The next time you prepare release notes, the Agent can work with the current project files, durable instructions, and lessons from the past.
 
 Chat carries the intent. Workspace holds the current task. Profile explains how to work. Daily records what happened. Knowledge Base preserves experience worth reusing.
 
 ## Visible Files Make Collaboration Controllable
 
-Files works with local data, so its file APIs limit access to the selected root, reject path traversal and symbolic links that escape that root, and require an explicit choice when uploaded filenames conflict. Historical attachments that cannot be resolved under the current Project Directory or Agent Configuration Directory fall back to read-only preview instead of pretending to remain editable. When saving a text file in Workspace, Files checks the version recorded when the file was opened and refuses to overwrite a file that has since changed on disk. Content that passes this check is written atomically.
+Files works with local data, so its file APIs restrict access to the selected root, reject path traversal and symbolic links that lead outside it, and require an explicit choice when uploaded filenames conflict. Historical attachments that can no longer be resolved under the current Project Directory or Agent Configuration Directory open in read-only preview instead of appearing editable. When you save a text file in Workspace, Files compares it with the version recorded when you opened it. If the file has changed on disk, Files refuses to overwrite it with stale content; otherwise, it writes the update atomically.
 
-Files currently works best with workspaces of ordinary size. Directory contents are displayed in pages, but the file tree does not yet provide search or virtualize long lists. Text is read from the server in chunks, but the current interface waits for every chunk and assembles the complete content before previewing or editing it. As a result, very large text files or directories with many immediate children may take longer to open.
+Files currently works best with workspaces of ordinary size. Directory contents are paginated, but the file tree does not yet support search or virtualize long lists. Although the server reads text in chunks, the interface waits until every chunk has been assembled before previewing or editing the file. Very large text files and directories with many immediate children may therefore take longer to open.
 
-More importantly, memory and configuration are not hidden in a black box. They are stored as files in the Agent Configuration Directory and can be opened, read, and edited through the corresponding Files sections.
+More importantly, memory and configuration are not hidden in a black box. They are stored as files in the Agent Configuration Directory, where you can open, read, and edit them through the corresponding Files sections.
 
 Files is valuable not simply because it adds a larger file tree, but because it helps you answer concrete questions:
 
@@ -163,7 +163,7 @@ Files is valuable not simply because it adds a larger file tree, but because it 
 - Which lasting lessons have emerged from scattered records?
 - Which changes are already saved, and which still need approval?
 
-When the work, profile, daily record, and knowledge are all visible, people and Agents can keep collaborating around the same state.
+When working files, profiles, daily records, and knowledge are all visible, you and the Agent can keep collaborating around the same shared state.
 
 Related implementation and design notes:
 

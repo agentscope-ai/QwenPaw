@@ -1413,16 +1413,30 @@ def finalize_fork_worktree_or_fail(
     same per-branch lock as finalize, so a peer cannot be marked failed
     until its in-flight finalize finishes.
 
+    Exceptions after the row is ``finalizing`` (for example
+    ``subprocess.TimeoutExpired`` from a hung ``git commit``) also mark
+    ``failed``. Otherwise a detached timeout worker can leave the registry
+    stuck and block later merge/cleanup.
+
     *expected_scope* is required for scoped registry rows; it is never
     inferred from the live row (that would let a stale caller mark/fail a
     newer scope that reused the branch).
     """
-    ok = finalize_fork_worktree(
-        worktree_path,
-        branch,
-        message=message,
-        expected_scope=expected_scope,
-    )
+    try:
+        ok = finalize_fork_worktree(
+            worktree_path,
+            branch,
+            message=message,
+            expected_scope=expected_scope,
+        )
+    except Exception:
+        mark_fork_failed(
+            worktree_path,
+            branch,
+            reason="finalize_fork_worktree raised an exception",
+            expected_scope=expected_scope,
+        )
+        raise
     if ok:
         return True
     mark_fork_failed(

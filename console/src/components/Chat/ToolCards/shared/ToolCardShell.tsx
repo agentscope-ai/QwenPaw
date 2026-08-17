@@ -144,9 +144,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
       >
         <summary className={styles.toolCallCompactSummary}>
           {isLoading ? (
-            <span className={styles.toolCallSpinner} />
+            <span key="spinner" className={styles.toolCallSpinner} />
           ) : (
             <span
+              key="icon"
               className={`${styles.toolCallIcon} ${
                 isError ? styles.toolCallIconError : styles.toolCallIconSuccess
               }`}
@@ -159,13 +160,6 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
             {isLoading && ` ${t("tool.loading")}`}
           </span>
           {summaryAction}
-          {isLoading && inputProgress && (
-            <span className={styles.toolCallInputProgress}>
-              {t("tool.inputProgress", {
-                count: inputProgress.characterCount,
-              })}
-            </span>
-          )}
           {!isLoading && !isError && badges}
           {inlineResult && (
             <span className={styles.toolCallInlineResult} title={inlineResult}>

@@ -104,6 +104,22 @@ describe("agentsApi", () => {
     });
   });
 
+  it("getMemoryRuntimeStatus fetches lightweight runtime state", async () => {
+    const runtime = { reindexing: true } as any;
+    const controller = new AbortController();
+    vi.mocked(request).mockResolvedValue(runtime);
+
+    const result = await agentsApi.getMemoryRuntimeStatus(
+      "a1",
+      controller.signal,
+    );
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/runtime-status", {
+      signal: controller.signal,
+    });
+    expect(result).toEqual(runtime);
+  });
+
   it("getMemoryGraph loads the indexed wikilink graph", async () => {
     const graph = { version: 1, nodes: [], edges: [] } as const;
     vi.mocked(request).mockResolvedValue(graph);

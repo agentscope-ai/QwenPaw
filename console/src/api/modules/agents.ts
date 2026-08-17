@@ -14,6 +14,16 @@ export interface ReMeComponentMemoryUsage {
   human: string;
 }
 
+export interface MemoryCaptureTaskStatus {
+  task_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  queued_at: string | null;
+  finished_at: string | null;
+  message_count: number;
+  result: string | null;
+  error: string | null;
+}
+
 export interface ReMeMemoryStatusResponse {
   components: Record<string, Record<string, ReMeComponentMemoryUsage>>;
   components_total: string;
@@ -27,13 +37,9 @@ export interface ReMeMemoryStatusResponse {
     auto_memory: {
       enabled: boolean;
       interval: number;
-      active_sessions: number;
-      sessions_with_pending: number;
-      pending_turns: number;
     };
+    tasks: MemoryCaptureTaskStatus[];
     recent: {
-      last_completed_at: string | null;
-      last_failed_at: string | null;
       last_error: string | null;
     };
     reindexing: boolean;

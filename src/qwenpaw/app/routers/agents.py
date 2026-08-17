@@ -124,21 +124,32 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
+class MemoryCaptureTaskStatus(BaseModel):
+    """One bounded memory-capture record, newest records returned first.
+
+    Records share the summarize queue used by periodic auto-memory and the
+    user-triggered ``/new`` and ``/compact`` commands.
+    """
+
+    task_id: str
+    status: Literal["pending", "running", "completed", "failed", "cancelled"]
+    queued_at: str | None = None
+    finished_at: str | None = None
+    message_count: int = 0
+    result: str | None = None
+    error: str | None = None
+
+
 class AutoMemoryRuntimeStatus(BaseModel):
     """Aggregate auto-memory progress without exposing session identity."""
 
     enabled: bool
     interval: int
-    active_sessions: int
-    sessions_with_pending: int
-    pending_turns: int
 
 
 class RecentMemoryRuntimeStatus(BaseModel):
-    """Latest terminal task timestamps and a bounded error summary."""
+    """Latest bounded error summary."""
 
-    last_completed_at: str | None = None
-    last_failed_at: str | None = None
     last_error: str | None = None
 
 
@@ -147,6 +158,7 @@ class MemoryRuntimeStatus(BaseModel):
 
     worker: MemoryWorkerRuntimeStatus
     auto_memory: AutoMemoryRuntimeStatus
+    tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
 

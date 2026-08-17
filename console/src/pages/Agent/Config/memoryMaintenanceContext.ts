@@ -1,5 +1,8 @@
 import { createContext, useContext } from "react";
-import type { ReMeRuntimeStatus } from "./useReMeRuntimeStatus";
+import type {
+  ReMeDiagnosticsStatus,
+  ReMeRuntimeStatus,
+} from "./useReMeRuntimeStatus";
 
 export interface MemoryMaintenanceState {
   needsReindex: boolean;
@@ -8,7 +11,8 @@ export interface MemoryMaintenanceState {
   setReindexing: (value: boolean) => void;
   openMemorySettings: () => void;
   runtimeStatus: ReMeRuntimeStatus;
-  checkMemoryStatus: () => Promise<void>;
+  diagnosticsStatus: ReMeDiagnosticsStatus;
+  checkMemoryStatus: (includeDiagnostics?: boolean) => Promise<void>;
   configRevision: number;
 }
 
@@ -19,6 +23,7 @@ export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
   setReindexing: () => {},
   openMemorySettings: () => {},
   runtimeStatus: { type: "unknown" },
+  diagnosticsStatus: { type: "unknown" },
   checkMemoryStatus: async () => {},
   configRevision: 0,
 });
