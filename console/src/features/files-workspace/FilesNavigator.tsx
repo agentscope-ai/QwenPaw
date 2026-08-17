@@ -407,9 +407,6 @@ export default function FilesNavigator({
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   const uploadRef = useRef<HTMLInputElement>(null);
-  const enabledFilesRef = useRef<string[]>([]);
-  const promptFilesMutationGenerationRef = useRef(0);
-  const promptFilesSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -506,8 +503,6 @@ export default function FilesNavigator({
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      await promptFilesSaveQueueRef.current;
-      const mutationGeneration = promptFilesMutationGenerationRef.current;
       const [files, enabled] = await Promise.all([
         workspaceApi.listFiles(),
         workspaceApi.getSystemPromptFiles(),
@@ -521,12 +516,8 @@ export default function FilesNavigator({
         modified_at: file.modified_time,
         preview_kind: "text" as const,
       }));
-      setAllProfileFiles(mappedFiles);
-      if (mutationGeneration !== promptFilesMutationGenerationRef.current) {
-        return;
-      }
-      enabledFilesRef.current = order;
       setEnabledFiles(order);
+      setAllProfileFiles(mappedFiles);
     } finally {
       setLoading(false);
     }
@@ -609,49 +600,31 @@ export default function FilesNavigator({
     }
   };
 
-  const updateSystemPromptFiles = (
-    update: (current: string[]) => string[],
-  ): Promise<string[]> => {
-    promptFilesMutationGenerationRef.current += 1;
-    const operation = promptFilesSaveQueueRef.current.then(async () => {
-      const next = update(enabledFilesRef.current);
-      const saved = await workspaceApi.setSystemPromptFiles(next);
-      const confirmed = Array.isArray(saved) ? saved : next;
-      enabledFilesRef.current = confirmed;
-      setEnabledFiles(confirmed);
-      return confirmed;
-    });
-    promptFilesSaveQueueRef.current = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    return operation;
-  };
-
   const toggleProfileFile = async (filename: string) => {
-    await updateSystemPromptFiles((current) =>
-      current.includes(filename)
-        ? current.filter((file) => file !== filename)
-        : [...current, filename],
-    );
+    const next = enabledFiles.includes(filename)
+      ? enabledFiles.filter((file) => file !== filename)
+      : [...enabledFiles, filename];
+    await workspaceApi.setSystemPromptFiles(next);
+    setEnabledFiles(next);
   };
 
   const addProfileFile = async (filename: string) => {
-    await updateSystemPromptFiles((current) =>
-      current.includes(filename) ? current : [...current, filename],
-    );
+    if (enabledFiles.includes(filename)) return;
+    const next = [...enabledFiles, filename];
+    await workspaceApi.setSystemPromptFiles(next);
+    setEnabledFiles(next);
     setProfilePickerOpen(false);
     setProfileSearch("");
   };
 
   const reorderProfileFiles = async (event: DragEndEvent) => {
     if (!event.over || event.active.id === event.over.id) return;
-    await updateSystemPromptFiles((current) => {
-      const oldIndex = current.indexOf(String(event.active.id));
-      const newIndex = current.indexOf(String(event.over?.id));
-      if (oldIndex < 0 || newIndex < 0) return current;
-      return arrayMove(current, oldIndex, newIndex);
-    });
+    const oldIndex = enabledFiles.indexOf(String(event.active.id));
+    const newIndex = enabledFiles.indexOf(String(event.over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(enabledFiles, oldIndex, newIndex);
+    await workspaceApi.setSystemPromptFiles(next);
+    setEnabledFiles(next);
   };
 
   const displayEntries = useMemo(() => {
