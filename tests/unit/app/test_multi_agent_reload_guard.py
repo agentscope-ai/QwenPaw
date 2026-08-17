@@ -9,7 +9,8 @@ such stale swaps abort and the writer's own scheduled reload delivers
 the fresh state.
 """
 
-# pylint: disable=protected-access
+# Pytest fixtures intentionally provide setup-only arguments to tests.
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 
 from __future__ import annotations
 
@@ -102,7 +103,7 @@ async def test_reload_swaps_when_no_write_intervenes(manager):
 
 async def test_writers_reload_lands_after_stale_abort(manager):
     """The bumping writer's own reload installs the fresh workspace."""
-    mgr, old_instance = manager
+    mgr, _old_instance = manager
     stale_instance = _fake_workspace()
     fresh_instance = _fake_workspace()
     instances = [stale_instance, fresh_instance]
