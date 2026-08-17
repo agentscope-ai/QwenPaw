@@ -26,6 +26,7 @@ import {
   GripVertical,
   LoaderCircle,
   Network,
+  Plus,
   Settings2,
   RefreshCw,
   Upload,
@@ -39,7 +40,6 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { directoriesMatch, workspaceRoots } from "./directorySources";
-import { isDefaultWorkspaceMarkdown } from "./defaultWorkspaceMarkdown";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -49,6 +49,7 @@ import {
   buildMemoryTree,
   type MemoryTreeEntry,
 } from "./memoryTree";
+import { selectProfileFiles } from "./profileFileSelection";
 import type {
   DirectoryEntry,
   FileTarget,
@@ -389,7 +390,7 @@ export default function FilesNavigator({
       : initialProjectDirOverride;
   const scopeKey = filesWorkspaceScopeKey(scope);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
-  const [profileFiles, setProfileFiles] = useState<DirectoryEntry[]>([]);
+  const [allProfileFiles, setAllProfileFiles] = useState<DirectoryEntry[]>([]);
   const [dailyFiles, setDailyFiles] = useState<MemoryTreeEntry[]>([]);
   const [digestFiles, setDigestFiles] = useState<MemoryTreeEntry[]>([]);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
@@ -399,11 +400,15 @@ export default function FilesNavigator({
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[] | null>(null);
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
+  const [profilePickerOpen, setProfilePickerOpen] = useState(false);
+  const [profileSearch, setProfileSearch] = useState("");
   const [source, setSource] = useState<NavigatorSource>("workspace");
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   const uploadRef = useRef<HTMLInputElement>(null);
+  const enabledFilesRef = useRef<string[]>([]);
+  const promptFilesSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -450,10 +455,22 @@ export default function FilesNavigator({
     [projectDirectory, workspaceDirectory],
   );
   const roots = useMemo(() => workspaceRoots(sameDirectory), [sameDirectory]);
+  const profileFiles = useMemo(
+    () => selectProfileFiles(allProfileFiles, enabledFiles),
+    [allProfileFiles, enabledFiles],
+  );
   const managedProfileNames = useMemo(
     () => new Set(profileFiles.map((file) => file.path)),
     [profileFiles],
   );
+  const availableProfileFiles = useMemo(() => {
+    const query = profileSearch.trim().toLocaleLowerCase();
+    return allProfileFiles.filter(
+      (file) =>
+        !managedProfileNames.has(file.path) &&
+        (!query || file.name.toLocaleLowerCase().includes(query)),
+    );
+  }, [allProfileFiles, managedProfileNames, profileSearch]);
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
@@ -493,29 +510,17 @@ export default function FilesNavigator({
         workspaceApi.getSystemPromptFiles(),
       ]);
       const order = Array.isArray(enabled) ? enabled : [];
+      const mappedFiles = files.map((file) => ({
+        name: file.filename.split("/").pop() ?? file.filename,
+        path: file.filename,
+        kind: "file" as const,
+        size: file.size,
+        modified_at: file.modified_time,
+        preview_kind: "text" as const,
+      }));
+      enabledFilesRef.current = order;
       setEnabledFiles(order);
-      setProfileFiles(
-        files
-          .filter((file) => isDefaultWorkspaceMarkdown(file.filename))
-          .map((file) => ({
-            name: file.filename.split("/").pop() ?? file.filename,
-            path: file.filename,
-            kind: "file" as const,
-            size: file.size,
-            modified_at: file.modified_time,
-            preview_kind: "text" as const,
-          }))
-          .sort((left, right) => {
-            const leftIndex = order.indexOf(left.path);
-            const rightIndex = order.indexOf(right.path);
-            if (leftIndex >= 0 && rightIndex >= 0) {
-              return leftIndex - rightIndex;
-            }
-            if (leftIndex >= 0) return -1;
-            if (rightIndex >= 0) return 1;
-            return left.name.localeCompare(right.name);
-          }),
-      );
+      setAllProfileFiles(mappedFiles);
     } finally {
       setLoading(false);
     }
@@ -598,32 +603,48 @@ export default function FilesNavigator({
     }
   };
 
+  const updateSystemPromptFiles = (
+    update: (current: string[]) => string[],
+  ): Promise<string[]> => {
+    const operation = promptFilesSaveQueueRef.current.then(async () => {
+      const next = update(enabledFilesRef.current);
+      const saved = await workspaceApi.setSystemPromptFiles(next);
+      const confirmed = Array.isArray(saved) ? saved : next;
+      enabledFilesRef.current = confirmed;
+      setEnabledFiles(confirmed);
+      return confirmed;
+    });
+    promptFilesSaveQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  };
+
   const toggleProfileFile = async (filename: string) => {
-    const next = enabledFiles.includes(filename)
-      ? enabledFiles.filter((file) => file !== filename)
-      : [...enabledFiles, filename];
-    await workspaceApi.setSystemPromptFiles(next);
-    setEnabledFiles(next);
+    await updateSystemPromptFiles((current) =>
+      current.includes(filename)
+        ? current.filter((file) => file !== filename)
+        : [...current, filename],
+    );
+  };
+
+  const addProfileFile = async (filename: string) => {
+    await updateSystemPromptFiles((current) =>
+      current.includes(filename) ? current : [...current, filename],
+    );
+    setProfilePickerOpen(false);
+    setProfileSearch("");
   };
 
   const reorderProfileFiles = async (event: DragEndEvent) => {
     if (!event.over || event.active.id === event.over.id) return;
-    const oldIndex = enabledFiles.indexOf(String(event.active.id));
-    const newIndex = enabledFiles.indexOf(String(event.over.id));
-    if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(enabledFiles, oldIndex, newIndex);
-    await workspaceApi.setSystemPromptFiles(next);
-    setEnabledFiles(next);
-    setProfileFiles((current) =>
-      [...current].sort((left, right) => {
-        const leftIndex = next.indexOf(left.path);
-        const rightIndex = next.indexOf(right.path);
-        if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex;
-        if (leftIndex >= 0) return -1;
-        if (rightIndex >= 0) return 1;
-        return left.name.localeCompare(right.name);
-      }),
-    );
+    await updateSystemPromptFiles((current) => {
+      const oldIndex = current.indexOf(String(event.active.id));
+      const newIndex = current.indexOf(String(event.over?.id));
+      if (oldIndex < 0 || newIndex < 0) return current;
+      return arrayMove(current, oldIndex, newIndex);
+    });
   };
 
   const displayEntries = useMemo(() => {
@@ -760,6 +781,16 @@ export default function FilesNavigator({
           strategy={verticalListSortingStrategy}
         >
           <div className={styles.tree} role="tree" aria-busy={loading}>
+            {source === "profile" && (
+              <button
+                type="button"
+                className={styles.profileAddButton}
+                onClick={() => setProfilePickerOpen(true)}
+              >
+                <Plus size={14} />
+                <span>{t("files.addSystemPrompt")}</span>
+              </button>
+            )}
             {loading && displayEntries.length === 0 ? (
               <div className={styles.empty}>
                 <LoaderCircle className={styles.spin} size={16} />
@@ -860,6 +891,48 @@ export default function FilesNavigator({
           </div>
         </SortableContext>
       </DndContext>
+      <Modal
+        className={styles.profilePickerModal}
+        open={profilePickerOpen}
+        title={t("files.addSystemPromptTitle")}
+        footer={null}
+        centered
+        onCancel={() => {
+          setProfilePickerOpen(false);
+          setProfileSearch("");
+        }}
+      >
+        <p className={styles.profilePickerDescription}>
+          {t("files.addSystemPromptDescription")}
+        </p>
+        <input
+          className={styles.profilePickerSearch}
+          value={profileSearch}
+          onChange={(event) => setProfileSearch(event.target.value)}
+          placeholder={t("files.searchSystemPromptFiles")}
+          aria-label={t("files.searchSystemPromptFiles")}
+          autoFocus
+        />
+        <div className={styles.profilePickerList}>
+          {availableProfileFiles.map((file) => (
+            <button
+              type="button"
+              key={file.path}
+              className={styles.profilePickerItem}
+              onClick={() => void addProfileFile(file.path)}
+            >
+              <FileGlyph name={file.name} />
+              <span>{file.name}</span>
+              <Plus size={14} />
+            </button>
+          ))}
+          {availableProfileFiles.length === 0 && (
+            <div className={styles.profilePickerEmpty}>
+              {t("files.noSystemPromptCandidates")}
+            </div>
+          )}
+        </div>
+      </Modal>
       <Modal
         className={styles.conflictModal}
         open={pendingUploads !== null}
