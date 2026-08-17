@@ -15,6 +15,7 @@ import {
   ProviderGroupCard,
   CustomProviderModal,
   ModelsSection,
+  VisualModelSection,
   ProviderConfigModal,
   ModelManageModal,
 } from "./components";
@@ -26,6 +27,9 @@ import {
   getIsConfigured,
   groupProviders,
 } from "./utils";
+import { useAgentStore } from "../../../stores/agentStore";
+import { agentsApi } from "../../../api";
+import type { ModelSlotConfig } from "../../../api/types";
 import { ProviderIcon } from "./components/ProviderIconComponent";
 import styles from "./index.module.less";
 
@@ -55,6 +59,10 @@ function ModelsPage() {
     providers: ProviderInfo[];
   } | null>(null);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
+  const [visualModalOpen, setVisualModalOpen] = useState(false);
+  const selectedAgent = useAgentStore((s) => s.selectedAgent);
+  const [visualModel, setVisualModel] = useState<ModelSlotConfig | null>(null);
+  const [visualAgentName, setVisualAgentName] = useState(selectedAgent);
   const [activeTab, setActiveTab] = useState<"cloud" | "local">(() => {
     const stored = localStorage.getItem("models_tab");
     return stored === "local" ? "local" : "cloud";
@@ -75,6 +83,20 @@ function ModelsPage() {
   const refreshProvidersSilently = useCallback(() => {
     return fetchAll(false);
   }, [fetchAll]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setVisualAgentName(selectedAgent);
+    agentsApi.getAgent(selectedAgent).then((config) => {
+      if (!cancelled) {
+        setVisualModel(config.visual_model ?? null);
+        setVisualAgentName(config.name || selectedAgent);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const handleTabChange = useCallback((tab: "cloud" | "local") => {
     setActiveTab(tab);
@@ -333,6 +355,29 @@ function ModelsPage() {
                       {t("common.edit")}
                     </span>
                   </div>
+                  <div
+                    className={[
+                      styles.llmPill,
+                      visualModel ? styles.llmPillOn : styles.llmPillOff,
+                    ].join(" ")}
+                    onClick={() => setVisualModalOpen(true)}
+                  >
+                    <span
+                      className={
+                        visualModel ? styles.llmPillDot : styles.llmPillDotOff
+                      }
+                    />
+                    <span className={styles.llmPillLabel}>
+                      {t("models.visualModel")}:
+                    </span>
+                    <span className={styles.llmPillValue}>
+                      {visualModel?.provider_id || "—"} /{" "}
+                      {visualModel?.model || "—"}
+                    </span>
+                    <span className={styles.llmPillEdit}>
+                      {t("common.edit")}
+                    </span>
+                  </div>
                   {/* ---- Search ---- */}
                   <div className={styles.searchRow}>
                     <Input
@@ -555,6 +600,26 @@ function ModelsPage() {
                 onSaved={() => {
                   fetchAll();
                   setLlmModalOpen(false);
+                }}
+              />
+            </Modal>
+
+            <Modal
+              open={visualModalOpen}
+              title={t("models.visualModel")}
+              footer={null}
+              onCancel={() => setVisualModalOpen(false)}
+              destroyOnClose
+              width={520}
+            >
+              <VisualModelSection
+                providers={providers}
+                agentId={selectedAgent}
+                agentName={visualAgentName}
+                initialVisualModel={visualModel}
+                onSaved={(slot) => {
+                  setVisualModel(slot);
+                  setVisualModalOpen(false);
                 }}
               />
             </Modal>

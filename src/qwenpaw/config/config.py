@@ -1889,6 +1889,13 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Active model for this agent (provider_id + model)",
     )
+    visual_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description=(
+            "Visual model for transcribing media when the active model "
+            "is text-only (provider_id + model)"
+        ),
+    )
     language: str = Field(
         default="zh",
         description="Language setting for this agent",

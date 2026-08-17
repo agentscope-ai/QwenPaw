@@ -73,6 +73,7 @@ export interface AgentProfileConfig {
   };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
+  visual_model?: ModelSlotConfig | null;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;

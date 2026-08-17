@@ -46,6 +46,7 @@ from ..providers.retry_chat_model import (
     RetryConfig,
     RateLimitConfig,
 )
+from ..providers.visual_model_service import apply_visual_fallback_to_messages
 from ..token_usage import TokenRecordingModelWrapper
 
 # TODO(AgentScope compatibility): This is a temporary workaround for
@@ -1094,6 +1095,7 @@ def _create_file_block_support_formatter(
             """Override ``format`` (2.0 API) to inject normalization,
             reasoning_content relay, and provider-specific fixups.
             """
+            msgs = await apply_visual_fallback_to_messages(msgs)
 
             # A formatter failure must not leave media evidence from a
             # previous request behind for the capability fallback layer.

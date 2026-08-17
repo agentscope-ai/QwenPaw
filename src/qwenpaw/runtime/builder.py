@@ -342,7 +342,7 @@ class AgentBuilder:
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
         model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        model, _formatter = self.build_model(
+        model, formatter = self.build_model(
             agent_config,
             model_slot_override=model_slot_override,
         )
@@ -437,6 +437,10 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+        # Must share the same formatter instance as innermost.model.formatter:
+        # react_agent gates request-time media strip on agent.formatter, while
+        # the model formats via that same object (visual fallback lives there).
+        agent.formatter = formatter
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
