@@ -343,6 +343,19 @@ LLM_BACKOFF_CAP = EnvVarLoader.get_float(
     min_value=0.5,
 )
 
+# Maximum cumulative back-off budget (seconds) across all retry attempts.
+# When set to a value > 0, the retry loop stops retrying once the total
+# time spent sleeping between attempts would exceed this budget, providing
+# an upper bound on how long a single LLM call may be held back by
+# transient failures.  A value of 0 (default) disables the cap and uses
+# the conventional retry-count strategy (max_retries) with no wall-clock
+# limit.
+LLM_MAX_BACKOFF_BUDGET = EnvVarLoader.get_float(
+    "QWENPAW_LLM_MAX_BACKOFF_BUDGET",
+    0.0,
+    min_value=0.0,
+)
+
 # LLM concurrency control
 # Maximum number of concurrent in-flight LLM calls; excess requests wait on
 # the semaphore.  Tune to your API quota: start conservatively at 3-5 and

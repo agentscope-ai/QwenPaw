@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
@@ -40,6 +41,7 @@ from ..constant import (
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
+    LLM_MAX_BACKOFF_BUDGET,
     LLM_MAX_CONCURRENT,
     LLM_MAX_RETRIES,
     LLM_MAX_QPM,
@@ -68,14 +70,42 @@ class _AcquireTimeoutError(RateLimitExceededException):
     """
 
 
+class RetryBudgetExhaustedError(RateLimitExceededException):
+    """Raised when the cumulative retry back-off budget is exceeded.
+
+    The retry loop has spent the configured wall-clock budget
+    (``max_total_backoff``) on back-off sleeps and no further retries will
+    be attempted.  Downstream wrappers (e.g. a failover model) can catch
+    this exception to trigger an alternative execution path.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RetryConfig:
-    """Retry policy for transient LLM API failures."""
+    """Retry policy for transient LLM API failures.
+
+    Attributes:
+        enabled: Whether retries are enabled.
+        max_retries: Maximum number of retry attempts (not counting the
+            initial call).
+        backoff_base: Base delay for exponential back-off (seconds).
+        backoff_cap: Maximum delay per back-off step (seconds).
+        max_total_backoff: Maximum cumulative back-off time across all
+            retries (seconds).  When ``> 0``, the retry loop stops early
+            once the total time spent sleeping between retries exceeds
+            this budget.  ``0`` (default) disables the cap and uses the
+            conventional retry-count strategy.
+    """
 
     enabled: bool = LLM_MAX_RETRIES > 0
     max_retries: int = max(LLM_MAX_RETRIES, 1)
     backoff_base: float = LLM_BACKOFF_BASE
     backoff_cap: float = LLM_BACKOFF_CAP
+    max_total_backoff: float = LLM_MAX_BACKOFF_BUDGET
+
+    @property
+    def budget_enabled(self) -> bool:
+        return self.max_total_backoff > 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,10 +264,11 @@ def _enable_reasoning_content_fallback(
     formatter's request-time placeholder mode and let it preserve real
     reasoning while filling only missing assistant segments.
 
-    Returns ``True`` when the fallback is available for this call.  An
-    already-enabled formatter also returns ``True``: another concurrent call
-    may have enabled it after this request was formatted but before its 400
-    was handled, and that in-flight request still needs one retry.
+    Returns ``True`` when the fallback is available for this call.
+
+    An already-enabled formatter also returns ``True``: another concurrent
+    call may have enabled it after this request was formatted but before
+    its 400 was handled, and that in-flight request still needs one retry.
     """
     if _inject_reasoning_content(args, kwargs):
         return True
@@ -245,6 +276,7 @@ def _enable_reasoning_content_fallback(
     messages = kwargs.get("messages")
     if messages is None and args:
         messages = args[0] if isinstance(args[0], list) else None
+
     if not isinstance(messages, list) or not any(
         getattr(msg, "role", None) == "assistant" for msg in messages
     ):
@@ -263,20 +295,14 @@ def _enable_reasoning_content_fallback(
 
         formatter = getattr(current, "formatter", None)
         if formatter is not None and getattr(
-            formatter,
-            "_qwenpaw_supports_reasoning_content_fallback",
-            False,
+            formatter, "_qwenpaw_supports_reasoning_content_fallback", False,
         ):
             if getattr(
-                formatter,
-                "_qwenpaw_require_reasoning_content",
-                False,
+                formatter, "_qwenpaw_require_reasoning_content", False,
             ):
                 return True
             setattr(
-                formatter,
-                "_qwenpaw_require_reasoning_content",
-                True,
+                formatter, "_qwenpaw_require_reasoning_content", True,
             )
             return True
 
@@ -324,6 +350,7 @@ def _normalize_retry_config(retry_config: RetryConfig | None) -> RetryConfig:
         max_retries=max(1, retry_config.max_retries),
         backoff_base=normalized_backoff_base,
         backoff_cap=normalized_backoff_cap,
+        max_total_backoff=max(0.0, retry_config.max_total_backoff),
     )
 
 
@@ -350,6 +377,29 @@ def _compute_backoff(attempt: int, retry_config: RetryConfig) -> float:
     )
 
 
+def _compute_retry_delay(
+    exc: Exception,
+    attempt: int,
+    retry_config: RetryConfig,
+) -> float:
+    """Compute the back-off delay before the next retry.
+
+    Prefers the server-provided ``Retry-After`` header when present (this
+    works for **every** retryable status code, not just 429).  Falls back
+    to the conventional exponential back-off schedule otherwise.
+
+    The server-provided ``Retry-After`` is **capped** at
+    ``LLMRateLimiter.MAX_PAUSE_SECONDS`` so that a malicious or misconfigured
+    gateway (502/503/529) cannot make the client sleep for an unbounded
+    amount of time.  The cap applies to every status code, mirroring the
+    429-only guard in ``_handle_rate_limit_exc``.
+    """
+    retry_after = _extract_retry_after(exc)
+    if retry_after is not None:
+        return min(retry_after, LLMRateLimiter.MAX_PAUSE_SECONDS)
+    return _compute_backoff(attempt, retry_config)
+
+
 class RetryChatModel(ChatModelBase):
     """Transparent retry wrapper around any :class:`ChatModelBase`.
 
@@ -360,6 +410,12 @@ class RetryChatModel(ChatModelBase):
 
     A global LLMRateLimiter is consulted on every call to cap concurrency and
     to coordinate a shared pause across all callers when a 429 is received.
+
+    Args:
+        on_retry: Optional async callback invoked before each retry sleep.
+            Receives the computed delay (seconds) and the exception that
+            triggered the retry.  Useful for monitoring, metrics, or
+            downstream failover decisions.
     """
 
     def __init__(
@@ -367,6 +423,7 @@ class RetryChatModel(ChatModelBase):
         inner: ChatModelBase,
         retry_config: RetryConfig | None = None,
         rate_limit_config: RateLimitConfig | None = None,
+        on_retry: Callable[[float, Exception], Awaitable[None]] | None = None,
     ) -> None:
         # agentscope 2.0 ChatModelBase requires credential/model/parameters;
         # forward the inner wrapper's own values so attribute access stays
@@ -384,6 +441,7 @@ class RetryChatModel(ChatModelBase):
         self._rate_limit_config = _normalize_rate_limit_config(
             rate_limit_config,
         )
+        self._on_retry = on_retry
 
     # Expose the real model's class so that formatter mapping keeps working
     # when code inspects ``model.__class__`` after wrapping.
@@ -397,6 +455,27 @@ class RetryChatModel(ChatModelBase):
         provider_id = getattr(self._inner, "_provider_id", None)
         name = self._inner.model
         return f"{provider_id}:{name}" if provider_id else name
+
+    async def _fire_on_retry(self, delay: float, exc: Exception) -> None:
+        """Invoke the ``on_retry`` callback if one is configured."""
+        if self._on_retry is not None:
+            await self._on_retry(delay, exc)
+
+    def _build_retry_budget_exhausted(
+        self,
+        total_backoff: float,
+        exc: Exception,
+    ) -> RetryBudgetExhaustedError:
+        """Build a typed ``RetryBudgetExhaustedError`` with context."""
+        return RetryBudgetExhaustedError(
+            operation="LLM execution",
+            details={
+                "reason": "Cumulative retry back-off budget exceeded",
+                "total_backoff": total_backoff,
+                "budget": self._retry_config.max_total_backoff,
+                "last_status": _extract_status_code(exc),
+            },
+        )
 
     @staticmethod
     async def _handle_rate_limit_exc(
@@ -499,7 +578,9 @@ class RetryChatModel(ChatModelBase):
             self._retry_config.max_retries if self._retry_config.enabled else 0
         )
         attempts = retries + 1
+        budget = self._retry_config
         last_exc: Exception | None = None
+        total_backoff = 0.0
 
         for attempt in range(1, attempts + 1):
             # Acquire a semaphore slot, with a timeout to prevent
@@ -536,9 +617,7 @@ class RetryChatModel(ChatModelBase):
                     if not (
                         _is_missing_reasoning_content_error(inner_exc)
                         and _enable_reasoning_content_fallback(
-                            self,
-                            args,
-                            kwargs,
+                            self, args, kwargs,
                         )
                     ):
                         raise
@@ -554,6 +633,8 @@ class RetryChatModel(ChatModelBase):
                     # Transfer semaphore ownership to _wrap_stream, which uses
                     # _consume_stream_with_slot internally and handles
                     # retries on stream failure.
+                    # Pass total_backoff so the stream retry loop inherits
+                    # the cumulative back-off already spent in __call__.
                     owns_semaphore = False
                     return self._wrap_stream(
                         result,
@@ -563,6 +644,7 @@ class RetryChatModel(ChatModelBase):
                         attempts,
                         limiter,
                         acquired_at,
+                        total_backoff=total_backoff,
                     )
 
                 # Non-streaming success: clear any stale rate-limit pause so
@@ -578,7 +660,21 @@ class RetryChatModel(ChatModelBase):
                 if not _is_retryable(exc) or attempt >= attempts:
                     raise
 
-                delay = _compute_backoff(attempt, self._retry_config)
+                delay = _compute_retry_delay(exc, attempt, self._retry_config)
+
+                # Check cumulative back-off budget before sleeping.
+                over_budget = (
+                    budget.budget_enabled
+                    and total_backoff + delay > budget.max_total_backoff
+                )
+                if over_budget:
+                    raise self._build_retry_budget_exhausted(
+                        total_backoff, exc,
+                    ) from exc
+
+                total_backoff += delay
+                await self._fire_on_retry(delay, exc)
+
                 logger.warning(
                     "LLM call failed (attempt %d/%d): %s. "
                     "Retrying in %.1fs ...",
@@ -606,6 +702,7 @@ class RetryChatModel(ChatModelBase):
         max_attempts: int,
         limiter: LLMRateLimiter,
         acquired_at: float = 0.0,
+        total_backoff: float = 0.0,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Yield chunks from *stream*; on transient failure, retry the full
         request and yield from the new stream instead.
@@ -614,11 +711,16 @@ class RetryChatModel(ChatModelBase):
             acquired_at: Timestamp from ``limiter.acquire()``, forwarded to
                 ``on_success()`` so stale pauses are cleared but fresh ones
                 (set by a concurrent 429 after this call acquired) are kept.
+            total_backoff: Cumulative back-off time already spent in
+                ``__call__`` before this stream was produced.  Inherited so
+                the wall-clock budget is shared across the whole logical
+                call rather than reset per execution phase.
         """
         attempt = current_attempt
         pending_stream: AsyncGenerator[ChatResponse, None] | None = stream
         pending_acquired_at = acquired_at
         reasoning_injected = False
+        budget = self._retry_config
 
         while True:
             try:
@@ -674,9 +776,7 @@ class RetryChatModel(ChatModelBase):
                     not reasoning_injected
                     and _is_missing_reasoning_content_error(retry_exc)
                     and _enable_reasoning_content_fallback(
-                        self,
-                        call_args,
-                        call_kwargs,
+                        self, call_args, call_kwargs,
                     )
                 ):
                     reasoning_injected = True
@@ -693,14 +793,30 @@ class RetryChatModel(ChatModelBase):
                     continue
 
                 if _is_retryable(retry_exc) and _is_rate_limit(retry_exc):
-                    await limiter.report_rate_limit(
-                        _extract_retry_after(retry_exc),
-                    )
+                    # Delegate to the shared handler so the stream path
+                    # has the same MAX_PAUSE_SECONDS guard as __call__.
+                    await self._handle_rate_limit_exc(retry_exc, limiter)
 
                 if not _is_retryable(retry_exc) or attempt >= max_attempts:
                     raise
 
-                retry_delay = _compute_backoff(attempt, self._retry_config)
+                retry_delay = _compute_retry_delay(
+                    retry_exc, attempt, self._retry_config,
+                )
+
+                # Check cumulative back-off budget before sleeping.
+                over_budget = (
+                    budget.budget_enabled
+                    and total_backoff + retry_delay > budget.max_total_backoff
+                )
+                if over_budget:
+                    raise self._build_retry_budget_exhausted(
+                        total_backoff, retry_exc,
+                    ) from retry_exc
+
+                total_backoff += retry_delay
+                await self._fire_on_retry(retry_delay, retry_exc)
+
                 logger.warning(
                     "LLM stream failed (attempt %d/%d): %s. "
                     "Retrying in %.1fs ...",
