@@ -21,6 +21,7 @@ export default function AgentsPage() {
     deleteAgent,
     toggleAgent,
     pinAgent,
+    hideAgent,
     loadAgents,
     setAgents,
   } = useAgents();
@@ -126,6 +127,14 @@ export default function AgentsPage() {
   const handlePin = async (agentId: string, currentPinned: boolean) => {
     try {
       await pinAgent(agentId, !currentPinned);
+    } catch {
+      // Error already handled in hook
+    }
+  };
+
+  const handleHide = async (agentId: string, currentHidden: boolean) => {
+    try {
+      await hideAgent(agentId, !currentHidden);
     } catch {
       // Error already handled in hook
     }
@@ -248,6 +257,7 @@ export default function AgentsPage() {
           onDelete={handleDelete}
           onToggle={handleToggle}
           onPin={handlePin}
+          onHide={handleHide}
           onReorder={handleReorder}
         />
       </Card>

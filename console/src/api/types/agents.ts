@@ -17,6 +17,7 @@ export interface AgentSummary {
   workspace_dir: string;
   enabled: boolean;
   pinned?: boolean;
+  hidden?: boolean;
   startup_status?: AgentStartupStatus;
   backend: AgentBackend;
   backend_capabilities?: Partial<HarnessCapabilities>;

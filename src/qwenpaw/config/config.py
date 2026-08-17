@@ -1807,6 +1807,15 @@ class AgentProfileRef(BaseModel):
         default=False,
         description="Whether agent is pinned in agent selectors",
     )
+    hidden: bool = Field(
+        default=False,
+        description=(
+            "Whether agent is hidden from agent selectors and sidebars. "
+            "Hidden agents remain enabled and can be addressed via "
+            "submit_to_agent, but do not appear in the UI agent picker. "
+            "Useful for background/internal agents created by plugins."
+        ),
+    )
 
 
 class PlanConfig(BaseModel):

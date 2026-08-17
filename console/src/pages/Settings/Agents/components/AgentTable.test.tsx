@@ -35,6 +35,7 @@ describe("AgentTable", () => {
         onDelete={vi.fn()}
         onToggle={vi.fn()}
         onPin={vi.fn()}
+        onHide={vi.fn()}
         onReorder={vi.fn()}
       />,
     );
@@ -58,6 +59,7 @@ describe("AgentTable", () => {
         onDelete={vi.fn()}
         onToggle={vi.fn()}
         onPin={vi.fn()}
+        onHide={vi.fn()}
         onReorder={vi.fn()}
       />,
     );
@@ -78,6 +80,7 @@ describe("AgentTable", () => {
         onDelete={vi.fn()}
         onToggle={vi.fn()}
         onPin={vi.fn()}
+        onHide={vi.fn()}
         onReorder={vi.fn()}
       />,
     );
@@ -101,6 +104,7 @@ describe("AgentTable", () => {
         onDelete={vi.fn()}
         onToggle={vi.fn()}
         onPin={vi.fn()}
+        onHide={vi.fn()}
         onReorder={vi.fn()}
       />,
     );

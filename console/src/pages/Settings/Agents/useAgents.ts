@@ -14,6 +14,7 @@ interface UseAgentsReturn {
   deleteAgent: (agentId: string) => Promise<void>;
   toggleAgent: (agentId: string, enabled: boolean) => Promise<void>;
   pinAgent: (agentId: string, pinned: boolean) => Promise<void>;
+  hideAgent: (agentId: string, hidden: boolean) => Promise<void>;
   setAgents: (agents: AgentSummary[]) => void;
 }
 
@@ -131,6 +132,25 @@ export function useAgents(): UseAgentsReturn {
     }
   };
 
+  const hideAgent = async (agentId: string, hidden: boolean) => {
+    setAgentsState(
+      agents.map((agent) =>
+        agent.id === agentId ? { ...agent, hidden } : agent,
+      ),
+    );
+    try {
+      await agentsApi.setAgentHidden(agentId, hidden);
+      message.success(
+        hidden ? t("agent.hideSuccess") : t("agent.unhideSuccess"),
+      );
+      await fetchAgents(false, false);
+    } catch (err: unknown) {
+      await fetchAgents(false, false);
+      message.error(err instanceof Error ? err.message : t("agent.hideFailed"));
+      throw err;
+    }
+  };
+
   useEffect(() => {
     void loadAgents();
   }, [loadAgents]);
@@ -143,6 +163,7 @@ export function useAgents(): UseAgentsReturn {
     deleteAgent,
     toggleAgent,
     pinAgent,
+    hideAgent,
     setAgents: setAgentsState,
   };
 }
