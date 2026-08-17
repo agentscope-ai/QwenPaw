@@ -608,27 +608,33 @@ async def update_backend_settings(
 def _resolve_custom_workspace_dir(raw_workspace_dir: str) -> Path:
     """Resolve a caller-supplied workspace directory safely.
 
-    Restricts custom workspace paths to the user's home directory or
-    ``WORKING_DIR`` so a crafted request cannot make the server create
-    and populate directories in arbitrary filesystem locations.
+    Guards against path traversal (the CodeQL uncontrolled-path
+    finding): the raw value must not smuggle ``..`` segments, and a
+    relative value is anchored to the QwenPaw working directory rather
+    than the process CWD.  Any explicit absolute directory is otherwise
+    legal -- deployments routinely keep workspaces on /data, /opt, or
+    other non-home mounts, so a home/WORKING_DIR whitelist would reject
+    previously valid setups.
 
     Raises:
-        HTTPException(400): When the resolved path escapes both roots.
+        HTTPException(400): empty input or traversal segments.
     """
-    candidate = Path(raw_workspace_dir).expanduser().resolve()
-    home = Path.home().resolve()
-    working_dir = Path(WORKING_DIR).expanduser().resolve()
-    if candidate != home and (
-        candidate.is_relative_to(home) or candidate.is_relative_to(working_dir)
-    ):
-        return candidate
-    raise HTTPException(
-        status_code=400,
-        detail=(
-            "workspace_dir must be a directory under your home "
-            "directory or the QwenPaw working directory"
-        ),
-    )
+    raw = raw_workspace_dir.strip()
+    if not raw:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace_dir must not be empty",
+        )
+    raw_path = Path(raw)
+    if ".." in raw_path.parts:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace_dir must not contain '..' path segments",
+        )
+    candidate = raw_path.expanduser()
+    if not candidate.is_absolute():
+        candidate = Path(WORKING_DIR).expanduser() / candidate
+    return candidate.resolve()
 
 
 def _generate_unique_id(existing_ids: set[str]) -> str:

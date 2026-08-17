@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.exceptions import AppBaseException
@@ -1134,6 +1134,108 @@ async def test_create_workspace_io_runs_off_event_loop(
     assert result.id == "created"
     assert len(io_threads) == 3
     assert all(thread_id != event_loop_thread for thread_id in io_threads)
+
+
+# ---------------------------------------------------------------------------
+# Workspace directory policy (traversal guard, no location whitelist)
+# ---------------------------------------------------------------------------
+
+
+def _make_create_stubs(fake_config, monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.load_config",
+        lambda: fake_config,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents._persist_created_agent",
+        lambda *_args: None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_agent_default_workspace_under_working_dir(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+):
+    """Without workspace_dir the safe_join default path is used."""
+    _make_create_stubs(fake_config, monkeypatch)
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.WORKING_DIR",
+        str(tmp_path),
+    )
+
+    result = await create_agent(
+        request=CreateAgentRequest(id="created", name="Created"),
+        http_request=None,
+    )
+
+    expected = (tmp_path / "workspaces" / "created").resolve()
+    assert Path(result.workspace_dir).resolve() == expected
+    assert expected.is_dir()
+
+
+@pytest.mark.asyncio
+async def test_create_agent_accepts_non_home_workspace_root(
+    fake_config,
+    monkeypatch,
+    tmp_path,
+):
+    """Docker-style roots outside home/WORKING_DIR stay legal."""
+    _make_create_stubs(fake_config, monkeypatch)
+    # tmp_path plays the role of a mount like /data: on Linux/macOS it
+    # is outside the user's home directory already; the policy must not
+    # depend on where the OS happens to place it.
+    custom = tmp_path / "data" / "qwenpaw-workspaces" / "created"
+
+    result = await create_agent(
+        request=CreateAgentRequest(
+            id="created",
+            name="Created",
+            workspace_dir=str(custom),
+        ),
+        http_request=None,
+    )
+
+    assert Path(result.workspace_dir).resolve() == custom.resolve()
+    assert custom.is_dir()
+
+
+def test_resolve_workspace_dir_rejects_traversal_segments():
+    from qwenpaw.app.routers.agents import _resolve_custom_workspace_dir
+
+    for dangerous in (
+        "../../etc/qwenpaw",
+        "workspaces/../../../etc",
+        str(Path("/data") / ".." / "etc"),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            _resolve_custom_workspace_dir(dangerous)
+        assert exc_info.value.status_code == 400
+
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_custom_workspace_dir("   ")
+    assert exc_info.value.status_code == 400
+
+
+def test_resolve_workspace_dir_anchors_relative_to_working_dir(
+    monkeypatch,
+    tmp_path,
+):
+    from qwenpaw.app.routers.agents import _resolve_custom_workspace_dir
+
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.WORKING_DIR",
+        str(tmp_path),
+    )
+
+    resolved = _resolve_custom_workspace_dir("my-agents/one")
+
+    assert resolved == (tmp_path / "my-agents" / "one").resolve()
 
 
 # ---------------------------------------------------------------------------
