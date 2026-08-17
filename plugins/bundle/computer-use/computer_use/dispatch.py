@@ -28,6 +28,7 @@ _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
+_MAX_ACCESSIBILITY_DEPTH = 40
 
 ComputerUseAction = Literal[
     "list_apps",
@@ -152,26 +153,20 @@ def _element_line(element: Mapping[str, Any]) -> str:
     """Render one accessibility element as a single compact line.
 
     Only the model reads these elements, so the JSON scaffolding around
-    them is pure overhead. Windows reports pixel ``bounds`` and macOS
-    reports a control ``value`` instead, so the locator part is chosen from
-    whichever the platform actually provided rather than assumed.
+    them is pure overhead. Coordinates come from the current screenshot;
+    accessibility lines expose only semantic element metadata.
     """
     parts = [
         str(element.get("id") or "?"),
         str(element.get("control_type_name") or element.get("role") or "?"),
         f'"{element.get("name") or ""}"',
     ]
-    bounds = element.get("bounds")
     value = element.get("value")
-    if isinstance(bounds, (list, tuple)) and len(bounds) == 4:
-        try:
-            left, top, right, bottom = (int(edge) for edge in bounds)
-        except (TypeError, ValueError):
-            pass
-        else:
-            parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
-    elif isinstance(value, str) and value:
+    if isinstance(value, str) and value:
         parts.append(f"={value}")
+    identifier = element.get("identifier") or element.get("automation_id")
+    if isinstance(identifier, str) and identifier:
+        parts.append(f"[identifier={identifier}]")
     # Both states stay visible: an offscreen entry may become reachable
     # after scrolling, and a disabled control tells the model not to try.
     if element.get("enabled") is False:
@@ -189,7 +184,13 @@ def _element_line(element: Mapping[str, Any]) -> str:
         names = [str(action) for action in actions if str(action)]
         if names:
             parts.append(f"[actions={','.join(names)}]")
-    return " ".join(parts)
+    depth = element.get("depth")
+    indent = (
+        "  " * min(depth, _MAX_ACCESSIBILITY_DEPTH)
+        if isinstance(depth, int) and not isinstance(depth, bool) and depth > 0
+        else ""
+    )
+    return indent + " ".join(parts)
 
 
 def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -253,8 +254,20 @@ def _error(code: str, message: str) -> ToolChunk:
         "ok": False,
         "error": {"code": code, "message": message},
     }
-    if code == "user_intervention":
+    if code in {
+        "desktop_busy",
+        "focus_failed",
+        "input_failed",
+        "observation_required",
+        "stale_observation",
+        "target_not_at_point",
+        "user_intervention",
+    }:
         payload["requires_observe"] = True
+        payload["next_action"] = "observe_window"
+    elif code in {"stale_window", "window_not_found"}:
+        payload["requires_observe"] = True
+        payload["next_action"] = "list_windows"
     return _response(
         payload,
         state=ToolResultState.ERROR,
@@ -302,6 +315,9 @@ async def computer_use(
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     platform-native application path.
+    Inspect the replacement observation after an action changes selection,
+    focus, menus, editors, dialogs, or windows. Confirm editable focus before
+    typing, and observe again after committing an edit.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.
@@ -479,9 +495,11 @@ def _native_request(
         if action == "set_value":
             params["value"] = str(values["value"] or "")
         return (
-            "invoke_element"
-            if action in {"invoke", "begin_text_edit"}
-            else action,
+            (
+                "invoke_element"
+                if action in {"invoke", "begin_text_edit"}
+                else action
+            ),
             params,
             False,
         )

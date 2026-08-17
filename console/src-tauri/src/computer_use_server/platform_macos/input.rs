@@ -21,9 +21,7 @@ use core_graphics::window::{
     copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
     kCGWindowListOptionOnScreenOnly, kCGWindowNumber,
 };
-use objc2_app_kit::{
-    NSApplicationActivationOptions, NSRunningApplication, NSWorkspace, NSWorkspaceOpenConfiguration,
-};
+use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 use serde_json::{json, Map, Value};
 
 use super::super::state::{
@@ -31,9 +29,9 @@ use super::super::state::{
 };
 use super::super::InputStep;
 use super::accessibility_tree::{
-    activate_accessibility_element, element_point, element_point_by_id, element_requires_frontmost,
-    find_ax_window, insert_focused_text, invoke_accessibility_element, is_descendant_of,
-    show_accessibility_menu, validate_element_hit, FocusedTextInput,
+    activate_accessibility_element, element_hit_point_by_id, element_point_by_id,
+    element_requires_frontmost, find_ax_window, insert_focused_text, invoke_accessibility_element,
+    is_descendant_of, show_accessibility_menu, FocusedTextInput,
 };
 use super::{
     bounds_from_dict, dict_i64, integer_param, window_bounds,
@@ -525,7 +523,8 @@ fn keycode_for(key: &str) -> Option<u16> {
         "return" | "enter" => KeyCode::RETURN,
         "tab" => KeyCode::TAB,
         "space" => KeyCode::SPACE,
-        "delete" | "backspace" => KeyCode::DELETE,
+        "backspace" => KeyCode::DELETE,
+        "delete" | "del" => KeyCode::FORWARD_DELETE,
         "escape" | "esc" => KeyCode::ESCAPE,
         "home" => KeyCode::HOME,
         "end" => KeyCode::END,
@@ -606,7 +605,7 @@ fn keycode_for(key: &str) -> Option<u16> {
         "add" => 69,
         "subtract" => 78,
         "divide" => 75,
-        "insert" | "ins" | "help" => 114,
+        "help" => KeyCode::HELP,
         _ => return None,
     })
 }
@@ -630,29 +629,18 @@ fn set_focus(window: &WindowInfo) -> Result<i32, (&'static str, String)> {
             "focus_failed",
             "Could not resolve the target application.".to_string(),
         ))?;
-    let _ = running_app.unhide();
-    if let Some(bundle_url) = running_app.bundleURL() {
-        let configuration = NSWorkspaceOpenConfiguration::configuration();
-        configuration.setActivates(true);
-        configuration.setAddsToRecentItems(false);
-        configuration.setPromptsUserIfNeeded(false);
-        NSWorkspace::sharedWorkspace().openApplicationAtURL_configuration_completionHandler(
-            &bundle_url,
-            &configuration,
-            None,
-        );
-    }
-    let _ = running_app.activateWithOptions(NSApplicationActivationOptions::empty());
-    // Sheets commonly reject AXRaise even while their text field already owns
-    // input. Treat raising as a best-effort request and verify the actual
-    // focused element below instead of failing on that implementation detail.
-    let _ = ax_window.perform_action(&CFString::from_static_string(kAXRaiseAction));
+    request_window_focus(&app, &ax_window, &running_app);
     // Raising is asynchronous, so wait for the window to actually hold focus.
     // Reporting success without it would let keyboard input land in whatever
     // application happens to be in front -- one this session may never have
     // been approved for.
     for _ in 0..FOCUS_POLL_ATTEMPTS {
-        if super::target_is_frontmost(window) && window_holds_focus(&app, &ax_window) {
+        // Activation can replace an application's AX window objects. Resolve
+        // the stable CoreGraphics window ID again instead of trusting the
+        // handle captured before focus changed.
+        if find_ax_window(&app, window.hwnd as u32).is_some_and(|current| {
+            super::target_is_frontmost(window) && window_holds_focus(&app, &current)
+        }) {
             return Ok(pid);
         }
         std::thread::sleep(std::time::Duration::from_millis(FOCUS_POLL_INTERVAL_MS));
@@ -661,6 +649,38 @@ fn set_focus(window: &WindowInfo) -> Result<i32, (&'static str, String)> {
         "focus_failed",
         "The window did not take focus; it may be blocked by another window.".to_string(),
     ))
+}
+
+/// Ask macOS to focus one exact window, not merely one of the application's
+/// windows. Every request is best effort because applications decide which AX
+/// attributes they expose; `window_holds_focus` remains the authority.
+fn request_window_focus(
+    app: &AXUIElement,
+    window: &AXUIElement,
+    running_app: &NSRunningApplication,
+) {
+    let _ = running_app.unhide();
+
+    // AppKit activation brings the application's main window forward. Select
+    // the observed window first so a multi-window application cannot choose a
+    // different main window during activation.
+    set_ax_boolean(window, AXAttribute::main());
+    let _ = window.perform_action(&CFString::from_static_string(kAXRaiseAction));
+    set_ax_boolean(app, AXAttribute::frontmost());
+    let _ = running_app.activateWithOptions(NSApplicationActivationOptions::empty());
+
+    // Some applications only accept window focus after their process is
+    // active. Repeating the idempotent requests covers both AX behaviours and
+    // also leaves sheets free to keep focus in their descendant editor.
+    set_ax_boolean(window, AXAttribute::main());
+    set_ax_boolean(window, AXAttribute::focused());
+    let _ = window.perform_action(&CFString::from_static_string(kAXRaiseAction));
+}
+
+fn set_ax_boolean(element: &AXUIElement, attribute: AXAttribute<CFBoolean>) {
+    if element.is_settable(&attribute).unwrap_or(false) {
+        let _ = element.set_attribute(&attribute, CFBoolean::true_value());
+    }
 }
 
 /// Whether keyboard input belongs to this window or one of its descendants.
@@ -779,19 +799,16 @@ fn resolve_element_point(
         .get("element_id")
         .and_then(Value::as_str)
         .ok_or(("invalid_request", "element_id is required.".to_string()))?;
-    let (x, y) = element_point(observation, params)?;
-    let point = CGPoint { x, y };
-    validate_element_hit(observation, element_id, point)?;
-    Ok(point)
+    let (x, y) = element_hit_point_by_id(observation, element_id)?;
+    Ok(CGPoint { x, y })
 }
 
 fn resolve_element_point_by_id(
     observation: &Observation,
     element_id: &str,
 ) -> Result<CGPoint, (&'static str, String)> {
-    let point = element_point_unchecked(observation, element_id)?;
-    validate_element_hit(observation, element_id, point)?;
-    Ok(point)
+    let (x, y) = element_hit_point_by_id(observation, element_id)?;
+    Ok(CGPoint { x, y })
 }
 
 fn element_point_unchecked(
@@ -888,4 +905,16 @@ fn frontmost_window_at_point(point: CGPoint) -> Option<i64> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editing_keys_keep_their_platform_independent_meaning() {
+        assert_eq!(keycode_for("backspace"), Some(KeyCode::DELETE));
+        assert_eq!(keycode_for("delete"), Some(KeyCode::FORWARD_DELETE));
+        assert_eq!(keycode_for("insert"), None);
+    }
 }

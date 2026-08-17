@@ -270,6 +270,35 @@ def _fetch_all() -> int:
     return failures
 
 
+def ensure_vendor_libs() -> None:
+    """Fetch and verify all registered vendor runtimes (for startup hook)."""
+
+    import logging
+    from urllib.request import urlopen
+
+    root = vendor_root()
+    root.mkdir(parents=True, exist_ok=True)
+    log = logging.getLogger("qwenpaw").getChild(
+        "plugin.qwenpaw_creator.vendor_libs",
+    )
+    for lib in VENDOR_LIBS.values():
+        target = root / lib.filename
+        if _verify_vendor_file(lib, target):
+            continue
+        try:
+            with urlopen(lib.source_url, timeout=60) as response:
+                payload = response.read()
+        except OSError as error:
+            log.warning("Failed to fetch %s: %s", lib.name, error)
+            continue
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest != lib.sha256 or len(payload) != lib.size_bytes:
+            log.warning("Pin mismatch for %s", lib.name)
+            continue
+        target.write_bytes(payload)
+        log.info("Installed %s (%d bytes)", lib.name, len(payload))
+
+
 if __name__ == "__main__":
     import sys
 

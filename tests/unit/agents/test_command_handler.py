@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+import json
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -9,12 +10,18 @@ from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.middlewares import auto_memory_turn_state
 
 
 def _make_agent():
     """Build a minimal fake agent satisfying CommandHandler's expectations."""
     agent = MagicMock()
-    agent.state = SimpleNamespace(context=[], session_id="session-1")
+    agent.state = SimpleNamespace(
+        context=[],
+        summary="",
+        session_id="session-1",
+        middle_context={},
+    )
     agent.memory_manager = None
     return agent
 
@@ -38,6 +45,48 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
     msg = await handler.handle_command("/clear")
 
     assert msg.metadata == {"clear_history": True, "clear_plan": True}
+
+
+@pytest.mark.asyncio
+async def test_clear_discards_pending_auto_memory_snapshots() -> None:
+    agent = _make_agent()
+    agent.state.context = [_msg("user", "private", msg_id="turn-1")]
+    state = auto_memory_turn_state(agent.state)
+    state["pending"] = ["turn-1"]
+    state["snapshots"] = {"turn-1": [{"private": "payload"}]}
+    state["search"] = {"turn_marker": "turn-1", "messages": []}
+
+    await CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+    ).handle_command("/clear")
+
+    assert not agent.state.context
+    assert auto_memory_turn_state(agent.state)["pending"] == []
+    assert auto_memory_turn_state(agent.state)["snapshots"] == {}
+    assert auto_memory_turn_state(agent.state)["search"] == {}
+
+
+@pytest.mark.asyncio
+async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
+    None
+):
+    agent = _make_agent()
+    agent.state.context = [_msg("user", "old turn", msg_id="turn-1")]
+    auto_memory_turn_state(agent.state)["pending"] = ["turn-1"]
+    memory_manager = MagicMock()
+    memory_manager.enabled = True
+    memory_manager.add_summarize_task = MagicMock()
+
+    await CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    ).handle_command("/new")
+
+    memory_manager.add_summarize_task.assert_called_once()
+    assert not agent.state.context
+    assert auto_memory_turn_state(agent.state)["pending"] == []
 
 
 @pytest.mark.asyncio
@@ -122,6 +171,46 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
 
     mode.on_conversation_reset.assert_awaited_once_with(ctx)
     assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_load_history_discards_previous_auto_memory_state(
+    tmp_path,
+) -> None:
+    agent = _make_agent()
+    old_msg = _msg("user", "old turn", msg_id="old-turn")
+    agent.state.context = [old_msg]
+    state = auto_memory_turn_state(agent.state)
+    state["pending"] = ["old-turn"]
+    state["snapshots"] = {
+        "old-turn": [old_msg.model_dump(mode="json")],
+    }
+    state["seen"] = {"old-turn": None}
+    state["search"] = {
+        "turn_marker": "old-turn",
+        "messages": [old_msg.model_dump(mode="json")],
+    }
+
+    loaded_msg = _msg("user", "loaded turn", msg_id="loaded-turn")
+    history_file = tmp_path / "debug_history.jsonl"
+    history_file.write_text(
+        json.dumps(loaded_msg.to_dict(), ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: SimpleNamespace(
+        workspace_dir=str(tmp_path),
+    )
+
+    result = await handler.handle_command("/load_history")
+
+    assert "History Loaded" in result.get_text_content()
+    assert [msg.id for msg in agent.state.context] == ["loaded-turn"]
+    loaded_state = auto_memory_turn_state(agent.state)
+    assert loaded_state["pending"] == []
+    assert loaded_state["snapshots"] == {}
+    assert loaded_state["seen"] == {}
+    assert loaded_state["search"] == {}
 
 
 @pytest.mark.asyncio

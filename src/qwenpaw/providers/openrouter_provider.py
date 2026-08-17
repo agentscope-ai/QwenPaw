@@ -36,11 +36,7 @@ class OpenRouterProvider(Provider):
         ),
     )
 
-    _OPENROUTER_CATEGORIES = (
-        "cli-agent,cloud-agent,programming-app,"
-        "creative-writing,writing-assistant,"
-        "general-chat,personal-agent"
-    )
+    _OPENROUTER_CATEGORIES = "personal-agent,cli-agent"
 
     _DEFAULT_HEADERS = {
         "HTTP-Referer": "https://qwenpaw.agentscope.io/",

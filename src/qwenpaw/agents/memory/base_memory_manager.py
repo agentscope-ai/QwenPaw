@@ -4,7 +4,6 @@
 import asyncio
 import json
 import logging
-import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -28,10 +27,12 @@ from ...app.crons.contracts import ServiceCronJob
 from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
-AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
 MAX_QUERY_CHARS = 50
 SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
 MAX_SUMMARY_TASK_HISTORY = 100
+MAX_RUNTIME_TASK_HISTORY = 20
+MAX_RUNTIME_RESULT_CHARS = 4000
+MAX_RUNTIME_ERROR_CHARS = 240
 SUMMARY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
@@ -55,7 +56,6 @@ class BaseMemoryManager(ABC):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
         self._summary_task_info: dict[str, dict[str, Any]] = {}
-        self._auto_memory_turn_states: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
         self._task_queue: asyncio.Queue[
             tuple[str, list[Msg], dict]
@@ -131,27 +131,6 @@ class BaseMemoryManager(ABC):
         configuration or fixed cadence.
         """
         return 0
-
-    def get_auto_memory_turn_state(self, session_id: str) -> dict[str, Any]:
-        """Return persistent auto-memory turn tracking state for a session."""
-        now = time.monotonic()
-        expired_before = now - AUTO_MEMORY_TURN_STATE_TTL_SECONDS
-        for state_key, state in list(self._auto_memory_turn_states.items()):
-            touched_at = float(state.get("touched_at") or 0)
-            if touched_at < expired_before:
-                self._auto_memory_turn_states.pop(state_key, None)
-
-        key = session_id or "__default__"
-        state = self._auto_memory_turn_states.setdefault(
-            key,
-            {
-                "pending": [],
-                "seen": {},
-                "touched_at": now,
-            },
-        )
-        state["touched_at"] = now
-        return state
 
     def _build_auto_memory_search_msg(
         self,
@@ -473,6 +452,7 @@ class BaseMemoryManager(ABC):
             "task_id": task_id,
             "start_time": datetime.now(timezone.utc),
             "status": "pending",
+            "message_count": len(messages),
             "result": None,
             "error": None,
             "finished_at": None,
@@ -552,8 +532,12 @@ class BaseMemoryManager(ABC):
     ) -> dict[str, Any]:
         """Return a sanitized operational snapshot for status UIs.
 
-        This deliberately exposes aggregate counters rather than task results,
-        message markers, session identifiers, or other implementation details.
+        Memory-capture history includes the same bounded result text used for
+        inbox notifications. The shared summarize queue contains periodic
+        auto-memory work as well as user-triggered ``/new`` and ``/compact``
+        captures, so callers must not present every record as auto-memory.
+        It deliberately excludes messages, session identifiers, and task
+        kwargs.
         """
         self._update_task_statuses()
 
@@ -583,14 +567,6 @@ class BaseMemoryManager(ABC):
                 else "idle"
             )
 
-        last_completed = next(
-            (
-                info
-                for info in reversed(task_infos)
-                if info.get("status") == "completed"
-            ),
-            None,
-        )
         last_failed = next(
             (
                 info
@@ -600,16 +576,6 @@ class BaseMemoryManager(ABC):
             None,
         )
 
-        now = time.monotonic()
-        expired_before = now - AUTO_MEMORY_TURN_STATE_TTL_SECONDS
-        active_turn_states = [
-            state
-            for state in self._auto_memory_turn_states.values()
-            if float(state.get("touched_at") or 0) >= expired_before
-        ]
-        pending_turn_counts = [
-            len(state.get("pending") or []) for state in active_turn_states
-        ]
         interval = max(
             0,
             int(
@@ -625,8 +591,41 @@ class BaseMemoryManager(ABC):
             value = info.get(key)
             return value.isoformat() if isinstance(value, datetime) else None
 
-        error = str(last_failed.get("error") or "") if last_failed else ""
-        error = " ".join(error.split())[:240] or None
+        def _bounded_text(
+            value: Any,
+            limit: int,
+            *,
+            single_line: bool = False,
+        ) -> str | None:
+            text = str(value or "").strip()
+            if not text:
+                return None
+            if single_line:
+                text = " ".join(text.split())
+            return text[:limit]
+
+        tasks = []
+        for info in reversed(task_infos[-MAX_RUNTIME_TASK_HISTORY:]):
+            tasks.append(
+                {
+                    "task_id": str(info.get("task_id") or ""),
+                    "status": str(info.get("status") or "pending"),
+                    "queued_at": _iso_time(info, "start_time"),
+                    "finished_at": _iso_time(info, "finished_at"),
+                    "message_count": max(
+                        0,
+                        int(info.get("message_count") or 0),
+                    ),
+                    "result": _bounded_text(
+                        info.get("result"),
+                        MAX_RUNTIME_RESULT_CHARS,
+                    ),
+                    "error": _bounded_text(
+                        info.get("error"),
+                        MAX_RUNTIME_ERROR_CHARS,
+                    ),
+                },
+            )
 
         return {
             "worker": {
@@ -637,19 +636,14 @@ class BaseMemoryManager(ABC):
             "auto_memory": {
                 "enabled": interval > 0,
                 "interval": interval,
-                "active_sessions": len(active_turn_states),
-                "sessions_with_pending": sum(
-                    count > 0 for count in pending_turn_counts
-                ),
-                "pending_turns": sum(pending_turn_counts),
             },
+            "tasks": tasks,
             "recent": {
-                "last_completed_at": _iso_time(
-                    last_completed,
-                    "finished_at",
+                "last_error": _bounded_text(
+                    last_failed.get("error") if last_failed else None,
+                    MAX_RUNTIME_ERROR_CHARS,
+                    single_line=True,
                 ),
-                "last_failed_at": _iso_time(last_failed, "finished_at"),
-                "last_error": error,
             },
             "reindexing": bool(getattr(self, "is_reindexing", False)),
         }

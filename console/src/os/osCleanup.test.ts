@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   purgeAppState,
   purgePluginAppState,
+  removePluginAppState,
   purgeAgentSpace,
 } from "./osCleanup";
 import { useOsWindows } from "./osWindowStore";
@@ -91,6 +92,22 @@ describe("osCleanup (transactional)", () => {
 
     expect(w().windows["plugin.office"]).toBeUndefined();
     expect(w().order).toEqual(["core.chat"]);
+  });
+
+  it("removePluginAppState also removes the live PawApp route", () => {
+    routeRegistry.add("office", {
+      id: "plugin.office",
+      path: "/apps/office",
+      component: () => null,
+    });
+    w().open("plugin.office");
+
+    removePluginAppState("office");
+
+    expect(w().windows["plugin.office"]).toBeUndefined();
+    expect(
+      routeRegistry.snapshot().some((route) => route.source === "office"),
+    ).toBe(false);
   });
 
   it("purgeAgentSpace drops only the deleted agent's space", () => {

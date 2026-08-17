@@ -6,6 +6,7 @@ import time
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from agentscope.model import OpenAIResponseModel
 from openai import BadRequestError
 
@@ -359,7 +360,109 @@ async def test_video_probe_reasoning_fallback(
 # ------ existing test -----------------------------------
 
 
-async def test_summary_limit_is_adapted_for_responses_api(
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "gpt-5.2-pro",
+        "gpt-5.3-codex",
+        "gpt-5.4-pro",
+        "gpt-5.5-pro",
+        "gpt-5.5-pro-2026-04-23",
+        "gpt-5.6-codex-2026-07-16",
+        "gpt-5.7",
+        "custom-reasoner",
+    ],
+)
+async def test_summary_call_removes_reasoning_when_none_is_unsupported(
+    monkeypatch,
+    model_name: str,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        OpenAIResponseModel,
+        "_call_api",
+        fake_call_api,
+    )
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        generate_kwargs={
+            "reasoning": {"effort": "xhigh"},
+            "max_output_tokens": 100_000,
+        },
+    )
+    model = provider.get_chat_model_instance(model_name)
+
+    result = await model._call_api(
+        model_name,
+        [],
+        max_tokens=256,
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["max_output_tokens"] == 256
+    assert "max_tokens" not in captured
+    assert "reasoning" not in captured
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-5.6",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
+    ],
+)
+async def test_summary_call_explicitly_disables_known_reasoning(
+    monkeypatch,
+    model_name: str,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        OpenAIResponseModel,
+        "_call_api",
+        fake_call_api,
+    )
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        generate_kwargs={"reasoning": {"effort": "xhigh"}},
+    )
+    model = provider.get_chat_model_instance(model_name)
+
+    result = await model._call_api(
+        model_name,
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["reasoning"] == {"effort": "none"}
+
+
+async def test_reasoning_is_preserved_when_thinking_is_enabled(
     monkeypatch,
 ) -> None:
     captured: dict = {}
@@ -374,16 +477,17 @@ async def test_summary_limit_is_adapted_for_responses_api(
         "_call_api",
         fake_call_api,
     )
-    provider = _make_provider()
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        generate_kwargs={"reasoning": {"effort": "xhigh"}},
+    )
     model = provider.get_chat_model_instance("gpt-5")
 
-    result = await model._call_api(
-        "gpt-5",
-        [],
-        max_tokens=256,
-        disable_thinking=True,
-    )
+    result = await model._call_api("gpt-5", [])
 
     assert result == "ok"
-    assert captured["max_output_tokens"] == 256
-    assert "max_tokens" not in captured
+    assert captured["reasoning"] == {"effort": "xhigh"}

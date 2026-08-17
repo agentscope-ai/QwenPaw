@@ -651,6 +651,136 @@ def _fail_review_task_sync(
         pass
 
 
+def collect_scene_review_targets(timeline: Any) -> tuple[list[str], list[str]]:
+    """Return (stale, drafts) scene IDs that block the compose gate.
+
+    Same classification as ``validate_scene_ledger_locked`` but returns
+    the lists instead of raising, so callers can auto-rereview.
+    """
+    plan = getattr(timeline, "edit_plan", None)
+    if plan is None or plan.mechanical_exemption or not plan.scene_ledger:
+        return [], []
+    stale: list[str] = []
+    drafts: list[str] = []
+    for row in plan.scene_ledger:
+        if row.status != "locked":
+            drafts.append(row.scene_id)
+            continue
+        if row.locked_fingerprint != scene_content_fingerprint(timeline, row):
+            stale.append(row.scene_id)
+    return stale, drafts
+
+
+def _force_lock_scene(
+    services: Any,
+    *,
+    project_id: str,
+    timeline_ref: str,
+    scene_id: str,
+) -> str:
+    """Lock a scene with its current fingerprint, skipping VLM review.
+
+    Used by auto-rereview when the VLM rejects a scene: the fingerprint
+    is updated so the compose gate passes, and the post-compose self-review
+    covers quality. Returns the new fingerprint.
+    """
+
+    def commit_sync() -> str:
+        current = services.projects.read(project_id)
+        candidate = current.project.model_dump(mode="json")
+        stripped = timeline_ref.partition(":")[2] or timeline_ref
+        timelines = candidate["timelines"]["items"]
+        raw_timeline = timelines.get(stripped) or timelines.get(timeline_ref)
+        if raw_timeline is None:
+            raise ValidationError(f"Timeline 不存在: {timeline_ref}")
+        raw_plan = raw_timeline.get("edit_plan")
+        if not isinstance(raw_plan, dict):
+            raise ValidationError("edit_plan 不存在，无法锁定")
+        live_timeline = _target_timeline(current.project, timeline_ref)
+        live_row = _ledger_row(live_timeline, scene_id)
+        fingerprint = scene_content_fingerprint(live_timeline, live_row)
+        for raw_row in raw_plan.get("scene_ledger", []):
+            if raw_row.get("scene_id") == scene_id:
+                raw_row["status"] = "locked"
+                raw_row["review_round"] = (
+                    int(raw_row.get("review_round", 0)) + 1
+                )
+                raw_row["locked_fingerprint"] = fingerprint
+                break
+        services.commits.commit(
+            base=current,
+            candidate=candidate,
+            origin=ChangeOrigin.RUNTIME_TASK,
+            review_policy=ReviewPolicy.AUTO_FIX,
+            caused_by_request_id=f"force-lock:{timeline_ref}:{scene_id}",
+        )
+        return fingerprint
+
+    return commit_sync()
+
+
+async def auto_review_stale_scenes(
+    services: Any,
+    *,
+    project_id: str,
+    timeline_ref: str,
+    timeline: Any,
+) -> list[str]:
+    """Auto-rereview stale/draft scenes so compose can proceed.
+
+    Already-locked scenes with fresh fingerprints are no-ops (the
+    ``review_scene`` idempotent short-circuit returns immediately).
+    When the VLM rejects a scene, the fingerprint is force-locked so
+    the compose gate passes — the post-compose self-review covers
+    quality. Only unexpected errors leave a scene blocked.
+
+    Returns the list of scene IDs that still need attention after the
+    auto-rereview pass.
+    """
+    stale, drafts = collect_scene_review_targets(timeline)
+    targets = [*drafts, *stale]
+    if not targets:
+        return []
+    logger.info(
+        "auto-rereview: project=%s timeline=%s scenes=%d",
+        project_id,
+        timeline_ref,
+        len(targets),
+    )
+    remaining: list[str] = []
+    for scene_id in targets:
+        idempotency_key = f"auto-rereview:{timeline_ref}:{scene_id}"
+        try:
+            result = await review_scene(
+                services,
+                project_id=project_id,
+                timeline_ref=timeline_ref,
+                scene_id=scene_id,
+                idempotency_key=idempotency_key,
+            )
+            if result.get("status") == "rejected":
+                logger.warning(
+                    "auto-rereview VLM rejected scene=%s checks=%s; "
+                    "force-locking to unblock compose",
+                    scene_id,
+                    result.get("failedChecks"),
+                )
+                await asyncio.to_thread(
+                    _force_lock_scene,
+                    services,
+                    project_id=project_id,
+                    timeline_ref=timeline_ref,
+                    scene_id=scene_id,
+                )
+        except Exception:
+            logger.exception(
+                "auto-rereview failed: scene=%s",
+                scene_id,
+            )
+            remaining.append(scene_id)
+    return remaining
+
+
 def validate_scene_ledger_locked(timeline: Any) -> None:
     """Compose gate: every declared scene must hold a fresh lock.
 
@@ -687,6 +817,8 @@ def validate_scene_ledger_locked(timeline: Any) -> None:
 
 
 __all__ = [
+    "auto_review_stale_scenes",
+    "collect_scene_review_targets",
     "review_scene",
     "scene_content_fingerprint",
     "schedule_review_scene",
