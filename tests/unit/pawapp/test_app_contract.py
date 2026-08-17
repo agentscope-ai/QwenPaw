@@ -54,7 +54,9 @@ async def test_managed_service_allocates_port_and_stops(
             ),
             health_path="/",
             cwd=tmp_path,
-            startup_timeout=8,
+            # Generous headroom: CPU-starved CI runners (notably macOS)
+            # can take several seconds to spawn the child interpreter.
+            startup_timeout=30,
         ),
     )
 
@@ -128,7 +130,7 @@ async def test_managed_service_preserves_non_sdk_braces(
             health_path="/",
             cwd=tmp_path,
             env={"FIXTURE_JSON": '{"kind":"fixture"}'},
-            startup_timeout=8,
+            startup_timeout=30,
         ),
     )
 

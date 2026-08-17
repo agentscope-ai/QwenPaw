@@ -73,13 +73,23 @@ def _available_loopback_port(host: str) -> int:
         return int(listener.getsockname()[1])
 
 
+# Managed services live on loopback endpoints by contract, so health
+# probes must never traverse a proxy. A plain urlopen() consults the
+# environment and, on macOS, the system proxy configuration (scproxy),
+# which can silently redirect 127.0.0.1 requests on managed machines
+# and CI runners.
+_DIRECT_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+)
+
+
 def _health_request(url: str, timeout: float) -> bool:
     try:
         request = urllib.request.Request(  # noqa: S310 - URL is app-owned
             url,
             headers={"Accept": "application/json"},
         )
-        with urllib.request.urlopen(
+        with _DIRECT_OPENER.open(
             request,
             timeout=timeout,
         ) as response:  # noqa: S310
@@ -343,9 +353,11 @@ class ManagedService:
             if await asyncio.to_thread(_health_request, health_url, 1.0):
                 return
             await asyncio.sleep(0.15)
+        details = "\n".join(self._recent_logs)
         raise TimeoutError(
             f"managed service '{self.spec.name}' did not become healthy "
-            f"within {self.spec.startup_timeout:g}s",
+            f"within {self.spec.startup_timeout:g}s"
+            + (f"; recent output:\n{details}" if details else ""),
         )
 
     async def _drain(
