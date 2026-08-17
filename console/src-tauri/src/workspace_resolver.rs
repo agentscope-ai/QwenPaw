@@ -209,7 +209,7 @@ fn resolve_registered_workspace_directory(
     let registered_root = if root_id == "default" {
         working_dir.join("workspaces")
     } else {
-        working_dir.join("workspace-roots").join(root_id)
+        resolve_registered_workspace_root(working_dir, root_id)?
     };
     if root_id != "default" && !registered_root.is_dir() {
         return Err(format!(
@@ -250,4 +250,35 @@ fn resolve_registered_workspace_directory(
         return Ok(canonical_workspace);
     }
     Ok(workspace)
+}
+
+fn resolve_registered_workspace_root(
+    working_dir: &Path,
+    root_id: &str,
+) -> Result<PathBuf, String> {
+    let directory_alias = working_dir.join("workspace-roots").join(root_id);
+    if directory_alias.is_dir() {
+        return Ok(directory_alias);
+    }
+
+    let registry_path = working_dir.join("workspace-roots/registry.json");
+    let content = std::fs::read_to_string(&registry_path).map_err(|_| {
+        format!("workspace root id '{root_id}' is not registered")
+    })?;
+    let registry: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|err| format!("failed to parse workspace registry: {err}"))?;
+    let roots = registry.get("roots").unwrap_or(&registry);
+    let raw_path = roots
+        .get(root_id)
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            format!("workspace root id '{root_id}' is not registered")
+        })?;
+    let root = resolve_configured_path(raw_path, working_dir);
+    if !root.is_dir() {
+        return Err(format!(
+            "workspace root id '{root_id}' is not an existing directory"
+        ));
+    }
+    Ok(root)
 }

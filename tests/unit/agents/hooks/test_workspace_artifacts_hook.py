@@ -14,6 +14,7 @@ import qwenpaw.hooks.workspace_artifacts_hook as artifacts_hook_module
 import qwenpaw.agents.artifacts.lifecycle as artifact_lifecycle_module
 from qwenpaw.agents.artifacts import (
     ArtifactCollectorGroup,
+    ArtifactCoordinator,
     WorkspaceSnapshot,
 )
 from qwenpaw.config.context import set_current_project_dir
@@ -41,7 +42,7 @@ async def test_workspace_scans_run_outside_event_loop(
         "capture_workspace_snapshot",
         tracked_capture,
     )
-    workspace = SimpleNamespace()
+    workspace = SimpleNamespace(artifact_coordinator=ArtifactCoordinator())
     ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -80,7 +81,7 @@ async def test_root_canonicalization_runs_once_off_event_loop(
         "resolve_artifact_roots",
         tracked_resolve,
     )
-    workspace = SimpleNamespace()
+    workspace = SimpleNamespace(artifact_coordinator=ArtifactCoordinator())
     ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -103,7 +104,7 @@ async def test_external_project_artifact_uses_project_root(
     project_dir = tmp_path / "project"
     workspace_dir.mkdir()
     project_dir.mkdir()
-    workspace = SimpleNamespace()
+    workspace = SimpleNamespace(artifact_coordinator=ArtifactCoordinator())
     ctx = SimpleNamespace(
         workspace_dir=workspace_dir,
         workspace=workspace,
@@ -169,7 +170,7 @@ def test_truncated_only_collection_generates_manifest(tmp_path: Path) -> None:
 async def test_overlapping_turns_run_without_cross_claiming_files(
     tmp_path: Path,
 ) -> None:
-    workspace = SimpleNamespace()
+    workspace = SimpleNamespace(artifact_coordinator=ArtifactCoordinator())
     first_ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -227,7 +228,7 @@ async def test_late_overlap_is_detected_before_first_collection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    workspace = SimpleNamespace()
+    workspace = SimpleNamespace(artifact_coordinator=ArtifactCoordinator())
     first_ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,
@@ -294,7 +295,7 @@ async def test_cancelled_pre_scan_finishes_coordination(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    workspace = SimpleNamespace()
+    workspace = SimpleNamespace(artifact_coordinator=ArtifactCoordinator())
     ctx = SimpleNamespace(
         workspace_dir=tmp_path,
         workspace=workspace,

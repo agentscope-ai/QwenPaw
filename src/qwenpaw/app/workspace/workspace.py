@@ -10,7 +10,6 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
-import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -34,7 +33,7 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
-from ...agents.artifacts import ArtifactTurn
+from ...agents.artifacts import ArtifactCoordinator, ArtifactTurn
 from ...services.project_directory import resolve_effective_project_dir
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ class Workspace:
         self._started = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
-        self.artifact_turn_lock = asyncio.Lock()
+        self.artifact_coordinator = ArtifactCoordinator()
         self._app_services: Any = None
         self._harness_runtime = None
 
@@ -330,7 +329,7 @@ class Workspace:
                 trusted_override=trusted_override,
             )
             artifact_turn = ArtifactTurn(
-                workspace=self,
+                coordinator=self.artifact_coordinator,
                 workspace_dir=self.workspace_dir,
                 project_dir=project_dir,
                 agent_id=self.agent_id,

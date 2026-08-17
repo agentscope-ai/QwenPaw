@@ -117,7 +117,7 @@ def test_list_agents_returns_all_profiles(client, fake_config):
         backend="codex",
     )
 
-    def fake_load(agent_id):
+    def fake_load(agent_id, **_kwargs):
         return {
             "default": agent_cfg_default,
             "bot": agent_cfg_bot,
@@ -184,7 +184,7 @@ def test_list_agents_preserves_unknown_backend(client, fake_config):
         ),
         patch(
             "qwenpaw.app.routers.agents.load_agent_config",
-            side_effect=lambda agent_id: {
+            side_effect=lambda agent_id, **_kwargs: {
                 "default": agent_cfg_default,
                 "bot": agent_cfg_bot,
             }[agent_id],

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import (
     Any,
@@ -34,6 +35,7 @@ from qwenpaw.exceptions import (
 
 from .paths import (
     DEFAULT_AGENT_WORKSPACE_ROOT_ID,
+    resolve_agent_workspace_roots,
     resolve_workspace_child_path,
     resolve_workspace_identity,
     sanitize_agent_path_segment,
@@ -57,6 +59,7 @@ from ..constant import (
 )
 from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
+from ..services.project_directory import normalize_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -1963,6 +1966,18 @@ class AgentProfileConfig(BaseModel):
         description="Coding Mode configuration for this agent",
     )
 
+    @field_validator("project_dir", mode="before")
+    @classmethod
+    def _normalize_project_dir(cls, value: Any) -> str | None:
+        """Persist one cross-runtime absolute project directory value."""
+        if value is None:
+            return None
+        if not isinstance(value, (str, Path)):
+            return value
+        if not str(value).strip():
+            return None
+        return str(normalize_project_dir(value))
+
 
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
@@ -2748,6 +2763,7 @@ class Config(BaseModel):
     @model_validator(mode="after")
     def _resolve_agent_workspace_references(self) -> "Config":
         """Canonicalize compatibility paths from trusted identities."""
+        roots = resolve_agent_workspace_roots()
         for agent_id, agent_ref in self.agents.profiles.items():
             root_id = agent_ref.workspace_root_id
             workspace_name = agent_ref.workspace_name
@@ -2757,6 +2773,7 @@ class Config(BaseModel):
                 workspace_dir = resolve_workspace_identity(
                     root_id,
                     workspace_name,
+                    roots=roots,
                 )
                 agent_ref.workspace_root_id = root_id
                 agent_ref.workspace_name = workspace_name
@@ -2764,6 +2781,7 @@ class Config(BaseModel):
                 workspace_dir = resolve_workspace_identity(
                     root_id,
                     workspace_name,
+                    roots=roots,
                 )
             agent_ref.workspace_dir = str(workspace_dir)
         return self
@@ -2797,6 +2815,8 @@ ChannelConfigUnion = Union[
 def resolve_agent_profile_workspace(
     agent_id: str,
     config: Config | None = None,
+    *,
+    roots: Mapping[str, Path] | None = None,
 ) -> Path:
     """Resolve an agent workspace from its trusted persisted identity."""
     if config is None:
@@ -2822,6 +2842,7 @@ def resolve_agent_profile_workspace(
     workspace_dir = resolve_workspace_identity(
         root_id,
         workspace_name,
+        roots=roots,
     )
 
     agent_ref.workspace_dir = str(workspace_dir)
@@ -2840,6 +2861,8 @@ def resolve_agent_profile_config_path(
 def resolve_registered_agent_profile_workspace(
     agent_id: str,
     config: Config,
+    *,
+    roots: Mapping[str, Path] | None = None,
 ) -> Path:
     """Resolve a workspace using only its persisted trusted identity."""
     safe_agent_id = sanitize_agent_path_segment(agent_id)
@@ -2854,12 +2877,15 @@ def resolve_registered_agent_profile_workspace(
     return resolve_workspace_identity(
         root_id,
         workspace_name,
+        roots=roots,
     )
 
 
 def build_fallback_agent_profile_config(
     agent_id: str,
     config: "Config",
+    *,
+    roots: Mapping[str, Path] | None = None,
 ) -> AgentProfileConfig:
     """Build the same profile as when ``agent.json``
     is missing (no disk read/write).
@@ -2873,6 +2899,7 @@ def build_fallback_agent_profile_config(
     workspace_dir = resolve_registered_agent_profile_workspace(
         agent_id,
         config,
+        roots=roots,
     )
     return AgentProfileConfig(
         id=agent_id,
@@ -3024,6 +3051,9 @@ def migrate_project_directory_config(data: object) -> bool:
 
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
+    *,
+    config: Config | None = None,
+    roots: Mapping[str, Path] | None = None,
 ) -> AgentProfileConfig:
     """Load agent's complete configuration from workspace/agent.json with
     mtime-based caching.
@@ -3046,7 +3076,8 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     )
 
     safe_agent_id = sanitize_agent_path_segment(agent_id)
-    config = load_config()
+    if config is None:
+        config = load_config()
 
     if safe_agent_id not in config.agents.profiles:
         raise ConfigurationException(
@@ -3057,6 +3088,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     workspace_dir = resolve_registered_agent_profile_workspace(
         safe_agent_id,
         config,
+        roots=roots,
     )
     agent_config_path = resolve_workspace_child_path(
         workspace_dir,
@@ -3067,9 +3099,15 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         fallback_config = build_fallback_agent_profile_config(
             safe_agent_id,
             config,
+            roots=roots,
         )
         # Save for future use
-        save_agent_config(safe_agent_id, fallback_config)
+        save_agent_config(
+            safe_agent_id,
+            fallback_config,
+            config=config,
+            roots=roots,
+        )
         return fallback_config
 
     # Check mtime to see if we can use cached config
@@ -3079,8 +3117,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         fallback_config = build_fallback_agent_profile_config(
             safe_agent_id,
             config,
+            roots=roots,
         )
-        save_agent_config(safe_agent_id, fallback_config)
+        save_agent_config(
+            safe_agent_id,
+            fallback_config,
+            config=config,
+            roots=roots,
+        )
         return fallback_config
 
     with _agent_config_lock:
@@ -3202,6 +3246,9 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 def save_agent_config(
     agent_id: str,
     agent_config: AgentProfileConfig,
+    *,
+    config: Config | None = None,
+    roots: Mapping[str, Path] | None = None,
 ) -> None:
     """Save agent configuration to workspace/agent.json and invalidate cache.
 
@@ -3219,7 +3266,8 @@ def save_agent_config(
     )
 
     safe_agent_id = sanitize_agent_path_segment(agent_id)
-    config = load_config()
+    if config is None:
+        config = load_config()
 
     if safe_agent_id not in config.agents.profiles:
         raise ConfigurationException(
@@ -3230,6 +3278,7 @@ def save_agent_config(
     workspace_dir = resolve_registered_agent_profile_workspace(
         safe_agent_id,
         config,
+        roots=roots,
     )
     agent_config_path = resolve_workspace_child_path(
         workspace_dir,

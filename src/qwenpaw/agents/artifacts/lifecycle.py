@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
 import uuid
 
 from ...utils.io_utils import run_sync_io
@@ -84,35 +84,26 @@ def _collect_manifest(
     )
 
 
-def _get_coordinator(workspace: Any) -> ArtifactCoordinator:
-    coordinator = getattr(workspace, "artifact_coordinator", None)
-    if coordinator is None:
-        coordinator = ArtifactCoordinator()
-        setattr(workspace, "artifact_coordinator", coordinator)
-    return coordinator
-
-
 class ArtifactTurn:
     """Own artifact state shared by native and third-party backends."""
 
     def __init__(
         self,
         *,
-        workspace: Any,
+        coordinator: ArtifactCoordinator | None,
         workspace_dir: Path,
         project_dir: Path | None,
         agent_id: str,
         session_id: str,
         turn_id: str,
     ) -> None:
-        self._workspace = workspace
         self._workspace_dir = workspace_dir
         self._project_dir = project_dir
         self._roots: dict[ArtifactRoot, Path] = {}
         self._agent_id = agent_id
         self._session_id = session_id
         self._turn_id = turn_id
-        self._coordinator = _get_coordinator(workspace)
+        self._coordinator = coordinator or ArtifactCoordinator()
         self._root_refs: dict[ArtifactRoot, str] = {}
         self._handle: ArtifactTurnHandle | None = None
         self._collector: ArtifactCollectorGroup | None = None

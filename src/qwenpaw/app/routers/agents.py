@@ -337,50 +337,45 @@ def _read_profile_description(workspace_dir: str) -> str:
         return ""
 
 
-@router.get(
-    "",
-    response_model=AgentListResponse,
-    summary="List all agents",
-    description="Get list of all configured agents",
-)
-async def list_agents(request: Request = None) -> AgentListResponse:
-    """List all configured agents."""
-    config = load_config()
-    manager = (
-        _get_multi_agent_manager(request) if request is not None else None
-    )
-    ordered_agent_ids = _display_agent_order(config)
-
-    agents = []
-    for agent_id in ordered_agent_ids:
+def _build_agent_summaries(
+    config,
+    startup_statuses: dict[str, AgentStartupStatus],
+) -> list[AgentSummary]:
+    """Build agent summaries with one shared workspace root snapshot."""
+    roots = {
+        agent_ref.workspace_root_id: Path(agent_ref.workspace_dir).parent
+        for agent_ref in config.agents.profiles.values()
+        if agent_ref.workspace_root_id is not None
+    }
+    agents: list[AgentSummary] = []
+    for agent_id in _display_agent_order(config):
         agent_ref = config.agents.profiles[agent_id]
-        workspace_dir = resolve_agent_profile_workspace(agent_id, config)
+        workspace_dir = resolve_agent_profile_workspace(
+            agent_id,
+            config,
+            roots=roots,
+        )
         enabled = getattr(agent_ref, "enabled", True)
         pinned = agent_id == "default" or getattr(
             agent_ref,
             "pinned",
             False,
         )
-        startup_status = (
-            manager.get_agent_startup_status(agent_id, enabled=enabled)
-            if manager is not None
-            else (
-                AgentStartupStatus.PENDING
-                if enabled
-                else AgentStartupStatus.DISABLED
-            )
-        )
+        startup_status = startup_statuses[agent_id]
         try:
-            agent_config = load_agent_config(agent_id)
+            agent_config = load_agent_config(
+                agent_id,
+                config=config,
+                roots=roots,
+            )
             description = agent_config.description or ""
-
             profile_desc = _read_profile_description(str(workspace_dir))
             if profile_desc:
-                if description.strip():
-                    description = f"{description.strip()} | {profile_desc}"
-                else:
-                    description = profile_desc
-
+                description = (
+                    f"{description.strip()} | {profile_desc}"
+                    if description.strip()
+                    else profile_desc
+                )
             active_model = agent_config.active_model
             if agent_config.backend == "qwenpaw":
                 backend_capabilities = {"workspace_ui": True}
@@ -391,7 +386,6 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     ).capabilities.model_dump()
                 except ValueError:
                     backend_capabilities = {}
-
             agents.append(
                 AgentSummary(
                     id=agent_id,
@@ -424,7 +418,41 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     startup_status=startup_status,
                 ),
             )
+    return agents
 
+
+@router.get(
+    "",
+    response_model=AgentListResponse,
+    summary="List all agents",
+    description="Get list of all configured agents",
+)
+async def list_agents(request: Request = None) -> AgentListResponse:
+    """List all configured agents."""
+    config = await run_sync_io(load_config)
+    manager = (
+        _get_multi_agent_manager(request) if request is not None else None
+    )
+    startup_statuses = {
+        agent_id: (
+            manager.get_agent_startup_status(
+                agent_id,
+                enabled=getattr(agent_ref, "enabled", True),
+            )
+            if manager is not None
+            else (
+                AgentStartupStatus.PENDING
+                if getattr(agent_ref, "enabled", True)
+                else AgentStartupStatus.DISABLED
+            )
+        )
+        for agent_id, agent_ref in config.agents.profiles.items()
+    }
+    agents = await run_sync_io(
+        _build_agent_summaries,
+        config,
+        startup_statuses,
+    )
     return AgentListResponse(agents=agents)
 
 
@@ -435,7 +463,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
 )
 async def list_agent_workspace_roots() -> AgentWorkspaceRootList:
     """Return server-owned root IDs without accepting client paths."""
-    roots = resolve_agent_workspace_roots()
+    roots = await run_sync_io(resolve_agent_workspace_roots)
     return AgentWorkspaceRootList(
         roots=[
             AgentWorkspaceRoot(id=root_id, label=str(root))

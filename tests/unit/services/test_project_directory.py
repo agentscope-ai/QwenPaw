@@ -5,11 +5,54 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.config.config import migrate_project_directory_config
+from qwenpaw.config.config import (
+    AgentProfileConfig,
+    migrate_project_directory_config,
+)
+from qwenpaw.services import project_directory as project_directory_module
 from qwenpaw.services.project_directory import (
+    normalize_project_dir,
     resolve_effective_project_dir,
     session_project_dir,
 )
+
+
+def test_relative_project_dir_uses_qwenpaw_working_dir(
+    tmp_path: Path,
+) -> None:
+    """Match the desktop resolver for relative configured paths."""
+    working_dir = tmp_path / "qwenpaw"
+
+    assert (
+        normalize_project_dir(
+            "relative-project",
+            working_dir=working_dir,
+        )
+        == (working_dir / "relative-project").resolve()
+    )
+
+
+def test_agent_config_normalizes_relative_project_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Prevent downstream consumers from observing a relative path."""
+    working_dir = tmp_path / "qwenpaw"
+    monkeypatch.setattr(
+        project_directory_module,
+        "WORKING_DIR",
+        working_dir,
+    )
+
+    config = AgentProfileConfig(
+        id="analyst",
+        name="Analyst",
+        project_dir="relative-project",
+    )
+
+    assert config.project_dir == str(
+        (working_dir / "relative-project").resolve(),
+    )
 
 
 def test_resolver_priority(tmp_path: Path) -> None:

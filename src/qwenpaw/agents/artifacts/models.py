@@ -24,6 +24,7 @@ class WorkspaceFileState:
 
     size: int
     modified_ns: int
+    fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +33,7 @@ class WorkspaceSnapshot:
 
     files: Mapping[str, WorkspaceFileState]
     truncated: bool = False
+    fingerprints_truncated: bool = False
 
     @classmethod
     def create(
@@ -39,10 +41,15 @@ class WorkspaceSnapshot:
         files: Mapping[str, WorkspaceFileState],
         *,
         truncated: bool = False,
+        fingerprints_truncated: bool = False,
     ) -> "WorkspaceSnapshot":
         """Copy and freeze snapshot entries in deterministic path order."""
         ordered = dict(sorted(files.items()))
-        return cls(MappingProxyType(ordered), truncated)
+        return cls(
+            MappingProxyType(ordered),
+            truncated,
+            fingerprints_truncated,
+        )
 
 
 @dataclass(frozen=True, slots=True)

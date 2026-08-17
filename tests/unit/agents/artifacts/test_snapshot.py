@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+import os
 from pathlib import Path
 
 from qwenpaw.agents.artifacts import (
     SnapshotLimits,
+    WorkspaceChange,
     WorkspaceFileState,
     WorkspaceSnapshot,
     capture_workspace_snapshot,
@@ -141,6 +143,40 @@ def test_diff_reports_created_modified_and_deleted(
         ("deleted.txt", "deleted"),
         ("modified.txt", "modified"),
     ]
+
+
+def test_diff_detects_same_size_same_mtime_content_change(
+    tmp_path: Path,
+) -> None:
+    """Use content fingerprints when filesystem metadata is unchanged."""
+    target = tmp_path / "report.txt"
+    target.write_text("AAAA", encoding="utf-8")
+    original_mtime = target.stat().st_mtime_ns
+    before = capture_workspace_snapshot(tmp_path)
+
+    target.write_text("BBBB", encoding="utf-8")
+    os.utime(target, ns=(original_mtime, original_mtime))
+    after = capture_workspace_snapshot(tmp_path)
+
+    assert diff_workspace_snapshots(before, after) == (
+        WorkspaceChange("report.txt", "modified"),
+    )
+
+
+def test_snapshot_marks_exhausted_fingerprint_budget(
+    tmp_path: Path,
+) -> None:
+    """Report incomplete hashing without claiming a partial file scan."""
+    (tmp_path / "large.txt").write_text("content", encoding="utf-8")
+
+    snapshot = capture_workspace_snapshot(
+        tmp_path,
+        limits=SnapshotLimits(max_fingerprint_bytes=1),
+    )
+
+    assert snapshot.truncated is False
+    assert snapshot.fingerprints_truncated is True
+    assert snapshot.files["large.txt"].fingerprint is None
 
 
 def test_diff_does_not_infer_created_from_truncated_before() -> None:

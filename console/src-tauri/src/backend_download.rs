@@ -359,6 +359,47 @@ mod tests {
     }
 
     #[test]
+    fn agent_workspace_resolves_persistent_custom_root() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+        let external_root = temp.path().join("external");
+        let workspace_dir = external_root.join("analyst");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        std::fs::create_dir_all(working_dir.join("workspace-roots")).unwrap();
+        std::fs::write(
+            working_dir.join("workspace-roots/registry.json"),
+            serde_json::json!({
+                "version": 1,
+                "roots": {"external": external_root},
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "profiles": {
+                        "test-agent": {
+                            "workspace_root_id": "external",
+                            "workspace_name": "analyst",
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_agent_workspace_directory("test-agent").unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, workspace_dir.canonicalize().unwrap());
+    }
+
+    #[test]
     fn builtin_agent_id_with_dot_resolves_from_config() {
         let _guard = ENV_LOCK.lock().unwrap();
         let temp = tempfile::tempdir().unwrap();

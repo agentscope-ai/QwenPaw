@@ -204,7 +204,9 @@ class ArtifactCollector:
 
         truncated = (
             self._before.truncated
+            or self._before.fingerprints_truncated
             or after.truncated
+            or after.fingerprints_truncated
             or not include_snapshot_changes
         )
         if len(artifacts) > self._limits.max_artifacts:

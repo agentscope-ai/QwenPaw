@@ -36,7 +36,11 @@ class WorkspaceArtifactsHook(LifecycleHook):
             return HookResult()
         try:
             turn = ArtifactTurn(
-                workspace=ctx.workspace,
+                coordinator=getattr(
+                    ctx.workspace,
+                    "artifact_coordinator",
+                    None,
+                ),
                 workspace_dir=ctx.workspace_dir,
                 project_dir=get_current_project_dir(),
                 agent_id=ctx.agent_id,

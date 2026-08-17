@@ -244,7 +244,7 @@ async def test_runtime_collects_and_persists_artifacts(tmp_path: Path) -> None:
     runtime = HarnessRuntime(tmp_path, session=session)
     runtime._adapters["codex"] = ArtifactAdapter()
     turn = ArtifactTurn(
-        workspace=type("Workspace", (), {})(),
+        coordinator=None,
         workspace_dir=tmp_path,
         project_dir=None,
         agent_id="agent-1",
