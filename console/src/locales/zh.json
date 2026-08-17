@@ -2829,6 +2829,11 @@
     "system": "跟随系统"
   },
   "chat": {
+    "request": {
+      "expand": "显示完整消息",
+      "collapse": "收起",
+      "charCount": "{{count}} 个字符"
+    },
     "fileReference": {
       "codeSnippet": "代码片段 · {{count}} 行"
     },

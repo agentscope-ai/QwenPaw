@@ -167,6 +167,11 @@ import {
   type RuntimeLoadingBridgeApi,
 } from "./utils";
 import {
+  queryChatStatus,
+  shouldResetStuckLoading,
+  waitForChatIdle,
+} from "./chatStatus";
+import {
   CHAT_BASE_PATH,
   buildChatPath,
   getSessionIdFromPath,
@@ -220,57 +225,6 @@ function stopBackgroundQueue(queueKey?: string) {
     }
     _bgAborts.clear();
   }
-}
-
-/**
- * Wait until the backend reports the chat is no longer generating
- * (status !== "running"). Used so the next queued item is sent only after
- * the currently running task finishes — preserving order task1 → task2 → 3.
- *
- * Returns true when the chat became idle (or status is unknown / 404, which
- * we treat as idle to avoid blocking the queue forever); false if aborted.
- *
- * @param agentId - If provided, overrides X-Agent-Id in the status request
- *   so that switching agents does not cause a spurious "idle" result.
- */
-async function waitForChatIdle(
-  chatIdForStatus: string,
-  signal: AbortSignal,
-  agentId?: string,
-): Promise<boolean> {
-  if (!chatIdForStatus) return true;
-  while (!signal.aborted) {
-    try {
-      // Use direct fetch with the correct agent ID header to avoid
-      // cross-agent status misreads when the user has switched agents.
-      const headers = buildAuthHeaders();
-      if (agentId) {
-        headers["X-Agent-Id"] = agentId;
-      }
-      const res = await fetch(
-        getApiUrl(`/chats/${encodeURIComponent(chatIdForStatus)}`),
-        { headers, signal },
-      );
-      if (!res.ok) return true; // 404 / error → treat as idle
-      const chat = await res.json();
-      if (chat?.status !== "running") return true;
-    } catch {
-      // If aborted, return false (not idle) so the caller breaks cleanly.
-      if (signal.aborted) return false;
-      // Backend unreachable / 404 (e.g. id is still a local timestamp).
-      // Treat as idle so we don't block forever.
-      return true;
-    }
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 1000);
-      const onAbort = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
-    });
-  }
-  return false;
 }
 
 /**
@@ -1480,41 +1434,72 @@ export default function ChatPage() {
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
     autoSendTimerRef.current = setTimeout(() => {
       autoSendTimerRef.current = null;
-      if (chatLoadingRef.current) return;
       // Only the owner tab is allowed to actually send.
       if (!isOwnerRef.current) return;
       // Respect pause/error state — read fresh from store
       const state = useMessageQueueStore.getState().getRunState(queueSessionId);
       if (state === "paused" || state === "error") return;
-      const q = messageQueueRef.current;
-      if (q.length === 0) return;
-      const next = q[0];
-      // Acquire the per-session send lock so concurrent tabs don't both fire
-      // the same item. If another tab holds the lock, drop this attempt; the
-      // cross-tab broadcast will refresh our queue and the next loading→idle
-      // transition will retry.
-      void withSendLock(queueSessionId, () => {
-        // Re-check: another tab may have already removed this item via
-        // broadcast, or a session switch may have happened.
-        const fresh = useMessageQueueStore.getState().getQueue(queueSessionId);
-        if (fresh.length === 0 || fresh[0].id !== next.id) return;
-        useMessageQueueStore.getState().setCurrentSendingId(next.id);
-        useMessageQueueStore.getState().remove(queueSessionId, next.id);
-        // Force-set window.currentSessionId from the queue item's snapshot
-        // so customFetch uses the correct session_id, even if the global
-        // was overwritten by a recent agent switch.
-        if (next.backendSessionId) {
-          (
-            window as unknown as { currentSessionId?: string }
-          ).currentSessionId = next.backendSessionId;
+      if (messageQueueRef.current.length === 0) return;
+
+      void (async () => {
+        if (chatLoadingRef.current) {
+          // Watchdog for a stuck chatLoading. The flag is driven solely by
+          // the runtime SDK and has no error-path reset, so a desynced
+          // session identity or an aborted turn can leave it true forever —
+          // queued messages would never send (Bug A1). Before giving up,
+          // verify the backend: if the chat is actually idle, force-reset
+          // the SDK loading state through the bridge and proceed.
+          const statusId =
+            sessionApi.getRealIdForSession(queueSessionId) ?? queueSessionId;
+          const status = await queryChatStatus(statusId, selectedAgent);
+          if (!shouldResetStuckLoading(status)) {
+            // Genuinely busy, OR the status could not be determined (e.g. a
+            // transient network failure). In the latter case the previous
+            // turn may still be running — clearing loading would let the
+            // next queued message send out of order. Re-arm the watchdog
+            // and retry instead of resetting the SDK state.
+            setTimeout(() => scheduleNextSend(), 3000);
+            return;
+          }
+          runtimeLoadingBridgeRef.current?.setLoading?.(false);
+          // State may have changed while the status query was in flight.
+          if (!isOwnerRef.current) return;
+          const freshState = useMessageQueueStore
+            .getState()
+            .getRunState(queueSessionId);
+          if (freshState === "paused" || freshState === "error") return;
+          if (messageQueueRef.current.length === 0) return;
         }
-        chatRef.current?.input.submit({
-          query: beginLoopModeSubmission(next.text),
-          fileList: buildFileList(next),
+        const next = messageQueueRef.current[0];
+        // Acquire the per-session send lock so concurrent tabs don't both
+        // fire the same item. If another tab holds the lock, drop this
+        // attempt; the cross-tab broadcast will refresh our queue and the
+        // next loading→idle transition will retry.
+        void withSendLock(queueSessionId, () => {
+          // Re-check: another tab may have already removed this item via
+          // broadcast, or a session switch may have happened.
+          const fresh = useMessageQueueStore
+            .getState()
+            .getQueue(queueSessionId);
+          if (fresh.length === 0 || fresh[0].id !== next.id) return;
+          useMessageQueueStore.getState().setCurrentSendingId(next.id);
+          useMessageQueueStore.getState().remove(queueSessionId, next.id);
+          // Force-set window.currentSessionId from the queue item's snapshot
+          // so customFetch uses the correct session_id, even if the global
+          // was overwritten by a recent agent switch.
+          if (next.backendSessionId) {
+            (
+              window as unknown as { currentSessionId?: string }
+            ).currentSessionId = next.backendSessionId;
+          }
+          chatRef.current?.input.submit({
+            query: beginLoopModeSubmission(next.text),
+            fileList: buildFileList(next),
+          });
         });
-      });
+      })();
     }, 500);
-  }, [queueSessionId, buildFileList]);
+  }, [queueSessionId, buildFileList, selectedAgent]);
 
   // Reload queue when switching sessions or on first mount
   const prevQueueSessionIdRef = useRef<string | null>(null);
@@ -2688,15 +2673,29 @@ export default function ChatPage() {
 
       headlineStreamFilterRef.current = createHeadlineFilterState();
 
-      const response = await fetch(getApiUrl("/console/chat"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: data.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: data.signal,
+        });
+      } catch (err) {
+        // Network failure / abort: no stream will arrive to flip the SDK
+        // loading state. Force-reset through the bridge so chatLoading does
+        // not wedge the Enter-to-queue guard (Bug A1).
+        runtimeLoadingBridgeRef.current?.setLoading?.(false);
+        throw err;
+      }
 
-      if (!response.ok && backendChatId) {
-        sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+      if (!response.ok) {
+        if (backendChatId) {
+          sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
+        }
+        // Same rationale as the catch above: a non-2xx response ends the
+        // turn without the normal loading→idle stream events.
+        runtimeLoadingBridgeRef.current?.setLoading?.(false);
       }
 
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;

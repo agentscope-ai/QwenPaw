@@ -2419,6 +2419,11 @@
     "fullMode": "フルモード"
   },
   "chat": {
+    "request": {
+      "expand": "全文を表示",
+      "collapse": "折りたたむ",
+      "charCount": "{{count}} 文字"
+    },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
     },

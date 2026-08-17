@@ -2971,6 +2971,11 @@
     "system": "System"
   },
   "chat": {
+    "request": {
+      "expand": "Show full message",
+      "collapse": "Collapse",
+      "charCount": "{{count}} characters"
+    },
     "fileReference": {
       "codeSnippet_one": "Code snippet · {{count}} line",
       "codeSnippet_other": "Code snippet · {{count}} lines"

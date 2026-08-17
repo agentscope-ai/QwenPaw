@@ -252,6 +252,11 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "request": {
+      "expand": "Hiển thị đầy đủ tin nhắn",
+      "collapse": "Thu gọn",
+      "charCount": "{{count}} ký tự"
+    },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },

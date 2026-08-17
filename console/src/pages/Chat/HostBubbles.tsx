@@ -49,6 +49,7 @@ import type {
   ChatRequestData,
   ChatResponseData,
 } from "../../plugins/registry/types";
+import { CollapsibleRequestCard } from "./components/CollapsibleRequestCard";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -241,12 +242,17 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
       </>
     );
 
+  // Oversized user messages (e.g. the ~25K /mission controller prompt that
+  // replaces the original message) are collapsed behind a summary; short
+  // messages pass through with zero wrapper overhead.
   const fallback = () => (
-    <VendorRequestCard
-      data={props.data as AnyCardProps}
-      contentPrepend={contentPrepend as AnyCardProps}
-      contentAppend={contentAppend as AnyCardProps}
-    />
+    <CollapsibleRequestCard data={props.data}>
+      <VendorRequestCard
+        data={props.data as AnyCardProps}
+        contentPrepend={contentPrepend as AnyCardProps}
+        contentAppend={contentAppend as AnyCardProps}
+      />
+    </CollapsibleRequestCard>
   );
 
   if (renderFn) {

@@ -246,6 +246,11 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "request": {
+      "expand": "Tampilkan pesan lengkap",
+      "collapse": "Ciutkan",
+      "charCount": "{{count}} karakter"
+    },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },

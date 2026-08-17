@@ -2,7 +2,8 @@
 """Business-layer lifecycle hooks.
 
 Concrete hooks registered at startup via ``builtin_hook_clses``:
-- SessionLoadHook / SessionSaveHook — session persistence
+- SessionLoadHook / SessionSaveHook / SessionEarlySaveHook — session
+  persistence (load, POST_RESPONSE save, PRE_EXECUTE early save)
 - BootstrapHook — BOOTSTRAP.md first-interaction guidance
 - SkillEnvHook / SkillEnvCleanupHook — skill env-var overrides
 - ContextVarsSetupHook — per-request ContextVar injection (PRE_DISPATCH)

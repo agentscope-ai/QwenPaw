@@ -2663,6 +2663,11 @@
     "fullMode": "Modo completo"
   },
   "chat": {
+    "request": {
+      "expand": "Mostrar mensagem completa",
+      "collapse": "Recolher",
+      "charCount": "{{count}} caracteres"
+    },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },

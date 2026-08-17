@@ -78,6 +78,7 @@ class WorkspaceBootstrapFactory:
             )
             from ...hooks.request_setup.media_hook import MediaProcessHook
             from ...hooks.session.session_hook import (
+                SessionEarlySaveHook,
                 SessionLoadHook,
                 SessionSaveHook,
             )
@@ -96,6 +97,7 @@ class WorkspaceBootstrapFactory:
                 CronMemoryRestoreHook,
                 SessionLoadHook,
                 SessionSaveHook,
+                SessionEarlySaveHook,
                 BootstrapHook,
                 SkillEnvHook,
                 SkillEnvCleanupHook,

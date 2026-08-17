@@ -2434,6 +2434,11 @@
     "fullMode": "Полный режим"
   },
   "chat": {
+    "request": {
+      "expand": "Показать сообщение полностью",
+      "collapse": "Свернуть",
+      "charCount": "{{count}} символов"
+    },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"
     },
