@@ -53,6 +53,10 @@ jobs:
               echo "Skipping ${app_dir} (released via creator-release.yml)"
               continue
             fi
+            if [[ "$(basename "$app_dir")" == "datapaw" ]]; then
+              echo "Skipping ${app_dir} (released via datapaw-release.yml)"
+              continue
+            fi
             if [[ -f "$app_dir/ui/package-lock.json" ]]; then
               echo "Building ${app_dir}/ui"
               npm --prefix "$app_dir/ui" ci
@@ -61,13 +65,12 @@ jobs:
           done
 
       - name: Pack plugins and build index
-        # datapaw is excluded until its vendored context console
-        # (ui/public/context-console, produced by
-        # plugins/apps/datapaw/scripts/sync-context-ui.sh from a
-        # QwenPaw-Data checkout) can be staged in CI. Its plugin.json
-        # declares pack_requires, so removing the exclude without staging
-        # the assets fails this step loudly instead of shipping a broken
-        # artifact.
+        # qwenpaw-creator and datapaw are released through their own
+        # version-driven pipelines (creator-release.yml,
+        # datapaw-release.yml); datapaw additionally needs the vendored
+        # context console staged before packing. Their plugin.json
+        # pack_requires declarations make an accidental un-exclude fail
+        # this step loudly instead of shipping a broken artifact.
         run: |
           python scripts/pack/generate_plugin_metadata.py \
             --plugins-root plugins \
