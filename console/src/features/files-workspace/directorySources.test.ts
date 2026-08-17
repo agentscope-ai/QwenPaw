@@ -20,7 +20,10 @@ describe("directorySources", () => {
   });
 
   it("offers only the configuration root when both paths match", () => {
-    expect(workspaceRoots(true)).toEqual(["workspace"]);
-    expect(workspaceRoots(false)).toEqual(["project", "workspace"]);
+    expect(workspaceRoots([{ path: "/ws" }], "/ws")).toEqual(["workspace"]);
+    expect(workspaceRoots([{ path: "/repo" }], "/ws")).toEqual([
+      "project",
+      "workspace",
+    ]);
   });
 });

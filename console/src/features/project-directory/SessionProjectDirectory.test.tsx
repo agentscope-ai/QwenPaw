@@ -176,10 +176,8 @@ describe("SessionProjectDirectory", () => {
 
     await openPanel(user);
     await waitFor(() => {
-      expect(mockBrowseDirs).toHaveBeenCalledWith(
-        "/projects/agentscope",
-        false,
-      );
+      // Opens on the home directory, not inside the current project.
+      expect(mockBrowseDirs).toHaveBeenCalledWith("~", false);
     });
 
     await user.click(

@@ -9,6 +9,7 @@ import {
   EyeOff,
   Folder,
   FolderOpen,
+  Home,
   LoaderCircle,
   RotateCw,
   X,
@@ -29,10 +30,8 @@ import type {
   ProjectListItem,
 } from "../../api/modules/projectDirectory";
 import styles from "./SessionProjectDirectory.module.less";
-import {
-  getPendingProjectDirs,
-  setPendingProjectDirectory,
-} from "./pendingProjectDirectory";
+import { setPendingProjectDirectory } from "./pendingProjectDirectory";
+import { loadSessionProjectDirs } from "./loadSessionProjectDirs";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
 import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
 
@@ -75,6 +74,15 @@ interface SessionProjectDirectoryProps {
   showFullPath?: boolean;
   beforeChange?: () => boolean | Promise<boolean>;
   onChanged?: () => void;
+  /** Drive the panel from outside. Omit to keep the built-in open state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /**
+   * Render the panel without its own trigger button, for callers that already
+   * have one (the Files navigator opens this from its root switcher). Requires
+   * `open` — with no trigger and no controlled state the panel is unreachable.
+   */
+  hideTrigger?: boolean;
 }
 
 export default function SessionProjectDirectory({
@@ -83,6 +91,9 @@ export default function SessionProjectDirectory({
   showFullPath = false,
   beforeChange,
   onChanged,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: SessionProjectDirectoryProps) {
   const { t } = useTranslation();
   const selectedAgent = scope.agentId;
@@ -92,7 +103,18 @@ export default function SessionProjectDirectory({
   const [info, setInfo] = useState<EffectiveProjectDirectory | null>(null);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  // Controlled when the caller passes `open`; otherwise the panel owns it.
+  // Every internal close (Apply, Restore default, dismiss) goes through
+  // `setOpen`, so a controlled parent hears about all of them.
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (controlledOpen === undefined) setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [controlledOpen, onOpenChange],
+  );
   const [saving, setSaving] = useState(false);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [selectedRecentPath, setSelectedRecentPath] = useState<string | null>(
@@ -119,11 +141,6 @@ export default function SessionProjectDirectory({
   // A folder the user single-clicked and has not bound yet. Deliberately not
   // `draft`: navigating (double click, home, parent) must not queue anything.
   const [pendingPath, setPendingPath] = useState("");
-  // Set when the list shows the agent workspace purely because nothing is
-  // bound (source "workspace_fallback"). It is a display placeholder, not a
-  // real project directory, so binding the first real one replaces it
-  // instead of keeping the agent's internal storage in the list.
-  const [placeholderPath, setPlaceholderPath] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const [customName, setCustomName] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -146,14 +163,6 @@ export default function SessionProjectDirectory({
       const primary = next[0];
       setDirs(next);
       setAppliedDirs(next);
-      // Nothing is bound: the single entry is the agent workspace, shown so
-      // the panel agrees with the Files tree. Remembering it as a placeholder
-      // keeps Apply from persisting the agent's internal storage as a project
-      // dir *by accident* — a user who deliberately browses to the workspace
-      // and adds it can still bind it, same as any other absolute path.
-      setPlaceholderPath(
-        snapshot.source === "workspace_fallback" ? primary?.path ?? null : null,
-      );
       setCustomName(
         snapshot.project_name_is_custom ? snapshot.project_name : null,
       );
@@ -182,66 +191,19 @@ export default function SessionProjectDirectory({
       updateDraft(fallback.project_dir);
       return;
     }
-    if (chatId) {
-      const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
-      if (next.project_dirs.length > 0) {
-        applyList(next.project_dirs, next);
-        return;
-      }
-      // Nothing bound (workspace fallback). The list is empty, but the rest
-      // of the console — Files tree, editors — resolves to the workspace
-      // directory, so show that instead of an empty panel they disagree with.
-      const single = await chatProjectDirectoryApi.get(chatId);
-      applyList(
-        [
-          {
-            path: single.project_dir,
-            label: null,
-            exists: single.exists,
-            nested_with: null,
-          },
-        ],
-        next,
-      );
-      return;
-    }
-    // Brand-new chat: no backend id yet, so read the pending selection.
-    const pending = getPendingProjectDirs(selectedAgent, sessionId);
-    if (pending) {
-      applyList(
-        pending.dirs.map((entry) => ({
-          path: entry.path,
-          label: entry.label,
-          exists: true,
-          nested_with: null,
-        })),
-        {
-          source: "session",
-          agent_project_dir: null,
-          project_name: pending.name,
-          project_name_is_custom: Boolean(pending.name),
-        },
-      );
-      return;
-    }
-    // Nothing pending: show the agent default as the starting point.
-    const next = await projectDirectoryApi.get();
-    applyList(
-      [
-        {
-          path: next.path,
-          label: null,
-          exists: next.exists ?? true,
-          nested_with: null,
-        },
-      ],
-      {
-        source: next.is_workspace_default ? "workspace_fallback" : "agent",
-        agent_project_dir: next.is_workspace_default ? null : next.path,
-        project_name: null,
-        project_name_is_custom: false,
-      },
+    // Shared with the Files navigator so the panel and the tree can never
+    // disagree about which directories the session is bound to.
+    const snapshot = await loadSessionProjectDirs(
+      selectedAgent,
+      sessionId,
+      chatId,
     );
+    applyList(snapshot.dirs, {
+      source: snapshot.source,
+      agent_project_dir: snapshot.agentProjectDir,
+      project_name: snapshot.projectName,
+      project_name_is_custom: snapshot.projectNameIsCustom,
+    });
   }, [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft]);
 
   useEffect(() => {
@@ -292,7 +254,10 @@ export default function SessionProjectDirectory({
         setProjects([]);
         setSelectedRecentPath(null);
       });
-    void browse(currentPath || undefined);
+    // Start at the home directory, not inside the current project. Opening on
+    // the project dir only ever listed its *subfolders*, so picking a second
+    // project meant clicking "home" first every single time.
+    void browse("~");
   }, [browse, info?.project_dir, open]);
 
   const basename = useMemo(() => {
@@ -307,26 +272,34 @@ export default function SessionProjectDirectory({
   );
 
   /** How many directories the server holds. Drives the trigger badge.
-   *  The workspace placeholder is always a single entry, so it never trips
+   *  An unbound session resolves to a single directory, so it never trips
    *  the badge's `> 1` threshold. */
   const appliedCount = appliedDirs.length;
 
   /** The entries that may actually be saved.
    *
-   *  Excludes the workspace placeholder: it is only on screen because
-   *  *nothing* is bound, and persisting it would bind the agent's internal
-   *  storage as a project directory — granting it project-level access and
-   *  making the prompt announce it as the project. Binding an inherited
-   *  agent default, by contrast, is a legitimate explicit choice (and is
-   *  undoable via "Restore default"), so it stays saveable. */
+   *  Every listed directory, including the one the panel inherited. Adding a
+   *  second directory must not silently drop the first — the inherited entry
+   *  is the current primary, so dropping it would move the base for relative
+   *  paths without the user asking. Removing it is the × button's job. */
   const bindableDirs = useMemo(
+    () => dirs.filter((entry) => entry.path.trim()),
+    [dirs],
+  );
+
+  /** Nothing is bound and nothing has been queued, so Apply has nothing to
+   *  pin: the list is still exactly the workspace entry the panel shows for an
+   *  unbound session. Pinning it would only trade the inherited default for an
+   *  identical explicit one — at the cost of the unsaved-changes warning and
+   *  every project editor tab. */
+  const isUntouchedFallback = useMemo<boolean>(
     () =>
-      dirs.filter(
-        (entry) =>
-          entry.path.trim() &&
-          !(placeholderPath && samePath(entry.path, placeholderPath)),
+      info?.source === "workspace_fallback" &&
+      dirs.length === appliedDirs.length &&
+      dirs.every((entry, index) =>
+        samePath(entry.path, appliedDirs[index]?.path ?? ""),
       ),
-    [dirs, placeholderPath],
+    [appliedDirs, dirs, info?.source],
   );
 
   /** An Apply that would change nothing on an already-bound chat.
@@ -397,22 +370,27 @@ export default function SessionProjectDirectory({
     if (list) list.scrollTop = list.scrollHeight;
   }, [pendingPath]);
 
-  /** Bind the queued directory, at the end of the list.
+  /** Bind the queued directory. Additive — nothing already listed is dropped.
    *
-   *  When the list is only the workspace placeholder, the new directory
-   *  replaces it: the placeholder was never bound, and carrying the agent's
-   *  internal workspace into the saved list would grant it project-directory
-   *  access and make the prompt announce it as the project. */
+   *  Appends, so whichever entry is first stays the primary and promoting the
+   *  new one is "make primary", an explicit click. The one exception is the
+   *  very first directory added to a session that has nothing bound: the only
+   *  entry there is the agent's own workspace — its configuration and memory
+   *  store, not somewhere the user works — so the real directory they just
+   *  picked takes the primary slot, and the workspace is kept behind it rather
+   *  than dictating where relative paths and the Files tree resolve. */
   const addPending = () => {
     const path = pendingPath.trim();
     if (!path || isBound(path) || dirs.length >= MAX_PROJECT_DIRS) return;
-    setDirs((current) => [
-      ...current.filter(
-        (entry) => !placeholderPath || !samePath(entry.path, placeholderPath),
-      ),
-      { path, label: null, exists: true, nested_with: null },
-    ]);
-    setPlaceholderPath(null);
+    const entry: ProjectDirEntry = {
+      path,
+      label: null,
+      exists: true,
+      nested_with: null,
+    };
+    setDirs((current) =>
+      isUntouchedFallback ? [entry, ...current] : [...current, entry],
+    );
     setPendingPath("");
   };
 
@@ -560,14 +538,6 @@ export default function SessionProjectDirectory({
     if (!isAgentScope) {
       setDirs(appliedDirs);
       setPendingPath("");
-      // `appliedDirs` is restored, so the placeholder flag has to be restored
-      // with it — otherwise a dismissed edit leaves the workspace entry
-      // looking like a real binding on the next Apply.
-      setPlaceholderPath(
-        info?.source === "workspace_fallback"
-          ? appliedDirs[0]?.path ?? null
-          : null,
-      );
     }
     setListError(null);
   };
@@ -779,7 +749,7 @@ export default function SessionProjectDirectory({
                 type="text"
                 size="small"
                 aria-label={t("projectDirectory.homeDirectory")}
-                icon={<FolderOpen size={14} />}
+                icon={<Home size={14} />}
                 onClick={() => void browse("~", true)}
               />
               <Button
@@ -871,13 +841,34 @@ export default function SessionProjectDirectory({
           type="primary"
           loading={saving}
           onClick={() => void save()}
-          disabled={isAgentScope ? !draft.trim() : bindableDirs.length === 0}
+          disabled={
+            isAgentScope
+              ? !draft.trim()
+              : bindableDirs.length === 0 || isUntouchedFallback
+          }
         >
           {t("common.apply")}
         </Button>
       </div>
     </div>
   );
+
+  // `hideTrigger` callers drive `open` themselves and already render their own
+  // control, so the Popover only needs a zero-size element to anchor to — and
+  // no trigger events, which would otherwise reopen it on a stray click.
+  if (hideTrigger) {
+    return (
+      <Popover
+        content={panel}
+        trigger={[]}
+        open={open}
+        onOpenChange={handleOpenChange}
+        placement={isAgentScope ? "rightTop" : "topRight"}
+      >
+        <span className={styles.hiddenAnchor} aria-hidden="true" />
+      </Popover>
+    );
+  }
 
   return (
     <Popover

@@ -78,6 +78,7 @@ from ..agent_context import (
     get_agent_for_request,
     get_agent_project_dir,
     get_project_dir_for_request,
+    get_project_dirs_for_request,
 )
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -296,19 +297,70 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     return files
 
 
+# Prefix selecting a non-primary bound project directory by absolute path,
+# e.g. ``project:/Users/me/docs``. The path is carried rather than an index
+# because the bound list is reorderable ("make primary"): an index would let a
+# persisted editor tab silently start pointing at a different directory.
+_EXTRA_PROJECT_ROOT_PREFIX = "project:"
+
+
+async def _resolve_extra_project_root(
+    request: Request,
+    workspace: Any,
+    raw_path: str,
+) -> Path:
+    """Resolve one bound project directory selected by absolute path.
+
+    The membership check is the authorization boundary for the Files API: a
+    path is served only when it is one of the directories this chat actually
+    bound. Anything else is rejected outright — never silently downgraded to
+    the primary, which would make an out-of-bounds request look like it
+    succeeded against the wrong directory.
+    """
+    from ...services.project_directory import same_dir
+
+    candidate = raw_path.strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="root path is empty")
+
+    resolved = await get_project_dirs_for_request(request, workspace)
+    for entry in resolved.dirs:
+        if same_dir(candidate, entry.path):
+            return entry.path
+    # The workspace is a legitimate root, but it has its own ``root=workspace``
+    # selector; accepting it here too would let one root be addressed two ways.
+    raise HTTPException(
+        status_code=403,
+        detail="Not a bound project directory",
+    )
+
+
 async def _resolve_files_root(
     request: Request,
     workspace: Any,
     root: str,
 ) -> Path:
-    """Resolve the selected project or agent configuration directory."""
+    """Resolve the selected project or agent configuration directory.
+
+    Accepted values:
+
+    * ``workspace`` — the agent's own storage root
+    * ``project`` — the PRIMARY bound project directory
+    * ``project:<absolute path>`` — any other directory bound to this chat
+    """
     if root == "workspace":
         return workspace.workspace_dir
     if root == "project":
         return await get_project_dir_for_request(request, workspace)
+    if root.startswith(_EXTRA_PROJECT_ROOT_PREFIX):
+        return await _resolve_extra_project_root(
+            request,
+            workspace,
+            root[len(_EXTRA_PROJECT_ROOT_PREFIX) :],
+        )
     raise HTTPException(
         status_code=400,
-        detail="root must be project or workspace",
+        detail="root must be project, project:<path> or workspace",
     )
 
 
