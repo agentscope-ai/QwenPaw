@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 from typing import Optional
+from uuid import uuid4
 
 from .models import (
     BatchArchiveResult,
@@ -452,6 +454,62 @@ class ChatManager:
             f"{len(result.failed)} failed",
         )
         return result
+
+    # ----- Fork Operations -----
+
+    async def fork_chat(
+        self,
+        *,
+        source_chat_id: str,
+        new_session_id: str,
+        name: str,
+    ) -> ChatSpec:
+        """Create a new ChatSpec by forking the source spec.
+
+        Copies user_id, channel, and meta from source. Adds trace fields
+        (forked_from_chat_id, forked_from_session_id, forked_at) into a
+        deep-copied meta dict.
+
+        The caller is responsible for:
+        1. Verifying source existence and status before calling.
+        2. Writing the new session state file before calling this method.
+        3. Cleaning up the session file if this method raises.
+        """
+        async with self._lock:
+            source = await self._repo.get_chat(source_chat_id)
+            if source is None:
+                raise ValueError(
+                    f"Source chat not found: {source_chat_id}",
+                )
+
+            # deep copy meta + fork trace
+            forked_meta = copy.deepcopy(source.meta)
+            forked_meta.update(
+                {
+                    "forked_from_chat_id": source.id,
+                    "forked_from_session_id": source.session_id,
+                    "forked_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+            new_spec = ChatSpec(
+                id=str(uuid4()),
+                session_id=new_session_id,
+                user_id=source.user_id,
+                channel=source.channel,
+                name=name,
+                source=SessionSource.chat,
+                meta=forked_meta,
+            )
+            await self._repo.upsert_chat(new_spec)
+            logger.info(
+                "Forked chat %s -> %s (session %s -> %s)",
+                source.id,
+                new_spec.id,
+                source.session_id,
+                new_session_id,
+            )
+            return new_spec
 
     # ----- Misc Operations -----
 

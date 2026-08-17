@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
+import { HttpError } from "../../../../api/request";
+import type { ForkChatResponse } from "../../../../api/types/chat";
 import sessionApi from "../../sessionApi";
 import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
@@ -106,6 +108,7 @@ export interface SessionListData {
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handleFork: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -399,6 +402,65 @@ export function useSessionListData(
     [sessions, currentSessionId, refreshSessions, message, t],
   );
 
+  const forkingRef = useRef(new Set<string>());
+
+  const handleFork = useCallback(
+    async (sessionId: string) => {
+      // Prevent duplicate requests
+      if (forkingRef.current.has(sessionId)) return;
+
+      const session = sessions.find((s) => s.id === sessionId);
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) {
+        message.warning(
+          t("chat.forkUnavailable", "Send a message first"),
+        );
+        return;
+      }
+
+      forkingRef.current.add(sessionId);
+
+      let result: ForkChatResponse;
+      try {
+        result = await chatApi.forkChat(backendId);
+      } catch (err) {
+        forkingRef.current.delete(sessionId);
+        if (err instanceof HttpError && err.status === 409) {
+          message.warning(
+            t(
+              "chat.forkRunning",
+              "Session is still generating. Wait for it to finish.",
+            ),
+          );
+        } else {
+          message.error(t("chat.forkFailed", "Fork failed"));
+        }
+        return;
+      }
+
+      // Warn if source was empty (session file manually deleted)
+      if (result.source_state === "empty") {
+        message.warning(
+          t(
+            "chat.forkEmptySource",
+            "Source context unavailable; created an empty session.",
+          ),
+        );
+      } else {
+        message.success(t("chat.forkSuccess", "Session forked"));
+      }
+
+      try {
+        await refreshSessions();
+      } catch {
+        console.warn("Fork succeeded but session refresh failed");
+      }
+      onSessionClick(result.chat_id);
+      forkingRef.current.delete(sessionId);
+    },
+    [sessions, onSessionClick, refreshSessions, t, message],
+  );
+
   const handleItemContextMenu = useCallback(
     (sessionId: string, event: React.MouseEvent) => {
       setContextMenuSessionId(sessionId);
@@ -467,6 +529,7 @@ export function useSessionListData(
     handleDelete,
     handlePinToggle,
     handleArchiveToggle,
+    handleFork,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,

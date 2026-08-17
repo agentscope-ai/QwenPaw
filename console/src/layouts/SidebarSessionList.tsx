@@ -13,6 +13,7 @@ import { SparkPlusLine, SparkDownArrowLine } from "@agentscope-ai/icons";
 import { getChannelLabel } from "../pages/Control/Channels/components";
 import {
   useSessionListData,
+  getBackendId,
   type ExtendedChatSession,
 } from "../pages/Chat/components/ChatSessionDrawer/useSessionListData";
 import { getSessionIdFromPath } from "../utils/sessionRoute";
@@ -60,6 +61,7 @@ interface VirtualRowData {
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handleFork: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -127,6 +129,8 @@ const VirtualRow = React.memo(function VirtualRow({
         onDelete={data.handleDelete}
         onPin={data.handlePinToggle}
         onArchive={data.handleArchiveToggle}
+        onFork={data.handleFork}
+        forkDisabled={!getBackendId(session)}
         onEditChange={data.handleEditChange}
         onEditSubmit={data.handleEditSubmit}
         onEditCancel={data.handleEditCancel}
@@ -192,6 +196,7 @@ export default function SidebarSessionList({
     handleDelete,
     handlePinToggle,
     handleArchiveToggle,
+    handleFork,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,
@@ -328,6 +333,7 @@ export default function SidebarSessionList({
       handleDelete,
       handlePinToggle,
       handleArchiveToggle,
+      handleFork,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
@@ -344,6 +350,7 @@ export default function SidebarSessionList({
       handleDelete,
       handlePinToggle,
       handleArchiveToggle,
+      handleFork,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,

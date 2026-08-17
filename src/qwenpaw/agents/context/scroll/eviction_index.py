@@ -230,6 +230,46 @@ class EvictionIndex:
             ],
         }
 
+    def remap_sequences(
+        self,
+        *,
+        session_id: str,
+        seq_map: dict[int, int],
+    ) -> "EvictionIndex":
+        """Return an equivalent index pointing at cloned history rows.
+
+        A block is retained only when all of its sequence endpoints can be
+        mapped. Missing endpoints indicate stale/corrupt checkpoint data; in
+        that case dropping the directory entry is safer than rendering a
+        pointer into another session.
+        """
+        rebased = EvictionIndex(session_id, self._agent_id)
+        for tier in self._tiers:
+            rebased_tier: list[Block] = []
+            for block in tier:
+                try:
+                    rebased_tier.append(
+                        Block(
+                            seq_lo=seq_map[block.seq_lo],
+                            seq_hi=seq_map[block.seq_hi],
+                            lines=[
+                                Line(
+                                    seq_map[line.seq_lo],
+                                    seq_map[line.seq_hi],
+                                    line.head,
+                                    line.tail,
+                                )
+                                for line in block.lines
+                            ],
+                        ),
+                    )
+                except KeyError:
+                    continue
+            rebased._tiers.append(  # pylint: disable=protected-access
+                rebased_tier,
+            )
+        return rebased
+
     @classmethod
     def from_dict(cls, data: dict) -> "EvictionIndex":
         idx = cls(

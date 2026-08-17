@@ -21,6 +21,8 @@ from .models import (
     ChatSpec,
     ChatUpdate,
     ChatHistory,
+    ForkChatRequest,
+    ForkChatResponse,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
 from ...services.project_directory import (
@@ -28,11 +30,65 @@ from ...services.project_directory import (
     session_project_dir,
 )
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+def _scroll_history_path(workspace) -> Path | None:
+    """Return the configured Scroll history path without creating a DB.
+
+    Existing rows are cloned even when the agent currently runs in native
+    mode: the source may have been compressed before the strategy changed,
+    and those evicted turns exist only in this store.
+    """
+    try:
+        light_context = workspace.config.running.light_context_config
+        path = Path(workspace.workspace_dir) / (
+            light_context.scroll_config.db_filename
+        )
+    except (AttributeError, TypeError):
+        return None
+    return path if path.exists() else None
+
+
+def _clone_scroll_history(
+    workspace,
+    *,
+    source_session_id: str,
+    destination_session_id: str,
+) -> dict[int, int]:
+    """Clone durable Scroll rows and return source-to-fork seq mapping."""
+    path = _scroll_history_path(workspace)
+    if path is None:
+        return {}
+    from ...agents.context.scroll.history import HistoryStore
+
+    history = HistoryStore(path)
+    try:
+        return history.clone_session_rows(
+            source_session_id=source_session_id,
+            destination_session_id=destination_session_id,
+        )
+    finally:
+        history.close()
+
+
+def _delete_scroll_history(workspace, session_id: str) -> int:
+    """Best-effort rollback for durable rows created during a failed fork."""
+    path = _scroll_history_path(workspace)
+    if path is None:
+        return 0
+    from ...agents.context.scroll.history import HistoryStore
+
+    history = HistoryStore(path)
+    try:
+        return history.delete_session_rows(session_id)
+    finally:
+        history.close()
 
 
 async def get_workspace(request: Request):
@@ -325,6 +381,161 @@ async def clear_chat_project_dir(
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     return await _project_directory_response(chat, workspace)
+
+
+# ----- Fork endpoint -----
+
+
+@router.post(
+    "/{chat_id}/fork",
+    response_model=ForkChatResponse,
+    status_code=201,
+)
+async def fork_chat(
+    chat_id: str,
+    body: ForkChatRequest = ForkChatRequest(),
+    mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
+):
+    """Fork a chat: create a full snapshot in a new independent session.
+
+    201 on success.
+    404 if the source chat does not exist.
+    409 if the source chat is currently running (best-effort guard;
+         a TOCTOU window exists — see the design doc).
+    500 on I/O or persistence failures.
+    """
+    # 1. Validate source exists
+    source = await mgr.get_chat(chat_id)
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+
+    # 2. Best-effort guard: reject if currently running
+    tracker = workspace.task_tracker
+    status = await tracker.get_status(chat_id)
+    if status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Source chat is still generating. "
+                "Wait for it to finish before forking."
+            ),
+        )
+
+    # 3. Generate new session_id
+    fork_uuid = str(uuid4())[:8]
+    new_session_id = f"{source.session_id}:fork-{fork_uuid}"
+
+    # 4. Clone durable Scroll rows first. New globally addressed seq values
+    #    are returned so the JSON checkpoint can be rebased onto fork-owned
+    #    history instead of retaining source pointers.
+    try:
+        scroll_seq_map = await run_sync_io(
+            _clone_scroll_history,
+            workspace,
+            source_session_id=source.session_id,
+            destination_session_id=new_session_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to clone Scroll history for chat %s",
+            chat_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to copy durable session history.",
+        ) from exc
+
+    # 5. Clone session state file (BEFORE creating ChatSpec).
+    #    allow_missing_source=True: if source file was manually deleted,
+    #    write a valid empty AgentState with the fork identity before any
+    #    ChatSpec references it.
+    source_missing = False
+    try:
+        source_missing = await session.clone_session_state(
+            src_session_id=source.session_id,
+            dst_session_id=new_session_id,
+            user_id=source.user_id,
+            channel=source.channel,
+            allow_missing_source=True,
+            scroll_seq_map=scroll_seq_map,
+        )
+    except Exception as exc:
+        try:
+            await run_sync_io(
+                _delete_scroll_history,
+                workspace,
+                new_session_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to clean up fork Scroll history: %s",
+                new_session_id,
+                exc_info=True,
+            )
+        logger.exception(
+            "Failed to clone session state for chat %s",
+            chat_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to copy session state.",
+        ) from exc
+
+    # 6. Create ChatSpec (best-effort cleanup on failure)
+    fork_name = body.name or f"Fork of {source.name}"
+    try:
+        new_spec = await mgr.fork_chat(
+            source_chat_id=chat_id,
+            new_session_id=new_session_id,
+            name=fork_name,
+        )
+    except Exception as exc:
+        # Best-effort cleanup of now-orphan session file
+        deleted = await session.delete_session_state(
+            session_id=new_session_id,
+            user_id=source.user_id,
+            channel=source.channel,
+        )
+        if not deleted:
+            logger.warning(
+                "ChatSpec creation failed; orphan session file could "
+                "not be deleted: %s",
+                new_session_id,
+            )
+        try:
+            await run_sync_io(
+                _delete_scroll_history,
+                workspace,
+                new_session_id,
+            )
+        except Exception:
+            logger.warning(
+                "ChatSpec creation failed; fork Scroll history could not "
+                "be deleted: %s",
+                new_session_id,
+                exc_info=True,
+            )
+        logger.exception(
+            "Failed to create forked chat for source %s",
+            chat_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create forked chat.",
+        ) from exc
+
+    return ForkChatResponse(
+        chat_id=new_spec.id,
+        session_id=new_spec.session_id,
+        name=new_spec.name,
+        created_at=new_spec.created_at,
+        source_state="empty" if source_missing else "ok",
+    )
 
 
 # ----- Existing CRUD endpoints -----

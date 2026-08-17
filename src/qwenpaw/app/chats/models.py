@@ -126,3 +126,36 @@ class ChatsFile(BaseModel):
 
     version: int = 1
     chats: list[ChatSpec] = Field(default_factory=list)
+
+
+class ForkChatRequest(BaseModel):
+    """Request body for POST /chats/{chat_id}/fork.
+
+    P0: *name* is the only user-controlled field.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Name for the forked chat. " "Defaults to 'Fork of {source.name}'."
+        ),
+    )
+
+
+class ForkChatResponse(BaseModel):
+    """Response body for POST /chats/{chat_id}/fork."""
+
+    chat_id: str
+    session_id: str
+    name: str
+    created_at: datetime
+    source_state: str = Field(
+        default="ok",
+        description=(
+            '"ok" when the source session was fully copied; '
+            '"empty" when the source file was missing and the '
+            "fork starts with no messages."
+        ),
+    )

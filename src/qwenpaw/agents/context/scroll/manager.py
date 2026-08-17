@@ -17,6 +17,7 @@ two delegated hooks.
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import json
 import logging
@@ -1937,6 +1938,117 @@ class ScrollContextManager:
         return self._continuation_summary.render()
 
     # -- checkpoint ----------------------------------------------------------
+
+    @staticmethod
+    def rebase_checkpoint(
+        data: Any,
+        *,
+        session_id: str,
+        seq_map: dict[int, int],
+    ) -> dict:
+        """Rebase a persisted Scroll checkpoint onto cloned history rows.
+
+        Scroll checkpoints contain globally addressed SQLite sequence values.
+        A raw JSON copy would leave those values pointing into the source
+        session. This method remaps every such pointer and drops stale entries
+        whose source row was not present when the durable history was cloned.
+        """
+        if not isinstance(data, dict):
+            return {}
+        rebased = copy.deepcopy(data)
+
+        def remap_scalar_map(raw: Any) -> dict[str, int]:
+            if not isinstance(raw, dict):
+                return {}
+            mapped: dict[str, int] = {}
+            for key, value in raw.items():
+                try:
+                    mapped[str(key)] = seq_map[int(value)]
+                except (KeyError, TypeError, ValueError):
+                    continue
+            return mapped
+
+        seq_by_tcid = remap_scalar_map(rebased.get("seq_by_tcid"))
+        model_turn_seq = remap_scalar_map(rebased.get("model_turn_seq"))
+
+        seq_by_id: dict[str, list[int]] = {}
+        raw_seq_by_id = rebased.get("seq_by_id")
+        if isinstance(raw_seq_by_id, dict):
+            for key, value in raw_seq_by_id.items():
+                try:
+                    lo, hi = value
+                    seq_by_id[str(key)] = [
+                        seq_map[int(lo)],
+                        seq_map[int(hi)],
+                    ]
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+        leaf_by_id: dict[str, list[Any]] = {}
+        raw_leaf_by_id = rebased.get("leaf_by_id")
+        if isinstance(raw_leaf_by_id, dict):
+            for key, value in raw_leaf_by_id.items():
+                try:
+                    seq, headline = value
+                    leaf_by_id[str(key)] = [seq_map[int(seq)], headline]
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+        persisted_ids = {
+            str(item) for item in rebased.get("persisted_ids", ())
+        }
+        persisted_tcids = {
+            str(item) for item in rebased.get("persisted_tcids", ())
+        }
+        persisted_ids.intersection_update(model_turn_seq)
+        persisted_tcids.intersection_update(seq_by_tcid)
+
+        rebased["persisted_ids"] = sorted(persisted_ids)
+        rebased["persisted_tcids"] = sorted(persisted_tcids)
+        rebased["seen_tool_result_ids"] = sorted(
+            {
+                str(item) for item in rebased.get("seen_tool_result_ids", ())
+            }.intersection(persisted_tcids),
+        )
+        rebased["seq_by_tcid"] = seq_by_tcid
+        rebased["seq_by_id"] = seq_by_id
+        rebased["model_turn_seq"] = model_turn_seq
+        rebased["model_turn_nblk"] = {
+            str(key): value
+            for key, value in (
+                rebased.get("model_turn_nblk", {}).items()
+                if isinstance(rebased.get("model_turn_nblk"), dict)
+                else ()
+            )
+            if str(key) in model_turn_seq
+        }
+        rebased["leaf_by_id"] = leaf_by_id
+
+        raw_index = rebased.get("index")
+        if isinstance(raw_index, dict):
+            rebased["index"] = (
+                EvictionIndex.from_dict(raw_index)
+                .remap_sequences(session_id=session_id, seq_map=seq_map)
+                .to_dict()
+            )
+        else:
+            rebased["index"] = EvictionIndex(session_id).to_dict()
+
+        raw_summary = rebased.get("continuation_summary")
+        if isinstance(raw_summary, dict):
+            summary = ContinuationSummary.from_dict(raw_summary)
+            rebased_summary = (
+                summary.remap_sequences(seq_map)
+                if summary is not None
+                else None
+            )
+            rebased["continuation_summary"] = (
+                rebased_summary.to_dict()
+                if rebased_summary is not None
+                else None
+            )
+
+        return rebased
 
     def to_dict(self) -> dict:
         """Snapshot the dedup bookkeeping + eviction index for the agent

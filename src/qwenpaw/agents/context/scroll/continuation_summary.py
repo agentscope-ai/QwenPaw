@@ -10,7 +10,7 @@ replace the last valid summary with an empty value.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 SUMMARY_PREFIX = """[archived task state]
@@ -516,6 +516,56 @@ class ContinuationSummary:
             "decisions": [item.to_dict() for item in self.decisions],
             "open_work": [item.to_dict() for item in self.open_work],
         }
+
+    def remap_sequences(
+        self,
+        seq_map: dict[int, int],
+    ) -> "ContinuationSummary | None":
+        """Return this summary rebased onto cloned durable rows.
+
+        Every sequence source is code-managed provenance. If any referenced
+        endpoint is absent from the cloned history, the whole summary is
+        discarded rather than retaining a cross-session or invalid pointer.
+        """
+        try:
+            covered_seq = (
+                seq_map[self.covered_seq[0]],
+                seq_map[self.covered_seq[1]],
+            )
+
+            def remap_item(item: SummaryItem) -> SummaryItem:
+                sources = tuple(
+                    replace(
+                        source,
+                        lo=seq_map[int(source.lo)],
+                        hi=seq_map[
+                            int(
+                                source.hi
+                                if source.hi is not None
+                                else source.lo,
+                            )
+                        ],
+                    )
+                    if source.type == "seq" and source.lo is not None
+                    else source
+                    for source in item.sources
+                )
+                return replace(item, sources=sources)
+
+            return replace(
+                self,
+                covered_seq=covered_seq,
+                current_state=tuple(
+                    remap_item(item) for item in self.current_state
+                ),
+                constraints=tuple(
+                    remap_item(item) for item in self.constraints
+                ),
+                decisions=tuple(remap_item(item) for item in self.decisions),
+                open_work=tuple(remap_item(item) for item in self.open_work),
+            )
+        except KeyError:
+            return None
 
     @classmethod
     def from_dict(  # pylint: disable=too-many-return-statements

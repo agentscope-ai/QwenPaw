@@ -471,3 +471,150 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
+
+    async def clone_session_state(
+        self,
+        *,
+        src_session_id: str,
+        dst_session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        allow_missing_source: bool = False,
+        scroll_seq_map: dict[int, int] | None = None,
+    ) -> bool:
+        """Copy and rebase session state from ``src`` to ``dst``.
+
+        Reads the full source session dict under path lock, changes the
+        AgentScope session identity to the destination, rebases Scroll's
+        durable sequence pointers, then writes the result atomically under the
+        destination path lock. Other persisted state modules are preserved.
+
+        When *allow_missing_source* is True and the source file does not
+        exist, writes a valid empty AgentState with the destination identity
+        instead of raising. This preserves the invariant that the destination
+        file exists before any ChatSpec references it.
+
+        Returns True if the source was missing and ``allow_missing_source``
+        was True (caller can warn the user). Returns False otherwise.
+
+        Raises FileNotFoundError when *allow_missing_source* is False
+        (the default) and the source file is missing.
+        """
+        source_missing = False
+        # 1. Read source file under path lock
+        src_path = await run_sync_io(
+            self._get_save_path,
+            src_session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(src_path):
+            try:
+                src_state = await run_sync_io(_read_session_json, src_path)
+            except FileNotFoundError:
+                if allow_missing_source:
+                    logger.warning(
+                        "Source session file missing for %s, "
+                        "cloning empty state to %s.",
+                        src_session_id,
+                        dst_session_id,
+                    )
+                    src_state = {}
+                    source_missing = True
+                else:
+                    raise
+
+        # A fork must own a distinct AgentScope/memory identity. Scroll's
+        # checkpoint also addresses global history.db sequence values, which
+        # must be replaced with the destination rows created by the caller.
+        agent_state = src_state.get("agent")
+        if not isinstance(agent_state, dict):
+            agent_state = {}
+            src_state["agent"] = agent_state
+
+        raw_state = agent_state.get("state")
+        if isinstance(raw_state, dict):
+            raw_state["session_id"] = dst_session_id
+        elif raw_state is None:
+            # Missing snapshots and 1.x ``agent.memory`` snapshots otherwise
+            # receive AgentState's random default identity on first build.
+            # Normalize both forms now so every fork has the destination
+            # identity before MemoryMiddleware performs any routing.
+            from agentscope.state import AgentState
+
+            migrated_state = AgentState(session_id=dst_session_id)
+            legacy_memory = agent_state.get("memory")
+            if isinstance(legacy_memory, dict):
+                from .utils import parse_legacy_memory_state
+
+                messages, summary = parse_legacy_memory_state(legacy_memory)
+                migrated_state.context.extend(messages)
+                migrated_state.summary = summary
+            agent_state["state"] = migrated_state.model_dump(mode="json")
+        else:
+            raise ValueError("agent.state must be a JSON object")
+
+        raw_scroll = agent_state.get("scroll")
+        if isinstance(raw_scroll, dict):
+            from ...agents.context.scroll.manager import ScrollContextManager
+
+            agent_state["scroll"] = ScrollContextManager.rebase_checkpoint(
+                raw_scroll,
+                session_id=dst_session_id,
+                seq_map=scroll_seq_map or {},
+            )
+
+        # 2. Write to destination file (path lock + atomic write)
+        dst_path = await run_sync_io(
+            self._get_save_path,
+            dst_session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(dst_path):
+            await write_json_atomic_async(
+                dst_path,
+                src_state,
+                indent=None,
+            )
+
+        logger.info(
+            "Cloned session state %s -> %s (%d top-level keys)",
+            src_session_id,
+            dst_session_id,
+            len(src_state),
+        )
+        return source_missing
+
+    async def delete_session_state(
+        self,
+        *,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Delete a session state file. Best-effort; never raises.
+
+        Returns True if the file was deleted, False if it didn't exist.
+        Uses run_sync_io to avoid blocking the async event loop.
+        """
+        path = await run_sync_io(
+            self._get_save_path,
+            session_id,
+            user_id,
+            channel,
+        )
+        async with get_path_lock(path):
+            try:
+                await run_sync_io(os.remove, path)
+                logger.info("Deleted orphan session file: %s", path)
+                return True
+            except FileNotFoundError:
+                return False
+            except OSError as exc:
+                logger.warning(
+                    "Failed to delete orphan session file %s: %s",
+                    path,
+                    exc,
+                )
+                return False

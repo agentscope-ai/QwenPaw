@@ -2939,8 +2939,14 @@
       "rename": "重命名",
       "pin": "置顶",
       "unpin": "取消置顶",
+      "fork": "分叉",
       "delete": "删除"
     },
+    "forkSuccess": "会话已分叉",
+    "forkEmptySource": "原上下文不可用，已创建空会话",
+    "forkRunning": "会话正在生成中，请等待完成后再试",
+    "forkFailed": "分叉失败",
+    "forkUnavailable": "请先发送一条消息",
     "queue": {
       "title": "消息队列",
       "paused": "已暂停",
