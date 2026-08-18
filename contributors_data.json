@@ -54,6 +54,12 @@
     "contributions": 1
   },
   {
+    "login": "An-idd",
+    "avatar_url": "https://github.com/An-idd.png",
+    "html_url": "https://github.com/An-idd",
+    "contributions": 1
+  },
+  {
     "login": "AntiQuality",
     "avatar_url": "https://github.com/AntiQuality.png",
     "html_url": "https://github.com/AntiQuality",
@@ -171,7 +177,13 @@
     "login": "cuiyuebing",
     "avatar_url": "https://github.com/cuiyuebing.png",
     "html_url": "https://github.com/cuiyuebing",
-    "contributions": 60
+    "contributions": 61
+  },
+  {
+    "login": "cyruszhang",
+    "avatar_url": "https://github.com/cyruszhang.png",
+    "html_url": "https://github.com/cyruszhang",
+    "contributions": 1
   },
   {
     "login": "daliu858",
@@ -351,7 +363,7 @@
     "login": "GMsure",
     "avatar_url": "https://github.com/GMsure.png",
     "html_url": "https://github.com/GMsure",
-    "contributions": 2
+    "contributions": 3
   },
   {
     "login": "gnipping",
@@ -429,7 +441,7 @@
     "login": "hongxicheng",
     "avatar_url": "https://github.com/hongxicheng.png",
     "html_url": "https://github.com/hongxicheng",
-    "contributions": 144
+    "contributions": 145
   },
   {
     "login": "howyoungchen",
@@ -513,7 +525,7 @@
     "login": "jinliyl",
     "avatar_url": "https://github.com/jinliyl.png",
     "html_url": "https://github.com/jinliyl",
-    "contributions": 67
+    "contributions": 68
   },
   {
     "login": "JiwaniZakir",
@@ -879,7 +891,7 @@
     "login": "rayrayraykk",
     "avatar_url": "https://github.com/rayrayraykk.png",
     "html_url": "https://github.com/rayrayraykk",
-    "contributions": 219
+    "contributions": 221
   },
   {
     "login": "RerankerGuo",
@@ -999,6 +1011,12 @@
     "login": "StarTrekking",
     "avatar_url": "https://github.com/StarTrekking.png",
     "html_url": "https://github.com/StarTrekking",
+    "contributions": 1
+  },
+  {
+    "login": "suantea",
+    "avatar_url": "https://github.com/suantea.png",
+    "html_url": "https://github.com/suantea",
     "contributions": 1
   },
   {
@@ -1173,7 +1191,7 @@
     "login": "XiuShenAl",
     "avatar_url": "https://github.com/XiuShenAl.png",
     "html_url": "https://github.com/XiuShenAl",
-    "contributions": 23
+    "contributions": 25
   },
   {
     "login": "xuanrui-L",
@@ -1299,12 +1317,12 @@
     "login": "zhaozhuang521",
     "avatar_url": "https://github.com/zhaozhuang521.png",
     "html_url": "https://github.com/zhaozhuang521",
-    "contributions": 212
+    "contributions": 214
   },
   {
     "login": "zhijianma",
     "avatar_url": "https://github.com/zhijianma.png",
     "html_url": "https://github.com/zhijianma",
-    "contributions": 175
+    "contributions": 177
   }
 ]

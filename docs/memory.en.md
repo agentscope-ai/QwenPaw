@@ -1,144 +1,304 @@
 # Long-Term Memory
 
-QwenPaw's long-term memory is powered by [ReMe](https://github.com/agentscope-ai/ReMe). Instead of putting the entire conversation history back into context, it continuously turns conversations and Daily Paper readings into **readable, editable, searchable, and interconnected Markdown memories**. Over time, those files become a self-evolving personal knowledge base maintained jointly by the user and the Agent.
+QwenPaw's long-term memory combines the workspace file system with a [ReMe](https://github.com/agentscope-ai/ReMe) personal knowledge base. The user and Agent can maintain `MEMORY.md` together and read it on demand. In the background, ReMe turns useful conversations and currently supported resources into structured Markdown memories, gradually consolidates them into a personal knowledge base, and retrieves the parts relevant to the current question when needed.
 
-The default `remelight` backend embeds ReMe in the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation. The system follows a capture, consolidation, retrieval, and discovery loop:
+In plain language, it works like a research assistant that remembers how an analysis developed and can bring back the evidence. It does six things:
 
-![QwenPaw long-term memory architecture from capture to retrieval and discovery](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
+1. **Capture** preferences, facts, judgments, reasoning, and hypotheses to verify;
+2. **Ingest** papers and other material from supported external sources;
+3. **Consolidate** scattered daily notes into durable knowledge;
+4. **Connect** companies, supply chains, conclusions, and evidence with source links and Wikilinks;
+5. **Recall** the right information through keywords, semantics, and knowledge relationships;
+6. **Expand** from the best excerpts into linked files only when more evidence is needed.
 
-Conversations and external resources first become traceable daily memory, which Auto-Dream consolidates into `digest/`. Indexing and search retrieve only the relevant passages instead of reloading the entire history.
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="The complete QwenPaw long-term memory loop" />
+</p>
 
-The framework has four core capabilities:
+## Understand the Memory Loop First
 
-| Capability         | Purpose                                                                                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| **Memory as File** | Stores memory as Markdown with frontmatter and `[[wikilinks]]`; these user-owned files are the source of truth              |
-| **Auto-Memory**    | Extracts durable facts, preferences, decisions, and progress from conversations into daily memory                           |
-| **Daily Paper**    | Selects papers, stores their PDFs, and writes detailed readings plus a daily brief into daily memory                        |
-| **Auto-Dream**     | Distills stable knowledge from recent daily memory, merges or corrects long-term nodes, and creates links through Auto-Link |
-| **Memory Search**  | Retrieves chunks with BM25 and optional vector search, fuses rankings with RRF, then expands Wikilink context               |
+Imagine you are a financial analyst researching the electric-vehicle supply chain. Over several weeks, you discuss CATL's product mix, battery-cell pricing, lithium-carbonate supply and demand, and whether falling lithium prices help battery makers or create inventory write-downs.
 
-Auto-Memory is the prerequisite for building the knowledge base: it first turns conversations into reliable material. Auto-Dream is the key to its evolution: it consolidates scattered material into stable, connected long-term knowledge.
+If those details remain only in chat logs, the next wave of prices and news soon buries them. QwenPaw preserves the research context, consolidates repeatedly tested conclusions into a personal knowledge base, and retrieves the relevant evidence when you write the next report.
 
-The Console brings these capabilities together on the long-term memory page:
+### 1. Memory Starts as Files You Own
 
-![QwenPaw long-term memory Console overview](https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg)
-
-Memory capture, scheduled organization, Daily Paper, search, and maintenance status are shown in one place; the sections below explain how each area behaves at runtime.
-
----
-
-## Memory as File
-
-ReMe follows the principle **Memory as File, File as Memory**:
-
-- For users, memories are ordinary workspace files that can be read, edited, moved, deleted, backed up, and migrated directly.
-- For Agents, each Markdown file is also a memory node that can be chunked, indexed, linked, and evolved.
-- Search indexes, graphs, and caches are derived state that can be rebuilt from the source files; users retain control of the actual memory.
-
-The following view condenses that model into a readable, editable, traceable, and connected Markdown network:
-
-![Markdown files as readable, editable, and connected memory nodes](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
-
-The body carries knowledge, frontmatter provides a summary, and Wikilinks connect durable nodes with their workflows and daily evidence.
-
-### File Structure
-
-By default, each Agent workspace is located at `~/.qwenpaw/workspaces/{agent_id}/` and uses this memory layout:
+QwenPaw and ReMe follow **Memory as File, File as Memory**. Memory is stored as ordinary files in the Agent workspace rather than hidden in an opaque database:
 
 ```text
-{workspace}/
-├── memory/                              # Daily memory: conversation facts and paper readings
-│   ├── 2026-08-06.md                    # Index page for the day
-│   └── 2026-08-06/
-│       ├── project-plan.md              # Memory card created or updated by Auto-Memory
-│       ├── paper-reading.md             # Detailed reading produced by Daily Paper
-│       └── interests.yaml               # Interest topics produced by Auto-Dream
-├── mem_session/
-│   └── dialog/
-│       └── qpsid_sha256_<64-hex>.jsonl  # Hashed source conversation for Auto-Memory
-├── digest/                              # Long-term personal knowledge base
-│   ├── personal/                        # User, team, and project facts and preferences
-│   ├── procedure/                       # Processes, runbooks, and reusable experience
-│   └── wiki/                            # Concepts, principles, observations, and decision precedents
-├── resource/                            # Raw assets produced by knowledge workflows
-│   └── papers/
-│       └── <arxiv_id>.pdf               # PDF downloaded by Daily Paper
-└── mem_metadata/                        # Derived indexes, graph, catalogs, and caches
+workspace/
+├── MEMORY.md                              # Small, stable core memory
+├── memory/
+│   ├── 2026-08-14.md                      # Auto-generated index of the day's notes
+│   └── 2026-08-14/
+│       ├── catl-earnings-discussion.md     # One memory note for one session
+│       └── lithium-price-sensitivity.md
+├── digest/
+│   ├── personal/                          # Preferences, coverage, agreements
+│   ├── procedure/                         # Reusable research procedures
+│   └── wiki/                              # Companies, industries, metrics
+├── mem_session/                           # Traceable source conversations
+├── resource/                              # Raw material such as PDFs
+└── mem_metadata/                          # Rebuildable indexes, graph, caches
 ```
 
-The four user-visible directories have distinct responsibilities:
+| Object or mechanism                         | Role and maintenance                                                                                                                                       | How it enters context or retrieval                                                                                            |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `MEMORY.md`                                 | Core long-term memory managed by QwenPaw; both the user and Agent in the main session may freely edit it                                                   | Read on demand with file tools; it is not part of ReMe's `memory_search` index                                                |
+| `memory/YYYY-MM-DD.md`                      | Index page for all memory notes that day; ReMe maintains its `<!-- notes:auto -->` block, while the user and main Agent may add content outside that block | Part of the personal knowledge base; searchable with `memory_search`, directly readable, and usable for progressive expansion |
+| `memory/YYYY-MM-DD/{name}.md`               | One memory note that Auto-Memory creates or updates for one session; `name` is a stable topic or event name generated by the model                         | Part of the personal knowledge base; the main Agent normally does not manage it directly                                      |
+| All `.md` files under `digest/`             | ReMe's durable personal knowledge base, divided into `personal`, `procedure`, and `wiki`, with Wikilinks between nodes                                     | Searchable by `memory_search` and expandable through the graph                                                                |
+| All `.md` files under `memory/` + `digest/` | ReMe's complete knowledge base: daily evidence in `memory/` and cross-time knowledge in `digest/`                                                          | The complete retrieval scope of `memory_search`                                                                               |
+| Excerpts returned by `memory_search`        | The passages most relevant to the current question, including their file paths                                                                             | If an excerpt is insufficient, use `read_file` to progressively expand only the context needed for the current task           |
 
-| Directory                    | Content                                                                      | Directly indexed by QwenPaw memory search |
-| ---------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------- |
-| `memory/YYYY-MM-DD/*.md`     | Daily facts, conversation summaries, decisions, progress, and paper readings | Yes                                       |
-| `mem_session/dialog/*.jsonl` | Sanitized source conversations for traceability and later extraction         | No                                        |
-| `digest/`                    | The long-term personal knowledge base consolidated by Auto-Dream             | Yes                                       |
-| `resource/`                  | Raw assets produced by Daily Paper and future knowledge workflows            | No                                        |
+In addition, `mem_session/` contains traceable source conversations, `resource/` contains raw assets such as PDFs downloaded by Daily Paper, and `mem_metadata/` contains rebuildable indexes, graph data, and caches.
 
-> QwenPaw's embedded ReMe indexes only `.md` files under `memory/` and `digest/`. Raw conversations are queried by the context system. Daily Paper writes searchable Markdown readings under `memory/`; arbitrary files under `resource/` are not watched.
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01vwIbuJ1zAkVDvcYjh_!!6000000006674-55-tps-1200-640.svg" alt="Markdown memory files connect durable knowledge with source evidence" />
+</p>
 
-### Markdown, Frontmatter, and Wikilinks
+You can inspect, edit, back up, or migrate these memories directly. Markdown files are the source of truth; search indexes and graphs are derived state that can be rebuilt. Auto-Memory and Auto-Dream do not overwrite `MEMORY.md`, so it is best kept concise and stable.
 
-A memory typically combines YAML frontmatter, body text, and Wikilinks:
+A durable memory about the EV supply chain might look like this:
 
 ```markdown
 ---
-name: User's release workflow preference
-description: The user wants staging validation before every production release.
-source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
+name: Electric-vehicle supply chain
+description: Track the transmission from vehicle demand to battery earnings and upstream lithium.
 ---
 
-# Release preference
+# Electric-vehicle supply chain
 
-Every production release must first run [[digest/procedure/staging-verification.md]].
+Vehicle sales affect battery production schedules, which then affect cathode-material and lithium demand.
+
+- Representative battery maker: [[digest/wiki/catl.md]]
+- Key cost input: [[digest/wiki/lithium-carbonate.md]]
+- Method: [[digest/procedure/battery-earnings-sensitivity.md]]
 
 ## Sources
 
-- [[memory/2026-08-06/release-discussion.md]]
+- [[memory/2026-08-14/lithium-price-sensitivity.md]]
 ```
 
-Frontmatter provides a node-level summary and source metadata. The body stores facts, conditions, and explanations. `[[...]]` uses workspace-relative paths to create file relationships. After search hits a file, ReMe can expand its incoming and outgoing links from the graph index, giving the Agent related long-term nodes and sources together with the matching text.
+The body stores the knowledge, frontmatter summarizes it, and `[[...]]` connects sources and related nodes. In this example, “electric-vehicle supply chain” to “CATL” is an **outlink**. ReMe also builds the reverse index, so the CATL node can show which files refer to it—its **inlinks**. The author writes the link once, while retrieval can travel both ways: from an industry to a company, or from a company back to its supply chain and research notes.
 
+#### How Markdown Becomes Searchable Excerpts
+
+ReMe does not simply cut a file every fixed number of characters. The indexer first parses frontmatter and constructs a Markdown AST (abstract syntax tree). Headings form nested sections; paragraphs, lists, tables, and code blocks become leaf nodes. It then chunks the tree recursively and tries to pack adjacent small blocks under the same parent heading.
+
+This has three practical benefits:
+
+- **Meaning stays intact:** a margin discussion under `## CATL` is kept together when possible.
+- **Context travels with the excerpt:** a chunk carries the necessary ancestor-heading breadcrumb, so it still makes sense when retrieved alone.
+- **Markdown structure survives:** long tables split by row and repeat their headers, long lists split by item, and code blocks retain fences; every chunk keeps its source path and line numbers.
+
+Wikilinks are extracted separately into a file graph. A Markdown file therefore contributes both searchable chunks for BM25/vector retrieval and edges for relationship expansion. Extremely large files with too many headings fall back to plain-text chunking to avoid unnecessary AST overhead.
+
+### 2. Auto-Memory Keeps What Will Matter Later
+
+Auto-Memory does not copy the whole conversation. It periodically identifies durable information such as:
+
+- stable preferences and agreements;
+- project context and constraints;
+- confirmed decisions and their reasons;
+- progress, blockers, and next steps;
+- reusable procedures and troubleshooting experience.
+
+If you say, “Add CATL to the priority watchlist; our current hypothesis is that lower lithium-carbonate prices reduce cell costs, but we still need to check inventory write-downs and pricing pass-through,” Auto-Memory keeps the company, current judgment, caveats, follow-up questions, and source. It does not promote a provisional view into a timeless fact.
+
+By default, it runs after every five user turns. If context is evicted or compacted, pending turns enter the same memory flow first. A run that finds nothing worth adding or updating creates neither an empty memory nor an Inbox event.
+
+Auto-Memory stores the source session in a hash-named JSONL file and creates or updates one memory note for that session under the day's date directory:
+
+```text
+mem_session/dialog/qpsid_sha256_<64-hex>.jsonl
+memory/2026-08-14.md
+memory/2026-08-14/lithium-price-sensitivity.md
+```
+
+It is important to distinguish the index page from the memory notes. `memory/2026-08-14.md` is an index that ReMe rebuilds from `memory/2026-08-14/*.md`; the actual conversation summary lives in a note under the date directory. The index page looks like this:
+
+```text
+---
+name: 2026-08-14
+description: 2 note(s) today.
 ---
 
-## Auto-Memory: Turning Conversations into Daily Memory
-
-Auto-Memory is the entry point to the personal knowledge base. It does not preserve a chat transcript as a summary. It extracts information that may still be useful later, including:
-
-- stable preferences and long-term agreements;
-- project context, important facts, and constraints;
-- confirmed decisions and their rationale;
-- current progress, blockers, and next steps;
-- reusable commands, procedures, and troubleshooting experience.
-
-### How It Works
-
-```mermaid
-flowchart LR
-    A[Accumulate N user turns] --> B[Select messages from the batch]
-    B --> C[Remove tool results and large Base64 blocks]
-    C --> D[Hash session id and append to<br/>mem_session/dialog/qpsid_sha256_HASH.jsonl]
-    D --> E[LLM identifies durable information]
-    E --> F[Create or update memory/date/note.md]
-    F --> G[Refresh day index and incrementally update search]
+<!-- notes:auto -->
+- [[memory/2026-08-14/catl-earnings-discussion.md]] name: CATL earnings discussion description: Track volume, price, and cost drivers across power batteries and energy storage.
+- [[memory/2026-08-14/lithium-price-sensitivity.md]] name: Lithium-price sensitivity description: Analyze effects on cell cost, pricing, and inventory write-downs.
+<!-- /notes:auto -->
 ```
 
-By default, QwenPaw triggers Auto-Memory after every five user turns. Before calling ReMe, QwenPaw converts the exact
-session ID bytes to `qpsid_sha256_<64-hex>` so the filename is fixed-length and remains distinct across
-case-insensitive and Unicode-normalizing filesystems. ReMe saves the source conversation under that identifier, then
-looks for an existing note for the hashed session and date. It updates the existing card when one exists and creates at
-most one new card otherwise. Automatically recalled memory is removed before extraction so old search results cannot be
-mistaken for facts newly supplied by the user.
+Each index row is rendered from the corresponding note's frontmatter. It includes the link, `name`, `description`, and any other application fields, while internal association fields such as `session_id` and `source_conversation` are hidden. ReMe replaces the entire region between the `notes:auto` markers on refresh, so that region should not be edited manually. Existing frontmatter and body text outside the generated block are preserved.
 
-The hash mapping is one-way and legacy unhashed dialog files are not migrated. After an upgrade, an existing session
-starts a new hashed dialog; previously extracted Markdown memory remains available.
+The `{name}.md` files under the date directory are the session memories produced by Auto-Memory. The first time a session is processed, the system creates at most one note and records both its `session_id` and a `source_conversation` link to the original JSONL. If the same session is processed again on that day, those fields locate the existing note so new facts can be merged into it; the conversation is not split into multiple files merely because it covers several topics. If the model improves the frontmatter `name`, the file is safely renamed and links are retargeted. Put simply, the date file is an automatically maintained contents page, while the files below it are the research workpapers.
 
-When context is actually evicted or folded, pending turns are flushed through the same Auto-Memory pipeline even if the normal interval has not yet been reached. Searched-turn and pending-turn state is retained across middleware rebuilds and restored sessions. Automatically recalled results are injected only into model input for the active user turn and are not written to formal or persisted conversation history.
+For example, the lithium-price sensitivity note retains traceability metadata like this:
 
-### Configuration
+```markdown
+---
+name: Lithium-price sensitivity
+description: Analyze effects of falling lithium prices on cell cost, pricing, and inventory write-downs.
+session_id: qpsid_sha256_<64-hex>
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
+---
 
-Configure Auto-Memory under `running.reme_light_memory_config` in `agent.json`:
+## Current view
+
+Lower lithium prices generally reduce cell material costs, but pricing pass-through and high-cost inventory write-downs still need to be checked.
+```
+
+Previously recalled memory is removed before extraction so it cannot be mistaken for a new fact from the user.
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg" alt="Auto-Memory result delivered to Inbox" />
+</p>
+
+Inbox is only a run-status surface. The reusable, editable memory remains in workspace files.
+
+### 3. Auto Resource (Beta) Enriches Memory from External Sources
+
+An analyst's knowledge comes not only from conversation but also from papers, news, and data feeds. **Auto Resource** is the umbrella for this external-material pipeline. It is currently in Beta and continues to expand.
+
+The built-in capability today is **Daily Paper**. When enabled, QwenPaw selects popular papers related to your interests from the Hugging Face Papers weekly and monthly rankings, saves the source PDFs, and produces three detailed readings plus a daily brief. Setting topics such as `battery, lithium, energy storage`, for example, can continuously add research on battery materials, life prediction, and energy-storage technology.
+
+- PDFs go to `resource/papers/`;
+- readings and the brief go to `memory/YYYY-MM-DD/`;
+- the Markdown readings enter the normal memory index and can later be consolidated.
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper schedule and topic settings" />
+</p>
+
+Daily Paper is the currently built-in resource entry point. Merely placing an arbitrary file in `resource/` does not process or index it. Automatically collecting financial news you follow and adding it to the knowledge base is still planned (TODO); Auto Resource should not yet be treated as a general-purpose file importer.
+
+### 4. Auto-Dream Turns Daily Notes into Durable Knowledge
+
+Daily notes alone eventually become another pile of files. Auto-Dream scans recently changed daily memory and integrates reusable material into `digest/`.
+
+#### First, Classify Three Types of Memory
+
+Auto-Dream first decides which kind of durable memory an item represents. The three types map to different directories and determine how the final note should be written:
+
+| Memory type | What it stores and how it is written                                   | Financial-analyst example                                                      |
+| ----------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `personal`  | Identity, preferences, coverage, and long-term agreements              | Focus on China's EV supply chain and lithium miners                            |
+| `procedure` | Reusable workflows written as runbooks with steps, inputs, and caveats | Battery-company earnings-sensitivity analysis                                  |
+| `wiki`      | Definitions, facts, observations, principles, and mental models        | CATL, lithium carbonate, inventory write-downs, and lithium-price transmission |
+
+After classification, “what I follow” belongs in `personal/`, “how I should analyze it next time” belongs in `procedure/`, and knowledge about companies, industries, metrics, and their interactions belongs in `wiki/`. Auto-Dream is therefore not merely compressing a journal; it is turning research history into a structured, reusable personal knowledge base.
+
+#### Then, Choose One of Four Integration Actions
+
+After choosing the memory type, Auto-Dream searches existing digest nodes, compares the new material with prior knowledge, and selects exactly one action:
+
+| Action        | Meaning                                                 |
+| ------------- | ------------------------------------------------------- |
+| `CREATE`      | Create a node when no equivalent knowledge exists       |
+| `CORROBORATE` | Add evidence or strengthen an existing memory           |
+| `REFINE`      | Add steps, conditions, boundaries, or detail            |
+| `CORRECT`     | Fix an error, omission, or conflict in an existing node |
+
+For example, notes from different days might say “lower lithium prices reduce cathode-material costs,” “cell prices may fall as well,” and “high-cost inventory can create a short-term write-down.” Auto-Dream does not isolate any one sentence as the answer. It can consolidate them into a bounded long-term insight:
+
+> Lower lithium prices generally ease battery material costs, but the net effect on CATL's earnings also depends on selling-price pass-through, inventory cost, customer bargaining power, and product mix. The direction of lithium prices alone is insufficient.
+
+In this example, Auto-Dream uses `CREATE` if no lithium-price transmission node exists, `CORROBORATE` if new quarterly data supports the existing view, `REFINE` if the inventory cycle adds an important short-term boundary, and `CORRECT` if the old node overstates the conclusion as “falling lithium prices always benefit CATL.”
+
+#### Finally, Auto-Link Builds the Memory Graph
+
+Auto-Link is the key graph-building stage inside Auto-Dream. It does not wait until consolidation is over and mechanically add links based on filenames. While integrating each memory, the Agent has rich context:
+
+- the memory unit extracted from daily notes and its source paths;
+- existing `personal`, `procedure`, and `wiki` nodes recalled by search;
+- candidate nodes that have been read and classified as the same knowledge or related knowledge;
+- the target node being created or updated, including its existing body.
+
+With this context, the Agent can distinguish “the same knowledge” from “related knowledge.” The former determines which of the four integration actions to take; the latter is woven into natural prose as meaningful Wikilinks. For example: “Lithium prices affect [[digest/wiki/catl.md]]'s material costs through [[digest/wiki/lithium-carbonate.md]]; evaluate the full effect with [[digest/procedure/battery-earnings-sensitivity.md]].” The surrounding sentence explains the relationship instead of leaving a list of context-free links.
+
+Each durable node also uses contextual Wikilinks in `## Sources` to point back to daily notes, preserving the evidence trail from conclusion to source. Wikilinks between digest nodes carry the conceptual graph. The indexer then turns those links into outlinks and inlinks for progressive expansion by Memory Search. Auto-Dream does not rewrite daily memory: `memory/` preserves what was observed and believed at the time, while `digest/` stores conclusions still useful across time. This is how a journal grows into a personal knowledge base.
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream run summary delivered to Inbox" />
+</p>
+
+Auto-Dream also writes `interests.yaml`. This is separate from QwenPaw's current `/proactive` mode; `/proactive` does not currently read that file.
+
+### 5. Memory Search Recalls the Right Evidence
+
+When you ask, “Do falling lithium prices benefit CATL?”, `memory_search` does not reread the entire research history. It:
+
+1. uses BM25 to find exact keyword matches;
+2. optionally uses Embeddings to find similar meanings expressed with different words;
+3. combines both rankings with RRF;
+4. attaches the matched file's Wikilink outlinks and inlinks so the Agent can expand them when needed.
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg" alt="BM25 and vector retrieval are fused before related memory is expanded" />
+</p>
+
+BM25 excels at explicit names such as “CATL” and “lithium carbonate.” Vector retrieval can match “how cheaper upstream materials affect a leading cell maker” with a differently worded “lithium-price sensitivity analysis.” RRF (Reciprocal Rank Fusion) combines the rank positions from both branches so that one score scale does not dominate the final order. BM25 and the Wikilink graph still work without an Embedding model. See [Embedding Models](./embedding) for provider configuration.
+
+The personal knowledge base consists of every Markdown file under `daily_dir` (default `memory/`) and `digest_dir` (default `digest/`). The background index watches only those two directories, with a 10 MiB limit per file. It chunks files by Markdown structure and retains paths and line numbers. `MEMORY.md`, `resource/`, and `mem_session/` are not searched directly by ReMe's `memory_search`.
+
+For example, a search for “how falling lithium prices affect CATL's earnings” might return:
+
+```text
+========== digest/wiki/catl.md:18-24 [score=0.0325 vector=0.8120 keyword=8.4700] ==========
+## Lithium-price earnings sensitivity
+Lower lithium prices generally reduce material costs, but the net effect depends on pricing pass-through,
+inventory cost, and product mix. See [[digest/wiki/lithium-carbonate.md]] and
+[[digest/procedure/battery-earnings-sensitivity.md]].
+  outlinks (2):
+    → digest/wiki/lithium-carbonate.md  name="Lithium carbonate"
+    → digest/procedure/battery-earnings-sensitivity.md  name="Battery earnings sensitivity"
+  inlinks (2):
+    ← digest/wiki/ev-supply-chain.md  name="Electric-vehicle supply chain"
+    ← memory/2026-08-14/catl-earnings-discussion.md  name="CATL earnings discussion"
+```
+
+The result starts with the matched excerpt's path and line range, together with keyword, vector, and fused-ranking information. The excerpt itself may contain original Wikilinks. `outlinks` are downstream documents referenced by the hit; `inlinks` are upstream documents that reference it.
+
+This is **progressive hybrid search**. The first step retrieves only the most relevant excerpt. If it cannot yet explain “why,” the Agent can use `read_file` to open the lithium-carbonate node or the analysis procedure. If it needs to verify when the judgment formed, it can follow an inlink to the August 14 discussion. The full knowledge base never has to enter context at once, but the path from conclusion to concept, method, and original note remains available.
+
+`MEMORY.md` is read on demand with file tools; it does not depend on ReMe search.
+
+### The Complete Loop
+
+Returning to the financial-analyst example:
+
+1. In `MEMORY.md`, you record the stable coverage area: EVs, lithium-ion batteries, and lithium resources.
+2. Auto-Memory summarizes the day's CATL and lithium-price session into one note under the date directory, then refreshes the day index.
+3. Auto Resource adds readings from supported external paper sources to daily memory.
+4. Markdown AST chunking, BM25, vector indexes, and the file graph update in the background.
+5. Auto-Dream consolidates notes across days into linked `personal`, `procedure`, and `wiki` nodes.
+6. Memory Search retrieves the best excerpt for the next report, then expands through paths, outlinks, and inlinks only as needed.
+7. You can inspect and correct the Markdown at any time, and those edits guide future work.
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg" alt="QwenPaw long-term memory Console overview" />
+</p>
+
+### 6. Results: Can It Recall from a Long History?
+
+The EV example above explains the workflow; it is not a quantitative evaluation. ReMe separately uses public benchmarks to test memory across multiple sessions and very long histories:
+
+| Benchmark             | Scale                    | Overall Agentic score |
+| --------------------- | ------------------------ | --------------------- |
+| LongMemEval cleaned-S | 500 questions            | **89.4%**             |
+| BEAM 100K             | 20 cases / 400 questions | **66.1%**             |
+| BEAM 1M               | 35 cases / 700 questions | **65.0%**             |
+
+![ReMe's published LongMemEval and BEAM benchmark results](https://img.alicdn.com/imgextra/i4/O1CN01ohO0e31MntKw6mQZL_!!6000000001480-55-tps-1200-640.svg)
+
+These numbers do not represent every real-world workload, and they depend on the model, dataset, and evaluation setup. They show that even as history grows very long, file-based organization, hybrid retrieval, and on-demand expansion can still help an Agent find supporting evidence. See the complete settings and per-category results in the [LongMemEval benchmark](https://github.com/agentscope-ai/ReMe/tree/main/benchmark/longmemeval) and [BEAM benchmark](https://github.com/agentscope-ai/ReMe/tree/main/benchmark/beam).
+
+## Configuration Reference
+
+The default `remelight` backend runs inside the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation. Configure it in the Console or under `running.reme_light_memory_config` in `agent.json`.
+
+### Common Configuration
 
 ```json
 {
@@ -146,234 +306,18 @@ Configure Auto-Memory under `running.reme_light_memory_config` in `agent.json`:
     "memory_manager_backend": "remelight",
     "reme_light_memory_config": {
       "auto_memory_interval": 5,
-      "auto_memory_inbox_push_enabled": true
-    }
-  }
-}
-```
-
-| Field                            | Default | Description                                                                     |
-| -------------------------------- | ------- | ------------------------------------------------------------------------------- |
-| `auto_memory_interval`           | `5`     | Trigger after every N user turns; `null` or `<= 0` disables periodic triggering |
-| `auto_memory_inbox_push_enabled` | `true`  | Push the job result to Inbox when Auto-Memory actually changes memory           |
-
-A smaller interval updates memory sooner, but increases model calls, token usage, and background work.
-
-### Inbox
-
-When `auto_memory_inbox_push_enabled` is on, Auto-Memory results appear in QwenPaw's Inbox. If the run finds nothing worth creating or updating, ReMe reports `modified=false` and QwenPaw does not create an Inbox event for that no-op.
-
-When a run makes a real change, Inbox shows its status, updated files, and extracted result so the user can quickly see what Auto-Memory did:
-
-![Auto-Memory result delivered to Inbox](https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg)
-
-Inbox is only the notification surface. The reusable, editable memory remains the Markdown stored in the workspace.
-
-### Example
-
-Suppose the user says in a QwenPaw session:
-
-```text
-For every production release, validate staging first. Write the release notes in Chinese and include risks and rollback steps.
-```
-
-After the configured interval, Auto-Memory preserves the source and creates or updates files such as:
-
-```text
-mem_session/dialog/qpsid_sha256_<64-hex>.jsonl
-memory/2026-08-06/release-discussion.md
-```
-
-```markdown
----
-name: Production release agreement
-description: Validate staging first; Chinese release notes must include risks and rollback steps.
-source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
----
-
-- Complete staging validation before a production release.
-- Write release notes in Chinese and include risks and rollback steps.
-```
-
-This is still daily material. When the same preference appears in more conversations, Auto-Dream can consolidate it into a stable `digest/` node.
-
----
-
-## Daily Paper
-
-Daily Paper collects Hugging Face weekly and monthly rankings, excludes yesterday's list and arXiv IDs found in the
-previous 30 days of daily-note frontmatter, and applies weighted RRF to build a pool of at most 20 candidates. The memory
-Agent must select exactly three unique in-pool papers. ReMe downloads their PDFs, analyzes up to 20 pages and 300,000
-characters per PDF (maximum file size 50 MiB), and produces three detailed readings plus a daily brief. PDFs are stored
-under `resource/papers/`; Markdown is written under `memory/YYYY-MM-DD/`, enters the normal memory index, and can be
-delivered through QwenPaw's Inbox.
-
-The Console exposes Daily Paper scheduling, topic, mirror, and completion-notification settings together:
-
-![Daily Paper schedule and topic settings](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
-
-These options control automatic execution only. Generated PDFs, readings, and the daily brief still enter the `resource/` and `memory/` directories described above.
-
-If a daily brief already exists for the run date, the normal scheduled call reports a successful skip. The underlying
-job accepts `force=true` for callers that intentionally regenerate it; this switch is not exposed by the scheduled
-configuration form.
-
-Daily Paper is disabled by default. Enable it with `daily_paper_cron_enabled`; `daily_paper_cron` controls the schedule and defaults to `"0 9 * * *"`. `daily_paper_use_hf_mirror` selects the Hugging Face mirror, and `daily_paper_topics` supplies preferred topics.
-
----
-
-## Auto-Dream: Evolving the Personal Knowledge Base
-
-Auto-Dream consolidates daily memory into long-term knowledge. It normally runs on a schedule, scans recently changed daily notes, extracts reusable memory units, updates `digest/`, and produces interest topics for proactive interaction.
-
-### How It Works
-
-QwenPaw's Auto-Dream scans the target date and the previous day by default (`scan_days=2`) and extracts at most five memory units. It runs in four stages:
-
-```mermaid
-flowchart LR
-    A[Extract<br/>Find changes and extract units/topics] --> B[Integrate + Auto-Link<br/>Create, merge, correct, and link]
-    B --> C[Topics<br/>Select non-repetitive interests]
-    C --> D[Finish<br/>Persist processing state]
-```
-
-1. **Extract** refreshes the day indexes, compares files with the dream catalog, and sends only added or modified daily memory to the LLM. It extracts `personal`, `procedure`, and `wiki` units plus candidate interest topics.
-2. **Integrate + Auto-Link** runs `node_search` for every unit to find possibly identical or related digest nodes, then chooses `CREATE`, `CORROBORATE`, `REFINE`, or `CORRECT`.
-3. **Topics** deduplicates candidates against the previous seven days and writes up to three topics to `memory/<date>/interests.yaml`.
-4. **Finish** checkpoints successfully processed inputs in the dream catalog. Failed paths are not checkpointed, so a later run can retry them.
-
-Auto-Dream does not rewrite daily memory. `memory/` preserves what happened at the time; `digest/` stores abstractions that remain useful across time.
-
-### Where Auto-Link Happens
-
-Auto-Link is not a separate scheduled job. It is part of Auto-Dream's **Integrate** stage:
-
-- `node_search` recalls only digest-node names, descriptions, and paths for deduplication and relationship discovery;
-- the same abstraction updates an existing node instead of creating a duplicate;
-- a digest node's `## Sources` section links back to evidence under `memory/`;
-- related digest nodes are connected through `[[digest/...]]` links in the body;
-- updates preserve existing sources and Wikilinks, allowing the knowledge graph to grow over time.
-
-The four integration actions mean:
-
-| Action        | Meaning                                                                          |
-| ------------- | -------------------------------------------------------------------------------- |
-| `CREATE`      | No equivalent abstraction exists; create a new long-term node                    |
-| `CORROBORATE` | New material confirms an existing memory; add evidence or strengthen its wording |
-| `REFINE`      | New material adds steps, boundaries, conditions, or detail                       |
-| `CORRECT`     | New material fixes an error, omission, or conflict in an existing node           |
-
-### Configuration
-
-```json
-{
-  "running": {
-    "reme_light_memory_config": {
+      "auto_memory_inbox_push_enabled": true,
       "dream_cron_enabled": true,
       "dream_cron": "0 23 * * *",
-      "auto_dream_inbox_push_enabled": true
-    }
-  }
-}
-```
-
-| Field                           | Default        | Description                                                                   |
-| ------------------------------- | -------------- | ----------------------------------------------------------------------------- |
-| `dream_cron_enabled`            | `true`         | Enable scheduled Auto-Dream                                                   |
-| `dream_cron`                    | `"0 23 * * *"` | Five-field cron expression; a run starts after a random delay of 0–60 seconds |
-| `auto_dream_inbox_push_enabled` | `true`         | Push Auto-Dream job results to Inbox                                          |
-
-### Inbox
-
-With Inbox delivery enabled, each successful or failed Auto-Dream summary becomes a memory event so that you can inspect scanning, integration, and topic-generation results. Inbox is only the notification surface. The actual long-term knowledge remains in Markdown under `digest/`.
-
-After a run, Inbox summarizes the processing date, integration actions, updated nodes, and generated interest topics:
-
-![Auto-Dream run summary delivered to Inbox](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
-
-This summary is useful for checking the outcome. To audit a conclusion and its evidence, open the corresponding files under `digest/` and `memory/`.
-
-### Example
-
-Suppose recent daily notes repeatedly mention staging validation and rollback steps before production releases. Auto-Dream may:
-
-1. use `node_search` to find `digest/procedure/production-release.md`;
-2. choose `REFINE` and add Chinese release notes, a risk list, and rollback steps to the procedure;
-3. add the new daily memory to `## Sources`;
-4. link `[[digest/personal/release-communication-preference.md]]`;
-5. add “Check whether the release process covers rollback drills” as a candidate topic in that day's `interests.yaml`.
-
-The result is not another copy of the chat summary. Existing long-term knowledge has been strengthened by evidence and connected to related knowledge.
-
----
-
-## Memory Index and Memory Search
-
-The background `index_update_loop` keeps files searchable, while `memory_search` retrieves the most relevant content when needed. The index is derived state and can be rebuilt from Markdown in `memory/` and `digest/`.
-
-### Index Capabilities and Scope
-
-After QwenPaw starts embedded ReMe, the background `index_update_loop`:
-
-- scans `daily_dir` (default `memory`) and `digest_dir` (default `digest`) at startup;
-- watches new, modified, and deleted `.md` files in those directories while running;
-- splits Markdown by headings and content blocks while retaining file paths and line numbers;
-- updates the BM25 index for every chunk and generates vectors when Embedding is enabled;
-- parses Wikilinks into file nodes and bidirectional graph relationships;
-- persists derived state under `mem_metadata/`.
-
-Each indexed file is limited to 10 MiB. `resource/` and `mem_session/` are outside this indexing scope.
-
-### How the BM25 + Vector Index Is Built
-
-```mermaid
-flowchart LR
-    A[memory/**/*.md<br/>digest/**/*.md] --> B[Watch file changes]
-    B --> C[Structure-aware Markdown chunking]
-    C --> D[FileChunk<br/>text + path + line range]
-    D --> E[BM25 inverted index]
-    D --> F[Embedding vector<br/>optional]
-    C --> G[Wikilink graph]
-    E --> H[mem_metadata]
-    F --> H
-    G --> H
-```
-
-BM25 treats each chunk as a document and records tokens, term frequencies, and posting lists. It is well suited to exact identifiers such as function names, error codes, and product terms. With Embedding enabled, the same chunk also receives a vector, allowing semantically similar text to match even when the wording differs.
-
-For supported providers, enablement conditions, field definitions, cache behavior, and troubleshooting, see [Embedding Models](./embedding). Without Embedding, BM25 and Wikilink expansion continue to work.
-
-### How BM25 + Vector Hybrid Search Works
-
-`memory_search(query, max_results, min_score)` runs ReMe's `search` job:
-
-![BM25 and vector retrieval fused before related memory is expanded on demand](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
-
-The query uses both exact keywords and semantic similarity, then applies RRF to produce relevant chunks. Paths, line numbers, and Wikilink neighbors let the Agent expand supporting evidence only when needed.
-
-When both branches return results, ReMe uses weighted Reciprocal Rank Fusion (RRF) by default:
-
-```text
-score = 0.7 / (60 + vector_rank)
-      + 0.3 / (60 + keyword_rank)
-```
-
-RRF compares positions in the two ranked lists instead of directly comparing cosine similarity and BM25 scores, whose numeric scales are unrelated. A chunk found by both branches receives both contributions. A chunk found by only one branch can still appear. If Embedding is disabled or vector retrieval produces no results, the BM25 ranking is used directly.
-
-After fusion, ReMe expands up to ten outgoing and ten incoming links for each hit file from the graph index. Results therefore include both the most relevant text and connected sources, procedures, and neighboring knowledge nodes.
-
-> `min_score` defaults to `0`. Keep it at the default for normal use because raw single-branch scores and fused RRF scores have different scales; increasing the threshold indiscriminately may hide valid results.
-
-### Manual Search and Auto-Memory-Search
-
-The Agent can call `memory_search` whenever an answer depends on past information. To recall memory before every normal user request, enable Auto-Memory-Search:
-
-```json
-{
-  "running": {
-    "reme_light_memory_config": {
+      "auto_dream_inbox_push_enabled": true,
+      "daily_paper_cron_enabled": false,
+      "daily_paper_cron": "0 9 * * *",
+      "daily_paper_use_hf_mirror": false,
+      "daily_paper_topics": "",
+      "daily_paper_inbox_push_enabled": true,
+      "memory_search_enabled": true,
       "auto_memory_search_config": {
-        "enabled": true,
+        "enabled": false,
         "max_results": 2
       }
     }
@@ -381,97 +325,58 @@ The Agent can call `memory_search` whenever an answer depends on past informatio
 }
 ```
 
-When enabled, QwenPaw builds a query from the current user request and runs the same ReMe `search` job before the model handles it. The results are injected into the live context as a completed `memory_search` interaction and remain available to subsequent model calls in that turn. Automation-originated requests do not trigger this behavior. Injected results are also excluded from persistent conversation history and Auto-Memory, preventing memory from copying itself.
+| Field                                   | Default        | Description                                                                       |
+| --------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
+| `auto_memory_interval`                  | `5`            | Run Auto-Memory every N user turns; `null` or `<= 0` disables interval-based runs |
+| `auto_memory_inbox_push_enabled`        | `true`         | Push an Inbox result when Auto-Memory changes memory                              |
+| `dream_cron_enabled`                    | `true`         | Enable scheduled Auto-Dream                                                       |
+| `dream_cron`                            | `"0 23 * * *"` | Five-field cron; execution starts after a random 0–60 second delay                |
+| `auto_dream_inbox_push_enabled`         | `true`         | Push Auto-Dream results to Inbox                                                  |
+| `daily_paper_cron_enabled`              | `false`        | Enable scheduled Daily Paper                                                      |
+| `daily_paper_cron`                      | `"0 9 * * *"`  | Five-field Daily Paper cron expression                                            |
+| `daily_paper_use_hf_mirror`             | `false`        | Fetch paper information through the Hugging Face mirror                           |
+| `daily_paper_topics`                    | `""`           | Topics to prioritize during paper selection                                       |
+| `daily_paper_inbox_push_enabled`        | `true`         | Push Daily Paper results to Inbox                                                 |
+| `memory_search_enabled`                 | `true`         | Expose the manual `memory_search` tool to the Agent                               |
+| `auto_memory_search_config.enabled`     | `false`        | Search memory before every normal user request                                    |
+| `auto_memory_search_config.max_results` | `2`            | Maximum results injected by automatic search                                      |
 
-| Field         | Default | Description                                               |
-| ------------- | ------- | --------------------------------------------------------- |
-| `enabled`     | `false` | Automatically search memory for every normal user request |
-| `max_results` | `2`     | Maximum number of results injected per automatic search   |
+Automatic results are injected only into the current request. They are excluded from persistent conversation history and Auto-Memory. Automation-originated requests do not trigger automatic search.
 
-### Search Example
+### Directory and Index Configuration
 
-Assume these memories already exist:
+| Field                    | Default          | Description                                                         |
+| ------------------------ | ---------------- | ------------------------------------------------------------------- |
+| `metadata_dir`           | `"mem_metadata"` | Indexes, graph data, catalogs, and caches                           |
+| `session_dir`            | `"mem_session"`  | Auto-Memory source-conversation directory                           |
+| `mem_session_dir`        | `"mem_agent"`    | Internal ReMe memory-agent sessions                                 |
+| `resource_dir`           | `"resource"`     | Raw resources for Daily Paper and future workflows                  |
+| `daily_dir`              | `"memory"`       | Daily memory directory                                              |
+| `digest_dir`             | `"digest"`       | Durable knowledge directory                                         |
+| `embedding_model_config` | Disabled         | Optional vector model; see [Embedding Models](./embedding)          |
+| `needs_reindex`          | `false`          | Runtime-maintained pending-rebuild flag after a vector-space change |
 
-```text
-memory/2026-08-06/release-discussion.md
-digest/procedure/production-release.md
-```
+Legacy `inbox_push_enabled` is migration input only. It initializes any missing per-job Inbox switches but is not serialized back into validated configuration.
 
-When the user asks, “What checks do we run before going live?”, `memory_search` can combine:
+### Runtime Status and Rebuilding the Index
 
-- **Vector** matching between “checks before going live” and “staging validation before production release”;
-- **BM25** exact matches for terms such as `staging` and `rollback`;
-- **Wikilinks** from the daily discussion to the long-term procedure and related preferences.
+The long-term memory page shows background jobs, the waiting queue, resource use, and index-component status.
 
-The result looks like:
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
+</p>
 
-```text
-========== digest/procedure/production-release.md:1-18 [score=0.0162 vector=0.84 keyword=3.71] ==========
-...Complete staging validation and prepare risks and rollback steps before production release...
-  outlinks (1):
-    -> digest/personal/release-communication-preference.md
-  inlinks (1):
-    <- memory/2026-08-06/release-discussion.md
-```
-
-The Agent can then use the returned path and line range to read the source file precisely.
-
-### Complete ReMeLight Configuration
-
-The main user-facing fields live under `running.reme_light_memory_config`:
-
-| Field                            | Default             | Description                                                               |
-| -------------------------------- | ------------------- | ------------------------------------------------------------------------- |
-| `metadata_dir`                   | `"mem_metadata"`    | Directory for indexes, graph data, catalogs, and caches                   |
-| `session_dir`                    | `"mem_session"`     | Auto-Memory source conversation directory                                 |
-| `mem_session_dir`                | `"mem_agent"`       | ReMe internal memory-agent session directory                              |
-| `resource_dir`                   | `"resource"`        | Raw resource directory used by Daily Paper and future knowledge workflows |
-| `daily_dir`                      | `"memory"`          | Daily memory directory                                                    |
-| `digest_dir`                     | `"digest"`          | Long-term knowledge base directory                                        |
-| `auto_memory_inbox_push_enabled` | `true`              | Push Auto-Memory results to Inbox                                         |
-| `auto_dream_inbox_push_enabled`  | `true`              | Push Auto-Dream results to Inbox                                          |
-| `daily_paper_inbox_push_enabled` | `true`              | Push Daily Paper results to Inbox                                         |
-| `auto_memory_interval`           | `5`                 | Auto-Memory interval in user turns                                        |
-| `dream_cron_enabled`             | `true`              | Enable scheduled Auto-Dream                                               |
-| `dream_cron`                     | `"0 23 * * *"`      | Five-field Auto-Dream cron expression                                     |
-| `daily_paper_cron_enabled`       | `false`             | Enable scheduled Daily Paper                                              |
-| `daily_paper_cron`               | `"0 9 * * *"`       | Five-field Daily Paper cron expression                                    |
-| `daily_paper_use_hf_mirror`      | `false`             | Fetch paper information through the Hugging Face mirror                   |
-| `daily_paper_topics`             | `""`                | Topics to prioritize when selecting papers                                |
-| `memory_search_enabled`          | `true`              | Expose the `memory_search` tool independently of automatic search         |
-| `auto_memory_search_config`      | See above           | Automatic memory search configuration                                     |
-| `embedding_model_config`         | Disabled by default | Optional vector model configuration; see [Embedding Models](./embedding)  |
-| `needs_reindex`                  | `false`             | Runtime-maintained flag for a pending vector-space index rebuild          |
-
-Legacy `inbox_push_enabled` is accepted only as a migration input: it initializes any of the three per-job Inbox
-switches that are absent, and is excluded when the validated configuration is serialized.
-
-To inspect background jobs, the waiting queue, or resource usage by index components, open the ReMe runtime status from the long-term memory page:
-
-![ReMe background activity, resource usage, and index component status](https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg)
-
-This is runtime and derived-component status rather than memory content. The Markdown files in the workspace remain the source of truth during troubleshooting.
-
-### Rebuilding the Index
-
-The background loop normally maintains the index incrementally. Use **Rebuild Memory Index** when the Console reports
-that an Embedding vector-space change requires it, when the index is damaged, or when search results are clearly
-abnormal. You can also call:
+Normal Markdown additions and edits are indexed incrementally. Use **Rebuild Memory Index** only when the Console reports a vector-space change, the index is damaged, or search is clearly abnormal. You can also call:
 
 ```http
 POST /api/agents/{agentId}/memory/reindex
 ```
 
-Rebuilding clears the derived index and recreates it from existing Markdown under `memory/` and `digest/`. CPU and
-memory usage may increase while it runs. Only one rebuild can run for an Agent at a time, and an Embedding config change
-during the rebuild is rejected. A successful rebuild clears `needs_reindex` only when the persisted and active
-vector-space fingerprints still match the rebuild target. `rebuild_memory_index_on_start` is no longer supported.
+A rebuild clears derived index data and recreates it from Markdown in `memory/` and `digest/`; it does not delete source memory. CPU and memory use may rise during the rebuild, and only one rebuild can run per Agent.
 
-The Console therefore asks for confirmation before it clears and regenerates the derived index:
-
-![Resource-usage confirmation shown before rebuilding the memory index](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
-
-Use this operation only to repair the index or change vector spaces. Ordinary Markdown additions and edits are maintained incrementally in the background.
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Resource-usage confirmation before rebuilding the memory index" />
+</p>
 
 ---
 
