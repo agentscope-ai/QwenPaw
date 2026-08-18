@@ -1,0 +1,67 @@
+# -*- coding: utf-8 -*-
+"""Integration tests for Project Directory API endpoints.
+
+Tests cover:
+- GET /api/workspace/project-directory: get project directory
+- POST /api/workspace/project-directory: set project directory
+"""
+import pytest
+
+from .conftest import app_server
+
+
+@pytest.mark.integration
+async def test_project_directory_get():
+    """Test GET /api/workspace/project-directory returns directory info."""
+    async with app_server() as server:
+        response = await server.get("/api/workspace/project-directory")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, dict)
+
+
+@pytest.mark.integration
+async def test_project_directory_set_invalid():
+    """Test POST /api/workspace/project-directory with invalid path."""
+    async with app_server() as server:
+        response = await server.post(
+            "/api/workspace/project-directory",
+            json={"path": "/nonexistent/path/12345"}
+        )
+        # Should return 400 or 404 for invalid path
+        assert response.status_code in [400, 404]
+
+
+@pytest.mark.integration
+async def test_project_directory_set_missing_path():
+    """Test POST /api/workspace/project-directory without path."""
+    async with app_server() as server:
+        response = await server.post(
+            "/api/workspace/project-directory",
+            json={}
+        )
+        # Should return 400 or 422
+        assert response.status_code in [400, 422]
+
+
+@pytest.mark.integration
+async def test_project_directory_get_structure():
+    """Test project directory response structure."""
+    async with app_server() as server:
+        response = await server.get("/api/workspace/project-directory")
+        assert response.status_code == 200
+        data = response.json()
+        # Should have path-related fields
+        assert isinstance(data, dict)
+
+
+@pytest.mark.integration
+async def test_project_directory_set_relative_path():
+    """Test POST /api/workspace/project-directory with relative path."""
+    async with app_server() as server:
+        response = await server.post(
+            "/api/workspace/project-directory",
+            json={"path": "./relative/path"}
+        )
+        # Should handle relative paths appropriately
+        assert response.status_code in [200, 400]

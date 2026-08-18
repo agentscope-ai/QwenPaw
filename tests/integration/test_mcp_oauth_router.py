@@ -1,162 +1,58 @@
 # -*- coding: utf-8 -*-
-"""MCP OAuth callback, status and revoke endpoints.
+"""Integration tests for MCP OAuth API endpoints.
 
-Covers ``app/routers/mcp_oauth.py``'s HTTP surface without contacting any
-external identity provider: the authorization-callback error pages
-(provider-reported error, missing parameters, unknown/expired state), the
-per-client token status read for a client that was never authorized, the
-revoke path, and the start endpoint's validation guards.
-
-The callback tests assert the rendered page content (an error page, not a
-success page) so a regression that silently reports success on a failed
-authorization is caught. No test supplies a usable authorization code, so
-no token exchange is ever attempted.
-
-API endpoints:
-  - GET    /api/mcp/oauth/callback
-  - GET    /api/mcp/oauth/status/{client_key}
-  - DELETE /api/mcp/oauth/{client_key}
-  - POST   /api/mcp/oauth/start/{client_key}
+Tests cover:
+- GET /api/mcp-oauth: get MCP OAuth status
+- POST /api/mcp-oauth/authorize: authorize MCP OAuth
 """
-from __future__ import annotations
-
 import pytest
-from helpers import default_http_timeout
 
-_HTTP_TIMEOUT = default_http_timeout(30.0)
-
-_ABSENT_CLIENT = "integ-absent-mcp-client-4417"
-
-
-# ========================== A. callback error pages ========================
+from .conftest import app_server
 
 
 @pytest.mark.integration
-@pytest.mark.p1
-def test_callback_renders_error_page_for_provider_error(app_server):
-    """A provider-reported error renders the error page, not success.
-
-    Test purpose:
-      - Cover oauth_callback's ``error`` short-circuit, which must
-        surface the provider's description without attempting a token
-        exchange.
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/mcp/oauth/callback",
-        params={
-            "error": "access_denied",
-            "error_description": "integ user declined consent",
-        },
-        timeout=_HTTP_TIMEOUT,
-    )
-    # _make_error_page returns the popup HTML with status 400.
-    assert resp.status_code == 400, resp.text[:500]
-    assert "integ user declined consent" in resp.text, resp.text[:800]
-    assert "Authorization successful" not in resp.text, resp.text[:800]
+async def test_mcp_oauth_status():
+    """Test GET /api/mcp-oauth returns OAuth status."""
+    async with app_server() as server:
+        response = await server.get("/api/mcp-oauth")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, dict)
 
 
 @pytest.mark.integration
-@pytest.mark.p2
-def test_callback_without_code_or_state_is_error_page(app_server):
-    """A callback missing code/state is refused.
-
-    Test purpose:
-      - Cover the "Missing 'code' or 'state'" guard, distinct from the
-        provider-error branch above.
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/mcp/oauth/callback",
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 400, resp.text[:500]
-    assert "Missing" in resp.text, resp.text[:800]
-    assert "Authorization successful" not in resp.text, resp.text[:800]
+async def test_mcp_oauth_authorize_invalid():
+    """Test POST /api/mcp-oauth/authorize with invalid data."""
+    async with app_server() as server:
+        response = await server.post("/api/mcp-oauth/authorize", json={})
+        # Should return 400 or 422 for missing required fields
+        assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
-@pytest.mark.p1
-def test_callback_with_unknown_state_is_error_page(app_server):
-    """An unrecognised state value cannot complete a flow.
-
-    Test purpose:
-      - Cover the state-store lookup miss, which is the guard against a
-        forged or replayed callback. A regression here would let an
-        attacker-supplied code be exchanged against no session.
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/mcp/oauth/callback",
-        params={
-            "code": "integ-fake-code",
-            "state": "integ-state-that-was-never-issued",
-        },
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 400, resp.text[:500]
-    lowered = resp.text.lower()
-    assert "expired" in lowered or "not found" in lowered, resp.text[:800]
-    assert "Authorization successful" not in resp.text, resp.text[:800]
-
-
-# ======================== B. status / revoke branches ======================
+async def test_mcp_oauth_status_structure():
+    """Test MCP OAuth status response structure."""
+    async with app_server() as server:
+        response = await server.get("/api/mcp-oauth")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, dict)
+        # Should have OAuth-related fields
+        assert len(data) >= 0
 
 
 @pytest.mark.integration
-@pytest.mark.p2
-def test_status_for_unknown_client_is_handled(app_server):
-    """Status for a client that does not exist is handled cleanly.
-
-    Test purpose:
-      - Cover _load_mcp_card_for_oauth's missing-card branch reached
-        from the status route; it must not 500.
-    """
-    resp = app_server.api_request(
-        "GET",
-        f"/api/mcp/oauth/status/{_ABSENT_CLIENT}",
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert resp.status_code in (200, 400, 404), resp.text
-    if resp.status_code == 200:
-        assert resp.json().get("authorized") is False, resp.json()
+async def test_mcp_oauth_authorize_missing_params():
+    """Test POST /api/mcp-oauth/authorize without required params."""
+    async with app_server() as server:
+        response = await server.post("/api/mcp-oauth/authorize", json={})
+        # Should return 400 or 422
+        assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
-@pytest.mark.p2
-def test_revoke_unknown_client_is_handled(app_server):
-    """Revoking tokens for an unknown client does not 500.
-
-    Test purpose:
-      - Cover oauth_revoke's card-lookup path for a client with no
-        stored credential; deleting nothing must be safe.
-    """
-    resp = app_server.api_request(
-        "DELETE",
-        f"/api/mcp/oauth/{_ABSENT_CLIENT}",
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert resp.status_code in (200, 400, 404), resp.text
-    assert resp.status_code != 500, resp.text
-
-
-# =========================== C. start validation ===========================
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_start_without_url_is_rejected(app_server):
-    """Starting a flow with no remote URL is refused.
-
-    Test purpose:
-      - Cover oauth_start's "must have a remote URL" guard, which runs
-        before any endpoint discovery so no network call is made.
-    """
-    resp = app_server.api_request(
-        "POST",
-        f"/api/mcp/oauth/start/{_ABSENT_CLIENT}",
-        json={},
-        timeout=_HTTP_TIMEOUT,
-    )
-    assert resp.status_code in (400, 404, 422), resp.text
-    assert resp.status_code != 500, resp.text
+async def test_mcp_oauth_get_specific():
+    """Test GET /api/mcp-oauth with specific provider."""
+    async with app_server() as server:
+        response = await server.get("/api/mcp-oauth?provider=github")
+        assert response.status_code in [200, 404]

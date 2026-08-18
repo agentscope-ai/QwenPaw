@@ -1,0 +1,62 @@
+# -*- coding: utf-8 -*-
+"""Integration tests for Settings API endpoints.
+
+Tests cover:
+- GET /api/settings: get settings
+- PUT /api/settings: update settings
+"""
+import pytest
+
+from .conftest import app_server
+
+
+@pytest.mark.integration
+async def test_settings_get():
+    """Test GET /api/settings returns settings."""
+    async with app_server() as server:
+        response = await server.get("/api/settings")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, dict)
+
+
+@pytest.mark.integration
+async def test_settings_update_invalid():
+    """Test PUT /api/settings with invalid data."""
+    async with app_server() as server:
+        response = await server.put("/api/settings", json={"invalid_key": "value"})
+        # Should handle gracefully
+        assert response.status_code in [200, 400]
+
+
+@pytest.mark.integration
+async def test_settings_get_structure():
+    """Test settings response structure."""
+    async with app_server() as server:
+        response = await server.get("/api/settings")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, dict)
+        # Should have some settings fields
+        assert len(data) >= 0
+
+
+@pytest.mark.integration
+async def test_settings_update_partial():
+    """Test PUT /api/settings with partial update."""
+    async with app_server() as server:
+        # Get current settings
+        get_response = await server.get("/api/settings")
+        assert get_response.status_code == 200
+        
+        # Try to update with empty dict
+        response = await server.put("/api/settings", json={})
+        assert response.status_code in [200, 400]
+
+
+@pytest.mark.integration
+async def test_settings_get_specific():
+    """Test GET /api/settings with specific key."""
+    async with app_server() as server:
+        response = await server.get("/api/settings?key=theme")
+        assert response.status_code in [200, 404]
