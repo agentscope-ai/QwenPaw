@@ -4,12 +4,17 @@ import logging
 import platform
 import re
 from datetime import datetime, timezone
-from typing import List, Optional, Union
+from typing import List, Optional, Sequence, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
-from qwenpaw.agents.context.scroll.serialize import strip_headline
+from qwenpaw.agents.context.scroll.history import SessionHistoryRow
+from qwenpaw.agents.context.scroll.serialize import (
+    entries_to_msgs,
+    msg_to_entries,
+    strip_headline,
+)
 from qwenpaw.schemas import (
     Message,
     TextContent,
@@ -109,6 +114,53 @@ def _is_synthetic_user_message(msg: Msg) -> bool:
         and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
         in SYNTHETIC_USER_MESSAGE_TAGS
     )
+
+
+def merge_scroll_history(
+    persisted: Sequence[SessionHistoryRow],
+    live: Sequence[Msg],
+) -> list[Msg]:
+    """Merge durable Scroll history with the newest live context tail.
+
+    Durable rows supply turns evicted by compaction. Live messages replace
+    their persisted counterparts so an in-progress assistant message keeps
+    blocks that have not reached SQLite yet. Remaining live messages are
+    appended in context order.
+    """
+    durable = entries_to_msgs(
+        [(row.dedup_key, row.entry) for row in persisted],
+    )
+    visible_live = [
+        msg
+        for msg in live
+        if not _is_scroll_memory_placeholder(msg)
+        and not _is_synthetic_user_message(msg)
+    ]
+    live_by_id = {
+        msg.id: msg for msg in visible_live if getattr(msg, "id", None)
+    }
+    live_by_result_id: dict[str, Msg] = {}
+    for msg in visible_live:
+        for entry in msg_to_entries(msg):
+            if entry.kind == "tool_result" and entry.tool_call_id:
+                live_by_result_id[entry.tool_call_id] = msg
+
+    merged: list[Msg] = []
+    used_live_ids: set[int] = set()
+    for durable_msg in durable:
+        live_msg = live_by_id.get(durable_msg.id)
+        if live_msg is None:
+            live_msg = live_by_result_id.get(durable_msg.id)
+        if live_msg is None:
+            merged.append(durable_msg)
+            continue
+        identity = id(live_msg)
+        if identity not in used_live_ids:
+            merged.append(live_msg)
+            used_live_ids.add(identity)
+
+    merged.extend(msg for msg in visible_live if id(msg) not in used_live_ids)
+    return merged
 
 
 def parse_legacy_memory_state(

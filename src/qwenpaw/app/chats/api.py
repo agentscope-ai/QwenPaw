@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -22,7 +23,12 @@ from .models import (
     ChatUpdate,
     ChatHistory,
 )
-from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from .utils import (
+    agentscope_msg_to_message,
+    merge_scroll_history,
+    parse_legacy_memory_state,
+)
+from ...agents.context.scroll.history import read_session_entries
 from ...services.project_directory import (
     resolve_effective_project_dir,
     session_project_dir,
@@ -39,6 +45,39 @@ def _is_app_owned_chat(chat: ChatSpec) -> bool:
     """Return whether a chat belongs to a PawApp-owned dialogue surface."""
     owner = chat.meta.get("pawapp") if isinstance(chat.meta, dict) else None
     return isinstance(owner, dict) and bool(owner.get("app_id"))
+
+
+async def _restore_scroll_chat_history(
+    workspace,
+    session_id: str,
+    live_messages: list[Msg],
+) -> list[Msg]:
+    """Restore evicted Scroll turns and overlay the current context tail."""
+    try:
+        config = workspace.config
+        light_context = config.running.light_context_config
+        if config.backend != "qwenpaw" or light_context.strategy != "scroll":
+            return live_messages
+        db_path = (
+            Path(workspace.workspace_dir)
+            / light_context.scroll_config.db_filename
+        )
+        rows = await asyncio.to_thread(
+            read_session_entries,
+            db_path,
+            session_id=session_id,
+            agent_id=workspace.agent_id,
+        )
+        if not rows:
+            return live_messages
+        return merge_scroll_history(rows, live_messages)
+    except (AttributeError, OSError, sqlite3.Error, ValueError):
+        logger.warning(
+            f"Failed to restore durable chat history for "
+            f"session_id={session_id}",
+            exc_info=True,
+        )
+        return live_messages
 
 
 async def get_workspace(request: Request):
@@ -413,28 +452,31 @@ async def get_chat(
                 exc_info=True,
             )
     status = await workspace.task_tracker.get_status(chat_id)
-    if not state:
-        return ChatHistory(messages=[], status=status)
-
-    agent_raw = state.get("agent", {})
     memories: list[Msg] = []
+    if state:
+        agent_raw = state.get("agent", {})
+        state_raw = agent_raw.get("state")
+        if isinstance(state_raw, dict):
+            try:
+                agent_state = AgentState.model_validate(state_raw)
+                memories = list(agent_state.context)
+            except Exception:
+                logger.debug(
+                    "Failed to parse agent.state, falling back to legacy",
+                    exc_info=True,
+                )
 
-    state_raw = agent_raw.get("state")
-    if isinstance(state_raw, dict):
-        try:
-            agent_state = AgentState.model_validate(state_raw)
-            memories = list(agent_state.context)
-        except Exception:
-            logger.debug(
-                "Failed to parse agent.state, falling back to legacy",
-                exc_info=True,
-            )
+        # Legacy fallback: 1.x ``agent.memory`` format.
+        if not memories:
+            memory_raw = agent_raw.get("memory", {})
+            if memory_raw:
+                memories, _summary = parse_legacy_memory_state(memory_raw)
 
-    # Legacy fallback: 1.x ``agent.memory`` format.
-    if not memories:
-        memory_raw = agent_raw.get("memory", {})
-        if memory_raw:
-            memories, _summary = parse_legacy_memory_state(memory_raw)
+    memories = await _restore_scroll_chat_history(
+        workspace,
+        chat_spec.session_id,
+        memories,
+    )
 
     messages = agentscope_msg_to_message(memories)
     return ChatHistory(messages=messages, status=status)

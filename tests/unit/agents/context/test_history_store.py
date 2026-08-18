@@ -14,7 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.history import (
+    HistoryStore,
+    read_session_entries,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 
@@ -37,6 +40,51 @@ def test_append_assigns_increasing_seq_and_counts(store: HistoryStore):
     assert s2 > s1
     assert store.count("s") == 2
     assert store.count("other") == 0
+
+
+def test_read_session_entries_restores_structure_and_scopes_agent(
+    store: HistoryStore,
+):
+    store.append(
+        session_id="shared",
+        agent_id="agent-a",
+        dedup_key="message-a",
+        entry=_entry(
+            "hello",
+            blocks=[{"type": "text", "text": "hello"}],
+            metadata={"source": "test"},
+            tool_input={"path": "file.txt"},
+        ),
+    )
+    store.append(
+        session_id="shared",
+        agent_id="agent-b",
+        dedup_key="message-b",
+        entry=_entry("private"),
+    )
+    store.append(
+        session_id="shared",
+        dedup_key="legacy",
+        entry=_entry("legacy"),
+    )
+
+    rows = read_session_entries(
+        store.path,
+        session_id="shared",
+        agent_id="agent-a",
+    )
+
+    assert [row.dedup_key for row in rows] == ["message-a", "legacy"]
+    assert rows[0].entry.blocks == [{"type": "text", "text": "hello"}]
+    assert rows[0].entry.metadata == {"source": "test"}
+    assert rows[0].entry.tool_input == {"path": "file.txt"}
+
+
+def test_read_session_entries_does_not_create_missing_database(tmp_path: Path):
+    db_path = tmp_path / "missing" / "history.db"
+
+    assert read_session_entries(db_path, session_id="s") == []
+    assert not db_path.exists()
 
 
 def test_created_at_index_exists_for_date_filtered_recall(

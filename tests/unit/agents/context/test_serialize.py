@@ -6,11 +6,65 @@ import pytest
 from qwenpaw.agents.context.scroll.prompt import build_scroll_system_prompt
 from qwenpaw.agents.context.scroll.serialize import (
     HeadlineDeltaState,
+    entries_to_msgs,
     extract_headline,
     flush_headline_delta,
     strip_headline,
     strip_headline_delta,
 )
+from qwenpaw.agents.context.types import LogEntry
+
+
+def test_entries_to_msgs_restores_tool_result_order_and_identity() -> None:
+    entries = [
+        (
+            "message-1",
+            LogEntry(
+                kind="model_turn",
+                role="assistant",
+                blocks=[
+                    {"type": "text", "text": "calling"},
+                    {
+                        "type": "tool_call",
+                        "id": "call-1",
+                        "name": "read_file",
+                        "input": '{"path": "a.txt"}',
+                    },
+                    {"type": "text", "text": "finished"},
+                ],
+                metadata={"source": "history"},
+                created_at="2026-08-18T10:00:00+00:00",
+            ),
+        ),
+        (
+            "call-1",
+            LogEntry(
+                kind="tool_result",
+                role="assistant",
+                tool_call_id="call-1",
+                blocks=[
+                    {
+                        "type": "tool_result",
+                        "id": "call-1",
+                        "name": "read_file",
+                        "output": "contents",
+                    },
+                ],
+            ),
+        ),
+    ]
+
+    [message] = entries_to_msgs(entries)
+
+    assert message.id == "message-1"
+    assert message.metadata == {"source": "history"}
+    assert message.created_at == "2026-08-18T10:00:00+00:00"
+    assert [block.type for block in message.content] == [
+        "text",
+        "tool_call",
+        "tool_result",
+        "text",
+    ]
 
 
 @pytest.mark.parametrize(

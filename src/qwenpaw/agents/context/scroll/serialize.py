@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -345,3 +346,109 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
             ),
         )
     return entries
+
+
+def entries_to_msgs(
+    entries: Sequence[tuple[str | None, LogEntry]],
+) -> list[Msg]:
+    """Rebuild transcript messages from ordered durable Scroll entries.
+
+    Scroll stores an accumulated assistant message as one model-turn row plus
+    separate tool-result rows. Group adjacent results back into that message
+    and place each result after its matching tool call so the chat UI keeps
+    the original tool interaction order.
+    """
+    messages: list[Msg] = []
+    index = 0
+    while index < len(entries):
+        dedup_key, entry = entries[index]
+        index += 1
+        if entry.kind == "tool_result":
+            messages.append(_entry_to_msg(dedup_key, entry))
+            continue
+        results: list[LogEntry] = []
+        while index < len(entries):
+            _, candidate = entries[index]
+            if candidate.kind != "tool_result" or candidate.role != entry.role:
+                break
+            results.append(candidate)
+            index += 1
+        messages.append(
+            _entry_to_msg(
+                dedup_key,
+                entry,
+                tool_results=results,
+            ),
+        )
+    return messages
+
+
+def _entry_to_msg(
+    dedup_key: str | None,
+    entry: LogEntry,
+    *,
+    tool_results: Sequence[LogEntry] = (),
+) -> Msg:
+    """Restore one base entry and its tool results as an AgentScope message."""
+    blocks = _entry_blocks(entry)
+    if tool_results:
+        blocks = _merge_tool_result_blocks(blocks, tool_results)
+    role = entry.role
+    if role not in {"user", "assistant", "system"}:
+        role = "assistant"
+    msg_kwargs: dict[str, Any] = {}
+    if entry.created_at:
+        msg_kwargs["created_at"] = entry.created_at
+    msg = Msg(
+        name=role,
+        role=role,
+        content=blocks,
+        metadata=deepcopy(entry.metadata),
+        **msg_kwargs,
+    )
+    if dedup_key:
+        msg.id = dedup_key
+    return msg
+
+
+def _entry_blocks(entry: LogEntry) -> list[dict[str, Any]]:
+    """Return structured blocks, with scalar fallbacks for legacy rows."""
+    if entry.blocks:
+        return deepcopy(entry.blocks)
+    if entry.kind == "tool_result":
+        block: dict[str, Any] = {
+            "type": "tool_result",
+            "id": entry.tool_call_id or "",
+            "name": entry.name or "",
+            "output": entry.content or "",
+        }
+        if entry.tool_state is not None:
+            block["state"] = entry.tool_state
+        return [block]
+    return [{"type": "text", "text": entry.content or ""}]
+
+
+def _merge_tool_result_blocks(
+    blocks: list[dict[str, Any]],
+    tool_results: Sequence[LogEntry],
+) -> list[dict[str, Any]]:
+    """Insert stored results immediately after their matching tool calls."""
+    pending = [
+        block for entry in tool_results for block in _entry_blocks(entry)
+    ]
+    merged: list[dict[str, Any]] = []
+    consumed: set[int] = set()
+    for block in blocks:
+        merged.append(block)
+        if block.get("type") not in {"tool_call", "tool_use"}:
+            continue
+        call_id = block.get("id")
+        for index, result in enumerate(pending):
+            if index in consumed or result.get("id") != call_id:
+                continue
+            merged.append(result)
+            consumed.add(index)
+    merged.extend(
+        result for index, result in enumerate(pending) if index not in consumed
+    )
+    return merged

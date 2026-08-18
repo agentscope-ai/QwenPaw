@@ -9,6 +9,7 @@ import sqlite3
 import sys
 import threading
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
 _UNSET = object()
+
+
+@dataclass(frozen=True)
+class SessionHistoryRow:
+    """One structured row loaded from a persisted Scroll session."""
+
+    seq: int
+    dedup_key: str | None
+    entry: LogEntry
+
 
 # The recall tool's own turns — the model's ``ms.*`` Python source and its
 # printed stdout/stderr — are written through to history like any turn, but
@@ -750,6 +761,79 @@ class HistoryStore:
 
     def __repr__(self) -> str:
         return f"<HistoryStore path={self._path}>"
+
+
+def read_session_entries(
+    db_path: str | Path,
+    *,
+    session_id: str,
+    agent_id: str | None = None,
+) -> list[SessionHistoryRow]:
+    """Read one persisted session without creating or mutating its database.
+
+    The chat API calls this function from a worker thread. A separate
+    read-only SQLite connection can safely coexist with Scroll's WAL writer.
+    Legacy rows without an ``agent_id`` remain visible to their session.
+    """
+    path = Path(db_path).expanduser()
+    if not path.is_file():
+        return []
+
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        where = ["session_id = ?"]
+        params: list[Any] = [session_id]
+        if agent_id:
+            where.append("(agent_id = ? OR agent_id IS NULL)")
+            params.append(agent_id)
+        where_sql = " AND ".join(where)
+        rows = connection.execute(
+            f"SELECT seq, kind, role, name, content, tool_call_id, "
+            f"tool_input, tool_state, headline, blocks, metadata, "
+            f"created_at, dedup_key FROM conversation_history WHERE "
+            f"{where_sql} ORDER BY seq",
+            params,
+        ).fetchall()
+    finally:
+        connection.close()
+
+    return [_session_history_row(row) for row in rows]
+
+
+def _session_history_row(row: sqlite3.Row) -> SessionHistoryRow:
+    """Convert one SQLite result into the shared structured entry type."""
+    blocks = _json_value(row["blocks"])
+    metadata = _json_value(row["metadata"])
+    return SessionHistoryRow(
+        seq=int(row["seq"]),
+        dedup_key=row["dedup_key"],
+        entry=LogEntry(
+            kind=row["kind"],
+            role=row["role"],
+            name=row["name"],
+            content=row["content"],
+            metadata=metadata if isinstance(metadata, dict) else {},
+            tool_call_id=row["tool_call_id"],
+            tool_input=_json_value(row["tool_input"]),
+            tool_state=row["tool_state"],
+            headline=row["headline"],
+            blocks=blocks if isinstance(blocks, list) else None,
+            created_at=row["created_at"],
+        ),
+    )
+
+
+def _json_value(value: Any) -> Any:
+    """Decode stored JSON while preserving legacy unencoded strings."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
 
 
 def _to_json(value) -> str | None:
