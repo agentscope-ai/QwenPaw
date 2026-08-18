@@ -333,17 +333,33 @@ jobs:
       IMAGE: agentscope/qwenpaw
     steps:
       - name: Download multi-arch OCI image
-        if: ${{ !inputs.dry_run }}
         uses: actions/download-artifact@v4
         with:
           name: qwenpaw-docker-image
           path: ${{ runner.temp }}/qwenpaw-docker-image
 
       - name: Install Skopeo
-        if: ${{ !inputs.dry_run }}
         run: |
           sudo apt-get update
           sudo apt-get install -y skopeo
+
+      - name: Validate multi-arch OCI image
+        run: |
+          SOURCE="oci-archive:${RUNNER_TEMP}/qwenpaw-docker-image/qwenpaw-image.tar"
+          MANIFEST="$(skopeo inspect --raw "${SOURCE}")"
+          PLATFORMS="$(jq -r '
+            .manifests[]?.platform
+            | select(.os != null and .architecture != null)
+            | "\(.os)/\(.architecture)"
+          ' <<< "${MANIFEST}")"
+          echo "Platforms in OCI image:"
+          echo "${PLATFORMS}"
+          for REQUIRED_PLATFORM in linux/amd64 linux/arm64; do
+            if ! grep -Fxq "${REQUIRED_PLATFORM}" <<< "${PLATFORMS}"; then
+              echo "::error::OCI image is missing ${REQUIRED_PLATFORM}"
+              exit 1
+            fi
+          done
 
       - name: Log in to DockerHub
         if: ${{ !inputs.dry_run }}
@@ -381,7 +397,6 @@ jobs:
           fi
           SOURCE="oci-archive:${RUNNER_TEMP}/qwenpaw-docker-image/qwenpaw-image.tar"
           AUTH_FILE="${HOME}/.docker/config.json"
-          skopeo inspect --raw "${SOURCE}" >/dev/null
           for DESTINATION in "${DESTINATIONS[@]}"; do
             skopeo copy --all --authfile "${AUTH_FILE}" \
               "${SOURCE}" "docker://${DESTINATION}"
