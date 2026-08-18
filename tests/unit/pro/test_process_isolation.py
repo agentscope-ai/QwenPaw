@@ -103,6 +103,30 @@ def test_linux_command_mounts_only_runtime_root_writable(
     ]
 
 
+def test_linux_command_mounts_resolver_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = Path("/etc/resolv.conf").resolve()
+    if not resolver.exists():
+        pytest.skip("resolver configuration is unavailable")
+    isolator = LinuxBubblewrapIsolator("/usr/bin/bwrap")
+    monkeypatch.setattr(isolator, "_probe", lambda *args: None)
+
+    launch = isolator.prepare(
+        _record(tmp_path),
+        ["python", "-m", "qwenpaw"],
+        {},
+    )
+
+    read_only_mounts = {
+        (launch.command[index + 1], launch.command[index + 2])
+        for index, value in enumerate(launch.command)
+        if value == "--ro-bind"
+    }
+    assert (str(resolver), str(resolver)) in read_only_mounts
+
+
 def test_linux_command_mounts_python_base_prefix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
