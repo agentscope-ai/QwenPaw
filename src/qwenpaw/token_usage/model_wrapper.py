@@ -47,6 +47,16 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # None when compaction is disabled/unknown.
         self._compact_threshold = compact_threshold
 
+    @property
+    def formatter(self) -> Any:
+        """Expose the wrapped model's formatter to AgentScope."""
+        return self._model.formatter
+
+    @formatter.setter
+    def formatter(self, value: Any) -> None:
+        """Keep formatter updates synchronized with the wrapped model."""
+        self._model.formatter = value
+
     def _record_usage(self, usage: ChatUsage | None) -> None:
         """Enqueue a usage event synchronously — never blocks the caller."""
         if usage is None:

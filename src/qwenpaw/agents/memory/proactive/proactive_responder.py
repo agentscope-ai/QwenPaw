@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional, List, Dict
 
 import aiohttp
 
-from agentscope.agent import Agent, ReActConfig
+from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.message import Msg, TextBlock
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.state import AgentState
@@ -162,6 +162,7 @@ async def _initialize_single_proactive_agent(
         ),
         toolkit=toolkit,
         react_config=ReActConfig(max_iters=_PROACTIVE_MAX_ITERS),
+        injection_config=InjectionConfig(inject_runtime_state=False),
         state=state,
     )
 

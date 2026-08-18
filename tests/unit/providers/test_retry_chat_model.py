@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, AsyncGenerator, cast
 
 import pytest
+from agentscope.agent import Agent, InjectionConfig
 from agentscope.message import (
     Msg,
     TextBlock,
@@ -14,6 +15,7 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
 )
+from agentscope.tool import Toolkit
 
 from qwenpaw.agents import model_factory
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
@@ -35,6 +37,7 @@ from qwenpaw.providers.retry_chat_model import (
     _normalize_rate_limit_config,
     _normalize_retry_config,
 )
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
 
 async def _failing_reasoning_stream() -> AsyncGenerator[Any, None]:
@@ -55,6 +58,54 @@ async def _empty_then_failing_stream() -> AsyncGenerator[Any, None]:
     exc = Exception(f"temporary failure: {status_code}")
     exc.status_code = 503  # type: ignore[attr-defined]
     raise exc
+
+
+async def test_wrapped_model_exposes_formatter_and_model_name() -> None:
+    """AgentScope attributes stay visible through both QwenPaw wrappers."""
+    formatter = SimpleNamespace(supported_input_media_types=[])
+    provider_model = SimpleNamespace(
+        credential=None,
+        model="wrapped-model",
+        parameters=None,
+        stream=True,
+        context_size=32768,
+        formatter=formatter,
+    )
+    recording_model = TokenRecordingModelWrapper(
+        provider_id="unit",
+        model=provider_model,  # type: ignore[arg-type]
+    )
+    retry_model = RetryChatModel(
+        recording_model,
+        retry_config=RetryConfig(enabled=False),
+    )
+
+    assert retry_model.model == "wrapped-model"
+    assert retry_model.formatter is formatter
+    assert retry_model.formatter.supported_input_media_types == []
+
+    replacement = SimpleNamespace(supported_input_media_types=["image/*"])
+    retry_model.formatter = replacement
+
+    assert recording_model.formatter is replacement
+    assert provider_model.formatter is replacement
+
+    agent = Agent(
+        name="test-agent",
+        system_prompt="",
+        model=retry_model,
+        toolkit=Toolkit(tools=[]),
+        injection_config=InjectionConfig(inject_runtime_state=False),
+    )
+    await agent._handle_incoming_messages(  # pylint: disable=protected-access
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="hello")],
+        ),
+    )
+
+    assert agent.state.context[-1].get_text_content() == "hello"
 
 
 class _ReasoningRetryStreamModel:

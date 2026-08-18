@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
-from agentscope.agent import Agent, ReActConfig
+from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.event import (
     ModelCallEndEvent,
     TextBlockDeltaEvent,
@@ -202,6 +202,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "system_prompt": system_prompt,
             "toolkit": toolkit,
             "react_config": react_config,
+            "injection_config": InjectionConfig(
+                inject_runtime_state=False,
+            ),
             "middlewares": middlewares,
             "offloader": offloader,
         }
