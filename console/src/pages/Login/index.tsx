@@ -196,7 +196,7 @@ export default function LoginPage() {
             onClick={() => setIsRegister((current) => !current)}
             style={{ marginTop: 14 }}
           >
-            {isRegister ? "Return to sign in" : "Create an account"}
+            {isRegister ? t("login.returnToSignIn") : t("login.createAccount")}
           </Button>
         )}
       </div>

@@ -29,7 +29,13 @@ export const LANGUAGE_LIST: LanguageConfig[] = [
 
 const KNOWN_LANG_KEYS = new Set(LANGUAGE_LIST.map((lang) => lang.key));
 
-export default function LanguageSwitcher() {
+interface LanguageSwitcherProps {
+  persistRemotely?: boolean;
+}
+
+export default function LanguageSwitcher({
+  persistRemotely = true,
+}: LanguageSwitcherProps) {
   const { i18n } = useTranslation();
 
   const currentLanguage = i18n.resolvedLanguage || i18n.language;
@@ -40,6 +46,9 @@ export default function LanguageSwitcher() {
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
+    if (!persistRemotely) {
+      return;
+    }
     languageApi
       .updateLanguage(lang)
       .catch((err) =>

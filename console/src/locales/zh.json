@@ -3294,6 +3294,124 @@
       }
     }
   },
+  "pro": {
+    "brand": {
+      "title": "Pro 管理中心",
+      "subtitle": "本地工作空间"
+    },
+    "navigation": {
+      "runtimes": "运行环境",
+      "users": "用户",
+      "credentials": "凭据"
+    },
+    "actions": {
+      "backToQwenPaw": "返回 QwenPaw",
+      "useLightTheme": "使用浅色主题",
+      "useDarkTheme": "使用深色主题",
+      "signOut": "退出登录",
+      "start": "启动",
+      "stop": "停止"
+    },
+    "roles": {
+      "admin": "管理员",
+      "user": "普通用户"
+    },
+    "userStates": {
+      "active": "已启用",
+      "disabled": "已禁用"
+    },
+    "runtimeStates": {
+      "created": "已创建",
+      "starting": "启动中",
+      "running": "运行中",
+      "stopped": "已停止",
+      "failed": "失败"
+    },
+    "errors": {
+      "actionFailed": "操作失败",
+      "createFailed": "创建失败",
+      "updateFailed": "更新失败",
+      "saveFailed": "保存失败"
+    },
+    "messages": {
+      "runtimeCreated": "运行环境已创建",
+      "accountCreated": "账号已创建",
+      "credentialStored": "凭据已保存"
+    },
+    "validation": {
+      "required": "此项为必填项",
+      "runtimeIdInvalid": "请输入 1–64 位字母、数字、点、下划线或连字符，并以字母或数字开头",
+      "passwordMin": "密码至少需要八个字符",
+      "credentialNameInvalid": "请输入大写环境变量名称，例如 OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Pro 管理中心",
+      "title": "运行环境概览",
+      "description": "在本地应用中管理彼此隔离的 QwenPaw 进程。每个运行环境均拥有独立的工作空间和凭据边界。",
+      "newRuntime": "新建运行环境",
+      "managed": "托管运行环境",
+      "localBoundaries": "本地进程边界",
+      "runningNow": "当前运行",
+      "needsAttention": "{{count}} 个运行环境需要处理",
+      "healthy": "当前所有状态均正常",
+      "isolationPolicy": "隔离策略",
+      "failClosed": "失败即关闭",
+      "noFallback": "不回退到非沙箱模式",
+      "isolationTitle": "失败即关闭的本地隔离",
+      "isolationDescription": "整个运行环境进程树均在沙箱中执行。如果原生隔离探测失败，QwenPaw 将拒绝启动。",
+      "localEndpoint": "本地端点 · {{endpoint}}",
+      "driver": "驱动",
+      "security": "安全级别",
+      "tenant": "租户",
+      "removeTitle": "移除 {{id}}？",
+      "removeDescription": "仅移除注册记录，运行环境数据将保留。",
+      "emptyTitle": "尚无运行环境",
+      "emptyDescription": "创建第一个隔离的本地 QwenPaw 运行环境。"
+    },
+    "users": {
+      "eyebrow": "身份与访问控制",
+      "title": "用户访问",
+      "description": "集中创建本地账号、分配管理员权限并撤销会话。",
+      "addAccount": "添加账号",
+      "publicRegistration": "开放注册",
+      "publicRegistrationDescription": "关闭后，仅管理员可以创建账号。"
+    },
+    "credentials": {
+      "eyebrow": "租户级保管箱",
+      "title": "凭据",
+      "description": "将 Provider 密钥保存到明确的租户或运行环境作用域。密钥值会加密保存，API 永不返回明文。",
+      "storeCredential": "保存凭据",
+      "updated": "更新于 {{date}}",
+      "deleteTitle": "删除 {{name}}？",
+      "deleteDescription": "使用此凭据的运行环境可能会停止工作。",
+      "emptyTitle": "保管箱为空",
+      "emptyDescription": "保存租户级或运行环境级 API Key。"
+    },
+    "runtimeForm": {
+      "title": "创建运行环境",
+      "hint": "运行环境将在本机原生沙箱中启动，其文件、密钥和进程树与其他用户保持隔离。",
+      "runtimeId": "运行环境 ID",
+      "startImmediately": "立即启动",
+      "submit": "创建运行环境"
+    },
+    "userForm": {
+      "title": "添加账号",
+      "hint": "请设置至少八位的临时密码。该用户只能访问其个人租户拥有的运行环境。",
+      "username": "用户名",
+      "temporaryPassword": "临时密码",
+      "role": "角色",
+      "submit": "创建账号"
+    },
+    "credentialForm": {
+      "title": "保存凭据",
+      "hint": "租户作用域适用于你的全部运行环境；运行环境作用域可为单个进程提供私有覆盖。",
+      "scope": "作用域",
+      "allRuntimes": "我的全部运行环境",
+      "environmentName": "环境变量名称",
+      "secretValue": "密钥值",
+      "submit": "加密并保存"
+    }
+  },
   "login": {
     "title": "登录 QwenPaw",
     "registerTitle": "创建账户",
@@ -3304,6 +3422,8 @@
     "passwordRequired": "请输入密码",
     "submit": "登录",
     "register": "注册",
+    "returnToSignIn": "返回登录",
+    "createAccount": "创建账号",
     "failed": "登录失败，请检查您的凭据",
     "registerSuccess": "注册成功",
     "registerFailed": "注册失败",

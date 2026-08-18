@@ -3437,6 +3437,124 @@
       }
     }
   },
+  "pro": {
+    "brand": {
+      "title": "Pro administration",
+      "subtitle": "Local workspace"
+    },
+    "navigation": {
+      "runtimes": "Runtimes",
+      "users": "Users",
+      "credentials": "Credentials"
+    },
+    "actions": {
+      "backToQwenPaw": "Back to QwenPaw",
+      "useLightTheme": "Use light theme",
+      "useDarkTheme": "Use dark theme",
+      "signOut": "Sign out",
+      "start": "Start",
+      "stop": "Stop"
+    },
+    "roles": {
+      "admin": "Administrator",
+      "user": "User"
+    },
+    "userStates": {
+      "active": "Active",
+      "disabled": "Disabled"
+    },
+    "runtimeStates": {
+      "created": "Created",
+      "starting": "Starting",
+      "running": "Running",
+      "stopped": "Stopped",
+      "failed": "Failed"
+    },
+    "errors": {
+      "actionFailed": "Action failed",
+      "createFailed": "Create failed",
+      "updateFailed": "Update failed",
+      "saveFailed": "Save failed"
+    },
+    "messages": {
+      "runtimeCreated": "Runtime created",
+      "accountCreated": "Account created",
+      "credentialStored": "Credential stored"
+    },
+    "validation": {
+      "required": "This field is required",
+      "runtimeIdInvalid": "Use 1–64 letters, numbers, dots, underscores or hyphens, starting with a letter or number",
+      "passwordMin": "Password must contain at least eight characters",
+      "credentialNameInvalid": "Use an uppercase environment variable name, such as OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Pro administration",
+      "title": "Runtime overview",
+      "description": "Manage isolated QwenPaw processes without leaving the local app. Every runtime has its own workspace and credential boundary.",
+      "newRuntime": "New runtime",
+      "managed": "Managed runtimes",
+      "localBoundaries": "Local process boundaries",
+      "runningNow": "Running now",
+      "needsAttention": "{{count}} runtime needs attention",
+      "healthy": "All observed states are healthy",
+      "isolationPolicy": "Isolation policy",
+      "failClosed": "Fail closed",
+      "noFallback": "No unsandboxed fallback",
+      "isolationTitle": "Fail-closed local isolation",
+      "isolationDescription": "The entire runtime process tree is sandboxed. If the native isolation probe fails, QwenPaw refuses to start it.",
+      "localEndpoint": "Local endpoint · {{endpoint}}",
+      "driver": "Driver",
+      "security": "Security",
+      "tenant": "Tenant",
+      "removeTitle": "Remove {{id}}?",
+      "removeDescription": "Registration is removed; runtime data is retained.",
+      "emptyTitle": "No runtimes yet",
+      "emptyDescription": "Create the first isolated local QwenPaw runtime."
+    },
+    "users": {
+      "eyebrow": "Identity and access",
+      "title": "User access",
+      "description": "Create local accounts, assign administrative access and revoke sessions from one place.",
+      "addAccount": "Add account",
+      "publicRegistration": "Public registration",
+      "publicRegistrationDescription": "When disabled, only administrators can create accounts."
+    },
+    "credentials": {
+      "eyebrow": "Tenant-scoped vault",
+      "title": "Credentials",
+      "description": "Store provider keys inside an explicit tenant or runtime scope. Secret values are encrypted and never returned by the API.",
+      "storeCredential": "Store credential",
+      "updated": "Updated {{date}}",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDescription": "Runtimes using this credential may stop working.",
+      "emptyTitle": "Vault is empty",
+      "emptyDescription": "Store a tenant or runtime-scoped API key."
+    },
+    "runtimeForm": {
+      "title": "Create runtime",
+      "hint": "The runtime starts inside the native local sandbox. Its files, secrets and process tree stay separate from other users.",
+      "runtimeId": "Runtime ID",
+      "startImmediately": "Start immediately",
+      "submit": "Create runtime"
+    },
+    "userForm": {
+      "title": "Add account",
+      "hint": "Use a temporary password with at least eight characters. The user can only access runtimes owned by their personal tenant.",
+      "username": "Username",
+      "temporaryPassword": "Temporary password",
+      "role": "Role",
+      "submit": "Create account"
+    },
+    "credentialForm": {
+      "title": "Store credential",
+      "hint": "Tenant scope applies to all of your runtimes. Runtime scope is a private override for one selected process.",
+      "scope": "Scope",
+      "allRuntimes": "All my runtimes",
+      "environmentName": "Environment name",
+      "secretValue": "Secret value",
+      "submit": "Encrypt and store"
+    }
+  },
   "login": {
     "title": "Login to QwenPaw",
     "registerTitle": "Create Account",
@@ -3447,6 +3565,8 @@
     "passwordRequired": "Please enter your password",
     "submit": "Login",
     "register": "Register",
+    "returnToSignIn": "Return to sign in",
+    "createAccount": "Create an account",
     "failed": "Login failed, please check your credentials",
     "registerSuccess": "Registration successful",
     "registerFailed": "Registration failed",

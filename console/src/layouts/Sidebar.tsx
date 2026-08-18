@@ -804,7 +804,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               block
               className={styles.authBtn}
             >
-              Pro administration
+              {t("pro.brand.title")}
             </Button>
           )}
           <Button

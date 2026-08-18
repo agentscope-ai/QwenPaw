@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { App, Button, Form, Input, Modal, Select, Switch, Tag } from "antd";
 import {
   Activity,
@@ -16,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { clearAuthToken } from "../../api/config";
+import LanguageSwitcher from "../../components/LanguageSwitcher";
 import { useTheme } from "../../contexts/ThemeContext";
 import {
   proApi,
@@ -37,6 +39,7 @@ const STATE_COLORS: Record<ProRuntime["state"], string> = {
 
 export default function ProPage() {
   const { message, modal } = App.useApp();
+  const { t, i18n } = useTranslation();
   const { isDark, toggleTheme } = useTheme();
   const [me, setMe] = useState<ProUser | null>(null);
   const [section, setSection] = useState<Section>("runtimes");
@@ -116,7 +119,9 @@ export default function ProPage() {
       if (action === "delete") await proApi.deleteRuntime(runtimeId);
       await loadRuntimes();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Action failed");
+      message.error(
+        error instanceof Error ? error.message : t("pro.errors.actionFailed"),
+      );
     } finally {
       setBusyId(null);
     }
@@ -131,9 +136,11 @@ export default function ProPage() {
       setRuntimeModalOpen(false);
       runtimeForm.resetFields();
       await loadRuntimes();
-      message.success("Runtime created");
+      message.success(t("pro.messages.runtimeCreated"));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Create failed");
+      message.error(
+        error instanceof Error ? error.message : t("pro.errors.createFailed"),
+      );
     }
   };
 
@@ -147,9 +154,11 @@ export default function ProPage() {
       setUserModalOpen(false);
       userForm.resetFields();
       await loadUsers();
-      message.success("Account created");
+      message.success(t("pro.messages.accountCreated"));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Create failed");
+      message.error(
+        error instanceof Error ? error.message : t("pro.errors.createFailed"),
+      );
     }
   };
 
@@ -162,7 +171,9 @@ export default function ProPage() {
       await proApi.updateUser(user.user_id, patch);
       await loadUsers();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Update failed");
+      message.error(
+        error instanceof Error ? error.message : t("pro.errors.updateFailed"),
+      );
     } finally {
       setBusyId(null);
     }
@@ -178,9 +189,11 @@ export default function ProPage() {
       setCredentialModalOpen(false);
       credentialForm.resetFields();
       await loadCredentials();
-      message.success("Credential stored");
+      message.success(t("pro.messages.credentialStored"));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Save failed");
+      message.error(
+        error instanceof Error ? error.message : t("pro.errors.saveFailed"),
+      );
     }
   };
 
@@ -190,11 +203,25 @@ export default function ProPage() {
   };
 
   const navigation = [
-    { id: "runtimes" as const, label: "Runtimes", icon: Server },
+    {
+      id: "runtimes" as const,
+      label: t("pro.navigation.runtimes"),
+      icon: Server,
+    },
     ...(me?.role === "admin"
-      ? [{ id: "users" as const, label: "Users", icon: Users }]
+      ? [
+          {
+            id: "users" as const,
+            label: t("pro.navigation.users"),
+            icon: Users,
+          },
+        ]
       : []),
-    { id: "credentials" as const, label: "Credentials", icon: KeyRound },
+    {
+      id: "credentials" as const,
+      label: t("pro.navigation.credentials"),
+      icon: KeyRound,
+    },
   ];
   const runningCount = runtimes.filter(
     (runtime) => runtime.state === "running",
@@ -212,8 +239,8 @@ export default function ProPage() {
             alt="QwenPaw"
           />
           <div>
-            <strong>Pro administration</strong>
-            <span>Local workspace</span>
+            <strong>{t("pro.brand.title")}</strong>
+            <span>{t("pro.brand.subtitle")}</span>
           </div>
         </div>
         <nav className={styles.navigation}>
@@ -239,24 +266,35 @@ export default function ProPage() {
             className={styles.backButton}
           >
             <House size={17} />
-            <span>Back to QwenPaw</span>
+            <span>{t("pro.actions.backToQwenPaw")}</span>
           </button>
           <div className={styles.account}>
             <div className={styles.avatarSmall}>
               {(me?.username || "Q").slice(0, 1).toUpperCase()}
             </div>
             <div>
-              <strong>{me?.username || "Loading"}</strong>
-              <span>{me?.role || ""}</span>
+              <strong>{me?.username || t("common.loading")}</strong>
+              <span>{me?.role ? t(`pro.roles.${me.role}`) : ""}</span>
+            </div>
+            <div className={styles.languageControl}>
+              <LanguageSwitcher persistRemotely={false} />
             </div>
             <button
               type="button"
               onClick={toggleTheme}
-              aria-label={isDark ? "Use light theme" : "Use dark theme"}
+              aria-label={
+                isDark
+                  ? t("pro.actions.useLightTheme")
+                  : t("pro.actions.useDarkTheme")
+              }
             >
               {isDark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            <button type="button" onClick={logout} aria-label="Sign out">
+            <button
+              type="button"
+              onClick={logout}
+              aria-label={t("pro.actions.signOut")}
+            >
               <LogOut size={16} />
             </button>
           </div>
@@ -267,52 +305,51 @@ export default function ProPage() {
         {section === "runtimes" && (
           <section>
             <PageHeader
-              eyebrow="Pro administration"
-              title="Runtime overview"
-              description="Manage isolated QwenPaw processes without leaving the local app. Every runtime has its own workspace and credential boundary."
+              eyebrow={t("pro.runtimes.eyebrow")}
+              title={t("pro.runtimes.title")}
+              description={t("pro.runtimes.description")}
               action={
                 <Button
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => setRuntimeModalOpen(true)}
                 >
-                  New runtime
+                  {t("pro.runtimes.newRuntime")}
                 </Button>
               }
             />
             <div className={styles.metrics}>
               <Metric
                 icon={<Server size={18} />}
-                label="Managed runtimes"
+                label={t("pro.runtimes.managed")}
                 value={String(runtimes.length)}
-                detail="Local process boundaries"
+                detail={t("pro.runtimes.localBoundaries")}
               />
               <Metric
                 icon={<Activity size={18} />}
-                label="Running now"
+                label={t("pro.runtimes.runningNow")}
                 value={String(runningCount)}
                 detail={
                   failedCount > 0
-                    ? `${failedCount} runtime needs attention`
-                    : "All observed states are healthy"
+                    ? t("pro.runtimes.needsAttention", {
+                        count: failedCount,
+                      })
+                    : t("pro.runtimes.healthy")
                 }
                 warning={failedCount > 0}
               />
               <Metric
                 icon={<ShieldCheck size={18} />}
-                label="Isolation policy"
-                value="Fail closed"
-                detail="No unsandboxed fallback"
+                label={t("pro.runtimes.isolationPolicy")}
+                value={t("pro.runtimes.failClosed")}
+                detail={t("pro.runtimes.noFallback")}
               />
             </div>
             <div className={styles.notice}>
               <ShieldCheck size={18} />
               <div>
-                <strong>Fail-closed local isolation</strong>
-                <span>
-                  The entire runtime process tree is sandboxed. If the native
-                  isolation probe fails, QwenPaw refuses to start it.
-                </span>
+                <strong>{t("pro.runtimes.isolationTitle")}</strong>
+                <span>{t("pro.runtimes.isolationDescription")}</span>
               </div>
             </div>
             <div className={styles.grid} aria-busy={loading}>
@@ -324,23 +361,27 @@ export default function ProPage() {
                     </div>
                     <div className={styles.cardTitle}>
                       <strong>{runtime.runtime_id}</strong>
-                      <span>Local endpoint · {runtime.endpoint}</span>
+                      <span>
+                        {t("pro.runtimes.localEndpoint", {
+                          endpoint: runtime.endpoint,
+                        })}
+                      </span>
                     </div>
                     <Tag color={STATE_COLORS[runtime.state]}>
-                      {runtime.state}
+                      {t(`pro.runtimeStates.${runtime.state}`)}
                     </Tag>
                   </div>
                   <dl className={styles.details}>
                     <div>
-                      <dt>Driver</dt>
+                      <dt>{t("pro.runtimes.driver")}</dt>
                       <dd>{runtime.driver}</dd>
                     </div>
                     <div>
-                      <dt>Security</dt>
+                      <dt>{t("pro.runtimes.security")}</dt>
                       <dd>{runtime.security_level}</dd>
                     </div>
                     <div>
-                      <dt>Tenant</dt>
+                      <dt>{t("pro.runtimes.tenant")}</dt>
                       <dd>{runtime.tenant_id}</dd>
                     </div>
                   </dl>
@@ -356,7 +397,7 @@ export default function ProPage() {
                           runRuntimeAction(runtime.runtime_id, "stop")
                         }
                       >
-                        Stop
+                        {t("pro.actions.stop")}
                       </Button>
                     ) : (
                       <Button
@@ -366,18 +407,20 @@ export default function ProPage() {
                           runRuntimeAction(runtime.runtime_id, "start")
                         }
                       >
-                        Start
+                        {t("pro.actions.start")}
                       </Button>
                     )}
                     <Button
                       danger
                       disabled={runtime.state === "running"}
                       icon={<Trash2 size={15} />}
+                      aria-label={t("common.delete")}
                       onClick={() =>
                         modal.confirm({
-                          title: `Remove ${runtime.runtime_id}?`,
-                          content:
-                            "Registration is removed; runtime data is retained.",
+                          title: t("pro.runtimes.removeTitle", {
+                            id: runtime.runtime_id,
+                          }),
+                          content: t("pro.runtimes.removeDescription"),
                           okButtonProps: { danger: true },
                           onOk: () =>
                             runRuntimeAction(runtime.runtime_id, "delete"),
@@ -390,8 +433,8 @@ export default function ProPage() {
               {!loading && runtimes.length === 0 && (
                 <EmptyState
                   icon={<Server size={26} />}
-                  title="No runtimes yet"
-                  description="Create the first isolated local QwenPaw runtime."
+                  title={t("pro.runtimes.emptyTitle")}
+                  description={t("pro.runtimes.emptyDescription")}
                 />
               )}
             </div>
@@ -401,25 +444,23 @@ export default function ProPage() {
         {section === "users" && me?.role === "admin" && (
           <section>
             <PageHeader
-              eyebrow="Identity and access"
-              title="User access"
-              description="Create local accounts, assign administrative access and revoke sessions from one place."
+              eyebrow={t("pro.users.eyebrow")}
+              title={t("pro.users.title")}
+              description={t("pro.users.description")}
               action={
                 <Button
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => setUserModalOpen(true)}
                 >
-                  Add account
+                  {t("pro.users.addAccount")}
                 </Button>
               }
             />
             <div className={styles.settingRow}>
               <div>
-                <strong>Public registration</strong>
-                <span>
-                  When disabled, only administrators can create accounts.
-                </span>
+                <strong>{t("pro.users.publicRegistration")}</strong>
+                <span>{t("pro.users.publicRegistrationDescription")}</span>
               </div>
               <Switch
                 checked={registrationEnabled}
@@ -429,7 +470,9 @@ export default function ProPage() {
                     setRegistrationEnabled(enabled);
                   } catch (error) {
                     message.error(
-                      error instanceof Error ? error.message : "Update failed",
+                      error instanceof Error
+                        ? error.message
+                        : t("pro.errors.updateFailed"),
                     );
                   }
                 }}
@@ -450,13 +493,20 @@ export default function ProPage() {
                     className={styles.roleSelect}
                     disabled={busyId === user.user_id}
                     options={[
-                      { label: "Administrator", value: "admin" },
-                      { label: "User", value: "user" },
+                      {
+                        label: t("pro.roles.admin"),
+                        value: "admin",
+                      },
+                      { label: t("pro.roles.user"), value: "user" },
                     ]}
                     onChange={(role) => updateUser(user, { role })}
                   />
                   <div className={styles.userStatus}>
-                    <span>{user.disabled ? "Disabled" : "Active"}</span>
+                    <span>
+                      {user.disabled
+                        ? t("pro.userStates.disabled")
+                        : t("pro.userStates.active")}
+                    </span>
                     <Switch
                       checked={!user.disabled}
                       loading={busyId === user.user_id}
@@ -474,16 +524,16 @@ export default function ProPage() {
         {section === "credentials" && (
           <section>
             <PageHeader
-              eyebrow="Tenant-scoped vault"
-              title="Credentials"
-              description="Store provider keys inside an explicit tenant or runtime scope. Secret values are encrypted and never returned by the API."
+              eyebrow={t("pro.credentials.eyebrow")}
+              title={t("pro.credentials.title")}
+              description={t("pro.credentials.description")}
               action={
                 <Button
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => setCredentialModalOpen(true)}
                 >
-                  Store credential
+                  {t("pro.credentials.storeCredential")}
                 </Button>
               }
             />
@@ -501,16 +551,22 @@ export default function ProPage() {
                     <span>{credential.scope}</span>
                   </div>
                   <span className={styles.updatedAt}>
-                    Updated {new Date(credential.updated_at).toLocaleString()}
+                    {t("pro.credentials.updated", {
+                      date: new Date(credential.updated_at).toLocaleString(
+                        i18n.resolvedLanguage || i18n.language,
+                      ),
+                    })}
                   </span>
                   <Button
                     danger
                     icon={<Trash2 size={15} />}
+                    aria-label={t("common.delete")}
                     onClick={() =>
                       modal.confirm({
-                        title: `Delete ${credential.name}?`,
-                        content:
-                          "Runtimes using this credential may stop working.",
+                        title: t("pro.credentials.deleteTitle", {
+                          name: credential.name,
+                        }),
+                        content: t("pro.credentials.deleteDescription"),
                         okButtonProps: { danger: true },
                         onOk: async () => {
                           await proApi.deleteCredential(
@@ -527,8 +583,8 @@ export default function ProPage() {
               {credentials.length === 0 && (
                 <EmptyState
                   icon={<KeyRound size={26} />}
-                  title="Vault is empty"
-                  description="Store a tenant or runtime-scoped API key."
+                  title={t("pro.credentials.emptyTitle")}
+                  description={t("pro.credentials.emptyDescription")}
                 />
               )}
             </div>
@@ -537,7 +593,7 @@ export default function ProPage() {
       </main>
 
       <Modal
-        title="Create runtime"
+        title={t("pro.runtimeForm.title")}
         open={runtimeModalOpen}
         onCancel={() => setRuntimeModalOpen(false)}
         footer={null}
@@ -549,35 +605,38 @@ export default function ProPage() {
           initialValues={{ autoStart: true }}
           onFinish={createRuntime}
         >
-          <p className={styles.formHint}>
-            The runtime starts inside the native local sandbox. Its files,
-            secrets and process tree stay separate from other users.
-          </p>
+          <p className={styles.formHint}>{t("pro.runtimeForm.hint")}</p>
           <Form.Item
-            label="Runtime ID"
+            label={t("pro.runtimeForm.runtimeId")}
             name="runtimeId"
             rules={[
-              { required: true },
-              { pattern: /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/ },
+              {
+                required: true,
+                message: t("pro.validation.required"),
+              },
+              {
+                pattern: /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/,
+                message: t("pro.validation.runtimeIdInvalid"),
+              },
             ]}
           >
             <Input placeholder="research-runtime" autoFocus />
           </Form.Item>
           <Form.Item
-            label="Start immediately"
+            label={t("pro.runtimeForm.startImmediately")}
             name="autoStart"
             valuePropName="checked"
           >
             <Switch />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            Create runtime
+            {t("pro.runtimeForm.submit")}
           </Button>
         </Form>
       </Modal>
 
       <Modal
-        title="Add account"
+        title={t("pro.userForm.title")}
         open={userModalOpen}
         onCancel={() => setUserModalOpen(false)}
         footer={null}
@@ -589,40 +648,51 @@ export default function ProPage() {
           initialValues={{ role: "user" }}
           onFinish={createUser}
         >
-          <p className={styles.formHint}>
-            Use a temporary password with at least eight characters. The user
-            can only access runtimes owned by their personal tenant.
-          </p>
+          <p className={styles.formHint}>{t("pro.userForm.hint")}</p>
           <Form.Item
-            label="Username"
+            label={t("pro.userForm.username")}
             name="username"
-            rules={[{ required: true }]}
+            rules={[
+              {
+                required: true,
+                message: t("pro.validation.required"),
+              },
+            ]}
           >
             <Input autoFocus />
           </Form.Item>
           <Form.Item
-            label="Temporary password"
+            label={t("pro.userForm.temporaryPassword")}
             name="password"
-            rules={[{ required: true, min: 8 }]}
+            rules={[
+              {
+                required: true,
+                message: t("pro.validation.required"),
+              },
+              {
+                min: 8,
+                message: t("pro.validation.passwordMin"),
+              },
+            ]}
           >
             <Input.Password />
           </Form.Item>
-          <Form.Item label="Role" name="role">
+          <Form.Item label={t("pro.userForm.role")} name="role">
             <Select
               options={[
-                { label: "User", value: "user" },
-                { label: "Administrator", value: "admin" },
+                { label: t("pro.roles.user"), value: "user" },
+                { label: t("pro.roles.admin"), value: "admin" },
               ]}
             />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            Create account
+            {t("pro.userForm.submit")}
           </Button>
         </Form>
       </Modal>
 
       <Modal
-        title="Store credential"
+        title={t("pro.credentialForm.title")}
         open={credentialModalOpen}
         onCancel={() => setCredentialModalOpen(false)}
         footer={null}
@@ -634,34 +704,57 @@ export default function ProPage() {
           initialValues={{ scope: "tenant" }}
           onFinish={saveCredential}
         >
-          <p className={styles.formHint}>
-            Tenant scope applies to all of your runtimes. Runtime scope is a
-            private override for one selected process.
-          </p>
-          <Form.Item label="Scope" name="scope" rules={[{ required: true }]}>
+          <p className={styles.formHint}>{t("pro.credentialForm.hint")}</p>
+          <Form.Item
+            label={t("pro.credentialForm.scope")}
+            name="scope"
+            rules={[
+              {
+                required: true,
+                message: t("pro.validation.required"),
+              },
+            ]}
+          >
             <Select
               options={[
-                { label: "All my runtimes", value: "tenant" },
+                {
+                  label: t("pro.credentialForm.allRuntimes"),
+                  value: "tenant",
+                },
                 ...runtimeOptions,
               ]}
             />
           </Form.Item>
           <Form.Item
-            label="Environment name"
+            label={t("pro.credentialForm.environmentName")}
             name="name"
-            rules={[{ required: true }, { pattern: /^[A-Z][A-Z0-9_]{0,127}$/ }]}
+            rules={[
+              {
+                required: true,
+                message: t("pro.validation.required"),
+              },
+              {
+                pattern: /^[A-Z][A-Z0-9_]{0,127}$/,
+                message: t("pro.validation.credentialNameInvalid"),
+              },
+            ]}
           >
             <Input placeholder="OPENAI_API_KEY" />
           </Form.Item>
           <Form.Item
-            label="Secret value"
+            label={t("pro.credentialForm.secretValue")}
             name="value"
-            rules={[{ required: true }]}
+            rules={[
+              {
+                required: true,
+                message: t("pro.validation.required"),
+              },
+            ]}
           >
             <Input.Password autoComplete="new-password" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            Encrypt and store
+            {t("pro.credentialForm.submit")}
           </Button>
         </Form>
       </Modal>
