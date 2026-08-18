@@ -29,7 +29,53 @@ from ..config import load_config
 from ..constant import WORKING_DIR
 from ..exceptions import SkillsError
 from ..security.skill_scanner import SkillScanError, scan_skill_directory
-from .utils import prompt_checkbox, prompt_confirm
+from .utils import prompt_checkbox, prompt_confirm, prompt_text
+
+
+def _filter_skill_options(
+    options: list[tuple[str, str]],
+    query: str,
+) -> list[tuple[str, str]]:
+    """Filter skill options by name using a case-insensitive substring."""
+    normalized_query = query.strip().casefold()
+    if not normalized_query:
+        return options
+    return [
+        option
+        for option in options
+        if normalized_query in option[1].casefold()
+    ]
+
+
+def _merge_filtered_skill_selection(
+    selected: list[str],
+    visible_names: set[str],
+    enabled: set[str],
+) -> set[str]:
+    """Preserve enabled skills hidden by a search filter."""
+    return (enabled - visible_names) | set(selected)
+
+
+def _prompt_filtered_skill_options(
+    options: list[tuple[str, str]],
+) -> list[tuple[str, str]] | None:
+    """Prompt for a search query until it matches at least one skill."""
+    while True:
+        search_query = prompt_text(
+            "Search skills (leave blank to show all):",
+        )
+        if search_query is None:
+            return None
+
+        visible_options = _filter_skill_options(options, search_query)
+        if visible_options:
+            if search_query.strip():
+                click.echo(
+                    f"Showing {len(visible_options)} of "
+                    f"{len(options)} skills.",
+                )
+            return visible_options
+        click.echo(f'No skills match "{search_query.strip()}". Try again.\n')
 
 
 def _get_agent_workspace(agent_id: str) -> Path:
@@ -269,11 +315,15 @@ def configure_skills_interactive(
         options.append((label, skill.name))
 
     click.echo("\n=== Skills Configuration ===")
+    visible_options = _prompt_filtered_skill_options(options)
+    if visible_options is None:
+        click.echo("\n\nOperation cancelled.")
+        return
     click.echo("Use ↑/↓ to move, <space> to toggle, <enter> to confirm.\n")
 
     selected = prompt_checkbox(
         "Select skills to enable:",
-        options=options,
+        options=visible_options,
         checked=default_checked,
         select_all_option=False,
     )
@@ -282,7 +332,12 @@ def configure_skills_interactive(
         click.echo("\n\nOperation cancelled.")
         return
 
-    selected_set = set(selected)
+    visible_names = {value for _, value in visible_options}
+    selected_set = _merge_filtered_skill_selection(
+        selected,
+        visible_names,
+        enabled,
+    )
     to_install = selected_set - installed_names
     to_enable = (selected_set & installed_names) - enabled
     to_disable = enabled - selected_set

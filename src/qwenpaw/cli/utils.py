@@ -67,6 +67,14 @@ def prompt_path(label: str, *, default: str = "") -> str:
         # Otherwise loop and re-prompt
 
 
+def prompt_text(question: str, *, default: str = "") -> Optional[str]:
+    """Prompt the user for a line of text.
+
+    Returns the entered text, or ``None`` on Ctrl+C.
+    """
+    return questionary.text(question, default=default).ask()
+
+
 def prompt_choice(
     question: str,
     options: list[str],
