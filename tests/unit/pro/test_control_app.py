@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 from fastapi.testclient import TestClient
 
+from qwenpaw.__version__ import __version__
 from qwenpaw.pro.auth import ProAuthService
 from qwenpaw.pro.config import ProConfig
 from qwenpaw.pro.control_app import create_pro_app
@@ -113,6 +114,15 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        response = client.get("/api/version")
+
+        assert response.status_code == 200
+        assert response.json() == {"version": __version__}
+        assert client.app.state.runtime_service.registry.list() == []
+
+
 def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         admin_token = _register(client, "owner")
@@ -193,7 +203,7 @@ def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:
 
 def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
     async def proxy_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/version"
+        assert request.url.path == "/api/runtime-probe"
         assert request.headers["X-QwenPaw-Pro-Runtime-Token"]
         assert "authorization" not in request.headers
         return httpx.Response(
@@ -206,7 +216,7 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
     with _client(tmp_path, transport) as client:
         token = _register(client, "owner")
         response = client.get(
-            "/api/version",
+            "/api/runtime-probe",
             headers=_headers(token),
         )
 

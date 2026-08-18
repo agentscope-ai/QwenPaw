@@ -441,10 +441,12 @@ Docker socket、默认断网、资源配额和 fail-closed。Kubernetes driver �
 - [x] 将配置中的注册策略回写 SQLite，并保留管理员 UI 修改能力。
 - [x] 配置默认/允许 Runtime driver 与 tenant Runtime 准入限制。
 - [x] 补齐配置解析、覆盖优先级、quota 和 CLI 单元测试。
+- [x] 为 Pro 控制面提供公开只读 `/api/version`，避免 Console 探针 401。
+- [x] 验证版本探针不认证、不创建或启动租户 Runtime。
 - [x] 完成 UI 回归、后端测试、生产构建和本地端到端验证。
 - [x] 整理 scope、用法、安全边界和测试结果并创建 Draft PR。
 - [ ] 增加 Windows adapter 和三平台隔离集成测试。
-- [x] conda `QwenPaw` 环境完整 unit suite 通过（7324 passed，20 skipped）。
+- [x] conda `QwenPaw` 环境完整 unit suite 通过（7325 passed，20 skipped）。
 
 ## 参考
 

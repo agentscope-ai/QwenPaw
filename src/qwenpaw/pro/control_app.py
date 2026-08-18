@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
+from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from .auth import ProAuthService, ProUser
@@ -273,6 +274,11 @@ def create_pro_app(  # pylint: disable=too-many-statements
             "security_levels": security_levels,
             "drivers": sorted(runtime_service.drivers),
         }
+
+    @app.get("/api/version")
+    async def version() -> dict[str, str]:
+        """Return a public-safe control-plane readiness payload."""
+        return {"version": __version__}
 
     @app.get("/api/auth/status")
     async def auth_status() -> dict[str, object]:
