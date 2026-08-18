@@ -4,7 +4,7 @@
 # pylint: disable=protected-access
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -65,7 +65,10 @@ async def test_watcher_reloads_after_disk_and_channel_change(
     config_path = tmp_path / "agent.json"
     config_path.write_text("{}", encoding="utf-8")
     config = _agent_config(console_enabled=True)
-    manager = SimpleNamespace(reload_agent=AsyncMock(return_value=True))
+    manager = SimpleNamespace(
+        note_agent_config_changed=Mock(),
+        reload_agent=AsyncMock(return_value=True),
+    )
     workspace = SimpleNamespace(_manager=manager)
     watcher = watcher_module.AgentConfigWatcher(
         "agent",
@@ -83,4 +86,5 @@ async def test_watcher_reloads_after_disk_and_channel_change(
     config_path.write_text('{"changed": true}', encoding="utf-8")
     await watcher._check()
 
+    manager.note_agent_config_changed.assert_called_once_with("agent")
     manager.reload_agent.assert_awaited_once_with("agent")

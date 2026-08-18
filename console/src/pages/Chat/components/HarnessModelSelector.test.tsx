@@ -107,6 +107,33 @@ describe("HarnessModelSelector", () => {
     );
   });
 
+  it("sends an explicit null when the model has no default effort", async () => {
+    // The PATCH endpoint only touches fields present in the body and
+    // JSON.stringify drops undefined, so a clear must be an explicit
+    // null or the server silently keeps the previous effort.
+    vi.mocked(harnessApi.listModels).mockResolvedValue({
+      models: [
+        {
+          ...models[1],
+          reasoning_efforts: [],
+          default_reasoning_effort: null,
+        },
+      ],
+    });
+
+    renderWithProviders(<HarnessModelSelector providerId="codex" />);
+
+    await waitFor(() =>
+      expect(agentsApi.updateBackendSettings).toHaveBeenCalledWith(
+        "codex-agent",
+        {
+          model: "gpt-codex",
+          reasoning_effort: null,
+        },
+      ),
+    );
+  });
+
   it("does not overwrite an existing model selection", async () => {
     setupAgent("codex-mini");
 

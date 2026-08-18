@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { openExternalLink } from "../../../utils/openExternalLink";
+import styles from "./index.module.less";
 
 interface OAuthConfirmModalProps {
   open: boolean;
@@ -26,18 +27,45 @@ export function OAuthConfirmModal({
   const [phase, setPhase] = useState<"confirm" | "waiting">("confirm");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards in-flight poll/start responses that resolve after close or
+  // unmount so a late "completed" cannot fire onSuccess (and
+  // navigation) from a dead modal. True whenever the modal is not the
+  // open, live instance.
+  const disposedRef = useRef(!open);
+  const startingRef = useRef(false);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    pollRef.current = null;
+    timeoutRef.current = null;
+  }, []);
 
   useEffect(() => {
+    // Only an open modal is live: parents keep this component mounted
+    // and toggle `open`, so the close transition must leave the guard
+    // set or a late poll response would act on a dismissed modal.
+    disposedRef.current = !open;
     if (!open) {
       setPhase("confirm");
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      startingRef.current = false;
+      stopPolling();
     }
-  }, [open]);
+    return () => {
+      disposedRef.current = true;
+      stopPolling();
+    };
+  }, [open, stopPolling]);
 
   const handleContinue = useCallback(async () => {
+    if (startingRef.current) return; // ignore double-clicks
+    startingRef.current = true;
     try {
       const { authorize_url, state } = await providerApi.startOAuth(providerId);
+      if (disposedRef.current) return; // closed while starting
+      // Never stack timers from overlapping starts: the previous ids
+      // would be overwritten and leak unclearable.
+      stopPolling();
       setPhase("waiting");
 
       openExternalLink(authorize_url, "_blank", "popup,width=600,height=700");
@@ -49,16 +77,15 @@ export function OAuthConfirmModal({
             providerId,
             state,
           );
+          if (disposedRef.current) return;
           if (status === "completed") {
-            if (pollRef.current) clearInterval(pollRef.current);
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            stopPolling();
             message.success(
               t("modelSelector.oauthConnected", { provider: providerName }),
             );
             onSuccess();
           } else if (status === "failed") {
-            if (pollRef.current) clearInterval(pollRef.current);
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            stopPolling();
             message.error(t("modelSelector.oauthFailed"));
             onCancel();
           }
@@ -67,17 +94,25 @@ export function OAuthConfirmModal({
         }
       }, 2000);
 
-      // Timeout after 5 minutes
+      // Timeout after 5 minutes: leave the user an explanation and a
+      // way out instead of an eternal spinner.
       timeoutRef.current = setTimeout(() => {
-        if (pollRef.current) clearInterval(pollRef.current);
+        stopPolling();
+        if (disposedRef.current) return;
+        message.error(t("modelSelector.oauthTimeout"));
+        onCancel();
       }, 300000);
     } catch (err) {
-      message.error(
-        err instanceof Error ? err.message : t("modelSelector.oauthFailed"),
-      );
-      onCancel();
+      if (!disposedRef.current) {
+        message.error(
+          err instanceof Error ? err.message : t("modelSelector.oauthFailed"),
+        );
+        onCancel();
+      }
+    } finally {
+      startingRef.current = false;
     }
-  }, [providerId, providerName, onSuccess, onCancel, message, t]);
+  }, [providerId, providerName, onSuccess, onCancel, message, t, stopPolling]);
 
   return (
     <Modal
@@ -89,23 +124,15 @@ export function OAuthConfirmModal({
       width={420}
     >
       {phase === "confirm" ? (
-        <div style={{ textAlign: "center", padding: "16px 0" }}>
-          <ExternalLink
-            size={40}
-            style={{ color: "#6366f1", marginBottom: 16 }}
-          />
-          <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600 }}>
+        <div className={styles.oauthModalContent}>
+          <ExternalLink size={40} className={styles.oauthModalIcon} />
+          <h3 className={styles.oauthModalTitle}>
             {t("modelSelector.oauthTitle", { provider: providerName })}
           </h3>
-          <p
-            style={{
-              color: "var(--text-secondary, rgba(0,0,0,0.45))",
-              margin: "0 0 24px",
-            }}
-          >
+          <p className={styles.oauthModalDescription}>
             {t("modelSelector.oauthDescription", { provider: providerName })}
           </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <div className={styles.oauthModalActions}>
             <Button onClick={onCancel}>{t("common.cancel")}</Button>
             <Button type="primary" onClick={handleContinue}>
               {t("modelSelector.oauthContinue")}
@@ -113,20 +140,12 @@ export function OAuthConfirmModal({
           </div>
         </div>
       ) : (
-        <div style={{ textAlign: "center", padding: "24px 0" }}>
-          <Loader2
-            size={32}
-            style={{ color: "#6366f1", animation: "spin 1s linear infinite" }}
-          />
-          <h3 style={{ margin: "16px 0 8px", fontSize: 16, fontWeight: 600 }}>
+        <div className={styles.oauthModalContent} role="status">
+          <Loader2 size={32} className={styles.oauthModalSpinner} />
+          <h3 className={styles.oauthModalWaitingTitle}>
             {t("modelSelector.oauthWaiting")}
           </h3>
-          <p
-            style={{
-              color: "var(--text-secondary, rgba(0,0,0,0.45))",
-              margin: "0 0 24px",
-            }}
-          >
+          <p className={styles.oauthModalDescription}>
             {t("modelSelector.oauthWaitingDescription")}
           </p>
           <Button onClick={onCancel}>{t("common.cancel")}</Button>

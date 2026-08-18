@@ -445,6 +445,14 @@ class ConsoleConfig(BaseChannelConfig):
     enabled: bool = True
     media_dir: Optional[str] = None
 
+    @field_validator("enabled")
+    @classmethod
+    def keep_console_enabled(cls, value: bool) -> bool:
+        """Keep the required console channel enabled."""
+        if not value:
+            return True
+        return value
+
 
 class WecomConfig(BaseChannelConfig):
     """WeCom (Enterprise WeChat) AI Bot channel config."""
@@ -1899,6 +1907,15 @@ class CodingModeConfig(BaseModel):
     )
 
 
+class FallbackPolicyConfig(BaseModel):
+    """Policy controlling cross-model fallback targets."""
+
+    enabled: bool = Field(default=True)
+    target_scope: Literal["configured", "free_only"] = Field(
+        default="configured",
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -1970,6 +1987,28 @@ class AgentProfileConfig(BaseModel):
     active_model: Optional["ModelSlotConfig"] = Field(
         default=None,
         description="Active model for this agent (provider_id + model)",
+    )
+    fallback_models: List["ModelSlotConfig"] = Field(
+        default_factory=list,
+        description="Ordered model fallback chain for transient failures",
+    )
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+        description="Cross-model fallback policy",
+    )
+    subagent_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Optional cheaper model used by spawned subagents",
+    )
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ] = Field(
+        default="inherit",
+        description="Provider-independent agent reasoning level",
     )
     language: str = Field(
         default="zh",
@@ -3048,7 +3087,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             isinstance(cached_entry, _AgentConfigCacheEntry)
             and cached_entry.fingerprint == current_fingerprint
         ):
-            return cached_entry.config
+            return cached_entry.config.model_copy(deep=True)
 
         try:
             raw_content, current_fingerprint = _read_agent_config_snapshot(
@@ -3195,11 +3234,11 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             _agent_config_cache.pop(agent_id, None)
         else:
             _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
-                config=agent_config,
+                config=agent_config.model_copy(deep=True),
                 fingerprint=current_fingerprint,
             )
 
-        return agent_config
+        return agent_config.model_copy(deep=True)
 
 
 def save_agent_config(
@@ -3232,9 +3271,10 @@ def save_agent_config(
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
     agent_config_path = workspace_dir / "agent.json"
+    candidate = agent_config.model_copy(deep=True)
     with _agent_config_lock:
         try:
-            source_digest = agent_config.source_digest()
+            source_digest = candidate.source_digest()
             if source_digest is not None:
                 _assert_agent_config_unchanged(
                     agent_config_path,
@@ -3242,9 +3282,10 @@ def save_agent_config(
                     agent_id,
                 )
 
-            payload = agent_config.model_dump(exclude_none=True)
+            payload = candidate.model_dump(exclude_none=True)
             saved_digest = _json_payload_digest(payload)
             write_json_atomic(agent_config_path, payload)
+            candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)
             try:
                 saved_fingerprint = _agent_config_fingerprint(
@@ -3254,12 +3295,26 @@ def save_agent_config(
                 _agent_config_cache.pop(agent_id, None)
             else:
                 _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
-                    config=agent_config,
+                    config=candidate.model_copy(deep=True),
                     fingerprint=saved_fingerprint,
                 )
         except Exception:
             _agent_config_cache.pop(agent_id, None)
             raise
+
+
+def mutate_agent_config(
+    agent_id: str,
+    mutator: Callable[[AgentProfileConfig], None],
+) -> AgentProfileConfig:
+    """Apply one agent-profile mutation as an atomic transaction."""
+    from .utils import _agent_config_lock
+
+    with _agent_config_lock:
+        candidate = load_agent_config(agent_id)
+        mutator(candidate)
+        save_agent_config(agent_id, candidate)
+        return candidate.model_copy(deep=True)
 
 
 async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
@@ -3275,22 +3330,14 @@ async def update_agent_config_async(
 ) -> AgentProfileConfig:
     """Atomically read, mutate, and durably save one agent configuration.
 
-    The complete legacy transaction runs in a worker thread while holding the
-    same re-entrant lock used by synchronous readers and writers. This avoids
-    blocking the event loop without introducing an await boundary between the
-    read and write phases.
+    The complete transaction runs in a worker thread while holding the
+    same re-entrant lock used by synchronous readers and writers. This
+    avoids blocking the event loop without introducing an await boundary
+    between the read and write phases.
     """
     from ..utils.io_utils import run_sync_io
-    from .utils import _agent_config_lock
 
-    def update_sync() -> AgentProfileConfig:
-        with _agent_config_lock:
-            agent_config = load_agent_config(agent_id).model_copy(deep=True)
-            updater(agent_config)
-            save_agent_config(agent_id, agent_config)
-            return agent_config
-
-    return await run_sync_io(update_sync)
+    return await run_sync_io(mutate_agent_config, agent_id, updater)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

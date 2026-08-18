@@ -49,6 +49,8 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.integration.helpers import app_startup_wait_timeout
+
 _INTEGRATION_COVERAGE_DIR: Path | None = None
 _COVERAGE_SUBPROC_BASENAME = "integration_subproc"
 _COVERAGE_RCFILE_NAME = "coverage_subprocess.ini"
@@ -311,6 +313,7 @@ class AppServer:
 
 @pytest.fixture(scope="module")
 def app_server(  # pylint: disable=too-many-statements,too-many-branches
+    request: pytest.FixtureRequest,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[AppServer]:
     """Start one isolated qwenpaw app process per test module.
@@ -319,6 +322,11 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     isolation is preserved by re-launching with a fresh tmp dir. Cases must
     use unique resource ids (agent_id, chat_id, ...) to stay isolated within
     a module — current convention (e.g. ``integ_ws_01``) already supports this.
+
+    A test module may declare ``APP_SERVER_EXTRA_ENV: dict[str, str]`` (or a
+    zero-arg callable returning such a dict) to inject extra environment
+    variables into the subprocess — e.g. pointing channel endpoints at local
+    mock IM servers (``QQ_TOKEN_URL``/``QQ_API_BASE``).
     """
     tmp_path = tmp_path_factory.mktemp("app_server")
     host = "127.0.0.1"
@@ -354,6 +362,12 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     # _tee_stream reader on Windows where the default console encoding
     # is cp1252.
     env["PYTHONIOENCODING"] = "utf-8"
+
+    extra_env = getattr(request.module, "APP_SERVER_EXTRA_ENV", None)
+    if callable(extra_env):
+        extra_env = extra_env()
+    if extra_env:
+        env.update({str(k): str(v) for k, v in extra_env.items()})
 
     if _integration_coverage_requested():
         if _INTEGRATION_COVERAGE_DIR is None:
@@ -416,7 +430,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:
-            max_wait_seconds = 60
+            max_wait_seconds = app_startup_wait_timeout()
             start_at = time.time()
             last_error: str | None = None
             while time.time() - start_at < max_wait_seconds:

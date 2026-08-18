@@ -3,6 +3,7 @@
 import json
 import logging
 from types import SimpleNamespace
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,6 +36,32 @@ def _msg(role: str, text: str, *, name: str | None = None, msg_id: str = ""):
     if msg_id:
         msg.id = msg_id
     return msg
+
+
+@pytest.mark.asyncio
+async def test_agent_config_load_runs_in_worker_thread(monkeypatch) -> None:
+    """Async command handlers must not read config on the event loop."""
+    event_loop_thread = threading.get_ident()
+    load_threads = []
+
+    def load_config(agent_id: str):
+        load_threads.append((agent_id, threading.get_ident()))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.command_handler.load_agent_config",
+        load_config,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        state=SimpleNamespace(context=[]),
+        agent_id="agent-1",
+    )
+
+    await handler._get_agent_config_async()
+
+    assert load_threads[0][0] == "agent-1"
+    assert load_threads[0][1] != event_loop_thread
 
 
 @pytest.mark.asyncio

@@ -8,27 +8,12 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  color: #333;
   transition: all 0.15s ease;
   user-select: none;
   max-width: 260px;
 
-  &:hover,
-  &.triggerActive {
-    border-color: #ff7f16;
-    color: #ff7f16;
-    box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
-  }
-
   @media (max-width: 768px) {
-    max-width: 140px;
-    padding: 4px 6px;
     gap: 3px;
-  }
-
-  @media (max-width: 480px) {
-    max-width: 96px;
-    font-size: 13px;
   }
 }
 
@@ -38,13 +23,8 @@
   white-space: nowrap;
   max-width: 180px;
 
-  @media (max-width: 768px) {
-    max-width: 90px;
-  }
-
   @media (max-width: 480px) {
     position: relative;
-    max-width: 60px;
     overflow: hidden;
     text-overflow: clip;
 
@@ -54,6 +34,15 @@
       animation: modelSelectorMarquee 10s linear infinite;
     }
   }
+}
+
+.fallbackBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
 }
 
 .marquee {
@@ -69,31 +58,12 @@
   }
 }
 
-.providerIcon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  border-radius: 2px;
-  object-fit: contain;
-}
-
 /* ---- Dropdown panel ---- */
 .panel {
-  width: 360px;
-  max-height: 480px;
-  border-radius: 8px;
-  background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-
-  @media (max-width: 768px) {
-    width: calc(100vw - 32px);
-    max-width: 360px;
-    max-height: 60vh;
-  }
 }
 
 /* ---- Search box ---- */
@@ -101,7 +71,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
 }
@@ -118,45 +87,29 @@
   outline: none;
   background: transparent;
   font-size: 14px;
-  color: #333;
   padding: 0;
   min-width: 0;
-
-  &::placeholder {
-    color: #bbb;
-  }
 }
 
 .searchClear {
   font-size: 14px;
-  color: #bbb;
-  cursor: pointer;
   flex-shrink: 0;
   transition: color 0.15s;
-
-  &:hover {
-    color: #999;
-  }
 }
 
 /* ---- Tab bar ---- */
 .tabBar {
   display: flex;
-  gap: 0;
-  padding: 0 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
 }
 
 .tabButton {
   flex: 1;
-  padding: 8px 0;
   border: none;
   background: transparent;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.5px;
-  color: #999;
   cursor: pointer;
   position: relative;
   transition: color 0.15s;
@@ -164,34 +117,16 @@
   &:hover {
     color: #666;
   }
-
-  &.tabButtonActive {
-    color: #ff7f16;
-
-    &::after {
-      content: "";
-      position: absolute;
-      bottom: 0;
-      left: 20%;
-      right: 20%;
-      height: 2px;
-      background: #ff7f16;
-      border-radius: 1px;
-    }
-  }
 }
 
 /* ---- List container ---- */
 .listContainer {
   overflow-y: auto;
   flex: 1;
-  padding: 4px 0;
 }
 
 /* ---- Provider group ---- */
 .providerGroup {
-  margin-bottom: 4px;
-
   &:last-child {
     margin-bottom: 0;
   }
@@ -201,17 +136,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
   font-size: 12px;
   font-weight: 500;
-  color: #999;
   letter-spacing: 0.5px;
   cursor: pointer;
   user-select: none;
-
-  &:hover {
-    color: #666;
-  }
 }
 
 .providerHeaderName {
@@ -238,28 +167,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px 7px 20px;
-  margin: 0 4px;
-  cursor: pointer;
   font-size: 14px;
-  color: #333;
   transition: background 0.12s;
   gap: 8px;
   border-radius: 6px;
 
-  &:hover {
-    background: rgba(97, 92, 237, 0.06);
-    color: #333;
-  }
-
   &.modelItemActive {
-    background: rgba(255, 127, 22, 0.08);
-    color: #ff7f16;
     font-weight: 500;
-
-    .modelName {
-      color: #ff7f16;
-    }
   }
 }
 
@@ -285,8 +199,6 @@
   border-radius: 99px;
   font-size: 11px;
   font-weight: 500;
-  color: #52c41a;
-  background: rgba(82, 196, 26, 0.1);
   border: 1px solid rgba(82, 196, 26, 0.2);
   white-space: nowrap;
 }
@@ -298,8 +210,6 @@
   border-radius: 99px;
   font-size: 11px;
   font-weight: 500;
-  color: #1890ff;
-  background: rgba(24, 144, 255, 0.1);
   border: 1px solid rgba(24, 144, 255, 0.2);
   white-space: nowrap;
 }
@@ -307,7 +217,305 @@
 .checkIcon {
   flex-shrink: 0;
   font-size: 14px;
-  color: #ff7f16;
+}
+
+.pinButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  color: #8b8b82;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+
+  &:hover {
+    color: #c46a28;
+    background: rgba(196, 106, 40, 0.08);
+  }
+}
+
+.showAllButton {
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(83, 80, 72, 0.14);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: rgba(196, 106, 40, 0.35);
+  }
+}
+
+.candidateItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(83, 80, 72, 0.12);
+  border-radius: 9px;
+}
+
+.candidateModelSection,
+.agentModelSettings {
+  margin: 8px;
+  border: 1px solid rgba(83, 80, 72, 0.12);
+  border-radius: 9px;
+}
+
+.candidateSectionToggle,
+.agentSettingsToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #4f4b43;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    color: #a85620;
+    background: rgba(168, 86, 32, 0.08);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.candidateSectionTitle {
+  flex: 1;
+  text-align: left;
+}
+
+.candidateSectionMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.candidateSectionBody {
+  padding: 2px 2px 6px;
+}
+
+.candidateIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #34322d;
+  font-size: 13px;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.candidateSecondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 5px;
+  border: 0;
+  border-radius: 7px;
+  color: #817c72;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    color: #a85620;
+    background: rgba(168, 86, 32, 0.08);
+  }
+}
+
+.addCandidateButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hiddenModels {
+  margin: 8px;
+  border-top: 1px solid rgba(83, 80, 72, 0.12);
+  color: #6f6a61;
+  font-size: 12px;
+
+  summary {
+    padding: 9px 2px 5px;
+    cursor: pointer;
+  }
+}
+
+.hiddenModelItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 2px;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 7px;
+    border: 1px solid rgba(83, 80, 72, 0.14);
+    border-radius: 6px;
+    color: #5f5b52;
+    background: transparent;
+    cursor: pointer;
+  }
+}
+
+.settingsHint {
+  margin: -2px 0 4px;
+  color: rgba(60, 58, 52, 0.58);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agentSettingsToggle {
+  span {
+    flex: 1;
+    text-align: left;
+  }
+}
+
+.agentSettingsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 2px 10px 10px;
+}
+
+.settingsRow {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: #5f5b52;
+  font-size: 12px;
+
+  select {
+    min-width: 0;
+    padding: 5px 7px;
+    border: 1px solid rgba(83, 80, 72, 0.16);
+    border-radius: 6px;
+    color: #34322d;
+    background: #fff;
+  }
+}
+
+.settingsCheckRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #5f5b52;
+  font-size: 12px;
+}
+
+.fallbackComposer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 6px;
+
+  select,
+  button {
+    min-width: 0;
+    padding: 5px 7px;
+    border: 1px solid rgba(83, 80, 72, 0.16);
+    border-radius: 6px;
+    color: #34322d;
+    background: #fff;
+  }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+}
+
+.fallbackList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  > div {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    background: rgba(83, 80, 72, 0.05);
+  }
+
+  span {
+    flex: 1;
+    overflow: hidden;
+    color: #4f4b43;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: inline-flex;
+    padding: 2px;
+    border: 0;
+    color: #817c72;
+    background: transparent;
+    cursor: pointer;
+  }
+}
+
+.saveAgentSettings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.spinning {
+  animation: modelSelectorSpin 0.8s linear infinite;
+}
+
+@keyframes modelSelectorSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .emptyTip {
@@ -327,19 +535,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 8px 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: rgba(250, 173, 20, 0.08);
-  border: 1px solid rgba(250, 173, 20, 0.2);
   font-size: 12px;
-  color: #d48806;
   line-height: 1.4;
 }
 
 .freeBannerIcon {
   flex-shrink: 0;
-  color: #faad14;
 }
 
 /* ---- Pro section hint banner ---- */
@@ -347,19 +548,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 8px 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.03);
   font-size: 12px;
-  color: #8c8c8c;
   line-height: 1.4;
 }
 
 /* ---- OAuth warning icon on model items ---- */
 .oauthWarningIcon {
   flex-shrink: 0;
-  color: #faad14;
 }
 
 /* ---- More toggle ---- */
@@ -370,14 +565,8 @@
   padding: 8px 16px;
   margin: 4px 4px 0;
   font-size: 12px;
-  color: #999;
   cursor: pointer;
   user-select: none;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-
-  &:hover {
-    color: #666;
-  }
 
   :global(.anticon) {
     font-size: 10px;
@@ -404,16 +593,10 @@
 }
 
 .viewMore {
-  text-align: center;
   font-size: 12px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
   padding: 6px 0;
   cursor: pointer;
   transition: color 0.2s;
-
-  &:hover {
-    color: var(--primary-color, #6366f1);
-  }
 }
 
 /* ---- OAuth connect entry ---- */
@@ -425,18 +608,11 @@
   margin: 0 4px;
   cursor: pointer;
   font-size: 13px;
-  color: #6366f1;
-  border-radius: 6px;
   transition: background 0.12s;
-
-  &:hover {
-    background: rgba(99, 102, 241, 0.06);
-  }
 }
 
 .connectIcon {
   flex-shrink: 0;
-  color: #6366f1;
 }
 
 .connectHint {
@@ -445,167 +621,498 @@
   color: #bbb;
 }
 
-/* ─── Dark mode overrides ─────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .trigger {
-    color: rgba(255, 255, 255, 0.85);
+/* Scoped design tokens keep the selector visually consistent without changing
+   the Console-wide theme contract. */
+.panel,
+.trigger,
+.oauthModalContent {
+  --ms-accent: #9a5b34;
+  --ms-accent-strong: #7d4528;
+  --ms-accent-soft: rgba(154, 91, 52, 0.1);
+  --ms-surface: #fffefa;
+  --ms-surface-muted: #f7f5ef;
+  --ms-border: rgba(67, 61, 52, 0.14);
+  --ms-text: #302e29;
+  --ms-text-muted: #716c62;
+  --ms-focus: rgba(154, 91, 52, 0.32);
+}
 
-    &:hover,
-    &.triggerActive {
-      color: #ff7f16;
-      box-shadow: 0 2px 8px rgba(97, 92, 237, 0.2);
-    }
+.trigger {
+  min-height: 36px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ms-text);
+  font-family: inherit;
+
+  &:hover,
+  &.triggerActive {
+    border-color: var(--ms-border);
+    color: var(--ms-accent-strong);
+    background: var(--ms-surface-muted);
+    box-shadow: 0 6px 18px rgba(58, 48, 38, 0.08);
+  }
+}
+
+.panel {
+  width: 380px;
+  max-height: min(620px, 72vh);
+  border-color: var(--ms-border);
+  border-radius: 14px;
+  background: var(--ms-surface);
+  box-shadow: 0 22px 60px rgba(48, 42, 34, 0.18);
+}
+
+.searchWrapper {
+  min-height: 48px;
+  padding: 8px 12px;
+  border-bottom-color: var(--ms-border);
+  background: var(--ms-surface);
+}
+
+.searchInput {
+  color: var(--ms-text);
+
+  &::placeholder {
+    color: #989187;
+  }
+}
+
+.searchClear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ms-accent-strong);
+    background: var(--ms-accent-soft);
+  }
+}
+
+.tabBar {
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom-color: var(--ms-border);
+  background: var(--ms-surface-muted);
+}
+
+.tabButton {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  letter-spacing: 0.08em;
+
+  &.tabButtonActive {
+    color: var(--ms-accent-strong);
+    background: var(--ms-surface);
+    box-shadow: 0 1px 5px rgba(48, 42, 34, 0.08);
+  }
+}
+
+.listContainer {
+  padding: 6px;
+  scrollbar-color: rgba(113, 108, 98, 0.35) transparent;
+}
+
+.providerGroup {
+  margin-bottom: 6px;
+}
+
+.providerHeader {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+
+  &:hover {
+    color: var(--ms-text);
+    background: rgba(67, 61, 52, 0.05);
+  }
+}
+
+.modelItem {
+  min-height: 42px;
+  margin: 2px 0;
+  padding: 0 8px 0 4px;
+  color: var(--ms-text);
+  background: transparent;
+  cursor: default;
+
+  &:hover {
+    color: var(--ms-text);
+    background: rgba(67, 61, 52, 0.055);
   }
 
+  &.modelItemActive {
+    color: var(--ms-accent-strong);
+    background: var(--ms-accent-soft);
+
+    .modelName {
+      color: var(--ms-accent-strong);
+    }
+  }
+}
+
+.modelSelectButton {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.62;
+  }
+}
+
+.pinButton,
+.candidateSecondaryButton,
+.fallbackList button {
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.freeTag,
+.visionTag {
+  color: var(--ms-accent-strong);
+  background: var(--ms-accent-soft);
+  border-color: rgba(154, 91, 52, 0.2);
+}
+
+.freeBanner,
+.proBanner {
+  margin: 4px 2px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ms-border);
+  border-radius: 9px;
+  color: var(--ms-text-muted);
+  background: var(--ms-surface-muted);
+}
+
+.freeBannerIcon,
+.oauthWarningIcon,
+.checkIcon,
+.connectIcon {
+  color: var(--ms-accent);
+}
+
+.viewMore,
+.moreToggle,
+.connectEntry,
+.showAllButton {
+  min-height: 38px;
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: transparent;
+  font-family: inherit;
+}
+
+.viewMore,
+.moreToggle,
+.connectEntry {
+  width: 100%;
+  border: 0;
+  text-align: left;
+}
+
+.viewMore:hover,
+.moreToggle:hover,
+.connectEntry:hover,
+.showAllButton:hover {
+  color: var(--ms-accent-strong);
+  background: var(--ms-accent-soft);
+}
+
+.candidateItem,
+.candidateModelSection,
+.agentModelSettings {
+  border-color: var(--ms-border);
+  background: var(--ms-surface-muted);
+}
+
+.candidateItem {
+  min-height: 48px;
+}
+
+.addCandidateButton,
+.saveAgentSettings {
+  min-height: 34px;
+  background: var(--ms-accent-strong);
+
+  &:hover:not(:disabled) {
+    background: #69391f;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.candidateSectionToggle,
+.agentSettingsToggle {
+  min-height: 40px;
+}
+
+.settingsStatus,
+.settingsError,
+.loadError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: rgba(154, 91, 52, 0.08);
+  font-size: 12px;
+}
+
+.settingsStatus {
+  justify-content: center;
+}
+
+.settingsError button,
+.loadError button {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid rgba(154, 91, 52, 0.28);
+  border-radius: 7px;
+  color: var(--ms-accent-strong);
+  background: var(--ms-surface);
+  cursor: pointer;
+}
+
+.loadError {
+  margin: 2px 2px 8px;
+}
+
+.spinWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--ms-text-muted);
+}
+
+.fallbackBadge {
+  max-width: 132px;
+  color: var(--ms-accent-strong);
+  background: var(--ms-accent-soft);
+
+  > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.oauthModalContent {
+  padding: 20px 8px 8px;
+  color: var(--ms-text);
+  text-align: center;
+}
+
+.oauthModalIcon,
+.oauthModalSpinner {
+  color: var(--ms-accent);
+}
+
+.oauthModalTitle,
+.oauthModalWaitingTitle {
+  margin: 12px 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.oauthModalWaitingTitle {
+  margin-top: 16px;
+}
+
+.oauthModalDescription {
+  max-width: 340px;
+  margin: 0 auto 24px;
+  color: var(--ms-text-muted);
+  line-height: 1.6;
+}
+
+.oauthModalActions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.oauthModalSpinner {
+  animation: modelSelectorSpin 0.8s linear infinite;
+}
+
+.trigger:focus-visible,
+.searchClear:focus-visible,
+.tabButton:focus-visible,
+.providerHeader:focus-visible,
+.modelSelectButton:focus-visible,
+.pinButton:focus-visible,
+.viewMore:focus-visible,
+.moreToggle:focus-visible,
+.connectEntry:focus-visible,
+.showAllButton:focus-visible,
+.candidateSectionToggle:focus-visible,
+.candidateSecondaryButton:focus-visible,
+.addCandidateButton:focus-visible,
+.agentSettingsToggle:focus-visible,
+.agentSettingsBody button:focus-visible,
+.agentSettingsBody select:focus-visible,
+.hiddenModelItem button:focus-visible {
+  outline: 3px solid var(--ms-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
   .panel {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    width: min(420px, calc(100vw - 20px));
+    max-width: none;
+    max-height: min(680px, 72vh);
   }
 
-  .searchWrapper {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
+  .trigger {
+    max-width: min(230px, 55vw);
+    padding: 4px 7px;
   }
 
-  .searchIcon {
-    color: rgba(255, 255, 255, 0.3);
+  .triggerName {
+    max-width: 92px;
   }
 
-  .searchInput {
-    color: rgba(255, 255, 255, 0.85);
+  .fallbackBadge {
+    display: inline-flex;
+    max-width: 82px;
+    padding: 2px 5px;
 
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.25);
+    > svg:nth-of-type(2) {
+      display: none;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .panel {
+    width: calc(100vw - 12px);
+    max-height: min(640px, 78vh);
+    border-radius: 12px;
+  }
+
+  .trigger {
+    max-width: 58vw;
+    min-height: 34px;
+    font-size: 13px;
+  }
+
+  .triggerName {
+    max-width: 68px;
+  }
+
+  .fallbackBadge {
+    max-width: 64px;
+
+    > span:last-child {
+      max-width: 40px;
     }
   }
 
-  .searchClear {
-    color: rgba(255, 255, 255, 0.25);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.4);
-    }
+  .candidateItem {
+    align-items: stretch;
+    flex-wrap: wrap;
   }
 
-  .tabBar {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
+  .candidateIdentity {
+    width: 100%;
   }
 
-  .tabButton {
-    color: rgba(255, 255, 255, 0.35);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.6);
-    }
-
-    &.tabButtonActive {
-      color: #ff7f16;
-    }
+  .candidateSecondaryButton {
+    margin-left: auto;
   }
 
-  .providerHeader {
-    color: rgba(255, 255, 255, 0.35);
+  .settingsRow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
 
-    &:hover {
-      color: rgba(255, 255, 255, 0.55);
-    }
+@media (prefers-reduced-motion: reduce) {
+  .triggerName > .marquee {
+    padding-left: 0;
   }
 
+  .marquee,
+  .spinning,
+  .oauthModalSpinner,
+  .moreContent {
+    animation: none !important;
+  }
+
+  .trigger,
+  .tabButton,
+  .modelItem,
+  .pinButton,
+  .connectEntry,
   .collapseIcon {
-    color: rgba(255, 255, 255, 0.2);
+    transition: none;
+  }
+}
 
-    .providerHeader:hover & {
-      color: rgba(255, 255, 255, 0.45);
-    }
+:global(.dark-mode) {
+  .panel,
+  .trigger,
+  .oauthModalContent {
+    --ms-accent: #d49a72;
+    --ms-accent-strong: #edb58e;
+    --ms-accent-soft: rgba(212, 154, 114, 0.14);
+    --ms-surface: #211f1b;
+    --ms-surface-muted: #292620;
+    --ms-border: rgba(244, 234, 218, 0.12);
+    --ms-text: rgba(255, 250, 242, 0.9);
+    --ms-text-muted: rgba(255, 250, 242, 0.58);
+    --ms-focus: rgba(237, 181, 142, 0.38);
   }
 
-  .modelItem {
-    color: rgba(255, 255, 255, 0.85);
-
-    &:hover {
-      background: rgba(97, 92, 237, 0.15);
-      color: rgba(255, 255, 255, 0.85);
-    }
-
-    &.modelItemActive {
-      background: rgba(255, 127, 22, 0.12);
-      color: #ff7f16;
-
-      .modelName {
-        color: #ff7f16;
-      }
-    }
+  .panel,
+  .searchWrapper,
+  .tabButton.tabButtonActive {
+    background: var(--ms-surface);
   }
 
-  .emptyTip {
-    color: rgba(255, 255, 255, 0.25);
+  .tabBar,
+  .candidateItem,
+  .candidateModelSection,
+  .agentModelSettings {
+    background: var(--ms-surface-muted);
   }
 
-  .freeTag {
-    color: #73d13d;
-    background: rgba(82, 196, 26, 0.15);
-    border-color: rgba(82, 196, 26, 0.3);
-  }
-
-  .visionTag {
-    color: #40a9ff;
-    background: rgba(24, 144, 255, 0.15);
-    border-color: rgba(24, 144, 255, 0.3);
-  }
-
-  .checkIcon {
-    color: #ff7f16;
-  }
-
-  .proBanner {
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .freeBanner {
-    background: rgba(250, 173, 20, 0.1);
-    border-color: rgba(250, 173, 20, 0.25);
-    color: #ffc53d;
-  }
-
-  .freeBannerIcon {
-    color: #ffc53d;
-  }
-
-  .oauthWarningIcon {
-    color: #ffc53d;
-  }
-
-  .moreToggle {
-    color: rgba(255, 255, 255, 0.35);
-    border-top-color: rgba(255, 255, 255, 0.08);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.55);
-    }
-  }
-
-  .connectEntry {
-    color: #818cf8;
-
-    &:hover {
-      background: rgba(99, 102, 241, 0.15);
-    }
-  }
-
-  .connectIcon {
-    color: #818cf8;
-  }
-
-  .connectHint {
-    color: rgba(255, 255, 255, 0.25);
-  }
-
-  .viewMore {
-    color: rgba(255, 255, 255, 0.35);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.65);
-    }
+  .modelItem:hover,
+  .providerHeader:hover {
+    background: rgba(255, 250, 242, 0.06);
   }
 }

@@ -56,6 +56,12 @@ import {
 import { wrapReplayFastForward } from "./replayFastForward";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import {
+  buildFallbackSystemMessage,
+  modelFallbackEventKey,
+  parseModelFallbackEvents,
+  type ModelFallbackEvent,
+} from "./fallbackNotice";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
@@ -1310,6 +1316,8 @@ export default function ChatPage() {
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
+  const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
+  const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
@@ -2464,6 +2472,7 @@ export default function ChatPage() {
       // agent store and claims the new epoch synchronously with the change,
       // so in-flight results owned by the previous agent are stale by now.
 
+      useTurnUsageStore.getState().invalidateTurn();
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the
       // SDK finishes reloading. Without this guard, scheduleNextSend could
@@ -2531,6 +2540,8 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      pendingFallbackEventsRef.current = [];
+      pendingFallbackEventKeysRef.current.clear();
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
@@ -2588,6 +2599,12 @@ export default function ChatPage() {
           : [];
 
       const identity = sessionApi.getSessionIdentity();
+      const usageTurn = useTurnUsageStore
+        .getState()
+        .beginTurn(
+          selectedAgent,
+          identity.sessionId || session?.session_id || "",
+        );
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
         session_id: identity.sessionId || session?.session_id || "",
@@ -2708,7 +2725,7 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef);
+      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
     },
     [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
@@ -3302,6 +3319,13 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          for (const event of parseModelFallbackEvents(payload)) {
+            const key = modelFallbackEventKey(event);
+            if (pendingFallbackEventKeysRef.current.has(key)) continue;
+            pendingFallbackEventKeysRef.current.add(key);
+            pendingFallbackEventsRef.current.push(event);
+          }
+
           if (payloadCompletesResponse(payload)) {
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
@@ -3322,6 +3346,27 @@ export default function ChatPage() {
                   content: [{ type: "text", text: trailing || errorMsg }],
                 },
               ];
+            }
+            if (pendingFallbackEventsRef.current.length > 0) {
+              const fallbackMessage = buildFallbackSystemMessage(
+                pendingFallbackEventsRef.current,
+                (event) =>
+                  t("chat.modelFallbackNotice", {
+                    from: `${event.from_provider_id || ""}:${
+                      event.from_model_id || ""
+                    }`.replace(/^:/, ""),
+                    to: `${event.to_provider_id || ""}:${
+                      event.to_model_id || ""
+                    }`.replace(/^:/, ""),
+                    reason: event.reason_kind || "unknown",
+                  }),
+              );
+              const output = Array.isArray(payload.output)
+                ? payload.output
+                : [];
+              payload.output = [fallbackMessage, ...output];
+              pendingFallbackEventsRef.current = [];
+              pendingFallbackEventKeysRef.current.clear();
             }
           }
 
@@ -3375,6 +3420,12 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          const usageTurn = useTurnUsageStore
+            .getState()
+            .beginTurn(
+              selectedAgent,
+              reconnectIdentity.sessionId || data.session_id,
+            );
           headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
@@ -3393,6 +3444,7 @@ export default function ChatPage() {
           return wrapChatResponseUsageStream(
             wrapReplayFastForward(response),
             chatRef,
+            usageTurn,
           );
         },
       },

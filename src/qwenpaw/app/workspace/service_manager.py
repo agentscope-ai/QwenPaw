@@ -23,6 +23,8 @@ from typing import (
     Union,
 )
 
+from ...utils.logging import sanitize_log_value
+
 if TYPE_CHECKING:
     from .workspace import Workspace
 
@@ -211,7 +213,8 @@ class ServiceManager:
 
         elapsed = time.perf_counter() - t0
         logger.debug(
-            f"All services started for {self.workspace.agent_id} "
+            "All services started for "
+            f"{sanitize_log_value(self.workspace.agent_id)} "
             f"in {elapsed:.3f}s",
         )
 
@@ -253,21 +256,24 @@ class ServiceManager:
             if elapsed > 0.05:
                 logger.debug(
                     f"Service '{name}' ready for "
-                    f"{self.workspace.agent_id} ({elapsed:.3f}s)",
+                    f"{sanitize_log_value(self.workspace.agent_id)} "
+                    f"({elapsed:.3f}s)",
                 )
 
         except Exception as e:
             if descriptor.optional:
                 logger.warning(
                     f"Optional service '{name}' failed to start for "
-                    f"{self.workspace.agent_id} (continuing without it): {e}",
+                    f"{sanitize_log_value(self.workspace.agent_id)} "
+                    f"(continuing without it): {sanitize_log_value(e)}",
                 )
                 self.reused_services.discard(name)
                 self.services.pop(name, None)
                 return
             logger.exception(
                 f"Failed to start service '{name}' "
-                f"for {self.workspace.agent_id}: {e}",
+                f"for {sanitize_log_value(self.workspace.agent_id)}: "
+                f"{sanitize_log_value(e)}",
             )
             raise
 
@@ -399,7 +405,7 @@ class ServiceManager:
 
         logger.debug(
             f"Service '{descriptor.name}' started for "
-            f"{self.workspace.agent_id}",
+            f"{sanitize_log_value(self.workspace.agent_id)}",
         )
 
     async def stop_all(self, final: bool = False) -> None:

@@ -1643,6 +1643,7 @@
     "oauthWaitingDescription": "Por favor, conclua a autorização na janela do navegador.",
     "oauthConnected": "Conectado ao {{provider}} com sucesso",
     "oauthFailed": "Autorização falhou, tente novamente",
+    "oauthTimeout": "Autorização expirou, tente novamente",
     "viewMore": "Ver mais ({{count}})"
   },
   "tokenUsage": {
@@ -1696,6 +1697,17 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "discoveryOriginApi": "Detectado via API",
+    "discoveryOriginCatalog": "Catálogo oficial",
+    "discoveryOriginBoth": "API + catálogo",
+    "availabilityAvailable": "Disponível",
+    "availabilityPermissionDenied": "Sem permissão",
+    "availabilityNotFound": "Não encontrado",
+    "availabilityIncompatible": "Incompatível com chat",
+    "availabilityRateLimited": "Limite de requisições",
+    "availabilityTransientError": "Temporariamente indisponível",
+    "availabilityUnverified": "Não verificado",
+    "modelAlreadyConfigured": "Configurado",
     "llmConfiguration": "LLM Configuracao",
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",

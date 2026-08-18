@@ -2012,6 +2012,60 @@ def test_execute_subprocess_sync_honors_stop_event(tmp_path):
     assert elapsed < 5.0
 
 
+def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
+    """Fallback kill must be followed by an unconditional process wait."""
+    import threading
+
+    stop_event = threading.Event()
+    stop_event.set()
+    proc = MagicMock()
+    proc.pid = 4321
+    proc.returncode = -9
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired("cmd", 0.5),
+        0,
+    ]
+    stdout_file = MagicMock()
+    stdout_reader = MagicMock()
+    stderr_file = MagicMock()
+    stderr_reader = MagicMock()
+
+    with (
+        patch("qwenpaw.agents.tools.shell.sys.platform", "win32"),
+        patch(
+            "qwenpaw.agents.tools.shell._open_windows_temp_output",
+            side_effect=[
+                (stdout_file, stdout_reader),
+                (stderr_file, stderr_reader),
+            ],
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell.subprocess.Popen",
+            return_value=proc,
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell._kill_process_tree_win32",
+        ) as kill_tree,
+        patch(
+            "qwenpaw.agents.tools.shell._read_temp_output",
+            return_value="",
+        ),
+    ):
+        code, _stdout, _stderr = _execute_subprocess_sync(
+            "echo ok",
+            str(tmp_path),
+            timeout=30.0,
+            stop_event=stop_event,
+        )
+
+    assert code == -1
+    kill_tree.assert_called_once_with(4321)
+    proc.kill.assert_called_once_with()
+    # The final reap is bounded so a child stuck in kernel I/O costs a
+    # leaked handle, not a worker thread parked forever.
+    assert proc.wait.call_args_list[-1].kwargs == {"timeout": 5.0}
+
+
 @pytest.mark.asyncio
 async def test_windows_host_arms_kill_deadline():
     import asyncio

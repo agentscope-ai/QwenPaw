@@ -42,15 +42,15 @@ from pydantic import BaseModel, Field
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
     load_config,
-    save_config,
     AgentsRunningConfig,
 )
+from ...config.utils import mutate_config
 from ...config.config import (
+    EmbeddingModelConfig,
     load_agent_config,
     save_agent_config,
     update_agent_config_async,
 )
-from ...config.config import EmbeddingModelConfig
 from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
     test_embedding_model,
@@ -1293,9 +1293,11 @@ async def put_audio_mode(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    config.agents.audio_mode = audio_mode
-    save_config(config)
+
+    def apply_audio_mode(config: Any) -> None:
+        config.agents.audio_mode = audio_mode
+
+    await run_sync_io(mutate_config, apply_audio_mode)
     return {"audio_mode": audio_mode}
 
 
@@ -1348,9 +1350,11 @@ async def put_transcription_provider_type(
                 f"Must be one of: {', '.join(sorted(valid))}"
             ),
         )
-    config = load_config()
-    config.agents.transcription_provider_type = provider_type
-    save_config(config)
+
+    def apply_provider_type(config: Any) -> None:
+        config.agents.transcription_provider_type = provider_type
+
+    await run_sync_io(mutate_config, apply_provider_type)
     return {"transcription_provider_type": provider_type}
 
 
@@ -1411,9 +1415,11 @@ async def put_transcription_provider(
 ) -> dict:
     """Set the transcription provider."""
     provider_id = (body.get("provider_id") or "").strip()
-    config = load_config()
-    config.agents.transcription_provider_id = provider_id
-    save_config(config)
+
+    def apply_provider(config: Any) -> None:
+        config.agents.transcription_provider_id = provider_id
+
+    await run_sync_io(mutate_config, apply_provider)
     return {"provider_id": provider_id}
 
 

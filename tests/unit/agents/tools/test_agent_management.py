@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -533,6 +534,58 @@ async def test_spawn_subagent_inherits_approval_level(monkeypatch):
 
     context = captured["payload"]["request_context"]
     assert context["approval_level"] == "off"
+
+
+async def test_subagent_model_config_load_runs_off_event_loop(monkeypatch):
+    calls = []
+
+    class Config:
+        subagent_model = None
+
+    def fake_load_agent_config(agent_id):
+        calls.append(("load", agent_id))
+        return Config()
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append(("thread", func))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        agent_management,
+        "load_agent_config",
+        fake_load_agent_config,
+    )
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+
+    await agent_management._build_subagent_request_context("bot-a")
+
+    assert calls[0] == ("thread", fake_load_agent_config)
+    assert calls[1] == ("load", "bot-a")
+
+
+async def test_subagent_model_becomes_request_override(monkeypatch):
+    class Config:
+        subagent_model = SimpleNamespace(
+            model_dump=lambda: {
+                "provider_id": "subagent-provider",
+                "model": "subagent-model",
+            },
+        )
+
+    monkeypatch.setattr(
+        agent_management,
+        "load_agent_config",
+        lambda _agent_id: Config(),
+    )
+
+    context = await agent_management._build_subagent_request_context(
+        "bot-a",
+    )
+
+    assert context["model_slot_override"] == {
+        "provider_id": "subagent-provider",
+        "model": "subagent-model",
+    }
 
 
 def test_normalize_str_list_accepts_json_array_string():

@@ -1,43 +1,29 @@
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useCallback,
-  useDeferredValue,
-} from "react";
+import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import {
   Button,
   Form,
   Input,
-  InputNumber,
   Modal,
-  Slider,
-  Switch,
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete, Segmented } from "antd";
+import { AutoComplete } from "antd";
 import {
-  DeleteOutlined,
-  PlusOutlined,
-  ApiOutlined,
-  EyeOutlined,
-  SettingOutlined,
-  DownOutlined,
-  SearchOutlined,
-  ExperimentOutlined,
-  AppstoreOutlined,
-  VideoCameraOutlined,
-  FileTextOutlined,
-  QuestionCircleOutlined,
-  DatabaseOutlined,
-  UserOutlined,
-  GiftOutlined,
-} from "@ant-design/icons";
+  ChevronDown,
+  CloudCog,
+  Database,
+  FlaskConical,
+  Gift,
+  PlugZap,
+  Plus,
+  Search,
+  Settings,
+  Trash2,
+  User,
+} from "lucide-react";
 import type {
   ProviderInfo,
   SeriesResponse,
-  ModelInfo,
   ExtendedModelInfo,
 } from "../../../../../api/types";
 
@@ -45,7 +31,8 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../../../../contexts/ThemeContext";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
-import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
+import { CapabilityTags, tagColors } from "./ModelCapabilityTags";
+import { ModelConfigEditor } from "./ModelConfigEditor";
 import {
   getLocalizedTestConnectionMessage,
   getTestConnectionFailureDetail,
@@ -53,528 +40,12 @@ import {
 import { OpenRouterFilterSection } from "./OpenRouterFilterSection";
 import styles from "../../index.module.less";
 
-function ModelConfigEditor({
-  providerId,
-  model,
-  onSaved,
-  onProviderUpdated,
-  onClose,
-  isDark,
-  thinkingParamStyle,
-  reasoningEffortOptions,
-  thinkingBudgetRange = [1, 81920],
-  chatModel,
-}: {
-  providerId: string;
-  model: ModelInfo;
-  onSaved: () => void | Promise<void>;
-  onProviderUpdated?: (provider: ProviderInfo) => void;
-  onClose: () => void;
-  isDark: boolean;
-  thinkingParamStyle?: "budget" | "effort" | null;
-  reasoningEffortOptions?: string[];
-  thinkingBudgetRange?: [number, number];
-  chatModel?: string;
-}) {
-  const { t } = useTranslation();
-  const { message } = useAppMessage();
-  const [saving, setSaving] = useState(false);
-
-  const [maxTokens, setMaxTokens] = useState<number | null>(
-    model.max_tokens ?? 8192,
-  );
-  const [maxInputLength, setMaxInputLength] = useState<number | null>(
-    model.max_input_length ?? 131072,
-  );
-  const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
-  const [relayReasoning, setRelayReasoning] = useState<boolean>(
-    model.relay_reasoning ?? true,
-  );
-  const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
-    model.thinking_enabled ?? null,
-  );
-  const [thinkingBudget, setThinkingBudget] = useState<number | null>(
-    model.thinking_budget ?? null,
-  );
-  const [reasoningEffort, setReasoningEffort] = useState<string | null>(
-    model.reasoning_effort ?? null,
-  );
-
-  const initialText = useMemo(
-    () =>
-      model.generate_kwargs && Object.keys(model.generate_kwargs).length > 0
-        ? JSON.stringify(model.generate_kwargs, null, 2)
-        : "",
-    [model.generate_kwargs],
-  );
-
-  const [text, setText] = useState(initialText);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    setText(initialText);
-    setMaxTokens(model.max_tokens ?? 8192);
-    setMaxInputLength(model.max_input_length ?? 131072);
-    setMaxInputLengthDirty(false);
-    setRelayReasoning(model.relay_reasoning ?? true);
-    setThinkingEnabled(model.thinking_enabled ?? null);
-    setThinkingBudget(model.thinking_budget ?? null);
-    setReasoningEffort(model.reasoning_effort ?? null);
-    setDirty(false);
-  }, [
-    initialText,
-    model.max_tokens,
-    model.max_input_length,
-    model.relay_reasoning,
-    model.thinking_enabled,
-    model.thinking_budget,
-    model.reasoning_effort,
-  ]);
-
-  const effectiveMaxTokens = maxTokens ?? 8192;
-  const effectiveMaxInputLength = maxInputLength ?? 131072;
-
-  const handleChange = useCallback((val: string) => {
-    setText(val);
-    setDirty(true);
-  }, []);
-
-  const handleMaxTokensChange = useCallback((val: number | null) => {
-    setMaxTokens(val);
-    setDirty(true);
-  }, []);
-
-  const handleMaxInputLengthChange = useCallback((val: number | null) => {
-    setMaxInputLength(val);
-    setMaxInputLengthDirty(true);
-    setDirty(true);
-  }, []);
-
-  const handleSave = async () => {
-    const trimmed = text.trim();
-    let parsed: Record<string, unknown> = {};
-    if (trimmed) {
-      try {
-        const obj = JSON.parse(trimmed);
-        if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
-          message.error(t("models.generateConfigMustBeObject"));
-          return;
-        }
-        parsed = obj;
-      } catch {
-        message.error(t("models.generateConfigInvalidJson"));
-        return;
-      }
-    }
-
-    setSaving(true);
-    try {
-      const updated = await api.configureModel(providerId, model.id, {
-        max_tokens: effectiveMaxTokens,
-        ...(maxInputLengthDirty
-          ? { max_input_length: effectiveMaxInputLength }
-          : {}),
-        generate_kwargs: parsed,
-        relay_reasoning: relayReasoning,
-        thinking_enabled: thinkingEnabled,
-        thinking_budget: thinkingBudget,
-        reasoning_effort: reasoningEffort,
-      });
-      message.success(t("models.modelConfigSaved", { name: model.name }));
-      setDirty(false);
-      setMaxInputLengthDirty(false);
-      onProviderUpdated?.(updated);
-      await onSaved();
-      onClose();
-    } catch (error) {
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : t("models.modelConfigSaveFailed");
-      message.error(errMsg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 13,
-    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-    marginBottom: 4,
-  };
-
-  return (
-    <div style={{ padding: "8px 0 4px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxTokensLabel", "Max Tokens")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            value={maxTokens}
-            placeholder="8192"
-            onChange={handleMaxTokensChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxInputLengthLabel", "Max Context Length")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            step={1024}
-            value={maxInputLength}
-            placeholder="131072"
-            onChange={handleMaxInputLengthChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t(
-              "models.maxInputLengthHint",
-              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
-            )}
-          </div>
-        </div>
-      </div>
-      {/* Enable Thinking (only for providers that support thinking config) */}
-      {thinkingParamStyle && (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              padding: "6px 0",
-            }}
-          >
-            <div>
-              <span
-                style={{
-                  fontSize: 13,
-                  color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-                }}
-              >
-                {t("models.thinkingModeLabel")}
-              </span>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-                  marginTop: 2,
-                }}
-              >
-                {t("models.thinkingModeHint")}
-              </div>
-            </div>
-            <Switch
-              checked={thinkingEnabled === true}
-              onChange={(checked) => {
-                setThinkingEnabled(checked);
-                setDirty(true);
-              }}
-            />
-          </div>
-
-          {thinkingEnabled === true && (
-            <div style={{ marginBottom: 12 }}>
-              {thinkingParamStyle === "budget" ? (
-                <div>
-                  <div
-                    style={{
-                      ...labelStyle,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>{t("models.thinkingBudgetLabel")}</span>
-                    <a
-                      style={{ fontSize: 11, cursor: "pointer" }}
-                      onClick={() => {
-                        setThinkingBudget(
-                          thinkingBudget === null
-                            ? thinkingBudgetRange[0]
-                            : null,
-                        );
-                        setDirty(true);
-                      }}
-                    >
-                      {thinkingBudget === null
-                        ? t("models.switchToManual")
-                        : t("models.switchToAuto")}
-                    </a>
-                  </div>
-                  {thinkingBudget !== null ? (
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 12 }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <Slider
-                          min={thinkingBudgetRange[0]}
-                          max={thinkingBudgetRange[1]}
-                          step={1024}
-                          value={thinkingBudget}
-                          onChange={(val: number) => {
-                            setThinkingBudget(val);
-                            setDirty(true);
-                          }}
-                        />
-                      </div>
-                      <InputNumber
-                        style={{ width: 100 }}
-                        min={thinkingBudgetRange[0]}
-                        max={thinkingBudgetRange[1]}
-                        step={1024}
-                        value={thinkingBudget}
-                        onChange={(val) => {
-                          setThinkingBudget(val);
-                          setDirty(true);
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-                        marginTop: 2,
-                      }}
-                    >
-                      {t("models.thinkingBudgetHint")}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <div style={labelStyle}>
-                    {t("models.reasoningEffortLabel")}
-                  </div>
-                  <Segmented
-                    block
-                    value={reasoningEffort ?? "__auto__"}
-                    onChange={(val) => {
-                      const v = val as string;
-                      setReasoningEffort(v === "__auto__" ? null : v);
-                      setDirty(true);
-                    }}
-                    options={[
-                      { label: t("models.switchToAuto"), value: "__auto__" },
-                      ...(
-                        reasoningEffortOptions ?? [
-                          "none",
-                          "minimal",
-                          "low",
-                          "medium",
-                          "high",
-                          "xhigh",
-                        ]
-                      ).map((v) => ({
-                        label: v.charAt(0).toUpperCase() + v.slice(1),
-                        value: v,
-                      })),
-                    ]}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-      {/* Responses API models handle reasoning via native reasoning items
-         that the API requires to be echoed back; relay_reasoning has no
-         effect, so hide the toggle to avoid confusion. */}
-      {chatModel !== "OpenAIResponseModel" && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 8,
-            padding: "6px 0",
-          }}
-        >
-          <div>
-            <span
-              style={{
-                fontSize: 13,
-                color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-              }}
-            >
-              {t("models.relayReasoningLabel")}
-            </span>
-            <div
-              style={{
-                fontSize: 11,
-                color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-                marginTop: 2,
-              }}
-            >
-              {t("models.relayReasoningHint")}
-            </div>
-          </div>
-          <Switch
-            checked={relayReasoning}
-            onChange={(checked) => {
-              setRelayReasoning(checked);
-              setDirty(true);
-            }}
-          />
-        </div>
-      )}
-
-      <div
-        style={{
-          fontSize: 12,
-          color: isDark ? "rgba(255,255,255,0.45)" : "#888",
-          marginBottom: 4,
-        }}
-      >
-        {t("models.modelGenerateConfigHint")}
-      </div>
-      <JsonConfigEditor
-        value={text}
-        onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
-      />
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginTop: 8,
-          gap: 8,
-        }}
-      >
-        <Button
-          type="primary"
-          size="small"
-          loading={saving}
-          disabled={!dirty}
-          onClick={handleSave}
-        >
-          {t("models.save")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-const tagColors = (isDark: boolean) => ({
-  multimodal: {
-    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
-    color: "#1890ff",
-    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
-  },
-  vision: {
-    backgroundColor: isDark ? "rgba(19,194,194,0.15)" : "#e6fffb",
-    color: "#13c2c2",
-    borderColor: isDark ? "rgba(19,194,194,0.3)" : "#87e8de",
-  },
-  video: {
-    backgroundColor: isDark ? "rgba(114,46,211,0.15)" : "#f9f0ff",
-    color: "#722ed1",
-    borderColor: isDark ? "rgba(114,46,211,0.3)" : "#d3adf7",
-  },
-  text: {
-    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.65)" : "#595959",
-    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
-  },
-  notProbed: {
-    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
-    color: isDark ? "rgba(255,255,255,0.65)" : "#8c8c8c",
-    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
-  },
-  builtin: {
-    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
-    color: "#52c41a",
-    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
-  },
-  free: {
-    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
-    color: "#52c41a",
-    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
-  },
-  userAdded: {
-    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
-    color: "#1890ff",
-    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
-  },
-});
-
 interface RemoteModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   onProviderUpdated?: (provider: ProviderInfo) => void;
-}
-
-function CapabilityTags({
-  model,
-  isDark,
-}: {
-  model: ModelInfo;
-  isDark: boolean;
-}) {
-  const { t } = useTranslation();
-  const c = tagColors(isDark);
-  if (model.supports_image && model.supports_video) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
-        <AppstoreOutlined style={{ fontSize: 10, marginRight: 3 }} />
-        {t("models.tagMultimodal", "多模态")}
-      </Tag>
-    );
-  }
-  if (model.supports_image) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
-        <EyeOutlined style={{ fontSize: 10, marginRight: 3 }} />
-        {t("models.tagVision", "视觉")}
-      </Tag>
-    );
-  }
-  if (model.supports_video) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
-        <VideoCameraOutlined style={{ fontSize: 10, marginRight: 3 }} />
-        {t("models.tagVideo", "视频")}
-      </Tag>
-    );
-  }
-  if (model.supports_multimodal === false) {
-    return (
-      <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
-        <FileTextOutlined style={{ fontSize: 10, marginRight: 3 }} />
-        {t("models.tagText", "文本")}
-      </Tag>
-    );
-  }
-  return (
-    <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
-      <QuestionCircleOutlined style={{ fontSize: 10, marginRight: 3 }} />
-      {t("models.tagNotProbed", "未检测")}
-    </Tag>
-  );
 }
 
 export function RemoteModelManageModal({
@@ -591,7 +62,9 @@ export function RemoteModelManageModal({
   const supportsAutoDiscover = provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [bulkAdding, setBulkAdding] = useState(false);
   const [discoveringModels, setDiscoveringModels] = useState(false);
+  const [previewDiscovering, setPreviewDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
@@ -604,7 +77,7 @@ export function RemoteModelManageModal({
   const [showFilters, setShowFilters] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<string[]>([]);
   const [discoveredModels, setDiscoveredModels] = useState<ExtendedModelInfo[]>(
-    [],
+    () => (provider.discovered_models ?? []) as unknown as ExtendedModelInfo[],
   );
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedInputModalities, setSelectedInputModalities] = useState<
@@ -613,16 +86,25 @@ export function RemoteModelManageModal({
   const [showFreeOnly, setShowFreeOnly] = useState(false);
   const [loadingFilters, setLoadingFilters] = useState(false);
 
-  const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const previewAttemptedProviderRef = useRef<string | null>(null);
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
   const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
 
   const doAddModel = async (id: string, name: string) => {
-    await api.addModel(provider.id, { id, name });
+    const candidate = discoveredModels.find((model) => model.id === id);
+    await api.addModel(provider.id, {
+      id,
+      name,
+      is_free: candidate?.is_free,
+      supports_multimodal: candidate?.supports_multimodal,
+      supports_image: candidate?.supports_image,
+      supports_video: candidate?.supports_video,
+      probe_source: candidate?.probe_source,
+    });
     message.success(t("models.modelAdded", { name }));
     form.resetFields();
     setAdding(false);
@@ -656,6 +138,20 @@ export function RemoteModelManageModal({
         const failureDetail =
           getTestConnectionFailureDetail(testResult.message) ||
           t("models.modelTestFailed");
+        const cannotAddByStatus = [
+          "permission_denied",
+          "model_not_found",
+          "incompatible_api",
+        ].includes(testResult.status ?? "");
+        const cannotAdd =
+          cannotAddByStatus ||
+          /product is not activated|product.*not enabled|model.*not found|unsupported model/i.test(
+            failureDetail,
+          );
+        if (cannotAdd) {
+          message.error(failureDetail);
+          return;
+        }
         Modal.confirm({
           title: t("models.testConnectionFailed"),
           content: t("models.modelTestFailedConfirm", {
@@ -779,6 +275,10 @@ export function RemoteModelManageModal({
     onClose();
   };
 
+  const openAddModel = () => {
+    setAdding(true);
+  };
+
   // Load available series for OpenRouter
   useEffect(() => {
     if (isOpenRouter) {
@@ -862,18 +362,17 @@ export function RemoteModelManageModal({
     setDiscoveringModels(true);
     try {
       const result = await api.discoverModels(provider.id, undefined, true);
+      await onSaved();
 
       if (!result.success) {
         message.error(result.message || t("models.autoDiscoverModelsFailed"));
         return;
       }
 
-      await onSaved();
-
-      if (result.added_count > 0) {
+      if (result.discovered_count > 0) {
         message.success(
           t("models.autoDiscoverModelsSuccess", {
-            count: result.added_count,
+            count: result.discovered_count,
           }),
         );
         return;
@@ -897,22 +396,40 @@ export function RemoteModelManageModal({
   };
 
   useEffect(() => {
-    if (!adding) {
-      setDiscoveredModels([]);
+    setDiscoveredModels(
+      (provider.discovered_models ?? []) as unknown as ExtendedModelInfo[],
+    );
+  }, [provider.discovered_models]);
+
+  useEffect(() => {
+    if (
+      !adding ||
+      isOpenRouter ||
+      !supportsAutoDiscover ||
+      discoveredModels.length > 0 ||
+      previewAttemptedProviderRef.current === provider.id
+    ) {
       return;
     }
-    setLoadingDiscoveredModels(true);
+
+    previewAttemptedProviderRef.current = provider.id;
+    setPreviewDiscovering(true);
     api
       .discoverModels(provider.id, undefined, false)
       .then((result) => {
-        const sorted = result.models
-          .slice()
-          .sort((a, b) => a.id.localeCompare(b.id));
-        setDiscoveredModels(sorted as unknown as ExtendedModelInfo[]);
+        if (result.success) {
+          setDiscoveredModels(result.models as ExtendedModelInfo[]);
+        }
       })
-      .catch(() => setDiscoveredModels([]))
-      .finally(() => setLoadingDiscoveredModels(false));
-  }, [adding, provider.id]);
+      .catch(() => {})
+      .finally(() => setPreviewDiscovering(false));
+  }, [
+    adding,
+    discoveredModels.length,
+    isOpenRouter,
+    provider.id,
+    supportsAutoDiscover,
+  ]);
 
   useEffect(() => {
     if (!isOpenRouter || !adding) return;
@@ -921,6 +438,119 @@ export function RemoteModelManageModal({
   }, [adding, form, isOpenRouter]);
 
   const deferredSearchQuery = useDeferredValue(modelSearchQuery);
+
+  const configuredModelIds = useMemo(
+    () =>
+      new Set(
+        [...(provider.models ?? []), ...(provider.extra_models ?? [])].map(
+          (model) => model.id.trim(),
+        ),
+      ),
+    [provider.models, provider.extra_models],
+  );
+
+  const addableDiscoveredModels = useMemo(() => {
+    const hidden = new Set(provider.hidden_model_ids ?? []);
+    return discoveredModels.filter(
+      (model) =>
+        !configuredModelIds.has(model.id.trim()) &&
+        !hidden.has(model.id) &&
+        !["permission_denied", "model_not_found", "incompatible_api"].includes(
+          model.availability_status ?? "unverified",
+        ),
+    );
+  }, [configuredModelIds, discoveredModels, provider.hidden_model_ids]);
+
+  const handleAddAllDiscoveredModels = async () => {
+    if (addableDiscoveredModels.length === 0) return;
+    setBulkAdding(true);
+    try {
+      const results = await Promise.allSettled(
+        addableDiscoveredModels.map((model) =>
+          api.addModel(provider.id, {
+            id: model.id,
+            name: model.name,
+            is_free: model.is_free,
+            supports_multimodal: model.supports_multimodal,
+            supports_image: model.supports_image,
+            supports_video: model.supports_video,
+            probe_source: model.probe_source,
+          }),
+        ),
+      );
+      const addedIds = new Set(
+        addableDiscoveredModels
+          .filter((_, index) => results[index].status === "fulfilled")
+          .map((model) => model.id),
+      );
+      const failedCount = results.length - addedIds.size;
+      setDiscoveredModels((current) =>
+        current.filter((model) => !addedIds.has(model.id)),
+      );
+      if (addedIds.size > 0) {
+        await onSaved();
+        message.success(
+          t("models.discoveredModelsAdded", {
+            count: addedIds.size,
+            defaultValue: "Added {{count}} discovered models",
+          }),
+        );
+      }
+      if (failedCount > 0) {
+        message.error(
+          t("models.discoveredModelsAddFailed", {
+            count: failedCount,
+            defaultValue: "Failed to add {{count}} models",
+          }),
+        );
+      }
+    } finally {
+      setBulkAdding(false);
+    }
+  };
+
+  const discoveredModelOptions = useMemo(
+    () =>
+      discoveredModels.map((model) => {
+        const originLabels = {
+          api: t("models.discoveryOriginApi", "API detected"),
+          catalog: t("models.discoveryOriginCatalog", "Official catalog"),
+          both: t("models.discoveryOriginBoth", "API + catalog"),
+        };
+        const statusLabels = {
+          available: t("models.availabilityAvailable", "Available"),
+          permission_denied: t(
+            "models.availabilityPermissionDenied",
+            "No permission",
+          ),
+          model_not_found: t("models.availabilityNotFound", "Not found"),
+          incompatible_api: t(
+            "models.availabilityIncompatible",
+            "Not chat compatible",
+          ),
+          rate_limited: t("models.availabilityRateLimited", "Rate limited"),
+          transient_error: t(
+            "models.availabilityTransientError",
+            "Temporarily unavailable",
+          ),
+          unverified: t("models.availabilityUnverified", "Unverified"),
+        };
+        const origin = model.discovery_origin
+          ? originLabels[model.discovery_origin]
+          : originLabels.api;
+        const status = statusLabels[model.availability_status ?? "unverified"];
+        const configured = configuredModelIds.has(model.id.trim());
+        const configuredLabel = configured
+          ? ` · ${t("models.modelAlreadyConfigured", "Configured")}`
+          : "";
+        return {
+          value: model.id,
+          label: `${model.id} · ${origin} · ${status}${configuredLabel}`,
+          disabled: configured,
+        };
+      }),
+    [configuredModelIds, discoveredModels, t],
+  );
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -954,14 +584,68 @@ export function RemoteModelManageModal({
         placeholder={t("models.searchModelPlaceholder", "搜索模型...")}
         value={modelSearchQuery}
         onChange={(e) => setModelSearchQuery(e.target.value)}
-        prefix={<SearchOutlined />}
+        prefix={<Search size={16} />}
         allowClear
       />
+
+      {supportsAutoDiscover && (
+        <div style={{ marginTop: 8, color: "rgba(127,127,127,0.9)" }}>
+          <CloudCog
+            size={15}
+            style={{ marginRight: 6, verticalAlign: "-3px" }}
+          />
+          {provider.models_syncing
+            ? t("models.modelsSyncing", {
+                defaultValue: "Discovering model candidates...",
+              })
+            : provider.models_last_synced_at
+            ? t("models.modelsLastSynced", {
+                time: new Date(provider.models_last_synced_at).toLocaleString(),
+                defaultValue: "Last synced: {{time}}",
+              })
+            : t("models.modelsNeverSynced", {
+                defaultValue: "Models have not been synced yet",
+              })}
+          {provider.models_last_sync_error && (
+            <Tooltip title={provider.models_last_sync_error}>
+              <Tag color="error" style={{ marginLeft: 8 }}>
+                {t("models.modelsSyncFailed", {
+                  defaultValue: "Last sync failed",
+                })}
+              </Tag>
+            </Tooltip>
+          )}
+        </div>
+      )}
 
       {/* Model list */}
       <div className={styles.modelList}>
         {filteredModels.length === 0 ? (
-          <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
+          <div className={styles.modelListEmpty}>
+            <div>{t("models.noModels")}</div>
+            {discoveredModels.length > 0 && !isOpenRouter && (
+              <>
+                <div style={{ marginTop: 8 }}>
+                  {t("models.discoveredModelsReady", {
+                    count: discoveredModels.length,
+                  })}
+                </div>
+                <Button
+                  size="small"
+                  type="primary"
+                  style={{ marginTop: 10 }}
+                  loading={bulkAdding}
+                  disabled={addableDiscoveredModels.length === 0}
+                  onClick={handleAddAllDiscoveredModels}
+                >
+                  {t("models.addAllDiscoveredModels", {
+                    count: addableDiscoveredModels.length,
+                    defaultValue: "Add all available ({{count}})",
+                  })}
+                </Button>
+              </>
+            )}
+          </div>
         ) : (
           <>
             {filteredModels.slice(0, visibleCount).map((m) => {
@@ -984,8 +668,9 @@ export function RemoteModelManageModal({
                             ...colors.free,
                           }}
                         >
-                          <GiftOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
+                          <Gift
+                            size={11}
+                            style={{ marginRight: 3, verticalAlign: "-2px" }}
                           />
                           {t("models.free")}
                         </Tag>
@@ -998,15 +683,23 @@ export function RemoteModelManageModal({
                         }}
                       >
                         {isDeletable ? (
-                          <UserOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
+                          <User
+                            size={11}
+                            style={{ marginRight: 3, verticalAlign: "-2px" }}
                           />
                         ) : (
-                          <DatabaseOutlined
-                            style={{ fontSize: 10, marginRight: 3 }}
+                          <Database
+                            size={11}
+                            style={{ marginRight: 3, verticalAlign: "-2px" }}
                           />
                         )}
-                        {t(isDeletable ? "models.userAdded" : "models.builtin")}
+                        {t(
+                          isDeletable
+                            ? "models.userAdded"
+                            : m.source === "discovered"
+                            ? "models.discovered"
+                            : "models.builtin",
+                        )}
                       </Tag>
                       <span
                         style={{
@@ -1026,7 +719,7 @@ export function RemoteModelManageModal({
                         <Button
                           type="text"
                           size="small"
-                          icon={<ExperimentOutlined />}
+                          icon={<FlaskConical size={16} />}
                           onClick={() => handleProbeMultimodal(m.id)}
                           loading={probingModelId === m.id}
                           style={darkBtnStyle}
@@ -1036,7 +729,7 @@ export function RemoteModelManageModal({
                         <Button
                           type="text"
                           size="small"
-                          icon={<ApiOutlined />}
+                          icon={<PlugZap size={16} />}
                           onClick={() => handleTestModel(m.id)}
                           loading={testingModelId === m.id}
                           style={darkBtnStyle}
@@ -1048,9 +741,9 @@ export function RemoteModelManageModal({
                           size="small"
                           icon={
                             isConfigOpen ? (
-                              <DownOutlined />
+                              <ChevronDown size={16} />
                             ) : (
-                              <SettingOutlined />
+                              <Settings size={16} />
                             )
                           }
                           onClick={() =>
@@ -1064,7 +757,7 @@ export function RemoteModelManageModal({
                           type="text"
                           size="small"
                           danger
-                          icon={<DeleteOutlined />}
+                          icon={<Trash2 size={16} />}
                           onClick={() => handleRemoveModel(m.id, m.name)}
                         />
                       )}
@@ -1167,10 +860,7 @@ export function RemoteModelManageModal({
               >
                 <AutoComplete
                   placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModels.map((model) => ({
-                    value: model.id,
-                    label: model.id,
-                  }))}
+                  options={discoveredModelOptions}
                   filterOption={(
                     inputValue: string,
                     option?: { value?: string },
@@ -1180,7 +870,7 @@ export function RemoteModelManageModal({
                       .includes(inputValue.toLowerCase()) ?? false
                   }
                   notFoundContent={
-                    loadingDiscoveredModels
+                    previewDiscovering
                       ? t("common.loading")
                       : t("models.modelDiscoveryUnavailableHint")
                   }
@@ -1222,7 +912,7 @@ export function RemoteModelManageModal({
           <div className={styles.modalActionRow}>
             {supportsAutoDiscover && (
               <Button
-                icon={<SearchOutlined />}
+                icon={<Search size={16} />}
                 loading={discoveringModels}
                 onClick={handleAutoDiscoverModels}
                 style={{ flex: 1 }}
@@ -1232,8 +922,8 @@ export function RemoteModelManageModal({
             )}
             <Button
               type="dashed"
-              icon={<PlusOutlined />}
-              onClick={() => setAdding(true)}
+              icon={<Plus size={16} />}
+              onClick={openAddModel}
               style={{ flex: 1 }}
             >
               {t("models.addModel")}

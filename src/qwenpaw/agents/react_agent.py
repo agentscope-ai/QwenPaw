@@ -42,6 +42,7 @@ from ..constant import (
 )
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
+from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
@@ -727,6 +728,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
 
+        # agentscope drops ChatResponse.metadata during event conversion;
+        # collect model-fallback transparency data out-of-band instead.
+        fallback_sink = install_fallback_notice_sink()
+
         # ── Inject background-tool results before each reasoning step ──
         await self._inject_pending_hints()
 
@@ -819,6 +824,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
+                    self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
             audio_fallback_retry = (
@@ -869,6 +875,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
+                        self._attach_fallback_notices(evt, fallback_sink)
                         yield evt
                 if model_key and learn_global_rejection:
                     get_capability_cache().learn(
@@ -934,7 +941,37 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return  # outer loop continues
 
-        yield stop_result.final_message or final_msg
+        outgoing_msg = stop_result.final_message or final_msg
+        self._attach_fallback_notices(outgoing_msg, fallback_sink)
+        yield outgoing_msg
+
+    @staticmethod
+    def _attach_fallback_notices(
+        evt: Any,
+        sink: dict[str, Any],
+    ) -> None:
+        """Copy pending model-fallback notices onto an outgoing event.
+
+        Consumers (Console SSE parsing and channel notifiers) read
+        ``qwenpaw_model_fallbacks``/``qwenpaw_actual_model`` from event
+        or message metadata; this is the only point where QwenPaw still
+        owns the stream after agentscope's conversion dropped the
+        model response metadata.
+        """
+        if evt is None or not sink["events"]:
+            return
+        metadata = getattr(evt, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            try:
+                evt.metadata = metadata
+            except (AttributeError, TypeError, ValueError):
+                return
+        metadata["qwenpaw_model_fallbacks"] = [
+            dict(event) for event in sink["events"]
+        ]
+        if sink.get("actual_model"):
+            metadata["qwenpaw_actual_model"] = dict(sink["actual_model"])
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:

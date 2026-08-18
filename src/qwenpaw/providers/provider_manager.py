@@ -2,1374 +2,86 @@
 """A Manager class to handle all providers, including built-in and custom ones.
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
+# pylint: disable=unused-import
 
 import asyncio
-import json
 import logging
 import os
-from typing import Dict, List
+from pathlib import Path
+from typing import Any, Dict, List
 
 from agentscope.model import ChatModelBase
-from pydantic import BaseModel
 
 from qwenpaw.exceptions import ModelNotFoundException
 
 from ..config.config import ModelSlotConfig
-from ..constant import SECRET_DIR
+from ..constant import EnvVarLoader, SECRET_DIR
 from ..exceptions import ProviderError
-from ..security.secret_store import (
-    PROVIDER_SECRET_FIELDS,
-    decrypt_dict_fields,
-    encrypt_dict_fields,
-    is_encrypted,
+from ..utils.logging import sanitize_log_value
+from ..utils.io_utils import (
+    get_sync_path_lock,
+    run_async_to_completion,
+    run_sync_io,
 )
-from .anthropic_provider import AnthropicProvider
-from .context_windows import DEFAULT_CONTEXT_WINDOW
-from .dashscope_provider import DashScopeProvider
-from .gemini_provider import GeminiProvider
-from .lmstudio_provider import LMStudioProvider
-from .ollama_provider import OllamaProvider
-from .openai_provider import (
-    GitHubModelsProvider,
-    KiloProvider,
-    OpenAIProvider,
-    OpenCodeProvider,
+from .provider import (
+    ModelInfo,
+    Provider,
+    ProviderInfo,
+    provider_identity_key,
+    validate_custom_provider_id,
 )
-from .openai_response_provider import OpenAIResponseProvider
-from .openrouter_provider import OpenRouterProvider
-from .provider import ModelInfo, Provider, ProviderInfo
+from . import provider_catalog as _provider_catalog
+from . import model_catalog
+from .capability_baseline import ExpectedCapabilityRegistry
+from .provider_catalog import (
+    BUILTIN_PROVIDERS,
+    BUILTIN_PROVIDER_CATALOG_KEYS,
+)
+from .provider_manager_discovery import ProviderManagerDiscoveryMixin
+from .provider_manager_persistence import (
+    ProviderManagerPersistenceMixin,
+)
+from .provider_update_fields import (
+    AVAILABILITY_MODEL_FIELDS as _AVAILABILITY_MODEL_FIELDS,
+    CAPABILITY_MODEL_FIELDS as _CAPABILITY_MODEL_FIELDS,
+    CONNECTION_CONFIG_FIELDS as _CONNECTION_CONFIG_FIELDS,
+    PluginUpdateKind,
+)
+from .plugin_provider_registry import PluginProviderRegistry
+from .provider_annotations import ProviderAnnotationService
 
 logger = logging.getLogger(__name__)
 
-# -------------------------------------------------------
-# Built-in provider definitions and their default models.
-# -------------------------------------------------------
 
-MODELSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="Qwen/Qwen3.5-122B-A10B",
-        name="Qwen3.5-122B-A10B",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="ZhipuAI/GLM-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
+# Preserve the catalog constants historically exported by this module.
+for _catalog_name in _provider_catalog.__all__:
+    globals()[_catalog_name] = getattr(_provider_catalog, _catalog_name)
 
-DASHSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3.8-max",
-        name="Qwen3.8 Max",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        thinking_enabled=True,
-        relay_reasoning=False,
-    ),
-    ModelInfo(
-        id="qwen3.7-max",
-        name="Qwen3.7 Max",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        thinking_enabled=True,
-        relay_reasoning=False,
-    ),
-    ModelInfo(
-        id="qwen3.7-plus",
-        name="Qwen3.7 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-        thinking_enabled=True,
-        relay_reasoning=False,
-    ),
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-        thinking_enabled=True,
-        relay_reasoning=False,
-    ),
-    ModelInfo(
-        id="deepseek-v4-pro",
-        name="DeepSeek-V4 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        thinking_enabled=True,
-        thinking_param_style="effort",
-        reasoning_effort_options=["high", "max"],
-        relay_reasoning=False,
-    ),
-    ModelInfo(
-        id="glm-5.2",
-        name="GLM-5.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        thinking_enabled=True,
-        thinking_param_style="effort",
-        reasoning_effort_options=["high", "max"],
-        relay_reasoning=False,
-    ),
-]
-
-MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="mimo-v2.5-pro",
-        name="MiMo V2.5 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="mimo-v2.5",
-        name="MiMo V2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3.7-plus",
-        name="Qwen3.7 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.7-max",
-        name="Qwen3.7 Max",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.6-flash",
-        name="Qwen3.6 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-pro",
-        name="DeepSeek-V4 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-flash",
-        name="DeepSeek-V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.2",
-        name="GLM-5.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.6",
-        name="Kimi K2.6",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.5-plus",
-        name="Qwen3.5 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.2",
-        name="GLM-5.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-4.7",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-max-2026-01-23",
-        name="Qwen3 Max 2026-01-23",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-coder-next",
-        name="Qwen3 Coder Next",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-coder-plus",
-        name="Qwen3 Coder Plus",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-ZHIPU_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="glm-4.7-flash",
-        name="GLM-4.7-Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="glm-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.2",
-        name="glm-5.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="glm-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5-turbo",
-        name="glm-5-turbo",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5v-turbo",
-        name="glm-5v-turbo",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-5.2",
-        name="GPT-5.2",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5",
-        name="GPT-5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-mini",
-        name="GPT-5 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-nano",
-        name="GPT-5 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1",
-        name="GPT-4.1",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-mini",
-        name="GPT-4.1 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-nano",
-        name="GPT-4.1 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="o3",
-        name="o3",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="o4-mini",
-        name="o4-mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-KILO_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kilo-auto/free",
-        name="Kilo Auto (Free Router)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nvidia/nemotron-3-ultra-550b-a55b:free",
-        name="Nemotron 3 Ultra 550B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nvidia/nemotron-3-super-120b-a12b:free",
-        name="Nemotron 3 Super 120B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="poolside/laguna-m.1:free",
-        name="Poolside Laguna M.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="poolside/laguna-xs.2:free",
-        name="Poolside Laguna XS.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="stepfun/step-3.7-flash:free",
-        name="Step 3.7 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nex-agi/nex-n2-pro:free",
-        name="Nex N2 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-]
-
-OPENCODE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="deepseek-v4-flash-free",
-        name="DeepSeek V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="mimo-v2.5-free",
-        name="Mimo V2.5",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nemotron-3-ultra-free",
-        name="Nemotron 3 Ultra",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-]
-
-AZURE_OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-5-chat",
-        name="GPT-5 Chat",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-mini",
-        name="GPT-5 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-nano",
-        name="GPT-5 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1",
-        name="GPT-4.1",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-mini",
-        name="GPT-4.1 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-nano",
-        name="GPT-4.1 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-MINIMAX_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="MiniMax-M3",
-        name="MiniMax M3",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.7",
-        name="MiniMax M2.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.7-highspeed",
-        name="MiniMax M2.7 Highspeed",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5 (legacy)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5-highspeed",
-        name="MiniMax M2.5 Highspeed (legacy)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.1",
-        name="MiniMax M2.1 (legacy)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.1-highspeed",
-        name="MiniMax M2.1 Highspeed (legacy)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2",
-        name="MiniMax M2 (legacy)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-KIMI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-0905-preview",
-        name="Kimi K2 0905 Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-0711-preview",
-        name="Kimi K2 0711 Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-turbo-preview",
-        name="Kimi K2 Turbo Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-thinking",
-        name="Kimi K2 Thinking",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-thinking-turbo",
-        name="Kimi K2 Thinking Turbo",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-DEEPSEEK_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="deepseek-chat",
-        name="DeepSeek Chat",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-reasoner",
-        name="DeepSeek Reasoner",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-flash",
-        name="DeepSeek V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-pro",
-        name="DeepSeek V4 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-VOLCENGINE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="doubao-seed-2-0-code-preview-260215",
-        name="Doubao-Seed-2.0-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-pro-260215",
-        name="Doubao-Seed-2.0-pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-lite-260428",
-        name="Doubao-Seed-2.0-lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-code-preview-251028",
-        name="Doubao-Seed-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="glm-4-7-251222",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v3-2-251201",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="doubao-seed-1-8-251228",
-        name="Doubao-Seed-1.8",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-mini-260428",
-        name="Doubao-Seed-2.0-mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-character-251128",
-        name="Doubao-Seed-Character",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-VOLCENGINE_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="doubao-seed-2-0-code-preview-260215",
-        name="Doubao-Seed-2.0-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-pro-260215",
-        name="Doubao-Seed-2.0-pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-lite-260428",
-        name="Doubao-Seed-2.0-lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-code-preview-251028",
-        name="Doubao-Seed-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="minimax-m2.7",
-        name="MiniMax-M2.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="kimi-k2.6",
-        name="Kimi-K2.6",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi-K2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="glm-4-7-251222",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="deepseek-v3-2-251201",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-]
-
-ANTHROPIC_MODELS: List[ModelInfo] = []
-
-GEMINI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gemini-3.1-pro-preview",
-        name="Gemini 3.1 Pro Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-3-flash-preview",
-        name="Gemini 3 Flash Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-3.1-flash-lite-preview",
-        name="Gemini 3.1 Flash Lite Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-pro",
-        name="Gemini 2.5 Pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-flash",
-        name="Gemini 2.5 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-flash-lite",
-        name="Gemini 2.5 Flash Lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.0-flash",
-        name="Gemini 2.0 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-PROVIDER_MODELSCOPE = OpenAIProvider(
-    id="modelscope",
-    name="ModelScope",
-    base_url="https://api-inference.modelscope.cn/v1",
-    api_key_prefix="ms",
-    models=MODELSCOPE_MODELS,
-    freeze_url=True,
+# Keep static analyzers and existing public imports compatible with the
+# historical provider_manager module surface.
+KIMI_CODINGPLAN_MODELS = _provider_catalog.KIMI_CODINGPLAN_MODELS
+KIMI_MODELS = _provider_catalog.KIMI_MODELS
+MIMO_TOKENPLAN_MODELS = _provider_catalog.MIMO_TOKENPLAN_MODELS
+OPENCODE_MODELS = _provider_catalog.OPENCODE_MODELS
+PROVIDER_KIMI_CN = _provider_catalog.PROVIDER_KIMI_CN
+PROVIDER_KIMI_CODINGPLAN = _provider_catalog.PROVIDER_KIMI_CODINGPLAN
+PROVIDER_KIMI_INTL = _provider_catalog.PROVIDER_KIMI_INTL
+PROVIDER_MIMO_TOKENPLAN = _provider_catalog.PROVIDER_MIMO_TOKENPLAN
+PROVIDER_OPENCODE = _provider_catalog.PROVIDER_OPENCODE
+PROVIDER_SILICONFLOW_CN = _provider_catalog.PROVIDER_SILICONFLOW_CN
+PROVIDER_SILICONFLOW_INTL = _provider_catalog.PROVIDER_SILICONFLOW_INTL
+PROVIDER_VOLCENGINE_CN = _provider_catalog.PROVIDER_VOLCENGINE_CN
+PROVIDER_VOLCENGINE_CN_CODINGPLAN = (
+    _provider_catalog.PROVIDER_VOLCENGINE_CN_CODINGPLAN
 )
-
-PROVIDER_DASHSCOPE = DashScopeProvider(
-    id="dashscope",
-    name="DashScope",
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    api_key_prefix="sk",
-    models=DASHSCOPE_MODELS,
-    provider_group="aliyun",
-    provider_group_name="Aliyun",
-    provider_variant="dashscope",
-    meta={
-        "base_url_options": [
-            {
-                "label": "China (Beijing)",
-                "value": "https://dashscope.aliyuncs.com/"
-                "compatible-mode/v1",
-            },
-            {
-                "label": "International (Singapore)",
-                "value": "https://dashscope-intl.aliyuncs.com/"
-                "compatible-mode/v1",
-            },
-            {
-                "label": "US (Virginia)",
-                "value": "https://dashscope-us.aliyuncs.com/"
-                "compatible-mode/v1",
-            },
-        ],
-    },
-)
-
-PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
-    id="aliyun-codingplan",
-    name="Aliyun Coding Plan (China)",
-    base_url="https://coding.dashscope.aliyuncs.com/v1",
-    api_key_prefix="sk-sp",
-    models=ALIYUN_CODINGPLAN_MODELS,
-    support_connection_check=False,
-    freeze_url=True,
-    provider_group="aliyun",
-    provider_group_name="Aliyun",
-    provider_variant="coding_plan_cn",
-)
-
-PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
-    id="aliyun-codingplan-intl",
-    name="Aliyun Coding Plan (International)",
-    base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
-    api_key_prefix="sk-sp",
-    models=ALIYUN_CODINGPLAN_MODELS,
-    support_connection_check=False,
-    freeze_url=True,
-    provider_group="aliyun",
-    provider_group_name="Aliyun",
-    provider_variant="coding_plan_intl",
-)
-
-PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
-    id="aliyun-tokenplan",
-    name="Aliyun Token Plan",
-    base_url=(
-        "https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"
-    ),
-    api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
-    support_connection_check=False,
-    freeze_url=True,
-    provider_group="aliyun",
-    provider_group_name="Aliyun",
-    provider_variant="token_plan",
-)
-
-PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
-    id="aliyun-tokenplan-intl",
-    name="Aliyun Token Plan (International)",
-    base_url=(
-        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/"
-        "compatible-mode/v1"
-    ),
-    api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
-    support_connection_check=False,
-    freeze_url=True,
-    provider_group="aliyun",
-    provider_group_name="Aliyun",
-    provider_variant="token_plan_intl",
-)
-
-PROVIDER_ZHIPU_CN = OpenAIProvider(
-    id="zhipu-cn",
-    name="Zhipu (BigModel)",
-    base_url="https://open.bigmodel.cn/api/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-    provider_group="zhipu",
-    provider_group_name="Zhipu",
-    provider_variant="open_platform_cn",
-    meta={"is_free_tier": True},
-)
-
-PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
-    id="zhipu-cn-codingplan",
-    name="Zhipu Coding Plan (BigModel)",
-    base_url="https://open.bigmodel.cn/api/coding/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-    support_connection_check=False,
-    provider_group="zhipu",
-    provider_group_name="Zhipu",
-    provider_variant="coding_plan_cn",
-)
-
-PROVIDER_ZHIPU_INTL = OpenAIProvider(
-    id="zhipu-intl",
-    name="Zhipu (Z.AI)",
-    base_url="https://api.z.ai/api/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-    provider_group="zhipu",
-    provider_group_name="Zhipu",
-    provider_variant="open_platform_intl",
-)
-
-PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
-    id="zhipu-intl-codingplan",
-    name="Zhipu Coding Plan (Z.AI)",
-    base_url="https://api.z.ai/api/coding/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-    support_connection_check=False,
-    provider_group="zhipu",
-    provider_group_name="Zhipu",
-    provider_variant="coding_plan_intl",
-)
-
-PROVIDER_QWENPAW = OpenAIProvider(
-    id="qwenpaw-local",
-    name="QwenPaw Local",
-    is_local=True,
-    require_api_key=False,
-)
-
-PROVIDER_OPENAI = OpenAIProvider(
-    id="openai",
-    name="OpenAI",
-    base_url="https://api.openai.com/v1",
-    api_key_prefix="sk-",
-    models=OPENAI_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_OPENAI_RESPONSE = OpenAIResponseProvider(
-    id="openai-response",
-    name="OpenAI (Response API)",
-    base_url="https://api.openai.com/v1",
-    api_key_prefix="sk-",
-    chat_model="OpenAIResponseModel",
-    models=OPENAI_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_OPENCODE = OpenCodeProvider(
-    id="opencode",
-    name="OpenCode",
-    base_url="https://opencode.ai/zen/v1",
-    api_key_prefix="",
-    models=OPENCODE_MODELS,
-    require_api_key=False,
-    meta={
-        "base_url_options": [
-            {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
-            {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
-        ],
-        "is_free_tier": True,
-    },
-    freeze_url=False,
-)
-
-PROVIDER_KILO = KiloProvider(
-    id="kilo",
-    name="Kilo Code",
-    base_url="https://api.kilo.ai/api/gateway",
-    api_key_prefix="",
-    models=KILO_MODELS,
-    require_api_key=False,
-    meta={"is_free_tier": True},
-    freeze_url=True,
-)
-
-PROVIDER_AZURE_OPENAI = OpenAIProvider(
-    id="azure-openai",
-    name="Azure OpenAI",
-    api_key_prefix="",
-    models=AZURE_OPENAI_MODELS,
-)
-
-PROVIDER_MINIMAX = AnthropicProvider(
-    id="minimax",
-    name="MiniMax (International)",
-    base_url="https://api.minimax.io/anthropic",
-    models=MINIMAX_MODELS,
-    chat_model="AnthropicChatModel",
-    freeze_url=True,
-    support_connection_check=False,
-    provider_group="minimax",
-    provider_group_name="MiniMax",
-    provider_variant="open_platform_intl",
-)
-
-PROVIDER_MINIMAX_CN = AnthropicProvider(
-    id="minimax-cn",
-    name="MiniMax (China)",
-    base_url="https://api.minimaxi.com/anthropic",
-    models=MINIMAX_MODELS,
-    chat_model="AnthropicChatModel",
-    freeze_url=True,
-    support_connection_check=False,
-    provider_group="minimax",
-    provider_group_name="MiniMax",
-    provider_variant="open_platform_cn",
-)
-
-PROVIDER_KIMI_CN = OpenAIProvider(
-    id="kimi-cn",
-    name="Kimi (China)",
-    base_url="https://api.moonshot.cn/v1",
-    api_key_prefix="",
-    models=KIMI_MODELS,
-    freeze_url=True,
-    provider_group="kimi",
-    provider_group_name="Kimi",
-    provider_variant="open_platform_cn",
-)
-
-PROVIDER_KIMI_INTL = OpenAIProvider(
-    id="kimi-intl",
-    name="Kimi (International)",
-    base_url="https://api.moonshot.ai/v1",
-    api_key_prefix="",
-    models=KIMI_MODELS,
-    freeze_url=True,
-    provider_group="kimi",
-    provider_group_name="Kimi",
-    provider_variant="open_platform_intl",
-)
-
-KIMI_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kimi-for-coding",
-        name="Kimi for Coding",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-PROVIDER_KIMI_CODINGPLAN = OpenAIProvider(
-    id="kimi-codingplan",
-    name="Kimi Coding Plan",
-    base_url="https://api.kimi.com/coding/v1",
-    api_key_prefix="sk-kimi-",
-    models=KIMI_CODINGPLAN_MODELS,
-    freeze_url=True,
-    support_connection_check=False,
-    provider_group="kimi",
-    provider_group_name="Kimi",
-    provider_variant="coding_plan",
-)
-
-PROVIDER_DEEPSEEK = OpenAIProvider(
-    id="deepseek",
-    name="DeepSeek",
-    base_url="https://api.deepseek.com",
-    api_key_prefix="sk-",
-    models=DEEPSEEK_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_ANTHROPIC = AnthropicProvider(
-    id="anthropic",
-    name="Anthropic",
-    base_url="https://api.anthropic.com",
-    api_key_prefix="sk-ant-",
-    models=ANTHROPIC_MODELS,
-    chat_model="AnthropicChatModel",
-    freeze_url=False,
-)
-
-PROVIDER_GEMINI = GeminiProvider(
-    id="gemini",
-    name="Google Gemini",
-    base_url="https://generativelanguage.googleapis.com",
-    api_key_prefix="",
-    models=GEMINI_MODELS,
-    chat_model="GeminiChatModel",
-    freeze_url=True,
-    meta={
-        "is_free_tier": True,
-    },
-)
-
-PROVIDER_OLLAMA = OllamaProvider(
-    id="ollama",
-    name="Ollama",
-    is_local=True,
-    require_api_key=False,
-    support_model_discovery=True,
-    generate_kwargs={"max_tokens": None},
-)
-
-PROVIDER_OPENROUTER = OpenRouterProvider(
-    id="openrouter",
-    name="OpenRouter",
-    base_url="https://openrouter.ai/api/v1",
-    api_key_prefix="sk-or-v1-",
-    models=[],
-    freeze_url=True,
-    meta={
-        "supports_oauth": True,
-        "is_free_tier": True,
-    },
-)
-
-GITHUB_MODELS_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="openai/gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="openai/gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-]
-
-PROVIDER_GITHUB_MODELS = GitHubModelsProvider(
-    id="github-models",
-    name="GitHub Models",
-    base_url="https://models.github.ai/inference",
-    api_key_prefix="ghp_",
-    api_key_prefixes=["ghp_", "github_pat_"],
-    models=GITHUB_MODELS_MODELS,
-    freeze_url=False,
-    meta={
-        "is_free_tier": True,
-    },
-)
+VOLCENGINE_CODINGPLAN_MODELS = _provider_catalog.VOLCENGINE_CODINGPLAN_MODELS
+VOLCENGINE_MODELS = _provider_catalog.VOLCENGINE_MODELS
 
 
-PROVIDER_LMSTUDIO = LMStudioProvider(
-    id="lmstudio",
-    name="LM Studio",
-    is_local=True,
-    base_url="http://localhost:1234/v1",
-    require_api_key=False,
-    api_key_prefix="",
-    support_model_discovery=True,
-    generate_kwargs={"max_tokens": None},
-)
-
-PROVIDER_SILICONFLOW_CN = OpenAIProvider(
-    id="siliconflow-cn",
-    name="SiliconFlow (China)",
-    base_url="https://api.siliconflow.cn/v1",
-    api_key_prefix="sk-",
-    models=[],
-    freeze_url=True,
-    require_api_key=True,
-    provider_group="siliconflow",
-    provider_group_name="SiliconFlow",
-    provider_variant="china",
-    meta={
-        "is_free_tier": True,
-    },
-)
-
-PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
-    id="siliconflow-intl",
-    name="SiliconFlow (International)",
-    base_url="https://api.siliconflow.com/v1",
-    api_key_prefix="sk-",
-    models=[],
-    freeze_url=True,
-    require_api_key=True,
-    provider_group="siliconflow",
-    provider_group_name="SiliconFlow",
-    provider_variant="international",
-    meta={
-        "is_free_tier": True,
-    },
-)
-
-PROVIDER_VOLCENGINE_CN = OpenAIProvider(
-    id="volcengine-cn",
-    name="Volcano Engine",
-    base_url="https://ark.cn-beijing.volces.com/api/v3",
-    api_key_prefix="",
-    models=VOLCENGINE_MODELS,
-    freeze_url=True,
-    support_model_discovery=False,
-    provider_group="volcengine",
-    provider_group_name="Volcano Engine",
-    provider_variant="open_platform",
-)
-
-PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
-    id="volcengine-cn-codingplan",
-    name="Volcano Engine Coding Plan",
-    base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
-    api_key_prefix="",
-    models=VOLCENGINE_CODINGPLAN_MODELS,
-    support_connection_check=False,
-    freeze_url=True,
-    support_model_discovery=False,
-    provider_group="volcengine",
-    provider_group_name="Volcano Engine",
-    provider_variant="coding_plan",
-)
-
-PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
-    id="mimo-tokenplan",
-    name="Xiaomi MiMo Token Plan",
-    base_url="https://token-plan-cn.xiaomimimo.com/v1",
-    api_key_prefix="",
-    models=MIMO_TOKENPLAN_MODELS,
-    freeze_url=True,
-)
-
-
-class ProviderManager:  # pylint: disable=too-many-public-methods
+class ProviderManager(
+    ProviderManagerDiscoveryMixin,
+    ProviderManagerPersistenceMixin,
+):  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
     including built-in and custom ones."""
 
@@ -1382,17 +94,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.custom_providers: Dict[str, Provider] = {}
         self.plugin_providers: Dict[str, Dict] = {}  # Plugin providers
         self.active_model: ModelSlotConfig | None = None
+        self._provider_save_locks: dict[str, asyncio.Lock] = {}
+        self._discovery_generations: dict[str, int] = {}
+        self._provider_revisions: dict[str, int] = {}
+        self._provider_storage_paths: dict[tuple[str, str], Path] = {}
         self.root_path = SECRET_DIR / "providers"
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
         self.plugin_path = self.root_path / "plugin"  # Plugin provider configs
+        self._plugin_registry = PluginProviderRegistry(self)
         self._prepare_disk_storage()
+        self._index_provider_storage_paths()
         self._init_builtins()
         try:
             self._migrate_legacy_providers()
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
+        self._capability_registry = ExpectedCapabilityRegistry()
         self._apply_default_annotations()
 
     def _prepare_disk_storage(self):
@@ -1410,42 +129,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 pass
 
     def _init_builtins(self):
-        self._add_builtin(PROVIDER_QWENPAW)
-        self._add_builtin(PROVIDER_OLLAMA)
-        self._add_builtin(PROVIDER_LMSTUDIO)
-        self._add_builtin(PROVIDER_OPENROUTER)
-        self._add_builtin(PROVIDER_GITHUB_MODELS)
-        self._add_builtin(PROVIDER_MODELSCOPE)
-        self._add_builtin(PROVIDER_DASHSCOPE)
-        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
-        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
-        self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN)
-        self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN_INTL)
-        self._add_builtin(PROVIDER_OPENCODE)
-        self._add_builtin(PROVIDER_KILO)
-        self._add_builtin(PROVIDER_OPENAI)
-        self._add_builtin(PROVIDER_OPENAI_RESPONSE)
-        self._add_builtin(PROVIDER_AZURE_OPENAI)
-        self._add_builtin(PROVIDER_ANTHROPIC)
-        self._add_builtin(PROVIDER_GEMINI)
-        self._add_builtin(PROVIDER_DEEPSEEK)
-        self._add_builtin(PROVIDER_KIMI_CN)
-        self._add_builtin(PROVIDER_KIMI_INTL)
-        self._add_builtin(PROVIDER_KIMI_CODINGPLAN)
-        self._add_builtin(PROVIDER_MINIMAX_CN)
-        self._add_builtin(PROVIDER_MINIMAX)
-        self._add_builtin(PROVIDER_ZHIPU_CN)
-        self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
-        self._add_builtin(PROVIDER_ZHIPU_INTL)
-        self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
-        self._add_builtin(PROVIDER_SILICONFLOW_CN)
-        self._add_builtin(PROVIDER_SILICONFLOW_INTL)
-        self._add_builtin(PROVIDER_VOLCENGINE_CN)
-        self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
-        self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
+        """Register the ordered built-in provider catalog."""
+        catalog = model_catalog.load_model_catalog()
+        for provider in BUILTIN_PROVIDERS:
+            builtin = provider.model_copy(deep=True)
+            catalog_key = BUILTIN_PROVIDER_CATALOG_KEYS.get(provider.id)
+            if catalog_key is not None:
+                builtin.models = [
+                    model.model_copy(deep=True)
+                    for model in catalog.get(catalog_key, builtin.models)
+                ]
+            self._add_builtin(builtin)
 
     def _add_builtin(self, provider: Provider):
-        self.builtin_providers[provider.id] = provider
+        # Built-in definitions may reuse model lists across regional variants.
+        # Each manager instance needs independent model objects for persisted
+        # overrides and discovery metadata.
+        provider_key = self._normalize_provider_id(provider.id)
+        self.builtin_providers[provider_key] = provider.model_copy(deep=True)
 
     async def list_provider_info(self) -> List[ProviderInfo]:
         tasks = [
@@ -1454,22 +155,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         tasks += [
             provider.get_info() for provider in self.custom_providers.values()
         ]
-        # Add plugin providers - directly return their ProviderInfo
-        for plugin_provider in self.plugin_providers.values():
-            provider_info = plugin_provider["info"]
-            # Plugin providers store ProviderInfo directly, no need to
-            # instantiate
-            tasks.append(self._get_plugin_provider_info(provider_info))
 
         provider_infos = await asyncio.gather(*tasks)
-        return list(provider_infos)
-
-    async def _get_plugin_provider_info(
-        self,
-        provider_info: ProviderInfo,
-    ) -> ProviderInfo:
-        """Helper to return plugin provider info as async task."""
-        return provider_info
+        return list(provider_infos) + (
+            self._plugin_registry.list_provider_infos()
+        )
 
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
@@ -1477,22 +167,19 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
         Maps legacy 'copaw-local' to 'qwenpaw-local'.
         """
-        if provider_id == "copaw-local":
+        provider_key = provider_identity_key(provider_id)
+        if provider_key == "copaw-local":
             return "qwenpaw-local"
-        return provider_id
+        return provider_key
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
-        # Check plugin providers first
-        if provider_id in self.plugin_providers:
-            plugin_provider = self.plugin_providers[provider_id]
-            provider_info = plugin_provider["info"]
-            provider_class = plugin_provider["class"]
-            # Instantiate with **dict unpacking for Pydantic BaseModel
-            return provider_class(**provider_info.model_dump())
+        plugin_provider = self._plugin_registry.get_provider(provider_id)
+        if plugin_provider is not None:
+            return plugin_provider
         if provider_id in self.builtin_providers:
             return self.builtin_providers[provider_id]
         if provider_id in self.custom_providers:
@@ -1514,26 +201,183 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # changes to providers.json.
         # Normalize provider ID for backward compatibility
         provider_id = self._normalize_provider_id(provider_id)
+        return self._update_provider_transaction(provider_id, config)
+
+    async def update_provider_async(
+        self,
+        provider_id: str,
+        config: Dict,
+    ) -> bool:
+        """Update a provider and persist its snapshot off the event loop."""
+        provider_id = self._normalize_provider_id(provider_id)
+        lock = self._provider_save_locks.setdefault(
+            provider_id,
+            asyncio.Lock(),
+        )
+        async with lock:
+            return await run_async_to_completion(
+                self._update_provider_async_locked(provider_id, config),
+            )
+
+    async def _update_provider_async_locked(
+        self,
+        provider_id: str,
+        config: Dict,
+    ) -> bool:
+        """Persist a detached update snapshot, then commit it in memory."""
         provider = self.get_provider(provider_id)
-        if not provider:
+        if provider is None:
             return False
-        provider.update_config(config)
+        revision = self._provider_revision(provider_id)
+        candidate = provider.model_copy(deep=True)
+        before_update = candidate.model_dump()
+        candidate.update_config(config)
+        changed_fields = {
+            field
+            for field in config
+            if field in candidate.__class__.model_fields
+            and before_update.get(field) != getattr(candidate, field)
+        }
+        if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
+            self._reset_model_availability(candidate)
+            candidate.models_syncing = False
 
-        # Determine save location
-        is_builtin = provider_id in self.builtin_providers
-        is_plugin = provider_id in self.plugin_providers
+        provider_path = await self._provider_config_path_async(provider_id)
+        await run_sync_io(
+            self._save_provider_snapshot_locked,
+            provider_id,
+            candidate,
+            provider_path,
+        )
 
-        if is_plugin:
-            # Update plugin provider info in memory (convert Provider to
-            # ProviderInfo)
-            provider_info = ProviderInfo(**provider.model_dump())
-            self.plugin_providers[provider_id]["info"] = provider_info
-            # Save to plugin path (separate from builtin)
-            self._save_plugin_provider(provider)
+        if not self._is_current_provider(provider_id, provider, revision):
+            # The provider changed while the snapshot was being written;
+            # restore the disk state from the winning update instead of
+            # leaving this stale snapshot to swallow it on next restart.
+            await self._restore_latest_snapshot(provider_id, provider_path)
+            return False
+        current = self.get_provider(provider_id)
+        if current is None:
+            await self._restore_latest_snapshot(provider_id, provider_path)
+            return False
+        if provider_id in self.plugin_providers:
+            self.plugin_providers[provider_id]["info"] = ProviderInfo(
+                **candidate.model_dump(),
+            )
         else:
-            self._save_provider(provider, is_builtin=is_builtin)
-
+            self._copy_provider_state(current, candidate)
+        if changed_fields:
+            self._bump_provider_revision(provider_id)
         return True
+
+    def _update_provider_transaction(
+        self,
+        provider_id: str,
+        config: Dict,
+        *,
+        expected_provider: Provider | None = None,
+        expected_revision: int | None = None,
+    ) -> bool:
+        """Update memory and disk under the shared provider path lock."""
+        provider_path = self._provider_config_path(provider_id)
+        with get_sync_path_lock(provider_path):
+            provider = self.get_provider(provider_id)
+            if provider is None:
+                return False
+            if (
+                expected_revision is not None
+                and not self._is_current_provider(
+                    provider_id,
+                    expected_provider or provider,
+                    expected_revision,
+                )
+            ):
+                return False
+            self._merge_persisted_discovery_state(provider_id, provider)
+            before_update = provider.model_dump()
+            provider.update_config(config)
+            changed_fields = {
+                field
+                for field in config
+                if field in provider.__class__.model_fields
+                and before_update.get(field) != getattr(provider, field)
+            }
+            if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
+                self._reset_model_availability(provider)
+                provider.models_syncing = False
+            if changed_fields:
+                self._bump_provider_revision(provider_id)
+            self._save_provider_snapshot(provider_id, provider)
+            if provider_id in self.plugin_providers:
+                self.plugin_providers[provider_id]["info"] = ProviderInfo(
+                    **provider.model_dump(),
+                )
+            return True
+
+    def _merge_persisted_discovery_state(
+        self,
+        provider_id: str,
+        provider: Provider,
+    ) -> None:
+        """Keep a completed discovery snapshot during a legacy sync update."""
+        if provider_id in self.plugin_providers:
+            return
+        persisted = self.load_provider(
+            provider_id,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        if persisted is None or persisted.models_last_synced_at is None:
+            return
+        provider.discovered_models = [
+            model.model_copy(deep=True)
+            for model in persisted.discovered_models
+        ]
+        provider.models_last_synced_at = persisted.models_last_synced_at
+        provider.models_last_sync_error = persisted.models_last_sync_error
+
+    def _bump_provider_revision(self, provider_id: str) -> int:
+        """Advance the revision used to reject stale async operations."""
+        provider_id = self._normalize_provider_id(provider_id)
+        revision = self._provider_revisions.get(provider_id, 0) + 1
+        self._provider_revisions[provider_id] = revision
+        return revision
+
+    def _provider_revision(self, provider_id: str) -> int:
+        """Return the current runtime revision for a provider."""
+        provider_id = self._normalize_provider_id(provider_id)
+        return self._provider_revisions.get(provider_id, 0)
+
+    def _is_current_provider(
+        self,
+        provider_id: str,
+        provider: Provider,
+        revision: int,
+    ) -> bool:
+        """Check that an async operation still targets the live provider."""
+        provider_id = self._normalize_provider_id(provider_id)
+        if revision != self._provider_revision(provider_id):
+            return False
+        if provider_id in self.plugin_providers:
+            return True
+        return self.get_provider(provider_id) is provider
+
+    @staticmethod
+    def _reset_model_availability(provider: Provider) -> None:
+        """Invalidate probe results after connection settings change."""
+        for model in provider.models + provider.extra_models:
+            model.availability_status = "unverified"
+            model.availability_message = None
+            model.availability_http_status = None
+            model.availability_retryable = True
+            model.availability_checked_at = None
+            model.availability_verification = "unverified"
+        for model in provider.discovered_models:
+            model.availability_status = "unverified"
+            model.availability_message = None
+            model.availability_http_status = None
+            model.availability_retryable = True
+            model.availability_checked_at = None
+            model.availability_verification = "unverified"
 
     def start_local_model_resume(self, local_manager) -> None:
         """Schedule background restore of the active local model server."""
@@ -1558,67 +402,50 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             )
         logger.info("Background local model restore completed")
 
-    async def fetch_provider_models(
-        self,
-        provider_id: str,
-        save: bool = True,
-    ) -> List[ModelInfo]:
-        """Fetch the list of available models from a provider.
-
-        Args:
-            provider_id: The ID of the provider to fetch models from.
-            save: If True, save the discovered models to the provider
-                configuration. Defaults to True.
-
-        Returns:
-            List of ModelInfo objects representing available models.
-        """
-        provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
-            return []
-        try:
-            models = await provider.fetch_models()
-            if save:
-                provider.extra_models = models
-                # Save provider config to appropriate location
-                is_plugin = provider_id in self.plugin_providers
-                if is_plugin:
-                    provider_info = ProviderInfo(**provider.model_dump())
-                    self.plugin_providers[provider_id]["info"] = provider_info
-                    self._save_plugin_provider(provider)
-                else:
-                    self._save_provider(
-                        provider,
-                        is_builtin=provider_id in self.builtin_providers,
-                    )
-            return models
-        except Exception as e:
-            logger.warning(
-                "Failed to fetch models for provider '%s': %s",
-                provider_id,
-                e,
-            )
-            return []
-
     def _resolve_custom_provider_id(self, provider_id: str) -> str:
         """Resolve provider ID conflicts for a custom provider."""
         base_id = provider_id
-        if base_id in self.builtin_providers:
+        if self._normalize_provider_id(base_id) in self.builtin_providers:
             base_id = f"{base_id}-custom"
 
         resolved_id = base_id
         while (
-            resolved_id in self.builtin_providers
-            or resolved_id in self.custom_providers
+            self._normalize_provider_id(resolved_id) in self.builtin_providers
+            or self._normalize_provider_id(resolved_id)
+            in self.custom_providers
+            or self._normalize_provider_id(resolved_id)
+            in self.plugin_providers
         ):
             resolved_id = f"{resolved_id}-new"
 
         return resolved_id
 
+    def _ensure_plugin_provider_id_available(
+        self,
+        provider_id: str,
+    ) -> str:
+        """Reject plugin IDs that collide with any registered provider."""
+        provider_key = self._normalize_provider_id(provider_id)
+        if (
+            provider_key in self.builtin_providers
+            or provider_key in self.custom_providers
+            or provider_key in self.plugin_providers
+        ):
+            raise ProviderError(
+                message=(
+                    f"Plugin provider ID '{provider_id}' conflicts with "
+                    "an existing provider."
+                ),
+            )
+        return provider_key
+
     async def add_custom_provider(self, provider_data: ProviderInfo):
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
+        try:
+            requested_id = validate_custom_provider_id(provider_data.id)
+        except ValueError as exc:
+            raise ProviderError(message=str(exc)) from exc
         provider_payload = provider_data.model_dump()
         # ``max_input_length`` equal to the historical 128K default is only
         # distinguishable from an omitted value while the request model still
@@ -1635,29 +462,61 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "max_input_length" in source.model_fields_set:
                     payload["max_input_length_configured"] = True
         provider_payload["id"] = self._resolve_custom_provider_id(
-            provider_data.id,
+            requested_id,
         )
         provider_payload["is_custom"] = True
         provider = self._provider_from_data(
             provider_payload,
         )  # Validate provider data
+        provider.support_model_discovery = provider.chat_model in {
+            "OpenAIChatModel",
+            "OpenAIResponseModel",
+            "AnthropicChatModel",
+            "GeminiChatModel",
+        }
         # For custom providers, we assume they don't support connection check
         # without model config, to avoid false negatives in the UI.
         provider.support_connection_check = False
-        self.custom_providers[provider.id] = provider
-        self._save_provider(provider, is_builtin=False)
+        await self.save_provider_config_async(provider.id, provider)
+        provider_key = self._normalize_provider_id(provider.id)
+        self.custom_providers[provider_key] = provider
+        self._bump_provider_revision(provider.id)
         return await provider.get_info()
 
     def remove_custom_provider(self, provider_id: str) -> bool:
         # Remove a custom provider by its ID. This will update the
         # providers.json file and remove the provider from the UI.
+        provider_id = self._normalize_provider_id(provider_id)
         if provider_id in self.custom_providers:
+            self._bump_provider_revision(provider_id)
             del self.custom_providers[provider_id]
-            provider_path = self.custom_path / f"{provider_id}.json"
+            provider_path = self._provider_config_path(provider_id)
             if provider_path.exists():
                 os.remove(provider_path)
             return True
         return False
+
+    async def remove_custom_provider_async(self, provider_id: str) -> bool:
+        """Remove a custom provider without blocking the event loop."""
+        provider_id = self._normalize_provider_id(provider_id)
+        lock = self._provider_save_locks.setdefault(
+            provider_id,
+            asyncio.Lock(),
+        )
+
+        async def remove_provider() -> bool:
+            async with lock:
+                if provider_id not in self.custom_providers:
+                    return False
+                provider_path = await self._provider_config_path_async(
+                    provider_id,
+                )
+                await run_sync_io(provider_path.unlink, missing_ok=True)
+                self._bump_provider_revision(provider_id)
+                del self.custom_providers[provider_id]
+                return True
+
+        return await run_async_to_completion(remove_provider())
 
     async def activate_model(self, provider_id: str, model_id: str):
         # Set the active provider and model for the agent. This will update
@@ -1675,11 +534,27 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_name=f"{provider_id}/{model_id}",
                 details={"provider_id": provider_id, "model_id": model_id},
             )
-        self.active_model = ModelSlotConfig(
+        model_info = provider.get_model_info(model_id)
+        if model_info and model_info.availability_status in {
+            "permission_denied",
+            "model_not_found",
+            "incompatible_api",
+        }:
+            reason = (
+                model_info.availability_message
+                or model_info.availability_status
+            )
+            raise ProviderError(
+                message=(
+                    f"Model '{model_id}' cannot be activated: " f"{reason}"
+                ),
+            )
+        provider_id = provider.id
+        active_model = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,
         )
-        self.save_active_model(self.active_model)
+        await self.save_active_model_async(active_model)
 
         # Drop a stale ``rejects_media`` entry for this model so that a
         # transient upstream failure (e.g. a gateway misroute) does not
@@ -1698,7 +573,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Schedule multimodal probing for a model if capability is unknown."""
         provider = self.get_provider(provider_id)
         # Auto-probe multimodal if not yet probed
-        for model in provider.models + provider.extra_models:
+        for model in provider.all_models():
             if model.id == model_id and model.supports_multimodal is None:
                 asyncio.create_task(
                     self._auto_probe_multimodal(provider_id, model_id),
@@ -1715,8 +590,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             result = await self.probe_model_multimodal(provider_id, model_id)
             logger.info(
                 "Auto-probe for %s/%s: image=%s, video=%s",
-                provider_id,
-                model_id,
+                sanitize_log_value(provider_id),
+                sanitize_log_value(model_id),
                 result.get("supports_image"),
                 result.get("supports_video"),
             )
@@ -1743,31 +618,103 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         model_info: ModelInfo,
     ) -> ProviderInfo:
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if not self.get_provider(provider_id):
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        added, error_message = await provider.add_model(model_info)
-        if not added:
-            raise ProviderError(
-                message=error_message,
-                details={
-                    "provider_id": provider_id,
-                    "model_id": model_info.id,
-                },
-            )
+        requested_model = model_info.model_copy(deep=True)
 
-        # Save provider config to appropriate location
-        is_plugin = provider_id in self.plugin_providers
-        if is_plugin:
-            provider_info = ProviderInfo(**provider.model_dump())
-            self.plugin_providers[provider_id]["info"] = provider_info
-            self._save_plugin_provider(provider)
-        else:
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
+        async def add_model(candidate: Provider) -> bool:
+            nonlocal requested_model
+            discovered = next(
+                (
+                    model
+                    for model in candidate.discovered_models
+                    if model.id.strip() == requested_model.id.strip()
+                ),
+                None,
+            )
+            if discovered is not None:
+                if discovered.availability_status in {
+                    "permission_denied",
+                    "model_not_found",
+                    "incompatible_api",
+                }:
+                    reason = (
+                        discovered.availability_message
+                        or discovered.availability_status
+                    )
+                    raise ProviderError(
+                        message=(
+                            f"Model '{requested_model.id}' cannot be added: "
+                            f"{reason}"
+                        ),
+                    )
+                payload = discovered.model_dump()
+                payload.update(
+                    {
+                        "id": requested_model.id,
+                        "name": requested_model.name or discovered.name,
+                        "source": "user",
+                    },
+                )
+                for field in requested_model.model_fields_set:
+                    payload[field] = getattr(requested_model, field)
+                requested_model = ModelInfo.model_validate(payload)
+
+            added, error_message = await candidate.add_model(requested_model)
+            if not added:
+                raise ProviderError(
+                    message=error_message,
+                    details={
+                        "provider_id": provider_id,
+                        "model_id": requested_model.id,
+                    },
+                )
+            return True
+
+        result = await self._mutate_provider_async(provider_id, add_model)
+        if result is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
+        return await provider.get_info()
+
+    async def set_model_hidden(
+        self,
+        provider_id: str,
+        model_id: str,
+        *,
+        hidden: bool,
+    ) -> ProviderInfo:
+        """Persist whether one discovery candidate is hidden from the UI."""
+        provider_id = self._normalize_provider_id(provider_id)
+        if self.get_provider(provider_id) is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
+        model_id = model_id.strip()
+        if not model_id:
+            raise ProviderError(message="Model ID cannot be empty.")
+
+        async def set_hidden(candidate: Provider) -> None:
+            hidden_ids = set(candidate.hidden_model_ids)
+            if hidden:
+                hidden_ids.add(model_id)
+            else:
+                hidden_ids.discard(model_id)
+            candidate.hidden_model_ids = sorted(hidden_ids)
+
+        await self._mutate_provider_async(provider_id, set_hidden)
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
             )
         return await provider.get_info()
 
@@ -1779,27 +726,27 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     ) -> ProviderInfo:
         """Update per-model configuration and persist to disk."""
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if self.get_provider(provider_id) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        if not provider.update_model_config(model_id, config):
-            raise ModelNotFoundException(
-                model_name=f"{provider_id}/{model_id}",
-                details={"provider_id": provider_id, "model_id": model_id},
-            )
+        config_snapshot = dict(config)
 
-        # Save provider config to appropriate location
-        is_plugin = provider_id in self.plugin_providers
-        if is_plugin:
-            provider_info = ProviderInfo(**provider.model_dump())
-            self.plugin_providers[provider_id]["info"] = provider_info
-            self._save_plugin_provider(provider)
-        else:
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
+        async def update_model(candidate: Provider) -> None:
+            if not candidate.update_model_config(model_id, config_snapshot):
+                raise ModelNotFoundException(
+                    model_name=f"{provider_id}/{model_id}",
+                    details={
+                        "provider_id": provider_id,
+                        "model_id": model_id,
+                    },
+                )
+
+        await self._mutate_provider_async(provider_id, update_model)
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
             )
         return await provider.get_info()
 
@@ -1809,23 +756,23 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         model_id: str,
     ) -> ProviderInfo:
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if self.get_provider(provider_id) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        await provider.delete_model(model_id=model_id)
 
-        # Save provider config to appropriate location
-        is_plugin = provider_id in self.plugin_providers
-        if is_plugin:
-            provider_info = ProviderInfo(**provider.model_dump())
-            self.plugin_providers[provider_id]["info"] = provider_info
-            self._save_plugin_provider(provider)
-        else:
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
+        async def delete_model(candidate: Provider) -> None:
+            deleted, error_message = await candidate.delete_model(
+                model_id=model_id,
+            )
+            if not deleted:
+                raise ProviderError(message=error_message)
+
+        await self._mutate_provider_async(provider_id, delete_model)
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
             )
         return await provider.get_info()
 
@@ -1845,44 +792,47 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 will remain at its previous value (not updated).
         """
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
-        if not provider:
+        if self.get_provider(provider_id) is None:
             return {"error": f"Provider '{provider_id}' not found"}
 
-        result = await provider.probe_model_multimodal(
-            model_id,
-            image_only=image_only,
-        )
-
-        # Update the model's capability flags.
-        # For image_only probes, leave supports_video untouched so a
-        # subsequent full probe can fill it in correctly.
-        for model in provider.models + provider.extra_models:
-            if model.id == model_id:
-                model.supports_image = result.supports_image
+        async def probe_model(candidate: Provider) -> Any:
+            probe_result = await candidate.probe_model_multimodal(
+                model_id,
+                image_only=image_only,
+            )
+            for model in candidate.all_models():
+                if model.id != model_id:
+                    continue
+                model.supports_image = probe_result.supports_image
                 if not image_only:
-                    model.supports_video = result.supports_video
-                    model.supports_multimodal = result.supports_multimodal
-                else:
-                    # Partial update: derive supports_multimodal from
-                    # image alone; video will be updated by the full probe.
-                    if result.supports_image:
-                        model.supports_multimodal = True
+                    model.supports_video = probe_result.supports_video
+                    model.supports_multimodal = (
+                        probe_result.supports_multimodal
+                    )
+                elif probe_result.supports_image:
+                    model.supports_multimodal = True
                 model.probe_source = getattr(
-                    result,
+                    probe_result,
                     "probe_source",
                     "probed",
                 )
                 break
+            return probe_result
+
+        result = await self._mutate_provider_async(
+            provider_id,
+            probe_model,
+        )
+        if result is None:
+            return {"error": f"Provider '{provider_id}' not found"}
 
         # Compare probe result against expected baseline
-        from .capability_baseline import (
-            ExpectedCapabilityRegistry,
-            compare_probe_result,
-        )
+        from .capability_baseline import compare_probe_result
 
-        registry = ExpectedCapabilityRegistry()
-        expected = registry.get_expected(provider_id, model_id)
+        expected = self._capability_registry.get_expected(
+            provider_id,
+            model_id,
+        )
         if expected:
             discrepancies = compare_probe_result(
                 expected,
@@ -1900,17 +850,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     d.discrepancy_type,
                 )
 
-        # Persist to disk
-        is_plugin = provider_id in self.plugin_providers
-        if is_plugin:
-            provider_info = ProviderInfo(**provider.model_dump())
-            self.plugin_providers[provider_id]["info"] = provider_info
-            self._save_plugin_provider(provider)
-        else:
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
-            )
         return {
             "supports_image": result.supports_image,
             "supports_video": result.supports_video,
@@ -1919,485 +858,21 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             "video_message": result.video_message,
         }
 
-    def _save_provider(
-        self,
-        provider: Provider,
-        is_builtin: bool = False,
-        skip_if_exists: bool = False,
-    ):
-        """Save a provider configuration to disk.
-
-        Sensitive fields (``api_key``) are encrypted before writing.
-        """
-        provider_dir = self.builtin_path if is_builtin else self.custom_path
-        provider_path = provider_dir / f"{provider.id}.json"
-        if skip_if_exists and provider_path.exists():
-            return
-        data = encrypt_dict_fields(
-            provider.model_dump(),
-            PROVIDER_SECRET_FIELDS,
+    def _apply_default_annotations(self, *, refresh: bool = False) -> None:
+        """Apply doc-based default annotations for unprobed models."""
+        self._annotation_service = ProviderAnnotationService(
+            self._capability_registry,
         )
-        with open(provider_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        try:
-            os.chmod(provider_path, 0o600)
-        except OSError:
-            pass
-
-    def _save_plugin_provider(self, provider: Provider):
-        """Save a plugin provider configuration to disk.
-
-        Sensitive fields (``api_key``) are encrypted before writing.
-        """
-        provider_path = self.plugin_path / f"{provider.id}.json"
-        data = encrypt_dict_fields(
-            provider.model_dump(),
-            PROVIDER_SECRET_FIELDS,
+        self._annotation_service.apply(
+            self.builtin_providers.values(),
+            refresh=refresh,
         )
-        with open(provider_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        try:
-            os.chmod(provider_path, 0o600)
-        except OSError:
-            pass
-
-    def save_provider_config(
-        self,
-        provider_id: str,
-        provider: Provider | None = None,
-    ) -> None:
-        """Persist the current in-memory provider state to disk.
-
-        Args:
-            provider_id: The provider to save.
-            provider: Optional pre-resolved provider instance. When
-                supplied, this instance is saved directly — important
-                for plugin providers where ``get_provider`` returns a
-                fresh copy each time.
-        """
-        if provider is None:
-            provider = self.get_provider(provider_id)
-        if provider is None:
-            return
-        is_plugin = provider_id in self.plugin_providers
-        if is_plugin:
-            provider_info = ProviderInfo(**provider.model_dump())
-            self.plugin_providers[provider_id]["info"] = provider_info
-            self._save_plugin_provider(provider)
-        else:
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
-            )
-
-    def load_provider(
-        self,
-        provider_id: str,
-        is_builtin: bool = False,
-    ) -> Provider | None:
-        """Load a provider configuration from disk.
-
-        Encrypted fields are transparently decrypted.  If a legacy
-        plaintext ``api_key`` is detected it is re-encrypted in place.
-        """
-        provider_dir = self.builtin_path if is_builtin else self.custom_path
-        provider_path = provider_dir / f"{provider_id}.json"
-        if not provider_path.exists():
-            return None
-        try:
-            with open(provider_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            needs_rewrite = self._maybe_migrate_plaintext(
-                data,
-                PROVIDER_SECRET_FIELDS,
-            )
-            data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
-            provider = self._provider_from_data(data)
-
-            if needs_rewrite:
-                try:
-                    self._save_provider(
-                        provider,
-                        is_builtin=is_builtin,
-                        skip_if_exists=False,
-                    )
-                except Exception as enc_err:
-                    logger.debug(
-                        "Deferred plaintext→encrypted migration"
-                        " for provider '%s': %s",
-                        provider_id,
-                        enc_err,
-                    )
-
-            return provider
-        except Exception as e:
-            logger.warning(
-                "Failed to load provider '%s' from %s: %s",
-                provider_id,
-                provider_path,
-                e,
-            )
-            return None
-
-    @staticmethod
-    def _maybe_migrate_plaintext(
-        data: dict,
-        secret_fields: frozenset[str],
-    ) -> bool:
-        """Return ``True`` when *data* contains plaintext secret fields
-        that should be re-encrypted on disk."""
-        for field in secret_fields:
-            value = data.get(field)
-            if isinstance(value, str) and value and not is_encrypted(value):
-                return True
-        return False
-
-    # pylint: disable=too-many-return-statements
-    def _provider_from_data(self, data: Dict) -> Provider:
-        """Deserialize provider data to a concrete provider type."""
-        provider_id = str(data.get("id", ""))
-        chat_model = str(data.get("chat_model", ""))
-
-        if provider_id == "openrouter":
-            return OpenRouterProvider.model_validate(data)
-        if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
-            return AnthropicProvider.model_validate(data)
-        if provider_id == "gemini" or chat_model == "GeminiChatModel":
-            return GeminiProvider.model_validate(data)
-        if provider_id == "dashscope" or chat_model == "DashScopeChatModel":
-            return DashScopeProvider.model_validate(data)
-        if provider_id == "ollama":
-            return OllamaProvider.model_validate(data)
-        if chat_model == "OpenAIResponseModel":
-            return OpenAIResponseProvider.model_validate(data)
-        return OpenAIProvider.model_validate(data)
-
-    def save_active_model(self, active_model: ModelSlotConfig):
-        """Save the active provider/model configuration to disk."""
-        active_path = self.root_path / "active_model.json"
-        with open(active_path, "w", encoding="utf-8") as f:
-            json.dump(
-                active_model.model_dump(),
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        try:
-            os.chmod(active_path, 0o600)
-        except OSError:
-            pass
-
-    def clear_active_model(self, provider_id: str | None = None) -> bool:
-        """Clear the active provider/model configuration.
-
-        If provider_id is provided, only clear when it matches the current
-        active provider.
-        """
-        if self.active_model is None:
-            return False
-        # Normalize provider ID for backward compatibility
-        if provider_id is not None:
-            provider_id = self._normalize_provider_id(provider_id)
-        if (
-            provider_id is not None
-            and self.active_model.provider_id != provider_id
-        ):
-            return False
-
-        self.active_model = None
-        active_path = self.root_path / "active_model.json"
-        try:
-            active_path.unlink()
-        except (FileNotFoundError, OSError):
-            pass
-        return True
-
-    def load_active_model(self) -> ModelSlotConfig | None:
-        """Load the active provider/model configuration from disk."""
-        active_path = self.root_path / "active_model.json"
-        if not active_path.exists():
-            return None
-        try:
-            with open(active_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return ModelSlotConfig.model_validate(data)
-        except Exception:
-            return None
-
-    def _migrate_copaw_config(self) -> None:
-        """Migrate copaw-local provider config to qwenpaw-local."""
-        # 1. Migrate active model configuration (only provider_id)
-        if (
-            self.active_model
-            and self.active_model.provider_id == "copaw-local"
-        ):
-            self.active_model.provider_id = "qwenpaw-local"
-            self.save_active_model(self.active_model)
-            logger.info(
-                "Migrated active model provider from "
-                "'copaw-local' to 'qwenpaw-local'",
-            )
-
-        # 2. Migrate stored provider config file
-        copaw_config_path = self.builtin_path / "copaw-local.json"
-        if not copaw_config_path.exists():
-            return
-
-        try:
-            # Load old config and apply to new provider instance
-            with open(copaw_config_path, "r", encoding="utf-8") as f:
-                old_config = json.load(f)
-
-            # Get the new built-in provider instance
-            provider = self.builtin_providers.get("qwenpaw-local")
-            if not provider:
-                return
-
-            # Apply migrated configuration (preserve extra_models as-is)
-            if "extra_models" in old_config:
-                provider.extra_models = [
-                    ModelInfo.model_validate(model)
-                    for model in old_config["extra_models"]
-                ]
-            if "base_url" in old_config:
-                provider.base_url = old_config["base_url"]
-            if "generate_kwargs" in old_config:
-                provider.generate_kwargs = old_config["generate_kwargs"]
-
-            # Save using standard persistence logic (with encryption)
-            self._save_provider(provider, is_builtin=True)
-
-            # Remove old config file
-            copaw_config_path.unlink()
-            logger.info(
-                "Migrated provider config from "
-                "'copaw-local.json' to 'qwenpaw-local.json'",
-            )
-        except Exception as exc:
-            logger.warning("Failed to migrate copaw-local config: %s", exc)
-
-    # pylint: disable=too-many-branches
-    def _migrate_legacy_providers(self):
-        """Migrate from legacy providers.json format to the new structure."""
-        legacy_path = SECRET_DIR / "providers.json"
-        if legacy_path.exists() and legacy_path.is_file():
-            with open(legacy_path, "r", encoding="utf-8") as f:
-                legacy_data = json.load(f)
-            builtin_providers = legacy_data.get("providers", {})
-            custom_providers = legacy_data.get("custom_providers", {})
-            active_model = legacy_data.get("active_llm", {})
-            # Migrate built-in providers
-            for provider_id, config in builtin_providers.items():
-                provider = self.get_provider(provider_id)
-                if not provider:
-                    logger.warning(
-                        "Legacy provider '%s' not found in"
-                        " registry, skipping migration for this provider.",
-                        provider_id,
-                    )
-                    continue
-                if "api_key" in config:
-                    provider.api_key = config["api_key"]
-                if "extra_models" in config:
-                    provider.extra_models = [
-                        ModelInfo.model_validate(model)
-                        for model in config["extra_models"]
-                    ]
-                if not provider.freeze_url and "base_url" in config:
-                    provider.base_url = config["base_url"]
-                self._save_provider(provider, is_builtin=True)
-            # Migrate custom providers
-            for provider_id, data in custom_providers.items():
-                custom_provider = OpenAIProvider(
-                    id=provider_id,
-                    name=data.get("name", provider_id),
-                    base_url=data.get("base_url", ""),
-                    api_key=data.get("api_key", ""),
-                    is_custom=True,
-                )
-                if "models" in data:
-                    # migrate models to extra_models field
-                    custom_provider.extra_models = [
-                        ModelInfo.model_validate(model)
-                        for model in data["models"]
-                    ]
-                if "chat_model" in data:
-                    custom_provider.chat_model = data["chat_model"]
-                self._save_provider(custom_provider, is_builtin=False)
-            # Migrate active model (only provider_id, not model)
-            if active_model:
-                try:
-                    # Convert legacy copaw-local provider_id
-                    if active_model.get("provider_id") == "copaw-local":
-                        active_model["provider_id"] = "qwenpaw-local"
-                    self.active_model = ModelSlotConfig.model_validate(
-                        active_model,
-                    )
-                    self.save_active_model(self.active_model)
-                except Exception:
-                    logger.warning(
-                        "Failed to migrate active model, using default.",
-                    )
-            # Remove legacy file after migration
-            try:
-                os.remove(legacy_path)
-            except Exception:
-                logger.warning(
-                    "Failed to remove legacy providers.json after migration.",
-                )
-
-    @staticmethod
-    def _restore_builtin_model_config(
-        model: ModelInfo,
-        config: dict,
-    ) -> None:
-        """Restore persisted overrides onto a built-in model definition."""
-        if config["generate_kwargs"]:
-            model.generate_kwargs = config["generate_kwargs"]
-        if config["max_tokens"] is not None:
-            model.max_tokens = config["max_tokens"]
-        if config["max_input_length"] is not None:
-            model.max_input_length = config["max_input_length"]
-        configured_length = config.get("max_input_length")
-        model.max_input_length_configured = bool(
-            config.get("max_input_length_configured", False)
-            or (
-                configured_length is not None
-                and configured_length != DEFAULT_CONTEXT_WINDOW
-            ),
-        )
-        if config.get("relay_reasoning") is not None:
-            model.relay_reasoning = config["relay_reasoning"]
-        if config.get("thinking_enabled") is not None:
-            model.thinking_enabled = config["thinking_enabled"]
-        if config.get("thinking_budget") is not None:
-            model.thinking_budget = config["thinking_budget"]
-        if config.get("reasoning_effort") is not None:
-            model.reasoning_effort = config["reasoning_effort"]
-        if config.get("supports_multimodal") is not None:
-            model.supports_multimodal = config["supports_multimodal"]
-        if config.get("supports_image") is not None:
-            model.supports_image = config["supports_image"]
-        if config.get("supports_video") is not None:
-            model.supports_video = config["supports_video"]
-
-    def _init_from_storage(self):
-        """Initialize all providers and active model from disk storage."""
-        # Load built-in providers
-        # pylint: disable=too-many-nested-blocks
-        for builtin in self.builtin_providers.values():
-            provider = self.load_provider(builtin.id, is_builtin=True)
-            if provider:
-                # inherit user-configured base_url only when freeze_url=False
-                if not builtin.freeze_url:
-                    builtin.base_url = provider.base_url
-                builtin.api_key = provider.api_key
-                if provider.auth_mode != "api_key":
-                    builtin.auth_mode = provider.auth_mode
-                if provider.custom_headers:
-                    builtin.custom_headers = provider.custom_headers
-                # Restore the configurable inline-media cap for the providers
-                # that support it (currently DashScope).
-                if hasattr(builtin, "max_inline_media_bytes"):
-                    builtin.max_inline_media_bytes = (
-                        provider.max_inline_media_bytes
-                    )
-                builtin_model_ids = {m.id for m in builtin.models}
-                builtin.extra_models = [
-                    m
-                    for m in provider.extra_models
-                    if m.id not in builtin_model_ids
-                ]
-                builtin.generate_kwargs.update(provider.generate_kwargs)
-                # Restore per-model config for built-in models.
-                # Collect from both stored built-in models and promoted
-                # extra_models (models that were user-added but are now
-                # part of the built-in list).
-                stored_model_config: dict = {}
-                _per_model_keys = (
-                    "generate_kwargs",
-                    "max_tokens",
-                    "max_input_length",
-                    "max_input_length_configured",
-                    "relay_reasoning",
-                    "thinking_enabled",
-                    "thinking_budget",
-                    "reasoning_effort",
-                    "supports_multimodal",
-                    "supports_image",
-                    "supports_video",
-                )
-                for m in provider.models:
-                    stored_model_config[m.id] = {
-                        k: getattr(m, k) for k in _per_model_keys
-                    }
-                for m in provider.extra_models:
-                    if m.id in builtin_model_ids:
-                        stored_model_config.setdefault(
-                            m.id,
-                            {k: getattr(m, k) for k in _per_model_keys},
-                        )
-                if stored_model_config:
-                    for model in builtin.models:
-                        cfg = stored_model_config.get(model.id)
-                        if cfg:
-                            self._restore_builtin_model_config(model, cfg)
-        # Load custom providers
-        for provider_file in self.custom_path.glob("*.json"):
-            provider = self.load_provider(provider_file.stem, is_builtin=False)
-            if provider:
-                self.custom_providers[provider.id] = provider
-        # Load active model config
-        active_model = self.load_active_model()
-        if active_model:
-            self.active_model = active_model
-
-        # Migrate copaw-local to qwenpaw-local for backwards compatibility
-        self._migrate_copaw_config()
-
-    def _apply_default_annotations(self):
-        """Apply doc-based default annotations for unprobed models.
-
-        Models that already carry static annotations (supports_image /
-        supports_video set at definition time) only need the derived
-        supports_multimodal flag computed.  Models with no annotations
-        at all fall back to the ExpectedCapabilityRegistry.
-        """
-        from .capability_baseline import ExpectedCapabilityRegistry
-
-        registry = ExpectedCapabilityRegistry()
-        for provider in self.builtin_providers.values():
-            for model in provider.models:
-                # Already fully annotated (e.g. by a prior probe) → skip
-                if model.supports_multimodal is not None:
-                    continue
-
-                # Static annotations present → compute derived flag only
-                if (
-                    model.supports_image is not None
-                    or model.supports_video is not None
-                ):
-                    model.supports_multimodal = bool(
-                        model.supports_image or model.supports_video,
-                    )
-                    continue
-
-                # No annotations at all → fall back to registry
-                expected = registry.get_expected(provider.id, model.id)
-                if expected:
-                    model.supports_image = expected.expected_image
-                    model.supports_video = expected.expected_video
-                    model.supports_multimodal = bool(
-                        expected.expected_image or expected.expected_video,
-                    )
-                    model.probe_source = "documentation"
 
     async def _resume_local_model(self, local_manager) -> None:
         """Resume the active local model server from the previous run."""
 
-        def _clear_local_provider():
-            self.update_provider(
+        async def _clear_local_provider() -> None:
+            await self.update_provider_async(
                 "qwenpaw-local",
                 {
                     "base_url": "",
@@ -2416,7 +891,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 "Skipping local model restore because"
                 " llama.cpp is not installed.",
             )
-            _clear_local_provider()
+            await _clear_local_provider()
             return
 
         if not local_manager.is_model_downloaded(model_id):
@@ -2425,7 +900,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 " model is not downloaded: %s",
                 model_id,
             )
-            _clear_local_provider()
+            await _clear_local_provider()
             return
 
         try:
@@ -2436,111 +911,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_id,
                 exc,
             )
-            _clear_local_provider()
+            await _clear_local_provider()
             return
 
-        self.update_provider(
+        await self.update_provider_async(
             "qwenpaw-local",
             {
                 "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
                 "extra_models": [setup_result.model_info],
             },
-        )
-
-    def register_plugin_provider(
-        self,
-        provider_id: str,
-        provider_class,
-        label: str,
-        base_url: str,
-        metadata: Dict,
-    ):
-        """Register a plugin provider.
-
-        Args:
-            provider_id: Provider ID
-            provider_class: Provider class
-            label: Display label
-            base_url: API base URL
-            metadata: Additional metadata
-        """
-        # Get default models from provider class if available
-        default_models = []
-        if hasattr(provider_class, "get_default_models"):
-            try:
-                default_models = provider_class.get_default_models()
-            except Exception as e:
-                logger.warning(
-                    f"Failed to get default models for {provider_id}: {e}",
-                )
-
-        # Create ProviderInfo
-        provider_info = ProviderInfo(
-            id=provider_id,
-            name=label,
-            base_url=base_url,
-            api_key="",  # Will be configured by user
-            chat_model=metadata.get("chat_model", "OpenAIChatModel"),
-            models=default_models,  # Add default models
-            is_custom=False,  # Mark as non-custom (like builtin, cannot be
-            # deleted)
-            require_api_key=metadata.get("require_api_key", True),
-            meta=metadata.get("meta", {}),  # Pass meta from plugin
-        )
-
-        # Check if there's a saved configuration for this plugin provider
-        saved_config_path = self.plugin_path / f"{provider_id}.json"
-        if saved_config_path.exists():
-            try:
-                with open(saved_config_path, "r", encoding="utf-8") as f:
-                    saved_config = json.load(f)
-
-                # Decrypt sensitive fields
-                saved_config = decrypt_dict_fields(
-                    saved_config,
-                    PROVIDER_SECRET_FIELDS,
-                )
-
-                # Merge saved config (api_key, base_url, extra_models, etc)
-                if "api_key" in saved_config:
-                    provider_info.api_key = saved_config["api_key"]
-                if "base_url" in saved_config:
-                    provider_info.base_url = saved_config["base_url"]
-                if "generate_kwargs" in saved_config:
-                    provider_info.generate_kwargs = saved_config[
-                        "generate_kwargs"
-                    ]
-                # Load extra_models from saved config
-                if "extra_models" in saved_config:
-                    provider_info.extra_models = [
-                        ModelInfo.model_validate(
-                            (
-                                model.model_dump()
-                                if isinstance(model, BaseModel)
-                                else model
-                            ),
-                        )
-                        for model in saved_config["extra_models"]
-                    ]
-                logger.info(
-                    f"✓ Loaded saved config for plugin provider: "
-                    f"{provider_id} "
-                    f"({len(provider_info.extra_models)} extra model(s))",
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to load saved config for {provider_id}: {e}",
-                )
-
-        # Register to internal dict
-        self.plugin_providers[provider_id] = {
-            "info": provider_info,
-            "class": provider_class,
-        }
-
-        logger.info(
-            f"✓ Registered plugin provider: {provider_id} "
-            f"with {len(default_models)} default model(s)",
         )
 
     def unregister_plugin_provider(self, provider_id: str) -> bool:
@@ -2559,16 +938,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             ``True`` if the provider was found and removed,
             ``False`` if it was not registered.
         """
-        if provider_id not in self.plugin_providers:
-            logger.warning(
-                f"unregister_plugin_provider: '{provider_id}' not found",
-            )
-            return False
-        del self.plugin_providers[provider_id]
-        logger.info(
-            f"Unregistered plugin provider '{provider_id}' from memory",
-        )
-        return True
+        return self._plugin_registry.unregister(provider_id)
 
     @staticmethod
     def get_instance() -> "ProviderManager":

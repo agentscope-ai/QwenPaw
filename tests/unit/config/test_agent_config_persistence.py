@@ -123,19 +123,19 @@ def test_cache_detects_same_mtime_atomic_replacement(
     assert load_agent_config("agent").name == "New"
 
 
-def test_cache_preserves_existing_shared_object_contract(
+def test_cache_returns_an_isolated_config_copy(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Repeated cache hits return the same mutable config object."""
+    """Mutating one loaded config cannot change a later cache hit."""
     _agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
     first = load_agent_config("agent")
     first.description = "updated"
 
     second = load_agent_config("agent")
 
-    assert second is first
-    assert second.description == "updated"
+    assert second is not first
+    assert second.description == ""
 
 
 def test_stale_loaded_config_cannot_overwrite_external_update(

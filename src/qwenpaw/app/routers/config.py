@@ -28,14 +28,15 @@ from ...config import (
     ToolGuardRuleConfig,
     get_available_channels,
     load_config,
-    save_config,
 )
+from ...config.utils import mutate_config
 from ...config.config import (
     AgentsLLMRoutingConfig,
     HeartbeatConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
 )
+from ...utils.io_utils import run_sync_io
 from ...config.timezone import normalize_tz
 from ..channels.conflict import (
     get_channel_bot_identity,
@@ -582,9 +583,10 @@ async def put_acp_node_runtime(
                 },
             )
 
-    config = load_config()
-    config.acp.node_path = node_path
-    save_config(config)
+    def apply_node_path(config: Any) -> None:
+        config.acp.node_path = node_path
+
+    config = await run_sync_io(mutate_config, apply_node_path)
     return await asyncio.to_thread(
         get_node_runtime_status,
         config.acp.node_path,
@@ -776,9 +778,10 @@ async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
 async def put_agents_llm_routing(
     body: AgentsLLMRoutingConfig = Body(...),
 ) -> AgentsLLMRoutingConfig:
-    config = load_config()
-    config.agents.llm_routing = body
-    save_config(config)
+    def apply_routing(config: Any) -> None:
+        config.agents.llm_routing = body
+
+    await run_sync_io(mutate_config, apply_routing)
     return body
 
 
@@ -812,9 +815,11 @@ async def put_user_timezone(
             status_code=400,
             detail=f"Invalid IANA timezone: {tz!r}",
         )
-    config = load_config()
-    config.user_timezone = resolved
-    save_config(config)
+
+    def apply_timezone(config: Any) -> None:
+        config.user_timezone = resolved
+
+    await run_sync_io(mutate_config, apply_timezone)
     return {"timezone": resolved}
 
 
@@ -839,9 +844,10 @@ async def get_tool_guard() -> ToolGuardConfig:
 async def put_tool_guard(
     body: ToolGuardConfig = Body(...),
 ) -> ToolGuardConfig:
-    config = load_config()
-    config.security.tool_guard = body
-    save_config(config)
+    def apply_tool_guard(config: Any) -> None:
+        config.security.tool_guard = body
+
+    await run_sync_io(mutate_config, apply_tool_guard)
 
     from ...security.tool_guard.engine import get_guard_engine
 
@@ -987,7 +993,7 @@ async def get_sandbox_setting(
 async def put_sandbox_setting(
     body: SandboxSettingBody = Body(...),
 ) -> SandboxStatusResponse:
-    config = load_config()
+    config = await run_sync_io(load_config)
     current_enabled = config.security.sandbox_enabled
 
     # Idempotent: if the value hasn't changed, return current status
@@ -1002,8 +1008,10 @@ async def put_sandbox_setting(
             reason=reason,
         )
 
-    config.security.sandbox_enabled = body.enabled
-    save_config(config)
+    def apply_sandbox(config: Any) -> None:
+        config.security.sandbox_enabled = body.enabled
+
+    await run_sync_io(mutate_config, apply_sandbox)
     effective, reason = await _sandbox_effective_status(body.enabled)
     return SandboxStatusResponse(
         enabled=body.enabled,
@@ -1055,23 +1063,23 @@ async def get_file_guard() -> FileGuardResponse:
 async def put_file_guard(
     body: FileGuardUpdateBody,
 ) -> FileGuardResponse:
-    config = load_config()
+    def apply_file_guard(config: Any) -> None:
+        file_guard = config.security.file_guard
+        if body.enabled is not None:
+            file_guard.enabled = body.enabled
+        if body.paths is not None:
+            from ...security.tool_guard.guardians.file_guardian import (
+                ensure_file_guard_paths,
+            )
+
+            file_guard.sensitive_files = ensure_file_guard_paths(body.paths)
+        if body.allow_preview_outside_workspace is not None:
+            file_guard.allow_preview_outside_workspace = (
+                body.allow_preview_outside_workspace
+            )
+
+    config = await run_sync_io(mutate_config, apply_file_guard)
     fg = config.security.file_guard
-
-    if body.enabled is not None:
-        fg.enabled = body.enabled
-    if body.paths is not None:
-        from ...security.tool_guard.guardians.file_guardian import (
-            ensure_file_guard_paths,
-        )
-
-        fg.sensitive_files = ensure_file_guard_paths(body.paths)
-    if body.allow_preview_outside_workspace is not None:
-        fg.allow_preview_outside_workspace = (
-            body.allow_preview_outside_workspace
-        )
-
-    save_config(config)
 
     from ...security.tool_guard.engine import get_guard_engine
 
@@ -1106,9 +1114,10 @@ async def get_skill_scanner() -> SkillScannerConfig:
 async def put_skill_scanner(
     body: SkillScannerConfig = Body(...),
 ) -> SkillScannerConfig:
-    config = load_config()
-    config.security.skill_scanner = body
-    save_config(config)
+    def apply_skill_scanner(config: Any) -> None:
+        config.security.skill_scanner = body
+
+    await run_sync_io(mutate_config, apply_skill_scanner)
     return body
 
 
@@ -1166,24 +1175,23 @@ async def add_to_whitelist(
     if not skill_name:
         raise HTTPException(status_code=400, detail="skill_name is required")
 
-    config = load_config()
-    scanner_cfg = config.security.skill_scanner
+    def add_entry(config: Any) -> None:
+        scanner_cfg = config.security.skill_scanner
+        for entry in scanner_cfg.whitelist:
+            if entry.skill_name == skill_name:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Skill '{skill_name}' is already whitelisted",
+                )
+        scanner_cfg.whitelist.append(
+            SkillScannerWhitelistEntry(
+                skill_name=skill_name,
+                content_hash=content_hash,
+                added_at=datetime.now(timezone.utc).isoformat(),
+            ),
+        )
 
-    for entry in scanner_cfg.whitelist:
-        if entry.skill_name == skill_name:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Skill '{skill_name}' is already whitelisted",
-            )
-
-    scanner_cfg.whitelist.append(
-        SkillScannerWhitelistEntry(
-            skill_name=skill_name,
-            content_hash=content_hash,
-            added_at=datetime.now(timezone.utc).isoformat(),
-        ),
-    )
-    save_config(config)
+    await run_sync_io(mutate_config, add_entry)
     return {"whitelisted": True, "skill_name": skill_name}
 
 
@@ -1194,18 +1202,21 @@ async def add_to_whitelist(
 async def remove_from_whitelist(
     skill_name: str = Path(..., min_length=1),
 ) -> dict:
-    config = load_config()
-    scanner_cfg = config.security.skill_scanner
-    original_len = len(scanner_cfg.whitelist)
-    scanner_cfg.whitelist = [
-        e for e in scanner_cfg.whitelist if e.skill_name != skill_name
-    ]
-    if len(scanner_cfg.whitelist) == original_len:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Skill '{skill_name}' not found in whitelist",
-        )
-    save_config(config)
+    def remove_entry(config: Any) -> None:
+        scanner_cfg = config.security.skill_scanner
+        original_len = len(scanner_cfg.whitelist)
+        scanner_cfg.whitelist = [
+            entry
+            for entry in scanner_cfg.whitelist
+            if entry.skill_name != skill_name
+        ]
+        if len(scanner_cfg.whitelist) == original_len:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Skill '{skill_name}' not found in whitelist",
+            )
+
+    await run_sync_io(mutate_config, remove_entry)
     return {"removed": True, "skill_name": skill_name}
 
 
@@ -1297,7 +1308,8 @@ async def put_allow_no_auth_hosts(
             ),
         )
 
-    config = load_config()
-    config.security.allow_no_auth_hosts = normalized_hosts
-    save_config(config)
+    def apply_hosts(config: Any) -> None:
+        config.security.allow_no_auth_hosts = normalized_hosts
+
+    await run_sync_io(mutate_config, apply_hosts)
     return AllowNoAuthHostsResponse(hosts=normalized_hosts)

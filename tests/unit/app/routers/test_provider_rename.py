@@ -3,6 +3,8 @@
 
 from types import SimpleNamespace
 
+from fastapi import BackgroundTasks
+
 from qwenpaw.app.routers.providers import (
     ProviderConfigRequest,
     configure_provider,
@@ -19,7 +21,11 @@ class FakeManager:
     def get_provider(self, _provider_id: str):
         return self._provider
 
-    def update_provider(self, _provider_id: str, config: dict) -> bool:
+    async def update_provider_async(
+        self,
+        _provider_id: str,
+        config: dict,
+    ) -> bool:
         self.last_config = config
         return True
 
@@ -32,6 +38,7 @@ async def test_configure_custom_provider_applies_stripped_name():
     body = ProviderConfigRequest(name="  New Name  ")
 
     await configure_provider(
+        background_tasks=BackgroundTasks(),
         manager=manager,
         provider_id="my-custom",
         body=body,
@@ -46,6 +53,7 @@ async def test_configure_builtin_provider_ignores_name():
     body = ProviderConfigRequest(name="Hacked Name")
 
     await configure_provider(
+        background_tasks=BackgroundTasks(),
         manager=manager,
         provider_id="openai",
         body=body,
@@ -60,6 +68,7 @@ async def test_configure_provider_ignores_blank_name():
     body = ProviderConfigRequest(name="   ")
 
     await configure_provider(
+        background_tasks=BackgroundTasks(),
         manager=manager,
         provider_id="my-custom",
         body=body,

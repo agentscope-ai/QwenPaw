@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
+from ..utils.logging import sanitize_log_value
+
 if TYPE_CHECKING:
     from fastapi import Request
     from .multi_agent_manager import MultiAgentManager
@@ -118,7 +120,8 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
 
     if manager is None:
         logger.warning(
-            f"Cannot schedule agent reload for '{agent_id}': "
+            "Cannot schedule agent reload for "
+            f"'{sanitize_log_value(agent_id)}': "
             "MultiAgentManager not initialized in app state",
         )
         return
@@ -128,10 +131,15 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
             await manager.reload_agent(agent_id)
         except Exception as e:
             logger.warning(
-                f"Background reload failed for agent '{agent_id}': {e}",
+                "Background reload failed for agent "
+                f"'{sanitize_log_value(agent_id)}': {e}",
                 exc_info=True,
             )
 
+    # The caller just persisted a config change: bump the generation so
+    # any reload already mid-build aborts its (now stale) swap and this
+    # reload delivers the fresh state.
+    manager.note_agent_config_changed(agent_id)
     asyncio.create_task(reload_in_background())
 
 

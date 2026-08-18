@@ -5,16 +5,26 @@ reporting for all built-in providers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
+import json
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-class ProbeSource(str, Enum):
-    """Source of probe result."""
+from ..constant import EnvVarLoader, WORKING_DIR
+from .model_catalog import install_catalog_payload, verify_catalog_hash
 
-    DOCUMENTATION = "documentation"  # Default annotation from official docs
-    PROBED = "probed"  # Result from actual API probing
-    UNKNOWN = "unknown"  # Unknown / not yet probed
+CAPABILITY_SCHEMA_VERSION = 1
+PACKAGED_CAPABILITY_PATH = (
+    Path(__file__).parent / "data" / "model_capabilities.json"
+)
+CAPABILITY_CACHE_DIR = WORKING_DIR / "model_catalog"
+OTA_CAPABILITY_PATH = CAPABILITY_CACHE_DIR / "model_capabilities.json"
+LOCAL_CAPABILITY_PATH = CAPABILITY_CACHE_DIR / "model_capabilities.local.json"
+CAPABILITY_URL_ENV = "QWENPAW_MODEL_CAPABILITY_URL"
+CAPABILITY_SHA256_ENV = "QWENPAW_MODEL_CAPABILITY_SHA256"
 
 
 @dataclass
@@ -29,6 +39,30 @@ class ExpectedCapability:
     note: str = ""
 
 
+class CapabilityEntry(BaseModel):
+    """Strict capability catalog entry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    expected_image: StrictBool | None
+    expected_video: StrictBool | None
+    doc_url: str = ""
+    note: str = ""
+
+
+class CapabilityDocument(BaseModel):
+    """Validated capability catalog document."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(default=CAPABILITY_SCHEMA_VERSION)
+    catalog_version: str
+    published_at: str | None = None
+    capabilities: list[CapabilityEntry] = Field(default_factory=list)
+
+
 @dataclass
 class DiscrepancyLog:
     """Record of a mismatch between probe result and expected capability."""
@@ -41,17 +75,6 @@ class DiscrepancyLog:
     discrepancy_type: str  # "false_negative" or "false_positive"
 
 
-@dataclass
-class ComparisonSummary:
-    """Summary report of probe vs. expected comparison."""
-
-    total_models: int
-    passed: int
-    discrepancies: int
-    failures: int
-    details: list[DiscrepancyLog] = field(default_factory=list)
-
-
 class ExpectedCapabilityRegistry:
     """Registry of expected multimodal capabilities
     for all built-in provider models.
@@ -60,9 +83,16 @@ class ExpectedCapabilityRegistry:
     ``{(provider_id, model_id): ExpectedCapability}`` dict.
     """
 
-    def __init__(self) -> None:
-        self._data: dict[tuple[str, str], ExpectedCapability] = {}
-        self._load_baseline()
+    def __init__(
+        self,
+        packaged_path: Path = PACKAGED_CAPABILITY_PATH,
+        ota_path: Path = OTA_CAPABILITY_PATH,
+        local_path: Path = LOCAL_CAPABILITY_PATH,
+    ) -> None:
+        self._packaged_path = packaged_path
+        self._ota_path = ota_path
+        self._local_path = local_path
+        self._data = self._load_snapshot(strict_overlays=False)
 
     # ------------------------------------------------------------------
     # Public API
@@ -88,713 +118,87 @@ class ExpectedCapabilityRegistry:
             cap for (pid, _), cap in self._data.items() if pid == provider_id
         ]
 
+    def reload(self) -> None:
+        """Atomically replace the registry with a validated snapshot."""
+        self._data = self._load_snapshot(strict_overlays=True)
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    def _register(self, cap: ExpectedCapability) -> None:
-        """Register a single baseline entry."""
-        self._data[(cap.provider_id, cap.model_id)] = cap
-
-    # pylint: disable=too-many-statements,too-many-branches
-    def _load_baseline(
+    def _load_snapshot(
         self,
-    ) -> None:
-        """Load baseline data for built-in providers."""
-
-        # ---------------------------------------------------------------
-        # 1. ModelScope
-        #    https://modelscope.cn/docs/model-service/API-Inference/intro
-        # ---------------------------------------------------------------
-        _ms_doc = (
-            "https://modelscope.cn/docs/model-service/API-Inference/intro"
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="modelscope",
-                model_id="Qwen/Qwen3.5-122B-A10B",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_ms_doc,
-                note="Qwen3.5 is natively multimodal (image+video)",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="modelscope",
-                model_id="ZhipuAI/GLM-5",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ms_doc,
-                note="GLM-5 is text/code model, no vision input",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # 2. DashScope
-        #    https://help.aliyun.com/zh/model-studio/getting-started/models
-        # ---------------------------------------------------------------
-        _ds_doc = (
-            "https://help.aliyun.com/zh/model-studio/getting-started/models"
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="dashscope",
-                model_id="qwen3-max",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_doc,
-                note="Qwen3 series is text-only",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="dashscope",
-                model_id="qwen3-235b-a22b-thinking-2507",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_doc,
-                note="Qwen3 series is text-only",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="dashscope",
-                model_id="deepseek-v3.2",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_doc,
-                note="DeepSeek V3 series is text-only",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # 3. Aliyun Coding Plan
-        # ---------------------------------------------------------------
-        _acp_doc = (
-            "https://help.aliyun.com/zh/model-studio/developer-reference/"
-            "compatibility-of-openai-with-dashscope"
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="qwen3.6-plus",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_acp_doc,
-                note="Qwen3.6-Plus is natively multimodal (image+video)",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="qwen3.5-plus",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_acp_doc,
-                note="Qwen3.5-Plus is natively multimodal (image+video)",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="glm-5",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_acp_doc,
-                note="GLM-5 is text/code model, no vision input",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="glm-4.7",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_acp_doc,
-                note="GLM-4.7 is text/code model, no vision input",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="MiniMax-M2.5",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_acp_doc,
-                note=(
-                    "MiniMax-M2.5 is text-only; on the official MiniMax "
-                    "platform it is now listed as a legacy model "
-                    "(current: M2.7 / M3)"
-                ),
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="kimi-k2.5",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_acp_doc,
-                note="Kimi K2.5 supports image and video input",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="qwen3-max-2026-01-23",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_acp_doc,
-                note="Qwen3 series is text-only",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="qwen3-coder-next",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_acp_doc,
-                note="Qwen3 Coder series is code-only text model",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-codingplan",
-                model_id="qwen3-coder-plus",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_acp_doc,
-                note="Qwen3 Coder series is code-only text model",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # Aliyun Token Plan
-        # ---------------------------------------------------------------
-        _atp_doc = (
-            "https://help.aliyun.com/zh/model-studio/token-plan-quickstart"
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-tokenplan",
-                model_id="qwen3.6-plus",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_atp_doc,
-                note="Qwen3.6-Plus is natively multimodal (image+video)",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-tokenplan",
-                model_id="glm-5",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_atp_doc,
-                note="GLM-5 is text/code model, no vision input",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-tokenplan",
-                model_id="MiniMax-M2.5",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_atp_doc,
-                note=(
-                    "MiniMax-M2.5 is text-only; on the official MiniMax "
-                    "platform it is now listed as a legacy model "
-                    "(current: M2.7 / M3)"
-                ),
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-tokenplan",
-                model_id="kimi-k2.5",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_atp_doc,
-                note="Kimi K2.5 supports image and video input",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="aliyun-tokenplan",
-                model_id="deepseek-v3.2",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_atp_doc,
-                note="DeepSeek V3 series is text-only",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # Zhipu (BigModel)
-        # ---------------------------------------------------------------
-        _zhipu_cn_doc = "https://docs.bigmodel.cn/"
-        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
-            self._register(
-                ExpectedCapability(
-                    provider_id="zhipu-cn",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_zhipu_cn_doc,
-                    note="GLM text/code models are text-only",
-                ),
-            )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-cn",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_cn_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # Zhipu Coding Plan (BigModel)
-        # ---------------------------------------------------------------
-        _zhipu_cn_cp_doc = "https://docs.bigmodel.cn/cn/coding-plan"
-        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
-            self._register(
-                ExpectedCapability(
-                    provider_id="zhipu-cn-codingplan",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_zhipu_cn_cp_doc,
-                    note="GLM text/code models are text-only",
-                ),
-            )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-cn-codingplan",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_cn_cp_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # Zhipu (Z.AI)
-        # ---------------------------------------------------------------
-        _zhipu_intl_doc = "https://docs.z.ai/"
-        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
-            self._register(
-                ExpectedCapability(
-                    provider_id="zhipu-intl",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_zhipu_intl_doc,
-                    note="GLM text/code models are text-only",
-                ),
-            )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-intl",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_intl_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # Zhipu Coding Plan (Z.AI)
-        # ---------------------------------------------------------------
-        _zhipu_intl_cp_doc = "https://docs.z.ai/coding-plan"
-        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
-            self._register(
-                ExpectedCapability(
-                    provider_id="zhipu-intl-codingplan",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_zhipu_intl_cp_doc,
-                    note="GLM text/code models are text-only",
-                ),
-            )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-intl-codingplan",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_intl_cp_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
-
-        # ---------------------------------------------------------------
-        # 4. OpenAI
-        #    https://platform.openai.com/docs/models
-        # ---------------------------------------------------------------
-        _oai_doc = "https://platform.openai.com/docs/models"
-        for mid in (
-            "gpt-5.2",
-            "gpt-5",
-            "gpt-5-mini",
-            "gpt-5-nano",
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4.1-nano",
-            "o4-mini",
-            "gpt-4o",
-            "gpt-4o-mini",
+        *,
+        strict_overlays: bool,
+    ) -> dict[tuple[str, str], ExpectedCapability]:
+        """Build a validated packaged, OTA, and local snapshot."""
+        entries: dict[tuple[str, str], dict[str, Any]] = {}
+        for index, path in enumerate(
+            (self._packaged_path, self._ota_path, self._local_path),
         ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="openai",
-                    model_id=mid,
-                    expected_image=True,
-                    expected_video=True,
-                    doc_url=_oai_doc,
-                ),
-            )
-        self._register(
-            ExpectedCapability(
-                provider_id="openai",
-                model_id="o3",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_oai_doc,
-                note="o3 supports image but not video",
-            ),
-        )
+            if index > 0 and not path.is_file():
+                continue
+            try:
+                document = _read_capability_document(path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                if index == 0 or strict_overlays:
+                    raise
+                continue
+            for item in document.capabilities:
+                payload = item.model_dump()
+                key = (item.provider_id, item.model_id)
+                entries[key] = {**entries.get(key, {}), **payload}
+        snapshot: dict[tuple[str, str], ExpectedCapability] = {}
+        for item in entries.values():
+            capability = ExpectedCapability(**item)
+            snapshot[
+                (capability.provider_id, capability.model_id)
+            ] = capability
+        return snapshot
 
-        # ---------------------------------------------------------------
-        # 5. Azure OpenAI
-        # ---------------------------------------------------------------
-        _az_doc = (
-            "https://learn.microsoft.com/en-us/azure/ai-services/"
-            "openai/concepts/models"
-        )
-        for mid in (
-            "gpt-5-chat",
-            "gpt-5-mini",
-            "gpt-5-nano",
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4.1-nano",
-            "gpt-4o",
-            "gpt-4o-mini",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="azure-openai",
-                    model_id=mid,
-                    expected_image=True,
-                    expected_video=True,
-                    doc_url=_az_doc,
-                ),
-            )
 
-        # ---------------------------------------------------------------
-        # 6. Kimi (China)
-        #    https://platform.moonshot.cn/docs/intro
-        # ---------------------------------------------------------------
-        _kimi_doc = "https://platform.moonshot.cn/docs/intro"
-        self._register(
-            ExpectedCapability(
-                provider_id="kimi-cn",
-                model_id="kimi-k2.5",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_kimi_doc,
-                note="Kimi K2.5 supports image and video input",
-            ),
-        )
-        for mid in (
-            "kimi-k2-0905-preview",
-            "kimi-k2-0711-preview",
-            "kimi-k2-turbo-preview",
-            "kimi-k2-thinking",
-            "kimi-k2-thinking-turbo",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="kimi-cn",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_kimi_doc,
-                    note="K2 series (non-K2.5) is text-only",
-                ),
-            )
+def _read_capability_document(path: Path) -> CapabilityDocument:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    document = CapabilityDocument.model_validate(payload)
+    if document.schema_version != CAPABILITY_SCHEMA_VERSION:
+        raise ValueError("Unsupported capability catalog schema")
+    return document
 
-        # ---------------------------------------------------------------
-        # 7. Kimi (International)
-        #    https://platform.moonshot.ai/docs/intro
-        # ---------------------------------------------------------------
-        _kimi_intl_doc = "https://platform.moonshot.ai/docs/intro"
-        self._register(
-            ExpectedCapability(
-                provider_id="kimi-intl",
-                model_id="kimi-k2.5",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_kimi_intl_doc,
-                note="Kimi K2.5 supports image and video input",
-            ),
-        )
-        for mid in (
-            "kimi-k2-0905-preview",
-            "kimi-k2-0711-preview",
-            "kimi-k2-turbo-preview",
-            "kimi-k2-thinking",
-            "kimi-k2-thinking-turbo",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="kimi-intl",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_kimi_intl_doc,
-                    note="K2 series (non-K2.5) is text-only",
-                ),
-            )
 
-        # ---------------------------------------------------------------
-        # 7b. Kimi Coding Plan
-        #     https://platform.moonshot.cn/docs/intro
-        # ---------------------------------------------------------------
-        self._register(
-            ExpectedCapability(
-                provider_id="kimi-codingplan",
-                model_id="kimi-for-coding",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_kimi_doc,
-                note="Kimi for Coding is text-only",
-            ),
-        )
+def _download_capability_bytes(url: str, timeout: float) -> bytes:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "QwenPaw-Capability-Catalog/1"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
 
-        # ---------------------------------------------------------------
-        # 8. DeepSeek
-        #    https://api-docs.deepseek.com/
-        # ---------------------------------------------------------------
-        _ds_api_doc = "https://api-docs.deepseek.com/"
-        self._register(
-            ExpectedCapability(
-                provider_id="deepseek",
-                model_id="deepseek-chat",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_api_doc,
-                note="DeepSeek-V3 is text-only",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="deepseek",
-                model_id="deepseek-reasoner",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_api_doc,
-                note="DeepSeek-R1 reasoning model: no multimodal",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="deepseek",
-                model_id="deepseek-v4-flash",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_api_doc,
-                note="DeepSeek-V4 Flash: text-only",
-            ),
-        )
-        self._register(
-            ExpectedCapability(
-                provider_id="deepseek",
-                model_id="deepseek-v4-pro",
-                expected_image=False,
-                expected_video=False,
-                doc_url=_ds_api_doc,
-                note="DeepSeek-V4 Pro reasoning model: no multimodal",
-            ),
-        )
 
-        # ---------------------------------------------------------------
-        # 9. Anthropic
-        #    No predefined models (ANTHROPIC_MODELS is empty)
-        # ---------------------------------------------------------------
-
-        # ---------------------------------------------------------------
-        # 10. Gemini
-        #     https://ai.google.dev/gemini-api/docs/models
-        # ---------------------------------------------------------------
-        _gem_doc = "https://ai.google.dev/gemini-api/docs/models"
-        for mid in (
-            "gemini-3.1-pro-preview",
-            "gemini-3-flash-preview",
-            "gemini-3.1-flash-lite-preview",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.0-flash",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="gemini",
-                    model_id=mid,
-                    expected_image=True,
-                    expected_video=True,
-                    doc_url=_gem_doc,
-                ),
-            )
-
-        # ---------------------------------------------------------------
-        # 11. MiniMax (International)
-        #     https://platform.minimax.io/docs/guides/models-intro
-        # ---------------------------------------------------------------
-        _mm_doc = "https://platform.minimax.io/docs/guides/models-intro"
-        # Current flagship — frontier multimodal coding model (1M context).
-        self._register(
-            ExpectedCapability(
-                provider_id="minimax",
-                model_id="MiniMax-M3",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_mm_doc,
-                note=(
-                    "M3 is the frontier multimodal coding model "
-                    "(1M context window, supports image + video input)"
-                ),
-            ),
-        )
-        # Current generation — text-only.
-        for mid in (
-            "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="minimax",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_mm_doc,
-                    note="M2.7 series is text-only",
-                ),
-            )
-        # Legacy models — still served on the official docs page.
-        for mid in (
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
-            "MiniMax-M2.1",
-            "MiniMax-M2.1-highspeed",
-            "MiniMax-M2",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="minimax",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_mm_doc,
-                    note=(
-                        "Legacy text-only model "
-                        "(superseded by M2.7 / M3 on MiniMax platform)"
-                    ),
-                ),
-            )
-
-        # ---------------------------------------------------------------
-        # 12. MiniMax (China)
-        #     https://platform.minimaxi.com/docs/guides/models-intro
-        # ---------------------------------------------------------------
-        _mm_cn_doc = "https://platform.minimaxi.com/docs/guides/models-intro"
-        # Current flagship — frontier multimodal coding model (1M context).
-        self._register(
-            ExpectedCapability(
-                provider_id="minimax-cn",
-                model_id="MiniMax-M3",
-                expected_image=True,
-                expected_video=True,
-                doc_url=_mm_cn_doc,
-                note=(
-                    "M3 is the frontier multimodal coding model "
-                    "(1M context window, supports image + video input)"
-                ),
-            ),
-        )
-        # Current generation — text-only.
-        for mid in (
-            "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="minimax-cn",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_mm_cn_doc,
-                    note="M2.7 series is text-only",
-                ),
-            )
-        # Legacy models — still served on the official docs page.
-        for mid in (
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
-            "MiniMax-M2.1",
-            "MiniMax-M2.1-highspeed",
-            "MiniMax-M2",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="minimax-cn",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_mm_cn_doc,
-                    note=(
-                        "Legacy text-only model "
-                        "(superseded by M2.7 / M3 on MiniMax platform)"
-                    ),
-                ),
-            )
-        # ---------------------------------------------------------------
-        # 13. OpenCode (OpenCode Zen)
-        #     https://opencode.ai/docs/zen
-        # ---------------------------------------------------------------
-        _oc_doc = "https://opencode.ai/docs/zen"
-        for mid in (
-            "big-pickle",
-            "nemotron-3-super-free",
-        ):
-            self._register(
-                ExpectedCapability(
-                    provider_id="opencode",
-                    model_id=mid,
-                    expected_image=False,
-                    expected_video=False,
-                    doc_url=_oc_doc,
-                    note=(
-                        "OpenCode Zen aggregates heterogeneous providers; "
-                        "capability varies by model, probe to determine."
-                    ),
-                ),
-            )
-        # ---------------------------------------------------------------
-        # 14. Ollama — no predefined models (dynamic discovery)
-        # ---------------------------------------------------------------
-
-        # ---------------------------------------------------------------
-        # 15. LM Studio — no predefined models (dynamic discovery)
-        # ---------------------------------------------------------------
+def update_capability_catalog(
+    url: str | None = None,
+    expected_sha256: str | None = None,
+    timeout: float = 10,
+    destination: Path = OTA_CAPABILITY_PATH,
+) -> CapabilityDocument:
+    """Download, validate, and atomically install capability metadata."""
+    resolved_url = url or EnvVarLoader.get_str(CAPABILITY_URL_ENV)
+    if not resolved_url:
+        raise ValueError(f"{CAPABILITY_URL_ENV} is not configured")
+    digest = expected_sha256 or EnvVarLoader.get_str(
+        CAPABILITY_SHA256_ENV,
+    )
+    payload = _download_capability_bytes(resolved_url, timeout)
+    verify_catalog_hash(payload, digest, label="Capability catalog")
+    document = CapabilityDocument.model_validate_json(payload)
+    if document.schema_version != CAPABILITY_SCHEMA_VERSION:
+        raise ValueError("Unsupported capability catalog schema")
+    install_catalog_payload(
+        payload,
+        destination,
+        expected_sha256=None,
+        label="Capability catalog",
+    )
+    return document
 
 
 def compare_probe_result(
@@ -834,41 +238,3 @@ def compare_probe_result(
         )
 
     return logs
-
-
-def generate_summary(
-    results: list[tuple[ExpectedCapability, bool, bool, str]],
-) -> ComparisonSummary:
-    """Generate a comparison summary report.
-
-    Each element in results is
-    (expected_cap, actual_image, actual_video, status),
-    where status is "ok", "discrepancy", or "failure".
-
-    The returned ComparisonSummary guarantees
-    total_models == passed + discrepancies + failures,
-    and details only contains DiscrepancyLog entries from "discrepancy" items.
-    """
-    passed = 0
-    discrepancies = 0
-    failures = 0
-    details: list[DiscrepancyLog] = []
-
-    for expected_cap, actual_image, actual_video, status in results:
-        if status == "ok":
-            passed += 1
-        elif status == "discrepancy":
-            discrepancies += 1
-            details.extend(
-                compare_probe_result(expected_cap, actual_image, actual_video),
-            )
-        elif status == "failure":
-            failures += 1
-
-    return ComparisonSummary(
-        total_models=len(results),
-        passed=passed,
-        discrepancies=discrepancies,
-        failures=failures,
-        details=details,
-    )

@@ -153,8 +153,11 @@ class TokenRecordingModelWrapper(ChatModelBase):
         stream: AsyncGenerator[ChatResponse, None],
     ) -> AsyncGenerator[ChatResponse, None]:
         last_usage: ChatUsage | None = None
-        async for chunk in stream:
-            if getattr(chunk, "usage", None) is not None:
-                last_usage = chunk.usage
-            yield chunk
-        self._record_usage(last_usage)
+        try:
+            async for chunk in stream:
+                if getattr(chunk, "usage", None) is not None:
+                    last_usage = chunk.usage
+                yield chunk
+        finally:
+            await stream.aclose()
+            self._record_usage(last_usage)
