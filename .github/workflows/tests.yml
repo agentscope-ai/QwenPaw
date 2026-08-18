@@ -275,7 +275,21 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          # The macOS runner ships setuptools 65.5.0, which pip's resolver
+          # upgrades to the latest release (84.x) while backtracking the
+          # dependency graph. setuptools >= 82 no longer ships
+          # pkg_resources.declare_namespace, which lark-oapi's namespace
+          # packages still call at import time, so the Feishu mock IM
+          # integration tests crash with AttributeError on macOS. Pin
+          # setuptools <82 here — the pin must ride in the SAME pip command
+          # as the install: a separate `pip install "setuptools<82"` step
+          # beforehand gets upgraded away by this resolution again
+          # (reproduced with pip 26.2.1; see CI run 31571533395).
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            pip install -e ".[dev,test,full]" "setuptools<82"
+          else
+            pip install -e ".[dev,test,full]"
+          fi
 
       # tests/integration/browser carries the integration marker but no
       # priority marker, so any expression without a p0/p1 filter (a
