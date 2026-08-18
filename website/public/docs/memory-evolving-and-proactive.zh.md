@@ -251,7 +251,7 @@ Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用�
 | ----------------------------------- | -------------- | -------------------------------------------- |
 | `dream_cron_enabled`                | `true`         | 是否定时运行 Auto-Dream                      |
 | `dream_cron`                        | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动 |
-| `auto_dream_inbox_push_enabled`     | `true`         | 将 Auto-Dream 的成功或失败摘要推送到 Inbox   |
+| `auto_dream_inbox_push_enabled`     | `true`         | Auto-Dream 有实际变化或执行失败时推送到 Inbox |
 | `auto_memory_interval`              | `5`            | 每累计 N 个用户回合运行 Auto-Memory          |
 | `auto_memory_search_config.enabled` | `false`        | 是否在每个普通用户请求前自动检索记忆         |
 
