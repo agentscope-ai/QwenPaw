@@ -647,6 +647,29 @@ def get_text_model_name() -> str:
     )
 
 
+def get_text_protocol() -> str:
+    tool_config = get_request_tool_config(CREATOR_TEXT_CONFIG_TOOL)
+    if tool_config:
+        return str(tool_config.get("protocol") or "").strip()
+    section = _get_user_config().get("llm")
+    if isinstance(section, dict) and section.get("protocol"):
+        return str(section["protocol"]).strip()
+    return os.environ.get("TEXT_PROTOCOL", "").strip()
+
+
+def get_text_chat_url() -> str:
+    """Return the chat-completion endpoint URL for the configured text model.
+
+    Protocol-aware: Anthropic/MiniMax use ``/v1/messages``, everything
+    else falls back to the OpenAI-compatible ``/chat/completions``.
+    """
+    return chat_url_for(
+        get_text_base_url(),
+        get_text_protocol(),
+        get_text_model_name(),
+    )
+
+
 def _vlm_use_llm() -> bool:
     """Return True when the persisted VLM section reuses the text model.
 
@@ -697,8 +720,60 @@ def get_vlm_model_name() -> str:
     )
 
 
+def get_vlm_protocol() -> str:
+    if _vlm_use_llm():
+        return get_text_protocol()
+    tool_config = get_request_tool_config(CREATOR_VLM_CONFIG_TOOL)
+    if tool_config:
+        return str(tool_config.get("protocol") or "").strip()
+    section = _get_user_config().get("vlm")
+    if isinstance(section, dict) and section.get("protocol"):
+        return str(section["protocol"]).strip()
+    return os.environ.get("VLM_PROTOCOL", "").strip() or get_text_protocol()
+
+
 def get_vlm_chat_url() -> str:
-    return f"{get_vlm_base_url().rstrip('/')}/chat/completions"
+    """Return the chat-completion endpoint URL for the configured VLM.
+
+    Protocol-aware: Anthropic/MiniMax use ``/v1/messages``, everything
+    else falls back to the OpenAI-compatible ``/chat/completions``.
+    """
+    base = get_vlm_base_url().rstrip("/")
+    protocol = get_vlm_protocol().casefold()
+    if "anthropic" in protocol or "minimax" in protocol:
+        return f"{base}/v1/messages"
+    return f"{base}/chat/completions"
+
+
+# ── Protocol classification helpers ──────────────────────────────────────────
+# Shared by text_model, vlm_model, and model_routes to decide URL path,
+# headers, body format, and response parsing per API protocol.
+
+
+def is_anthropic_protocol(protocol: str) -> bool:
+    """True when *protocol* uses the Anthropic Messages API format."""
+    lower = protocol.casefold()
+    return "anthropic" in lower or "minimax" in lower
+
+
+def is_gemini_protocol(protocol: str) -> bool:
+    """True when *protocol* uses the Google Gemini Generative AI format."""
+    lower = protocol.casefold()
+    return "gemini" in lower or "google" in lower
+
+
+def chat_url_for(base_url: str, protocol: str, model_name: str = "") -> str:
+    """Return the correct chat-completion URL for *base_url* + *protocol*."""
+    base = base_url.rstrip("/")
+    if is_anthropic_protocol(protocol):
+        return f"{base}/v1/messages"
+    if is_gemini_protocol(protocol):
+        return f"{base}/v1beta/models/{model_name}:generateContent"
+    return (
+        base
+        if base.endswith("/chat/completions")
+        else f"{base}/chat/completions"
+    )
 
 
 def get_vlm_concurrency() -> int:

@@ -1,16 +1,23 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long,too-many-branches,too-many-statements
-"""DashScope Bailian VLM wrapper for multimodal understanding.
+"""VLM wrapper for multimodal understanding.
 
-The Bailian vision API is OpenAI Chat compatible: image inputs use
-``image_url`` content parts and video inputs use ``video_url`` content
-parts. Local files are transported through the provider-bound channel
-right before the request: DashScope models use the official model-bound
-temporary upload (``oss://`` URL, 48h TTL, <=1GB) resolved via the
-``X-DashScope-OssResourceResolve: enable`` header, while other
-OpenAI-compatible providers fall back to inline
-``data:<mime>;base64,...`` URLs.
+Supports three API protocols:
+
+* OpenAI-compatible (``/chat/completions``) — DashScope Bailian and most
+  providers. Image inputs use ``image_url`` content parts and video inputs
+  use ``video_url`` content parts. Local files are transported through the
+  provider-bound channel right before the request: DashScope models use the
+  official model-bound temporary upload (``oss://`` URL, 48h TTL, <=1GB)
+  resolved via the ``X-DashScope-OssResourceResolve: enable`` header, while
+  other OpenAI-compatible providers fall back to inline
+  ``data:<mime>;base64,...`` URLs.
+* Anthropic Messages (``/v1/messages``) — Anthropic Claude and MiniMax.
+  Images use ``image`` content blocks with a ``source`` object; videos are
+  not supported by the Anthropic Messages API.
+* Google Gemini (``/v1beta/models/{model}:generateContent``) — Google
+  Gemini. Media uses ``inline_data`` parts.
 """
 
 from __future__ import annotations
@@ -60,6 +67,20 @@ def _data_url(path: Path, fallback_mime: str) -> str:
         )
     encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
     return f"data:{_mime_for_path(path, fallback_mime)};base64,{encoded}"
+
+
+def _inline_base64(path: Path, fallback_mime: str) -> tuple[str, str]:
+    """Return ``(mime_type, base64_data)`` for a local file."""
+    size = path.stat().st_size
+    max_bytes = model_config.get_vlm_max_inline_bytes()
+    if size > max_bytes:
+        raise ModelError(
+            f"VLM local media inline size limit exceeded: {path.name} is {size} bytes, limit is {max_bytes}",
+            model_name=model_config.get_vlm_model_name(),
+        )
+    mime = _mime_for_path(path, fallback_mime)
+    data = base64.b64encode(path.read_bytes()).decode("utf-8")
+    return mime, data
 
 
 def multimodal_media_part(
@@ -201,6 +222,228 @@ async def _transport_local_media_part(
     return transported, False
 
 
+# ── Protocol helpers ─────────────────────────────────────────────────────────
+
+
+def _is_anthropic_protocol(protocol: str) -> bool:
+    lower = protocol.casefold()
+    return "anthropic" in lower or "minimax" in lower
+
+
+def _is_gemini_protocol(protocol: str) -> bool:
+    lower = protocol.casefold()
+    return "gemini" in lower or "google" in lower
+
+
+def _vlm_url(base_url: str, protocol: str, model_name: str) -> str:
+    base = base_url.rstrip("/")
+    if _is_anthropic_protocol(protocol):
+        return f"{base}/v1/messages"
+    if _is_gemini_protocol(protocol):
+        return f"{base}/v1beta/models/{model_name}:generateContent"
+    return f"{base}/chat/completions"
+
+
+# ── Response parsers ─────────────────────────────────────────────────────────
+
+
+def _parse_openai_response(payload: dict, model_name: str) -> str:
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not choices:
+        raise ModelError(
+            f"No VLM choices in response: {payload}",
+            model_name=model_name,
+        )
+    choice0 = choices[0] if isinstance(choices[0], dict) else {}
+    out_msg = choice0.get("message") or {}
+    content_text = out_msg.get("content", "")
+    if isinstance(content_text, list):
+        text_parts = [
+            part.get("text", "")
+            for part in content_text
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ]
+        content_text = "\n".join(text_parts)
+    if not isinstance(content_text, str) or not content_text.strip():
+        raise ModelError(
+            f"Empty VLM response: {payload}",
+            model_name=model_name,
+        )
+    return content_text.strip()
+
+
+def _parse_anthropic_response(payload: dict, model_name: str) -> str:
+    content_blocks = payload.get("content") or []
+    text_parts = [
+        block.get("text", "")
+        for block in content_blocks
+        if isinstance(block, dict) and block.get("type") == "text"
+    ]
+    content = "\n".join(text_parts)
+    if not content.strip():
+        raise ModelError(
+            f"Empty VLM response: {payload}",
+            model_name=model_name,
+        )
+    return content.strip()
+
+
+def _parse_gemini_response(payload: dict, model_name: str) -> str:
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        raise ModelError(
+            f"No VLM candidates in response: {payload}",
+            model_name=model_name,
+        )
+    candidate = candidates[0] if isinstance(candidates[0], dict) else {}
+    content_obj = candidate.get("content") or {}
+    parts = content_obj.get("parts") or []
+    text_parts = [
+        part.get("text", "")
+        for part in parts
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+    ]
+    content = "\n".join(text_parts)
+    if not content.strip():
+        raise ModelError(
+            f"Empty VLM response: {payload}",
+            model_name=model_name,
+        )
+    return content.strip()
+
+
+# ── Content converters ───────────────────────────────────────────────────────
+
+
+def _convert_to_anthropic_content(
+    openai_content: list[dict],
+) -> list[dict]:
+    """Convert OpenAI-format content parts to Anthropic Messages format.
+
+    OpenAI ``image_url`` / ``video_url`` parts become Anthropic ``image``
+    blocks.  Anthropic does not support video in the Messages API, so
+    ``video_url`` parts are converted to a text placeholder.
+    """
+    result: list[dict] = []
+    for part in openai_content:
+        if not isinstance(part, dict):
+            result.append({"type": "text", "text": str(part)})
+            continue
+        part_type = part.get("type", "")
+        if part_type == "text":
+            result.append({"type": "text", "text": part.get("text", "")})
+        elif part_type == "image_url":
+            image_obj = part.get("image_url") or {}
+            url = str(image_obj.get("url") or "")
+            if url.startswith("data:"):
+                # data:<mime>;base64,<data>
+                header, _, b64_data = url.partition(",")
+                mime = (
+                    header.split(":", 1)[1].split(";")[0]
+                    if ":" in header
+                    else "image/png"
+                )
+                result.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime,
+                            "data": b64_data,
+                        },
+                    },
+                )
+            else:
+                result.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "url",
+                            "url": url,
+                        },
+                    },
+                )
+        elif part_type == "video_url":
+            # Anthropic Messages API does not support video; use a placeholder.
+            result.append(
+                {
+                    "type": "text",
+                    "text": "[video content not supported by this model]",
+                },
+            )
+        else:
+            result.append({"type": "text", "text": str(part)})
+    return result
+
+
+def _convert_to_gemini_content(
+    openai_content: list[dict],
+) -> list[dict]:
+    """Convert OpenAI-format content parts to Gemini ``parts`` format."""
+    result: list[dict] = []
+    for part in openai_content:
+        if not isinstance(part, dict):
+            result.append({"text": str(part)})
+            continue
+        part_type = part.get("type", "")
+        if part_type == "text":
+            result.append({"text": part.get("text", "")})
+        elif part_type == "image_url":
+            image_obj = part.get("image_url") or {}
+            url = str(image_obj.get("url") or "")
+            if url.startswith("data:"):
+                header, _, b64_data = url.partition(",")
+                mime = (
+                    header.split(":", 1)[1].split(";")[0]
+                    if ":" in header
+                    else "image/png"
+                )
+                result.append(
+                    {
+                        "inline_data": {"mime_type": mime, "data": b64_data},
+                    },
+                )
+            else:
+                result.append(
+                    {
+                        "file_data": {
+                            "mime_type": "image/png",
+                            "file_uri": url,
+                        },
+                    },
+                )
+        elif part_type == "video_url":
+            video_obj = part.get("video_url") or {}
+            url = str(video_obj.get("url") or "")
+            if url.startswith("data:"):
+                header, _, b64_data = url.partition(",")
+                mime = (
+                    header.split(":", 1)[1].split(";")[0]
+                    if ":" in header
+                    else "video/mp4"
+                )
+                result.append(
+                    {
+                        "inline_data": {"mime_type": mime, "data": b64_data},
+                    },
+                )
+            else:
+                result.append(
+                    {
+                        "file_data": {
+                            "mime_type": "video/mp4",
+                            "file_uri": url,
+                        },
+                    },
+                )
+        else:
+            result.append({"text": str(part)})
+    return result
+
+
+# ─ Main entry point ─────────────────────────────────────────────────────────
+
+
 async def chat_completion(
     content: list[dict],
     *,
@@ -216,6 +459,7 @@ async def chat_completion(
     api_key = api_key_override or model_config.get_vlm_api_key()
     base_url = base_url_override or model_config.get_vlm_base_url()
     model_name = model_name_override or model_config.get_vlm_model_name()
+    protocol = model_config.get_vlm_protocol()
     if not api_key:
         raise ModelError(
             "creator_vlm_model.api_key, VLM_API_KEY, DASHSCOPE_API_KEY, or TEXT_API_KEY is required",
@@ -235,37 +479,6 @@ async def chat_completion(
             model_name=model_name,
         )
 
-    # ``max_frames``/``max_frame`` are DashScope-SDK-only controls. Strip them
-    # defensively from OpenAI-compatible content supplied by older durable
-    # Tasks while preserving every supported field and the caller's objects.
-    # Local media is transported through the provider-bound channel here.
-    provider_content: list[dict] = []
-    uses_temp_oss = False
-    for item in content:
-        normalized = dict(item)
-        normalized.pop("max_frames", None)
-        normalized.pop("max_frame", None)
-        normalized, is_temp_oss = await _transport_local_media_part(
-            normalized,
-            api_key,
-            model_name,
-            base_url,
-        )
-        uses_temp_oss = uses_temp_oss or is_temp_oss
-        provider_content.append(normalized)
-
-    messages: list[dict] = []
-    if system_prompt.strip():
-        messages.append({"role": "system", "content": system_prompt.strip()})
-    messages.append({"role": "user", "content": provider_content})
-    body = {
-        "model": model_name,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "enable_thinking": False,
-    }
-
     media_parts = [
         p
         for p in content
@@ -274,8 +487,9 @@ async def chat_completion(
     video_count = sum(1 for p in media_parts if p.get("type") == "video_url")
     image_count = len(media_parts) - video_count
     logger.info(
-        "VLM request start: model=%s images=%d videos=%d max_tokens=%d",
+        "VLM request start: model=%s protocol=%s images=%d videos=%d max_tokens=%d",
         model_name,
+        protocol or "openai",
         image_count,
         video_count,
         max_tokens,
@@ -286,24 +500,41 @@ async def chat_completion(
         if timeout is not None
         else model_config.get_vlm_timeout_seconds()
     )
+
     try:
-        async with httpx.AsyncClient(timeout=actual_timeout) as client:
-            async with model_slot("vlm"):
-                response = await client.post(
-                    f"{base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                        **(
-                            {"X-DashScope-OssResourceResolve": "enable"}
-                            if uses_temp_oss
-                            else {}
-                        ),
-                    },
-                    json=body,
-                )
-        response.raise_for_status()
-        payload = response.json()
+        if _is_anthropic_protocol(protocol):
+            payload = await _call_anthropic_vlm(
+                content,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=actual_timeout,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+            )
+        elif _is_gemini_protocol(protocol):
+            payload = await _call_gemini_vlm(
+                content,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=actual_timeout,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+            )
+        else:
+            payload = await _call_openai_vlm(
+                content,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=actual_timeout,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+            )
     except httpx.HTTPStatusError as exc:
         if has_media and _is_media_related_error(exc.response.text):
             get_capability_cache().learn(
@@ -332,60 +563,252 @@ async def chat_completion(
                 True,
             )
         elapsed = time.perf_counter() - start_ts
+        request_url = _vlm_url(base_url, protocol, model_name)
         logger.error(
             "VLM request failed: type=%s repr=%r url=%s timeout=%s elapsed=%.2fs",
             type(exc).__name__,
             exc,
-            f"{base_url.rstrip('/')}/chat/completions",
+            request_url,
             actual_timeout,
             elapsed,
             exc_info=True,
         )
         raise ModelError(
-            f"VLM request failed ({type(exc).__name__}): {exc!r} url={base_url.rstrip('/')}/chat/completions",
+            f"VLM request failed ({type(exc).__name__}): {exc!r} url={request_url}",
             model_name=model_name,
         ) from exc
 
     elapsed = time.perf_counter() - start_ts
-    output_chars = 0
+    # Parse response based on protocol
+    if _is_anthropic_protocol(protocol):
+        content_text = _parse_anthropic_response(payload, model_name)
+    elif _is_gemini_protocol(protocol):
+        content_text = _parse_gemini_response(payload, model_name)
+    else:
+        content_text = _parse_openai_response(payload, model_name)
+
     finish_reason = ""
-    choices = payload.get("choices") if isinstance(payload, dict) else None
-    if choices:
-        choice0 = choices[0] if isinstance(choices[0], dict) else {}
-        finish_reason = str(choice0.get("finish_reason") or "")
-        out_msg = choice0.get("message") or {}
-        out_text = out_msg.get("content", "")
-        if isinstance(out_text, list):
-            out_text = "\n".join(
-                part.get("text", "")
-                for part in out_text
-                if isinstance(part, dict) and isinstance(part.get("text"), str)
-            )
-        output_chars = len(out_text or "")
+    if isinstance(payload, dict):
+        if _is_anthropic_protocol(protocol):
+            finish_reason = str(payload.get("stop_reason") or "")
+        elif _is_gemini_protocol(protocol):
+            candidates = payload.get("candidates") or []
+            if candidates and isinstance(candidates[0], dict):
+                finish_reason = str(candidates[0].get("finishReason") or "")
+        else:
+            choices = payload.get("choices") or []
+            if choices and isinstance(choices[0], dict):
+                finish_reason = str(choices[0].get("finish_reason") or "")
+
     logger.info(
         "VLM request done: model=%s elapsed=%.2fs output_chars=%d finish_reason=%s",
         model_name,
         elapsed,
-        output_chars,
+        len(content_text),
         finish_reason or "unknown",
     )
-    if not choices:
-        raise ModelError(
-            f"No VLM choices in response: {payload}",
-            model_name=model_name,
+    return content_text
+
+
+# ── Per-protocol callers ─────────────────────────────────────────────────────
+
+
+async def _call_openai_vlm(
+    content: list[dict],
+    *,
+    system_prompt: str,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+) -> dict:
+    """OpenAI-compatible VLM request (DashScope, DeepSeek, etc.)."""
+    provider_content: list[dict] = []
+    uses_temp_oss = False
+    for item in content:
+        normalized = dict(item)
+        normalized.pop("max_frames", None)
+        normalized.pop("max_frame", None)
+        normalized, is_temp_oss = await _transport_local_media_part(
+            normalized,
+            api_key,
+            model_name,
+            base_url,
         )
-    message = choices[0].get("message") or {}
-    content_text = message.get("content", "")
-    if isinstance(content_text, list):
-        text_parts = [
-            part.get("text", "")
-            for part in content_text
-            if isinstance(part, dict) and isinstance(part.get("text"), str)
-        ]
-        content_text = "\n".join(text_parts)
-    if not isinstance(content_text, str) or not content_text.strip():
-        raise ModelError(
-            f"Empty VLM response: {payload}",
-            model_name=model_name,
-        )
-    return content_text.strip()
+        uses_temp_oss = uses_temp_oss or is_temp_oss
+        provider_content.append(normalized)
+
+    messages: list[dict] = []
+    if system_prompt.strip():
+        messages.append({"role": "system", "content": system_prompt.strip()})
+    messages.append({"role": "user", "content": provider_content})
+    body = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "enable_thinking": False,
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with model_slot("vlm"):
+            response = await client.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    **(
+                        {"X-DashScope-OssResourceResolve": "enable"}
+                        if uses_temp_oss
+                        else {}
+                    ),
+                },
+                json=body,
+            )
+    response.raise_for_status()
+    return response.json()
+
+
+async def _call_anthropic_vlm(
+    content: list[dict],
+    *,
+    system_prompt: str,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+) -> dict:
+    """Anthropic Messages API VLM request (Claude, MiniMax)."""
+    # Transport local media to inline base64 for Anthropic format
+    provider_content: list[dict] = []
+    for item in content:
+        normalized = dict(item)
+        normalized.pop("max_frames", None)
+        normalized.pop("max_frame", None)
+        part_type = normalized.get("type", "")
+        if part_type in ("image_url", "video_url"):
+            media_obj = normalized.get(part_type) or {}
+            url = str(media_obj.get("url") or "")
+            local_path = _local_path_from_url(url)
+            if local_path is not None:
+                fallback = (
+                    "video/mp4" if part_type == "video_url" else "image/png"
+                )
+                mime, b64_data = await asyncio.to_thread(
+                    _inline_base64,
+                    local_path,
+                    fallback,
+                )
+                if part_type == "image_url":
+                    normalized = {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64_data}"},
+                    }
+                else:
+                    # Anthropic doesn't support video; keep as placeholder text
+                    normalized = {
+                        "type": "text",
+                        "text": "[video content]",
+                    }
+            # Remote URLs pass through as-is; the converter handles them
+        provider_content.append(normalized)
+
+    anthropic_content = _convert_to_anthropic_content(provider_content)
+    body: dict = {
+        "model": model_name,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": anthropic_content}],
+    }
+    if system_prompt.strip():
+        body["system"] = system_prompt.strip()
+    if temperature > 0:
+        body["temperature"] = temperature
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with model_slot("vlm"):
+            response = await client.post(
+                f"{base_url.rstrip('/')}/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                },
+                json=body,
+            )
+    response.raise_for_status()
+    return response.json()
+
+
+async def _call_gemini_vlm(
+    content: list[dict],
+    *,
+    system_prompt: str,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+) -> dict:
+    """Google Gemini VLM request."""
+    # Transport local media to inline base64 for Gemini format
+    provider_content: list[dict] = []
+    for item in content:
+        normalized = dict(item)
+        normalized.pop("max_frames", None)
+        normalized.pop("max_frame", None)
+        part_type = normalized.get("type", "")
+        if part_type in ("image_url", "video_url"):
+            media_obj = normalized.get(part_type) or {}
+            url = str(media_obj.get("url") or "")
+            local_path = _local_path_from_url(url)
+            if local_path is not None:
+                fallback = (
+                    "video/mp4" if part_type == "video_url" else "image/png"
+                )
+                mime, b64_data = await asyncio.to_thread(
+                    _inline_base64,
+                    local_path,
+                    fallback,
+                )
+                if part_type == "image_url":
+                    normalized = {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64_data}"},
+                    }
+                else:
+                    normalized = {
+                        "type": "video_url",
+                        "video_url": {"url": f"data:{mime};base64,{b64_data}"},
+                    }
+        provider_content.append(normalized)
+
+    gemini_parts = _convert_to_gemini_content(provider_content)
+    contents: list[dict] = [{"role": "user", "parts": gemini_parts}]
+    body: dict = {
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": max_tokens},
+    }
+    if system_prompt.strip():
+        body["systemInstruction"] = {
+            "parts": [{"text": system_prompt.strip()}],
+        }
+    if temperature > 0:
+        body["generationConfig"]["temperature"] = temperature
+
+    url = f"{base_url.rstrip('/')}/v1beta/models/{model_name}:generateContent"
+    sep = "&" if "?" in url else "?"
+    url = f"{url}{sep}key={api_key}"
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with model_slot("vlm"):
+            response = await client.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json=body,
+            )
+    response.raise_for_status()
+    return response.json()

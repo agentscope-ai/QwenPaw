@@ -1449,6 +1449,69 @@ def _openai_model_probe(
     )
 
 
+def _anthropic_llm_probe(
+    body: ModelConnectionTestRequest,
+    base: str,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Anthropic Messages API probe for llm/vlm connectivity tests."""
+    headers = {
+        "x-api-key": body.api_key,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    if body.type == "vlm":
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": "Reply with red only."},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4I2JDEmIY1TCqYfhqAAAeBCwQ8YdREQAAAABJRU5ErkJggg==",
+                },
+            },
+        ]
+    else:
+        content = "Reply with pong only."
+    return (
+        f"{base}/v1/messages",
+        headers,
+        {
+            "model": body.model_name,
+            "max_tokens": 8,
+            "messages": [{"role": "user", "content": content}],
+        },
+    )
+
+
+def _gemini_llm_probe(
+    body: ModelConnectionTestRequest,
+    base: str,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Google Gemini Generative AI probe for llm/vlm connectivity tests."""
+    url = f"{base}/v1beta/models/{body.model_name}:generateContent"
+    headers = {
+        "Content-Type": "application/json",
+    }
+    if body.type == "vlm":
+        parts: list[dict[str, Any]] = [
+            {"text": "Reply with red only."},
+            {
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4I2JDEmIY1TCqYfhqAAAeBCwQ8YdREQAAAABJRU5ErkJggg==",
+                },
+            },
+        ]
+    else:
+        parts = [{"text": "Reply with pong only."}]
+    payload: dict[str, Any] = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"maxOutputTokens": 8},
+    }
+    return url, headers, payload
+
+
 def _probe_payload(
     body: ModelConnectionTestRequest,
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
@@ -1520,6 +1583,11 @@ def _probe_payload(
             },
         )
     if body.type in {"llm", "vlm"}:
+        protocol_lower = body.protocol.casefold()
+        if "anthropic" in protocol_lower or "minimax" in protocol_lower:
+            return _anthropic_llm_probe(body, base)
+        if "gemini" in protocol_lower or "google" in protocol_lower:
+            return _gemini_llm_probe(body, base)
         content: Any = "Reply with pong only."
         if body.type == "vlm":
             content = [

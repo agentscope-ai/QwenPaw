@@ -128,3 +128,109 @@ def test_llm_probe_still_posts_a_chat_ping() -> None:
     )
     assert "_get_probe" not in payload
     assert payload["model"] == "qwen-plus"
+
+
+def test_anthropic_llm_probe_uses_messages_endpoint() -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="llm",
+            base_url="https://api.anthropic.com",
+            model_name="claude-sonnet-4-20250514",
+            protocol="Anthropic Claude",
+            provider=None,
+        ),
+    )
+
+    assert url == "https://api.anthropic.com/v1/messages"
+    assert headers["x-api-key"] == "sk-test"
+    assert headers["anthropic-version"] == "2023-06-01"
+    assert "Authorization" not in headers
+    assert payload["model"] == "claude-sonnet-4-20250514"
+    assert payload["max_tokens"] == 8
+    assert payload["messages"] == [
+        {"role": "user", "content": "Reply with pong only."},
+    ]
+
+
+def test_minimax_llm_probe_uses_anthropic_format() -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="llm",
+            base_url="https://api.minimaxi.com/anthropic",
+            model_name="MiniMax-M3",
+            protocol="MiniMax",
+            provider=None,
+        ),
+    )
+
+    assert url == "https://api.minimaxi.com/anthropic/v1/messages"
+    assert headers["x-api-key"] == "sk-test"
+    assert payload["model"] == "MiniMax-M3"
+
+
+def test_gemini_llm_probe_uses_generate_content() -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="llm",
+            base_url="https://generativelanguage.googleapis.com",
+            model_name="gemini-2.5-pro",
+            protocol="Google Gemini",
+            provider=None,
+        ),
+    )
+
+    assert url == (
+        "https://generativelanguage.googleapis.com"
+        "/v1beta/models/gemini-2.5-pro:generateContent"
+    )
+    assert "Authorization" not in headers
+    assert payload["contents"] == [
+        {"parts": [{"text": "Reply with pong only."}]},
+    ]
+    assert payload["generationConfig"]["maxOutputTokens"] == 8
+
+
+def test_anthropic_vlm_probe_converts_image_to_anthropic_format() -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="vlm",
+            base_url="https://api.anthropic.com",
+            model_name="claude-sonnet-4-20250514",
+            protocol="Anthropic Claude",
+            provider=None,
+        ),
+    )
+
+    assert url == "https://api.anthropic.com/v1/messages"
+    assert headers["x-api-key"] == "sk-test"
+    messages = payload["messages"]
+    assert len(messages) == 1
+    content = messages[0]["content"]
+    assert isinstance(content, list)
+    text_block = content[0]
+    assert text_block["type"] == "text"
+    assert text_block["text"] == "Reply with red only."
+    image_block = content[1]
+    assert image_block["type"] == "image"
+    assert image_block["source"]["type"] == "base64"
+    assert image_block["source"]["media_type"] == "image/png"
+
+
+def test_gemini_vlm_probe_converts_image_to_inline_data() -> None:
+    url, _headers, payload = _probe_payload(
+        _request(
+            type="vlm",
+            base_url="https://generativelanguage.googleapis.com",
+            model_name="gemini-2.5-pro",
+            protocol="Google Gemini",
+            provider=None,
+        ),
+    )
+
+    assert url.endswith("/v1beta/models/gemini-2.5-pro:generateContent")
+    contents = payload["contents"]
+    assert len(contents) == 1
+    parts = contents[0]["parts"]
+    assert len(parts) == 2
+    assert parts[0] == {"text": "Reply with red only."}
+    assert parts[1]["inline_data"]["mime_type"] == "image/png"
