@@ -181,3 +181,35 @@ def test_resolve_binding_skips_none_and_empty() -> None:
         },
     )
     assert resolved == {}
+
+
+def test_resolve_binding_skips_unknown_source() -> None:
+    """An unrecognized binding source must not produce a header value.
+
+    ``resolve_binding`` lives in the protocol-agnostic credentials layer
+    shared by all Driver handlers, not just MCP — this guards the empty
+    env-value / unknown-source behavior that MCP header bindings rely on.
+    """
+    binding = {
+        "X-K": {"source": "oauth", "credential": "tok", "field": "value"},
+    }
+    resolved = resolve_binding(binding, {})
+    assert resolved == {}
+
+
+def test_resolve_value_source_direct_contract() -> None:
+    """Direct contract of the shared resolver: literal passthrough, unknown
+    source -> None, empty credential value -> None (no empty headers)."""
+    from qwenpaw.drivers.credentials.bindings import _resolve_value_source
+
+    assert (
+        _resolve_value_source({"source": "literal", "value": "v"}, {}) == "v"
+    )
+    assert _resolve_value_source({"source": "weird"}, {}) is None
+    assert (
+        _resolve_value_source(
+            {"source": "credential", "credential": "c", "field": "missing"},
+            {},
+        )
+        is None
+    )

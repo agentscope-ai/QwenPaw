@@ -10,11 +10,13 @@ Covers:
   new value (store)
 """
 # pylint: disable=protected-access,redefined-outer-name
+# flake8: noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi import HTTPException
 import pytest
 
 from qwenpaw.app.routers.tools import (
@@ -346,3 +348,131 @@ async def test_update_tool_config_blank_provider_skips_credential_io() -> None:
     assert resp["status"] == "success"
     credential_store.put.assert_not_called()
     credential_store.delete.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# POST /tools/web_search/config — transactional ordering (review #7081,
+# Issue 2): agent.json is committed before the credential mutation, and a
+# failed credential write rolls the config back.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_config_failure_leaves_credential_untouched() -> None:
+    """Config write failing must not leave a half-applied credential."""
+    registry = _registry_mock()
+    credential_store = MagicMock()
+    credential_store.put = AsyncMock()
+    credential_store.delete = AsyncMock()
+    update_config = AsyncMock(side_effect=RuntimeError("disk full"))
+
+    with (
+        patch(
+            "qwenpaw.plugins.registry.PluginRegistry",
+            return_value=registry,
+        ),
+        patch(
+            "qwenpaw.app.agent_context.get_agent_for_request",
+            AsyncMock(return_value=_workspace()),
+        ),
+        patch(
+            "qwenpaw.app.driver_config_service.DriverConfigService"
+            ".load_optional_credential",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "qwenpaw.app.driver_config_service.DriverConfigService"
+            ".credential_store",
+            new_callable=lambda: property(lambda self: credential_store),
+        ),
+        patch(
+            "qwenpaw.app.routers.tools.update_agent_config_async",
+            update_config,
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await update_tool_config(
+                tool_name="web_search",
+                body=ToolConfigUpdate(
+                    config={"provider": "anysearch", "api_key": "sk-new"},
+                ),
+                request=None,
+            )
+
+    assert exc_info.value.status_code == 500
+    credential_store.put.assert_not_called()
+    credential_store.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_credential_failure_rolls_back_config() -> None:
+    """A failed credential write must restore the previous agent config."""
+    registry = _registry_mock()
+    credential_store = MagicMock()
+    credential_store.put = AsyncMock(side_effect=OSError("disk full"))
+    credential_store.delete = AsyncMock()
+    update_config = AsyncMock()
+
+    with (
+        patch(
+            "qwenpaw.plugins.registry.PluginRegistry",
+            return_value=registry,
+        ),
+        patch(
+            "qwenpaw.app.agent_context.get_agent_for_request",
+            AsyncMock(return_value=_workspace()),
+        ),
+        patch(
+            "qwenpaw.app.driver_config_service.DriverConfigService"
+            ".load_optional_credential",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "qwenpaw.app.driver_config_service.DriverConfigService"
+            ".credential_store",
+            new_callable=lambda: property(lambda self: credential_store),
+        ),
+        patch(
+            "qwenpaw.app.routers.tools.update_agent_config_async",
+            update_config,
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await update_tool_config(
+                tool_name="web_search",
+                body=ToolConfigUpdate(
+                    config={"provider": "anysearch", "api_key": "sk-new"},
+                ),
+                request=None,
+            )
+
+    assert exc_info.value.status_code == 500
+    # Commit + best-effort rollback.
+    assert update_config.await_count == 2
+    credential_store.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_tool_config_keyless_provider_skips_credential_io() -> None:
+    """provider=tavily is keyless: an api_key in the body must not land in
+    any credential slot (regression: switching anysearch->tavily used to
+    write the leftover key into tool/web_search/tavily)."""
+    registry = _registry_mock()
+    credential_store = MagicMock()
+    credential_store.put = AsyncMock()
+    credential_store.delete = AsyncMock()
+
+    resp = await _update(
+        config={"provider": "tavily", "api_key": "sk-should-be-ignored"},
+        registry=registry,
+        credential_store=credential_store,
+        load_optional_credential=AsyncMock(),
+    )
+
+    assert resp["status"] == "success"
+    credential_store.put.assert_not_called()
+    credential_store.delete.assert_not_called()
+
+
+def test_builtin_credential_ref_keyless_provider_returns_empty() -> None:
+    assert _builtin_credential_ref("web_search", {"provider": "tavily"}) == ""

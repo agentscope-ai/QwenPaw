@@ -63,7 +63,9 @@ function passwordInput(): HTMLInputElement | null {
 // The selected option is rendered as .ant-select-selection-item with the
 // option text; the combobox itself carries no readable text.
 function selectedProvider(): string {
-  return document.querySelector(".ant-select-selection-item")?.textContent ?? "";
+  return (
+    document.querySelector(".ant-select-selection-item")?.textContent ?? ""
+  );
 }
 
 async function switchProvider(provider: string) {
@@ -120,8 +122,9 @@ describe("WebSearchConfigModal", () => {
     // match on the combined textContent instead of a single text node. The
     // matcher also hits ancestor elements, hence getAllByText.
     expect(
-      screen.getAllByText((_, el) =>
-        el?.textContent?.includes("tools.webSearchQuotaHintBefore") ?? false,
+      screen.getAllByText(
+        (_, el) =>
+          el?.textContent?.includes("tools.webSearchQuotaHintBefore") ?? false,
       ).length,
     ).toBeGreaterThan(0);
     const link = screen.getByRole("link", { name: "anysearch.com" });
@@ -192,6 +195,41 @@ describe("WebSearchConfigModal", () => {
         provider: "anysearch",
         api_key: "as_sk_new",
       });
+    });
+  });
+});
+
+describe("WebSearchConfigModal keyless-provider guard", () => {
+  it("drops the leftover api_key when switching back to tavily and saving", async () => {
+    hoisted.getToolConfig
+      .mockResolvedValueOnce({}) // open: saved config (tavily)
+      .mockResolvedValueOnce({
+        // switch to anysearch: its own credential slot
+        provider: "anysearch",
+        api_key: "***as_sk_restored***",
+      });
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderModal(onSave);
+
+    await waitFor(() => {
+      expect(selectedProvider()).toBe("tavily");
+    });
+
+    await switchProvider("anysearch");
+    await waitFor(() => {
+      expect(passwordInput()).toHaveValue("***as_sk_restored***");
+    });
+
+    // Back to tavily: the key must not be submitted into its slot.
+    await switchProvider("tavily");
+    const okButton = screen.getByText("common.save").closest("button")!;
+    await waitFor(() => {
+      expect(okButton).not.toBeDisabled();
+    });
+    fireEvent.click(okButton);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith({ provider: "tavily" });
     });
   });
 });

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 """Tests for ``AnySearchProvider``'s 402 quota-exceeded handling (A/B/C
 branches) and the auto-registration message parser.
 
@@ -78,15 +79,15 @@ async def test_scenario_a_retries_once_then_raises(
     error = _http_402("anonymous free quota has been used up, try again later")
     post_mock = AsyncMock(side_effect=[error, error])
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._post",
+        "qwenpaw.agents.tools.websearch.anysearch._post",
         post_mock,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        "qwenpaw.agents.tools.websearch.anysearch._current_agent_anysearch_key",
         AsyncMock(return_value=""),
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch.asyncio.sleep",
+        "qwenpaw.agents.tools.websearch.anysearch.asyncio.sleep",
         AsyncMock(return_value=None),
     )
 
@@ -114,21 +115,21 @@ async def test_scenario_b_parses_credentials_stores_and_retries(
     success = {"code": 0, "data": {"results": [{"title": "ok"}]}}
     post_mock = AsyncMock(side_effect=[error, success])
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._post",
+        "qwenpaw.agents.tools.websearch.anysearch._post",
         post_mock,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        "qwenpaw.agents.tools.websearch.anysearch._current_agent_anysearch_key",
         AsyncMock(return_value=""),
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch.get_current_workspace_dir",
+        "qwenpaw.agents.tools.websearch.anysearch.get_current_workspace_dir",
         lambda: tmp_path,
     )
 
     put_mock = AsyncMock()
     with patch(
-        "qwenpaw.agents.tools.websearch.AsyncCredentialStore.put",
+        "qwenpaw.agents.tools.websearch.anysearch.AsyncCredentialStore.put",
         put_mock,
     ):
         provider = AnySearchProvider()
@@ -162,11 +163,11 @@ async def test_scenario_b_missing_api_key_raises(
     error = _http_402("Your account has been automatically generated.")
     post_mock = AsyncMock(side_effect=[error])
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._post",
+        "qwenpaw.agents.tools.websearch.anysearch._post",
         post_mock,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        "qwenpaw.agents.tools.websearch.anysearch._current_agent_anysearch_key",
         AsyncMock(return_value=""),
     )
 
@@ -187,20 +188,20 @@ async def test_scenario_b_credential_store_failure_still_completes_call(
     success = {"code": 0, "data": {"results": []}}
     post_mock = AsyncMock(side_effect=[error, success])
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._post",
+        "qwenpaw.agents.tools.websearch.anysearch._post",
         post_mock,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        "qwenpaw.agents.tools.websearch.anysearch._current_agent_anysearch_key",
         AsyncMock(return_value=""),
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch.get_current_workspace_dir",
+        "qwenpaw.agents.tools.websearch.anysearch.get_current_workspace_dir",
         lambda: Path("/tmp/fake-workspace"),
     )
 
     with patch(
-        "qwenpaw.agents.tools.websearch.AsyncCredentialStore.put",
+        "qwenpaw.agents.tools.websearch.anysearch.AsyncCredentialStore.put",
         AsyncMock(side_effect=OSError("disk full")),
     ):
         provider = AnySearchProvider()
@@ -226,11 +227,11 @@ async def test_unrecognized_402_message_raises_with_status_and_body(
     error = _http_402("some other quota error we don't recognize")
     post_mock = AsyncMock(side_effect=[error])
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._post",
+        "qwenpaw.agents.tools.websearch.anysearch._post",
         post_mock,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        "qwenpaw.agents.tools.websearch.anysearch._current_agent_anysearch_key",
         AsyncMock(return_value=""),
     )
 
@@ -252,11 +253,11 @@ async def test_non_402_http_error_propagates_unhandled(
     )
     post_mock = AsyncMock(side_effect=[error])
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._post",
+        "qwenpaw.agents.tools.websearch.anysearch._post",
         post_mock,
     )
     monkeypatch.setattr(
-        "qwenpaw.agents.tools.websearch._current_agent_anysearch_key",
+        "qwenpaw.agents.tools.websearch.anysearch._current_agent_anysearch_key",
         AsyncMock(return_value=""),
     )
 

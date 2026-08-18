@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-nested-blocks,too-many-branches
+# pylint: disable=too-many-nested-blocks,too-many-branches,too-many-statements
 """API routes for built-in tools management."""
 
 from __future__ import annotations
@@ -114,9 +114,14 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
 
 def _builtin_credential_ref(tool_name: str, config: dict) -> str:
     """Return the credential-store ref for a builtin tool's password field,
-    or "" when provider is missing/blank (caller must skip credential I/O)."""
+    or "" when provider is missing/blank or keyless (caller must skip
+    credential I/O)."""
     provider = str(config.get("provider") or "").strip()
-    return f"tool/{tool_name}/{provider}" if provider else ""
+    if not provider:
+        return ""
+    if tool_name == "web_search" and provider == "tavily":
+        return ""
+    return f"tool/{tool_name}/{provider}"
 
 
 def _persist_browser_experimental(config: dict[str, Any]) -> None:
@@ -421,13 +426,17 @@ async def get_tool_config(
             ref_provider = (provider or "").strip() or result.get("provider")
             if ref_provider:
                 result["provider"] = ref_provider
-                ref = f"tool/{tool_name}/{ref_provider}"
-                record = await DriverConfigService(
-                    workspace,
-                ).load_optional_credential(ref)
-                key = record.secrets.get("api_key", "") if record else ""
-                if key:
-                    result[pw_field["name"]] = mask_secret_value(key)
+                ref = _builtin_credential_ref(
+                    tool_name,
+                    {"provider": ref_provider},
+                )
+                if ref:
+                    record = await DriverConfigService(
+                        workspace,
+                    ).load_optional_credential(ref)
+                    key = record.secrets.get("api_key", "") if record else ""
+                    if key:
+                        result[pw_field["name"]] = mask_secret_value(key)
         return result
 
     return config
@@ -463,6 +472,18 @@ async def update_tool_config(
     requested_config = dict(body.config)
     password_fields: set[str] = set()
 
+    # Builtin-tool credential slot handling (web_search api_key): the key
+    # never lands in agent.json; it lives in the driver credential store
+    # under a per-provider ref. The mutation is deferred until after
+    # agent.json is committed, with config rollback on credential failure.
+    credential_action: tuple[str, ...] = ()
+    credential_service: DriverConfigService | None = None
+    old_tool_config: dict[str, Any] = {}
+
+    def _restore_tool_config(agent_config: AgentProfileConfig) -> None:
+        tool_config = agent_config.tools.builtin_tools[tool_name]
+        tool_config.config = dict(old_tool_config) if old_tool_config else None
+
     if plugin_id:
         manifest = registry.get_plugin_manifest(plugin_id)
         if manifest and "meta" in manifest:
@@ -488,24 +509,6 @@ async def update_tool_config(
                 if field.get("type") == "password":
                     password_fields.add(field["name"])
 
-    def apply_tool_config(agent_config: AgentProfileConfig) -> None:
-        if (
-            not agent_config.tools
-            or tool_name not in agent_config.tools.builtin_tools
-        ):
-            raise ValueError(f"Tool '{tool_name}' not found in agent")
-
-        tool_config = agent_config.tools.builtin_tools[tool_name]
-        existing_config = tool_config.config or {}
-        config_to_save = dict(requested_config)
-        for field_name in password_fields:
-            if (
-                config_to_save.get(field_name) == "***"
-                and field_name in existing_config
-            ):
-                config_to_save[field_name] = existing_config[field_name]
-        tool_config.config = config_to_save
-
     elif tool_name in _BUILTIN_TOOL_CONFIG_FIELDS:
         pw_field = next(
             (
@@ -515,26 +518,43 @@ async def update_tool_config(
             ),
             None,
         )
-        if pw_field and pw_field["name"] in config_to_save:
-            incoming = config_to_save.pop(pw_field["name"])
-            ref = _builtin_credential_ref(tool_name, config_to_save)
+        if pw_field and pw_field["name"] in requested_config:
+            incoming = requested_config.pop(pw_field["name"])
+            ref = _builtin_credential_ref(tool_name, requested_config)
             if ref:
-                svc = DriverConfigService(workspace)
-                old_record = await svc.load_optional_credential(ref)
+                credential_service = DriverConfigService(workspace)
+                old_record = await credential_service.load_optional_credential(
+                    ref,
+                )
                 old_key = (
                     old_record.secrets.get("api_key", "") if old_record else ""
                 )
                 new_key = restore_masked_secret_value(incoming, old_key)
                 if new_key:
-                    await svc.credential_store.put(
-                        CredentialRecord(
-                            ref=ref,
-                            kind="static",
-                            secrets={"api_key": new_key},
-                        ),
-                    )
+                    credential_action = ("put", ref, new_key)
                 elif old_record:
-                    await svc.credential_store.delete(ref)
+                    credential_action = ("delete", ref)
+
+    def apply_tool_config(agent_config: AgentProfileConfig) -> None:
+        nonlocal old_tool_config
+        if (
+            not agent_config.tools
+            or tool_name not in agent_config.tools.builtin_tools
+        ):
+            raise ValueError(f"Tool '{tool_name}' not found in agent")
+
+        tool_config = agent_config.tools.builtin_tools[tool_name]
+        existing_config = tool_config.config or {}
+        if not old_tool_config:
+            old_tool_config = dict(existing_config)
+        config_to_save = dict(requested_config)
+        for field_name in password_fields:
+            if (
+                config_to_save.get(field_name) == "***"
+                and field_name in existing_config
+            ):
+                config_to_save[field_name] = existing_config[field_name]
+        tool_config.config = config_to_save
 
     # Save tool config for this agent
     try:
@@ -545,25 +565,56 @@ async def update_tool_config(
         persisted_config = dict(
             agent_config.tools.builtin_tools[tool_name].config,
         )
-
-        if tool_name == "browser":
-            await run_sync_io(
-                _persist_browser_experimental,
-                persisted_config,
-            )
-            if persisted_config.get("experimental") is True:
-                from ...browser.runtime.managed_playwright import (
-                    start_managed_chromium_download,
-                )
-
-                start_managed_chromium_download()
-
-        # Hot reload config to apply changes without full restart
-        schedule_agent_reload(request, workspace.agent_id)
-
-        return {"status": "success", "message": "Configuration updated"}
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update config: {str(e)}",
         ) from e
+
+    # Credential mutation for builtin tools (web_search api_key) is deferred
+    # until agent.json is safely committed, and the config is rolled back if
+    # the credential write fails — the two stores cannot drift silently
+    # (review #7081, Issue 2).
+    if credential_action:
+        try:
+            if credential_action[0] == "put":
+                await credential_service.credential_store.put(
+                    CredentialRecord(
+                        ref=credential_action[1],
+                        kind="static",
+                        secrets={"api_key": credential_action[2]},
+                    ),
+                )
+            else:
+                await credential_service.credential_store.delete(
+                    credential_action[1],
+                )
+        except Exception as e:
+            try:
+                await update_agent_config_async(
+                    workspace.agent_id,
+                    _restore_tool_config,
+                )
+            except Exception:
+                pass  # Best-effort rollback; the config write already failed.
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save credential: {str(e)}",
+            ) from e
+
+    if tool_name == "browser":
+        await run_sync_io(
+            _persist_browser_experimental,
+            persisted_config,
+        )
+        if persisted_config.get("experimental") is True:
+            from ...browser.runtime.managed_playwright import (
+                start_managed_chromium_download,
+            )
+
+            start_managed_chromium_download()
+
+    # Hot reload config to apply changes without full restart
+    schedule_agent_reload(request, workspace.agent_id)
+
+    return {"status": "success", "message": "Configuration updated"}

@@ -58,7 +58,12 @@ export function WebSearchConfigModal({
   // (which would otherwise be treated as "clear the key" on save).
   useEffect(() => {
     if (!visible || !tool) return;
-    if (!providerValue || providerValue === "tavily") return;
+    if (!providerValue || providerValue === "tavily") {
+      // Keyless provider: drop any leftover key from the form store so it
+      // cannot be submitted into the wrong provider's credential slot.
+      form.setFieldValue("api_key", undefined);
+      return;
+    }
     let cancelled = false;
     setLoadingConfig(true);
     api
@@ -81,6 +86,9 @@ export function WebSearchConfigModal({
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      if (values.provider === "tavily") {
+        delete values.api_key;
+      }
       setSaving(true);
       await onSave(values);
       onClose();
