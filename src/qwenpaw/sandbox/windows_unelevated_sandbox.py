@@ -1154,7 +1154,8 @@ def _reset_dacl_to_inherited(path: str) -> bool:
     return True
 
 
-def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
+# pylint: disable-next=too-many-branches,too-many-return-statements
+def _remove_ace_by_sid_api(
     path: str,
     sid_string: str,
 ) -> bool:
