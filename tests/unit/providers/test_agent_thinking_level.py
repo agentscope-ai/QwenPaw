@@ -8,6 +8,7 @@ from qwenpaw.providers.provider_catalog import (
     PROVIDER_DASHSCOPE,
     PROVIDER_GEMINI,
     PROVIDER_OPENAI,
+    PROVIDER_OPENAI_RESPONSE,
 )
 
 
@@ -143,4 +144,82 @@ def test_unknown_openai_model_does_not_receive_reasoning_effort() -> None:
     with agent_thinking_level("high"):
         kwargs = provider.get_effective_generate_kwargs(model_id)
 
+    assert "reasoning_effort" not in kwargs
+
+
+def test_openai_chat_off_degrades_gpt5_to_minimal() -> None:
+    """gpt-5 families without documented ``none`` must not 400 on Off."""
+    provider = PROVIDER_OPENAI.model_copy(deep=True)
+
+    with agent_thinking_level("off"):
+        kwargs = provider.get_effective_generate_kwargs("gpt-5.2")
+
+    assert kwargs["reasoning_effort"] == "minimal"
+    assert "disable_thinking" not in kwargs
+
+
+def test_openai_chat_off_uses_none_where_documented() -> None:
+    provider = PROVIDER_OPENAI.model_copy(deep=True)
+    provider.extra_models.append(
+        PROVIDER_OPENAI.models[0].model_copy(update={"id": "gpt-5.5"}),
+    )
+
+    with agent_thinking_level("off"):
+        kwargs = provider.get_effective_generate_kwargs("gpt-5.5")
+
+    assert kwargs["reasoning_effort"] == "none"
+
+
+def test_openai_chat_off_degrades_o_series_to_low() -> None:
+    provider = PROVIDER_OPENAI.model_copy(deep=True)
+    provider.extra_models.append(
+        PROVIDER_OPENAI.models[0].model_copy(update={"id": "o3"}),
+    )
+
+    with agent_thinking_level("off"):
+        kwargs = provider.get_effective_generate_kwargs("o3")
+
+    assert kwargs["reasoning_effort"] == "low"
+
+
+def test_openai_compat_off_uses_neutral_disable_flag() -> None:
+    """Compatibility endpoints get extra_body flags, not official none."""
+    provider = PROVIDER_OPENAI.model_copy(deep=True)
+    provider.extra_models.append(
+        PROVIDER_OPENAI.models[0].model_copy(
+            update={"id": "qwen-compat", "thinking_enabled": True},
+        ),
+    )
+
+    with agent_thinking_level("off"):
+        kwargs = provider.get_effective_generate_kwargs("qwen-compat")
+
+    assert kwargs["disable_thinking"] is True
+    assert "reasoning_effort" not in kwargs
+
+
+def test_openai_responses_off_uses_neutral_disable_flag() -> None:
+    """The Responses call layer owns none-vs-strip; the mapping only
+    raises the neutral flag."""
+    provider = PROVIDER_OPENAI_RESPONSE.model_copy(deep=True)
+
+    with agent_thinking_level("off"):
+        kwargs = provider.get_effective_generate_kwargs(
+            provider.models[0].id,
+        )
+
+    assert kwargs["disable_thinking"] is True
+    assert "reasoning_effort" not in kwargs
+    assert "reasoning" not in kwargs
+
+
+def test_openai_responses_level_uses_reasoning_dict() -> None:
+    provider = PROVIDER_OPENAI_RESPONSE.model_copy(deep=True)
+
+    with agent_thinking_level("high"):
+        kwargs = provider.get_effective_generate_kwargs(
+            provider.models[0].id,
+        )
+
+    assert kwargs["reasoning"] == {"effort": "high"}
     assert "reasoning_effort" not in kwargs

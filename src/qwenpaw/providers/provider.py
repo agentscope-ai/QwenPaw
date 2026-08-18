@@ -834,6 +834,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             "thinking_budget",
             "reasoning_effort",
             "thinking_config",
+            "reasoning",
+            "disable_thinking",
         ):
             effective.pop(key, None)
         extra_body = effective.get("extra_body")
@@ -852,6 +854,41 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             AGENT_THINKING_BUDGETS.get(level, 0),
         )
 
+    def _uses_compat_thinking_controls(self, model_id: str) -> bool:
+        """Whether the model declares OpenAI-compatible thinking flags.
+
+        Custom providers and domestic compatibility endpoints (Qwen,
+        DeepSeek, ...) reuse ``OpenAIChatModel``; their thinking
+        controls are declared through model metadata rather than the
+        official OpenAI reasoning parameter set.
+        """
+        info = self.get_model_info(model_id)
+        return info is not None and (
+            getattr(info, "thinking_enabled", None) is not None
+            or getattr(info, "thinking_param_style", None) is not None
+        )
+
+    @staticmethod
+    def _openai_chat_off_effort(model_id: str) -> str:
+        """Lowest documented Chat Completions effort that turns Off.
+
+        Only the newest documented models accept
+        ``reasoning_effort="none"``; earlier gpt-5 families degrade to
+        ``minimal`` and o-series to ``low`` so an Off request means
+        "least reasoning the model accepts" instead of a 400.
+        """
+        # Lazy import: the response module imports this base module.
+        from .openai_response_provider import (
+            _supports_none_reasoning_effort,
+        )
+
+        if _supports_none_reasoning_effort(model_id):
+            return "none"
+        normalized = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+        if normalized.startswith("gpt-5"):
+            return "minimal"
+        return "low"
+
     def _map_agent_thinking_level(
         self,
         effective: Dict[str, Any],
@@ -860,19 +897,43 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         budget: int,
     ) -> None:
         """Map an agent level to the provider's wire parameters."""
-        _ = model_id
-        if level == "off":
-            if self.chat_model == "AnthropicChatModel":
-                effective["thinking_enable"] = False
-            elif self.chat_model == "GeminiChatModel":
-                effective["thinking_config"] = {"thinking_budget": 0}
-            return
         if self.chat_model == "AnthropicChatModel":
-            effective["thinking_enable"] = True
-            effective["thinking_budget"] = budget
-        elif self.chat_model == "GeminiChatModel":
-            effective["thinking_config"] = {"thinking_budget": budget}
-        else:
+            if level == "off":
+                effective["thinking_enable"] = False
+            else:
+                effective["thinking_enable"] = True
+                effective["thinking_budget"] = budget
+            return
+        if self.chat_model == "GeminiChatModel":
+            effective["thinking_config"] = {
+                "thinking_budget": 0 if level == "off" else budget,
+            }
+            return
+        if self.chat_model == "OpenAIResponseModel":
+            if level == "off":
+                # The Responses call layer translates this neutral flag:
+                # it strips ``reasoning`` and applies
+                # ``reasoning.effort=none`` only where documented
+                # (_supports_none_reasoning_effort).
+                effective["disable_thinking"] = True
+            else:
+                # Responses takes ``reasoning.effort``; the Chat
+                # Completions top-level ``reasoning_effort`` is not a
+                # Responses parameter.
+                effective["reasoning"] = {"effort": level}
+            return
+        if self.chat_model == "OpenAIChatModel" and level == "off":
+            if self._uses_compat_thinking_controls(model_id):
+                # Compatibility endpoints: the chat compat layer turns
+                # this into extra_body flags (enable_thinking /
+                # thinking.type), not the official ``none`` value.
+                effective["disable_thinking"] = True
+            else:
+                effective["reasoning_effort"] = self._openai_chat_off_effort(
+                    model_id,
+                )
+            return
+        if level != "off":
             effective["reasoning_effort"] = level
 
     def update_model_config(  # pylint: disable=too-many-branches
