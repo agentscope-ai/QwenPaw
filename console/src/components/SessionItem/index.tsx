@@ -91,6 +91,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const inProgress = generating === true || chatStatus === "running";
   const isSubagent = source === "subagent";
   const isCron = source === "cron";
+  const sourceLabel = isCron
+    ? t("chat.groups.cronShort", "Cron")
+    : t("chat.groups.subagentShort", "Subagent");
   const isIdle = !inProgress && !!chatStatus;
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
@@ -270,7 +273,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
             {(isSubagent || isCron) && (
               <span className={styles.sourceTag}>
                 {isCron ? <Clock3 size={11} /> : <Bot size={11} />}
-                <span>{isCron ? "Cron" : "Subagent"}</span>
+                <span>{sourceLabel}</span>
               </span>
             )}
             {(channelKey || channelLabel) && (
@@ -298,10 +301,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       )}
 
       {!editing && variant === "sidebar" && (isSubagent || isCron) && (
-        <span
-          className={styles.sourceIcon}
-          title={isCron ? "Cron" : "Subagent"}
-        >
+        <span className={styles.sourceIcon} title={sourceLabel}>
           {isCron ? <Clock3 size={13} /> : <Bot size={13} />}
         </span>
       )}

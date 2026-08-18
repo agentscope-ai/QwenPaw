@@ -259,7 +259,8 @@
       "gotIt": "我知道了"
     },
     "simpleMode": "精简模式",
-    "fullMode": "完整模式"
+    "fullMode": "完整模式",
+    "toggleAgentNavigation": "展开或收起智能体导航"
   },
   "debug": {
     "title": "调试",
@@ -2963,8 +2964,10 @@
       "namePlaceholder": "分组名称",
       "uncategorized": "未分组",
       "cron": "定时任务对话",
+      "cronShort": "定时任务",
       "cronHint": "由定时任务运行时创建的独立对话，默认收起并固定在列表底部",
       "subagents": "与子智能体的对话",
+      "subagentShort": "子智能体",
       "subagentsHint": "由子智能体执行任务时创建的独立对话，默认收起并固定在列表底部",
       "pin": "置顶分组",
       "unpin": "取消置顶分组",

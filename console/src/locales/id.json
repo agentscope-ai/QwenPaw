@@ -224,7 +224,8 @@
       "gotIt": "Mengerti"
     },
     "simpleMode": "Mode sederhana",
-    "fullMode": "Mode lengkap"
+    "fullMode": "Mode lengkap",
+    "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },
   "login": {
     "title": "Masuk ke QwenPaw",
@@ -246,6 +247,10 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Terjadwal",
+      "subagentShort": "Subagen"
+    },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },

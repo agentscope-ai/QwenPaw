@@ -2411,9 +2411,14 @@
       "gotIt": "わかりました"
     },
     "simpleMode": "シンプルモード",
-    "fullMode": "フルモード"
+    "fullMode": "フルモード",
+    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
   "chat": {
+    "groups": {
+      "cronShort": "定期タスク",
+      "subagentShort": "サブエージェント"
+    },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
     },

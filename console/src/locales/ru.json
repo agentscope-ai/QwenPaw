@@ -2426,9 +2426,14 @@
       "gotIt": "Понятно"
     },
     "simpleMode": "Простой режим",
-    "fullMode": "Полный режим"
+    "fullMode": "Полный режим",
+    "toggleAgentNavigation": "Развернуть или свернуть навигацию агента"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Расписание",
+      "subagentShort": "Субагент"
+    },
     "fileReference": {
       "codeSnippet": "Фрагмент кода · {{count}} строк"
     },

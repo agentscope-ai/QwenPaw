@@ -259,7 +259,8 @@
       "gotIt": "Got it"
     },
     "simpleMode": "Simple Mode",
-    "fullMode": "Full Mode"
+    "fullMode": "Full Mode",
+    "toggleAgentNavigation": "Expand or collapse agent navigation"
   },
   "debug": {
     "title": "Debug",
@@ -3106,8 +3107,10 @@
       "namePlaceholder": "Group name",
       "uncategorized": "Uncategorized",
       "cron": "Scheduled task conversations",
+      "cronShort": "Cron",
       "cronHint": "Separate conversations created by scheduled tasks; collapsed by default and fixed near the bottom",
       "subagents": "Conversations with subagents",
+      "subagentShort": "Subagent",
       "subagentsHint": "Separate conversations created for child-agent tasks; collapsed by default and fixed at the bottom",
       "pin": "Pin group",
       "unpin": "Unpin group",

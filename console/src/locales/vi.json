@@ -195,7 +195,8 @@
       "gotIt": "Đã hiểu"
     },
     "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ"
+    "fullMode": "Chế độ đầy đủ",
+    "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
   "theme": {
     "dark": "Tối",
@@ -252,6 +253,10 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Định kỳ",
+      "subagentShort": "Tác tử con"
+    },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },

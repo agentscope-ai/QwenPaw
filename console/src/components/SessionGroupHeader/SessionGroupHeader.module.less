@@ -1,4 +1,5 @@
 .header {
+  position: relative;
   display: flex;
   width: calc(100% - 12px);
   height: 38px;
@@ -73,10 +74,12 @@
   border-radius: 999px;
   background: var(--colorFillTertiary, rgba(43, 18, 0, 0.05));
   font-size: 10px;
+  transition: opacity 0.15s ease;
 }
 
 .pinMark {
   color: var(--color-primary, #ff7f16);
+  transition: opacity 0.15s ease;
 }
 
 .lockMark {
@@ -84,6 +87,8 @@
 }
 
 .more {
+  position: absolute;
+  right: 7px;
   width: 24px;
   height: 24px;
   border: 0;
@@ -92,6 +97,14 @@
   color: inherit;
   cursor: pointer;
   opacity: 0;
+}
+
+.managed:hover,
+.managed:focus-within {
+  .count,
+  .pinMark {
+    opacity: 0;
+  }
 }
 
 .more:hover {
@@ -105,8 +118,17 @@
   font-size: 11px;
 }
 
-@media (max-width: 768px) {
+@media (hover: none), (max-width: 768px) {
   .more {
+    position: static;
     opacity: 1;
+  }
+
+  .managed:hover,
+  .managed:focus-within {
+    .count,
+    .pinMark {
+      opacity: 1;
+    }
   }
 }

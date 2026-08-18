@@ -2655,9 +2655,14 @@
       "gotIt": "Entendi"
     },
     "simpleMode": "Modo simples",
-    "fullMode": "Modo completo"
+    "fullMode": "Modo completo",
+    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Agendado",
+      "subagentShort": "Subagente"
+    },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },

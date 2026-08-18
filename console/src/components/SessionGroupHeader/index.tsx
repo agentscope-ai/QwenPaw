@@ -123,7 +123,7 @@ export default function SessionGroupHeader({
     <div
       className={`${styles.header} ${isFixedSource ? styles.source : ""} ${
         group.pinned ? styles.pinned : ""
-      }`}
+      } ${!isFixedSource && !editing ? styles.managed : ""}`}
       role="button"
       tabIndex={0}
       title={
@@ -138,7 +138,11 @@ export default function SessionGroupHeader({
       }
       onClick={onToggle}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") onToggle();
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onToggle();
+        }
       }}
     >
       <span
@@ -189,7 +193,13 @@ export default function SessionGroupHeader({
         </span>
       )}
       {!isFixedSource && !editing && (
-        <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
+        <Dropdown
+          menu={{
+            items: menuItems,
+            onClick: ({ domEvent }) => domEvent.stopPropagation(),
+          }}
+          trigger={["click"]}
+        >
           <button
             className={styles.more}
             aria-label={t("chat.groups.manage", "Manage group")}
