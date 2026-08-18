@@ -435,7 +435,7 @@ Docker socket、默认断网、资源配额和 fail-closed。Kubernetes driver �
 - [x] 补齐 Pro 管理页面暗色模式与桌面、平板、手机响应式布局。
 - [x] 定义未来 `--config`、backend 选择和 tenant quota 配置边界。
 - [x] 完成 UI 回归、后端测试、生产构建和本地端到端验证。
-- [ ] 整理 scope、用法、安全边界和测试结果并创建 Draft PR。
+- [x] 整理 scope、用法、安全边界和测试结果并创建 Draft PR。
 - [ ] 增加 Windows adapter 和三平台隔离集成测试。
 - [ ] 修复测试环境 AgentScope 版本后运行完整 unit suite；当前 collection 缺少
       `agentscope.agent.InjectionConfig`，与本改动无关。
