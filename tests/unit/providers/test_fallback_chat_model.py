@@ -60,6 +60,13 @@ class FakeModel(ChatModelBase):
         return await self(*args, **kwargs)
 
 
+class _FakeFormatter:
+    """Minimal stand-in for a QwenPaw formatter."""
+
+    def __init__(self, media_types: list[str]) -> None:
+        self.supported_input_media_types = media_types
+
+
 class HttpError(Exception):
     """Exception carrying an HTTP status."""
 
@@ -706,3 +713,47 @@ async def test_late_close_of_abandoned_stream_keeps_primary_active() -> None:
 
     assert model.model == "primary"
     assert model.context_size == 32_768
+
+
+def test_fallback_wrapper_exposes_active_model_formatter() -> None:
+    """AgentScope can inspect media support on the outermost model.
+
+    ``ChatModelBase`` declares no formatter, so an unforwarded attribute
+    lookup raises instead of degrading to a default instance.
+    """
+    primary = FakeModel("primary", lambda: _response("ok"))
+    fallback = FakeModel("fallback", lambda: _response("ok"))
+    primary_formatter = _FakeFormatter(["image/*"])
+    fallback_formatter = _FakeFormatter([])
+    primary.formatter = primary_formatter
+    fallback.formatter = fallback_formatter
+    model = FallbackChatModel([primary, fallback])
+
+    assert model.formatter is primary_formatter
+    assert model.formatter.supported_input_media_types == ["image/*"]
+
+    # Identity follows the model serving the request, so a fallback that
+    # supports different media reports its own capabilities.
+    model._activate_model(fallback)  # pylint: disable=protected-access
+    assert model.formatter is fallback_formatter
+
+
+def test_fallback_formatter_assignment_reaches_provider_model() -> None:
+    """Installing a formatter traverses Retry and Token wrappers."""
+    provider_model = FakeModel("primary", lambda: _response("ok"))
+    provider_model.formatter = _FakeFormatter([])
+    wrapped = RetryChatModel(
+        TokenRecordingModelWrapper(provider_id="unit", model=provider_model),
+        retry_config=RetryConfig(enabled=False),
+    )
+    fallback = FakeModel("fallback", lambda: _response("ok"))
+    fallback.formatter = _FakeFormatter([])
+    model = FallbackChatModel([wrapped, fallback])
+
+    replacement = _FakeFormatter(["video/*"])
+    model.formatter = replacement
+
+    assert provider_model.formatter is replacement
+    assert model.formatter is replacement
+    # The idle fallback keeps its own formatter until it serves a request.
+    assert fallback.formatter is not replacement

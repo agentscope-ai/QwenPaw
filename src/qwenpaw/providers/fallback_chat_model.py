@@ -82,6 +82,25 @@ class FallbackChatModel(ChatModelBase):
         self._active_model = model
 
     @property
+    def formatter(self) -> Any:
+        """Expose the serving model's formatter to AgentScope.
+
+        AgentScope reads media support and formats messages off the
+        outermost model, which is this class once fallbacks are
+        configured.  ``ChatModelBase`` defines no formatter of its own, so
+        without this forwarding the attribute lookup raises.
+        """
+        active = getattr(self, "_active_model_var", None)
+        if active is None:
+            raise AttributeError("formatter")
+        return active.get().formatter
+
+    @formatter.setter
+    def formatter(self, value: Any) -> None:
+        """Route formatter installs down to the serving model."""
+        self._active_model.formatter = value
+
+    @property
     def model(self) -> str:
         """Return the current request's actual model name."""
         active = getattr(self, "_active_model_var", None)
