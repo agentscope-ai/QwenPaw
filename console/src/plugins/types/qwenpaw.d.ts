@@ -298,6 +298,9 @@ export interface QwenPawWindowNamespace {
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
   modules: Record<string, Record<string, unknown>>;
+  paw?: {
+    forApp(appId: string): import("../pawapp-sdk/types").PawSdk;
+  };
   registerRoutes?(pluginId: string, routes: PluginRouteDeclaration[]): void;
   registerToolRender?(
     pluginId: string,

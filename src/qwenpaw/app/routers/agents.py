@@ -59,6 +59,8 @@ class AgentSummary(BaseModel):
     backend_model: str | None = None
     backend_reasoning_effort: str | None = None
     active_model: ModelSlotConfig | None = None
+    managed_by_app: str | None = None
+    available_in_chat: bool = True
 
 
 class AgentListResponse(BaseModel):
@@ -124,21 +126,32 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
+class MemoryCaptureTaskStatus(BaseModel):
+    """One bounded memory-capture record, newest records returned first.
+
+    Records share the summarize queue used by periodic auto-memory and the
+    user-triggered ``/new`` and ``/compact`` commands.
+    """
+
+    task_id: str
+    status: Literal["pending", "running", "completed", "failed", "cancelled"]
+    queued_at: str | None = None
+    finished_at: str | None = None
+    message_count: int = 0
+    result: str | None = None
+    error: str | None = None
+
+
 class AutoMemoryRuntimeStatus(BaseModel):
     """Aggregate auto-memory progress without exposing session identity."""
 
     enabled: bool
     interval: int
-    active_sessions: int
-    sessions_with_pending: int
-    pending_turns: int
 
 
 class RecentMemoryRuntimeStatus(BaseModel):
-    """Latest terminal task timestamps and a bounded error summary."""
+    """Latest bounded error summary."""
 
-    last_completed_at: str | None = None
-    last_failed_at: str | None = None
     last_error: str | None = None
 
 
@@ -147,6 +160,7 @@ class MemoryRuntimeStatus(BaseModel):
 
     worker: MemoryWorkerRuntimeStatus
     auto_memory: AutoMemoryRuntimeStatus
+    tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
 
@@ -361,6 +375,12 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description = profile_desc
 
             active_model = agent_config.active_model
+            template_id = agent_config.template_id or ""
+            managed_by_app = (
+                template_id.removeprefix("pawapp:")
+                if template_id.startswith("pawapp:")
+                else None
+            )
             if agent_config.backend == "qwenpaw":
                 backend_capabilities = {"workspace_ui": True}
             else:
@@ -389,6 +409,8 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                         )
                     ),
                     active_model=active_model,
+                    managed_by_app=managed_by_app,
+                    available_in_chat=managed_by_app is None,
                 ),
             )
         except Exception:  # noqa: E722

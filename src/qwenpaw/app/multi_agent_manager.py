@@ -193,29 +193,12 @@ class MultiAgentManager:
             event.set()
 
     @staticmethod
-    async def _fire_workspace_created_hooks(workspace_info: dict) -> None:
-        """Invoke all registered workspace_created hooks.
-
-        Supports both sync and async callbacks:
-        - Async callbacks are awaited directly.
-        - Sync callbacks are offloaded to a thread via
-          ``asyncio.to_thread`` so they never block the event loop.
-
-        Errors in individual hooks are logged but do not prevent
-        subsequent hooks from running.
-
-        Args:
-            workspace_info: Dict with at least ``agent_id`` and
-                ``workspace_dir`` keys.
-        """
-        try:
-            from ..plugins.registry import PluginRegistry
-
-            hooks = PluginRegistry().get_workspace_created_hooks()
-        except Exception:
-            # Plugin system not initialised yet — nothing to do.
-            return
-
+    async def _run_workspace_hooks(
+        hooks: list,
+        workspace_info: dict,
+        hook_type: str,
+    ) -> None:
+        """Run sync or async workspace hooks with error isolation."""
         for hook in hooks:
             try:
                 callback = hook.callback
@@ -230,11 +213,53 @@ class MultiAgentManager:
                         await result
             except Exception as exc:
                 logger.error(
-                    f"Error in workspace_created hook "
+                    f"Error in {hook_type} hook "
                     f"'{hook.hook_name}' for plugin "
                     f"'{hook.plugin_id}': {exc}",
                     exc_info=True,
                 )
+
+    @classmethod
+    async def _fire_workspace_created_hooks(cls, workspace_info: dict) -> None:
+        """Invoke hooks registered for newly created workspaces."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_created_hooks()
+        except Exception:
+            # Plugin system not initialised yet — nothing to do.
+            return
+
+        await cls._run_workspace_hooks(
+            hooks,
+            workspace_info,
+            "workspace_created",
+        )
+
+    @classmethod
+    async def _setup_workspace_plugins(
+        cls,
+        workspace: Workspace,
+        workspace_dir: str,
+    ) -> None:
+        """Install plugin-contributed in-memory state into a workspace."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_setup_hooks()
+        except Exception:
+            return
+
+        workspace_info = {
+            "agent_id": workspace.agent_id,
+            "workspace_dir": workspace_dir,
+            "workspace": workspace,
+        }
+        await cls._run_workspace_hooks(
+            hooks,
+            workspace_info,
+            "workspace setup",
+        )
 
     async def _graceful_stop_old_instance(
         self,
@@ -498,6 +523,10 @@ class MultiAgentManager:
         try:
             await new_instance.start()
             new_instance.set_manager(self)  # Set manager reference
+            await self._setup_workspace_plugins(
+                new_instance,
+                str(agent_ref.workspace_dir),
+            )
             logger.info(f"New workspace instance started: {agent_id}")
         except Exception as e:
             logger.exception(

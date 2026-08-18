@@ -14,38 +14,40 @@ import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
 
 
-def _make_provider() -> GeminiProvider:
+def _make_provider(**overrides) -> GeminiProvider:
+    config = {
+        "id": "gemini",
+        "name": "Gemini",
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key": "gem-test",
+        "chat_model": "GeminiChatModel",
+    }
+    config.update(overrides)
     return GeminiProvider(
-        id="gemini",
-        name="Gemini",
-        base_url="https://generativelanguage.googleapis.com",
-        api_key="gem-test",
-        chat_model="GeminiChatModel",
+        **config,
     )
 
 
-def test_chat_model_reuses_client_with_custom_headers(monkeypatch) -> None:
+def test_chat_model_configures_persistent_client_headers(monkeypatch) -> None:
     captured: list[dict] = []
-    fake_client = SimpleNamespace(aio=SimpleNamespace(models=object()))
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace()),
+    )
 
-    def fake_client_factory(**kwargs):
+    def create_client(**kwargs):
         captured.append(kwargs)
         return fake_client
 
-    monkeypatch.setattr(
-        gemini_provider_module.genai,
-        "Client",
-        fake_client_factory,
-    )
-    provider = _make_provider()
-    provider.custom_headers = {"X-QwenPaw": "enabled"}
+    monkeypatch.setattr(gemini_provider_module.genai, "Client", create_client)
 
-    model = provider.get_chat_model_instance("gemini-2.5-flash")
+    model = _make_provider(
+        custom_headers={"X-QwenPaw-Test": "enabled"},
+    ).get_chat_model_instance("gemini-2.5-flash")
 
     assert model.client is fake_client
     assert len(captured) == 1
     assert captured[0]["http_options"].headers == {
-        "X-QwenPaw": "enabled",
+        "X-QwenPaw-Test": "enabled",
     }
 
 

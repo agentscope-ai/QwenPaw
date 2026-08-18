@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
+def _is_app_owned_chat(chat: ChatSpec) -> bool:
+    """Return whether a chat belongs to a PawApp-owned dialogue surface."""
+    owner = chat.meta.get("pawapp") if isinstance(chat.meta, dict) else None
+    return isinstance(owner, dict) and bool(owner.get("app_id"))
+
+
 async def get_workspace(request: Request):
     """Get the workspace for the active agent."""
     from ..agent_context import get_agent_for_request
@@ -117,6 +123,13 @@ async def list_chats(
             "null/omit=all (default)"
         ),
     ),
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Include PawApp-owned chats. Administrative and legacy callers "
+            "keep the full catalog by default; the main Chat surface opts out."
+        ),
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ):
@@ -131,6 +144,8 @@ async def list_chats(
         channel=channel,
         archived=archived,
     )
+    if not include_app_owned:
+        chats = [chat for chat in chats if not _is_app_owned_chat(chat)]
     tracker = workspace.task_tracker
     result = []
     for spec in chats:
@@ -333,6 +348,13 @@ async def clear_chat_project_dir(
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Allow reading PawApp-owned chat history. The main Chat surface "
+            "opts out so app dialogues stay inside their owning app."
+        ),
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     session: SafeJSONSession = Depends(get_session),
     workspace=Depends(get_workspace),
@@ -353,6 +375,11 @@ async def get_chat(
     """
     chat_spec = await mgr.get_chat(chat_id)
     if not chat_spec:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    if not include_app_owned and _is_app_owned_chat(chat_spec):
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",

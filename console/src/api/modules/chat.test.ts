@@ -154,6 +154,16 @@ describe("chatApi.listChats", () => {
       expect.stringContaining("channel=dingtalk"),
     );
   });
+
+  it("can exclude PawApp-owned dialogues for the main Chat surface", async () => {
+    await chatApi.listChats({
+      archived: false,
+      include_app_owned: false,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats?archived=false&include_app_owned=false",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -167,6 +177,14 @@ describe("chatApi CRUD", () => {
     await chatApi.getChat("chat/1");
     expect(request).toHaveBeenCalledWith(
       "/chats/chat%2F1",
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  it("getChat can exclude PawApp-owned dialogue history", async () => {
+    await chatApi.getChat("chat-1", { include_app_owned: false });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=false",
       expect.objectContaining({ signal: undefined }),
     );
   });

@@ -135,4 +135,24 @@ describe("useOsAppMarket", () => {
       ),
     );
   });
+
+  it("refreshes installed apps in place after installation", async () => {
+    const entry = makeEntry("kanban");
+    const onInstalled = vi.fn();
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [entry],
+      total: 1,
+    });
+    const installResult = { id: "kanban", name: "Kanban" };
+    hoisted.installPlugin.mockResolvedValue(installResult);
+    const { result } = renderHook(() => useOsAppMarket({ onInstalled }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(() => result.current.handleInstall(entry));
+
+    expect(onInstalled).toHaveBeenCalledWith(installResult);
+    expect(hoisted.installPlugin).toHaveBeenCalledWith(expect.any(String), {
+      force: true,
+    });
+  });
 });

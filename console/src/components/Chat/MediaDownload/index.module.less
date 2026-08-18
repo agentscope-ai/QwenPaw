@@ -1,0 +1,65 @@
+.mediaList {
+  display: grid;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.mediaDownload {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.mediaContent {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.audioDownloadSlot {
+  display: inline-flex;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+}
+
+.downloadButton {
+  display: inline-flex;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+  touch-action: manipulation;
+
+  > span {
+    display: inline-flex;
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--ant-color-primary, #1677ff);
+    background: var(--ant-color-primary-bg, #e6f4ff);
+    border-color: transparent;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ant-color-primary-border, #91caff);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
+}

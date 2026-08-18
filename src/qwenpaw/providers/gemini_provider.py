@@ -30,9 +30,9 @@ from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 logger = logging.getLogger(__name__)
 
 
-# TODO: Remove _flatten_json_schema and _sanitize_schema_for_gemini once
-#  agentscope >= 2.0.5 is released (these are upstreamed into
-#  GeminiChatModel._format_tools in newer versions).
+# Keep QwenPaw's schema normalization ahead of AgentScope's formatter so
+# custom OpenAI-compatible Gemini proxies receive the same conservative schema
+# shape as the native Gemini endpoint.
 
 
 def _flatten_json_schema(schema: dict) -> dict:
@@ -535,8 +535,8 @@ class _GeminiChatModelCompat:
         class _Compat(GeminiChatModel):
             _qp_extra_config_kwargs = extra_config_kwargs
 
-            # TODO: Remove this override once agentscope >= 2.0.5 is
-            #  released (upstream _format_tools will handle sanitization).
+            # Apply QwenPaw's proxy-compatible normalization before the
+            # AgentScope 2.0.6 formatter performs its native sanitization.
             def _format_tools(self, tools, tool_choice):
                 if tools:
                     sanitized = []

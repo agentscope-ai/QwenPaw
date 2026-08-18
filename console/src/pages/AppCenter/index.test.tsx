@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { Modal } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocation } from "react-router-dom";
 
@@ -11,6 +12,9 @@ const hoisted = vi.hoisted(() => ({
   uninstall: vi.fn(),
   fetchMarketPlugins: vi.fn(),
   installPlugin: vi.fn(),
+  loadPawApp: vi.fn(),
+  routeSnapshot: vi.fn(),
+  removePluginAppState: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -40,7 +44,15 @@ vi.mock("@/api/modules/pawapp", () => ({
 }));
 
 vi.mock("@/plugins/registry/hooks", () => ({
-  useRoutes: () => [],
+  useRoutes: () => hoisted.routeSnapshot(),
+}));
+
+vi.mock("@/plugins/usePluginLoader", () => ({
+  loadPawApp: hoisted.loadPawApp,
+}));
+
+vi.mock("@/os/osCleanup", () => ({
+  removePluginAppState: hoisted.removePluginAppState,
 }));
 
 vi.mock("@/api/modules/pluginMarket", async () => {
@@ -85,6 +97,22 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeMarketApp(id: string) {
+  return {
+    id,
+    display_name: id,
+    developer: "dev",
+    owner: "dev",
+    version: "1.0.0",
+    logo_url: null,
+    downloads: 1,
+    view_count: 1,
+    details_url: null,
+    locales: { en: { description: id, category: "app" } },
+    is_featured: false,
+  };
+}
+
 function renderPage(initialEntries: string[] = ["/apps"]) {
   return renderWithProviders(
     <>
@@ -101,6 +129,11 @@ describe("AppCenterPage", () => {
     hoisted.uninstall.mockReset();
     hoisted.fetchMarketPlugins.mockReset();
     hoisted.installPlugin.mockReset();
+    hoisted.loadPawApp.mockReset();
+    hoisted.routeSnapshot.mockReset();
+    hoisted.removePluginAppState.mockReset();
+    hoisted.routeSnapshot.mockReturnValue([]);
+    hoisted.loadPawApp.mockResolvedValue(undefined);
     hoisted.listApps.mockResolvedValue({
       apps: [makeApp("alpha-app"), makeApp("beta-app", { category: "games" })],
       total: 2,
@@ -208,6 +241,42 @@ describe("AppCenterPage", () => {
     );
   });
 
+  it("loads a newly installed market app without reloading", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("new-app")],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "new-app",
+      name: "New App",
+    });
+    renderPage(["/apps?view=market"]);
+
+    fireEvent.click(await screen.findByText("appCenter.install"));
+
+    await waitFor(() =>
+      expect(hoisted.loadPawApp).toHaveBeenCalledWith("new-app"),
+    );
+  });
+
+  it("does not load an old bundle when updating an installed market app", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "alpha-app",
+      name: "Alpha App",
+    });
+    renderPage(["/apps?view=market"]);
+    await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByText("appCenter.install"));
+
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+  });
+
   it("returns to installed apps and preserves unrelated query params", async () => {
     renderPage(["/apps?foo=1"]);
     await screen.findByText("alpha-app");
@@ -277,34 +346,78 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
   });
 
-  it("opens an installed app in the embedded view on card click", async () => {
+  it("loads an installed app on demand on card click", async () => {
+    const AppPage = () => <div>Loaded PawApp</div>;
+    hoisted.loadPawApp.mockImplementationOnce(async () => {
+      hoisted.routeSnapshot.mockReturnValue([
+        {
+          id: "alpha.page",
+          path: "/apps/alpha-app",
+          source: "alpha-app",
+          Component: AppPage,
+        },
+      ]);
+    });
     renderPage();
     await screen.findByText("alpha-app");
 
     fireEvent.click(screen.getByText("alpha-app"));
 
-    // No route component is registered in this test, so the embedded view
-    // shows its not-loaded placeholder — proving the embed flow was entered.
-    expect(
-      await screen.findByText("appCenter.appNotLoaded"),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(hoisted.loadPawApp).toHaveBeenCalledWith(
+        "alpha-app",
+        "/apps/alpha-app",
+      ),
+    );
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
+  });
+
+  it("cleans the loaded PawApp runtime after uninstall", async () => {
+    hoisted.uninstall.mockResolvedValue(undefined);
+    hoisted.listApps
+      .mockResolvedValueOnce({ apps: [makeApp("alpha-app")], total: 1 })
+      .mockResolvedValueOnce({ apps: [], total: 0 });
+    vi.spyOn(Modal, "confirm").mockImplementation((options) => {
+      void options.onOk?.();
+      return { destroy: vi.fn(), update: vi.fn() };
+    });
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /appCenter.moreActions/ }),
+    );
+    fireEvent.click(await screen.findByText("appCenter.uninstall"));
+
+    await waitFor(() =>
+      expect(hoisted.uninstall).toHaveBeenCalledWith("alpha-app"),
+    );
+    expect(hoisted.removePluginAppState).toHaveBeenCalledWith("alpha-app");
   });
 
   it("restores an OS PawApp when navigating back and forward", async () => {
+    hoisted.routeSnapshot.mockReturnValue([
+      {
+        id: "alpha.page",
+        path: "/apps/alpha-app",
+        source: "alpha-app",
+        Component: () => <div>Loaded PawApp</div>,
+      },
+    ]);
     window.history.replaceState({ osApp: "core.app-center" }, "", "/os");
     renderPage();
     await screen.findByText("alpha-app");
 
     fireEvent.click(screen.getByText("alpha-app"));
 
+    await waitFor(() =>
+      expect(window.history.state).toEqual({
+        osApp: "core.app-center",
+        osPawAppId: "alpha-app",
+      }),
+    );
     expect(window.location.pathname).toBe("/os");
-    expect(window.history.state).toEqual({
-      osApp: "core.app-center",
-      osPawAppId: "alpha-app",
-    });
-    expect(
-      await screen.findByText("appCenter.appNotLoaded"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
 
     window.history.back();
     await waitFor(() => {
@@ -312,8 +425,6 @@ describe("AppCenterPage", () => {
     });
 
     window.history.forward();
-    expect(
-      await screen.findByText("appCenter.appNotLoaded"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
   });
 });

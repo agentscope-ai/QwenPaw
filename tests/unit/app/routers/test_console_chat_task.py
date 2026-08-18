@@ -7,6 +7,7 @@ import asyncio
 import json
 import stat
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -191,12 +192,26 @@ async def _wait_for_task_to_finish(task_id: str) -> dict[str, Any]:
     raise TimeoutError(f"background task did not finish: {task_id}")
 
 
-async def _wait_for_task_cancellation(task: asyncio.Task[Any]) -> None:
+async def _wait_for_fork_status(
+    project: Path,
+    branch: str,
+    status: str,
+) -> dict[str, Any]:
+    registry_path = project / REGISTRY_REL
     for _ in range(200):
-        if task.cancelling() > 0:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        if registry["forks"][branch]["status"] == status:
+            return registry
+        await asyncio.sleep(0.05)
+    raise TimeoutError(f"fork {branch} did not reach status {status}")
+
+
+async def _wait_for_thread_event(event: threading.Event) -> None:
+    for _ in range(200):
+        if event.is_set():
             return
         await asyncio.sleep(0.05)
-    raise TimeoutError("background task was not cancelled")
+    raise TimeoutError("threading event was not set")
 
 
 @pytest.mark.asyncio
@@ -273,11 +288,15 @@ async def test_forked_task_reports_failed_when_worktree_finalization_raises(
 
 
 @pytest.mark.asyncio
-async def test_forked_task_timeout_during_finalization_waits_for_commit(
+async def test_forked_task_timeout_during_finalization_stays_failed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Once a Git commit starts, timeout waits for its authoritative result."""
+    """Timeout during Git finalize must publish failed/timeout immediately.
+
+    The in-flight commit may still finish as bookkeeping, but it must not
+    rewrite the task API result back to completed.
+    """
     fork = _create_fork(tmp_path, "finalize-timeout")
     _install_hook(
         fork,
@@ -294,26 +313,79 @@ async def test_forked_task_timeout_during_finalization_waits_for_commit(
     )
     try:
         await _wait_for_file(fork.worktree / ".hook-started")
-        await _wait_for_task_cancellation(background_task)
-        before_release = await console.get_console_chat_task(task_id)
+        timed_out = await _wait_for_task_to_finish(task_id)
+        error = (timed_out.get("result") or {}).get("error") or {}
+        assert timed_out["status"] == "finished"
+        assert timed_out["result"]["status"] == "failed"
+        assert error.get("code") == "timeout"
 
         (fork.worktree / ".hook-release").touch()
         await asyncio.wait_for(background_task, timeout=10)
-        completed = await console.get_console_chat_task(task_id)
-        registry = json.loads(
-            (fork.project / REGISTRY_REL).read_text(encoding="utf-8"),
-        )
-        fork_head = _git(fork.worktree, "rev-parse", "HEAD").stdout.strip()
-
-        assert (
-            before_release["status"],
-            completed["status"],
-            completed["result"]["status"],
-            registry["forks"][fork.branch]["status"],
-            fork_head != fork.base_head,
-        ) == ("running", "finished", "completed", "finalized", True)
+        # Detached Git may still commit; the task result must stay timeout.
+        after_release = await console.get_console_chat_task(task_id)
+        after_error = (after_release.get("result") or {}).get("error") or {}
+        assert after_release["status"] == "finished"
+        assert after_release["result"]["status"] == "failed"
+        assert after_error.get("code") == "timeout"
     finally:
         (fork.worktree / ".hook-release").touch(exist_ok=True)
+        await asyncio.gather(background_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_timeout_then_detached_finalize_exception_marks_registry_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later finalize exception must not leave the registry finalizing."""
+    fork = _create_fork(tmp_path, "finalize-timeout-exc")
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocked_then_raise(*_args: Any, **_kwargs: Any) -> bool:
+        started.set()
+        if not release.wait(timeout=10):
+            raise TimeoutError("test did not release finalize")
+        raise OSError("simulated git failure")
+
+    monkeypatch.setattr(
+        fork_project,
+        "commit_dirty_worktree",
+        _blocked_then_raise,
+    )
+    task_id, background_task = await _submit_forked_task(
+        monkeypatch,
+        worktree=fork.worktree,
+        branch=fork.branch,
+        scope=fork.scope,
+        timeout=3.0,
+    )
+    try:
+        await _wait_for_thread_event(started)
+        timed_out = await _wait_for_task_to_finish(task_id)
+        error = (timed_out.get("result") or {}).get("error") or {}
+        assert timed_out["status"] == "finished"
+        assert timed_out["result"]["status"] == "failed"
+        assert error.get("code") == "timeout"
+        mid = json.loads(
+            (fork.project / REGISTRY_REL).read_text(encoding="utf-8"),
+        )
+        assert mid["forks"][fork.branch]["status"] == "finalizing"
+
+        release.set()
+        after_reg = await _wait_for_fork_status(
+            fork.project,
+            fork.branch,
+            "failed",
+        )
+        after = await console.get_console_chat_task(task_id)
+        after_error = (after.get("result") or {}).get("error") or {}
+        assert after["status"] == "finished"
+        assert after["result"]["status"] == "failed"
+        assert after_error.get("code") == "timeout"
+        assert after_reg["forks"][fork.branch]["status"] == "failed"
+    finally:
+        release.set()
         await asyncio.gather(background_task, return_exceptions=True)
 
 

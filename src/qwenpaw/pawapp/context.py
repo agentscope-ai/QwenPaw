@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,6 @@ class PawAppContext:
         workspace = await self._get_workspace()
         if workspace is None:
             return []
-
         sid = session_id or f"pawapp:{self.app_id}"
         try:
             # Access session via workspace.session (standard way)
@@ -361,6 +361,206 @@ class PawAppContext:
                 sid,
             )
             return []
+
+    def _session_namespace(self) -> str:
+        return f"pawapp:{self.app_id}"
+
+    def is_app_session_id(self, session_id: str) -> bool:
+        """Return whether a session key is namespaced to this PawApp."""
+        namespace = self._session_namespace()
+        return session_id == namespace or session_id.startswith(
+            f"{namespace}:",
+        )
+
+    def _owns_chat_spec(self, chat: Any) -> bool:
+        """Return whether a ChatSpec belongs to this app/agent/user scope."""
+        meta = getattr(chat, "meta", None)
+        owner = meta.get("pawapp") if isinstance(meta, dict) else None
+        return (
+            isinstance(owner, dict)
+            and owner.get("app_id") == self.app_id
+            and owner.get("agent_id") == self.agent_id
+            and getattr(chat, "user_id", None) == self.user_id
+            and getattr(chat, "channel", None) == self.channel
+            and self.is_app_session_id(getattr(chat, "session_id", ""))
+        )
+
+    def _chat_owner_metadata(self) -> Dict[str, Any]:
+        return {
+            "pawapp": {
+                "app_id": self.app_id,
+                "agent_id": self.agent_id,
+            },
+        }
+
+    @staticmethod
+    def _chat_session_payload(chat: Any) -> Dict[str, Any]:
+        return {
+            "id": chat.id,
+            "session_id": chat.session_id,
+            "name": chat.name,
+            "created_at": chat.created_at,
+            "updated_at": chat.updated_at,
+            "archived": chat.archived,
+            "pinned": chat.pinned,
+        }
+
+    async def ensure_chat_session(
+        self,
+        session_id: Optional[str] = None,
+        *,
+        name: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Register or adopt one app-owned dialogue in the host chat catalog.
+
+        The session namespace prevents cross-app collisions; ChatSpec metadata
+        records the owning app and agent, while the normal ChatSpec identity
+        keeps user and channel scoping in the host catalog.
+        """
+        from ..app.chats.models import ChatSpec
+
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        sid = session_id or self._session_namespace()
+        if not self.is_app_session_id(sid):
+            return None
+
+        manager = getattr(workspace, "chat_manager", None)
+        if manager is None:
+            return None
+        chats = await manager.list_chats(
+            user_id=self.user_id,
+            channel=self.channel,
+            archived=None,
+        )
+        existing = next(
+            (chat for chat in chats if chat.session_id == sid),
+            None,
+        )
+        default_name = (
+            "Previous analysis"
+            if sid == self._session_namespace()
+            else "New analysis"
+        )
+        resolved_name = (name or default_name).strip()[:80] or default_name
+        if existing is None:
+            existing = ChatSpec(
+                session_id=sid,
+                user_id=self.user_id,
+                channel=self.channel,
+                name=resolved_name,
+                meta=self._chat_owner_metadata(),
+            )
+            await manager.create_chat(existing)
+        elif not self._owns_chat_spec(existing):
+            # Adopt only records already constrained to this app namespace.
+            # This is what makes the pre-catalog ``pawapp:{app_id}`` transcript
+            # show up as the app's legacy dialogue without copying its state.
+            metadata = dict(existing.meta)
+            metadata.update(self._chat_owner_metadata())
+            existing = existing.model_copy(update={"meta": metadata})
+            await manager.create_chat(existing)
+        return self._chat_session_payload(existing)
+
+    async def list_chat_sessions(self) -> List[Dict[str, Any]]:
+        """List active dialogues owned by this PawApp scope."""
+        await self.ensure_chat_session()
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return []
+        chats = await workspace.chat_manager.list_chats(
+            user_id=self.user_id,
+            channel=self.channel,
+            archived=False,
+        )
+        owned = [chat for chat in chats if self._owns_chat_spec(chat)]
+        owned.sort(
+            key=lambda chat: (chat.pinned, chat.updated_at),
+            reverse=True,
+        )
+        return [self._chat_session_payload(chat) for chat in owned]
+
+    async def create_chat_session(
+        self,
+        *,
+        name: str = "New analysis",
+    ) -> Dict[str, Any]:
+        """Create a fresh app-owned dialogue and context window."""
+        session_id = f"{self._session_namespace()}:dialogue:{uuid4()}"
+        created = await self.ensure_chat_session(session_id, name=name)
+        if created is None:
+            raise RuntimeError("No workspace available for chat sessions")
+        return created
+
+    async def rename_chat_session(
+        self,
+        chat_id: str,
+        *,
+        name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Rename one dialogue after validating app ownership."""
+        from ..app.chats.models import ChatUpdate
+
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return None
+        resolved_name = name.strip()[:80]
+        if not resolved_name:
+            raise ValueError("name is required")
+        updated = await workspace.chat_manager.patch_chat(
+            chat_id,
+            ChatUpdate(name=resolved_name),
+        )
+        return self._chat_session_payload(updated) if updated else None
+
+    async def archive_chat_session(
+        self,
+        chat_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Archive one dialogue after validating app ownership."""
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return None
+        archived = await workspace.chat_manager.archive_chat(chat_id)
+        return self._chat_session_payload(archived) if archived else None
+
+    async def pin_chat_session(
+        self,
+        chat_id: str,
+        *,
+        pinned: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Pin or unpin one dialogue after validating app ownership."""
+        from ..app.chats.models import ChatUpdate
+
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return None
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return None
+        updated = await workspace.chat_manager.patch_chat(
+            chat_id,
+            ChatUpdate(pinned=pinned),
+        )
+        return self._chat_session_payload(updated) if updated else None
+
+    async def delete_chat_session(self, chat_id: str) -> bool:
+        """Delete one dialogue after validating app ownership."""
+        workspace = await self._get_workspace()
+        if workspace is None:
+            return False
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None or not self._owns_chat_spec(chat):
+            return False
+        return await workspace.chat_manager.delete_chats([chat_id])
 
     async def _get_workspace(self) -> Any:
         """Get the workspace for the current agent."""
@@ -523,7 +723,7 @@ class ChatReply:
         self._chunks = chunks
 
     @property
-    def text(self) -> str:
+    def text(self) -> str:  # pylint: disable=R0915
         """Extract assistant text from the streamed chunks.
 
         The runtime yields Pydantic objects (``AgentResponse`` /
@@ -532,6 +732,9 @@ class ChatReply:
         then streaming text deltas, then legacy dict/str chunks.
         """
         # pylint: disable=too-many-branches
+
+        def _enum_value(value: Any) -> Any:
+            return getattr(value, "value", value)
 
         def _content_text(content_list: Any) -> str:
             parts: List[str] = []
@@ -545,6 +748,24 @@ class ChatReply:
                     parts.append(str(t))
             return "".join(parts)
 
+        def _last_assistant_text(messages: Any) -> str:
+            candidates: List[str] = []
+            fallback: List[str] = []
+            for message in messages or []:
+                text = _content_text(getattr(message, "content", []))
+                if not text.strip():
+                    continue
+                fallback.append(text)
+                message_type = _enum_value(getattr(message, "type", None))
+                role = _enum_value(getattr(message, "role", None))
+                if message_type in (None, "message") and role in (
+                    None,
+                    "assistant",
+                ):
+                    candidates.append(text)
+            selected = candidates or fallback
+            return selected[-1].strip() if selected else ""
+
         # 1) Last AgentResponse (.output list of messages)
         final_response = None
         for chunk in self._chunks:
@@ -552,40 +773,41 @@ class ChatReply:
             if isinstance(out, list):
                 final_response = chunk
         if final_response is not None:
-            joined = "".join(
-                _content_text(getattr(msg, "content", []))
-                for msg in final_response.output
-            ).strip()
-            if joined:
+            final_text = _last_assistant_text(final_response.output)
+            if final_text:
                 logger.debug("ChatReply: resolved via AgentResponse.output")
-                return joined
+                return final_text
             err = getattr(final_response, "error", None)
             if err:
                 logger.debug("ChatReply: resolved via AgentResponse.error")
                 return str(err)
 
         # 2) Completed Message objects (non-delta)
-        msg_texts = []
+        messages = []
         for chunk in self._chunks:
             if getattr(chunk, "output", None) is not None:
                 continue
             content = getattr(chunk, "content", None)
             if isinstance(content, list):
-                msg_texts.append(_content_text(content))
-        joined = "".join(msg_texts).strip()
-        if joined:
+                messages.append(chunk)
+        final_text = _last_assistant_text(messages)
+        if final_text:
             logger.debug("ChatReply: resolved via Message objects")
-            return joined
+            return final_text
 
         # 3) Streaming text deltas
-        delta_texts = [
-            str(chunk.text)
-            for chunk in self._chunks
-            if getattr(chunk, "delta", False) and getattr(chunk, "text", None)
-        ]
-        if delta_texts:
+        deltas_by_message: Dict[str, List[str]] = {}
+        for chunk in self._chunks:
+            if not getattr(chunk, "delta", False):
+                continue
+            text = getattr(chunk, "text", None)
+            if not text:
+                continue
+            message_id = str(getattr(chunk, "msg_id", None) or "default")
+            deltas_by_message.setdefault(message_id, []).append(str(text))
+        if deltas_by_message:
             logger.debug("ChatReply: resolved via streaming deltas")
-            return "".join(delta_texts).strip()
+            return "".join(next(reversed(deltas_by_message.values()))).strip()
 
         # 4) Legacy dict/str chunks
         logger.debug("ChatReply: falling back to legacy dict/str")

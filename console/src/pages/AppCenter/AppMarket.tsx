@@ -32,7 +32,7 @@ import {
   fetchMarketPlugins,
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
-import { installPlugin } from "@/api/modules/plugin";
+import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { rootApi } from "@/api/modules/root";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 import styles from "./index.module.less";
@@ -92,7 +92,7 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 }
 
 interface AppMarketProps {
-  onInstalled: () => void | Promise<void>;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
   channel?: "official" | "community";
 }
 
@@ -223,7 +223,7 @@ export function AppMarket({
           }`,
           key: loadingKey,
         });
-        await onInstalled();
+        await onInstalled(result);
       } catch (err) {
         message.error({
           content:

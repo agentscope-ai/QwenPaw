@@ -59,12 +59,18 @@ export const chatApi = {
     user_id?: string;
     channel?: string;
     archived?: boolean;
+    include_app_owned?: boolean;
   }) => {
     const searchParams = new URLSearchParams();
     if (params?.user_id) searchParams.append("user_id", params.user_id);
     if (params?.channel) searchParams.append("channel", params.channel);
     if (params?.archived !== undefined)
       searchParams.append("archived", String(params.archived));
+    if (params?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(params.include_app_owned),
+      );
     const query = searchParams.toString();
     return request<ChatSpec[]>(`/chats${query ? `?${query}` : ""}`);
   },
@@ -75,10 +81,24 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (chatId: string, options?: { signal?: AbortSignal }) =>
-    request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`, {
-      signal: options?.signal,
-    }),
+  getChat: (
+    chatId: string,
+    options?: { signal?: AbortSignal; include_app_owned?: boolean },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (options?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(options.include_app_owned),
+      );
+    const query = searchParams.toString();
+    return request<ChatHistory>(
+      `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
+      {
+        signal: options?.signal,
+      },
+    );
+  },
 
   updateChat: (chatId: string, chat: ChatUpdateRequest) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
