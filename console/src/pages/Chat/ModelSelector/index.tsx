@@ -1,24 +1,46 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useId,
+  useRef,
+  useMemo,
+} from "react";
 import { Dropdown, Spin, Tooltip, Modal } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
-  CheckOutlined,
-  LoadingOutlined,
-  SearchOutlined,
-  CloseCircleFilled,
-  DownOutlined,
-  UpOutlined,
-} from "@ant-design/icons";
-import { AlertTriangle, Link as LinkIcon, Settings } from "lucide-react";
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Link as LinkIcon,
+  Eye,
+  GitBranch,
+  LoaderCircle,
+  Pin,
+  Search,
+  Settings,
+  XCircle,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { providerApi } from "../../../api/modules/provider";
-import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
+import type { ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
+import { AgentModelSettings } from "./AgentModelSettings";
+import { CandidateModelSection } from "./CandidateModelSection";
+import { modelSelectorApi } from "./modelSelectorApi";
+import {
+  buildDiscoveryCandidates,
+  buildEligibleProviders,
+  buildHiddenCandidates,
+  modelKey,
+} from "./modelSelectorModels";
+import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
+import { useModelSelectorData } from "./useModelSelectorData";
 import styles from "./index.module.less";
 
 /** Sync Chat context ring with the active model's effective window. */
@@ -39,28 +61,26 @@ function publishActiveMaxInputLength(
   }
 }
 
-interface EligibleProvider {
-  id: string;
-  name: string;
-  base_url?: string;
-  models: ProviderInfo["models"];
-  is_free_tier?: boolean;
-  is_custom?: boolean;
-  is_local?: boolean;
-  supports_oauth?: boolean;
-  oauth_connected?: boolean;
-  has_api_key?: boolean;
-  require_api_key?: boolean;
+const PINNED_STORAGE_KEY = "qwenpaw_model_selector_pinned";
+const RECENT_STORAGE_KEY = "qwenpaw_model_selector_recent";
+const RECOMMENDED_LIMIT = 6;
+
+function readStoredModelKeys(key: string): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value)
+      ? value.filter((item) => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function ModelSelector() {
   const { t } = useTranslation();
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
-    null,
-  );
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [addingKey, setAddingKey] = useState<string | null>(null);
+  const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"pro" | "free">(
@@ -80,15 +100,32 @@ export default function ModelSelector() {
   );
   const savingRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const panelId = useId();
+  const proTabId = useId();
+  const freeTabId = useId();
+  const tabPanelId = useId();
+  const moreProvidersId = useId();
+  const candidateModelsId = useId();
   const location = useLocation();
   const navigate = useNavigate();
   const { selectedAgent } = useAgentStore();
   const { message } = useAppMessage();
+  const activationRevisionRef = useRef(0);
+  const selectedAgentRef = useRef(selectedAgent);
+  selectedAgentRef.current = selectedAgent;
 
   const [showMoreFree, setShowMoreFree] = useState(false);
   const moreContentRef = useRef<HTMLDivElement>(null);
   const [expandedModels, setExpandedModels] = useState<Record<string, number>>(
     {},
+  );
+  const [showAllModels, setShowAllModels] = useState(false);
+  const [showCandidateModels, setShowCandidateModels] = useState(false);
+  const [pinnedModelKeys, setPinnedModelKeys] = useState<string[]>(() =>
+    readStoredModelKeys(PINNED_STORAGE_KEY),
+  );
+  const [recentModelKeys, setRecentModelKeys] = useState<string[]>(() =>
+    readStoredModelKeys(RECENT_STORAGE_KEY),
   );
 
   // Mobile viewport detection for dropdown placement
@@ -118,31 +155,28 @@ export default function ModelSelector() {
     providerName: string;
   }>({ open: false, providerId: "", providerName: "" });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [provData, activeData] = await Promise.all([
-        providerApi.listProviders(),
-        providerApi.getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        }),
-      ]);
-      if (Array.isArray(provData)) setProviders(provData);
-      if (activeData) {
-        setActiveModels(activeData);
-        publishActiveMaxInputLength(activeData.effective_max_input_length);
-      }
-    } catch (err) {
-      console.error("ModelSelector: failed to load data", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedAgent]);
+  const handleActiveModels = useCallback((activeData: ActiveModelsInfo) => {
+    publishActiveMaxInputLength(activeData.effective_max_input_length);
+  }, []);
+  const {
+    activeModels,
+    fetchData,
+    loading,
+    loadError,
+    providers,
+    refreshActiveModels,
+    setActiveModels,
+    setProviders,
+  } = useModelSelectorData({
+    agentId: selectedAgent,
+    onActiveModels: handleActiveModels,
+  });
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    activationRevisionRef.current += 1;
+    savingRef.current = false;
+    setSaving(false);
+  }, [selectedAgent]);
 
   // Re-sync active model whenever the route switches back to /chat
   const prevPathRef = useRef(location.pathname);
@@ -152,47 +186,15 @@ export default function ModelSelector() {
     prevPathRef.current = curr;
     const comingToChat = curr.startsWith("/chat") && !prev.startsWith("/chat");
     if (comingToChat) {
-      providerApi
-        .getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        })
-        .then((activeData) => {
-          if (activeData) {
-            setActiveModels(activeData);
-            publishActiveMaxInputLength(activeData.effective_max_input_length);
-          }
-        })
-        .catch(() => {});
+      void refreshActiveModels().catch(() => {});
     }
-  }, [location.pathname, selectedAgent]);
+  }, [location.pathname, refreshActiveModels]);
 
   // Eligible providers: configured + has models, OR is_free_tier
-  const eligibleProviders: EligibleProvider[] = providers
-    .filter((p) => {
-      const hasModels =
-        (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
-      // Free tier: always show (OAuth or needs-key)
-      if (p.is_free_tier) return true;
-      if (!hasModels) return false;
-      if (p.require_api_key === false) return !!p.base_url;
-      if (p.is_custom) return !!p.base_url;
-      if (p.require_api_key ?? true) return !!p.api_key;
-      return true;
-    })
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      base_url: p.base_url,
-      models: [...(p.models ?? []), ...(p.extra_models ?? [])],
-      is_free_tier: p.is_free_tier,
-      is_custom: p.is_custom,
-      is_local: p.is_local,
-      supports_oauth: p.supports_oauth,
-      oauth_connected: p.oauth_connected,
-      has_api_key: !!p.api_key,
-      require_api_key: p.require_api_key,
-    }));
+  const eligibleProviders = useMemo(
+    () => buildEligibleProviders(providers),
+    [providers],
+  );
 
   // Split by model-level is_free, not provider-level is_free_tier
   const { freeProviders, proProviders } = useMemo(() => {
@@ -255,6 +257,144 @@ export default function ModelSelector() {
 
   const activeProviderId = activeModels?.active_llm?.provider_id;
   const activeModelId = activeModels?.active_llm?.model;
+  const actualUsage = useTurnUsageStore((state) => state.snapshot?.usage);
+  const fallbackModel = useMemo(() => {
+    const providerId = actualUsage?.provider_id;
+    const modelId = actualUsage?.model_name;
+    if (
+      !providerId ||
+      !modelId ||
+      (providerId === activeProviderId && modelId === activeModelId)
+    ) {
+      return null;
+    }
+    const provider = providers.find((item) => item.id === providerId);
+    const model = [
+      ...(provider?.models ?? []),
+      ...(provider?.extra_models ?? []),
+    ].find((item) => item.id === modelId);
+    return {
+      providerId,
+      providerName: provider?.name || providerId,
+      label: model?.name || modelId,
+    };
+  }, [actualUsage, activeModelId, activeProviderId, providers]);
+
+  const discoveryCandidates = useMemo(
+    () => buildDiscoveryCandidates(providers),
+    [providers],
+  );
+
+  const hiddenCandidates = useMemo(
+    () => buildHiddenCandidates(providers),
+    [providers],
+  );
+
+  const visibleCandidates = useMemo(() => {
+    const query = trimmedSearch.toLowerCase();
+    return discoveryCandidates.filter(({ provider, model }) => {
+      const matchesQuery = query
+        ? model.id.toLowerCase().includes(query) ||
+          model.name.toLowerCase().includes(query) ||
+          provider.name.toLowerCase().includes(query)
+        : true;
+      if (!matchesQuery) return false;
+      return activeTab === "free" ? Boolean(model.is_free) : !model.is_free;
+    });
+  }, [activeTab, discoveryCandidates, trimmedSearch]);
+  const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
+
+  const rankModels = useCallback(
+    (list: EligibleProvider[]): EligibleProvider[] => {
+      const ranked = list.flatMap((provider) =>
+        provider.models.map((model) => ({ provider, model })),
+      );
+      ranked.sort((left, right) => {
+        const leftKey = modelKey(left.provider.id, left.model.id);
+        const rightKey = modelKey(right.provider.id, right.model.id);
+        const score = (key: string, providerId: string, id: string) => {
+          const pinned = pinnedModelKeys.indexOf(key);
+          if (pinned >= 0) return pinned - 300;
+          const recent = recentModelKeys.indexOf(key);
+          if (recent >= 0) return recent - 200;
+          if (providerId === activeProviderId && id === activeModelId)
+            return -100;
+          return 0;
+        };
+        return (
+          score(leftKey, left.provider.id, left.model.id) -
+          score(rightKey, right.provider.id, right.model.id)
+        );
+      });
+      let visible = ranked;
+      if (!showAllModels && !trimmedSearch) {
+        const alwaysVisible = ranked.filter(({ provider, model }) => {
+          const key = modelKey(provider.id, model.id);
+          return (
+            pinnedModelKeys.includes(key) ||
+            recentModelKeys.includes(key) ||
+            (provider.id === activeProviderId && model.id === activeModelId)
+          );
+        });
+        const alwaysVisibleKeys = new Set(
+          alwaysVisible.map(({ provider, model }) =>
+            modelKey(provider.id, model.id),
+          ),
+        );
+        const recommended = ranked.filter(({ provider, model }) => {
+          const key = modelKey(provider.id, model.id);
+          return model.is_recommended && !alwaysVisibleKeys.has(key);
+        });
+        const remainingSlots = Math.max(
+          0,
+          RECOMMENDED_LIMIT - alwaysVisible.length,
+        );
+        visible = [...alwaysVisible, ...recommended.slice(0, remainingSlots)];
+      }
+      const grouped = new Map<string, EligibleProvider>();
+      for (const item of visible) {
+        const current = grouped.get(item.provider.id);
+        if (current) current.models.push(item.model);
+        else
+          grouped.set(item.provider.id, {
+            ...item.provider,
+            models: [item.model],
+          });
+      }
+      return [...grouped.values()];
+    },
+    [
+      activeModelId,
+      activeProviderId,
+      pinnedModelKeys,
+      recentModelKeys,
+      showAllModels,
+      trimmedSearch,
+    ],
+  );
+
+  const rememberRecent = (providerId: string, modelId: string) => {
+    const key = modelKey(providerId, modelId);
+    setRecentModelKeys((previous) => {
+      const next = [key, ...previous.filter((item) => item !== key)].slice(
+        0,
+        5,
+      );
+      localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const togglePinned = (providerId: string, modelId: string) => {
+    const key = modelKey(providerId, modelId);
+    setPinnedModelKeys((previous) => {
+      const next = previous.includes(key)
+        ? previous.filter((item) => item !== key)
+        : [key, ...previous];
+      localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   // Display label for trigger button
   const activeModelName = (() => {
@@ -301,26 +441,68 @@ export default function ModelSelector() {
       setOpen(next);
       if (next) {
         try {
-          const activeData = await providerApi.getActiveModels({
-            scope: "effective",
-            agent_id: selectedAgent,
-          });
-          if (activeData) setActiveModels(activeData);
+          await refreshActiveModels();
         } catch {
           // ignore
         }
       }
     },
-    [selectedAgent],
+    [refreshActiveModels],
   );
 
-  const handleSelect = async (providerId: string, modelId: string) => {
+  const activateModel = async (providerId: string, modelId: string) => {
     if (savingRef.current) return;
     if (providerId === activeProviderId && modelId === activeModelId) {
       setOpen(false);
       return;
     }
 
+    const targetAgentId = selectedAgent;
+    const activationRevision = ++activationRevisionRef.current;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const updated = await modelSelectorApi.setActiveLlm({
+        provider_id: providerId,
+        model: modelId,
+        scope: "agent",
+        agent_id: targetAgentId,
+      });
+      if (
+        activationRevision !== activationRevisionRef.current ||
+        targetAgentId !== selectedAgentRef.current
+      ) {
+        return;
+      }
+      setActiveModels(
+        updated?.active_llm
+          ? updated
+          : {
+              ...updated,
+              active_llm: { provider_id: providerId, model: modelId },
+            },
+      );
+      publishActiveMaxInputLength(updated?.effective_max_input_length);
+      rememberRecent(providerId, modelId);
+    } catch (err) {
+      if (
+        activationRevision !== activationRevisionRef.current ||
+        targetAgentId !== selectedAgentRef.current
+      ) {
+        return;
+      }
+      const msg =
+        err instanceof Error ? err.message : t("modelSelector.switchFailed");
+      message.error(msg);
+    } finally {
+      if (activationRevision === activationRevisionRef.current) {
+        setSaving(false);
+        savingRef.current = false;
+      }
+    }
+  };
+
+  const handleSelect = async (providerId: string, modelId: string) => {
     const targetProvider = eligibleProviders.find(
       (provider) => provider.id === providerId,
     );
@@ -355,68 +537,107 @@ export default function ModelSelector() {
       if (!confirmed) return;
     }
 
-    savingRef.current = true;
-    setSaving(true);
+    await activateModel(providerId, modelId);
+  };
+
+  const handleAddCandidate = async (candidate: CandidateModel) => {
+    const key = modelKey(candidate.provider.id, candidate.model.id);
+    if (addingKey) return;
+
+    const confirmed = await confirmFreeModelSwitch({
+      provider: candidate.provider,
+      model: candidate.model,
+      t,
+    });
+    if (!confirmed) return;
+
+    setAddingKey(key);
     try {
-      const updated = await providerApi.setActiveLlm({
-        provider_id: providerId,
-        model: modelId,
-        scope: "agent",
-        agent_id: selectedAgent,
+      await modelSelectorApi.addModel(candidate.provider.id, {
+        id: candidate.model.id,
+        name: candidate.model.name || candidate.model.id,
+        is_free: candidate.model.is_free,
+        supports_multimodal: candidate.model.supports_multimodal,
+        supports_image: candidate.model.supports_image,
+        supports_video: candidate.model.supports_video,
+        probe_source: candidate.model.probe_source,
       });
-      setActiveModels(
-        updated?.active_llm
-          ? updated
-          : {
-              ...updated,
-              active_llm: { provider_id: providerId, model: modelId },
-            },
-      );
-      publishActiveMaxInputLength(updated?.effective_max_input_length);
+      await activateModel(candidate.provider.id, candidate.model.id);
+      await fetchData();
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("modelSelector.switchFailed");
-      message.error(msg);
+      const text =
+        err instanceof Error ? err.message : t("modelSelector.addFailed");
+      message.error(text);
     } finally {
-      setSaving(false);
-      savingRef.current = false;
+      setAddingKey(null);
+    }
+  };
+
+  const handleVisibility = async (
+    candidate: CandidateModel,
+    hidden: boolean,
+  ) => {
+    const key = modelKey(candidate.provider.id, candidate.model.id);
+    if (visibilityKey) return;
+    setVisibilityKey(key);
+    try {
+      const updated = await modelSelectorApi.setModelVisibility(
+        candidate.provider.id,
+        candidate.model.id,
+        hidden,
+      );
+      setProviders((current) =>
+        current.map((provider) =>
+          provider.id === updated.id ? updated : provider,
+        ),
+      );
+    } catch (err) {
+      const text =
+        err instanceof Error
+          ? err.message
+          : t("modelSelector.visibilityFailed");
+      message.error(text);
+    } finally {
+      setVisibilityKey(null);
     }
   };
 
   const handleOAuthSuccess = async () => {
-    setOauthModal((prev) => ({ ...prev, open: false }));
-    await fetchData();
-    if (oauthModal.providerId && oauthModal.pendingModelId) {
-      savingRef.current = true;
-      setSaving(true);
-      try {
-        const updated = await providerApi.setActiveLlm({
-          provider_id: oauthModal.providerId,
-          model: oauthModal.pendingModelId,
-          scope: "agent",
-          agent_id: selectedAgent,
-        });
-        setActiveModels(
-          updated?.active_llm
-            ? updated
-            : {
-                ...updated,
-                active_llm: {
-                  provider_id: oauthModal.providerId,
-                  model: oauthModal.pendingModelId,
-                },
-              },
-        );
-        publishActiveMaxInputLength(updated?.effective_max_input_length);
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : t("modelSelector.switchFailed");
-        message.error(msg);
-      } finally {
-        setSaving(false);
-        savingRef.current = false;
+    const { providerId, pendingModelId } = oauthModal;
+    setOauthModal({
+      open: false,
+      providerId: "",
+      providerName: "",
+      pendingModelId: "",
+    });
+    const refreshed = await fetchData();
+    if (!providerId) return;
+
+    if (pendingModelId) {
+      const provider = refreshed?.providers?.find(
+        (candidate) => candidate.id === providerId,
+      );
+      const resolvedModel = [
+        ...(provider?.models ?? []),
+        ...(provider?.extra_models ?? []),
+      ].find((model) => model.id === pendingModelId);
+      if (provider && resolvedModel) {
+        await activateModel(provider.id, resolvedModel.id);
+        return;
       }
+      message.error(t("modelSelector.oauthModelUnavailable"));
     }
+
+    navigate(`/models?provider=${providerId}&manageModels=true`);
+  };
+
+  const handleOAuthCancel = () => {
+    setOauthModal({
+      open: false,
+      providerId: "",
+      providerName: "",
+      pendingModelId: "",
+    });
   };
 
   const handleOAuthConnect = (provider: EligibleProvider) => {
@@ -451,26 +672,33 @@ export default function ModelSelector() {
       !provider.has_api_key &&
       !provider.oauth_connected;
     const isCollapsed = collapsedProviders.has(provider.id);
-    const visibleCount = expandedModels[provider.id] ?? 5;
+    const visibleCount =
+      trimmedSearch || !showAllModels
+        ? provider.models.length
+        : expandedModels[provider.id] ?? 5;
     const visibleModels = provider.models.slice(0, visibleCount);
     const remaining = provider.models.length - visibleCount;
     const hasMore = remaining > 0;
 
     return (
       <div key={provider.id} className={styles.providerGroup}>
-        <div
+        <button
+          type="button"
           className={styles.providerHeader}
+          aria-expanded={!isCollapsed}
           onClick={() => toggleProviderCollapse(provider.id)}
         >
           <ProviderIcon providerId={provider.id} size={16} />
-          <span className={styles.providerHeaderName}>{provider.name}</span>
+          <span className={styles.providerHeaderName} title={provider.name}>
+            {provider.name}
+          </span>
           {needsOAuth && (
             <AlertTriangle size={12} className={styles.oauthWarningIcon} />
           )}
           <span className={styles.collapseIcon}>
-            {isCollapsed ? <DownOutlined /> : <UpOutlined />}
+            {isCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
           </span>
-        </div>
+        </button>
         {!isCollapsed && (
           <>
             {visibleModels.map((model) => {
@@ -483,11 +711,21 @@ export default function ModelSelector() {
                     styles.modelItem,
                     isActive ? styles.modelItemActive : "",
                   ].join(" ")}
-                  onClick={() => handleSelect(provider.id, model.id)}
                 >
-                  <span className={styles.modelName}>
-                    {model.name || model.id}
-                  </span>
+                  <button
+                    type="button"
+                    className={styles.modelSelectButton}
+                    disabled={saving}
+                    aria-current={isActive ? "true" : undefined}
+                    onClick={() => handleSelect(provider.id, model.id)}
+                  >
+                    <span
+                      className={styles.modelName}
+                      title={model.name || model.id}
+                    >
+                      {model.name || model.id}
+                    </span>
+                  </button>
                   <div className={styles.modelTags}>
                     {needsOAuth && (
                       <AlertTriangle
@@ -505,13 +743,33 @@ export default function ModelSelector() {
                         {t("modelSelector.vision")}
                       </span>
                     )}
-                    {isActive && <CheckOutlined className={styles.checkIcon} />}
+                    <button
+                      type="button"
+                      className={styles.pinButton}
+                      aria-label={t("modelSelector.pinModel")}
+                      onClick={() => togglePinned(provider.id, model.id)}
+                    >
+                      <Pin
+                        size={13}
+                        fill={
+                          pinnedModelKeys.includes(
+                            modelKey(provider.id, model.id),
+                          )
+                            ? "currentColor"
+                            : "none"
+                        }
+                      />
+                    </button>
+                    {isActive && (
+                      <Check size={14} className={styles.checkIcon} />
+                    )}
                   </div>
                 </div>
               );
             })}
             {hasMore && (
-              <div
+              <button
+                type="button"
                 className={styles.viewMore}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -524,7 +782,7 @@ export default function ModelSelector() {
                 {t("modelSelector.viewMore", {
                   count: Math.min(10, remaining),
                 })}
-              </div>
+              </button>
             )}
           </>
         )}
@@ -540,14 +798,17 @@ export default function ModelSelector() {
       <div key={provider.id} className={styles.providerGroup}>
         <div className={styles.providerHeader}>
           <ProviderIcon providerId={provider.id} size={16} />
-          <span className={styles.providerHeaderName}>{provider.name}</span>
+          <span className={styles.providerHeaderName} title={provider.name}>
+            {provider.name}
+          </span>
         </div>
         {isConnected && provider.models.length === 0 ? (
           <div className={styles.connectHint}>
             {t("modelSelector.noModelsDiscovered")}
           </div>
         ) : (
-          <div
+          <button
+            type="button"
             className={styles.connectEntry}
             onClick={() => handleOAuthConnect(provider)}
           >
@@ -555,7 +816,7 @@ export default function ModelSelector() {
             <span>
               {t("modelSelector.connectToUse", { provider: provider.name })}
             </span>
-          </div>
+          </button>
         )}
       </div>
     );
@@ -566,9 +827,12 @@ export default function ModelSelector() {
       <div key={provider.id} className={styles.providerGroup}>
         <div className={styles.providerHeader}>
           <ProviderIcon providerId={provider.id} size={16} />
-          <span className={styles.providerHeaderName}>{provider.name}</span>
+          <span className={styles.providerHeaderName} title={provider.name}>
+            {provider.name}
+          </span>
         </div>
-        <div
+        <button
+          type="button"
           className={styles.connectEntry}
           onClick={() => {
             setOpen(false);
@@ -583,7 +847,7 @@ export default function ModelSelector() {
           <span>
             {t("modelSelector.configureApiKey", { provider: provider.name })}
           </span>
-        </div>
+        </button>
       </div>
     );
   };
@@ -591,8 +855,9 @@ export default function ModelSelector() {
   const renderFreeTab = () => {
     if (loading) {
       return (
-        <div className={styles.spinWrapper}>
+        <div className={styles.spinWrapper} role="status">
           <Spin size="small" />
+          <span>{t("modelSelector.loadingModels")}</span>
         </div>
       );
     }
@@ -618,7 +883,7 @@ export default function ModelSelector() {
 
     if (!hasAny) {
       return (
-        <div className={styles.emptyTip}>
+        <div className={styles.emptyTip} role="status">
           {trimmedSearch
             ? t("modelSelector.noModelsFound")
             : t("modelSelector.noFreeModels")}
@@ -632,12 +897,15 @@ export default function ModelSelector() {
           <AlertTriangle size={14} className={styles.freeBannerIcon} />
           <span>{t("modelSelector.freeBannerText")}</span>
         </div>
-        {readyProviders.map(renderProviderModels)}
+        {rankModels(readyProviders).map(renderProviderModels)}
         {oauthOnlyProviders.map(renderOAuthConnectEntry)}
         {needsKeyProviders.length > 0 && (
           <>
-            <div
+            <button
+              type="button"
               className={styles.moreToggle}
+              aria-expanded={showMoreFree}
+              aria-controls={moreProvidersId}
               onClick={() => {
                 setShowMoreFree((v) => {
                   if (!v) {
@@ -653,10 +921,18 @@ export default function ModelSelector() {
               }}
             >
               <span>{t("modelSelector.moreProviders")}</span>
-              {showMoreFree ? <UpOutlined /> : <DownOutlined />}
-            </div>
+              {showMoreFree ? (
+                <ChevronUp size={12} />
+              ) : (
+                <ChevronDown size={12} />
+              )}
+            </button>
             {showMoreFree && (
-              <div ref={moreContentRef} className={styles.moreContent}>
+              <div
+                id={moreProvidersId}
+                ref={moreContentRef}
+                className={styles.moreContent}
+              >
                 {needsKeyProviders.map(renderApiKeyEntry)}
               </div>
             )}
@@ -669,15 +945,16 @@ export default function ModelSelector() {
   const renderProTab = () => {
     if (loading) {
       return (
-        <div className={styles.spinWrapper}>
+        <div className={styles.spinWrapper} role="status">
           <Spin size="small" />
+          <span>{t("modelSelector.loadingModels")}</span>
         </div>
       );
     }
 
     if (filteredPro.length === 0) {
       return (
-        <div className={styles.emptyTip}>
+        <div className={styles.emptyTip} role="status">
           {trimmedSearch
             ? t("modelSelector.noModelsFound")
             : t("modelSelector.noConfiguredModels")}
@@ -690,36 +967,46 @@ export default function ModelSelector() {
         <div className={styles.proBanner}>
           <span>{t("modelSelector.proBannerText")}</span>
         </div>
-        {filteredPro.map(renderProviderModels)}
+        {rankModels(filteredPro).map(renderProviderModels)}
       </>
     );
   };
 
   const dropdownContent = (
-    <div className={styles.panel}>
+    <div id={panelId} className={styles.panel}>
       <div className={styles.searchWrapper}>
-        <SearchOutlined className={styles.searchIcon} />
+        <Search size={15} className={styles.searchIcon} />
         <input
           ref={searchInputRef}
           className={styles.searchInput}
+          aria-label={t("modelSelector.searchModels")}
           placeholder={t("modelSelector.searchModels")}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
         {searchQuery && (
-          <CloseCircleFilled
+          <button
+            type="button"
             className={styles.searchClear}
+            aria-label={t("modelSelector.clearSearch")}
             onClick={(e) => {
               e.stopPropagation();
               setSearchQuery("");
               searchInputRef.current?.focus();
             }}
-          />
+          >
+            <XCircle size={15} />
+          </button>
         )}
       </div>
 
-      <div className={styles.tabBar}>
+      <div className={styles.tabBar} role="tablist">
         <button
+          type="button"
+          id={proTabId}
+          role="tab"
+          aria-selected={activeTab === "pro"}
+          aria-controls={tabPanelId}
           className={[
             styles.tabButton,
             activeTab === "pro" ? styles.tabButtonActive : "",
@@ -732,6 +1019,11 @@ export default function ModelSelector() {
           PRO
         </button>
         <button
+          type="button"
+          id={freeTabId}
+          role="tab"
+          aria-selected={activeTab === "free"}
+          aria-controls={tabPanelId}
           className={[
             styles.tabButton,
             activeTab === "free" ? styles.tabButtonActive : "",
@@ -745,8 +1037,78 @@ export default function ModelSelector() {
         </button>
       </div>
 
-      <div className={styles.listContainer}>
+      <div
+        id={tabPanelId}
+        className={styles.listContainer}
+        role="tabpanel"
+        aria-labelledby={activeTab === "free" ? freeTabId : proTabId}
+      >
+        {loadError && (
+          <div className={styles.loadError} role="alert">
+            <span>{t("modelSelector.partialLoadFailed")}</span>
+            <button type="button" onClick={fetchData}>
+              {t("modelSelector.retry")}
+            </button>
+          </div>
+        )}
         {activeTab === "free" ? renderFreeTab() : renderProTab()}
+        {!trimmedSearch && (
+          <button
+            type="button"
+            className={styles.showAllButton}
+            onClick={() => setShowAllModels((value) => !value)}
+          >
+            {showAllModels
+              ? t("modelSelector.showRecommended")
+              : t("modelSelector.showAll")}
+          </button>
+        )}
+        <CandidateModelSection
+          candidates={visibleCandidates}
+          expanded={candidateModelsExpanded}
+          controlsId={candidateModelsId}
+          searchActive={Boolean(trimmedSearch)}
+          addingKey={addingKey}
+          visibilityKey={visibilityKey}
+          t={t}
+          onToggle={() => setShowCandidateModels((value) => !value)}
+          onAdd={handleAddCandidate}
+          onHide={(candidate) => handleVisibility(candidate, true)}
+        />
+        {!trimmedSearch && hiddenCandidates.length > 0 && (
+          <details className={styles.hiddenModels}>
+            <summary>
+              {t("modelSelector.hiddenModels", {
+                count: hiddenCandidates.length,
+              })}
+            </summary>
+            {hiddenCandidates.map((candidate) => {
+              const key = modelKey(candidate.provider.id, candidate.model.id);
+              return (
+                <div key={key} className={styles.hiddenModelItem}>
+                  <span title={candidate.model.name || candidate.model.id}>
+                    {candidate.model.name || candidate.model.id}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t("modelSelector.restoreModel")}
+                    disabled={visibilityKey === key}
+                    onClick={() => handleVisibility(candidate, false)}
+                  >
+                    <Eye size={14} />
+                    {t("modelSelector.restore")}
+                  </button>
+                </div>
+              );
+            })}
+          </details>
+        )}
+        <AgentModelSettings
+          agentId={selectedAgent}
+          providers={eligibleProviders}
+          activeProviderId={activeProviderId}
+          activeModelId={activeModelId}
+        />
       </div>
     </div>
   );
@@ -763,16 +1125,41 @@ export default function ModelSelector() {
         placement={isMobile ? "bottomCenter" : "bottomLeft"}
       >
         <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
-          <div
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={panelId}
+            aria-label={t("chat.modelSelectTooltip")}
             className={[styles.trigger, open ? styles.triggerActive : ""].join(
               " ",
             )}
           >
-            {saving && (
-              <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
-            )}
+            {saving && <LoaderCircle size={12} className={styles.spinning} />}
             {showActiveProviderIcon && activeProviderId && (
               <ProviderIcon providerId={activeProviderId} size={16} />
+            )}
+            {fallbackModel && (
+              <Tooltip
+                title={t("modelSelector.fallbackActive", {
+                  provider: fallbackModel.providerName,
+                  model: fallbackModel.label,
+                })}
+              >
+                <span
+                  className={styles.fallbackBadge}
+                  aria-label={t("modelSelector.fallbackActive", {
+                    provider: fallbackModel.providerName,
+                    model: fallbackModel.label,
+                  })}
+                >
+                  <ProviderIcon
+                    providerId={fallbackModel.providerId}
+                    size={13}
+                  />
+                  <GitBranch size={12} />
+                  <span>{fallbackModel.label}</span>
+                </span>
+              </Tooltip>
             )}
             <span className={styles.triggerName} ref={triggerNameRef}>
               {shouldMarquee ? (
@@ -796,7 +1183,7 @@ export default function ModelSelector() {
             >
               {activeModelName}
             </span>
-          </div>
+          </button>
         </Tooltip>
       </Dropdown>
 
@@ -823,7 +1210,7 @@ export default function ModelSelector() {
         providerId={oauthModal.providerId}
         providerName={oauthModal.providerName}
         onSuccess={handleOAuthSuccess}
-        onCancel={() => setOauthModal((prev) => ({ ...prev, open: false }))}
+        onCancel={handleOAuthCancel}
       />
     </>
   );

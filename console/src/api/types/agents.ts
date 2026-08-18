@@ -23,6 +23,10 @@ export interface AgentSummary {
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;
   active_model?: ModelSlotConfig | null;
+  /** PawApp id when this profile is an app-owned execution engine. */
+  managed_by_app?: string | null;
+  /** False for app-owned profiles that must not appear in normal Chat. */
+  available_in_chat?: boolean;
 }
 
 export type AgentBackend = string;
@@ -73,6 +77,13 @@ export interface AgentProfileConfig {
   };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model?: ModelSlotConfig | null;
+  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -81,6 +92,16 @@ export interface AgentProfileConfig {
   system_prompt_files?: string[];
   tools?: unknown;
   security?: unknown;
+}
+
+export interface AgentModelSettingsPatch {
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model?: ModelSlotConfig | null;
+  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
 }
 
 export interface CreateAgentRequest {

@@ -58,8 +58,12 @@ metadata:
   - `timeout`: （可选）预估任务需要的前台等待时间，避免过早超时
 
 4) 如果任务适合后台执行，请使用新的后台工具路径
-  - `submit_to_agent(...)`：提交后台任务，参数只需要 `to_agent`、`text` 和可选 `session_id`
+  - `submit_to_agent(...)`：提交后台任务，需要 `to_agent`、`text`，以及可选的 `session_id` / `task_timeout`
+    - 省略 `task_timeout` 时，默认执行预算为 **3600 秒（1 小时）**
+    - 预计超过 1 小时的任务，请显式传入正数秒
+    - 也接受数字字符串，例如 `"7200"`
   - `check_agent_task(...)`：通过 `task_id` 查询任务状态，完成时返回最终结果
+    - 超时后任务会以失败结束，错误类似 `Task timed out after Ns`（API 载荷中带 `code=timeout`）
 
 ## 最小调用示例
 
@@ -90,6 +94,7 @@ chat_with_agent(
 submit_to_agent(
   to_agent="<target_agent_id>",
   text="[Agent <your_agent_id> requesting] 请在后台完成这个较长任务。",
+  task_timeout=7200,
 )
 
 check_agent_task(

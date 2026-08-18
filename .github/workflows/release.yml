@@ -248,10 +248,63 @@ jobs:
           path: dist/plugins
           retention-days: 7
 
+  build-docker:
+    needs: [resolve]
+    runs-on: ubuntu-latest
+    env:
+      ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          submodules: recursive
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Aliyun ACR
+        if: ${{ !inputs.dry_run }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Build multi-arch image
+        env:
+          DOCKER_NODE_IMAGE: ${{ inputs.dry_run && 'node:20-slim' || '' }}
+          DOCKER_UV_IMAGE: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
+          QWENPAW_DISABLED_CHANNELS: "imessage"
+        run: |
+          BUILD_ARGS=()
+          if [ -n "${DOCKER_NODE_IMAGE}" ]; then
+            BUILD_ARGS+=(--build-arg "NODE_IMAGE=${DOCKER_NODE_IMAGE}")
+          fi
+          if [ -n "${DOCKER_UV_IMAGE}" ]; then
+            BUILD_ARGS+=(--build-arg "UV_IMAGE=${DOCKER_UV_IMAGE}")
+          fi
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -f deploy/Dockerfile \
+            --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
+            --output "type=oci,dest=${RUNNER_TEMP}/qwenpaw-image.tar" \
+            "${BUILD_ARGS[@]}" .
+
+      - name: Upload multi-arch OCI image
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-docker-image
+          path: ${{ runner.temp }}/qwenpaw-image.tar
+          compression-level: 0
+          retention-days: 7
+
   # ── Gate: publish jobs below run only if every prepare job above is green ──
 
   publish-pypi:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
     runs-on: ubuntu-latest
     steps:
       - name: Download dist artifacts
@@ -273,20 +326,40 @@ jobs:
           echo "DRY-RUN: would publish $(ls dist) to PyPI"
 
   push-docker:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
     runs-on: ubuntu-latest
     env:
       ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
       IMAGE: agentscope/qwenpaw
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Download multi-arch OCI image
+        uses: actions/download-artifact@v4
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
-          submodules: recursive
+          name: qwenpaw-docker-image
+          path: ${{ runner.temp }}/qwenpaw-docker-image
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install Skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+
+      - name: Validate multi-arch OCI image
+        run: |
+          SOURCE="oci-archive:${RUNNER_TEMP}/qwenpaw-docker-image/qwenpaw-image.tar"
+          MANIFEST="$(skopeo inspect --raw "${SOURCE}")"
+          PLATFORMS="$(jq -r '
+            .manifests[]?.platform
+            | select(.os != null and .architecture != null)
+            | "\(.os)/\(.architecture)"
+          ' <<< "${MANIFEST}")"
+          echo "Platforms in OCI image:"
+          echo "${PLATFORMS}"
+          for REQUIRED_PLATFORM in linux/amd64 linux/arm64; do
+            if ! grep -Fxq "${REQUIRED_PLATFORM}" <<< "${PLATFORMS}"; then
+              echo "::error::OCI image is missing ${REQUIRED_PLATFORM}"
+              exit 1
+            fi
+          done
 
       - name: Log in to DockerHub
         if: ${{ !inputs.dry_run }}
@@ -304,30 +377,38 @@ jobs:
           username: ${{ secrets.ALIYUN_ACR_USERNAME }}
           password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
 
-      - name: Build and push multi-arch (version + pre [+ latest])
+      - name: Push multi-arch image (version + pre [+ latest])
         if: ${{ !inputs.dry_run }}
         env:
           VERSION: ${{ needs.resolve.outputs.tag }}
-          QWENPAW_DISABLED_CHANNELS: "imessage"
         run: |
           IS_PRERELEASE="${{ needs.resolve.outputs.is_prerelease }}"
-          TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
-          TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
+          DESTINATIONS=(
+            "${ACR_REGISTRY}/${IMAGE}:${VERSION}"
+            "${ACR_REGISTRY}/${IMAGE}:pre"
+            "docker.io/${IMAGE}:${VERSION}"
+            "docker.io/${IMAGE}:pre"
+          )
           if [ "${IS_PRERELEASE}" != "true" ]; then
-            TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
+            DESTINATIONS+=(
+              "${ACR_REGISTRY}/${IMAGE}:latest"
+              "docker.io/${IMAGE}:latest"
+            )
           fi
-          docker buildx build --platform linux/amd64,linux/arm64 \
-            -f deploy/Dockerfile \
-            --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
-            ${TAGS} --push .
+          SOURCE="oci-archive:${RUNNER_TEMP}/qwenpaw-docker-image/qwenpaw-image.tar"
+          AUTH_FILE="${HOME}/.docker/config.json"
+          for DESTINATION in "${DESTINATIONS[@]}"; do
+            skopeo copy --all --authfile "${AUTH_FILE}" \
+              "${SOURCE}" "docker://${DESTINATION}"
+          done
 
       - name: Dry-run notice
         if: ${{ inputs.dry_run }}
         run: |
-          echo "DRY-RUN: would build+push docker image for ${{ needs.resolve.outputs.tag }}"
+          echo "DRY-RUN: would push the prebuilt Docker image for ${{ needs.resolve.outputs.tag }}"
 
   publish-desktop:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
     uses: ./.github/workflows/desktop-publish.yml
     with:
       tag: ${{ needs.resolve.outputs.tag }}
@@ -336,7 +417,7 @@ jobs:
     secrets: inherit
 
   publish-plugins:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
     runs-on: ubuntu-latest
     env:
       OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}

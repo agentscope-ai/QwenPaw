@@ -61,13 +61,21 @@ jobs:
           done
 
       - name: Pack plugins and build index
+        # datapaw is excluded until its vendored context console
+        # (ui/public/context-console, produced by
+        # plugins/apps/datapaw/scripts/sync-context-ui.sh from a
+        # QwenPaw-Data checkout) can be staged in CI. Its plugin.json
+        # declares pack_requires, so removing the exclude without staging
+        # the assets fails this step loudly instead of shipping a broken
+        # artifact.
         run: |
           python scripts/pack/generate_plugin_metadata.py \
             --plugins-root plugins \
             --dist dist/plugins \
             --metadata-out dist/plugins/index.json \
             --cdn-prefix /files/plugins \
-            --exclude qwenpaw-creator
+            --exclude qwenpaw-creator \
+            --exclude datapaw
 
       - name: Install ossutil
         run: |

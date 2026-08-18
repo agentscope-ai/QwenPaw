@@ -1470,9 +1470,21 @@
     "oauthWaitingDescription": "ブラウザウィンドウで認証を完了してください。",
     "oauthConnected": "{{provider}} に正常に接続しました",
     "oauthFailed": "認証に失敗しました。もう一度お試しください",
+    "oauthTimeout": "認証がタイムアウトしました。もう一度お試しください",
     "viewMore": "もっと見る ({{count}})"
   },
   "models": {
+    "discoveryOriginApi": "API 検出",
+    "discoveryOriginCatalog": "公式カタログ",
+    "discoveryOriginBoth": "API + カタログ",
+    "availabilityAvailable": "利用可能",
+    "availabilityPermissionDenied": "権限なし",
+    "availabilityNotFound": "見つかりません",
+    "availabilityIncompatible": "チャット非対応",
+    "availabilityRateLimited": "レート制限中",
+    "availabilityTransientError": "一時的に利用不可",
+    "availabilityUnverified": "未検証",
+    "modelAlreadyConfigured": "設定済み",
     "llmConfiguration": "LLM設定",
     "providersTitle": "プロバイダー",
     "providersDescription": "各プロバイダーのAPIキーとエンドポイントを設定します。",
@@ -1802,6 +1814,11 @@
     "uploadConflictTitle": "同名ファイルがあります",
     "uploadConflictDescription": "次のファイルは既に存在します：{{files}}。処理方法を選択してください。",
     "promptToggle": "{{name}} をシステムプロンプトに含めるか切り替えます",
+    "addSystemPrompt": "ワークスペースから追加",
+    "addSystemPromptTitle": "システムプロンプトファイルを追加",
+    "addSystemPromptDescription": "システムプロンプトに含めるワークスペースの Markdown ファイルを選択します。",
+    "searchSystemPromptFiles": "ワークスペースの Markdown ファイルを検索",
+    "noSystemPromptCandidates": "一致するファイルはありません。",
     "sourceControl": "ソース管理",
     "preview": "プレビュー",
     "edit": "編集",
@@ -2416,9 +2433,14 @@
       "gotIt": "わかりました"
     },
     "simpleMode": "シンプルモード",
-    "fullMode": "フルモード"
+    "fullMode": "フルモード",
+    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
   "chat": {
+    "groups": {
+      "cronShort": "定期タスク",
+      "subagentShort": "サブエージェント"
+    },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
     },
@@ -2439,7 +2461,7 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
+    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
     "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {

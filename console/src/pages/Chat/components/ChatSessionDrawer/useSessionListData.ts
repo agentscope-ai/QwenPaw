@@ -37,7 +37,9 @@ function sessionsEqual(
       a.pinned !== b.pinned ||
       a.generating !== b.generating ||
       a.status !== b.status ||
-      a.archived !== b.archived
+      a.archived !== b.archived ||
+      a.groupId !== b.groupId ||
+      a.source !== b.source
     ) {
       return false;
     }
@@ -59,6 +61,10 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   pinned?: boolean;
   archivedAt?: string | null;
   archived?: boolean;
+  source?: "chat" | "cron" | "subagent";
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
@@ -104,8 +110,8 @@ export interface SessionListData {
   handleSessionClick: (sessionId: string) => void;
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
-  handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string, pinned: boolean) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -227,8 +233,6 @@ export function useSessionListData(
     return [...resolvedSessions]
       .filter((s) => !s.archived)
       .sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
         const aTime = a.updatedAt ?? a.createdAt ?? "";
         const bTime = b.updatedAt ?? b.createdAt ?? "";
         if (!aTime && !bTime) return 0;
@@ -343,24 +347,6 @@ export function useSessionListData(
     setEditValue("");
   }, []);
 
-  const handlePinToggle = useCallback(
-    async (sessionId: string) => {
-      const owner = sessionApi.getActiveOwner();
-      const session = sessions.find((s) => s.id === sessionId);
-      const backendId = session ? getBackendId(session) : null;
-      if (backendId && session) {
-        try {
-          await chatApi.updateChat(backendId, { pinned: !session.pinned });
-          if (!sessionApi.isActiveOwner(owner)) return;
-          await refreshSessions();
-        } catch (err) {
-          console.error("Failed to toggle pin status:", err);
-        }
-      }
-    },
-    [sessions, refreshSessions],
-  );
-
   const handleArchiveToggle = useCallback(
     async (sessionId: string) => {
       const owner = sessionApi.getActiveOwner();
@@ -399,6 +385,26 @@ export function useSessionListData(
     [sessions, currentSessionId, refreshSessions, message, t],
   );
 
+  const handlePinToggle = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      const owner = sessionApi.getActiveOwner();
+      const session = sessions.find((item) => item.id === sessionId);
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      try {
+        await chatApi.updateChat(backendId, { pinned });
+        if (!sessionApi.isActiveOwner(owner)) return;
+        await refreshSessions();
+      } catch (error) {
+        console.error("Failed to update conversation pin:", error);
+        message.error(
+          t("chat.contextMenu.pinFailed", "Could not update pinned state"),
+        );
+      }
+    },
+    [message, refreshSessions, sessions, t],
+  );
+
   const handleItemContextMenu = useCallback(
     (sessionId: string, event: React.MouseEvent) => {
       setContextMenuSessionId(sessionId);
@@ -427,7 +433,7 @@ export function useSessionListData(
         label: session?.pinned
           ? t("chat.contextMenu.unpin", "Unpin")
           : t("chat.contextMenu.pin", "Pin"),
-        onClick: () => handlePinToggle(contextMenuSessionId),
+        onClick: () => handlePinToggle(contextMenuSessionId, !session?.pinned),
       },
       {
         key: "archive",
@@ -450,8 +456,8 @@ export function useSessionListData(
     t,
     handleSessionClick,
     handleEditStart,
-    handlePinToggle,
     handleArchiveToggle,
+    handlePinToggle,
     handleDelete,
   ]);
 
@@ -465,8 +471,8 @@ export function useSessionListData(
     handleSessionClick,
     handleEditStart,
     handleDelete,
-    handlePinToggle,
     handleArchiveToggle,
+    handlePinToggle,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,

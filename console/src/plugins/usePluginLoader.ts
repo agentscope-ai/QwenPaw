@@ -1,54 +1,50 @@
-/**
- * usePluginLoader.ts — plugin loading utility
- *
- * Fetches the plugin list, downloads each frontend bundle, and executes it
- * via a same-origin Blob URL so plugins can self-register into the
- * `pluginSystem` singleton (hostExternals.ts).
- *
- * Exports `loadAllPlugins()` — the single function PluginContext calls.
- */
+/** Frontend plugin loading utilities. */
 
-import { getApiUrl, getApiToken } from "../api/config";
+import { getApiToken, getApiUrl } from "../api/config";
+import { removePluginRuntime } from "./pluginRuntimeCleanup";
+import { routeRegistry } from "./registry/store";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Plugin manifest type (mirrors backend PluginInfo)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface PluginInfo {
+interface FrontendPluginInfo {
   id: string;
   name: string;
+  plugin_type?: string;
   frontend_entry?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────────────────────
+export interface PluginLoadSummary {
+  loaded: number;
+  failed: string[];
+}
 
-/**
- * Resolve a backend-relative API path (e.g. `/plugins/…/files/index.js`)
- * to a full URL using the same base that all other API calls use.
- */
+const loadingApps = new Map<string, Promise<void>>();
+
+function authHeaders(): Record<string, string> {
+  const token = getApiToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function resolveUrl(pluginId: string, apiPath: string): string {
   return getApiUrl(`frontend_plugin/${pluginId}/files/${apiPath}`);
 }
 
-/**
- * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
- * execute it via dynamic import.  Blob URL is revoked immediately after.
- */
-async function executePluginScript(entryUrl: string): Promise<void> {
-  const token = getApiToken();
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+async function fetchFrontendPlugins(): Promise<FrontendPluginInfo[]> {
+  const response = await fetch(getApiUrl("/frontend_plugin"), {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to list frontend plugins (${response.status})`);
+  }
+  return response.json();
+}
 
-  const response = await fetch(entryUrl, { headers });
+async function executePluginScript(entryUrl: string): Promise<void> {
+  const response = await fetch(entryUrl, { headers: authHeaders() });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }
 
-  const jsText = await response.text();
   const blobUrl = URL.createObjectURL(
-    new Blob([jsText], { type: "application/javascript" }),
+    new Blob([await response.text()], { type: "application/javascript" }),
   );
   try {
     await import(/* @vite-ignore */ blobUrl);
@@ -57,60 +53,71 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Fetch the plugin list from `GET /api/plugins`, then load every plugin that
- * has a `frontend_entry` in parallel.  Failures are isolated per plugin so
- * one bad plugin never blocks the others.
- *
- * Returns a summary `{ loaded, failed }` for the caller to surface as an error.
- */
-export async function loadAllPlugins(): Promise<{
-  loaded: number;
-  failed: string[];
-}> {
-  const failed: string[] = [];
-
-  let plugins: PluginInfo[];
+/** Load every installed frontend plugin during Console startup. */
+export async function loadAllPlugins(): Promise<PluginLoadSummary> {
+  let plugins: FrontendPluginInfo[];
   try {
-    const token = getApiToken();
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(getApiUrl("/frontend_plugin"), { headers });
-    if (!res.ok) {
-      console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
-      return { loaded: 0, failed: [] };
-    }
-    plugins = await res.json();
-  } catch (err) {
-    console.warn("[PluginLoader] failed to fetch plugin list:", err);
+    plugins = await fetchFrontendPlugins();
+  } catch (error) {
+    console.warn("[PluginLoader] failed to fetch plugin list:", error);
     return { loaded: 0, failed: [] };
   }
 
-  const frontendPlugins = plugins.filter((p) => p.frontend_entry);
-
+  const loadable = plugins.filter((plugin) => plugin.frontend_entry);
   const results = await Promise.allSettled(
-    frontendPlugins.map(async (p) => {
-      await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
-      console.info(`[PluginLoader] ✓ ${p.id}`);
-    }),
+    loadable.map((plugin) =>
+      executePluginScript(resolveUrl(plugin.id, plugin.frontend_entry!)),
+    ),
   );
+  const failed = results.flatMap((result, index) =>
+    result.status === "rejected"
+      ? [`${loadable[index].id}: ${result.reason}`]
+      : [],
+  );
+  return { loaded: loadable.length - failed.length, failed };
+}
 
-  results.forEach((r, i) => {
-    if (r.status === "rejected") {
-      const msg = `${frontendPlugins[i].id}: ${r.reason}`;
-      console.error(`[PluginLoader] ✗ ${msg}`);
-      failed.push(msg);
+/** Load one newly installed PawApp without reloading the page. */
+export function loadPawApp(appId: string, entryPage?: string): Promise<void> {
+  const registered = () =>
+    routeRegistry
+      .snapshot()
+      .some(
+        (route) =>
+          route.source === appId &&
+          route.path.startsWith("/apps/") &&
+          (!entryPage || route.path === entryPage),
+      );
+  if (registered()) return Promise.resolve();
+
+  const pending = loadingApps.get(appId);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    const plugins = await fetchFrontendPlugins();
+    const plugin = plugins.find((item) => item.id === appId);
+    if (!plugin?.frontend_entry || plugin.plugin_type !== "app") {
+      throw new Error(`PawApp frontend plugin not found: ${appId}`);
     }
+
+    try {
+      await executePluginScript(resolveUrl(plugin.id, plugin.frontend_entry));
+      if (!registered()) {
+        throw new Error(`PawApp ${appId} did not register its app route`);
+      }
+    } catch (error) {
+      removePluginRuntime(appId);
+      throw error;
+    }
+  })().finally(() => {
+    loadingApps.delete(appId);
   });
 
-  console.info(
-    `[PluginLoader] ${frontendPlugins.length - failed.length}/${
-      frontendPlugins.length
-    } plugin(s) loaded`,
-  );
-  return { loaded: frontendPlugins.length - failed.length, failed };
+  loadingApps.set(appId, promise);
+  return promise;
+}
+
+/** Reset pending loads between unit tests. */
+export function resetPawAppLoaderForTests(): void {
+  loadingApps.clear();
 }

@@ -1,0 +1,711 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026.07.29",
+  "published_at": "2026-07-29T00:00:00Z",
+  "capabilities": [
+    {
+      "provider_id": "modelscope",
+      "model_id": "Qwen/Qwen3.5-122B-A10B",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://modelscope.cn/docs/model-service/API-Inference/intro",
+      "note": "Qwen3.5 is natively multimodal (image+video)"
+    },
+    {
+      "provider_id": "modelscope",
+      "model_id": "ZhipuAI/GLM-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://modelscope.cn/docs/model-service/API-Inference/intro",
+      "note": "GLM-5 is text/code model, no vision input"
+    },
+    {
+      "provider_id": "dashscope",
+      "model_id": "qwen3-max",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
+      "note": "Qwen3 series is text-only"
+    },
+    {
+      "provider_id": "dashscope",
+      "model_id": "qwen3-235b-a22b-thinking-2507",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
+      "note": "Qwen3 series is text-only"
+    },
+    {
+      "provider_id": "dashscope",
+      "model_id": "deepseek-v3.2",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
+      "note": "DeepSeek V3 series is text-only"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "qwen3.6-plus",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "Qwen3.6-Plus is natively multimodal (image+video)"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "qwen3.5-plus",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "Qwen3.5-Plus is natively multimodal (image+video)"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "glm-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "GLM-5 is text/code model, no vision input"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "glm-4.7",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "GLM-4.7 is text/code model, no vision input"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "MiniMax-M2.5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "kimi-k2.5",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "Kimi K2.5 supports image and video input"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "qwen3-max-2026-01-23",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "Qwen3 series is text-only"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "qwen3-coder-next",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "Qwen3 Coder series is code-only text model"
+    },
+    {
+      "provider_id": "aliyun-codingplan",
+      "model_id": "qwen3-coder-plus",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope",
+      "note": "Qwen3 Coder series is code-only text model"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "qwen3.6-plus",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-quickstart",
+      "note": "Qwen3.6-Plus is natively multimodal (image+video)"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "glm-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-quickstart",
+      "note": "GLM-5 is text/code model, no vision input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "MiniMax-M2.5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-quickstart",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "kimi-k2.5",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-quickstart",
+      "note": "Kimi K2.5 supports image and video input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "deepseek-v3.2",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-quickstart",
+      "note": "DeepSeek V3 series is text-only"
+    },
+    {
+      "provider_id": "zhipu-cn",
+      "model_id": "glm-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-cn",
+      "model_id": "glm-5.1",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-cn",
+      "model_id": "glm-5-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-cn",
+      "model_id": "glm-5v-turbo",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/",
+      "note": "GLM vision model supports image input"
+    },
+    {
+      "provider_id": "zhipu-cn-codingplan",
+      "model_id": "glm-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/cn/coding-plan",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-cn-codingplan",
+      "model_id": "glm-5.1",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/cn/coding-plan",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-cn-codingplan",
+      "model_id": "glm-5-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/cn/coding-plan",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-cn-codingplan",
+      "model_id": "glm-5v-turbo",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://docs.bigmodel.cn/cn/coding-plan",
+      "note": "GLM vision model supports image input"
+    },
+    {
+      "provider_id": "zhipu-intl",
+      "model_id": "glm-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-intl",
+      "model_id": "glm-5.1",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-intl",
+      "model_id": "glm-5-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-intl",
+      "model_id": "glm-5v-turbo",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/",
+      "note": "GLM vision model supports image input"
+    },
+    {
+      "provider_id": "zhipu-intl-codingplan",
+      "model_id": "glm-5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/coding-plan",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-intl-codingplan",
+      "model_id": "glm-5.1",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/coding-plan",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-intl-codingplan",
+      "model_id": "glm-5-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/coding-plan",
+      "note": "GLM text/code models are text-only"
+    },
+    {
+      "provider_id": "zhipu-intl-codingplan",
+      "model_id": "glm-5v-turbo",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://docs.z.ai/coding-plan",
+      "note": "GLM vision model supports image input"
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5.2",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-5-nano",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4.1",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4.1-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4.1-nano",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "o4-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4o",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "gpt-4o-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "openai",
+      "model_id": "o3",
+      "expected_image": true,
+      "expected_video": false,
+      "doc_url": "https://platform.openai.com/docs/models",
+      "note": "o3 supports image but not video"
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-5-chat",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-5-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-5-nano",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-4.1",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-4.1-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-4.1-nano",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-4o",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "azure-openai",
+      "model_id": "gpt-4o-mini",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models",
+      "note": ""
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2.5",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "Kimi K2.5 supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2-0905-preview",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2-0711-preview",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2-turbo-preview",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2-thinking",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2-thinking-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2.5",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.moonshot.ai/docs/intro",
+      "note": "Kimi K2.5 supports image and video input"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2-0905-preview",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.ai/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2-0711-preview",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.ai/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2-turbo-preview",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.ai/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2-thinking",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.ai/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2-thinking-turbo",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.ai/docs/intro",
+      "note": "K2 series (non-K2.5) is text-only"
+    },
+    {
+      "provider_id": "kimi-codingplan",
+      "model_id": "kimi-for-coding",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.moonshot.cn/docs/intro",
+      "note": "Kimi for Coding is text-only"
+    },
+    {
+      "provider_id": "deepseek",
+      "model_id": "deepseek-chat",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://api-docs.deepseek.com/",
+      "note": "DeepSeek-V3 is text-only"
+    },
+    {
+      "provider_id": "deepseek",
+      "model_id": "deepseek-reasoner",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://api-docs.deepseek.com/",
+      "note": "DeepSeek-R1 reasoning model: no multimodal"
+    },
+    {
+      "provider_id": "deepseek",
+      "model_id": "deepseek-v4-flash",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://api-docs.deepseek.com/",
+      "note": "DeepSeek-V4 Flash: text-only"
+    },
+    {
+      "provider_id": "deepseek",
+      "model_id": "deepseek-v4-pro",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://api-docs.deepseek.com/",
+      "note": "DeepSeek-V4 Pro reasoning model: no multimodal"
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-3.1-pro-preview",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-3-flash-preview",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-3.1-flash-lite-preview",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-2.5-pro",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-2.5-flash",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-2.5-flash-lite",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model_id": "gemini-2.0-flash",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://ai.google.dev/gemini-api/docs/models",
+      "note": ""
+    },
+    {
+      "provider_id": "minimax",
+      "model_id": "MiniMax-M2.5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.minimax.io/platform/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax",
+      "model_id": "MiniMax-M2.5-highspeed",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.minimax.io/platform/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax",
+      "model_id": "MiniMax-M2.7",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.minimax.io/platform/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax",
+      "model_id": "MiniMax-M2.7-highspeed",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.minimax.io/platform/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax-cn",
+      "model_id": "MiniMax-M2.5",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.minimaxi.com/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax-cn",
+      "model_id": "MiniMax-M2.5-highspeed",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.minimaxi.com/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax-cn",
+      "model_id": "MiniMax-M2.7",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.minimaxi.com/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "minimax-cn",
+      "model_id": "MiniMax-M2.7-highspeed",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://platform.minimaxi.com/document/announcement",
+      "note": "MiniMax models are text-only"
+    },
+    {
+      "provider_id": "opencode",
+      "model_id": "big-pickle",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://opencode.ai/docs/zen",
+      "note": "OpenCode Zen aggregates heterogeneous providers; capability varies by model, probe to determine."
+    },
+    {
+      "provider_id": "opencode",
+      "model_id": "nemotron-3-super-free",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://opencode.ai/docs/zen",
+      "note": "OpenCode Zen aggregates heterogeneous providers; capability varies by model, probe to determine."
+    }
+  ]
+}

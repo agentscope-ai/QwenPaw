@@ -1,4 +1,15 @@
 export type ChatStatus = "idle" | "running";
+export type ChatSource = "chat" | "cron" | "subagent";
+export type ChatGroupKind = "default" | "cron" | "subagents" | "custom";
+
+export interface ChatGroup {
+  id: string;
+  name: string;
+  order: number;
+  kind: ChatGroupKind;
+  source?: ChatSource | null;
+  pinned: boolean;
+}
 
 export interface ChatSpec {
   id: string; // Chat UUID identifier
@@ -13,6 +24,10 @@ export interface ChatSpec {
   pinned?: boolean; // Whether the chat is pinned to the top
   archived_at?: string | null; // When the chat was archived (ISO 8601), null = active
   archived?: boolean; // Computed: whether the chat is archived
+  source?: ChatSource;
+  group_id?: string | null;
+  parent_session_id?: string | null;
+  root_session_id?: string | null;
 }
 
 export interface Message {
@@ -29,6 +44,7 @@ export interface ChatHistory {
 export interface ChatUpdateRequest {
   name?: string;
   pinned?: boolean;
+  group_id?: string;
 }
 
 export interface ChatDeleteResponse {

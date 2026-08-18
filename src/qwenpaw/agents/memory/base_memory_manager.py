@@ -138,6 +138,7 @@ class BaseMemoryManager(ABC):
         query: str,
         max_results: int,
         text: str,
+        estimate_divisor: float | None = None,
     ) -> Msg:
         """Build the simulated assistant tool interaction for memory search."""
         tool_call_id = uuid.uuid4().hex
@@ -165,7 +166,8 @@ class BaseMemoryManager(ABC):
             output=[TextBlock(text=text)],
             state=ToolResultState.SUCCESS,
         )
-        estimate_divisor = self._get_token_estimate_divisor()
+        if estimate_divisor is None:
+            estimate_divisor = self._get_token_estimate_divisor()
         estimated_input_tokens = sum(
             self._estimate_message_text_tokens(part, estimate_divisor)
             for part in (
@@ -210,17 +212,25 @@ class BaseMemoryManager(ABC):
             from ...config.config import load_agent_config
 
             agent_config = load_agent_config(self.agent_id)
-            lcc = agent_config.running.light_context_config
-            divisor = lcc.token_count_estimate_divisor
-            divisor = float(divisor)
-            if divisor > 0:
-                return divisor
+            return self._resolve_token_estimate_divisor(agent_config)
         except Exception:
             logger.debug(
                 "Failed to load token_count_estimate_divisor for %s",
                 self.agent_id,
                 exc_info=True,
             )
+        return 4
+
+    @staticmethod
+    def _resolve_token_estimate_divisor(agent_config: Any) -> float:
+        """Resolve a positive token estimate divisor from agent config."""
+        try:
+            light_context_config = agent_config.running.light_context_config
+            divisor = float(light_context_config.token_count_estimate_divisor)
+            if divisor > 0:
+                return divisor
+        except (AttributeError, TypeError, ValueError):
+            pass
         return 4
 
     @staticmethod

@@ -141,6 +141,13 @@ Starting from **v0.1.0**, configuration is split into two layers:
 1. **Global config** - `~/.qwenpaw/config.json` (providers, environment variables, agent list)
 2. **Agent config** - `~/.qwenpaw/workspaces/{agent_id}/agent.json` (per-agent settings)
 
+QwenPaw serializes agent configuration writes within its single server
+process and rejects saves based on an older on-disk snapshot. Atomic file
+replacement prevents partial JSON. External editors do not participate in
+this lock, so changes made during the final validation-and-replace interval
+are outside the strict consistency guarantee; reload before retrying a 409
+conflict.
+
 ### Global config.json
 
 Stores globally shared configuration:
@@ -174,15 +181,14 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                       |
-| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
+| Field                 | Type           | Default             | Description                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -278,8 +284,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -593,9 +598,11 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 
 ---
 
-#### `last_dispatch` — Last message dispatch target
+#### `state/last_dispatch.json` — Last message dispatch state
 
 Records the last user message source, used for sending messages when heartbeat `target = "last"`.
+This runtime state lives in the agent workspace and is not part of
+`agent.json` configuration.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |
@@ -603,7 +610,7 @@ Records the last user message source, used for sending messages when heartbeat `
 | `user_id`    | string | `""`    | User ID in that channel                       |
 | `session_id` | string | `""`    | Session/conversation ID                       |
 
-Auto-updated; no manual configuration needed.
+It is updated atomically by the system; no manual configuration is needed.
 
 ---
 
