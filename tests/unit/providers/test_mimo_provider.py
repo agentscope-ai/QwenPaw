@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
-"""Tests for the Xiaomi MiMo Token Plan built-in provider."""
+"""Tests for the Xiaomi MiMo built-in providers (Standard API + Token Plan)."""
 from __future__ import annotations
 
 import pytest
@@ -8,18 +8,21 @@ import pytest
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
-    PROVIDER_MIMO_TOKENPLAN,
+    MIMO_MODELS,
     MIMO_TOKENPLAN_MODELS,
+    PROVIDER_MIMO,
+    PROVIDER_MIMO_TOKENPLAN,
     ProviderManager,
 )
 
 
-def test_mimo_provider_is_openai_compatible() -> None:
-    """MiMo Token Plan provider should be an OpenAIProvider instance."""
+def test_mimo_providers_are_openai_compatible() -> None:
+    """MiMo providers should be OpenAIProvider instances."""
     assert isinstance(PROVIDER_MIMO_TOKENPLAN, OpenAIProvider)
+    assert isinstance(PROVIDER_MIMO, OpenAIProvider)
 
 
-def test_mimo_provider_config() -> None:
+def test_mimo_tokenplan_provider_config() -> None:
     """Verify MiMo Token Plan provider configuration defaults."""
     assert PROVIDER_MIMO_TOKENPLAN.id == "mimo-tokenplan"
     assert PROVIDER_MIMO_TOKENPLAN.name == "Xiaomi MiMo Token Plan"
@@ -31,16 +34,41 @@ def test_mimo_provider_config() -> None:
     assert PROVIDER_MIMO_TOKENPLAN.api_key_prefix == ""
 
 
+def test_mimo_standard_provider_config() -> None:
+    """Verify MiMo Standard API provider configuration defaults."""
+    assert PROVIDER_MIMO.id == "mimo"
+    assert PROVIDER_MIMO.name == "Xiaomi MiMo"
+    assert PROVIDER_MIMO.base_url == "https://api.xiaomimimo.com/v1"
+    assert PROVIDER_MIMO.freeze_url is True
+    assert PROVIDER_MIMO.api_key_prefix == "sk-"
+    assert PROVIDER_MIMO.support_model_discovery is True
+
+
 def test_mimo_models_list() -> None:
-    """Verify MiMo Token Plan model definitions."""
-    model_ids = [m.id for m in MIMO_TOKENPLAN_MODELS]
-    assert "mimo-v2.5-pro" in model_ids
-    assert "mimo-v2.5" in model_ids
+    """Verify MiMo model definitions."""
+    tokenplan_ids = [m.id for m in MIMO_TOKENPLAN_MODELS]
+    assert "mimo-v2.5-pro" in tokenplan_ids
+    assert "mimo-v2.5" in tokenplan_ids
     assert len(MIMO_TOKENPLAN_MODELS) == 2
+
+    standard_ids = [m.id for m in MIMO_MODELS]
+    assert "mimo-v2.5-pro" in standard_ids
+    assert "mimo-v2.5" in standard_ids
+    assert len(MIMO_MODELS) == 2
+
+
+def test_mimo_models_limits() -> None:
+    """MiMo V2.5 chat models: context 1M / max output 128K per official docs."""
+    for model in MIMO_TOKENPLAN_MODELS:
+        assert model.max_input_length == 1024 * 1024
+        assert model.max_tokens == 128 * 1024
+    for model in MIMO_MODELS:
+        assert model.max_input_length == 1024 * 1024
+        assert model.max_tokens == 128 * 1024
 
 
 def test_mimo_models_attributes() -> None:
-    """Verify MiMo Token Plan model attributes."""
+    """Verify MiMo model attributes (multimodal flags per official docs)."""
     for model in MIMO_TOKENPLAN_MODELS:
         if model.id == "mimo-v2.5":
             assert model.supports_image is True
@@ -49,6 +77,13 @@ def test_mimo_models_attributes() -> None:
             assert model.supports_image is False
             assert model.supports_video is False
         assert model.probe_source == "documentation"
+    for model in MIMO_MODELS:
+        if model.id == "mimo-v2.5":
+            assert model.supports_image is True
+            assert model.supports_video is True
+        else:
+            assert model.supports_image is False
+            assert model.supports_video is False
 
 
 @pytest.fixture
@@ -61,7 +96,7 @@ def isolated_secret_dir(monkeypatch, tmp_path):
 def test_mimo_registered_in_provider_manager(
     isolated_secret_dir,
 ) -> None:
-    """MiMo Token Plan provider should be registered as a built-in provider."""
+    """MiMo providers should be registered as built-in providers."""
     manager = ProviderManager()
 
     provider = manager.get_provider("mimo-tokenplan")
@@ -70,20 +105,32 @@ def test_mimo_registered_in_provider_manager(
     assert provider.base_url == "https://token-plan-cn.xiaomimimo.com/v1"
     assert provider.name == "Xiaomi MiMo Token Plan"
 
+    provider_standard = manager.get_provider("mimo")
+    assert provider_standard is not None
+    assert isinstance(provider_standard, OpenAIProvider)
+    assert provider_standard.base_url == "https://api.xiaomimimo.com/v1"
+    assert provider_standard.name == "Xiaomi MiMo"
+
 
 def test_mimo_has_expected_models(isolated_secret_dir) -> None:
-    """MiMo Token Plan provider should include built-in models."""
+    """MiMo providers should include built-in models."""
     manager = ProviderManager()
     provider = manager.get_provider("mimo-tokenplan")
+    provider_standard = manager.get_provider("mimo")
 
     assert provider is not None
+    assert provider_standard is not None
     assert provider.has_model("mimo-v2.5-pro")
     assert provider.has_model("mimo-v2.5")
+    assert provider_standard.has_model("mimo-v2.5-pro")
+    assert provider_standard.has_model("mimo-v2.5")
 
 
 def test_mimo_provider_list_includes_mimo(isolated_secret_dir) -> None:
-    """ProviderManager should list MiMo Token Plan in available providers."""
+    """ProviderManager should list MiMo providers in available providers."""
     manager = ProviderManager()
-    # Verify the provider exists in builtin_providers
+    # Verify the providers exist in builtin_providers
     assert "mimo-tokenplan" in manager.builtin_providers
+    assert "mimo" in manager.builtin_providers
     assert manager.get_provider("mimo-tokenplan") is not None
+    assert manager.get_provider("mimo") is not None

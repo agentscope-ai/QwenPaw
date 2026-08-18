@@ -3675,11 +3675,21 @@ def test_provider_group_metadata(isolated_secret_dir) -> None:
         assert p is not None, f"{pid} not found"
         assert p.provider_group == "kimi"
 
-    volcengine_ids = ["volcengine-cn", "volcengine-cn-codingplan"]
+    volcengine_ids = [
+        "volcengine-cn",
+        "volcengine-cn-codingplan",
+        "volcengine-cn-agentplan",
+    ]
     for pid in volcengine_ids:
         p = manager.get_provider(pid)
         assert p is not None, f"{pid} not found"
         assert p.provider_group == "volcengine"
+
+    mimo_ids = ["mimo-tokenplan", "mimo"]
+    for pid in mimo_ids:
+        p = manager.get_provider(pid)
+        assert p is not None, f"{pid} not found"
+        assert p.provider_group == "mimo"
 
 
 async def test_provider_group_in_get_info(isolated_secret_dir) -> None:
