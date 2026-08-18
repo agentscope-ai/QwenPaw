@@ -10,7 +10,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_git_status(app_server):
     """Test GET /api/git returns git status."""

@@ -10,7 +10,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_backup_list(app_server):
     """Test GET /api/backup returns backup list."""

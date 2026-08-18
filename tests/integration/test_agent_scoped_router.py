@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_agent_scoped_get(app_server):
     """Test GET /api/agent-scoped returns agent-scoped settings."""

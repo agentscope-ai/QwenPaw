@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_mcp_oauth_status(app_server):
     """Test GET /api/mcp-oauth returns OAuth status."""

@@ -10,7 +10,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_healthz(app_server):
     """Test GET /api/healthz returns health status."""

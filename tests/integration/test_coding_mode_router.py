@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_coding_mode_get_default(app_server):
     """Test GET /api/coding-mode returns default state."""

@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_access_control_get(app_server):
     """Test GET /api/access-control returns access control settings."""

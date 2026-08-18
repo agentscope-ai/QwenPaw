@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_settings_get(app_server):
     """Test GET /api/settings returns settings."""

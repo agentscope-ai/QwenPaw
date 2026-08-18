@@ -10,7 +10,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_providers_list(app_server):
     """Test GET /api/providers returns provider list."""

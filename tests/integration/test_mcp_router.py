@@ -10,7 +10,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_mcp_status(app_server):
     """Test GET /api/mcp returns MCP status."""

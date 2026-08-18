@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_agent_status_list(app_server):
     """Test GET /api/agent-status returns agent status list."""

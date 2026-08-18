@@ -11,7 +11,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_auth_status(app_server):
     """Test GET /api/auth/status returns auth status."""

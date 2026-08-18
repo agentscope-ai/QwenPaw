@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_project_directory_get(app_server):
     """Test GET /api/workspace/project-directory returns directory info."""

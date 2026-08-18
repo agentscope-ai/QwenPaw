@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_skills_stream_status(app_server):
     """Test GET /api/skills-stream returns stream status."""

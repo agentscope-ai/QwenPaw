@@ -9,7 +9,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_skills_list(app_server):
     """Test GET /api/skills returns skill list."""

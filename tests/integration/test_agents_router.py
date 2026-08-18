@@ -11,7 +11,6 @@ Tests cover:
 import pytest
 
 
-
 @pytest.mark.integration
 async def test_agents_list(app_server):
     """Test GET /api/agents returns agent list."""
