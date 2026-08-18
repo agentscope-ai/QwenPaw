@@ -1185,7 +1185,11 @@ def _create_file_block_support_formatter(
                 )
                 _restore_video_blocks(normalized_msgs, video_subs)
 
-            if _needs_video:
+            if _needs_video and getattr(
+                self,
+                "promote_tool_result_images",
+                False,
+            ):
                 messages = _promote_tool_result_videos(
                     normalized_msgs,
                     messages,
@@ -1627,9 +1631,18 @@ def _create_formatter_instance(
         GeminiChatFormatter,
         OpenAIResponseFormatter,
     )
-    if isinstance(base_formatter, _promote_types):
+    is_promote_type = isinstance(base_formatter, _promote_types)
+    if is_promote_type:
         kwargs["promote_tool_result_images"] = True
-    return formatter_class(**kwargs)
+    formatter = formatter_class(**kwargs)
+    if is_promote_type:
+        # ``promote_tool_result_images`` is not a Pydantic field of the
+        # agentscope formatter, so ``extra="ignore"`` silently drops it
+        # from constructor kwargs (AgentScope 2.0.6 no longer accepts it).
+        # Set it on the constructed instance directly so the promotion
+        # gate inside ``FileBlockSupportFormatter.format`` stays effective.
+        object.__setattr__(formatter, "promote_tool_result_images", True)
+    return formatter
 
 
 __all__ = [
