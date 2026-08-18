@@ -3,10 +3,11 @@
 
 Covers GET /api/agents/{agentId}/config/heartbeat.
 """
+
 from __future__ import annotations
 
 import pytest
-from helpers import default_http_timeout, create_agent, delete_agent
+from helpers import default_http_timeout, create_agent, delete_agent_quietly
 
 _HEARTBEAT_TIMEOUT = default_http_timeout(15.0)
 
@@ -42,7 +43,7 @@ def test_heartbeat_get(app_server) -> None:
         payload = resp.json()
         assert isinstance(payload, dict)
     finally:
-        delete_agent(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 @pytest.mark.integration
@@ -96,4 +97,4 @@ def test_heartbeat_put(app_server) -> None:
         )
         assert resp.status_code == 200, app_server.logs_tail()
     finally:
-        delete_agent(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)

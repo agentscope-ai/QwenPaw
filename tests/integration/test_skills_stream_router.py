@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/skills-stream: get skills stream status
 - POST /api/skills-stream: trigger skills stream
 """
+
 import pytest
 
 from .conftest import app_server

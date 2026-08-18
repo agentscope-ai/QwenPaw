@@ -4,6 +4,7 @@
 Covers GET /api/envs (list), PUT /api/envs (batch save), and
 DELETE /api/envs/{key} (delete single).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -98,7 +99,9 @@ def test_envs_batch_save_roundtrip(app_server) -> None:
         json=test_vars,
         timeout=_ENVS_TIMEOUT,
     )
-    assert put_resp.status_code == 200, put_resp.logs_tail() if hasattr(put_resp, 'logs_tail') else ""
+    assert put_resp.status_code == 200, (
+        put_resp.logs_tail() if hasattr(put_resp, "logs_tail") else ""
+    )
 
     get_resp = app_server.api_request(
         "GET",

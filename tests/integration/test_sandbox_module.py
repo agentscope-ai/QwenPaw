@@ -6,6 +6,7 @@ data classes, platform probing, and factory dispatch logic. No HTTP
 server needed — these are pure module-level integration tests that
 verify the sandbox subsystem's public API contract.
 """
+
 from __future__ import annotations
 
 import sys
@@ -132,7 +133,11 @@ def test_probe_sandbox_support_returns_capability() -> None:
     1. Call probe_sandbox_support().
     2. Verify result has supported (bool), mode (SandboxMode), reason (str).
     """
-    from qwenpaw.sandbox.config import SandboxCapability, SandboxMode, probe_sandbox_support
+    from qwenpaw.sandbox.config import (
+        SandboxCapability,
+        SandboxMode,
+        probe_sandbox_support,
+    )
 
     cap = probe_sandbox_support()
     assert isinstance(cap, SandboxCapability)
@@ -170,7 +175,8 @@ def test_create_sandbox_none_mode() -> None:
     2. Call create_sandbox.
     3. Verify returned instance has execute method.
     """
-    from qwenpaw.sandbox.config import SandboxConfig, SandboxMode, create_sandbox
+    from qwenpaw.sandbox.config import SandboxConfig
+    from qwenpaw.sandbox.config import SandboxMode, create_sandbox
 
     config = SandboxConfig(
         mode=SandboxMode.NONE,
@@ -193,7 +199,8 @@ def test_create_sandbox_platform_compatibility_guard() -> None:
     1. On Linux, create config with mode=SEATBELT.
     2. Call create_sandbox — should not raise, should fall back.
     """
-    from qwenpaw.sandbox.config import SandboxConfig, SandboxMode, create_sandbox
+    from qwenpaw.sandbox.config import SandboxConfig
+    from qwenpaw.sandbox.config import SandboxMode, create_sandbox
 
     if sys.platform != "linux":
         pytest.skip("Platform compatibility guard test for Linux")

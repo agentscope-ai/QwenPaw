@@ -5,10 +5,11 @@ Covers GET /api/harnesses (provider listing), GET /api/harnesses/{id}/models,
 GET /api/harnesses/{id}/mcp, GET /api/harnesses/{id}/skills, and error
 handling for unknown providers.
 """
+
 from __future__ import annotations
 
 import pytest
-from helpers import default_http_timeout, scoped
+from helpers import default_http_timeout
 
 _HARNESSES_TIMEOUT = default_http_timeout(15.0)
 

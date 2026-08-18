@@ -3,6 +3,7 @@
 
 Covers GET /api/tools (list), tool toggle, and async execution config.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -4,6 +4,7 @@
 Covers GET /api/token-usage (summary) and GET /api/token-usage/details
 with various query parameters (date ranges, model/provider filters).
 """
+
 from __future__ import annotations
 
 import pytest

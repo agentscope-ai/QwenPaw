@@ -7,6 +7,7 @@ Tests cover:
 - POST /api/auth/logout: logout
 - GET /api/auth/user: get current user
 """
+
 import pytest
 
 from .conftest import app_server
@@ -44,7 +45,8 @@ async def test_auth_login_missing_credentials():
 async def test_auth_login_invalid_format():
     """Test POST /api/auth/login with invalid format."""
     async with app_server() as server:
-        response = await server.post("/api/auth/login", json={"invalid": "data"})
+        payload = {"invalid": "data"}
+        response = await server.post("/api/auth/login", json=payload)
         # Should return 400 or 422
         assert response.status_code in [400, 422]
 

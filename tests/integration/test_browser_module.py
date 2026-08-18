@@ -4,6 +4,7 @@
 Tests the browser subsystem's public API: error codes, SDK contracts,
 and runtime configuration. These are module-level integration tests.
 """
+
 from __future__ import annotations
 
 import pytest

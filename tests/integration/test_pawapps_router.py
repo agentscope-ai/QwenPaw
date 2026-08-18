@@ -3,6 +3,7 @@
 
 Covers GET /api/pawapps and related endpoints.
 """
+
 from __future__ import annotations
 
 import pytest

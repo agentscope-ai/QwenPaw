@@ -3,6 +3,7 @@
 
 Covers various config endpoints: language, offload policy, upload limit.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/settings: get settings
 - PUT /api/settings: update settings
 """
+
 import pytest
 
 from .conftest import app_server
@@ -24,7 +25,8 @@ async def test_settings_get():
 async def test_settings_update_invalid():
     """Test PUT /api/settings with invalid data."""
     async with app_server() as server:
-        response = await server.put("/api/settings", json={"invalid_key": "value"})
+        payload = {"invalid_key": "value"}
+        response = await server.put("/api/settings", json=payload)
         # Should handle gracefully
         assert response.status_code in [200, 400]
 
@@ -48,7 +50,7 @@ async def test_settings_update_partial():
         # Get current settings
         get_response = await server.get("/api/settings")
         assert get_response.status_code == 200
-        
+
         # Try to update with empty dict
         response = await server.put("/api/settings", json={})
         assert response.status_code in [200, 400]

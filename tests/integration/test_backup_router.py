@@ -6,6 +6,7 @@ Tests cover:
 - POST /api/backup: create backup
 - DELETE /api/backup/{backup_id}: delete backup
 """
+
 import pytest
 
 from .conftest import app_server
@@ -61,4 +62,7 @@ async def test_backup_structure():
             backup = data[0]
             assert isinstance(backup, dict)
             # Should have id or timestamp field
-            assert "id" in backup or "timestamp" in backup or "created_at" in backup
+            has_id = "id" in backup
+            has_ts = "timestamp" in backup
+            has_ca = "created_at" in backup
+            assert has_id or has_ts or has_ca

@@ -3,6 +3,7 @@
 
 Covers GET /api/frontend_plugin/{app_id} and related endpoints.
 """
+
 from __future__ import annotations
 
 import pytest

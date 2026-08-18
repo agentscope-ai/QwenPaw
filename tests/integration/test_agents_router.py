@@ -7,6 +7,7 @@ Tests cover:
 - POST /api/agents: create agent
 - DELETE /api/agents/{agent_id}: delete agent
 """
+
 import pytest
 
 from .conftest import app_server

@@ -6,6 +6,7 @@ Tests cover:
 - GET /api/mcp/servers: list MCP servers
 - POST /api/mcp/servers: add MCP server
 """
+
 import pytest
 
 from .conftest import app_server

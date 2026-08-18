@@ -4,6 +4,7 @@
 Covers GET /api/loops (list modes), GET /api/loops/gates/catalog,
 and loop mode status.
 """
+
 from __future__ import annotations
 
 import pytest

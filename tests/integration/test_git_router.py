@@ -6,6 +6,7 @@ Tests cover:
 - GET /api/git/branches: list branches
 - POST /api/git/checkout: checkout branch
 """
+
 import pytest
 
 from .conftest import app_server
@@ -36,8 +37,7 @@ async def test_git_checkout_invalid():
     """Test POST /api/git/checkout with invalid branch."""
     async with app_server() as server:
         response = await server.post(
-            "/api/git/checkout",
-            json={"branch": "nonexistent-branch-12345"}
+            "/api/git/checkout", json={"branch": "nonexistent-branch-12345"}
         )
         # Should fail gracefully
         assert response.status_code in [400, 404]

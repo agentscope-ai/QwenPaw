@@ -4,10 +4,11 @@
 Covers GET /api/workspace/checkpoints/status, snapshot creation,
 restore preview, GC settings, and error handling.
 """
+
 from __future__ import annotations
 
 import pytest
-from helpers import default_http_timeout, scoped
+from helpers import default_http_timeout
 
 _CHECKPOINTS_TIMEOUT = default_http_timeout(15.0)
 

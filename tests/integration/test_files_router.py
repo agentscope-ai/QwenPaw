@@ -4,6 +4,7 @@
 Covers GET /api/files/preview/{filepath} with various path scenarios:
 valid files, sensitive files, outside workspace, non-existent files.
 """
+
 from __future__ import annotations
 
 import pytest

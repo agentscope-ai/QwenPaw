@@ -5,6 +5,7 @@ Tests the governance subsystem's public API: GovernanceAction enum,
 GovernanceDecision dataclass, and ResourceGovernor basic operations.
 These are module-level integration tests.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -91,11 +92,13 @@ def test_resource_governor_creation() -> None:
     2. Create instance.
     3. Verify it has expected methods.
     """
+    import tempfile
     from qwenpaw.governance import ResourceGovernor
 
-    governor = ResourceGovernor()
-    assert hasattr(governor, "assert_policy")
-    assert hasattr(governor, "audit")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        governor = ResourceGovernor(workspace_dir=tmpdir)
+        assert hasattr(governor, "assert_policy")
+        assert hasattr(governor, "audit")
 
 
 @pytest.mark.integration

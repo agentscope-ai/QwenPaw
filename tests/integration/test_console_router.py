@@ -4,6 +4,7 @@
 Covers GET /api/console/inbox/events, POST /api/console/inbox/read,
 and GET /api/console/push-messages.
 """
+
 from __future__ import annotations
 
 import pytest

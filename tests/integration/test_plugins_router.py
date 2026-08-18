@@ -7,6 +7,7 @@ Tests cover:
 - POST /api/plugins/install: install a plugin
 - DELETE /api/plugins/{plugin_id}: uninstall a plugin
 """
+
 import pytest
 
 from .conftest import app_server
@@ -57,8 +58,7 @@ async def test_plugins_install_invalid():
     """Test POST /api/plugins/install with invalid plugin."""
     async with app_server() as server:
         response = await server.post(
-            "/api/plugins/install",
-            json={"plugin_id": "nonexistent-plugin-xyz"}
+            "/api/plugins/install", json={"plugin_id": "no-such-plugin"}
         )
         # Should fail gracefully
         assert response.status_code in [400, 404, 422]

@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/workspace/project-directory: get project directory
 - POST /api/workspace/project-directory: set project directory
 """
+
 import pytest
 
 from .conftest import app_server
@@ -25,8 +26,7 @@ async def test_project_directory_set_invalid():
     """Test POST /api/workspace/project-directory with invalid path."""
     async with app_server() as server:
         response = await server.post(
-            "/api/workspace/project-directory",
-            json={"path": "/nonexistent/path/12345"}
+            "/api/workspace/project-directory", json={"path": "/no/such/path"}
         )
         # Should return 400 or 404 for invalid path
         assert response.status_code in [400, 404]
@@ -36,10 +36,8 @@ async def test_project_directory_set_invalid():
 async def test_project_directory_set_missing_path():
     """Test POST /api/workspace/project-directory without path."""
     async with app_server() as server:
-        response = await server.post(
-            "/api/workspace/project-directory",
-            json={}
-        )
+        url = "/api/workspace/project-directory"
+        response = await server.post(url, json={})
         # Should return 400 or 422
         assert response.status_code in [400, 422]
 
@@ -60,8 +58,7 @@ async def test_project_directory_set_relative_path():
     """Test POST /api/workspace/project-directory with relative path."""
     async with app_server() as server:
         response = await server.post(
-            "/api/workspace/project-directory",
-            json={"path": "./relative/path"}
+            "/api/workspace/project-directory", json={"path": "./rel"}
         )
         # Should handle relative paths appropriately
         assert response.status_code in [200, 400]

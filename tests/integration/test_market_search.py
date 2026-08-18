@@ -5,10 +5,11 @@
 and test_market_categories.py (category listing). Covers search flow,
 pagination, limit boundaries, category filtering, and lang parameter.
 """
+
 from __future__ import annotations
 
 import pytest
-from helpers import default_http_timeout, scoped
+from helpers import default_http_timeout
 
 _MARKET_HTTP_TIMEOUT = default_http_timeout(15.0)
 
@@ -20,7 +21,7 @@ _MARKET_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_market_search_empty_query_returns_results_contract(app_server) -> None:
+def test_market_search_empty_query_contract(app_server) -> None:
     """Test purpose:
     - Verify POST /api/market/search with an empty query and a known
       provider returns the MarketSearchResponse contract (results list,
@@ -475,7 +476,7 @@ def test_market_search_by_provider_has_pagination_info(app_server) -> None:
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
     by_provider = payload.get("by_provider", {})
-    for key, info in by_provider.items():
+    for _key, info in by_provider.items():
         assert isinstance(info.get("has_more"), bool)
         assert isinstance(info.get("total"), int)
 

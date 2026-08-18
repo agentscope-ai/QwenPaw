@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/mcp-oauth: get MCP OAuth status
 - POST /api/mcp-oauth/authorize: authorize MCP OAuth
 """
+
 import pytest
 
 from .conftest import app_server

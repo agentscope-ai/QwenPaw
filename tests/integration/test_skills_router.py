@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/skills: list available skills
 - GET /api/skills/{skill_id}: get skill details
 """
+
 import pytest
 
 from .conftest import app_server
@@ -61,12 +62,12 @@ async def test_skills_pagination():
     async with app_server() as server:
         # Get first page
         response1 = await server.get("/api/skills?limit=2&offset=0")
-        assert response.status_code == 200
-        
+        assert response1.status_code == 200
+
         # Get second page
         response2 = await server.get("/api/skills?limit=2&offset=2")
-        assert response.status_code == 200
-        
+        assert response2.status_code == 200
+
         # Results should be different (if enough skills exist)
         data1 = response1.json()
         data2 = response2.json()

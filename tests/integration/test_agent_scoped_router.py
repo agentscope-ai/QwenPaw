@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/agent-scoped: get agent-scoped settings
 - POST /api/agent-scoped: update agent-scoped settings
 """
+
 import pytest
 
 from .conftest import app_server

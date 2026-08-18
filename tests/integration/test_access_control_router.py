@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/access-control: get access control settings
 - POST /api/access-control: update access control settings
 """
+
 import pytest
 
 from .conftest import app_server

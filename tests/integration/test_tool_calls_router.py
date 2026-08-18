@@ -3,6 +3,7 @@
 
 Covers GET /api/tool-calls (list) and related endpoints.
 """
+
 from __future__ import annotations
 
 import pytest

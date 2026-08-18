@@ -6,6 +6,7 @@ Tests cover:
 - GET /api/healthz/ready: readiness check
 - GET /api/healthz/live: liveness check
 """
+
 import pytest
 
 from .conftest import app_server

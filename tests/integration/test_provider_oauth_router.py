@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/provider-oauth: get provider OAuth status
 - POST /api/provider-oauth/authorize: authorize provider OAuth
 """
+
 import pytest
 
 from .conftest import app_server

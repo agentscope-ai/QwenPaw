@@ -5,6 +5,7 @@ Tests the Langfuse trace context management and availability detection.
 These are module-level integration tests that verify the observability
 subsystem's public API contract.
 """
+
 from __future__ import annotations
 
 import os

@@ -6,6 +6,7 @@ Tests cover:
 - GET /api/local-models/{model_id}: get model details
 - POST /api/local-models/download: download model
 """
+
 import pytest
 
 from .conftest import app_server
@@ -25,7 +26,8 @@ async def test_local_models_list():
 async def test_local_models_get_nonexistent():
     """Test GET /api/local-models/{model_id} with non-existent model."""
     async with app_server() as server:
-        response = await server.get("/api/local-models/nonexistent-model-12345")
+        url = "/api/local-models/nonexistent-model-12345"
+        response = await server.get(url)
         # Should return 404 or similar error
         assert response.status_code in [404, 400]
 
@@ -35,8 +37,7 @@ async def test_local_models_download_invalid():
     """Test POST /api/local-models/download with invalid model."""
     async with app_server() as server:
         response = await server.post(
-            "/api/local-models/download",
-            json={"model_id": "nonexistent-model-xyz"}
+            "/api/local-models/download", json={"model_id": "no-such-model"}
         )
         # Should fail gracefully
         assert response.status_code in [400, 404, 422]

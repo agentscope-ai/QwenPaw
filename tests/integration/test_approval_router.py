@@ -3,6 +3,7 @@
 
 Covers GET /api/approval (list pending), and approval actions.
 """
+
 from __future__ import annotations
 
 import pytest

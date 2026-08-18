@@ -6,6 +6,7 @@ Tests cover:
 - GET /api/providers/{provider_id}: get provider details
 - POST /api/providers: add provider
 """
+
 import pytest
 
 from .conftest import app_server
@@ -25,7 +26,8 @@ async def test_providers_list():
 async def test_providers_get_nonexistent():
     """Test GET /api/providers/{provider_id} with non-existent provider."""
     async with app_server() as server:
-        response = await server.get("/api/providers/nonexistent-provider-12345")
+        url = "/api/providers/nonexistent-provider-12345"
+        response = await server.get(url)
         # Should return 404 or similar error
         assert response.status_code in [404, 400]
 

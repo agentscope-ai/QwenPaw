@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Integration tests for the messages router (message history and tool calls).
+"""Integration tests for the messages router.
 
-Covers GET /api/messages/{session_id}, GET /api/messages/{session_id}/{tool_call_id},
-and related endpoints.
+Tests message history and tool calls endpoints.
 """
+
 from __future__ import annotations
 
 import pytest
