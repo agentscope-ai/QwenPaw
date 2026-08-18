@@ -683,7 +683,7 @@ def _format_anthropic_video_data_block(
     if data_attr is not None:
         # base64 length -> approximate raw byte count.
         size = len(data_attr or "") * 3 // 4
-        if max_inline_media_bytes > 0 and size > max_inline_media_bytes:
+        if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,
                 max_inline_media_bytes=max_inline_media_bytes,
@@ -757,7 +757,7 @@ def _format_openai_video_block(
     if source["type"] == "base64":
         media_type = source["media_type"]
         size = len(source.get("data") or "") * 3 // 4
-        if max_inline_media_bytes > 0 and size > max_inline_media_bytes:
+        if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,
                 response_api=response_api,

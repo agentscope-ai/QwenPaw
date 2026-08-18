@@ -379,7 +379,9 @@ def test_replace_placeholders_non_match_untouched() -> None:
 
 
 @pytest.mark.asyncio
-async def test_openai_url_video_over_default_but_under_custom_cap(tmp_path) -> None:
+async def test_openai_url_video_over_default_but_under_custom_cap(
+    tmp_path,
+) -> None:
     """A 3 MB video exceeds a 2 MB default but fits a 50 MB provider cap."""
     url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
     block = {"source": {"type": "url", "url": url}}
