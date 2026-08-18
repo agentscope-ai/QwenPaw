@@ -304,20 +304,22 @@ def test_none_sandbox_execute_command() -> None:
     2. Execute "echo hello" and verify output.
     """
     import asyncio
+    import tempfile
 
     from qwenpaw.sandbox.config import SandboxConfig, SandboxMode
     from qwenpaw.sandbox.local_sandbox import NoneSandbox
 
-    config = SandboxConfig(
-        mode=SandboxMode.NONE,
-        workspace_dir="/tmp",
-    )
-    sandbox = NoneSandbox(config)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = SandboxConfig(
+            mode=SandboxMode.NONE,
+            workspace_dir=tmpdir,
+        )
+        sandbox = NoneSandbox(config)
 
-    async def _run():
-        async with sandbox:
-            return await sandbox.execute("echo hello")
+        async def _run():
+            async with sandbox:
+                return await sandbox.execute("echo hello")
 
-    result = asyncio.run(_run())
-    assert result.exit_code == 0
-    assert "hello" in result.stdout
+        result = asyncio.run(_run())
+        assert result.exit_code == 0, f"stderr: {result.stderr}"
+        assert "hello" in result.stdout
