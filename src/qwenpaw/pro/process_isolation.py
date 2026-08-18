@@ -60,6 +60,7 @@ def _runtime_root(record: RuntimeRecord) -> Path:
 def _read_roots(environment: Mapping[str, str]) -> list[Path]:
     source_root = Path(__file__).resolve().parents[2]
     roots = {
+        Path(sys.base_prefix).resolve(),
         Path(sys.executable).resolve(),
         Path(sys.prefix).resolve(),
         source_root,

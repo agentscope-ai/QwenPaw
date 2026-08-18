@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for fail-closed Pro runtime process isolation."""
 
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -100,6 +101,41 @@ def test_linux_command_mounts_only_runtime_root_writable(
     assert ["--cap-drop", "ALL"] == args[
         args.index("--cap-drop") : args.index("--cap-drop") + 2
     ]
+
+
+def test_linux_command_mounts_python_base_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_prefix = tmp_path / "base-python"
+    base_bin = base_prefix / "bin"
+    base_bin.mkdir(parents=True)
+    base_executable = base_bin / "python3.13"
+    base_executable.touch()
+    (base_bin / "python").symlink_to(base_executable.name)
+    venv = tmp_path / "venv"
+    venv_bin = venv / "bin"
+    venv_bin.mkdir(parents=True)
+    venv_executable = venv_bin / "python"
+    venv_executable.symlink_to(base_bin / "python")
+    monkeypatch.setattr(sys, "executable", str(venv_executable))
+    monkeypatch.setattr(sys, "prefix", str(venv))
+    monkeypatch.setattr(sys, "base_prefix", str(base_prefix))
+    isolator = LinuxBubblewrapIsolator("/usr/bin/bwrap")
+    monkeypatch.setattr(isolator, "_probe", lambda *args: None)
+
+    launch = isolator.prepare(
+        _record(tmp_path),
+        [str(venv_executable), "-m", "qwenpaw"],
+        {},
+    )
+
+    read_only_mounts = {
+        (launch.command[index + 1], launch.command[index + 2])
+        for index, value in enumerate(launch.command)
+        if value == "--ro-bind"
+    }
+    assert (str(base_prefix), str(base_prefix)) in read_only_mounts
 
 
 def test_driver_never_bypasses_injected_isolator(tmp_path: Path) -> None:
