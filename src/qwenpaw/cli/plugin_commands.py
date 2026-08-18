@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import click
 
@@ -44,10 +44,41 @@ def _get_api_base() -> Optional[str]:
     return f"http://{host}:{port}/api"
 
 
+def _api_auth_headers() -> Dict[str, str]:
+    """Return Authorization headers for live plugin API calls.
+
+    Preference order:
+    1. ``QWENPAW_API_TOKEN`` environment variable
+    2. A short-lived token minted from local ``auth.json`` when auth
+       is enabled and a user is registered
+    3. Empty (auth disabled / no registered user)
+    """
+    token = os.environ.get("QWENPAW_API_TOKEN", "").strip()
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+
+    from ..app.auth import (
+        _load_auth_data,
+        create_token,
+        has_registered_users,
+        is_auth_enabled,
+    )
+
+    if not is_auth_enabled() or not has_registered_users():
+        return {}
+
+    user = _load_auth_data().get("user") or {}
+    username = user.get("username")
+    if not username:
+        return {}
+    return {"Authorization": f"Bearer {create_token(username)}"}
+
+
 def _api_install_plugin(source: str, force: bool = False) -> bool:
     """Send a hot-install request to the running QwenPaw API.
 
-    Uses the localhost auth-bypass so no credentials are required.
+    When authentication is enabled, a Bearer token is attached via
+    ``QWENPAW_API_TOKEN`` or a locally minted token from ``auth.json``.
 
     Args:
         source: Local directory path or HTTP(S) URL of the plugin
@@ -62,11 +93,15 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
 
     url = f"{base}/plugins/install"
     payload = json.dumps({"source": source, "force": force}).encode()
+    headers = {
+        "Content-Type": "application/json",
+        **_api_auth_headers(),
+    }
     req = urllib.request.Request(
         url,
         data=payload,
         method="POST",
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
@@ -90,6 +125,8 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
 
 def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
     """Send a ZIP file to the running QwenPaw API for hot-install.
+
+    Attaches auth headers the same way as :func:`_api_install_plugin`.
 
     Args:
         zip_path: Path to the plugin .zip archive
@@ -126,6 +163,7 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Content-Length": str(len(body)),
+            **_api_auth_headers(),
         },
     )
     try:
@@ -151,6 +189,8 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
 def _api_uninstall_plugin(plugin_id: str) -> bool:
     """Send a hot-uninstall request to the running QwenPaw API.
 
+    Attaches auth headers the same way as :func:`_api_install_plugin`.
+
     Args:
         plugin_id: ID of the plugin to remove
 
@@ -162,7 +202,11 @@ def _api_uninstall_plugin(plugin_id: str) -> bool:
         return False
 
     url = f"{base}/plugins/{plugin_id}"
-    req = urllib.request.Request(url, method="DELETE")
+    req = urllib.request.Request(
+        url,
+        method="DELETE",
+        headers=_api_auth_headers(),
+    )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             body = json.loads(resp.read())

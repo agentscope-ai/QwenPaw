@@ -583,9 +583,9 @@ Contains three protection modules:
 
 Top-level field:
 
-| Field                 | Type     | Default                | Description                                                                    |
-| --------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------ |
-| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP whitelist that bypasses web authentication. Localhost is allowed by default |
+| Field                 | Type     | Default                | Description                                                                                                                                                                                     |
+| --------------------- | -------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP whitelist that bypasses web authentication for most APIs. Localhost is allowed by default. Plugin install / upload / uninstall always require a token and are not covered by this whitelist. |
 
 > **Complete configuration:** Detailed field descriptions, security rules, custom rule configuration, etc. for each module are documented in [Security](./security).
 

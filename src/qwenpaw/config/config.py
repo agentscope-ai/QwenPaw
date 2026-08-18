@@ -2528,6 +2528,8 @@ class SecurityConfig(BaseModel):
             "List of client IP addresses that can access API endpoints "
             "without authentication. By default, localhost addresses "
             "(127.0.0.1 for IPv4, ::1 for IPv6) are allowed. "
+            "Plugin install/upload/uninstall endpoints always require "
+            "authentication even when the client IP is on this list. "
             "WARNING: Only add trusted IP addresses to this list."
         ),
     )

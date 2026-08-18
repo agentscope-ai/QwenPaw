@@ -306,3 +306,100 @@ def test_protected_endpoint_with_valid_token_returns_200(
     body = resp.json()
     agents = body if isinstance(body, list) else body.get("agents", [])
     assert isinstance(agents, list), body
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_plugin_install_without_token_from_localhost_returns_401(
+    auth_app_server,
+) -> None:
+    """Test purpose:
+    - Verify POST /api/plugins/install from localhost still requires
+      a Bearer token (allow_no_auth_hosts must not bypass this path).
+
+    API endpoints:
+    - POST /api/plugins/install
+    """
+    resp = auth_app_server.post(
+        "/api/plugins/install",
+        json={"source": "/tmp/does-not-exist-plugin"},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_plugin_install_with_token_passes_auth_gate(
+    auth_app_server,
+) -> None:
+    """Test purpose:
+    - Verify POST /api/plugins/install with a valid token is not
+      rejected at the auth layer (non-401). Business errors (400/503)
+      are acceptable — they prove auth succeeded.
+
+    Test flow:
+    1. POST /api/auth/login → obtain token.
+    2. POST /api/plugins/install with Authorization header.
+
+    API endpoints:
+    - POST /api/auth/login
+    - POST /api/plugins/install
+    """
+    login = auth_app_server.post(
+        "/api/auth/login",
+        json={
+            "username": _AUTH_USERNAME,
+            "password": _AUTH_PASSWORD,
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert login.status_code == 200, login.text
+    token = login.json()["token"]
+
+    resp = auth_app_server.post(
+        "/api/plugins/install",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"source": "/tmp/does-not-exist-plugin"},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code != 401, resp.text
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/api/agents/default/plugins/install"),
+        ("POST", "/api/agents/default/plugins/upload"),
+        ("DELETE", "/api/agents/default/plugins/integ-missing-plugin"),
+    ],
+)
+def test_agent_scoped_plugin_mutations_without_token_return_401(
+    auth_app_server,
+    method: str,
+    path: str,
+) -> None:
+    """Test purpose:
+    - Verify agent-scoped plugin write APIs from localhost also require
+      a Bearer token (same always-auth gate as global /api/plugins/*).
+
+    API endpoints:
+    - POST /api/agents/{agentId}/plugins/install
+    - POST /api/agents/{agentId}/plugins/upload
+    - DELETE /api/agents/{agentId}/plugins/{plugin_id}
+    """
+    if method == "POST":
+        resp = auth_app_server.post(
+            path,
+            json={"source": "/tmp/does-not-exist-plugin"},
+            timeout=_HTTP_TIMEOUT,
+        )
+    else:
+        resp = auth_app_server.client.request(
+            method,
+            f"{auth_app_server.base_url}{path}",
+            timeout=_HTTP_TIMEOUT,
+        )
+    assert resp.status_code == 401, resp.text

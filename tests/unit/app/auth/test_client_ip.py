@@ -16,6 +16,7 @@ from qwenpaw.app.auth import (
     _parse_networks,
     _resolve_client_ip,
     _warned_untrusted_ips,
+    is_always_auth_api,
 )
 
 
@@ -264,3 +265,136 @@ class TestShouldSkipAuthDefenseInDepth:
         req.method = "GET"
         # pylint: disable=protected-access
         assert AuthMiddleware._should_skip_auth(req) is False
+
+
+# ---------------------------------------------------------------------------
+# Plugin mutations always require auth (no localhost bypass)
+# ---------------------------------------------------------------------------
+
+
+class TestAlwaysAuthPluginMutations:
+    """Plugin install/upload/uninstall must not skip auth on localhost."""
+
+    def test_is_always_auth_api_matches_expected_paths(self):
+        assert is_always_auth_api("POST", "/api/plugins/install") is True
+        assert is_always_auth_api("POST", "/api/plugins/upload") is True
+        assert is_always_auth_api("DELETE", "/api/plugins/foo") is True
+        assert (
+            is_always_auth_api(
+                "POST",
+                "/api/agents/default/plugins/install",
+            )
+            is True
+        )
+        assert (
+            is_always_auth_api(
+                "POST",
+                "/api/agents/default/plugins/upload",
+            )
+            is True
+        )
+        assert (
+            is_always_auth_api(
+                "DELETE",
+                "/api/agents/default/plugins/foo",
+            )
+            is True
+        )
+        assert is_always_auth_api("GET", "/api/plugins") is False
+        assert is_always_auth_api("GET", "/api/plugins/foo/status") is False
+        assert is_always_auth_api("POST", "/api/agents") is False
+
+    def test_is_always_auth_api_normalizes_slashes(self):
+        """Trailing / duplicate slashes must not evade always-auth."""
+        assert is_always_auth_api("POST", "/api/plugins/install/") is True
+        assert is_always_auth_api("POST", "/api/plugins//upload") is True
+        assert is_always_auth_api("DELETE", "/api/plugins/foo/") is True
+        assert (
+            is_always_auth_api(
+                "POST",
+                "/api/agents/default/plugins/install/",
+            )
+            is True
+        )
+        assert (
+            is_always_auth_api(
+                "POST",
+                "/api//agents/default//plugins//upload/",
+            )
+            is True
+        )
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_localhost_plugin_install_requires_auth(self, _a, _b, mock_cfg):
+        from qwenpaw.app.auth import AuthMiddleware  # noqa: F811
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("127.0.0.1")
+        req.url = MagicMock()
+        req.url.path = "/api/plugins/install"
+        req.method = "POST"
+        # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is False
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_localhost_agent_scoped_upload_requires_auth(
+        self,
+        _a,
+        _b,
+        mock_cfg,
+    ):
+        from qwenpaw.app.auth import AuthMiddleware  # noqa: F811
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("127.0.0.1")
+        req.url = MagicMock()
+        req.url.path = "/api/agents/default/plugins/upload"
+        req.method = "POST"
+        # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is False
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_localhost_plugin_delete_requires_auth(self, _a, _b, mock_cfg):
+        from qwenpaw.app.auth import AuthMiddleware  # noqa: F811
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("127.0.0.1")
+        req.url = MagicMock()
+        req.url.path = "/api/plugins/foo"
+        req.method = "DELETE"
+        # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is False
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_localhost_plugin_list_still_bypasses(self, _a, _b, mock_cfg):
+        from qwenpaw.app.auth import AuthMiddleware  # noqa: F811
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("127.0.0.1")
+        req.url = MagicMock()
+        req.url.path = "/api/plugins"
+        req.method = "GET"
+        # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is True
+
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_localhost_agents_get_still_bypasses(self, _a, _b, mock_cfg):
+        from qwenpaw.app.auth import AuthMiddleware  # noqa: F811
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("127.0.0.1")
+        req.url = MagicMock()
+        req.url.path = "/api/agents"
+        req.method = "GET"
+        # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is True

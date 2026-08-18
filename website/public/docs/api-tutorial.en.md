@@ -44,23 +44,30 @@ Specify the Agent to interact with via the `X-Agent-Id` header:
 2. The Agent ID is typically displayed in the Agent selector
 3. The default Agent ID is `default`
 
-### Localhost Auto-Bypass Authentication
+### Localhost Auth Bypass (Most APIs)
 
 ⚠️ **Important Notice**:
 
-- **Requests from `localhost` (127.0.0.1 or ::1) automatically bypass Web authentication**
+- **Most requests from `localhost` (127.0.0.1 or ::1) automatically bypass Web authentication**
 - This is designed for local development and CLI tools (`qwenpaw`) convenience
-- Even if Web authentication is enabled, local requests do **NOT** require an `Authorization` token
-- If accessing from a **remote machine**, you must provide a valid authentication token
+- Even if Web authentication is enabled, typical local requests (e.g. chat) do **NOT** require an `Authorization` token
+- **Exception (when Web authentication is enabled):** plugin install / upload / uninstall require a Bearer token even from localhost (and agent-scoped `/api/agents/{id}/plugins/...` equivalents). Use a login token or set `QWENPAW_API_TOKEN`. The `qwenpaw plugin` CLI attaches a token automatically. When auth is disabled, these APIs do not require a token either.
+- If accessing from a **remote machine**, you must provide a valid authentication token for protected routes
 
 **Examples**:
 
 ```bash
-# Local request - No Authorization token needed
+# Local request - No Authorization token needed (most APIs)
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: default" \
   -d '{"input": [...]}'
+
+# Local plugin install - Authorization token required when auth is enabled
+curl -X POST http://localhost:8088/api/plugins/install \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -d '{"source": "/path/to/plugin"}'
 
 # Remote request - Authorization token required
 curl -X POST http://your-server.com:8088/api/console/chat \
@@ -776,7 +783,7 @@ curl -X POST http://localhost:8088/api/console/chat \
   - Maximum: 100 years
 - **Format**: HMAC-SHA256 signed token
 - **Storage**: Store securely, do not hardcode in code
-- **Local Bypass**: Requests from `127.0.0.1` or `::1` automatically skip authentication
+- **Local Bypass**: Requests from `127.0.0.1` or `::1` skip authentication for most APIs; plugin install / upload / uninstall always require a token
 - **Multiple Tokens**:
   - ⚠️ Each login creates a new token; old tokens are NOT automatically revoked
   - Multiple tokens can be used simultaneously if they are valid and not expired

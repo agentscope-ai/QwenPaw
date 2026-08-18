@@ -36,7 +36,7 @@ Force reinstall:
 qwenpaw plugin install /path/to/plugin --force
 ```
 
-**Note**: Plugin operations can only be performed when QwenPaw is offline.
+**Note**: When QwenPaw is running, install / upload (ZIP) / uninstall use the live API (hot reload). If web authentication is enabled, these calls require a Bearer token; the CLI attaches one automatically (`QWENPAW_API_TOKEN`, or a short-lived token from local `auth.json`). When QwenPaw is stopped, plugin files are copied to disk and load on next start.
 
 ### List Installed Plugins
 

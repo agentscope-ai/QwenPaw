@@ -939,7 +939,7 @@ QwenPaw supports optional web login authentication to protect the Console from u
    - Set `QWENPAW_AUTH_USERNAME` and `QWENPAW_AUTH_PASSWORD` environment variables
    - QwenPaw automatically creates the admin account on startup, skipping web registration
    - Useful for Docker, Kubernetes, server management panels, and other automated deployments
-5. **Localhost bypass** — Requests from localhost (`127.0.0.1` / `::1`) automatically skip authentication; CLI commands (`qwenpaw app`, `qwenpaw chat`, etc.) work without a token
+5. **Localhost bypass** — Requests from localhost (`127.0.0.1` / `::1`) generally skip authentication for convenience (CLI / local scripts). **Exception:** plugin install, upload, and uninstall always require a Bearer token even from localhost. The `qwenpaw plugin` CLI attaches a token automatically (`QWENPAW_API_TOKEN`, or a short-lived token minted from local `auth.json`).
 
 **Security features**:
 
@@ -950,15 +950,16 @@ QwenPaw supports optional web login authentication to protect the Console from u
 
 ### Environment variables
 
-| Variable                | Description                                  | Required |
-| ----------------------- | -------------------------------------------- | -------- |
-| `QWENPAW_AUTH_ENABLED`  | Set to `true` to enable authentication       | **Yes**  |
-| `QWENPAW_AUTH_USERNAME` | Pre-set admin username for auto-registration | Optional |
-| `QWENPAW_AUTH_PASSWORD` | Pre-set admin password for auto-registration | Optional |
+| Variable                | Description                                                                                        | Required |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | -------- |
+| `QWENPAW_AUTH_ENABLED`  | Set to `true` to enable authentication                                                             | **Yes**  |
+| `QWENPAW_AUTH_USERNAME` | Pre-set admin username for auto-registration                                                       | Optional |
+| `QWENPAW_AUTH_PASSWORD` | Pre-set admin password for auto-registration                                                       | Optional |
+| `QWENPAW_API_TOKEN`     | Bearer token for CLI / scripts that call protected APIs (e.g. plugin install) when auth is enabled | Optional |
 
 ### Auth-bypass host whitelist
 
-In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP addresses that can access API endpoints without authentication, even when authentication is enabled:
+In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP addresses that can access most API endpoints without authentication, even when authentication is enabled:
 
 ```json
 {
@@ -968,13 +969,15 @@ In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP a
 }
 ```
 
-| Field                 | Type          | Default                | Description                                                                          |
-| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses allowed to access `/api/*` routes without authentication tokens. |
+| Field                 | Type          | Default                | Description                                                                                                                                                                                     |
+| --------------------- | ------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses allowed to access most `/api/*` routes without authentication tokens. Plugin install / upload / uninstall always require a token and are **not** covered by this whitelist. |
 
 This can also be managed from the Console under **Settings → Security**.
 
-> **Security warning**: Adding non-localhost addresses to this list means those IPs can access the full API without credentials. Use with caution and only for trusted hosts on private networks.
+> **Security warning**: Adding non-localhost addresses to this list means those IPs can access most of the API without credentials (plugin write APIs still require a token). Use with caution and only for trusted hosts on private networks.
+>
+> **Migration note**: Scripts or `curl` that previously installed plugins from localhost without `Authorization` will receive `401` when auth is enabled. Log in to obtain a token, or set `QWENPAW_API_TOKEN`.
 
 **Configuration notes**:
 
@@ -1133,15 +1136,15 @@ Click the **Logout** button at the bottom of the sidebar in the Console:
 
 ### Security details
 
-| Feature               | Detail                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                   |
-| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                   |
-| Token storage         | Browser localStorage, cleared on logout or 401 response                                    |
-| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                    |
-| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                   |
-| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth (CLI access unaffected)                        |
-| CORS preflight        | `OPTIONS` requests pass through without auth check                                         |
-| WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                      |
-| Protected routes      | Only `/api/*` routes require authentication                                                |
-| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets |
+| Feature               | Detail                                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                                          |
+| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                                          |
+| Token storage         | Browser localStorage, cleared on logout or 401 response                                                           |
+| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                                           |
+| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                                          |
+| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth for most APIs; plugin install/upload/uninstall always require a token |
+| CORS preflight        | `OPTIONS` requests pass through without auth check                                                                |
+| WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                                             |
+| Protected routes      | Only `/api/*` routes require authentication                                                                       |
+| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets                        |

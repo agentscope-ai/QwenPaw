@@ -44,23 +44,30 @@ POST /api/console/chat
 2. Agent ID 通常显示在 Agent 选择器中
 3. 默认的 Agent ID 为 `default`
 
-### Localhost 自动免认证
+### Localhost 免认证（大多数 API）
 
 ⚠️ **重要提示**：
 
-- **来自 `localhost` (127.0.0.1 或 ::1) 的请求会自动跳过 Web 认证**
+- **来自 `localhost` (127.0.0.1 或 ::1) 的大多数请求会自动跳过 Web 认证**
 - 这是为了方便本地开发和 CLI 工具（`qwenpaw`）使用
-- 即使启用了 Web 认证，本地请求也**不需要**提供 `Authorization` 令牌
-- 如果从**远程机器**访问，则必须提供有效的认证令牌
+- 即使启用了 Web 认证，常见的本地请求（如 chat）也**不需要**提供 `Authorization` 令牌
+- **例外（已启用 Web 认证时）：** 插件的安装 / 上传 / 卸载即使来自本机也需要 Bearer 令牌（含 agent-scoped 的 `/api/agents/{id}/plugins/...`）。请使用登录令牌或设置 `QWENPAW_API_TOKEN`。`qwenpaw plugin` CLI 会自动附带令牌。未开启认证时，这些 API 同样不需要令牌。
+- 如果从**远程机器**访问受保护路由，则必须提供有效的认证令牌
 
 **示例**：
 
 ```bash
-# 本地请求 - 不需要 Authorization 令牌
+# 本地请求 - 不需要 Authorization 令牌（大多数 API）
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: default" \
   -d '{"input": [...]}'
+
+# 本地安装插件 - 开启认证时需要 Authorization 令牌
+curl -X POST http://localhost:8088/api/plugins/install \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -d '{"source": "/path/to/plugin"}'
 
 # 远程请求 - 需要 Authorization 令牌
 curl -X POST http://your-server.com:8088/api/console/chat \
@@ -776,7 +783,7 @@ curl -X POST http://localhost:8088/api/console/chat \
   - 最长：100 年
 - **格式**：HMAC-SHA256 签名令牌
 - **存储**：建议安全存储，不要硬编码在代码中
-- **本地免认证**：来自 `127.0.0.1` 或 `::1` 的请求自动跳过认证
+- **本地免认证**：来自 `127.0.0.1` 或 `::1` 的请求对大多数 API 自动跳过认证；插件安装 / 上传 / 卸载始终需要令牌
 - **多令牌共存**：
   - ⚠️ 每次登录都会创建新令牌，旧令牌不会自动失效
   - 只要令牌未过期且签名有效，多个令牌可以同时使用

@@ -36,7 +36,7 @@ qwenpaw plugin install https://example.com/plugin.zip
 qwenpaw plugin install /path/to/plugin --force
 ```
 
-**注意**：插件操作只能在 QwenPaw 离线时执行。
+**注意**：QwenPaw 运行时，安装 / 上传（ZIP）/ 卸载会走热加载 API。若已启用 Web 认证，这些调用需要 Bearer 令牌；CLI 会自动附带（`QWENPAW_API_TOKEN`，或从本地 `auth.json` 签发短时令牌）。QwenPaw 未运行时，插件文件会拷贝到磁盘，并在下次启动时加载。
 
 ### 列出已安装插件
 

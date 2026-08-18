@@ -74,6 +74,53 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/frontend_plugin/",
 )
 
+# Plugin lifecycle mutations never skip auth via allow_no_auth_hosts
+# (including localhost).  Agent-scoped paths are normalized to /api/...
+# before matching (e.g. /api/agents/{id}/plugins/install).
+_ALWAYS_AUTH_PLUGIN_POST: frozenset[str] = frozenset(
+    {
+        "/api/plugins/install",
+        "/api/plugins/upload",
+    },
+)
+_ALWAYS_AUTH_PLUGIN_DELETE_RE = re.compile(r"^/api/plugins/[^/]+$")
+_AGENT_SCOPED_API_RE = re.compile(r"^/api/agents/[^/]+")
+_MULTI_SLASH_RE = re.compile(r"/{2,}")
+
+
+def _normalize_api_path(path: str) -> str:
+    """Normalize path for always-auth matching.
+
+    - Collapse repeated ``/``
+    - Strip a trailing ``/`` (except bare ``/``)
+    - Map ``/api/agents/{agentId}/...`` to ``/api/...``
+    """
+    if not path:
+        return path
+    collapsed = _MULTI_SLASH_RE.sub("/", path)
+    if len(collapsed) > 1 and collapsed.endswith("/"):
+        collapsed = collapsed.rstrip("/")
+    return _AGENT_SCOPED_API_RE.sub("/api", collapsed, count=1)
+
+
+def is_always_auth_api(method: str, path: str) -> bool:
+    """Return True if *method*/*path* must not use host-based auth bypass.
+
+    Covers plugin install/upload/uninstall on both global and
+    agent-scoped routes when authentication is enabled.  Path matching
+    is slash-normalized so trailing or duplicate slashes cannot bypass
+    the check via redirect quirks.
+    """
+    normalized = _normalize_api_path(path)
+    method_u = method.upper()
+    if method_u == "POST" and normalized in _ALWAYS_AUTH_PLUGIN_POST:
+        return True
+    if method_u == "DELETE" and _ALWAYS_AUTH_PLUGIN_DELETE_RE.fullmatch(
+        normalized,
+    ):
+        return True
+    return False
+
 
 # ---------------------------------------------------------------------------
 # Helpers (reuse SECRET_DIR patterns from envs/store.py)
@@ -728,6 +775,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             or not path.startswith("/api/")
         ):
             return True
+
+        # High-risk plugin mutations always require a Bearer token, even
+        # when the client IP is listed in allow_no_auth_hosts (localhost).
+        if is_always_auth_api(request.method, path):
+            return False
 
         cfg, _ = _get_config_cached()
         allowed = cfg.security.allow_no_auth_hosts
