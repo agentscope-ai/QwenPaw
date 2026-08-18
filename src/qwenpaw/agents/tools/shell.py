@@ -110,10 +110,10 @@ def _ensure_user_bins_on_path(
       binaries (``gh``, ``cmake``, ``lark-cli``, etc.).
     * ``%LOCALAPPDATA%\\Programs\\Python\\<version>\\Scripts`` on Windows —
       where per-user Python installs place their ``Scripts`` directory.
-    * ``~/.local/share/fnm`` and ``~/.local/share/nvm`` on Unix — base
-      directories used by the most common single-user Node.js managers.
-      These are added so their shims (which resolve to real binaries at
-      runtime) are discoverable without changing the Python venv.
+    * ``~/.local/share/fnm`` and ``~/.nvm`` on Unix — base directories used
+      by the most common single-user Node.js managers. These are added so
+      their shims (which resolve to real binaries at runtime) are
+      discoverable without changing the Python venv.
 
     Only directories that *exist* on disk are added, and duplicates against
     the existing ``PATH`` are skipped.  This keeps daemon subprocesses
@@ -133,15 +133,24 @@ def _ensure_user_bins_on_path(
             [
                 os.path.join(home, ".local", "bin"),
                 os.path.join(home, ".local", "share", "fnm"),
-                os.path.join(home, ".local", "share", "nvm"),
+                os.path.join(home, ".nvm"),
             ],
         )
     else:
         local_apps = env.get("LOCALAPPDATA") or ""
         if local_apps:
-            candidate_dirs.append(
-                os.path.join(local_apps, "Programs", "Python"),
-            )
+            python_base = os.path.join(local_apps, "Programs", "Python")
+            if os.path.isdir(python_base):
+                try:
+                    for entry in sorted(os.listdir(python_base)):
+                        ver_dir = os.path.join(python_base, entry)
+                        if os.path.isdir(ver_dir):
+                            candidate_dirs.append(ver_dir)
+                            scripts_dir = os.path.join(ver_dir, "Scripts")
+                            if os.path.isdir(scripts_dir):
+                                candidate_dirs.append(scripts_dir)
+                except OSError:
+                    pass
 
     additions: list[str] = []
     for d in candidate_dirs:
