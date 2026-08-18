@@ -31,6 +31,7 @@ import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
 import { Suspense, lazy } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 import {
+  addRouterBasename,
   getLoginHref,
   getLoginPath,
   getRouterBasename,
@@ -51,6 +52,7 @@ import {
   resolveBackendMode,
   type BackendMode,
 } from "./auth/gate";
+import { proApi, type ProHealth } from "./api/modules/pro";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
@@ -137,6 +139,64 @@ function AuthGuard({
   return <>{children}</>;
 }
 
+function RuntimeAvailabilityGuard({
+  children,
+  enabled,
+}: {
+  children: React.ReactNode;
+  enabled: boolean;
+}) {
+  const [health, setHealth] = useState<ProHealth | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    setHealth(null);
+    setErrorMessage("");
+    proApi
+      .getHealth()
+      .then((nextHealth) => {
+        if (!cancelled) setHealth(nextHealth);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Runtime security preflight failed",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, retryKey]);
+
+  useEffect(() => {
+    if (!enabled || !health || health.runtime_available) return;
+    window.location.replace(
+      addRouterBasename(window.location.pathname, "/pro/admin"),
+    );
+  }, [enabled, health]);
+
+  if (!enabled) return <>{children}</>;
+  if (!health && !errorMessage) return null;
+  if (health?.runtime_available) return <>{children}</>;
+
+  if (health) return null;
+
+  return (
+    <BackendLoadingPage
+      status="error"
+      elapsed={0}
+      totalSec={1}
+      errorMessage={errorMessage}
+      onRetry={() => setRetryKey((current) => current + 1)}
+    />
+  );
+}
+
 function AppInner({ proMode = false }: { proMode?: boolean }) {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
@@ -211,9 +271,11 @@ function AppInner({ proMode = false }: { proMode?: boolean }) {
   // <Router> inside another. The classic browser layout keeps its BrowserRouter.
   const routedContent = osActive ? (
     <AuthGuard useHardRedirect>
-      <Suspense fallback={null}>
-        <DesktopOSPage />
-      </Suspense>
+      <RuntimeAvailabilityGuard enabled={proMode}>
+        <Suspense fallback={null}>
+          <DesktopOSPage />
+        </Suspense>
+      </RuntimeAvailabilityGuard>
     </AuthGuard>
   ) : (
     <BrowserRouter basename={basename}>
@@ -244,7 +306,9 @@ function AppInner({ proMode = false }: { proMode?: boolean }) {
           path="/*"
           element={
             <AuthGuard>
-              <MainLayout />
+              <RuntimeAvailabilityGuard enabled={proMode}>
+                <MainLayout />
+              </RuntimeAvailabilityGuard>
             </AuthGuard>
           }
         />

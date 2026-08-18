@@ -5,8 +5,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
 
 from .models import RuntimeRecord
+
+
+@dataclass(frozen=True)
+class RuntimeDriverAvailability:
+    """Describe whether a runtime driver can enforce its security boundary."""
+
+    available: bool
+    reason: str | None = None
+
+
+class RuntimeDriverUnavailableError(RuntimeError):
+    """Raised when a runtime driver cannot enforce safe execution."""
 
 
 class RuntimeDriver(ABC):
@@ -14,6 +28,10 @@ class RuntimeDriver(ABC):
 
     name: str
     security_level: str
+
+    @abstractmethod
+    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+        """Probe the real runtime boundary without launching QwenPaw."""
 
     @abstractmethod
     def start(

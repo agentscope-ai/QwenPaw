@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.pro.config import ProConfig, RuntimeConfig, TenantQuota
-from qwenpaw.pro.driver import RuntimeDriver
+from qwenpaw.pro.driver import (
+    RuntimeDriver,
+    RuntimeDriverAvailability,
+    RuntimeDriverUnavailableError,
+)
 from qwenpaw.pro.models import RuntimeRecord, RuntimeSpec, RuntimeState
 from qwenpaw.pro.registry import RuntimeRegistry
 from qwenpaw.pro.service import RuntimeService
@@ -17,6 +21,16 @@ from qwenpaw.pro.service import RuntimeService
 class _FakeDriver(RuntimeDriver):
     name = "local"
     security_level = "test"
+
+    def __init__(self, available: bool = True) -> None:
+        self.available = available
+
+    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+        del root_dir
+        return RuntimeDriverAvailability(
+            available=self.available,
+            reason=None if self.available else "sandbox unavailable",
+        )
 
     def start(
         self,
@@ -36,11 +50,16 @@ class _FakeDriver(RuntimeDriver):
         return None
 
 
-def _service(tmp_path: Path, config: ProConfig) -> RuntimeService:
+def _service(
+    tmp_path: Path,
+    config: ProConfig,
+    *,
+    driver_available: bool = True,
+) -> RuntimeService:
     return RuntimeService(
         root_dir=tmp_path,
         registry=RuntimeRegistry(tmp_path / "control.db"),
-        drivers={"local": _FakeDriver()},
+        drivers={"local": _FakeDriver(driver_available)},
         credential_provider=lambda _: {},
         pro_config=config,
     )
@@ -52,6 +71,24 @@ def _spec(runtime_id: str, tenant_id: str = "tenant-a") -> RuntimeSpec:
         tenant_id=tenant_id,
         owner_user_id=tenant_id,
     )
+
+
+def test_unavailable_driver_rejects_runtime_registration(
+    tmp_path: Path,
+) -> None:
+    service = _service(
+        tmp_path,
+        ProConfig(),
+        driver_available=False,
+    )
+
+    assert service.runtime_available() is False
+    with pytest.raises(
+        RuntimeDriverUnavailableError,
+        match="sandbox unavailable",
+    ):
+        service.create(_spec("blocked"))
+    assert service.registry.list() == []
 
 
 def test_runtime_total_limit_is_tenant_scoped(tmp_path: Path) -> None:

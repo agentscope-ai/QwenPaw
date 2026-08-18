@@ -10,7 +10,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from .config import ProConfig
-from .driver import RuntimeDriver
+from .driver import (
+    RuntimeDriver,
+    RuntimeDriverAvailability,
+    RuntimeDriverUnavailableError,
+)
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 from .registry import RuntimeRegistry
 
@@ -40,6 +44,7 @@ class RuntimeService:
         self._lock_registry = threading.Lock()
         self._admission_lock = threading.Lock()
         self._runtime_locks: dict[str, threading.RLock] = {}
+        self._driver_availability = self._preflight_drivers()
 
     def create(self, spec: RuntimeSpec) -> RuntimeRecord:
         """Register a runtime and prepare its isolated data directories."""
@@ -58,6 +63,7 @@ class RuntimeService:
             and driver_name not in self.allowed_drivers
         ):
             raise ValueError(f"Runtime driver is not allowed: {driver_name}")
+        self.require_driver_available(driver_name)
         if self.registry.get(spec.runtime_id) is not None:
             raise ValueError(f"Runtime already exists: {spec.runtime_id}")
         quota = self.pro_config.quota_for(spec.tenant_id)
@@ -120,6 +126,7 @@ class RuntimeService:
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
         record = self.get(runtime_id)
+        self.require_driver_available(record.driver)
         quota = self.pro_config.quota_for(record.tenant_id)
         running_count = sum(
             item.tenant_id == record.tenant_id
@@ -207,11 +214,50 @@ class RuntimeService:
             raise ValueError(f"Unknown runtime driver: {driver_name}")
         return driver.security_level
 
+    def driver_statuses(self) -> dict[str, dict[str, object]]:
+        """Return cached startup preflight results for every driver."""
+        return {
+            name: {
+                "available": availability.available,
+                "reason": availability.reason,
+                "security_level": self.drivers[name].security_level,
+            }
+            for name, availability in self._driver_availability.items()
+        }
+
+    def runtime_available(self) -> bool:
+        """Return whether the configured default driver is safe to use."""
+        availability = self._driver_availability[self.default_driver]
+        return availability.available
+
+    def require_driver_available(self, driver_name: str) -> None:
+        """Reject execution when a driver failed its security preflight."""
+        availability = self._driver_availability.get(driver_name)
+        if availability is None:
+            raise ValueError(f"Unknown runtime driver: {driver_name}")
+        if availability.available:
+            return
+        reason = availability.reason or "security preflight failed"
+        raise RuntimeDriverUnavailableError(
+            f"Runtime driver '{driver_name}' is unavailable: {reason}",
+        )
+
     def _driver(self, record: RuntimeRecord) -> RuntimeDriver:
         driver = self.drivers.get(record.driver)
         if driver is None:
             raise ValueError(f"Unknown runtime driver: {record.driver}")
         return driver
+
+    def _preflight_drivers(
+        self,
+    ) -> dict[str, RuntimeDriverAvailability]:
+        """Probe all configured drivers before accepting runtime work."""
+        return {
+            name: driver.preflight(
+                self.root_dir / "preflight" / name,
+            )
+            for name, driver in self.drivers.items()
+        }
 
     def _runtime_root(self, runtime_id: str) -> Path:
         candidate = (self.root_dir / "runtimes" / runtime_id).resolve()

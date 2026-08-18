@@ -12,7 +12,7 @@ from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from ..config.utils import write_last_api
 from ..constant import LOG_LEVEL_ENV
-from ..utils.http import is_loopback_host
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
 
@@ -72,6 +72,14 @@ Recommended:
     help="Run the local QwenPaw Pro runtime control plane.",
 )
 @click.option(
+    "--force-public",
+    is_flag=True,
+    help=(
+        "Allow --pro to bind beyond loopback after an administrator "
+        "has been initialized."
+    ),
+)
+@click.option(
     "--config",
     "pro_config",
     type=click.Path(
@@ -112,6 +120,7 @@ def app_cmd(
     port: int,
     reload: bool,
     pro: bool,
+    force_public: bool,
     pro_config: Path | None,
     workers: int,  # pylint: disable=unused-argument
     log_level: str,
@@ -129,6 +138,15 @@ def app_cmd(
     # Handle deprecated --workers parameter
     if pro_config is not None and not pro:
         raise click.ClickException("--config is only supported with --pro.")
+    if force_public and not pro:
+        raise click.ClickException(
+            "--force-public is only supported with --pro.",
+        )
+    if pro and not is_loopback_host(host) and not force_public:
+        raise click.ClickException(
+            "QwenPaw Pro refuses a non-loopback host by default. "
+            "Use --force-public after initializing an administrator.",
+        )
 
     if workers is not None:
         click.echo(
@@ -144,10 +162,7 @@ def app_cmd(
         click.echo(err=True)
 
     # Persist last used host/port for other terminals
-    if host == "0.0.0.0":
-        write_last_api("127.0.0.1", port)
-    else:
-        write_last_api(host, port)
+    write_last_api(probe_host_for_bind_host(host), port)
     os.environ[LOG_LEVEL_ENV] = log_level
     if reload:
         os.environ["QWENPAW_RELOAD_MODE"] = "1"
@@ -164,7 +179,8 @@ def app_cmd(
             SuppressPathAccessLogFilter(paths),
         )
 
-    _warn_if_auth_off_non_loopback_bind(host, port)
+    if not pro:
+        _warn_if_auth_off_non_loopback_bind(host, port)
 
     # On Windows without admin, warn that sandbox runs in unelevated mode
     # with limited isolation.
@@ -183,6 +199,7 @@ def app_cmd(
                 port=port,
                 log_level=log_level,
                 config_path=pro_config,
+                force_public=force_public,
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc

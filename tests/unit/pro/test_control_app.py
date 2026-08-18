@@ -3,16 +3,18 @@
 
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.pro.auth import ProAuthService
 from qwenpaw.pro.config import ProConfig
-from qwenpaw.pro.control_app import create_pro_app
+from qwenpaw.pro.control_app import create_pro_app, run_pro_app
 from qwenpaw.pro.credentials import TenantCredentialVault
-from qwenpaw.pro.driver import RuntimeDriver
+from qwenpaw.pro.driver import RuntimeDriver, RuntimeDriverAvailability
 from qwenpaw.pro.models import RuntimeRecord, RuntimeState
 from qwenpaw.pro.registry import RuntimeRegistry
 from qwenpaw.pro.service import RuntimeService
@@ -21,6 +23,16 @@ from qwenpaw.pro.service import RuntimeService
 class _FakeDriver(RuntimeDriver):
     name = "local"
     security_level = "isolated-local"
+
+    def __init__(self, available: bool = True) -> None:
+        self.available = available
+
+    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+        del root_dir
+        return RuntimeDriverAvailability(
+            available=self.available,
+            reason=None if self.available else "sandbox unavailable",
+        )
 
     def start(
         self,
@@ -61,6 +73,7 @@ def _client(
     tmp_path: Path,
     proxy_transport: httpx.AsyncBaseTransport | None = None,
     pro_config: ProConfig | None = None,
+    driver_available: bool = True,
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -86,7 +99,7 @@ def _client(
     service = RuntimeService(
         root_dir=tmp_path,
         registry=registry,
-        drivers={"local": _FakeDriver()},
+        drivers={"local": _FakeDriver(driver_available)},
         credential_provider=runtime_environment,
         pro_config=pro_config,
     )
@@ -120,6 +133,83 @@ def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
 
         assert response.status_code == 200
         assert response.json() == {"version": __version__}
+        assert client.app.state.runtime_service.registry.list() == []
+
+
+def test_public_bind_requires_initialized_admin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_PRO_DIR", str(tmp_path))
+
+    with pytest.raises(ValueError, match="initialized, enabled administrator"):
+        run_pro_app(
+            host="0.0.0.0",
+            port=8088,
+            log_level="info",
+            force_public=True,
+        )
+
+
+def test_public_bind_starts_after_admin_initialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_PRO_DIR", str(tmp_path))
+    database = tmp_path / "control.db"
+    vault = TenantCredentialVault(
+        database,
+        tmp_path / "secrets" / ".vault_key",
+    )
+    ProAuthService(database, vault).register("owner", "safe-password")
+
+    with (
+        patch("qwenpaw.pro.control_app.create_pro_app") as create_app,
+        patch("qwenpaw.pro.control_app.uvicorn.run") as uvicorn_run,
+    ):
+        run_pro_app(
+            host="::",
+            port=8088,
+            log_level="info",
+            force_public=True,
+        )
+
+    uvicorn_run.assert_called_once()
+    assert uvicorn_run.call_args.kwargs["host"] == "::"
+    create_app.assert_called_once()
+
+
+def test_unavailable_driver_keeps_control_plane_in_safe_mode(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path, driver_available=False) as client:
+        anonymous_health = client.get("/api/pro/healthz")
+        token = _register(client, "owner")
+        health = client.get(
+            "/api/pro/healthz",
+            headers=_headers(token),
+        )
+        created = client.post(
+            "/api/pro/runtimes",
+            json={"runtime_id": "blocked-runtime"},
+            headers=_headers(token),
+        )
+        proxied = client.get(
+            "/api/runtime-probe",
+            headers=_headers(token),
+        )
+
+        assert anonymous_health.status_code == 401
+        assert health.status_code == 200
+        assert health.json()["status"] == "degraded"
+        assert health.json()["runtime_available"] is False
+        assert health.json()["driver_statuses"]["local"] == {
+            "available": False,
+            "reason": "sandbox unavailable",
+            "security_level": "isolated-local",
+        }
+        assert created.status_code == 503
+        assert proxied.status_code == 503
         assert client.app.state.runtime_service.registry.list() == []
 
 

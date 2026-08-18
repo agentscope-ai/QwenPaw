@@ -46,8 +46,16 @@ qwenpaw app --pro
 未指定 `--pro` 时，现有 App 启动行为保持不变。指定 `--pro` 后，`--host`、
 `--port` 和 `--log-level` 配置 Pro 控制面，而不是某个租户 Runtime。
 
-第一版本地控制面仅允许绑定 loopback 地址。未来加入认证和传输安全之后，才能
-开放非 loopback 地址。
+默认只允许绑定 loopback 地址。需要从可信局域网或 TLS 反向代理访问时，必须先
+在 loopback 模式创建管理员，再显式使用：
+
+```bash
+qwenpaw app --pro --host 0.0.0.0 --force-public
+```
+
+`--force-public` 只开放 Pro 控制面，不改变租户 Runtime 的 loopback 监听。没有
+已初始化且启用的管理员时拒绝公网启动，避免远程用户抢占首个管理员账号。该
+参数不提供 TLS；跨不可信网络部署时必须在前面配置 TLS 反向代理。
 
 ### Pro 配置文件
 
@@ -449,10 +457,16 @@ Docker socket、默认断网、资源配额和 fail-closed。Kubernetes driver �
 - [x] 将后端模式探测和认证状态探测改为 fail-closed。
 - [x] 复用现有启动错误页提供认证服务重试入口。
 - [x] 增加无 Token、无效 Token 和认证服务异常回归测试。
+- [x] 启动时实际探测默认 Runtime driver，并缓存安全可用状态。
+- [x] 沙箱不可用时自动进入管理控制台，并禁止创建、启动和进入租户 Runtime。
+- [x] 在 Pro 控制台用中英文高优先级提示展示 driver 和失败原因。
+- [x] 默认拒绝非 loopback 监听，并提供显式 `--force-public` 风险开关。
+- [x] 公网监听前强制要求已初始化且启用的管理员账号。
+- [x] 保持租户 Runtime 仅监听 loopback，公网请求统一经过控制面。
 - [x] 完成 UI 回归、后端测试、生产构建和本地端到端验证。
 - [x] 整理 scope、用法、安全边界和测试结果并创建 Draft PR。
 - [ ] 增加 Windows adapter 和三平台隔离集成测试。
-- [x] conda `QwenPaw` 环境完整 unit suite 通过（7325 passed，20 skipped）。
+- [x] conda `QwenPaw` 环境完整 unit suite 通过（7334 passed，20 skipped）。
 
 ## 参考
 

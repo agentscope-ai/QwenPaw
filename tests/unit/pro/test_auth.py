@@ -23,6 +23,7 @@ def test_first_registration_bootstraps_admin_and_closes_registration(
     admin, token = auth.register("owner", "safe-password")
 
     assert admin.role == "admin"
+    assert auth.has_enabled_admin() is True
     assert auth.verify_token(token) == admin
     assert auth.status()["registration_enabled"] is False
     with pytest.raises(PermissionError, match="Registration is disabled"):

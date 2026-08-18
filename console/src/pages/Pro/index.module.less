@@ -301,7 +301,8 @@
   background: var(--pro-accent-soft);
 }
 
-.notice {
+.notice,
+.noticeError {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -332,6 +333,15 @@
     color: var(--pro-text-secondary);
     font-size: 11px;
     line-height: 1.5;
+  }
+}
+
+.noticeError {
+  border-color: rgba(209, 93, 80, 0.3);
+  background: rgba(209, 93, 80, 0.09);
+
+  > svg {
+    color: #b4463a;
   }
 }
 

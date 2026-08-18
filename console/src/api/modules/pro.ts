@@ -32,6 +32,20 @@ export interface ProCredential {
   updated_at: string;
 }
 
+export interface ProDriverStatus {
+  available: boolean;
+  reason?: string | null;
+  security_level: string;
+}
+
+export interface ProHealth {
+  status: "ok" | "degraded";
+  mode: "pro";
+  default_driver: string;
+  runtime_available: boolean;
+  driver_statuses: Record<string, ProDriverStatus>;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getApiToken();
   const response = await fetch(getApiUrl(path), {
@@ -60,6 +74,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const proApi = {
+  getHealth: () => request<ProHealth>("/pro/healthz"),
   me: () => request<ProUser>("/pro/me"),
   listRuntimes: () => request<ProRuntime[]>("/pro/runtimes"),
   createRuntime: (runtimeId: string, autoStart = false) =>

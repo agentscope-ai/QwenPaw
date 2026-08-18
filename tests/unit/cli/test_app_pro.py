@@ -3,6 +3,7 @@
 
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from qwenpaw.cli.app_cmd import app_cmd
@@ -21,6 +22,7 @@ def test_app_pro_dispatches_to_control_plane() -> None:
         port=9090,
         log_level="info",
         config_path=None,
+        force_public=False,
     )
 
 
@@ -55,3 +57,33 @@ def test_app_config_requires_pro(tmp_path) -> None:
 
     assert result.exit_code != 0
     assert "--config is only supported with --pro" in result.output
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::"])
+def test_app_pro_requires_force_public_for_non_loopback(host: str) -> None:
+    result = CliRunner().invoke(
+        app_cmd,
+        ["--pro", "--host", host],
+    )
+
+    assert result.exit_code != 0
+    assert "Use --force-public" in result.output
+
+
+def test_app_pro_forwards_force_public() -> None:
+    with patch("qwenpaw.pro.control_app.run_pro_app") as run_pro:
+        result = CliRunner().invoke(
+            app_cmd,
+            ["--pro", "--host", "::", "--force-public"],
+        )
+
+    assert result.exit_code == 0
+    assert run_pro.call_args.kwargs["host"] == "::"
+    assert run_pro.call_args.kwargs["force_public"] is True
+
+
+def test_force_public_requires_pro() -> None:
+    result = CliRunner().invoke(app_cmd, ["--force-public"])
+
+    assert result.exit_code != 0
+    assert "--force-public is only supported with --pro" in result.output

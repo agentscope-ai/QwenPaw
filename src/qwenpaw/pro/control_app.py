@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +29,7 @@ from ..utils.http import is_loopback_host
 from .auth import ProAuthService, ProUser
 from .config import ProConfig, ProConfigStore
 from .credentials import TenantCredentialVault
+from .driver import RuntimeDriverUnavailableError
 from .local_driver import LocalProcessRuntimeDriver
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 from .registry import RuntimeRegistry
@@ -194,6 +196,12 @@ def create_pro_app(  # pylint: disable=too-many-statements
         return f"personal-{user.user_id}"
 
     async def ensure_personal_runtime(user: ProUser) -> RuntimeRecord:
+        try:
+            runtime_service.require_driver_available(
+                runtime_service.default_driver,
+            )
+        except RuntimeDriverUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         records = await run_in_threadpool(
             runtime_service.list,
             user.user_id,
@@ -263,16 +271,23 @@ def create_pro_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=404, detail="Runtime not found")
 
     @app.get("/api/pro/healthz")
-    async def healthz() -> dict[str, Any]:
+    async def healthz(
+        _: ProUser = Depends(require_user),
+    ) -> dict[str, Any]:
         security_levels = {
             name: driver.security_level
             for name, driver in runtime_service.drivers.items()
         }
         return {
-            "status": "ok",
+            "status": (
+                "ok" if runtime_service.runtime_available() else "degraded"
+            ),
             "mode": "pro",
             "security_levels": security_levels,
             "drivers": sorted(runtime_service.drivers),
+            "driver_statuses": runtime_service.driver_statuses(),
+            "default_driver": runtime_service.default_driver,
+            "runtime_available": runtime_service.runtime_available(),
         }
 
     @app.get("/api/version")
@@ -479,6 +494,8 @@ def create_pro_app(  # pylint: disable=too-many-statements
                     body.runtime_id,
                 )
             return _runtime_payload(runtime_service, record)
+        except RuntimeDriverUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
@@ -513,6 +530,8 @@ def create_pro_app(  # pylint: disable=too-many-statements
                 runtime_service.start,
                 runtime_id,
             )
+        except RuntimeDriverUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -704,16 +723,38 @@ def run_pro_app(
     port: int,
     log_level: str,
     config_path: Path | None = None,
+    force_public: bool = False,
 ) -> None:
-    """Run the local-only QwenPaw Pro control plane."""
-    if not is_loopback_host(host):
+    """Run the QwenPaw Pro control plane with safe public-bind defaults."""
+    public_bind = not is_loopback_host(host)
+    if public_bind and not force_public:
         raise ValueError(
-            f"QwenPaw Pro local mode only supports a loopback host: {host}",
+            "QwenPaw Pro refuses a non-loopback host by default. "
+            "Use --force-public after initializing an administrator.",
         )
     root_dir = get_pro_root()
     pro_config = ProConfigStore(
         root_dir / "control.db",
     ).resolve(config_path, available_drivers={"local"})
+    if public_bind:
+        database_path = root_dir / "control.db"
+        credential_vault = TenantCredentialVault(
+            database_path,
+            root_dir / "secrets" / ".vault_key",
+        )
+        pro_auth = ProAuthService(database_path, credential_vault)
+        if not pro_auth.has_enabled_admin():
+            raise ValueError(
+                "Public Pro binding requires an initialized, enabled "
+                "administrator. Start on loopback first and create the "
+                "administrator account.",
+            )
+        warning = (
+            "QwenPaw Pro is accepting network connections at "
+            f"{host}:{port}. --force-public does not provide TLS. "
+            "Use a trusted network or a TLS reverse proxy."
+        )
+        logging.getLogger(__name__).warning("%s", warning)
     uvicorn.run(
         create_pro_app(pro_config=pro_config, root_dir=root_dir),
         host=host,

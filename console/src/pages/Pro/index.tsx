@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { App, Button, Form, Input, Modal, Select, Switch, Tag } from "antd";
 import {
   Activity,
+  CircleAlert,
   CircleStop,
   House,
   KeyRound,
@@ -22,6 +23,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import {
   proApi,
   type ProCredential,
+  type ProHealth,
   type ProRuntime,
   type ProUser,
 } from "../../api/modules/pro";
@@ -46,6 +48,7 @@ export default function ProPage() {
   const [runtimes, setRuntimes] = useState<ProRuntime[]>([]);
   const [users, setUsers] = useState<ProUser[]>([]);
   const [credentials, setCredentials] = useState<ProCredential[]>([]);
+  const [health, setHealth] = useState<ProHealth | null>(null);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -75,11 +78,12 @@ export default function ProPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([proApi.me(), proApi.listRuntimes()])
-      .then(([identity, runtimeList]) => {
+    Promise.all([proApi.me(), proApi.listRuntimes(), proApi.getHealth()])
+      .then(([identity, runtimeList, runtimeHealth]) => {
         if (cancelled) return;
         setMe(identity);
         setRuntimes(runtimeList);
+        setHealth(runtimeHealth);
       })
       .catch((error) => message.error(error.message))
       .finally(() => {
@@ -229,6 +233,9 @@ export default function ProPage() {
   const failedCount = runtimes.filter(
     (runtime) => runtime.state === "failed",
   ).length;
+  const runtimeAvailable = health?.runtime_available === true;
+  const runtimeAvailabilityKnown = health !== null;
+  const defaultDriverStatus = health?.driver_statuses[health.default_driver];
 
   return (
     <div className={styles.shell}>
@@ -312,6 +319,7 @@ export default function ProPage() {
                 <Button
                   type="primary"
                   icon={<Plus size={16} />}
+                  disabled={!runtimeAvailable}
                   onClick={() => setRuntimeModalOpen(true)}
                 >
                   {t("pro.runtimes.newRuntime")}
@@ -341,17 +349,53 @@ export default function ProPage() {
               <Metric
                 icon={<ShieldCheck size={18} />}
                 label={t("pro.runtimes.isolationPolicy")}
-                value={t("pro.runtimes.failClosed")}
-                detail={t("pro.runtimes.noFallback")}
+                value={
+                  !runtimeAvailabilityKnown
+                    ? t("common.loading")
+                    : runtimeAvailable
+                    ? t("pro.runtimes.available")
+                    : t("pro.runtimes.unavailable")
+                }
+                detail={
+                  !runtimeAvailabilityKnown
+                    ? t("common.loading")
+                    : runtimeAvailable
+                    ? t("pro.runtimes.noFallback")
+                    : t("pro.runtimes.executionBlocked")
+                }
+                warning={runtimeAvailabilityKnown && !runtimeAvailable}
               />
             </div>
-            <div className={styles.notice}>
-              <ShieldCheck size={18} />
-              <div>
-                <strong>{t("pro.runtimes.isolationTitle")}</strong>
-                <span>{t("pro.runtimes.isolationDescription")}</span>
+            {runtimeAvailabilityKnown && (
+              <div
+                className={
+                  runtimeAvailable ? styles.notice : styles.noticeError
+                }
+              >
+                {runtimeAvailable ? (
+                  <ShieldCheck size={18} />
+                ) : (
+                  <CircleAlert size={18} />
+                )}
+                <div>
+                  <strong>
+                    {runtimeAvailable
+                      ? t("pro.runtimes.isolationTitle")
+                      : t("pro.runtimes.unavailableTitle")}
+                  </strong>
+                  <span>
+                    {runtimeAvailable
+                      ? t("pro.runtimes.isolationDescription")
+                      : t("pro.runtimes.unavailableDescription", {
+                          driver: health?.default_driver || "local",
+                          reason:
+                            defaultDriverStatus?.reason ||
+                            t("pro.runtimes.preflightFailed"),
+                        })}
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
             <div className={styles.grid} aria-busy={loading}>
               {runtimes.map((runtime) => (
                 <article className={styles.card} key={runtime.runtime_id}>
@@ -402,6 +446,7 @@ export default function ProPage() {
                     ) : (
                       <Button
                         icon={<Play size={15} />}
+                        disabled={!runtimeAvailable}
                         loading={busyId === runtime.runtime_id}
                         onClick={() =>
                           runRuntimeAction(runtime.runtime_id, "start")

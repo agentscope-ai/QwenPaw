@@ -127,6 +127,15 @@ class ProAuthService:
             ).fetchone()
         return int(row["count"])
 
+    def has_enabled_admin(self) -> bool:
+        """Return whether public startup has an initialized administrator."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM pro_users "
+                "WHERE role = 'admin' AND disabled = 0 LIMIT 1",
+            ).fetchone()
+        return row is not None
+
     def registration_enabled(self) -> bool:
         with self._connect() as connection:
             row = connection.execute(

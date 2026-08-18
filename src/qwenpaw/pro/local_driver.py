@@ -8,6 +8,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -16,7 +17,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import IO, Any
 
-from .driver import RuntimeDriver
+from .driver import RuntimeDriver, RuntimeDriverAvailability
 from .models import RuntimeRecord, RuntimeState
 from .process_isolation import ProcessIsolator, platform_process_isolator
 
@@ -53,6 +54,51 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
             self.security_level = "isolated-local-shared-network"
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._log_handles: dict[str, IO[str]] = {}
+
+    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+        """Run the native isolation probes in a disposable runtime root."""
+        root_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix=".driver-preflight-",
+                dir=root_dir,
+            ) as temporary_dir:
+                runtime_root = Path(temporary_dir) / "runtime"
+                record = RuntimeRecord(
+                    runtime_id="preflight",
+                    tenant_id="system",
+                    owner_user_id="system",
+                    driver=self.name,
+                    host="127.0.0.1",
+                    port=allocate_loopback_port(),
+                    state=RuntimeState.CREATED,
+                    working_dir=runtime_root / "working",
+                    secret_dir=runtime_root / "secrets",
+                    backup_dir=runtime_root / "backups",
+                    log_file=runtime_root / "logs" / "app.log",
+                )
+                for path in (
+                    record.working_dir,
+                    record.secret_dir,
+                    record.backup_dir,
+                    record.log_file.parent,
+                ):
+                    path.mkdir(parents=True, exist_ok=True)
+                environment = {
+                    "PATH": os.environ.get("PATH", ""),
+                    "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+                }
+                self._isolator.prepare(
+                    record,
+                    [sys.executable, "-B", "-c", "pass"],
+                    environment,
+                )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return RuntimeDriverAvailability(
+                available=False,
+                reason=str(exc),
+            )
+        return RuntimeDriverAvailability(available=True)
 
     def start(
         self,

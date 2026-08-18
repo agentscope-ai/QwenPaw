@@ -70,6 +70,17 @@ def test_driver_requires_runtime_boundary_token(tmp_path: Path) -> None:
         driver.start(_record(tmp_path), {})
 
 
+def test_driver_preflight_reports_isolation_failure(tmp_path: Path) -> None:
+    driver = LocalProcessRuntimeDriver(
+        isolator=UnsupportedProcessIsolator("required isolation unavailable"),
+    )
+
+    availability = driver.preflight(tmp_path / "preflight")
+
+    assert availability.available is False
+    assert availability.reason == "required isolation unavailable"
+
+
 def test_linux_command_mounts_only_runtime_root_writable(
     tmp_path: Path,
     monkeypatch,
