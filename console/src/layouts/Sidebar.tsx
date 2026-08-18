@@ -57,6 +57,8 @@ import type { FlatMenuEntry } from "./registry/adapter";
 import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
+import { ShieldCheck } from "lucide-react";
+import { proApi } from "../api/modules/pro";
 import {
   dismissDesktopModeHint,
   shouldShowDesktopModeHint,
@@ -128,6 +130,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const currentSessionId = getSessionIdFromPath(location.pathname);
   const chatPath = buildChatPath(currentSessionId);
   const [authEnabled, setAuthEnabled] = useState(false);
+  const [proAdmin, setProAdmin] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
@@ -209,7 +212,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   useEffect(() => {
     authApi
       .getStatus()
-      .then((res) => setAuthEnabled(res.enabled))
+      .then(async (res) => {
+        setAuthEnabled(res.enabled);
+        if (res.mode === "pro") {
+          const user = await proApi.me();
+          setProAdmin(user.role === "admin");
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -787,6 +796,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
       {authEnabled && !collapsed && (
         <div className={styles.authActions}>
+          {proAdmin && (
+            <Button
+              type="text"
+              icon={<ShieldCheck size={16} />}
+              onClick={() => navigate("/pro/admin")}
+              block
+              className={styles.authBtn}
+            >
+              Pro administration
+            </Button>
+          )}
           <Button
             type="text"
             icon={<SparkSearchUserLine size={16} />}

@@ -4,7 +4,8 @@ import {
   bailianDarkTheme,
   bailianTheme,
 } from "@agentscope-ai/design";
-import { App as AntdApp } from "antd";
+import { App as AntdApp, theme as antdTheme } from "antd";
+import type { ThemeConfig } from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,7 +15,6 @@ import jaJP from "antd/locale/ja_JP";
 import ruRU from "antd/locale/ru_RU";
 import idID from "antd/locale/id_ID";
 import type { Locale } from "antd/es/locale";
-import { theme as antdTheme } from "antd";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import "dayjs/locale/zh-cn";
@@ -38,6 +38,7 @@ import {
 } from "./utils/navigationMode";
 
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
+const ProPage = lazyImportWithRetry("./pages/Pro/index");
 // Desktop OS shell. Uses React.lazy (not lazyImportWithRetry, which only
 // resolves the ./pages/** glob) so it can load from ./os/.
 const DesktopOSPage = lazy(() => import("./os/DesktopOS"));
@@ -140,7 +141,7 @@ function AuthGuard({
   return <>{children}</>;
 }
 
-function AppInner() {
+function AppInner({ proMode = false }: { proMode?: boolean }) {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
@@ -230,6 +231,20 @@ function AppInner() {
           }
         />
         <Route
+          path="/pro/admin"
+          element={
+            proMode ? (
+              <AuthGuard>
+                <Suspense fallback={null}>
+                  <ProPage />
+                </Suspense>
+              </AuthGuard>
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
           path="/*"
           element={
             <AuthGuard>
@@ -250,7 +265,7 @@ function AppInner() {
         prefixCls="qwenpaw"
         locale={antdLocale}
         theme={{
-          ...(selectedTheme as any)?.theme,
+          ...(selectedTheme as { theme?: ThemeConfig }).theme,
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
@@ -275,10 +290,34 @@ function AppInner() {
 function App() {
   return (
     <ThemeProvider>
-      <PluginProvider>
-        <AppInner />
-      </PluginProvider>
+      <BackendModeRouter />
     </ThemeProvider>
+  );
+}
+
+function BackendModeRouter() {
+  const [mode, setMode] = useState<"loading" | "standard" | "pro">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    authApi
+      .getStatus()
+      .then((status) => {
+        if (!cancelled) setMode(status.mode === "pro" ? "pro" : "standard");
+      })
+      .catch(() => {
+        if (!cancelled) setMode("standard");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (mode === "loading") return null;
+  return (
+    <PluginProvider>
+      <AppInner proMode={mode === "pro"} />
+    </PluginProvider>
   );
 }
 

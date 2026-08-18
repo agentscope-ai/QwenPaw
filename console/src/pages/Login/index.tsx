@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Form, Input } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
-import { LockOutlined, UserOutlined } from "@ant-design/icons";
+import { LockKeyhole, UserRound } from "lucide-react";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const { message } = useAppMessage();
   const rawRedirect = searchParams.get("redirect") || "/chat";
   const redirect =
@@ -45,6 +46,7 @@ export default function LoginPage() {
           return;
         }
         setHasUsers(res.has_users);
+        setRegistrationEnabled(Boolean(res.registration_enabled));
         if (!res.has_users) {
           setIsRegister(true);
         }
@@ -146,7 +148,8 @@ export default function LoginPage() {
           >
             <Input
               prefix={
-                <UserOutlined
+                <UserRound
+                  size={16}
                   style={{
                     color: isDark ? "rgba(255,255,255,0.45)" : undefined,
                   }}
@@ -163,7 +166,8 @@ export default function LoginPage() {
           >
             <Input.Password
               prefix={
-                <LockOutlined
+                <LockKeyhole
+                  size={16}
                   style={{
                     color: isDark ? "rgba(255,255,255,0.45)" : undefined,
                   }}
@@ -185,6 +189,16 @@ export default function LoginPage() {
             </Button>
           </Form.Item>
         </Form>
+        {hasUsers && registrationEnabled && (
+          <Button
+            type="link"
+            block
+            onClick={() => setIsRegister((current) => !current)}
+            style={{ marginTop: 14 }}
+          >
+            {isRegister ? "Return to sign in" : "Create an account"}
+          </Button>
+        )}
       </div>
     </div>
   );

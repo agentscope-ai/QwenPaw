@@ -38,7 +38,8 @@ describe("authApi.login", () => {
   it("request body contains username and password", async () => {
     mockFetch(200, { token: "tok", username: "alice" });
     await authApi.login("alice", "secret");
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(init?.body));
     expect(body).toEqual({ username: "alice", password: "secret" });
   });
 
@@ -76,6 +77,21 @@ describe("authApi.register", () => {
     mockFetch(409, { detail: "Username already exists" });
     await expect(authApi.register("bob", "pass")).rejects.toThrow(
       "Username already exists",
+    );
+  });
+
+  it("formats FastAPI validation details for a short password", async () => {
+    mockFetch(422, {
+      detail: [
+        {
+          type: "string_too_short",
+          loc: ["body", "password"],
+          msg: "String should have at least 8 characters",
+        },
+      ],
+    });
+    await expect(authApi.register("bob", "short")).rejects.toThrow(
+      "password: String should have at least 8 characters",
     );
   });
 
@@ -126,7 +142,8 @@ describe("authApi.updateProfile", () => {
   it("request body contains current password and new username", async () => {
     mockFetch(200, { token: "t", username: "newname" });
     await authApi.updateProfile("oldpass", "newname");
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(init?.body));
     expect(body.current_password).toBe("oldpass");
     expect(body.new_username).toBe("newname");
     expect(body.new_password).toBeNull();
@@ -136,8 +153,9 @@ describe("authApi.updateProfile", () => {
     localStorage.setItem("qwenpaw_auth_token", "my-token");
     mockFetch(200, { token: "t", username: "alice" });
     await authApi.updateProfile("oldpass");
-    const headers = (fetch as any).mock.calls[0][1].headers;
-    expect(headers.Authorization).toBe("Bearer my-token");
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const headers = new Headers(init?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer my-token");
   });
 
   it("throws detail error on update failure", async () => {

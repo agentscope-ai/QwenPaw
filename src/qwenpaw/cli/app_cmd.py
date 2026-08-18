@@ -66,6 +66,11 @@ Recommended:
 )
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev only)")
 @click.option(
+    "--pro",
+    is_flag=True,
+    help="Run the local QwenPaw Pro runtime control plane.",
+)
+@click.option(
     "--log-level",
     default="info",
     type=click.Choice(
@@ -94,6 +99,7 @@ def app_cmd(
     host: str,
     port: int,
     reload: bool,
+    pro: bool,
     workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
@@ -147,6 +153,19 @@ def app_cmd(
     # On Windows without admin, warn that sandbox runs in unelevated mode
     # with limited isolation.
     warn_unelevated_sandbox()
+
+    if pro:
+        if reload:
+            raise click.ClickException(
+                "--reload is not supported with --pro.",
+            )
+        from ..pro.control_app import run_pro_app
+
+        try:
+            run_pro_app(host=host, port=port, log_level=log_level)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        return
 
     uvicorn.run(
         "qwenpaw.app._app:app",
