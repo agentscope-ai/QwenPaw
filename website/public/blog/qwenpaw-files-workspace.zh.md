@@ -1,6 +1,6 @@
 ---
 title: "QwenPaw Files：一个地方看清 Agent 的工作、档案与记忆"
-date: 2026-08-13
+date: 2026-08-17
 author: QwenPaw Team
 tags: [Files, Workspace, Profile, Daily, Knowledge Base]
 cover: https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png

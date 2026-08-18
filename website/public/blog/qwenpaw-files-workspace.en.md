@@ -1,6 +1,6 @@
 ---
 title: "QwenPaw Files: One Place for Your Agent's Work, Profile, and Memory"
-date: 2026-08-13
+date: 2026-08-17
 author: QwenPaw Team
 tags: [Files, Workspace, Profile, Daily, Knowledge Base]
 cover: https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png
