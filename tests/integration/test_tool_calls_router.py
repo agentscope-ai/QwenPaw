@@ -14,26 +14,28 @@ _TOOL_CALLS_TIMEOUT = default_http_timeout(15.0)
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_tool_calls_list(app_server) -> None:
+def test_tool_calls_list_by_session(app_server) -> None:
     """Test purpose:
-    - Verify GET /api/tool-calls returns a list of tool calls. Console
-      tool call history renders from this endpoint.
+    - Verify GET /api/tool-calls/{session_id} returns tool calls for
+      a session. Console tool call history renders from this endpoint.
 
     Test flow:
-    1. GET /api/tool-calls.
-    2. Assert 200 and response is a list.
+    1. GET /api/tool-calls/nonexistent_session_xyz.
+    2. Assert 200 and response has items and total fields.
 
     API endpoints:
-    - GET /api/tool-calls
+    - GET /api/tool-calls/{session_id}
     """
     resp = app_server.api_request(
         "GET",
-        "/api/tool-calls",
+        "/api/tool-calls/nonexistent_session_xyz",
         timeout=_TOOL_CALLS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert isinstance(payload, list)
+    assert isinstance(payload, dict)
+    assert "items" in payload
+    assert "total" in payload
 
 
 @pytest.mark.integration

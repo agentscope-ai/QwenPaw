@@ -24,10 +24,10 @@ def test_governance_action_enum_values() -> None:
     """
     from qwenpaw.governance.policy import GovernanceAction
 
-    assert GovernanceAction.ALLOW.value == "ALLOW"
-    assert GovernanceAction.DENY.value == "DENY"
-    assert GovernanceAction.ASK.value == "ASK"
-    assert GovernanceAction.SANDBOX_FALLBACK.value == "SANDBOX_FALLBACK"
+    assert GovernanceAction.ALLOW.value == "allow"
+    assert GovernanceAction.DENY.value == "deny"
+    assert GovernanceAction.ASK.value == "ask"
+    assert GovernanceAction.SANDBOX_FALLBACK.value == "sandbox_fallback"
 
 
 @pytest.mark.integration

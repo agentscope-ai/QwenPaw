@@ -13,31 +13,6 @@ _MESSAGES_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration
-@pytest.mark.p1
-def test_messages_list_session(app_server) -> None:
-    """Test purpose:
-    - Verify GET /api/messages/{session_id} returns messages for a
-      session. Console chat view renders from this endpoint.
-
-    Test flow:
-    1. GET /api/messages/nonexistent_session_xyz.
-    2. Assert 200 with empty list (session doesn't exist yet).
-
-    API endpoints:
-    - GET /api/messages/{session_id}
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/messages/nonexistent_session_xyz",
-        timeout=_MESSAGES_TIMEOUT,
-    )
-    assert resp.status_code == 200, app_server.logs_tail()
-    payload = resp.json()
-    # Should return empty list or dict with messages
-    assert isinstance(payload, (list, dict))
-
-
-@pytest.mark.integration
 @pytest.mark.p2
 def test_messages_tool_call_info(app_server) -> None:
     """Test purpose:

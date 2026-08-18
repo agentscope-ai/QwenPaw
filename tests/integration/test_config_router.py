@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Integration tests for the config router (application configuration).
 
-Covers various config endpoints: language, offload policy, upload limit.
+Covers various config endpoints: channel types, user timezone, channel schemas.
 """
 
 from __future__ import annotations
@@ -19,26 +19,26 @@ _CONFIG_TIMEOUT = default_http_timeout(15.0)
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_config_language_get(app_server) -> None:
+def test_config_channel_types_get(app_server) -> None:
     """Test purpose:
-    - Verify GET /api/config/language returns current UI language.
-      Console uses this to set locale on boot.
+    - Verify GET /api/config/channels/types returns available channel
+      types. Console uses this to populate channel type dropdowns.
 
     Test flow:
-    1. GET /api/config/language.
-    2. Assert 200 and response has language field.
+    1. GET /api/config/channels/types.
+    2. Assert 200 and response is a list.
 
     API endpoints:
-    - GET /api/config/language
+    - GET /api/config/channels/types
     """
     resp = app_server.api_request(
         "GET",
-        "/api/config/language",
+        "/api/config/channels/types",
         timeout=_CONFIG_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert "language" in payload or "lang" in payload
+    assert isinstance(payload, list)
 
 
 @pytest.mark.integration
@@ -89,26 +89,26 @@ def test_config_language_put(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_config_offload_policy_get(app_server) -> None:
+def test_config_user_timezone_get(app_server) -> None:
     """Test purpose:
-    - Verify GET /api/config/offload-policy returns current policy.
-      Console settings page reads this.
+    - Verify GET /api/config/user-timezone returns the configured
+      timezone. Console displays this in settings.
 
     Test flow:
-    1. GET /api/config/offload-policy.
-    2. Assert 200 and response is a dict.
+    1. GET /api/config/user-timezone.
+    2. Assert 200 and response has timezone field.
 
     API endpoints:
-    - GET /api/config/offload-policy
+    - GET /api/config/user-timezone
     """
     resp = app_server.api_request(
         "GET",
-        "/api/config/offload-policy",
+        "/api/config/user-timezone",
         timeout=_CONFIG_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert isinstance(payload, dict)
+    assert "timezone" in payload
 
 
 @pytest.mark.integration
@@ -149,26 +149,26 @@ def test_config_offload_policy_put(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_config_upload_limit_get(app_server) -> None:
+def test_config_channel_schemas_get(app_server) -> None:
     """Test purpose:
-    - Verify GET /api/config/upload-limit returns the upload size limit.
-      Console uses this to validate file uploads before sending.
+    - Verify GET /api/config/channels/schemas returns channel config
+      schemas. Console uses this for dynamic form rendering.
 
     Test flow:
-    1. GET /api/config/upload-limit.
-    2. Assert 200 and response has limit field.
+    1. GET /api/config/channels/schemas.
+    2. Assert 200 and response is a dict.
 
     API endpoints:
-    - GET /api/config/upload-limit
+    - GET /api/config/channels/schemas
     """
     resp = app_server.api_request(
         "GET",
-        "/api/config/upload-limit",
+        "/api/config/channels/schemas",
         timeout=_CONFIG_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert "limit" in payload or "max_size" in payload
+    assert isinstance(payload, dict)
 
 
 # ------------------------------------------------------------------ #

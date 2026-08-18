@@ -16,24 +16,26 @@ _APPROVAL_TIMEOUT = default_http_timeout(15.0)
 @pytest.mark.p1
 def test_approval_list_pending(app_server) -> None:
     """Test purpose:
-    - Verify GET /api/approval returns a list of pending approvals.
+    - Verify GET /api/approval/list returns pending approvals.
       Console approval queue renders from this endpoint.
 
     Test flow:
-    1. GET /api/approval.
-    2. Assert 200 and response is a list.
+    1. GET /api/approval/list.
+    2. Assert 200 and response has pending_approvals field.
 
     API endpoints:
-    - GET /api/approval
+    - GET /api/approval/list
     """
     resp = app_server.api_request(
         "GET",
-        "/api/approval",
+        "/api/approval/list",
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert isinstance(payload, list)
+    assert isinstance(payload, dict)
+    assert "pending_approvals" in payload
+    assert "count" in payload
 
 
 @pytest.mark.integration

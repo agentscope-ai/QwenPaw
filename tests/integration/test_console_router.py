@@ -34,7 +34,9 @@ def test_console_inbox_events_list(app_server) -> None:
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert isinstance(payload, list)
+    assert isinstance(payload, dict)
+    assert "events" in payload
+    assert "total" in payload
 
 
 @pytest.mark.integration
@@ -104,7 +106,8 @@ def test_console_push_messages(app_server) -> None:
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
-    assert isinstance(payload, list)
+    assert isinstance(payload, dict)
+    assert "messages" in payload
 
 
 @pytest.mark.integration
