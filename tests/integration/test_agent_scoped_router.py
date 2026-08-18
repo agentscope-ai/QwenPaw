@@ -8,11 +8,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_agent_scoped_get():
+async def test_agent_scoped_get(app_server):
     """Test GET /api/agent-scoped returns agent-scoped settings."""
     async with app_server() as server:
         response = await server.get("/api/agent-scoped")
@@ -22,7 +21,7 @@ async def test_agent_scoped_get():
 
 
 @pytest.mark.integration
-async def test_agent_scoped_update_invalid():
+async def test_agent_scoped_update_invalid(app_server):
     """Test POST /api/agent-scoped with invalid data."""
     async with app_server() as server:
         response = await server.post("/api/agent-scoped", json={})
@@ -31,7 +30,7 @@ async def test_agent_scoped_update_invalid():
 
 
 @pytest.mark.integration
-async def test_agent_scoped_structure():
+async def test_agent_scoped_structure(app_server):
     """Test agent-scoped response structure."""
     async with app_server() as server:
         response = await server.get("/api/agent-scoped")
@@ -43,7 +42,7 @@ async def test_agent_scoped_structure():
 
 
 @pytest.mark.integration
-async def test_agent_scoped_update_partial():
+async def test_agent_scoped_update_partial(app_server):
     """Test POST /api/agent-scoped with partial update."""
     async with app_server() as server:
         # Try to update with empty dict
@@ -52,7 +51,7 @@ async def test_agent_scoped_update_partial():
 
 
 @pytest.mark.integration
-async def test_agent_scoped_get_specific():
+async def test_agent_scoped_get_specific(app_server):
     """Test GET /api/agent-scoped with specific key."""
     async with app_server() as server:
         response = await server.get("/api/agent-scoped?key=config")

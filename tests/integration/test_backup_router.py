@@ -9,11 +9,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_backup_list():
+async def test_backup_list(app_server):
     """Test GET /api/backup returns backup list."""
     async with app_server() as server:
         response = await server.get("/api/backup")
@@ -23,7 +22,7 @@ async def test_backup_list():
 
 
 @pytest.mark.integration
-async def test_backup_create():
+async def test_backup_create(app_server):
     """Test POST /api/backup creates a backup."""
     async with app_server() as server:
         response = await server.post("/api/backup", json={})
@@ -32,7 +31,7 @@ async def test_backup_create():
 
 
 @pytest.mark.integration
-async def test_backup_delete_nonexistent():
+async def test_backup_delete_nonexistent(app_server):
     """Test DELETE /api/backup/{backup_id} with non-existent backup."""
     async with app_server() as server:
         response = await server.delete("/api/backup/nonexistent-backup-12345")
@@ -41,7 +40,7 @@ async def test_backup_delete_nonexistent():
 
 
 @pytest.mark.integration
-async def test_backup_list_pagination():
+async def test_backup_list_pagination(app_server):
     """Test backup list pagination."""
     async with app_server() as server:
         response = await server.get("/api/backup?limit=5&offset=0")
@@ -52,7 +51,7 @@ async def test_backup_list_pagination():
 
 
 @pytest.mark.integration
-async def test_backup_structure():
+async def test_backup_structure(app_server):
     """Test backup response structure."""
     async with app_server() as server:
         response = await server.get("/api/backup")

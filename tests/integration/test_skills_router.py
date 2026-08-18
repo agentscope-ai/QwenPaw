@@ -8,11 +8,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_skills_list():
+async def test_skills_list(app_server):
     """Test GET /api/skills returns skill list."""
     async with app_server() as server:
         response = await server.get("/api/skills")
@@ -26,7 +25,7 @@ async def test_skills_list():
 
 
 @pytest.mark.integration
-async def test_skills_list_with_filters():
+async def test_skills_list_with_filters(app_server):
     """Test GET /api/skills with query parameters."""
     async with app_server() as server:
         # Test with limit parameter
@@ -38,7 +37,7 @@ async def test_skills_list_with_filters():
 
 
 @pytest.mark.integration
-async def test_skills_get_nonexistent():
+async def test_skills_get_nonexistent(app_server):
     """Test GET /api/skills/{skill_id} with non-existent skill."""
     async with app_server() as server:
         response = await server.get("/api/skills/nonexistent-skill-id-12345")
@@ -47,7 +46,7 @@ async def test_skills_get_nonexistent():
 
 
 @pytest.mark.integration
-async def test_skills_empty_filter():
+async def test_skills_empty_filter(app_server):
     """Test GET /api/skills with empty filter."""
     async with app_server() as server:
         response = await server.get("/api/skills?category=")
@@ -57,7 +56,7 @@ async def test_skills_empty_filter():
 
 
 @pytest.mark.integration
-async def test_skills_pagination():
+async def test_skills_pagination(app_server):
     """Test skills list pagination."""
     async with app_server() as server:
         # Get first page

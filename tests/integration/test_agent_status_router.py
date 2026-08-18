@@ -8,11 +8,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_agent_status_list():
+async def test_agent_status_list(app_server):
     """Test GET /api/agent-status returns agent status list."""
     async with app_server() as server:
         response = await server.get("/api/agent-status")
@@ -22,7 +21,7 @@ async def test_agent_status_list():
 
 
 @pytest.mark.integration
-async def test_agent_status_get_specific():
+async def test_agent_status_get_specific(app_server):
     """Test GET /api/agent-status/{agent_id} returns specific agent status."""
     async with app_server() as server:
         # First get list to find an agent_id
@@ -38,7 +37,7 @@ async def test_agent_status_get_specific():
 
 
 @pytest.mark.integration
-async def test_agent_status_get_nonexistent():
+async def test_agent_status_get_nonexistent(app_server):
     """Test GET /api/agent-status/{agent_id} with non-existent agent."""
     async with app_server() as server:
         url = "/api/agent-status/nonexistent-agent-12345"
@@ -48,7 +47,7 @@ async def test_agent_status_get_nonexistent():
 
 
 @pytest.mark.integration
-async def test_agent_status_structure():
+async def test_agent_status_structure(app_server):
     """Test agent status response structure."""
     async with app_server() as server:
         response = await server.get("/api/agent-status")
@@ -62,7 +61,7 @@ async def test_agent_status_structure():
 
 
 @pytest.mark.integration
-async def test_agent_status_with_filter():
+async def test_agent_status_with_filter(app_server):
     """Test GET /api/agent-status with filter."""
     async with app_server() as server:
         response = await server.get("/api/agent-status?status=active")

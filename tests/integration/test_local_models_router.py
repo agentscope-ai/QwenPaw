@@ -9,11 +9,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_local_models_list():
+async def test_local_models_list(app_server):
     """Test GET /api/local-models returns model list."""
     async with app_server() as server:
         response = await server.get("/api/local-models")
@@ -23,7 +22,7 @@ async def test_local_models_list():
 
 
 @pytest.mark.integration
-async def test_local_models_get_nonexistent():
+async def test_local_models_get_nonexistent(app_server):
     """Test GET /api/local-models/{model_id} with non-existent model."""
     async with app_server() as server:
         url = "/api/local-models/nonexistent-model-12345"
@@ -33,7 +32,7 @@ async def test_local_models_get_nonexistent():
 
 
 @pytest.mark.integration
-async def test_local_models_download_invalid():
+async def test_local_models_download_invalid(app_server):
     """Test POST /api/local-models/download with invalid model."""
     async with app_server() as server:
         response = await server.post(
@@ -45,7 +44,7 @@ async def test_local_models_download_invalid():
 
 
 @pytest.mark.integration
-async def test_local_models_list_pagination():
+async def test_local_models_list_pagination(app_server):
     """Test local models list pagination."""
     async with app_server() as server:
         response = await server.get("/api/local-models?limit=5&offset=0")
@@ -56,7 +55,7 @@ async def test_local_models_list_pagination():
 
 
 @pytest.mark.integration
-async def test_local_models_structure():
+async def test_local_models_structure(app_server):
     """Test local model response structure."""
     async with app_server() as server:
         response = await server.get("/api/local-models")
@@ -70,7 +69,7 @@ async def test_local_models_structure():
 
 
 @pytest.mark.integration
-async def test_local_models_download_missing_id():
+async def test_local_models_download_missing_id(app_server):
     """Test POST /api/local-models/download without model_id."""
     async with app_server() as server:
         response = await server.post("/api/local-models/download", json={})

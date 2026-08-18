@@ -8,11 +8,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_provider_oauth_status():
+async def test_provider_oauth_status(app_server):
     """Test GET /api/provider-oauth returns OAuth status."""
     async with app_server() as server:
         response = await server.get("/api/provider-oauth")
@@ -22,7 +21,7 @@ async def test_provider_oauth_status():
 
 
 @pytest.mark.integration
-async def test_provider_oauth_authorize_invalid():
+async def test_provider_oauth_authorize_invalid(app_server):
     """Test POST /api/provider-oauth/authorize with invalid data."""
     async with app_server() as server:
         response = await server.post("/api/provider-oauth/authorize", json={})
@@ -31,7 +30,7 @@ async def test_provider_oauth_authorize_invalid():
 
 
 @pytest.mark.integration
-async def test_provider_oauth_status_structure():
+async def test_provider_oauth_status_structure(app_server):
     """Test provider OAuth status response structure."""
     async with app_server() as server:
         response = await server.get("/api/provider-oauth")
@@ -43,7 +42,7 @@ async def test_provider_oauth_status_structure():
 
 
 @pytest.mark.integration
-async def test_provider_oauth_authorize_missing_params():
+async def test_provider_oauth_authorize_missing_params(app_server):
     """Test POST /api/provider-oauth/authorize without required params."""
     async with app_server() as server:
         response = await server.post("/api/provider-oauth/authorize", json={})
@@ -52,7 +51,7 @@ async def test_provider_oauth_authorize_missing_params():
 
 
 @pytest.mark.integration
-async def test_provider_oauth_get_specific():
+async def test_provider_oauth_get_specific(app_server):
     """Test GET /api/provider-oauth with specific provider."""
     async with app_server() as server:
         response = await server.get("/api/provider-oauth?provider=openai")

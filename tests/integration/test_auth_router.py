@@ -10,11 +10,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_auth_status():
+async def test_auth_status(app_server):
     """Test GET /api/auth/status returns auth status."""
     async with app_server() as server:
         response = await server.get("/api/auth/status")
@@ -24,7 +23,7 @@ async def test_auth_status():
 
 
 @pytest.mark.integration
-async def test_auth_user_unauthenticated():
+async def test_auth_user_unauthenticated(app_server):
     """Test GET /api/auth/user without authentication."""
     async with app_server() as server:
         response = await server.get("/api/auth/user")
@@ -33,7 +32,7 @@ async def test_auth_user_unauthenticated():
 
 
 @pytest.mark.integration
-async def test_auth_login_missing_credentials():
+async def test_auth_login_missing_credentials(app_server):
     """Test POST /api/auth/login without credentials."""
     async with app_server() as server:
         response = await server.post("/api/auth/login", json={})
@@ -42,7 +41,7 @@ async def test_auth_login_missing_credentials():
 
 
 @pytest.mark.integration
-async def test_auth_login_invalid_format():
+async def test_auth_login_invalid_format(app_server):
     """Test POST /api/auth/login with invalid format."""
     async with app_server() as server:
         payload = {"invalid": "data"}
@@ -52,7 +51,7 @@ async def test_auth_login_invalid_format():
 
 
 @pytest.mark.integration
-async def test_auth_logout():
+async def test_auth_logout(app_server):
     """Test POST /api/auth/logout."""
     async with app_server() as server:
         response = await server.post("/api/auth/logout")
@@ -61,7 +60,7 @@ async def test_auth_logout():
 
 
 @pytest.mark.integration
-async def test_auth_status_structure():
+async def test_auth_status_structure(app_server):
     """Test auth status response structure."""
     async with app_server() as server:
         response = await server.get("/api/auth/status")

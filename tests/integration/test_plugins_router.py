@@ -10,11 +10,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_plugins_list():
+async def test_plugins_list(app_server):
     """Test GET /api/plugins returns plugin list."""
     async with app_server() as server:
         response = await server.get("/api/plugins")
@@ -24,7 +23,7 @@ async def test_plugins_list():
 
 
 @pytest.mark.integration
-async def test_plugins_available():
+async def test_plugins_available(app_server):
     """Test GET /api/plugins/available returns available plugins."""
     async with app_server() as server:
         response = await server.get("/api/plugins/available")
@@ -34,7 +33,7 @@ async def test_plugins_available():
 
 
 @pytest.mark.integration
-async def test_plugins_list_with_status_filter():
+async def test_plugins_list_with_status_filter(app_server):
     """Test GET /api/plugins with status filter."""
     async with app_server() as server:
         # Filter by installed status
@@ -45,7 +44,7 @@ async def test_plugins_list_with_status_filter():
 
 
 @pytest.mark.integration
-async def test_plugins_get_nonexistent():
+async def test_plugins_get_nonexistent(app_server):
     """Test GET /api/plugins/{plugin_id} with non-existent plugin."""
     async with app_server() as server:
         response = await server.get("/api/plugins/nonexistent-plugin-12345")
@@ -54,7 +53,7 @@ async def test_plugins_get_nonexistent():
 
 
 @pytest.mark.integration
-async def test_plugins_install_invalid():
+async def test_plugins_install_invalid(app_server):
     """Test POST /api/plugins/install with invalid plugin."""
     async with app_server() as server:
         response = await server.post(
@@ -66,7 +65,7 @@ async def test_plugins_install_invalid():
 
 
 @pytest.mark.integration
-async def test_plugins_uninstall_nonexistent():
+async def test_plugins_uninstall_nonexistent(app_server):
     """Test DELETE /api/plugins/{plugin_id} with non-existent plugin."""
     async with app_server() as server:
         response = await server.delete("/api/plugins/nonexistent-plugin-12345")
@@ -75,7 +74,7 @@ async def test_plugins_uninstall_nonexistent():
 
 
 @pytest.mark.integration
-async def test_plugins_list_pagination():
+async def test_plugins_list_pagination(app_server):
     """Test plugins list pagination."""
     async with app_server() as server:
         response = await server.get("/api/plugins?limit=5&offset=0")

@@ -8,11 +8,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_skills_stream_status():
+async def test_skills_stream_status(app_server):
     """Test GET /api/skills-stream returns stream status."""
     async with app_server() as server:
         response = await server.get("/api/skills-stream")
@@ -22,7 +21,7 @@ async def test_skills_stream_status():
 
 
 @pytest.mark.integration
-async def test_skills_stream_trigger_invalid():
+async def test_skills_stream_trigger_invalid(app_server):
     """Test POST /api/skills-stream with invalid data."""
     async with app_server() as server:
         response = await server.post("/api/skills-stream", json={})
@@ -31,7 +30,7 @@ async def test_skills_stream_trigger_invalid():
 
 
 @pytest.mark.integration
-async def test_skills_stream_status_structure():
+async def test_skills_stream_status_structure(app_server):
     """Test skills stream status response structure."""
     async with app_server() as server:
         response = await server.get("/api/skills-stream")
@@ -43,7 +42,7 @@ async def test_skills_stream_status_structure():
 
 
 @pytest.mark.integration
-async def test_skills_stream_trigger_missing_params():
+async def test_skills_stream_trigger_missing_params(app_server):
     """Test POST /api/skills-stream without required params."""
     async with app_server() as server:
         response = await server.post("/api/skills-stream", json={})
@@ -52,7 +51,7 @@ async def test_skills_stream_trigger_missing_params():
 
 
 @pytest.mark.integration
-async def test_skills_stream_get_specific():
+async def test_skills_stream_get_specific(app_server):
     """Test GET /api/skills-stream with specific skill."""
     async with app_server() as server:
         response = await server.get("/api/skills-stream?skill=test-skill")

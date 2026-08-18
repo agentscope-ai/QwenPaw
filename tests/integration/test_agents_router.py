@@ -10,11 +10,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_agents_list():
+async def test_agents_list(app_server):
     """Test GET /api/agents returns agent list."""
     async with app_server() as server:
         response = await server.get("/api/agents")
@@ -24,7 +23,7 @@ async def test_agents_list():
 
 
 @pytest.mark.integration
-async def test_agents_get_nonexistent():
+async def test_agents_get_nonexistent(app_server):
     """Test GET /api/agents/{agent_id} with non-existent agent."""
     async with app_server() as server:
         response = await server.get("/api/agents/nonexistent-agent-12345")
@@ -33,7 +32,7 @@ async def test_agents_get_nonexistent():
 
 
 @pytest.mark.integration
-async def test_agents_create_invalid():
+async def test_agents_create_invalid(app_server):
     """Test POST /api/agents with invalid data."""
     async with app_server() as server:
         response = await server.post("/api/agents", json={})
@@ -42,7 +41,7 @@ async def test_agents_create_invalid():
 
 
 @pytest.mark.integration
-async def test_agents_delete_nonexistent():
+async def test_agents_delete_nonexistent(app_server):
     """Test DELETE /api/agents/{agent_id} with non-existent agent."""
     async with app_server() as server:
         response = await server.delete("/api/agents/nonexistent-agent-12345")
@@ -51,7 +50,7 @@ async def test_agents_delete_nonexistent():
 
 
 @pytest.mark.integration
-async def test_agents_list_pagination():
+async def test_agents_list_pagination(app_server):
     """Test agents list pagination."""
     async with app_server() as server:
         response = await server.get("/api/agents?limit=5&offset=0")
@@ -62,7 +61,7 @@ async def test_agents_list_pagination():
 
 
 @pytest.mark.integration
-async def test_agents_structure():
+async def test_agents_structure(app_server):
     """Test agent response structure."""
     async with app_server() as server:
         response = await server.get("/api/agents")
@@ -76,7 +75,7 @@ async def test_agents_structure():
 
 
 @pytest.mark.integration
-async def test_agents_list_with_filter():
+async def test_agents_list_with_filter(app_server):
     """Test GET /api/agents with filter."""
     async with app_server() as server:
         response = await server.get("/api/agents?status=active")

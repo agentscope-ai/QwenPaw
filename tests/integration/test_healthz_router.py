@@ -9,11 +9,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_healthz():
+async def test_healthz(app_server):
     """Test GET /api/healthz returns health status."""
     async with app_server() as server:
         response = await server.get("/api/healthz")
@@ -24,7 +23,7 @@ async def test_healthz():
 
 
 @pytest.mark.integration
-async def test_healthz_ready():
+async def test_healthz_ready(app_server):
     """Test GET /api/healthz/ready returns readiness status."""
     async with app_server() as server:
         response = await server.get("/api/healthz/ready")
@@ -34,7 +33,7 @@ async def test_healthz_ready():
 
 
 @pytest.mark.integration
-async def test_healthz_live():
+async def test_healthz_live(app_server):
     """Test GET /api/healthz/live returns liveness status."""
     async with app_server() as server:
         response = await server.get("/api/healthz/live")
@@ -44,7 +43,7 @@ async def test_healthz_live():
 
 
 @pytest.mark.integration
-async def test_healthz_structure():
+async def test_healthz_structure(app_server):
     """Test health check response structure."""
     async with app_server() as server:
         response = await server.get("/api/healthz")
@@ -56,7 +55,7 @@ async def test_healthz_structure():
 
 
 @pytest.mark.integration
-async def test_healthz_ready_structure():
+async def test_healthz_ready_structure(app_server):
     """Test readiness check response structure."""
     async with app_server() as server:
         response = await server.get("/api/healthz/ready")

@@ -9,11 +9,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_providers_list():
+async def test_providers_list(app_server):
     """Test GET /api/providers returns provider list."""
     async with app_server() as server:
         response = await server.get("/api/providers")
@@ -23,7 +22,7 @@ async def test_providers_list():
 
 
 @pytest.mark.integration
-async def test_providers_get_nonexistent():
+async def test_providers_get_nonexistent(app_server):
     """Test GET /api/providers/{provider_id} with non-existent provider."""
     async with app_server() as server:
         url = "/api/providers/nonexistent-provider-12345"
@@ -33,7 +32,7 @@ async def test_providers_get_nonexistent():
 
 
 @pytest.mark.integration
-async def test_providers_add_invalid():
+async def test_providers_add_invalid(app_server):
     """Test POST /api/providers with invalid data."""
     async with app_server() as server:
         response = await server.post("/api/providers", json={})
@@ -42,7 +41,7 @@ async def test_providers_add_invalid():
 
 
 @pytest.mark.integration
-async def test_providers_list_with_filter():
+async def test_providers_list_with_filter(app_server):
     """Test GET /api/providers with filter."""
     async with app_server() as server:
         response = await server.get("/api/providers?type=")
@@ -52,7 +51,7 @@ async def test_providers_list_with_filter():
 
 
 @pytest.mark.integration
-async def test_providers_list_pagination():
+async def test_providers_list_pagination(app_server):
     """Test providers list pagination."""
     async with app_server() as server:
         response = await server.get("/api/providers?limit=5&offset=0")
@@ -63,7 +62,7 @@ async def test_providers_list_pagination():
 
 
 @pytest.mark.integration
-async def test_providers_structure():
+async def test_providers_structure(app_server):
     """Test provider response structure."""
     async with app_server() as server:
         response = await server.get("/api/providers")

@@ -8,11 +8,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_project_directory_get():
+async def test_project_directory_get(app_server):
     """Test GET /api/workspace/project-directory returns directory info."""
     async with app_server() as server:
         response = await server.get("/api/workspace/project-directory")
@@ -22,7 +21,7 @@ async def test_project_directory_get():
 
 
 @pytest.mark.integration
-async def test_project_directory_set_invalid():
+async def test_project_directory_set_invalid(app_server):
     """Test POST /api/workspace/project-directory with invalid path."""
     async with app_server() as server:
         response = await server.post(
@@ -34,7 +33,7 @@ async def test_project_directory_set_invalid():
 
 
 @pytest.mark.integration
-async def test_project_directory_set_missing_path():
+async def test_project_directory_set_missing_path(app_server):
     """Test POST /api/workspace/project-directory without path."""
     async with app_server() as server:
         url = "/api/workspace/project-directory"
@@ -44,7 +43,7 @@ async def test_project_directory_set_missing_path():
 
 
 @pytest.mark.integration
-async def test_project_directory_get_structure():
+async def test_project_directory_get_structure(app_server):
     """Test project directory response structure."""
     async with app_server() as server:
         response = await server.get("/api/workspace/project-directory")
@@ -55,7 +54,7 @@ async def test_project_directory_get_structure():
 
 
 @pytest.mark.integration
-async def test_project_directory_set_relative_path():
+async def test_project_directory_set_relative_path(app_server):
     """Test POST /api/workspace/project-directory with relative path."""
     async with app_server() as server:
         response = await server.post(

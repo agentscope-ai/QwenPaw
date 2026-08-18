@@ -9,11 +9,10 @@ Tests cover:
 
 import pytest
 
-from conftest import app_server
 
 
 @pytest.mark.integration
-async def test_git_status():
+async def test_git_status(app_server):
     """Test GET /api/git returns git status."""
     async with app_server() as server:
         response = await server.get("/api/git")
@@ -23,7 +22,7 @@ async def test_git_status():
 
 
 @pytest.mark.integration
-async def test_git_branches_list():
+async def test_git_branches_list(app_server):
     """Test GET /api/git/branches returns branch list."""
     async with app_server() as server:
         response = await server.get("/api/git/branches")
@@ -33,7 +32,7 @@ async def test_git_branches_list():
 
 
 @pytest.mark.integration
-async def test_git_checkout_invalid():
+async def test_git_checkout_invalid(app_server):
     """Test POST /api/git/checkout with invalid branch."""
     async with app_server() as server:
         response = await server.post(
@@ -45,7 +44,7 @@ async def test_git_checkout_invalid():
 
 
 @pytest.mark.integration
-async def test_git_status_structure():
+async def test_git_status_structure(app_server):
     """Test git status response structure."""
     async with app_server() as server:
         response = await server.get("/api/git")
@@ -57,7 +56,7 @@ async def test_git_status_structure():
 
 
 @pytest.mark.integration
-async def test_git_branches_structure():
+async def test_git_branches_structure(app_server):
     """Test git branches response structure."""
     async with app_server() as server:
         response = await server.get("/api/git/branches")
