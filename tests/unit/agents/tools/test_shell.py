@@ -271,13 +271,34 @@ class TestEnsureUserBinsOnPath:
         result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
         assert result["PATH"] == str(local_bin)
 
-    def test_windows_adds_localapps_python_dir(self, monkeypatch, tmp_path):
+    def test_windows_adds_version_dirs_and_scripts(self, monkeypatch, tmp_path):
         monkeypatch.setattr(sys, "platform", "win32")
-        local_python = tmp_path / "Programs" / "Python"
-        local_python.mkdir(parents=True)
+        base = tmp_path / "Programs" / "Python"
+        ver311 = base / "Python311"
+        scripts311 = ver311 / "Scripts"
+        ver312 = base / "Python312"
+        scripts312 = ver312 / "Scripts"
+        for d in (scripts311, scripts312):
+            d.mkdir(parents=True)
         env = {"PATH": "/usr/bin", "LOCALAPPDATA": str(tmp_path)}
         result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
-        assert str(local_python) in result["PATH"].split(os.pathsep)
+        entries = result["PATH"].split(os.pathsep)
+        assert entries == [
+            str(ver311),
+            str(scripts311),
+            str(ver312),
+            str(scripts312),
+            "/usr/bin",
+        ]
+
+    def test_unix_adds_nvm_dir_when_present(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        nvm_dir = tmp_path / ".nvm"
+        nvm_dir.mkdir(parents=True)
+        env = {"PATH": "/usr/bin"}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert entries == [str(nvm_dir), "/usr/bin"]
 
 
 # ---------------------------------------------------------------------------
