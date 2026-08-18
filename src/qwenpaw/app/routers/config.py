@@ -1041,7 +1041,8 @@ class DenyPathsProtectionResponse(BaseModel):
         description="Paths that failed to have ACLs applied/removed.",
     )
     platform_supported: bool = Field(
-        description="Whether this feature is available on the current platform.",
+        description="Whether this feature is available on the "
+        "current platform.",
     )
     message: Optional[str] = Field(
         default=None,
@@ -1063,7 +1064,8 @@ async def get_deny_paths_protection() -> DenyPathsProtectionResponse:
             protected_paths=[],
             failed_paths=[],
             platform_supported=False,
-            message="Deny paths protection via ACLs is only available on Windows.",
+            message="Deny paths protection via ACLs is only "
+            "available on Windows.",
         )
 
     from ...sandbox.windows_unelevated_sandbox import DenyPathsProtection
@@ -1094,7 +1096,8 @@ async def put_deny_paths_protection(
             protected_paths=[],
             failed_paths=[],
             platform_supported=False,
-            message="Deny paths protection via ACLs is only available on Windows.",
+            message="Deny paths protection via ACLs is only "
+            "available on Windows.",
         )
 
     from ...governance.policy import DEFAULT_SANDBOX_DENY_PATHS
@@ -1103,10 +1106,11 @@ async def put_deny_paths_protection(
     protection = DenyPathsProtection()
     lock = protection.get_lock()
 
-    async with lock:
+    async with lock:  # pylint: disable=not-async-context-manager
         if body.enabled:
             result = await asyncio.to_thread(
-                protection.enable, DEFAULT_SANDBOX_DENY_PATHS
+                protection.enable,
+                DEFAULT_SANDBOX_DENY_PATHS,
             )
             return DenyPathsProtectionResponse(
                 active=result.get("status") == "enabled"

@@ -1107,6 +1107,53 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+def _reset_dacl_to_inherited(path: str) -> bool:
+    """Resets a path's DACL to inherit from parent, removing all explicit ACEs.
+
+    This is the fallback when we cannot read the DACL (e.g. because a
+    deny ACE blocks READ_CONTROL). The owner always has implicit WRITE_DAC,
+    so SetNamedSecurityInfoW with an empty DACL should succeed even when
+    the DACL cannot be read.
+
+    Setting DACL to None with UNPROTECTED_DACL_SECURITY_INFORMATION causes
+    Windows to replace the DACL with inheritable ACEs from the parent.
+
+    Args:
+        path: Filesystem path to reset.
+
+    Returns:
+        True if the DACL was reset successfully.
+    """
+    advapi32 = _get_advapi32()
+
+    # UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
+    # Combined with DACL_SECURITY_INFORMATION, this tells Windows to:
+    # 1. Replace the explicit DACL with what we provide (None = empty)
+    # 2. Allow inheritable ACEs from parent to propagate
+    _UNPROTECTED_DACL = 0x20000000
+    info_flags = _WC.DACL_SECURITY_INFORMATION | _UNPROTECTED_DACL
+
+    rc = advapi32.SetNamedSecurityInfoW(
+        ctypes.c_wchar_p(path),
+        _WC.SE_FILE_OBJECT,
+        info_flags,
+        None,
+        None,
+        None,  # NULL DACL = inherit from parent
+        None,
+    )
+    if rc != 0:
+        logger.warning(
+            "SetNamedSecurityInfoW(%s) failed during DACL reset: rc=%d",
+            path,
+            rc,
+        )
+        return False
+
+    logger.info("DACL reset to inherited for %s", path)
+    return True
+
+
 def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
     path: str,
     sid_string: str,
@@ -1115,6 +1162,10 @@ def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
 
     Directly manipulates the ACL structure, which works with fabricated
     SIDs that icacls cannot resolve.
+
+    If the DACL cannot be read (e.g. because a prior deny ACE blocks
+    READ_CONTROL), falls back to resetting the DACL to inherit from
+    the parent directory — effectively removing all explicit ACEs.
 
     Args:
         path: Filesystem path to clean.
@@ -1149,6 +1200,17 @@ def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
             ctypes.byref(p_sd),
         )
         if rc != 0:
+            # ERROR_ACCESS_DENIED = 5: the deny ACE we set previously
+            # blocks READ_CONTROL, so we cannot read the DACL. Fall back
+            # to resetting the DACL to inherit from parent (removes ALL
+            # explicit ACEs, restoring the file to its default state).
+            if rc == 5:
+                logger.info(
+                    "Cannot read DACL for %s (access denied); resetting "
+                    "DACL to inherited permissions",
+                    path,
+                )
+                return _reset_dacl_to_inherited(path)
             logger.warning(
                 "GetNamedSecurityInfoW(%s) failed during removal: rc=%d",
                 path,
@@ -2374,7 +2436,7 @@ def _get_current_user_sid_string() -> str:
     )
     if not ok:
         raise OSError(
-            f"OpenProcessToken failed: error={ctypes.get_last_error()}"
+            f"OpenProcessToken failed: error={ctypes.get_last_error()}",
         )
 
     try:
@@ -2383,16 +2445,23 @@ def _get_current_user_sid_string() -> str:
         advapi32.GetTokenInformation(h_token, 1, None, 0, ctypes.byref(needed))
         buf = (ctypes.c_ubyte * needed.value)()
         ok = advapi32.GetTokenInformation(
-            h_token, 1, buf, needed.value, ctypes.byref(needed)
+            h_token,
+            1,
+            buf,
+            needed.value,
+            ctypes.byref(needed),
         )
         if not ok:
             raise OSError(
                 f"GetTokenInformation(TokenUser) failed: "
-                f"error={ctypes.get_last_error()}"
+                f"error={ctypes.get_last_error()}",
             )
         # TOKEN_USER: first field is PSID pointer
         ptr_size = ctypes.sizeof(ctypes.c_void_p)
-        sid_ptr_val = int.from_bytes(bytes(buf[:ptr_size]), byteorder="little")
+        sid_ptr_val = int.from_bytes(
+            bytes(buf[:ptr_size]),
+            byteorder="little",
+        )
         psid = ctypes.c_void_p(sid_ptr_val)
         return _sid_to_string(psid, advapi32)
     finally:
@@ -2417,18 +2486,28 @@ def _add_deny_ace_for_user(path: str, user_sid_string: str) -> bool:
         user_psid = _string_to_sid(user_sid_string)
     except OSError:
         logger.warning(
-            "Failed to convert user SID for deny ACE: %s", user_sid_string
+            "Failed to convert user SID for deny ACE: %s",
+            user_sid_string,
         )
         return False
 
     try:
-        # Deny GENERIC_ALL (full access denial)
+        # Deny file I/O operations but NOT security descriptor rights
+        # (READ_CONTROL, WRITE_DAC, WRITE_OWNER, SYNCHRONIZE).
+        # Preserving READ_CONTROL and WRITE_DAC is critical: without them
+        # the current user cannot read/modify the DACL to remove the deny
+        # ACE later, making the protection irreversible.
         deny_mask = (
-            _WC.FILE_GENERIC_READ
-            | _WC.FILE_GENERIC_WRITE
-            | _WC.FILE_GENERIC_EXECUTE
-            | _WC.DELETE
+            0x0001  # FILE_READ_DATA / FILE_LIST_DIRECTORY
+            | 0x0002  # FILE_WRITE_DATA / FILE_ADD_FILE
+            | 0x0004  # FILE_APPEND_DATA / FILE_ADD_SUBDIRECTORY
+            | 0x0008  # FILE_READ_EA
+            | 0x0010  # FILE_WRITE_EA
+            | 0x0020  # FILE_EXECUTE / FILE_TRAVERSE
             | _WC.FILE_DELETE_CHILD
+            | 0x0080  # FILE_READ_ATTRIBUTES
+            | 0x0100  # FILE_WRITE_ATTRIBUTES
+            | _WC.DELETE
         )
         result = _set_path_ace(
             path,
@@ -2476,20 +2555,24 @@ class DenyPathsProtection:
     def __new__(cls) -> "DenyPathsProtection":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._active = False
-            cls._instance._protected_paths: List[str] = []
-            cls._instance._user_sid: Optional[str] = None
-            cls._instance._state_file = (
-                _qwenpaw_state_dir / "deny_paths_protection.json"
-            )
         return cls._instance
+
+    def __init__(self) -> None:
+        # Only initialise once (singleton pattern).
+        if hasattr(self, "_active"):
+            return
+        self._active: bool = False
+        self._protected_paths: List[str] = []
+        self._user_sid: Optional[str] = None
+        self._state_file = _qwenpaw_state_dir / "deny_paths_protection.json"
 
     @classmethod
     def get_lock(cls) -> asyncio.Lock:
         """Returns the singleton asyncio lock (creates on first call)."""
         if cls._lock is None:
             cls._lock = asyncio.Lock()
-        return cls._lock
+        lock: asyncio.Lock = cls._lock
+        return lock
 
     @property
     def active(self) -> bool:
@@ -2581,7 +2664,11 @@ class DenyPathsProtection:
         for path in resolved:
             if _add_deny_ace_for_user(path, user_sid):
                 succeeded.append(path)
-                logger.info("Deny ACL set on %s for user %s", path, user_sid)
+                logger.info(
+                    "Deny ACL set on %s for user %s",
+                    path,
+                    user_sid,
+                )
             else:
                 failed.append(path)
                 logger.warning(
@@ -2617,7 +2704,9 @@ class DenyPathsProtection:
             if _remove_deny_ace_for_user(path, user_sid):
                 succeeded.append(path)
                 logger.info(
-                    "Deny ACL removed from %s for user %s", path, user_sid
+                    "Deny ACL removed from %s for user %s",
+                    path,
+                    user_sid,
                 )
             else:
                 failed.append(path)
