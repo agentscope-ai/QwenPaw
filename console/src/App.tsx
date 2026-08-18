@@ -42,11 +42,15 @@ const ProPage = lazyImportWithRetry("./pages/Pro/index");
 // Desktop OS shell. Uses React.lazy (not lazyImportWithRetry, which only
 // resolves the ./pages/** glob) so it can load from ./os/.
 const DesktopOSPage = lazy(() => import("./os/DesktopOS"));
-import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
-import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
 import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
+import BackendLoadingPage from "./tauri/BackendLoadingPage";
+import {
+  resolveAuthGate,
+  resolveBackendMode,
+  type BackendMode,
+} from "./auth/gate";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
@@ -83,52 +87,44 @@ function AuthGuard({
   children: React.ReactNode;
   useHardRedirect?: boolean;
 }) {
-  const [status, setStatus] = useState<"loading" | "auth-required" | "ok">(
-    "loading",
-  );
+  const [status, setStatus] = useState<
+    "loading" | "auth-required" | "ok" | "error"
+  >("loading");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await authApi.getStatus();
+    setStatus("loading");
+    setErrorMessage("");
+    resolveAuthGate()
+      .then((nextStatus) => {
+        if (!cancelled) setStatus(nextStatus);
+      })
+      .catch((error: unknown) => {
         if (cancelled) return;
-        if (!res.enabled) {
-          setStatus("ok");
-          return;
-        }
-        const token = getApiToken();
-        if (!token) {
-          setStatus("auth-required");
-          return;
-        }
-        try {
-          const r = await fetch(getApiUrl("/auth/verify"), {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (cancelled) return;
-          if (r.ok) {
-            setStatus("ok");
-          } else {
-            clearAuthToken();
-            setStatus("auth-required");
-          }
-        } catch {
-          if (!cancelled) {
-            clearAuthToken();
-            setStatus("auth-required");
-          }
-        }
-      } catch {
-        if (!cancelled) setStatus("ok");
-      }
-    })();
+        setErrorMessage(
+          error instanceof Error ? error.message : "Authentication failed",
+        );
+        setStatus("error");
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   if (status === "loading") return null;
+  if (status === "error") {
+    return (
+      <BackendLoadingPage
+        status="error"
+        elapsed={0}
+        totalSec={1}
+        errorMessage={errorMessage}
+        onRetry={() => setRetryKey((current) => current + 1)}
+      />
+    );
+  }
   if (status === "auth-required") {
     const loginTo = getLoginPath(window.location);
     if (useHardRedirect) {
@@ -296,24 +292,44 @@ function App() {
 }
 
 function BackendModeRouter() {
-  const [mode, setMode] = useState<"loading" | "standard" | "pro">("loading");
+  const [mode, setMode] = useState<"loading" | "error" | BackendMode>(
+    "loading",
+  );
+  const [errorMessage, setErrorMessage] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    authApi
-      .getStatus()
-      .then((status) => {
-        if (!cancelled) setMode(status.mode === "pro" ? "pro" : "standard");
+    setMode("loading");
+    setErrorMessage("");
+    resolveBackendMode()
+      .then((nextMode) => {
+        if (!cancelled) setMode(nextMode);
       })
-      .catch(() => {
-        if (!cancelled) setMode("standard");
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setErrorMessage(
+          error instanceof Error ? error.message : "Backend detection failed",
+        );
+        setMode("error");
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryKey]);
 
   if (mode === "loading") return null;
+  if (mode === "error") {
+    return (
+      <BackendLoadingPage
+        status="error"
+        elapsed={0}
+        totalSec={1}
+        errorMessage={errorMessage}
+        onRetry={() => setRetryKey((current) => current + 1)}
+      />
+    );
+  }
   return (
     <PluginProvider>
       <AppInner proMode={mode === "pro"} />
