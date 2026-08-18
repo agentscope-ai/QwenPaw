@@ -26,12 +26,16 @@ from ...config.context import (
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
+    get_current_terminal_manager,
+    set_current_terminal_manager,
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
+from ...terminal import SessionResult, TerminalSessionManager
+from ...terminal.manager import UnknownSessionError
 
 _logger = logging.getLogger(__name__)
 
@@ -445,6 +449,44 @@ def _consume_background_task(task: asyncio.Task[Any]) -> None:
         task.result()
     except BaseException:
         pass
+
+
+def _bounded_tool_int(
+    value: int | str | None,
+    *,
+    name: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    """Accept provider-emitted numeric strings, then enforce tool bounds."""
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    return max(minimum, min(parsed, maximum))
+
+
+_CTRL_C_INPUT_ALIASES = frozenset(
+    {
+        "\x03",
+        r"\u0003",
+        r"\x03",
+        "&#3;",
+        "&#x3;",
+        "&#x03;",
+    },
+)
+
+
+def _normalize_terminal_input(chars: str, *, interrupt: bool) -> str:
+    """Turn whole-value Ctrl-C representations into one ETX character."""
+    value = chars or ""
+    if interrupt or value.strip().lower() in _CTRL_C_INPUT_ALIASES:
+        return "\x03"
+    return value
 
 
 async def _drain_output_snapshot(
@@ -1121,6 +1163,7 @@ async def _execute_posix_host(
     consuming storage even after the temporary path is unlinked.
     """
     outputs: _PosixTempOutputs | None = None
+    proc: asyncio.subprocess.Process | None = None
     loop = asyncio.get_running_loop()
     local_deadline = loop.time() + max(0.0, timeout)
 
@@ -1218,17 +1261,20 @@ async def _execute_posix_host(
                 stderr_str = stderr_suffix
         return returncode, stdout_str, stderr_str
     finally:
+        # A one-shot shell never transfers ownership of background children.
+        # Reclaim its process group before unlinking capture files so a nohup
+        # descendant cannot keep writing to an unreachable inode forever.
+        if proc is not None and sys.platform != "win32":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
         if outputs is not None:
             await run_sync_io(outputs.cleanup)
 
 
-# TODO: Add dedicated support for long-running processes through a managed
-#  session model. Keep processes under framework ownership, return a session ID
-#  while they are running, capture stdout and stderr in bounded head-and-tail
-#  buffers, allow callers to poll new output and stop sessions explicitly,
-#  limit active sessions, and terminate the entire process tree when a
-#  session  stops or expires, or when the application shuts down.
 # pylint: disable=too-many-branches, too-many-statements
+# pylint: disable=too-many-return-statements
 @tool_descriptor(
     requires_sandbox=("shell_exec",),
     async_execution=True,
@@ -1243,20 +1289,24 @@ async def execute_shell_command(
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
     sandbox_config: Optional[Any] = None,
+    session_id: str | None = None,
+    persistent: bool = False,
+    yield_time_ms: int | str | None = None,
+    max_output_bytes: int | str | None = None,
+    tty: bool = True,
 ) -> ToolChunk:
     """Execute a shell command and return its output.
 
-    Each call runs in a fresh subprocess — `cd`, `export`, `source`,
-    etc. do NOT persist. Pass `cwd=` or chain in one call
-    (`cd /repo && pytest`).
+    By default each call retains the legacy one-shot behavior. Pass
+    ``persistent=True`` or ``yield_time_ms`` to create a managed terminal;
+    reuse its ``session_id`` to preserve cwd, environment and sourced state.
 
     IMPORTANT: Check the 'Default Shell' field to
     determine which shell is active, and generate commands using the
     appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
 
-    IMPORTANT: Do not use nohup or other commands to start long-running
-    background processes. If unavoidable, explicitly redirect stdin,
-    stdout, and stderr.
+    For long-running or interactive work, use a managed session instead of
+    nohup so output, input, interruption and cleanup remain framework-owned.
 
     Args:
         command (`str`):
@@ -1271,6 +1321,20 @@ async def execute_shell_command(
             Sandbox execution configuration compiled from governance policy.
             When provided, the command executes within a sandboxed environment
             with the specified mount permissions and network restrictions.
+        session_id (`str | None`):
+            Existing idle managed terminal to run the next command in.
+        persistent (`bool`):
+            Keep the shell after a completed command.
+        yield_time_ms (`int | str | None`):
+            Initial wait before returning a running session. ``None`` keeps
+            legacy one-shot behavior for backward compatibility. Numeric
+            strings are accepted for model-provider compatibility.
+        max_output_bytes (`int | str | None`):
+            Maximum incremental bytes returned by this call. Numeric strings
+            are accepted for model-provider compatibility.
+        tty (`bool`):
+            Request a PTY. Windows uses ConPTY when available and explicitly
+            reports a degraded pipe fallback otherwise.
 
     Returns:
         `ToolChunk`:
@@ -1348,6 +1412,79 @@ async def execute_shell_command(
             type(sandbox_config).__qualname__,
         )
         sandbox_config = None
+
+    managed = persistent or session_id is not None or yield_time_ms is not None
+    if managed:
+        if sandbox_config is not None:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.DENIED,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "Managed terminal sessions are not supported by "
+                            "the selected sandbox backend; refusing to run "
+                            "unsandboxed. Use one-shot execution or disable "
+                            "the managed-session options explicitly."
+                        ),
+                    ),
+                ],
+                metadata={"error_code": "interactive_sandbox_unsupported"},
+            )
+        manager = get_current_terminal_manager()
+        if manager is None:
+            manager = TerminalSessionManager(working_dir)
+            set_current_terminal_manager(manager)
+        try:
+            effective_yield_ms = _bounded_tool_int(
+                yield_time_ms,
+                name="yield_time_ms",
+                default=10_000,
+                minimum=0,
+                maximum=30_000,
+            )
+            effective_max_bytes = _bounded_tool_int(
+                max_output_bytes,
+                name="max_output_bytes",
+                default=_SHELL_OUTPUT_MAX_BYTES,
+                minimum=1,
+                maximum=_SHELL_OUTPUT_MAX_BYTES,
+            )
+            terminal_result = await manager.execute(
+                cmd,
+                session_id=session_id,
+                shell=shell_executable,
+                cwd=Path(working_dir),
+                env=env,
+                tty=tty,
+                persistent=persistent,
+                timeout=float(timeout),
+                yield_time=effective_yield_ms / 1000,
+                max_output_bytes=effective_max_bytes,
+            )
+        except UnknownSessionError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(type="text", text="Unknown terminal session."),
+                ],
+                metadata={"error_code": "unknown_session"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Terminal execution failed: {exc}",
+                    ),
+                ],
+                metadata={"error_code": "terminal_error"},
+            )
+        return _terminal_tool_chunk(terminal_result)
 
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating
@@ -1497,3 +1634,173 @@ def smart_decode(data: bytes) -> str:
         decoded_str = data.decode(encoding, errors="replace")
 
     return decoded_str.strip("\r\n")
+
+
+def _terminal_tool_chunk(result: SessionResult) -> ToolChunk:
+    if result.terminated:
+        status = "Terminal session terminated."
+    elif result.running:
+        status = f"Command is still running in session {result.session_id}."
+    elif result.exit_code == 0:
+        status = "Command completed successfully."
+    else:
+        status = f"Command completed with exit code {result.exit_code}."
+    if result.timed_out:
+        status += " The command exceeded its timeout and was interrupted."
+    if not result.running and not result.output_drained:
+        status += (
+            " Buffered output remains; poll write_stdin until "
+            "output_drained=true."
+        )
+    text = result.output
+    if result.omitted_bytes:
+        notice = (
+            f"⚠️ {result.omitted_bytes} earlier output bytes were omitted."
+        )
+        text = f"{notice}\n{text}" if text else notice
+    text = f"{text}\n{status}" if text else status
+    session_details = (
+        "[terminal]\n"
+        f"session_id={result.session_id}\n"
+        f"terminated={str(result.terminated).lower()}\n"
+        f"running={str(result.running).lower()}\n"
+        f"exit_code={result.exit_code}\n"
+        f"original_bytes={result.original_bytes}\n"
+        f"omitted_bytes={result.omitted_bytes}\n"
+        f"output_bytes={result.output_bytes}\n"
+        f"pending_bytes={result.pending_bytes}\n"
+        f"output_drained={str(result.output_drained).lower()}\n"
+        f"next_cursor={result.next_cursor}\n"
+        f"tty={str(result.tty).lower()}\n"
+        f"degraded={str(result.degraded).lower()}"
+    )
+    text = f"{text}\n{session_details}"
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+        metadata={
+            "session_id": result.session_id,
+            "chunk_id": result.chunk_id,
+            "running": result.running,
+            "exit_code": result.exit_code,
+            "original_bytes": result.original_bytes,
+            "omitted_bytes": result.omitted_bytes,
+            "next_cursor": result.next_cursor,
+            "wall_time_ms": result.wall_time_ms,
+            "tty": result.tty,
+            "degraded": result.degraded,
+            "timed_out": result.timed_out,
+            "output_bytes": result.output_bytes,
+            "pending_bytes": result.pending_bytes,
+            "output_drained": result.output_drained,
+            "terminated": result.terminated,
+        },
+    )
+
+
+@tool_descriptor(
+    async_execution=True,
+    tool_type="shell",
+    target_param="session_id",
+    policy_name="TerminalInput",
+    ui_description="Write input to or poll a managed terminal",
+    ui_icon="⌨️",
+)
+async def write_stdin(
+    session_id: str,
+    chars: str = "",
+    yield_time_ms: int | str = 5_000,
+    max_output_bytes: int | str | None = None,
+    interrupt: bool = False,
+    terminate: bool = False,
+) -> ToolChunk:
+    """Write to, poll, interrupt, or terminate a managed terminal session.
+
+    Args:
+        session_id (`str`):
+            Managed terminal session returned by ``execute_shell_command``.
+        chars (`str`):
+            Input to write. An empty string polls without writing. A whole
+            value of ETX, ``\\u0003``, ``\\x03``, ``&#3;`` or ``&#x3;`` is
+            treated as Ctrl-C instead of literal terminal input.
+        yield_time_ms (`int | str`):
+            Maximum wait for new output or command completion.
+        max_output_bytes (`int | str | None`):
+            Maximum incremental bytes returned by this call.
+        interrupt (`bool`):
+            Send Ctrl-C without embedding a control character in ``chars``.
+            Prefer this for interrupting a running command.
+        terminate (`bool`):
+            Close and reclaim the entire managed terminal session.
+
+    Continue polling with empty ``chars`` while ``running=true`` or
+    ``output_drained=false``. A completed process can still have bounded
+    captured output waiting to be delivered.
+    """
+    chars = _normalize_terminal_input(chars, interrupt=interrupt)
+    if chars and _is_dangerous_self_kill(chars):
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Blocked: this input would terminate the QwenPaw "
+                        "process or its parent. Refusing to send it."
+                    ),
+                ),
+            ],
+            metadata={"error_code": "dangerous_self_kill"},
+        )
+    manager = get_current_terminal_manager()
+    if manager is None:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[TextBlock(type="text", text="Unknown terminal session.")],
+            metadata={"error_code": "unknown_session"},
+        )
+    try:
+        effective_yield_ms = _bounded_tool_int(
+            yield_time_ms,
+            name="yield_time_ms",
+            default=5_000,
+            minimum=0,
+            maximum=30_000,
+        )
+        effective_max_bytes = _bounded_tool_int(
+            max_output_bytes,
+            name="max_output_bytes",
+            default=_SHELL_OUTPUT_MAX_BYTES,
+            minimum=1,
+            maximum=_SHELL_OUTPUT_MAX_BYTES,
+        )
+        result = await manager.interact(
+            session_id,
+            chars,
+            yield_time=effective_yield_ms / 1000,
+            max_output_bytes=effective_max_bytes,
+            terminate=terminate,
+        )
+    except UnknownSessionError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[TextBlock(type="text", text="Unknown terminal session.")],
+            metadata={"error_code": "unknown_session"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Terminal interaction failed: {exc}",
+                ),
+            ],
+            metadata={"error_code": "terminal_error"},
+        )
+    return _terminal_tool_chunk(result)

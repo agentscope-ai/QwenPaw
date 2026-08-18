@@ -522,6 +522,48 @@ class TestGuard:
         findings = guardian.guard("edit_file", {"file_path": path})
         assert len(findings) == 1
 
+
+class TestGuardToolDispatch:
+    """guard() dispatches patch, shell, known, and custom tool inputs."""
+
+    def test_guard_apply_patch_checks_source_and_move_destination(
+        self,
+        guardian,
+        tmp_path,
+    ):
+        secret = tmp_path / "private" / "secret.key"
+        secret.parent.mkdir()
+        guardian.add_sensitive_file(str(secret.parent))
+        patch_source = """*** Begin Patch
+*** Update File: safe.txt
+*** Move to: private/secret.key
+@@
+-old
++new
+*** End Patch"""
+
+        findings = guardian.guard("apply_patch", {"patch": patch_source})
+
+        assert len(findings) == 1
+        assert findings[0].matched_value == "private/secret.key"
+
+    def test_guard_write_stdin_checks_cli_input_for_sensitive_paths(
+        self,
+        guardian,
+        tmp_path,
+    ):
+        secret = str(tmp_path / "secret.key")
+        Path(secret).touch()
+        guardian.add_sensitive_file(secret)
+
+        findings = guardian.guard(
+            "write_stdin",
+            {"session_id": "term_test", "chars": secret},
+        )
+
+        assert len(findings) == 1
+        assert findings[0].param_name == "chars"
+
     def test_guard_execute_shell_command_with_sensitive_path(
         self,
         guardian,

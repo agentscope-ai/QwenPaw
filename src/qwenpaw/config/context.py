@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agentscope.state import AgentState
@@ -109,6 +109,22 @@ current_shell_command_executable: ContextVar[str | None] = ContextVar(
     "current_shell_command_executable",
     default=None,
 )
+
+
+current_terminal_manager: ContextVar[Any | None] = ContextVar(
+    "current_terminal_manager",
+    default=None,
+)
+
+
+def get_current_terminal_manager() -> Any | None:
+    """Return the terminal manager owned by the current workspace."""
+    return current_terminal_manager.get()
+
+
+def set_current_terminal_manager(manager: Any | None) -> None:
+    """Inject the current workspace's terminal manager."""
+    current_terminal_manager.set(manager)
 
 
 def get_current_shell_command_executable() -> str | None:

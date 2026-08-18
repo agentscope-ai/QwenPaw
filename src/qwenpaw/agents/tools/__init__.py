@@ -42,8 +42,9 @@ from .file_io import (  # noqa: E402
     edit_file,
     append_file,
 )
+from .apply_patch import apply_patch  # noqa: E402
 from .file_search import grep_search, glob_search  # noqa: E402
-from .shell import execute_shell_command  # noqa: E402
+from .shell import execute_shell_command, write_stdin  # noqa: E402
 from .send_file import send_file_to_user  # noqa: E402
 from .web_search import web_search, web_fetch  # noqa: E402
 from .desktop_screenshot import desktop_screenshot  # noqa: E402

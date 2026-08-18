@@ -72,7 +72,7 @@ back to `grep_search`.
 For structural pattern queries (e.g. "all functions that take a
 `Request` and return `Response`"), prefer the `ast_search` tool.
 `ast_search` is **read-only** — when you want to apply a rewrite, read
-the matches first, then call `edit_file` for each location.
+the matches first, then use `apply_patch` with exact context.
 
 Fall back to `grep_search` only when LSP / AST cannot answer.
 
@@ -83,6 +83,8 @@ File-IO tools (`read_file`, `write_file`, `edit_file`,
 **agent workspace**, NOT the active project.  Always pass
 **absolute paths** rooted at the active project directory (shown
 below) — never a bare filename or a path relative to the project.
+`apply_patch` is the exception: its DSL requires safe POSIX-style paths
+relative to the active project root and rejects absolute paths or `..`.
 
 ### Shell commands
 
@@ -95,8 +97,9 @@ they land in the workspace.
 
 ### Working guidelines
 1. **Read before you write** — always read the relevant file(s) first.
-2. **Prefer targeted edits** — use `edit_file` over full-file \
-rewrites whenever possible.
+2. **Prefer contextual patches** — use `apply_patch` for precise multi-hunk \
+updates, adds, deletes, and renames; keep `edit_file` for compatibility \
+over full-file rewrites whenever possible.
 3. **Touch only what you must** — change only what the task requires; \
 do not refactor adjacent code or fix unrelated style outside the \
 requested scope.

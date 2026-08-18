@@ -72,6 +72,8 @@ dependencies = [
     "html2text>=2024.2.26",
     "mcp>=1.28,<2.0",
     "imap-tools>=1.13,<2.0",
+    # Native Windows ConPTY transport for managed interactive terminals.
+    "pywinpty>=3.0.5; sys_platform == 'win32'",
 ]
 
 [project.urls]

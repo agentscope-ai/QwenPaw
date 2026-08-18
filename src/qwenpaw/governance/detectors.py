@@ -368,6 +368,8 @@ def detect_dangerous_patterns(  # noqa: E501  pylint: disable=too-many-locals,to
         "Read": "read_file",
         "Write": "write_file",
         "Edit": "edit_file",
+        "ApplyPatch": "apply_patch",
+        "TerminalInput": "write_stdin",
     }
     guard_tool_name = tool_aliases.get(tool_name, tool_name)
 

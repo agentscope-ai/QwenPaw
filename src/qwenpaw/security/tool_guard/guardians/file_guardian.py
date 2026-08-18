@@ -453,6 +453,87 @@ class FilePathToolGuardian(BaseToolGuardian):
                 ),
             )
 
+    def _guard_patch(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> list[GuardFinding]:
+        """Extract every source and destination path from a patch."""
+        patch_source = params.get("patch")
+        if not isinstance(patch_source, str):
+            return []
+        try:
+            from ....patching import parse_patch
+
+            paths = parse_patch(patch_source).target_paths()
+        except ValueError:
+            # The strict patch parser reports syntax errors. Never guess file
+            # targets from a malformed document.
+            return []
+        findings: list[GuardFinding] = []
+        for raw_path in paths:
+            self._check_value(
+                tool_name,
+                "patch",
+                raw_path,
+                findings,
+                snippet=patch_source,
+            )
+        return findings
+
+    def _guard_shell_input(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> list[GuardFinding]:
+        """Extract path candidates from a command or interactive input."""
+        param_name = (
+            "command" if tool_name == "execute_shell_command" else "chars"
+        )
+        command = params.get(param_name)
+        if not isinstance(command, str) or not command.strip():
+            return []
+        findings: list[GuardFinding] = []
+        for raw_path in _extract_paths_from_shell_command(command):
+            self._check_value(
+                tool_name,
+                param_name,
+                raw_path,
+                findings,
+                snippet=command,
+            )
+        return findings
+
+    def _guard_known_file_tool(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+        param_names: tuple[str, ...],
+    ) -> list[GuardFinding]:
+        """Check the declared path parameters for a known file tool."""
+        findings: list[GuardFinding] = []
+        for param_name in param_names:
+            raw_value = params.get(param_name)
+            if not isinstance(raw_value, str) or not raw_value.strip():
+                continue
+            self._check_value(tool_name, param_name, raw_value, findings)
+        return findings
+
+    def _guard_generic_tool(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> list[GuardFinding]:
+        """Scan path-looking string parameters for an unknown tool."""
+        findings: list[GuardFinding] = []
+        for param_name, param_value in params.items():
+            if not isinstance(param_value, str) or not param_value.strip():
+                continue
+            if not _looks_like_path_token(param_value):
+                continue
+            self._check_value(tool_name, param_name, param_value, findings)
+        return findings
+
     def guard(
         self,
         tool_name: str,
@@ -469,39 +550,18 @@ class FilePathToolGuardian(BaseToolGuardian):
         if not self._sensitive_files and not self._sensitive_dirs:
             return []
 
-        findings: list[GuardFinding] = []
+        if tool_name == "apply_patch":
+            return self._guard_patch(tool_name, params)
 
-        # Shell commands: extract paths from the command string.
-        if tool_name == "execute_shell_command":
-            command = params.get("command")
-            if not isinstance(command, str) or not command.strip():
-                return findings
-            for raw_path in _extract_paths_from_shell_command(command):
-                self._check_value(
-                    tool_name,
-                    "command",
-                    raw_path,
-                    findings,
-                    snippet=command,
-                )
-            return findings
+        if tool_name in {"execute_shell_command", "write_stdin"}:
+            return self._guard_shell_input(tool_name, params)
 
-        # Known file tools: check only the file-path parameters.
         known_params = _TOOL_FILE_PARAMS.get(tool_name)
         if known_params:
-            for param_name in known_params:
-                raw_value = params.get(param_name)
-                if not isinstance(raw_value, str) or not raw_value.strip():
-                    continue
-                self._check_value(tool_name, param_name, raw_value, findings)
-            return findings
+            return self._guard_known_file_tool(
+                tool_name,
+                params,
+                known_params,
+            )
 
-        # All other tools: scan every string parameter that looks like a path.
-        for param_name, param_value in params.items():
-            if not isinstance(param_value, str) or not param_value.strip():
-                continue
-            if not _looks_like_path_token(param_value):
-                continue
-            self._check_value(tool_name, param_name, param_value, findings)
-
-        return findings
+        return self._guard_generic_tool(tool_name, params)
