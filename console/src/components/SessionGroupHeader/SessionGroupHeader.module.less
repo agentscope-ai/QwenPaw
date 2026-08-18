@@ -118,6 +118,34 @@
   font-size: 11px;
 }
 
+:global(.dark-mode) {
+  .header {
+    color: rgba(255, 255, 255, 0.68);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.95);
+    }
+  }
+
+  .pinned {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .count {
+    background: rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .lockMark {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .more:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
 @media (hover: none), (max-width: 768px) {
   .more {
     position: static;

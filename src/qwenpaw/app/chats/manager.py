@@ -225,7 +225,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             await self._repo.upsert_chat(spec)
             return spec
 
-    async def _validate_group_id_locked(self, group_id: str) -> None:
+    async def _validate_group_id_locked(self, group_id: str | None) -> None:
         """Validate a group ID while the manager lock is held."""
         chats_file = await self._repo.load()
         if group_id not in {group.id for group in chats_file.groups}:
