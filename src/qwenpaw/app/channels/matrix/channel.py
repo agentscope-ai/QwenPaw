@@ -90,13 +90,10 @@ ROOM_HISTORY_MAX_ROOMS = 256
 VERIFICATION_STATE_MAX_ENTRIES = 1_024
 VERIFICATION_STATE_TTL_S = 60 * 60
 
-# nio retries transport-level failures (connection refused, timeouts)
-# inside _send(), but it does NOT retry when the homeserver returns an
-# unparseable HTTP response (e.g. 502 from a reverse proxy before
-# Synapse is ready).  login()/whoami() then return a LoginError or
-# WhoamiError with status_code=None, and start() would permanently
-# give up.  These constants drive a retry loop in MatrixChannel that
-# covers that gap, leaving credential errors as one-shot failures.
+# nio's _send() retries transport errors but not unparseable HTTP
+# responses (e.g. 502 before Synapse is ready).  login()/whoami()
+# return LoginError/WhoamiError with status_code=None and start()
+# gives up.  These constants drive a retry loop covering that gap.
 _NON_RETRYABLE_AUTH_CODES = frozenset(
     {
         "M_FORBIDDEN",
@@ -266,6 +263,7 @@ class MatrixChannel(BaseChannel):
         self._client: Optional[AsyncClient] = None
         self._user_id: Optional[str] = None
         self._sync_task: Optional[asyncio.Task] = None
+        self._stop_event: Optional[asyncio.Event] = None
         self._typing_tasks: Dict[str, asyncio.Task] = {}
         self._room_histories: OrderedDict[
             str,
@@ -591,18 +589,41 @@ class MatrixChannel(BaseChannel):
                     "device_id; E2EE store may not be reusable",
                 )
 
+    def _is_stopping(self) -> bool:
+        """Return True if stop() has been requested."""
+        return self._stop_event is not None and self._stop_event.is_set()
+
     def _is_retryable_auth_failure(self, response: Any) -> bool:
         """Return True if a login/whoami error may recover on retry.
 
-        nio's ErrorResponse subclasses carry a ``status_code`` that is
-        either a Matrix errcode string (e.g. ``M_FORBIDDEN``) or
-        ``None`` when the response body could not be parsed — the
-        latter happens when the homeserver is not fully ready yet
-        (e.g. 502 from a reverse proxy before Synapse starts).
-        Credential errors are never retryable; everything else is.
+        Checks both the Matrix errcode (``status_code``) and the
+        underlying HTTP status -- only 5xx / 408 / 429 are retried.
         """
         code = getattr(response, "status_code", None)
-        return code not in _NON_RETRYABLE_AUTH_CODES
+        if code in _NON_RETRYABLE_AUTH_CODES:
+            return False
+        http_status = getattr(
+            getattr(response, "transport_response", None),
+            "status",
+            None,
+        )
+        if http_status is None:
+            return True
+        return http_status >= 500 or http_status in (408, 429)
+
+    async def _wait_backoff_or_stop(self, delay: float) -> bool:
+        """Sleep for delay; return True if stop() was called."""
+        if self._stop_event is None:
+            await asyncio.sleep(delay)
+            return False
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(),
+                timeout=delay,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def _login_with_password(
         self,
@@ -620,12 +641,16 @@ class MatrixChannel(BaseChannel):
         )
         delay = _LOGIN_RETRY_INITIAL_DELAY
         while True:
+            if self._is_stopping():
+                return False
             resp, last_exc = await self._try_password_login_variants(
                 attempts,
             )
             if last_exc is not None:
                 raise last_exc
             if isinstance(resp, LoginResponse):
+                if self._is_stopping():
+                    return False
                 self._handle_password_login_success(resp)
                 return True
             if not self._is_retryable_auth_failure(resp):
@@ -640,15 +665,20 @@ class MatrixChannel(BaseChannel):
                 delay,
                 resp,
             )
-            await asyncio.sleep(delay)
+            if await self._wait_backoff_or_stop(delay):
+                return False
             delay = min(delay * 2, _LOGIN_RETRY_MAX_DELAY)
 
     async def _login_with_access_token(self) -> bool:
         self._client.access_token = self.access_token
         delay = _LOGIN_RETRY_INITIAL_DELAY
         while True:
+            if self._is_stopping():
+                return False
             whoami = await self._client.whoami()
             if isinstance(whoami, WhoamiResponse):
+                if self._is_stopping():
+                    return False
                 return self._handle_token_login_success(whoami)
             if not self._is_retryable_auth_failure(whoami):
                 logger.error(
@@ -662,7 +692,8 @@ class MatrixChannel(BaseChannel):
                 delay,
                 whoami,
             )
-            await asyncio.sleep(delay)
+            if await self._wait_backoff_or_stop(delay):
+                return False
             delay = min(delay * 2, _LOGIN_RETRY_MAX_DELAY)
 
     def _handle_token_login_success(
@@ -779,6 +810,7 @@ class MatrixChannel(BaseChannel):
                 "MatrixChannel: homeserver not configured, skipping",
             )
             return
+        self._stop_event = asyncio.Event()
         self._preflight_e2ee_dependencies()
         login_user = (self.matrix_user_id or "").strip()
         has_password_creds = bool(login_user and self.password)
@@ -819,6 +851,8 @@ class MatrixChannel(BaseChannel):
         logger.info("MatrixChannel: sync loop started")
 
     async def stop(self) -> None:
+        if self._stop_event:
+            self._stop_event.set()
         if self._sync_task:
             self._sync_task.cancel()
             try:

@@ -928,6 +928,29 @@ class TestMatrixChannelLoginRetry:
         assert ok is False
         assert mock_async_client.login.call_count == 1
 
+    async def test_password_login_no_retry_on_404(
+        self,
+        matrix_channel,
+        mock_async_client,
+    ):
+        """Non-JSON 404 (wrong URL) is not retried."""
+        matrix_channel.access_token = ""
+        matrix_channel.password = "test_password"
+        matrix_channel._client = mock_async_client
+        matrix_channel._save_auth_state = Mock()
+        mock_transport = MagicMock(status=404)
+        err = LoginError(message="unknown error")
+        err.transport_response = mock_transport
+        mock_async_client.login = AsyncMock(return_value=err)
+
+        ok = await matrix_channel._login_with_password(
+            "@bot:example.com",
+            "DEV",
+        )
+
+        assert ok is False
+        assert mock_async_client.login.call_count == 1
+
     async def test_token_login_retries_then_succeeds(
         self,
         matrix_channel,
@@ -978,6 +1001,39 @@ class TestMatrixChannelLoginRetry:
 
         assert ok is False
         assert mock_async_client.whoami.call_count == 1
+
+    async def test_token_login_stops_during_backoff(
+        self,
+        matrix_channel,
+        mock_async_client,
+        monkeypatch,
+    ):
+        """stop() during login retry terminates the loop."""
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.matrix.channel"
+            "._LOGIN_RETRY_INITIAL_DELAY",
+            100.0,
+        )
+        matrix_channel._client = mock_async_client
+        matrix_channel._save_auth_state = Mock()
+        matrix_channel._stop_event = asyncio.Event()
+        call_count = 0
+
+        def whoami_and_set_stop(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                matrix_channel._stop_event.set()
+            return WhoamiError(message="unknown error")
+
+        mock_async_client.whoami = AsyncMock(
+            side_effect=whoami_and_set_stop,
+        )
+
+        ok = await matrix_channel._login_with_access_token()
+
+        assert ok is False
+        assert call_count == 1
 
     async def test_login_retry_cancelled_during_sleep(
         self,
