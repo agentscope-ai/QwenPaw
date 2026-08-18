@@ -67,6 +67,10 @@ class MultiAgentManager:
         """
         return Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
 
+    def get_loaded_agent(self, agent_id: str) -> Workspace | None:
+        """Return an already loaded workspace without starting it."""
+        return self.agents.get(agent_id)
+
     async def get_agent(self, agent_id: str) -> Workspace:
         """Get agent workspace by ID (lazy loading with dedup).
 
@@ -189,29 +193,12 @@ class MultiAgentManager:
             event.set()
 
     @staticmethod
-    async def _fire_workspace_created_hooks(workspace_info: dict) -> None:
-        """Invoke all registered workspace_created hooks.
-
-        Supports both sync and async callbacks:
-        - Async callbacks are awaited directly.
-        - Sync callbacks are offloaded to a thread via
-          ``asyncio.to_thread`` so they never block the event loop.
-
-        Errors in individual hooks are logged but do not prevent
-        subsequent hooks from running.
-
-        Args:
-            workspace_info: Dict with at least ``agent_id`` and
-                ``workspace_dir`` keys.
-        """
-        try:
-            from ..plugins.registry import PluginRegistry
-
-            hooks = PluginRegistry().get_workspace_created_hooks()
-        except Exception:
-            # Plugin system not initialised yet — nothing to do.
-            return
-
+    async def _run_workspace_hooks(
+        hooks: list,
+        workspace_info: dict,
+        hook_type: str,
+    ) -> None:
+        """Run sync or async workspace hooks with error isolation."""
         for hook in hooks:
             try:
                 callback = hook.callback
@@ -226,11 +213,53 @@ class MultiAgentManager:
                         await result
             except Exception as exc:
                 logger.error(
-                    f"Error in workspace_created hook "
+                    f"Error in {hook_type} hook "
                     f"'{hook.hook_name}' for plugin "
                     f"'{hook.plugin_id}': {exc}",
                     exc_info=True,
                 )
+
+    @classmethod
+    async def _fire_workspace_created_hooks(cls, workspace_info: dict) -> None:
+        """Invoke hooks registered for newly created workspaces."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_created_hooks()
+        except Exception:
+            # Plugin system not initialised yet — nothing to do.
+            return
+
+        await cls._run_workspace_hooks(
+            hooks,
+            workspace_info,
+            "workspace_created",
+        )
+
+    @classmethod
+    async def _setup_workspace_plugins(
+        cls,
+        workspace: Workspace,
+        workspace_dir: str,
+    ) -> None:
+        """Install plugin-contributed in-memory state into a workspace."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_setup_hooks()
+        except Exception:
+            return
+
+        workspace_info = {
+            "agent_id": workspace.agent_id,
+            "workspace_dir": workspace_dir,
+            "workspace": workspace,
+        }
+        await cls._run_workspace_hooks(
+            hooks,
+            workspace_info,
+            "workspace setup",
+        )
 
     async def _graceful_stop_old_instance(
         self,
@@ -371,6 +400,30 @@ class MultiAgentManager:
             logger.info(f"Agent stopped and removed: {agent_id}")
             return True
 
+    @staticmethod
+    def _mark_rejected_reusable_services_for_cleanup(
+        old_instance: Workspace,
+        new_instance: Workspace,
+        reusable: dict,
+    ) -> None:
+        """Ensure services rejected by the new workspace are later closed."""
+        if not reusable:
+            return
+
+        # pylint: disable=protected-access
+        accepted_reusable = new_instance._service_manager.reused_services
+        rejected_reusable = set(reusable) - accepted_reusable
+        for service_name in rejected_reusable:
+            descriptor = old_instance._service_manager.descriptors.get(
+                service_name,
+            )
+            if descriptor is not None:
+                descriptor.reusable = False
+            old_instance._service_manager.reused_services.discard(
+                service_name,
+            )
+        # pylint: enable=protected-access
+
     async def reload_agent(self, agent_id: str) -> bool:
         """Reload a specific agent instance with zero-downtime.
 
@@ -448,6 +501,7 @@ class MultiAgentManager:
         async with self._lock:
             old_instance = self.agents.get(agent_id)
 
+        reusable = {}
         if old_instance:
             # TaskTracker is agent-scoped rather than workspace-scoped. Reuse
             # it before startup so reconnect/status/stop requests arriving
@@ -469,6 +523,10 @@ class MultiAgentManager:
         try:
             await new_instance.start()
             new_instance.set_manager(self)  # Set manager reference
+            await self._setup_workspace_plugins(
+                new_instance,
+                str(agent_ref.workspace_dir),
+            )
             logger.info(f"New workspace instance started: {agent_id}")
         except Exception as e:
             logger.exception(
@@ -498,6 +556,17 @@ class MultiAgentManager:
             old_instance = self.agents[agent_id]
             self.agents[agent_id] = new_instance
             logger.info(f"Workspace instance replaced: {agent_id}")
+
+        # A reusable service can be rejected during startup when its class no
+        # longer matches the newly loaded configuration (for example, after a
+        # memory backend switch).  The old workspace must retain it for any
+        # in-flight requests, but it must not treat it as transferred forever
+        # or its eventual non-final shutdown would leak the old service.
+        self._mark_rejected_reusable_services_for_cleanup(
+            old_instance,
+            new_instance,
+            reusable,
+        )
 
         # Snapshot only runs owned by the old workspace. Runs started through
         # the new workspace after the swap must not delay old resource cleanup.

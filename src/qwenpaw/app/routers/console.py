@@ -27,6 +27,7 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
+from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
@@ -63,6 +64,31 @@ class MarkInboxReadRequest(BaseModel):
 
 
 MAX_DEBUG_LOG_LINES = 1000
+
+
+def _resolve_effective_stream_task_timeout(
+    raw_timeout: Any,
+) -> int:
+    """Resolve background chat-task timeout in seconds.
+
+    Thin wrapper over :func:`qwenpaw.utils.timeout.resolve_stream_task_timeout`
+    so console routes share one parse/default contract with tools.
+    """
+    return resolve_stream_task_timeout(raw_timeout, field_name="timeout")
+
+
+def _background_task_cancel_error(
+    *,
+    timed_out: bool,
+    timeout_seconds: int,
+) -> Dict[str, Any]:
+    """Build the error payload for a cancelled background chat task."""
+    if timed_out:
+        return {
+            "message": f"Task timed out after {timeout_seconds}s",
+            "code": "timeout",
+        }
+    return {"message": "Task cancelled"}
 
 
 def _safe_filename(name: str) -> str:
@@ -638,16 +664,95 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+async def _finalize_background_fork(
+    project_dir: str,
+    branch: str,
+    *,
+    scope_id: str,
+) -> bool:
+    """Finish an in-flight fork commit before publishing a *success* result.
+
+    Cancelling ``asyncio.to_thread`` cannot stop the Git worker. If the
+    parent task is cancelled (timeout or manual cancel), re-raise immediately
+    so the task API can publish a terminal failure. The Git worker keeps
+    running as detached bookkeeping and must not rewrite that failure into
+    ``completed``.
+    """
+    from qwenpaw.agents.fork_project import finalize_fork_worktree_or_fail
+
+    finalizer = asyncio.create_task(
+        asyncio.to_thread(
+            finalize_fork_worktree_or_fail,
+            project_dir,
+            branch,
+            message=f"fork worker {branch}",
+            expected_scope=scope_id or None,
+        ),
+    )
+
+    def _log_detached(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except Exception:
+            logger.warning(
+                "Detached fork finalize failed for %s",
+                sanitize_log_value(branch),
+                exc_info=True,
+            )
+
+    try:
+        return await asyncio.shield(finalizer)
+    except asyncio.CancelledError:
+        if not finalizer.done():
+            finalizer.add_done_callback(_log_detached)
+        raise
+
+
+async def _mark_background_fork_failed(
+    project_dir: str,
+    branch: str,
+    *,
+    scope_id: str,
+    reason: str,
+    context: str,
+) -> None:
+    """Best-effort fork failure bookkeeping for background tasks."""
+    if not project_dir or not branch:
+        return
+    try:
+        from qwenpaw.agents.fork_project import mark_fork_failed
+
+        await asyncio.to_thread(
+            mark_fork_failed,
+            project_dir,
+            branch,
+            reason=reason,
+            expected_scope=scope_id or None,
+        )
+    except Exception:
+        logger.warning(
+            "mark_fork_failed after %s failed for %s",
+            context,
+            sanitize_log_value(branch),
+            exc_info=True,
+        )
+
+
 @router.post(
     "/chat/task",
     status_code=200,
     summary="Submit a background chat task",
 )
 async def post_console_chat_task(  # pylint: disable=too-many-statements
-    request_data: Union[AgentRequest, dict],
+    request_data: dict,
     request: Request,
 ) -> dict:
     """Run an agent chat as a background task.
+
+    Accepts a raw JSON object (not the shared ``AgentRequest`` model) so
+    task-only fields such as ``timeout`` are not validated on the common
+    chat envelope. ``timeout`` is resolved in-handler: omitted/null uses
+    the server default; invalid values raise HTTP 400.
 
     Returns a ``task_id`` immediately. Poll status via
     ``GET /console/chat/task/{task_id}``.
@@ -659,6 +764,14 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
             status_code=503,
             detail="Channel Console not found",
         )
+
+    # Single validation path for task timeout — always HTTP 400 on error.
+    try:
+        effective_timeout = _resolve_effective_stream_task_timeout(
+            request_data.get("timeout"),
+        )
+    except (ValueError, OverflowError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     task_id = f"task-{uuid.uuid4().hex[:12]}"
     native_payload = _extract_session_and_payload(request_data)
@@ -679,28 +792,16 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         native_payload,
     )
 
-    task_timeout: Optional[float] = None
     fork_project_dir = ""
     fork_worktree_branch = ""
     fork_scope_id = ""
-    if isinstance(request_data, dict):
-        task_timeout = request_data.get("timeout")
-        rc = request_data.get("request_context")
-        if isinstance(rc, dict):
-            fork_project_dir = str(rc.get("fork_project_dir") or "")
-            fork_worktree_branch = str(
-                rc.get("fork_worktree_branch") or "",
-            )
-            fork_scope_id = str(rc.get("fork_scope_id") or "")
-    elif hasattr(request_data, "timeout"):
-        task_timeout = getattr(request_data, "timeout", None)
-        rc = getattr(request_data, "request_context", None)
-        if isinstance(rc, dict):
-            fork_project_dir = str(rc.get("fork_project_dir") or "")
-            fork_worktree_branch = str(
-                rc.get("fork_worktree_branch") or "",
-            )
-            fork_scope_id = str(rc.get("fork_scope_id") or "")
+    rc = request_data.get("request_context")
+    if isinstance(rc, dict):
+        fork_project_dir = str(rc.get("fork_project_dir") or "")
+        fork_worktree_branch = str(
+            rc.get("fork_worktree_branch") or "",
+        )
+        fork_scope_id = str(rc.get("fork_scope_id") or "")
 
     from ...config.config import load_agent_config
     from ...services.project_directory import (
@@ -732,9 +833,11 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         status="running",
         started_at=time.time(),
     )
+    timed_out = False
 
     async def _run() -> None:
         last_response: Optional[Dict[str, Any]] = None
+        finalize_started = False
         try:
             async for sse_line in console_channel.stream_one(
                 native_payload,
@@ -742,30 +845,63 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 parsed = _parse_sse_payload(sse_line)
                 if parsed and parsed.get("type") != "turn_usage":
                     last_response = parsed
+
+            # Fork subagents: commit dirty worktree so branch tips are
+            # mergeable before exposing a completed task result.
+            if fork_project_dir and fork_worktree_branch:
+                finalize_started = True
+                try:
+                    finalized = await _finalize_background_fork(
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        scope_id=fork_scope_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Background fork finalize failed for %s (%s)",
+                        sanitize_log_value(fork_worktree_branch),
+                        sanitize_log_value(fork_project_dir),
+                        exc_info=True,
+                    )
+                    await _mark_background_fork_failed(
+                        fork_project_dir,
+                        fork_worktree_branch,
+                        scope_id=fork_scope_id,
+                        reason="Fork finalization raised an exception",
+                        context="finalize error",
+                    )
+                    finalized = False
+                if not finalized:
+                    bg.status = "finished"
+                    bg.finished_at = time.time()
+                    bg.result = {
+                        "status": "failed",
+                        "error": {
+                            "message": "Failed to finalize fork worktree",
+                        },
+                    }
+                    return
         except asyncio.CancelledError:
+            cancel_error = _background_task_cancel_error(
+                timed_out=timed_out,
+                timeout_seconds=effective_timeout,
+            )
             bg.status = "finished"
             bg.finished_at = time.time()
             bg.result = {
                 "status": "failed",
-                "error": {"message": "Task cancelled"},
+                "error": cancel_error,
             }
-            if fork_project_dir and fork_worktree_branch:
-                try:
-                    from qwenpaw.agents.fork_project import mark_fork_failed
-
-                    await asyncio.to_thread(
-                        mark_fork_failed,
-                        fork_project_dir,
-                        fork_worktree_branch,
-                        reason="Task cancelled",
-                        expected_scope=fork_scope_id or None,
-                    )
-                except Exception:
-                    logger.warning(
-                        "mark_fork_failed on cancel failed for %s",
-                        sanitize_log_value(fork_worktree_branch),
-                        exc_info=True,
-                    )
+            # In-flight Git finalize is detached bookkeeping; do not race
+            # it with mark_fork_failed or let it flip this result later.
+            if not finalize_started:
+                await _mark_background_fork_failed(
+                    fork_project_dir,
+                    fork_worktree_branch,
+                    scope_id=fork_scope_id,
+                    reason=str(cancel_error["message"]),
+                    context="cancel",
+                )
             return
         except Exception as exc:
             bg.status = "finished"
@@ -774,23 +910,13 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "status": "failed",
                 "error": {"message": str(exc)},
             }
-            if fork_project_dir and fork_worktree_branch:
-                try:
-                    from qwenpaw.agents.fork_project import mark_fork_failed
-
-                    await asyncio.to_thread(
-                        mark_fork_failed,
-                        fork_project_dir,
-                        fork_worktree_branch,
-                        reason=str(exc),
-                        expected_scope=fork_scope_id or None,
-                    )
-                except Exception:
-                    logger.warning(
-                        "mark_fork_failed on error failed for %s",
-                        sanitize_log_value(fork_worktree_branch),
-                        exc_info=True,
-                    )
+            await _mark_background_fork_failed(
+                fork_project_dir,
+                fork_worktree_branch,
+                scope_id=fork_scope_id,
+                reason=str(exc),
+                context="task error",
+            )
             return
 
         bg.status = "finished"
@@ -807,44 +933,32 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "session_id": session_id,
                 "output": [],
             }
-        # Fork subagents: commit dirty worktree so branch tips are mergeable.
-        if fork_project_dir and fork_worktree_branch:
-            try:
-                from qwenpaw.agents.fork_project import (
-                    finalize_fork_worktree_or_fail,
-                )
-
-                await asyncio.to_thread(
-                    finalize_fork_worktree_or_fail,
-                    fork_project_dir,
-                    fork_worktree_branch,
-                    message=f"fork worker {fork_worktree_branch}",
-                    expected_scope=fork_scope_id or None,
-                )
-            except Exception:
-                logger.warning(
-                    "Background fork finalize failed for %s (%s)",
-                    sanitize_log_value(fork_worktree_branch),
-                    sanitize_log_value(fork_project_dir),
-                    exc_info=True,
-                )
 
     atask = asyncio.create_task(_run())
     bg.asyncio_task = atask
 
-    if task_timeout is not None and task_timeout > 0:
+    async def _timeout_guard() -> None:
+        nonlocal timed_out
+        try:
+            await asyncio.sleep(effective_timeout)
+        except asyncio.CancelledError:
+            return
+        if not atask.done():
+            timed_out = True
+            atask.cancel()
 
-        async def _timeout_guard() -> None:
-            await asyncio.sleep(task_timeout)
-            if not atask.done():
-                atask.cancel()
+    guard_task = asyncio.create_task(_timeout_guard())
 
-        asyncio.create_task(_timeout_guard())
+    def _stop_timeout_guard(_task: asyncio.Task) -> None:
+        if not guard_task.done():
+            guard_task.cancel()
+
+    atask.add_done_callback(_stop_timeout_guard)
 
     async with _bg_lock:
         _bg_tasks[task_id] = bg
 
-    return {"task_id": task_id}
+    return {"task_id": task_id, "timeout": effective_timeout}
 
 
 @router.get(

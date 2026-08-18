@@ -58,8 +58,12 @@ Follow this flow strictly when using this skill:
   - `timeout`: (optional) estimated time needed for the foreground wait, to avoid premature timeouts
 
 4) If the task is better suited for background execution, use the background tool path:
-  - `submit_to_agent(...)`: submit a background task — only requires `to_agent`, `text`, and optionally `session_id`
+  - `submit_to_agent(...)`: submit a background task — requires `to_agent`, `text`, and optionally `session_id` / `task_timeout`
+    - Default execution budget is **3600 seconds (1 hour)** when `task_timeout` is omitted
+    - For work that may exceed 1 hour, pass an explicit positive `task_timeout` in seconds
+    - Numeric strings such as `"7200"` are accepted
   - `check_agent_task(...)`: check task status by `task_id`; returns the final result when complete
+    - On timeout the task finishes as failed with an error like `Task timed out after Ns` (and `code=timeout` in the API payload)
 
 ## Minimal Call Examples
 
@@ -90,6 +94,7 @@ chat_with_agent(
 submit_to_agent(
   to_agent="<target_agent_id>",
   text="[Agent <your_agent_id> requesting] Please complete this longer task in the background.",
+  task_timeout=7200,
 )
 
 check_agent_task(

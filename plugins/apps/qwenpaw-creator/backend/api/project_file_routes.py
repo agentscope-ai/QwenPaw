@@ -55,6 +55,7 @@ from services.project_files.review import (
 from services.project_files.models import Project
 from services.project_files.serialization import project_etag
 from services.project_files.store import (
+    BUILTIN_EXAMPLE_MARKER,
     ProjectConflict,
     ProjectIntegrityError,
     ProjectNotFound,
@@ -491,12 +492,18 @@ async def get_project_snapshot(
             status_code=status.HTTP_304_NOT_MODIFIED,
             headers=headers,
         )
+    # Bundled example Projects carry a marker file; the frontend uses the
+    # flag to gate flows that need the remote original source footage.
+    builtin_example = (
+        services.projects.project_root(project_id) / BUILTIN_EXAMPLE_MARKER
+    ).exists()
     return JSONResponse(
         content={
             "projectId": project_id,
             "generation": snapshot.generation,
             "etag": snapshot.etag,
             "syncStatus": entry.sync_status,
+            "builtinExample": builtin_example,
             "project": snapshot.project.model_dump(mode="json"),
         },
         headers=headers,

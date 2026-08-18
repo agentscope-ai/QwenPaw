@@ -473,6 +473,96 @@
   }
 }
 
+.profileAddButton {
+  width: 100%;
+  min-height: 34px;
+  margin-bottom: 4px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px dashed color-mix(in srgb, #7867b8 45%, transparent);
+  border-radius: 7px;
+  color: #7867b8;
+  background: color-mix(in srgb, #7867b8 4%, transparent);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #7867b8;
+    background: color-mix(in srgb, #7867b8 9%, transparent);
+  }
+}
+
+.profilePickerModal {
+  --profile-accent: #7867b8;
+  --profile-line: #e5e0f2;
+  --profile-muted: #777181;
+}
+
+.profilePickerDescription {
+  margin: 0 0 12px;
+  color: var(--profile-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.profilePickerSearch {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--profile-line);
+  border-radius: 8px;
+  outline: none;
+
+  &:focus {
+    border-color: var(--profile-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, #7867b8 14%, transparent);
+  }
+}
+
+.profilePickerList {
+  max-height: 360px;
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.profilePickerItem {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  > span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    color: var(--profile-accent);
+    background: color-mix(in srgb, #7867b8 8%, transparent);
+  }
+}
+
+.profilePickerEmpty {
+  padding: 24px 12px;
+  color: var(--profile-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .dragHandle {
   height: 24px;
   display: inline-flex;
@@ -810,6 +900,33 @@
   .profileRow.treeRowSelected {
     color: #b8a8ee;
     background: #302946;
+  }
+
+  .profileAddButton {
+    color: #b8a8ee;
+    border-color: color-mix(in srgb, #b8a8ee 45%, transparent);
+    background: color-mix(in srgb, #b8a8ee 7%, transparent);
+
+    &:hover {
+      border-color: #b8a8ee;
+      background: color-mix(in srgb, #b8a8ee 13%, transparent);
+    }
+  }
+
+  .profilePickerModal {
+    --profile-accent: #b8a8ee;
+    --profile-line: #4a435c;
+    --profile-muted: #aaa1bd;
+  }
+
+  .profilePickerSearch {
+    color: #f4efff;
+    background: #211d2a;
+    color-scheme: dark;
+
+    &::placeholder {
+      color: #81788f;
+    }
   }
 
   .conflictModal {

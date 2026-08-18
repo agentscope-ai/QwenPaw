@@ -502,6 +502,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         hook_name: str,
         callback: Callable,
         priority: int = 100,
+        reload_safe: bool = False,
     ):
         """Register a hook that fires when a new workspace is created.
 
@@ -513,6 +514,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             callback: Sync or async function to call on workspace creation.
                 Signature: ``(workspace_info: dict) -> None``
             priority: Execution priority (lower = earlier, default=100)
+            reload_safe: Also use this callback to restore in-memory state
+                before publishing a reloaded workspace. Reload-safe callbacks
+                must not perform workspace filesystem provisioning. During
+                reload, ``workspace_info`` also contains ``workspace``.
 
         Example:
             >>> api.register_workspace_created_hook(
@@ -526,6 +531,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 hook_name=hook_name,
                 callback=callback,
                 priority=priority,
+                reload_safe=reload_safe,
             )
             logger.info(
                 f"Plugin '{self.plugin_id}' registered "
@@ -949,6 +955,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name=(f"slash_cmd_ws_{self.plugin_id}_{name}"),
             callback=_on_workspace_created,
             priority=60,
+            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled slash command "
@@ -991,6 +998,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name=(f"mode_ws_{self.plugin_id}_{mode_name}"),
             callback=_on_workspace_created,
             priority=70,
+            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled mode "
@@ -1030,6 +1038,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name=(f"rt_hook_ws_{self.plugin_id}_{hook.name}"),
             callback=_on_workspace_created,
             priority=65,
+            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled runtime hook "
@@ -1083,6 +1092,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name=(f"stop_ws_{self.plugin_id}_{reg.name}"),
             callback=_on_workspace_created,
             priority=55,
+            reload_safe=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled stop handler "
@@ -1174,6 +1184,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         workspace_info: dict,
     ):
         """Get workspace instance from workspace_info dict."""
+        workspace = workspace_info.get("workspace")
+        if workspace is not None:
+            return workspace
         try:
             from .registry import PluginRegistry
 

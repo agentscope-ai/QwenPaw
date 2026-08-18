@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """Utility functions for proactive messaging features."""
 
+from copy import deepcopy
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, List, Optional, Any
 
 from agentscope.agent import Agent
-from agentscope.message import Msg, TextBlock, DataBlock, URLSource
+from agentscope.message import Msg, TextBlock
 
 if TYPE_CHECKING:
     from ....app.workspace import Workspace
@@ -262,13 +263,17 @@ async def _analyze_screen_activity(
             return None
 
         content = screenshot_result.content
+        image_block = None
         if isinstance(content, list):
             # content may be [DataBlock, TextBlock] - find the TextBlock
             result_text = ""
             for block in content:
                 if hasattr(block, "text"):
                     result_text = block.text
-                    break
+                source = getattr(block, "source", None)
+                media_type = getattr(source, "media_type", "") or ""
+                if media_type.startswith("image/"):
+                    image_block = block
         else:
             result_text = str(content)
 
@@ -281,8 +286,7 @@ async def _analyze_screen_activity(
                 )
                 return None
 
-            screenshot_path = result_json.get("path", "")
-            if not screenshot_path:
+            if image_block is None:
                 return None
 
             analysis_prompt = (
@@ -291,24 +295,12 @@ async def _analyze_screen_activity(
                 "currently engaged in."
             )
 
-            screenshot_url = screenshot_path
-            if not screenshot_url.startswith(
-                ("http://", "https://", "file://"),
-            ):
-                screenshot_url = f"file://{screenshot_url}"
             screenshot_msg = Msg(
                 name="System",
                 role="user",
                 content=[
                     TextBlock(type="text", text=analysis_prompt),
-                    DataBlock(
-                        type="data",
-                        source=URLSource(
-                            type="url",
-                            url=screenshot_url,
-                            media_type="image/png",
-                        ),
-                    ),
+                    deepcopy(image_block),
                 ],
             )
 

@@ -223,14 +223,25 @@ class ServiceManager:
         """
         t0 = time.perf_counter()
         name = descriptor.name
-        is_reused = name in self.reused_services
-
-        if is_reused:
-            logger.info(
-                f"Reusing service '{name}' for {self.workspace.agent_id}",
-            )
-
         try:
+            is_reused = name in self.reused_services
+            if is_reused and not self._reused_service_is_compatible(
+                descriptor,
+            ):
+                logger.info(
+                    f"Service '{name}' is not compatible with the reloaded "
+                    f"configuration for {self.workspace.agent_id}; "
+                    f"creating a new instance",
+                )
+                self.reused_services.discard(name)
+                self.services.pop(name, None)
+                is_reused = False
+
+            if is_reused:
+                logger.info(
+                    f"Reusing service '{name}' for {self.workspace.agent_id}",
+                )
+
             service = await self._get_or_create_service(
                 descriptor,
                 is_reused,
@@ -251,6 +262,7 @@ class ServiceManager:
                     f"Optional service '{name}' failed to start for "
                     f"{self.workspace.agent_id} (continuing without it): {e}",
                 )
+                self.reused_services.discard(name)
                 self.services.pop(name, None)
                 return
             logger.exception(
@@ -258,6 +270,27 @@ class ServiceManager:
                 f"for {self.workspace.agent_id}: {e}",
             )
             raise
+
+    def _reused_service_is_compatible(
+        self,
+        descriptor: ServiceDescriptor,
+    ) -> bool:
+        """Return whether a reused instance still matches its service class.
+
+        Callable service classes may depend on the newly loaded workspace
+        configuration.  Resolving them again prevents a backend switch from
+        carrying an instance of the old backend into the new workspace.
+        Services without a concrete class are created by ``post_init`` and
+        keep their existing reuse semantics.
+        """
+        instance = self.services.get(descriptor.name)
+        if instance is None or descriptor.service_class is None:
+            return True
+        if isinstance(descriptor.service_class, type):
+            expected_class = descriptor.service_class
+        else:
+            expected_class = descriptor.service_class(self.workspace)
+        return isinstance(instance, expected_class)
 
     async def _get_or_create_service(
         self,

@@ -16,14 +16,34 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ReviewDimension(StrEnum):
-    """Six-dimension protocol adapted from the upstream video-edit skill."""
+    """Eight-row protocol: the seven vendored Appeal rubric rows
+    (``vendor/media_toolkit/review_rubrics.APPEAL_RUBRIC_ROWS``, verbatim keys)
+    plus one Creator engineering row that keeps the objective defect checks
+    (black frames, silence, duration drift) from the original six-dimension
+    protocol.
+    """
 
-    VISUAL_QUALITY = "visual_quality"
-    DURATION_MATCH = "duration_match"
-    PACING = "pacing"
-    VOICEOVER = "voiceover"
-    SUBTITLES = "subtitles"
+    CONCEPT = "concept"
+    CONTRACT = "contract"
+    RHYTHM = "rhythm"
+    RESTRAINT = "restraint"
+    CRAFT = "craft"
+    SOUND = "sound"
+    TYPOGRAPHY_MOTION = "typography_motion"
     ENGINEERING = "engineering"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "ReviewDimension | None":
+        # Reports persisted before the eight-row protocol carry the old
+        # six-dimension names; map them so history stays readable.
+        legacy = {
+            "visual_quality": cls.CRAFT,
+            "pacing": cls.RHYTHM,
+            "voiceover": cls.SOUND,
+            "subtitles": cls.TYPOGRAPHY_MOTION,
+            "duration_match": cls.ENGINEERING,
+        }
+        return legacy.get(str(value).casefold())
 
 
 class RenderReviewModel(BaseModel):
@@ -60,6 +80,9 @@ class ReviewFinding(RenderReviewModel):
     severity: Literal["minor", "major"] = "minor"
     evidence_timestamp_ms: int | None = Field(default=None, ge=0)
     suggestion: str = ""
+    # Appeal rubric 0-10 score; required for the concept row (score <= 5
+    # forces a revise verdict per the upstream veto rule).
+    score: int | None = Field(default=None, ge=0, le=10)
 
 
 class RenderReviewReport(RenderReviewModel):

@@ -48,7 +48,7 @@ _config_lock = threading.RLock()
 # Agent config cache entries are defined in config.py to avoid importing the
 # large AgentProfileConfig model here during module initialization.
 _agent_config_cache: dict[str, Any] = {}
-_agent_config_lock = threading.Lock()
+_agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
 
 
@@ -726,31 +726,6 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
         return HeartbeatConfig()
     hb = config.agents.defaults.heartbeat
     return hb if hb is not None else HeartbeatConfig()
-
-
-def get_dream_cron(agent_id: Optional[str] = None) -> str:
-    """Return dream-based memory optimization job cron expression for
-    the agent.
-
-    Args:
-        agent_id: Agent ID to load config from. If None, tries to load from
-                  root config.agents.defaults (legacy behavior).
-
-    Returns:
-        str: Cron expression for dream-based memory optimization job, or an
-             empty string if disabled.
-    """
-    if agent_id is not None:
-        try:
-            agent_config = load_agent_config(agent_id)
-            memory_config = agent_config.running.reme_light_memory_config
-            if not getattr(memory_config, "dream_cron_enabled", True):
-                return ""
-            return memory_config.dream_cron
-        except Exception:
-            return ""
-    # Legacy: return empty string if no agent_id provided
-    return ""
 
 
 def update_last_dispatch(

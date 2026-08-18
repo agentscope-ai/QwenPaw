@@ -1270,7 +1270,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     };
     entry.promise = (async () => {
       try {
-        const chats = await api.listChats({ archived: false });
+        const chats = await api.listChats({
+          archived: false,
+          include_app_owned: false,
+        });
         // A result from a stale epoch must not replace the current agent's
         // session list; hand back the current list without mutation.
         if (!this.isActiveOwner(owner)) {
@@ -1368,7 +1371,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     }
 
-    const chatHistory = await api.getChat(backendId, { signal });
+    const chatHistory = await api.getChat(backendId, {
+      signal,
+      include_app_owned: false,
+    });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);

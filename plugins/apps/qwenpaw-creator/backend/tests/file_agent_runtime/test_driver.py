@@ -4281,6 +4281,149 @@ def test_costly_specialist_tool_waits_for_file_authorization(
     assert "execution.authorization_decided" in event_types
 
 
+def test_approved_authorization_is_reused_across_specialist_runs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The same tool call from a later Specialist run must not re-ask.
+
+    The approval identity is target-scoped (tool + arguments): after a
+    review decision interrupts a parked run, the re-delegated Specialist
+    retries the identical generation, and the user's earlier approval has
+    to carry over instead of blocking on a duplicate decision card.
+    """
+
+    import services.file_agent_runtime.driver as driver_module
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_execution_authorization_mode",
+        lambda: "required",
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_creation_checkpoint_mode",
+        lambda: "skip",
+    )
+    parent_turn = 0
+    specialist_turn = 0
+    tool_call_arguments = {
+        "projectId": PROJECT_ID,
+        "targetRef": "asset:hero",
+        "arguments": {"prompt": "hero portrait"},
+    }
+
+    async def callback(_messages, tools):
+        nonlocal parent_turn, specialist_turn
+        names = {item["function"]["name"] for item in tools}
+        if "image_generation" in names:
+            specialist_turn += 1
+            if specialist_turn in (1, 3):
+                return AgentModelTurn(
+                    tool_calls=(
+                        AgentToolCall(
+                            call_id=f"generate-image-{specialist_turn}",
+                            name="image_generation",
+                            arguments=dict(tool_call_arguments),
+                        ),
+                    ),
+                )
+            return AgentModelTurn(content="[SUCCESS]\n角色图已生成。")
+        parent_turn += 1
+        if parent_turn in (1, 2):
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id=f"delegate-visual-{parent_turn}",
+                        name="delegate_to_agent",
+                        arguments={
+                            "role": "visual_development_agent",
+                            "target_refs": ["asset:hero"],
+                            "task": f"生成角色图（第 {parent_turn} 次）",
+                        },
+                    ),
+                ),
+            )
+        return AgentModelTurn(content="视觉 Specialist 已全部完成。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+
+        async def fake_invoke(**_kwargs):
+            return SpecialistToolResult(
+                payload={
+                    "ok": True,
+                    "status": "SUCCEEDED",
+                    "artifactVersionId": "artifact-version-1",
+                },
+            )
+
+        driver.specialist_tools.invoke = fake_invoke  # type: ignore[method-assign]
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: bool(
+                driver.executions.list_execution_authorizations(PROJECT_ID),
+            ),
+        )
+        authorization = driver.executions.list_execution_authorizations(
+            PROJECT_ID,
+        )[0]
+        driver.executions.decide_execution_authorization(
+            PROJECT_ID,
+            authorization.authorization_id,
+            authorization_token=authorization.authorization_token,
+            status=ExecutionAuthorizationStatus.APPROVED,
+            decision={
+                "provider": authorization.requested_provider,
+                "model": authorization.requested_model,
+                "maxCost": 0,
+                "maxCandidates": 1,
+            },
+        )
+        await _wait_for(
+            lambda: (
+                services.sessions.get_project_session(
+                    PROJECT_ID,
+                ).last_consumed_message_seq
+                == 1
+            ),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        authorizations = driver.executions.list_execution_authorizations(
+            PROJECT_ID,
+        )
+        specialist_runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return authorizations, specialist_runs, events
+
+    authorizations, specialist_runs, events = asyncio.run(scenario())
+    # Both delegations executed their generation …
+    assert specialist_turn == 4
+    succeeded = [
+        run for run in specialist_runs if run.status.value == "SUCCEEDED"
+    ]
+    assert len(succeeded) == 2
+    # … but the user was asked exactly once: the second run reused the
+    # approved record instead of opening a duplicate decision card.
+    assert len(authorizations) == 1
+    required_events = [
+        item
+        for item in events
+        if item.event_type == "execution.authorization_required"
+    ]
+    assert len(required_events) == 1
+
+
 def test_approved_billing_arguments_do_not_trip_the_drift_guard(
     tmp_path,
     monkeypatch,
@@ -4654,3 +4797,49 @@ def test_model_blocked_with_its_pending_review_is_a_neutral_pause(
     )
     assert "告诉我" not in streamed_text
     assert expected_final_summary in streamed_text
+
+
+def test_workspace_commits_wake_the_media_scheduler(tmp_path) -> None:
+    """Every committed structure write wakes the per-project scheduler.
+
+    Prompt-first planning writes complete variant prompts many turns
+    before the run ends; without a commit-time wake the READY anchors
+    idle until run completion (measured at ~9 minutes on a five-act
+    project). Empty commits must stay silent.
+    """
+
+    async def scenario():
+        services, _snapshot = _create_project(tmp_path, initial_goal=None)
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(
+                lambda *args, **kwargs: AgentModelTurn(content="idle"),
+            ),
+            poll_interval_seconds=0.01,
+        )
+        woken: list[str] = []
+        driver.work_scheduler.wake = woken.append  # type: ignore[method-assign]
+
+        async def _noop_event(*args, **kwargs) -> None:
+            return None
+
+        driver._event = _noop_event  # type: ignore[method-assign]
+        await driver._workspace_changed(
+            PROJECT_ID,
+            SESSION_ID,
+            "run-1",
+            None,
+            {"changedPointers": ["/strategy/creative_brief"]},
+            action_id="call-1",
+        )
+        await driver._workspace_changed(
+            PROJECT_ID,
+            SESSION_ID,
+            "run-1",
+            None,
+            {"changedPointers": []},
+            action_id="call-2",
+        )
+        return woken
+
+    assert asyncio.run(scenario()) == [PROJECT_ID]

@@ -2,12 +2,14 @@
 """Tests for model_factory message normalization integration."""
 
 # pylint: disable=protected-access,redefined-outer-name
+import base64
 import json
 from types import SimpleNamespace
 
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
+    Base64Source,
     DataBlock,
     HintBlock,
     Msg,
@@ -31,11 +33,34 @@ except ImportError:
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
-from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingDashScopeFormatter,
+    _CappingOpenAIFormatter,
+)
+from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
 
 
 def _data_block(media_type: str, url: str) -> DataBlock:
     return DataBlock(source=URLSource(url=url, media_type=media_type))
+
+
+def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
+    return DataBlock(
+        source=Base64Source(
+            media_type=media_type,
+            data=base64.b64encode(content).decode("ascii"),
+        ),
+    )
+
+
+def test_anthropic_dedup_key_uses_immutable_base64_directly() -> None:
+    block = _base64_data_block("image/png", b"immutable-content")
+
+    key = model_factory._anthropic_media_dedup_key(block.source)
+
+    assert key == ("base64", "image/png", block.source.data)
+    assert key[2] is block.source.data
 
 
 def _media_messages() -> list[Msg]:
@@ -178,6 +203,143 @@ def test_force_strip_media_flag_overrides_multimodal_support(
 
     assert normalized[0].content[0].type == "text"
     assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+@pytest.mark.asyncio
+async def test_anthropic_dedup_uses_complete_media_content(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    first = _base64_data_block("image/png", b"version-one")
+    second = _base64_data_block("image/png", b"version-two")
+    msg = Msg(name="user", role="user", content=[first, second])
+
+    formatted = await formatter.format([msg])
+
+    content = formatted[0]["content"]
+    assert [item["type"] for item in content] == ["image", "image"]
+    assert formatter._qwenpaw_last_wire_media_count == 2
+
+
+@pytest.mark.asyncio
+async def test_anthropic_dedup_omits_identical_media(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    first = _base64_data_block("image/png", b"same-version")
+    second = _base64_data_block("image/png", b"same-version")
+    msg = Msg(name="user", role="user", content=[first, second])
+
+    formatted = await formatter.format([msg])
+
+    content = formatted[0]["content"]
+    assert [item["type"] for item in content] == ["image", "text"]
+    assert "omitted" in content[1]["text"]
+    assert formatter._qwenpaw_last_wire_media_count == 1
+
+
+@pytest.mark.asyncio
+async def test_formatter_resets_wire_media_count_before_failure(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    valid = Msg(
+        name="user",
+        role="user",
+        content=[_base64_data_block("image/png", b"valid")],
+    )
+    await formatter.format([valid])
+    assert formatter._qwenpaw_last_wire_media_count == 1
+
+    async def fail_format(_self, _msgs):
+        raise RuntimeError("formatter failed")
+
+    monkeypatch.setattr(_CappingAnthropicFormatter, "format", fail_format)
+    with pytest.raises(RuntimeError, match="formatter failed"):
+        await formatter.format([valid])
+
+    assert formatter._qwenpaw_last_wire_media_count == 0
+
+
+@pytest.mark.asyncio
+async def test_dashscope_audio_strip_flag_preserves_other_media(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingDashScopeFormatter,
+    )
+    formatter = formatter_class()
+    audio_block = _base64_data_block("audio/mpeg", b"audio")
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            TextBlock(text="Mixed media"),
+            _base64_data_block("image/png", b"image"),
+            audio_block,
+            _base64_data_block("video/mp4", b"video"),
+        ],
+    )
+    original = msg.model_dump(mode="json")
+
+    first_request = await formatter.format([msg])
+
+    assert [block["type"] for block in first_request[0]["content"]] == [
+        "text",
+        "image_url",
+        "input_audio",
+        "video_url",
+    ]
+    assert first_request[0]["content"][2] == {
+        "type": "input_audio",
+        "input_audio": {
+            "data": (f"data:audio/mpeg;base64,{audio_block.source.data}"),
+            "format": "mp3",
+        },
+    }
+    assert formatter._qwenpaw_last_wire_media_count == 3
+    assert formatter._qwenpaw_last_wire_audio_count == 1
+
+    formatter._qwenpaw_force_strip_audio = True
+    retry_request = await formatter.format([msg])
+
+    assert [block["type"] for block in retry_request[0]["content"]] == [
+        "text",
+        "image_url",
+        "video_url",
+    ]
+    assert formatter._qwenpaw_last_wire_media_count == 2
+    assert formatter._qwenpaw_last_wire_audio_count == 0
+    assert msg.model_dump(mode="json") == original
 
 
 def test_formatter_flags_returned_correctly() -> None:
@@ -530,6 +692,96 @@ def _messages_with_extra_content() -> list[Msg]:
             ],
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_relays_persisted_tool_call_extra() -> None:
+    msg = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        msg,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+    # Exercise the session persistence boundary, not just the live Msg.
+    restored = Msg.model_validate(msg.model_dump(mode="json"))
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="example",
+    )
+
+    formatted = await formatter_class().format([restored])
+
+    tool_call = formatted[0]["tool_calls"][0]
+    assert tool_call["id"] == "call_ec"
+    assert tool_call["extra_content"] == {
+        "thought_signature": "signature-abc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_does_not_relay_other_provider_extra() -> None:
+    msg = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        msg,
+        {
+            "call_ec": {
+                "provider_id": "source-provider",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="target-provider",
+    )
+
+    formatted = await formatter_class().format([msg])
+
+    assert "extra_content" not in formatted[0]["tool_calls"][0]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_isolates_reused_ids_between_requests() -> None:
+    first = _messages_with_extra_content()[0]
+    second = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        first,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-1"},
+            },
+        },
+    )
+    persist_tool_call_extras(
+        second,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-2"},
+            },
+        },
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="example",
+    )
+
+    formatter = formatter_class()
+    formatted_first = await formatter.format([first])
+    formatted_second = await formatter.format([second])
+
+    first_call = formatted_first[0]["tool_calls"][0]
+    second_call = formatted_second[0]["tool_calls"][0]
+    relayed = [
+        first_call["extra_content"]["thought_signature"],
+        second_call["extra_content"]["thought_signature"],
+    ]
+    assert relayed == ["signature-1", "signature-2"]
 
 
 def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
