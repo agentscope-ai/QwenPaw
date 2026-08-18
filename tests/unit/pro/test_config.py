@@ -8,6 +8,7 @@ import pytest
 
 from qwenpaw.pro.auth import ProAuthService
 from qwenpaw.pro.config import (
+    ControlPlaneConfig,
     ProConfig,
     ProConfigStore,
     TenantQuota,
@@ -24,6 +25,7 @@ def test_load_partial_config_and_resolve_tenant_override(
         """
 version: 1
 control_plane:
+  public_base_url: https://qwenpaw.example.com/root/
   registration:
     enabled: false
 runtime:
@@ -42,6 +44,10 @@ tenants:
     config = load_pro_config(config_path)
 
     assert config.control_plane.registration.enabled is False
+    assert (
+        config.control_plane.public_base_url
+        == "https://qwenpaw.example.com/root"
+    )
     assert config.default_driver == "local"
     assert config.allowed_drivers == frozenset({"local"})
     assert config.quota_for("personal-user-a") == TenantQuota(
@@ -71,6 +77,15 @@ def test_no_config_uses_built_in_defaults() -> None:
         (
             "version: 1\nruntime:\n  allowed_drivers: []",
             "must not be empty",
+        ),
+        (
+            "version: 1\ncontrol_plane:\n  public_base_url: localhost",
+            "absolute HTTP\\(S\\) URL",
+        ),
+        (
+            "version: 1\ncontrol_plane:\n"
+            "  public_base_url: https://user@example.com",
+            "must not contain credentials",
         ),
     ],
 )
@@ -149,3 +164,12 @@ def test_config_store_does_not_persist_unavailable_driver(
         store.resolve(config_path, available_drivers={"local"})
 
     assert store.resolve(None).default_driver == "local"
+
+
+def test_public_base_url_rejects_query_and_fragment() -> None:
+    with pytest.raises(ValueError, match="query or fragment"):
+        ProConfig(
+            control_plane=ControlPlaneConfig(
+                public_base_url="https://example.com?tenant=one",
+            ),
+        )

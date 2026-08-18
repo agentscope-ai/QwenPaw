@@ -17,6 +17,7 @@ from ...providers.oauth import (
 from ...providers.oauth.base import OAuthFlow
 from ...providers.provider_manager import ProviderManager
 from ...utils.logging import sanitize_log_value
+from ...utils.oauth_callback import managed_oauth_callback_url
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ def _build_callback_url(
     provider_id: str,
 ) -> str:
     """Build the OAuth callback URL for this request."""
+    managed_url = managed_oauth_callback_url(request)
+    if managed_url:
+        return managed_url
     base = str(request.base_url).rstrip("/")
     return f"{base}/api/providers/{provider_id}/oauth/callback"
 

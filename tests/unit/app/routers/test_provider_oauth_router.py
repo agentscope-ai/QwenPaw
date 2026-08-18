@@ -3,10 +3,17 @@
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers import router as api_router
+
+
+def _callback_url(authorize_url: str) -> str:
+    return parse_qs(urlsplit(authorize_url).query)["callback_url"][0]
 
 
 def test_openrouter_oauth_start_is_registered() -> None:
@@ -21,4 +28,49 @@ def test_openrouter_oauth_start_is_registered() -> None:
     payload = response.json()
     assert payload["flow_type"] == "browser_redirect"
     assert payload["authorize_url"].startswith("https://openrouter.ai/auth")
+    assert _callback_url(payload["authorize_url"]) == (
+        "http://testserver/api/providers/openrouter/oauth/callback"
+    )
     assert payload["state"]
+
+
+def test_openrouter_uses_managed_callback_when_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_PRO_INTERNAL_TOKEN", "runtime-token")
+    app = FastAPI()
+    app.include_router(api_router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/providers/openrouter/oauth/start",
+        headers={
+            "X-QwenPaw-Pro-OAuth-Callback-Url": (
+                "https://qwenpaw.example.com/api/pro/oauth/callback/relay"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert _callback_url(response.json()["authorize_url"]) == (
+        "https://qwenpaw.example.com/api/pro/oauth/callback/relay"
+    )
+
+
+def test_openrouter_ignores_managed_callback_header_in_standalone() -> None:
+    app = FastAPI()
+    app.include_router(api_router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/providers/openrouter/oauth/start",
+        headers={
+            "X-QwenPaw-Pro-OAuth-Callback-Url": (
+                "https://attacker.example/callback"
+            ),
+        },
+    )
+
+    assert _callback_url(response.json()["authorize_url"]) == (
+        "http://testserver/api/providers/openrouter/oauth/callback"
+    )

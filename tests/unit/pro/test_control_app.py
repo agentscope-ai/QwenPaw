@@ -3,6 +3,7 @@
 
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
+from urllib.parse import urlsplit
 from unittest.mock import patch
 
 import httpx
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.pro.auth import ProAuthService
-from qwenpaw.pro.config import ProConfig
+from qwenpaw.pro.config import ControlPlaneConfig, ProConfig
 from qwenpaw.pro.control_app import create_pro_app, run_pro_app
 from qwenpaw.pro.credentials import TenantCredentialVault
 from qwenpaw.pro.driver import RuntimeDriver, RuntimeDriverAvailability
@@ -162,6 +163,12 @@ def test_public_bind_starts_after_admin_initialization(
         tmp_path / "secrets" / ".vault_key",
     )
     ProAuthService(database, vault).register("owner", "safe-password")
+    config_path = tmp_path / "pro.yaml"
+    config_path.write_text(
+        "version: 1\ncontrol_plane:\n"
+        "  public_base_url: http://qwenpaw.example.com",
+        encoding="utf-8",
+    )
 
     with (
         patch("qwenpaw.pro.control_app.create_pro_app") as create_app,
@@ -171,12 +178,34 @@ def test_public_bind_starts_after_admin_initialization(
             host="::",
             port=8088,
             log_level="info",
+            config_path=config_path,
             force_public=True,
         )
 
     uvicorn_run.assert_called_once()
     assert uvicorn_run.call_args.kwargs["host"] == "::"
     create_app.assert_called_once()
+
+
+def test_public_bind_requires_public_base_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_PRO_DIR", str(tmp_path))
+    database = tmp_path / "control.db"
+    vault = TenantCredentialVault(
+        database,
+        tmp_path / "secrets" / ".vault_key",
+    )
+    ProAuthService(database, vault).register("owner", "safe-password")
+
+    with pytest.raises(ValueError, match="public_base_url"):
+        run_pro_app(
+            host="0.0.0.0",
+            port=8088,
+            log_level="info",
+            force_public=True,
+        )
 
 
 def test_unavailable_driver_keeps_control_plane_in_safe_mode(
@@ -320,3 +349,90 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes[0]["state"] == "running"
         assert runtimes[0]["owner_user_id"]
         assert runtimes[0]["metadata"]["pro_default"] is True
+
+
+@pytest.mark.parametrize(
+    ("start_path", "callback_path"),
+    [
+        (
+            "/api/providers/openrouter/oauth/start",
+            "/api/providers/openrouter/oauth/callback",
+        ),
+        (
+            "/api/agents/default/mcp/oauth/start/test-client",
+            "/api/mcp/oauth/callback",
+        ),
+    ],
+)
+def test_oauth_callback_relay_is_scoped_and_one_time(
+    tmp_path: Path,
+    start_path: str,
+    callback_path: str,
+) -> None:
+    callback_urls: list[str] = []
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            callback_url = request.headers["X-QwenPaw-Pro-OAuth-Callback-Url"]
+            callback_urls.append(callback_url)
+            assert callback_url.startswith(
+                "https://qwenpaw.example.com/base/",
+            )
+            assert callback_url != "https://attacker.example/callback"
+            return httpx.Response(
+                200,
+                stream=_ProxyStream(),
+                headers={"Content-Type": "application/json"},
+            )
+        assert request.url.path == callback_path
+        assert request.url.query == b"code=code-value&state=state-value"
+        assert request.headers["X-QwenPaw-Pro-Runtime-Token"]
+        return httpx.Response(
+            200,
+            text="callback complete",
+            headers={"Content-Type": "text/html"},
+        )
+
+    config = ProConfig(
+        control_plane=ControlPlaneConfig(
+            public_base_url="https://qwenpaw.example.com/base",
+        ),
+    )
+    transport = httpx.MockTransport(proxy_handler)
+    with _client(tmp_path, transport, pro_config=config) as client:
+        token = _register(client, "owner")
+        started = client.post(
+            start_path,
+            headers={
+                **_headers(token),
+                "X-QwenPaw-Pro-OAuth-Callback-Url": (
+                    "https://attacker.example/callback"
+                ),
+            },
+        )
+        assert started.status_code == 200
+
+        relay_url = urlsplit(callback_urls[0])
+        relay_path = relay_url.path.removeprefix("/base")
+        callback = client.get(
+            f"{relay_path}?code=code-value&state=state-value",
+        )
+        repeated = client.get(
+            f"{relay_path}?code=code-value&state=state-value",
+        )
+
+        assert callback.status_code == 200
+        assert callback.text == "callback complete"
+        assert repeated.status_code == 404
+
+
+def test_regular_runtime_callback_still_requires_login(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        response = client.get(
+            "/api/providers/openrouter/oauth/callback",
+            params={"code": "value"},
+        )
+
+        assert response.status_code == 401

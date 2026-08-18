@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -26,12 +27,14 @@ from starlette.concurrency import run_in_threadpool
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
+from ..utils.oauth_callback import PRO_OAUTH_CALLBACK_URL_HEADER
 from .auth import ProAuthService, ProUser
 from .config import ProConfig, ProConfigStore
 from .credentials import TenantCredentialVault
 from .driver import RuntimeDriverUnavailableError
 from .local_driver import LocalProcessRuntimeDriver
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
+from .oauth_relay import OAuthRelayStore
 from .registry import RuntimeRegistry
 from .service import RuntimeService
 
@@ -79,6 +82,27 @@ class CredentialBody(BaseModel):
     scope: str = "tenant"
     name: str = Field(min_length=1, max_length=128)
     value: str = Field(min_length=1, max_length=65536)
+
+
+_PROVIDER_OAUTH_START = re.compile(
+    r"^providers/(?P<provider_id>[A-Za-z0-9_.-]+)/oauth/start$",
+)
+_MCP_OAUTH_START = re.compile(
+    r"^(?:agents/[^/]+/)?mcp/oauth/start/[^/].*$",
+)
+
+
+def _oauth_callback_path(method: str, path: str) -> str | None:
+    """Map a managed OAuth start request to its fixed callback path."""
+    if method != "POST":
+        return None
+    provider_match = _PROVIDER_OAUTH_START.fullmatch(path)
+    if provider_match:
+        provider_id = provider_match.group("provider_id")
+        return f"/api/providers/{provider_id}/oauth/callback"
+    if _MCP_OAUTH_START.fullmatch(path):
+        return "/api/mcp/oauth/callback"
+    return None
 
 
 def get_pro_root() -> Path:
@@ -158,6 +182,8 @@ def create_pro_app(  # pylint: disable=too-many-statements
     app.state.runtime_service = runtime_service
     app.state.auth_service = pro_auth
     app.state.pro_config = effective_config
+    oauth_relays = OAuthRelayStore()
+    app.state.oauth_relays = oauth_relays
 
     def require_user(
         authorization: str | None = Header(default=None),
@@ -577,6 +603,81 @@ def create_pro_app(  # pylint: disable=too-many-statements
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.get(
+        "/api/pro/oauth/callback/{relay_token}",
+        include_in_schema=False,
+    )
+    async def oauth_callback_relay(
+        relay_token: str,
+        request: Request,
+    ) -> Response:
+        relay = oauth_relays.take(relay_token)
+        if relay is None:
+            raise HTTPException(
+                status_code=404,
+                detail="OAuth callback relay is invalid or expired",
+            )
+        try:
+            record = await run_in_threadpool(
+                runtime_service.status,
+                relay.runtime_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="OAuth callback runtime is unavailable",
+            ) from exc
+        if record.state != RuntimeState.RUNNING:
+            raise HTTPException(
+                status_code=503,
+                detail="OAuth callback runtime is not running",
+            )
+        internal_token = await run_in_threadpool(
+            credential_vault.get,
+            tenant_id=record.tenant_id,
+            scope=f"runtime:{record.runtime_id}",
+            name="QWENPAW_PRO_INTERNAL_TOKEN",
+        )
+        if internal_token is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Personal runtime boundary token is unavailable",
+            )
+        target = httpx.URL(
+            f"http://{record.host}:{record.port}{relay.callback_path}",
+            query=request.url.query.encode("utf-8"),
+        )
+        try:
+            async with httpx.AsyncClient(
+                transport=proxy_transport,
+            ) as client:
+                upstream = await client.get(
+                    target,
+                    headers={
+                        "X-QwenPaw-Pro-Runtime-Token": internal_token,
+                    },
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Personal QwenPaw is unavailable: {exc}",
+            ) from exc
+        excluded_headers = {
+            "connection",
+            "content-length",
+            "transfer-encoding",
+        }
+        response_headers = {
+            name: value
+            for name, value in upstream.headers.items()
+            if name.lower() not in excluded_headers
+        }
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            headers=response_headers,
+        )
+
     @app.api_route(
         "/api/{path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
@@ -609,6 +710,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
             "connection",
             "content-length",
             "host",
+            PRO_OAUTH_CALLBACK_URL_HEADER.lower(),
         }
         headers = {
             name: value
@@ -616,6 +718,19 @@ def create_pro_app(  # pylint: disable=too-many-statements
             if name.lower() not in excluded_request_headers
         }
         headers["X-QwenPaw-Pro-Runtime-Token"] = internal_token
+        callback_path = _oauth_callback_path(request.method, path)
+        if callback_path:
+            relay_token = oauth_relays.create(
+                record.runtime_id,
+                callback_path,
+            )
+            public_base_url = (
+                effective_config.control_plane.public_base_url
+                or str(request.base_url).rstrip("/")
+            )
+            headers[
+                PRO_OAUTH_CALLBACK_URL_HEADER
+            ] = f"{public_base_url}/api/pro/oauth/callback/{relay_token}"
         client = httpx.AsyncClient(
             timeout=None,
             transport=proxy_transport,
@@ -748,6 +863,11 @@ def run_pro_app(
                 "Public Pro binding requires an initialized, enabled "
                 "administrator. Start on loopback first and create the "
                 "administrator account.",
+            )
+        if not pro_config.control_plane.public_base_url:
+            raise ValueError(
+                "Public Pro binding requires "
+                "control_plane.public_base_url in the Pro config.",
             )
         warning = (
             "QwenPaw Pro is accepting network connections at "

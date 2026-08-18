@@ -7,6 +7,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 from pydantic import (
@@ -44,9 +45,39 @@ class ControlPlaneConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    public_base_url: str | None = None
     registration: RegistrationConfig = Field(
         default_factory=RegistrationConfig,
     )
+
+    @field_validator("public_base_url")
+    @classmethod
+    def validate_public_base_url(cls, value: str | None) -> str | None:
+        """Validate and normalize the browser-reachable control URL."""
+        if value is None:
+            return None
+        stripped = value.strip()
+        parsed = urlsplit(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError(
+                "public_base_url must be an absolute HTTP(S) URL",
+            )
+        if parsed.username or parsed.password:
+            raise ValueError("public_base_url must not contain credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError(
+                "public_base_url must not contain query or fragment",
+            )
+        normalized_path = parsed.path.rstrip("/")
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                normalized_path,
+                "",
+                "",
+            ),
+        )
 
 
 class RuntimeConfig(BaseModel):
