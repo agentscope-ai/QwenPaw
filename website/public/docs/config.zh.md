@@ -99,6 +99,8 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 1. **全局配置** - `~/.qwenpaw/config.json`（提供商、环境变量、智能体列表）
 2. **智能体配置** - `~/.qwenpaw/workspaces/{agent_id}/agent.json`（每个智能体的独立配置）
 
+QwenPaw 会在单个服务进程内串行写入智能体配置，并拒绝基于旧磁盘快照的保存。原子文件替换可避免出现不完整 JSON。外部编辑器不参与该进程锁，因此在最终校验与替换之间发生的外部修改不属于严格一致性保证；收到 409 冲突后，请重新加载配置再重试。
+
 ### 全局 config.json
 
 存放全局共享的配置：

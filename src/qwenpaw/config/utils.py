@@ -50,6 +50,7 @@ _config_lock = threading.RLock()
 _agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
+_LAST_DISPATCH_MIGRATION_KEY = "_migration"
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -792,26 +793,98 @@ def _write_last_dispatch_state(
 def _migrate_last_dispatch_state(
     workspace_dir: Path,
     legacy_dispatch: object,
-) -> None:
+    source_revision: str,
+) -> bool:
     """Publish legacy dispatch state without replacing valid new state."""
     if legacy_dispatch is None:
-        return
+        return False
 
     dispatch = LastDispatchConfig.model_validate(legacy_dispatch)
     state_path = _last_dispatch_state_path(workspace_dir)
     with _last_dispatch_lock:
         if state_path.exists():
             try:
-                LastDispatchConfig.model_validate(read_json(state_path))
-                return
+                payload = read_json(state_path)
+                LastDispatchConfig.model_validate(payload)
+                marker = payload.get(_LAST_DISPATCH_MIGRATION_KEY)
+                if not isinstance(marker, dict):
+                    return False
+                if marker.get("source") == source_revision:
+                    return True
             except Exception:
                 logger.warning(
                     f"Replacing invalid last dispatch state at {state_path}",
                 )
-        write_json_atomic(
-            state_path,
-            dispatch.model_dump(exclude_none=True),
-        )
+        payload = dispatch.model_dump(exclude_none=True)
+        payload[_LAST_DISPATCH_MIGRATION_KEY] = {
+            "source": source_revision,
+        }
+        write_json_atomic(state_path, payload)
+        return True
+
+
+def _recover_last_dispatch_migration(
+    workspace_dir: Path,
+    current_revision: str,
+) -> None:
+    """Finalize or roll back an interrupted dispatch migration."""
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        if not state_path.exists():
+            return
+        try:
+            payload = read_json(state_path)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        marker = payload.get(_LAST_DISPATCH_MIGRATION_KEY)
+        if not isinstance(marker, dict):
+            return
+        if marker.get("target") == current_revision:
+            payload.pop(_LAST_DISPATCH_MIGRATION_KEY, None)
+            write_json_atomic(state_path, payload)
+        elif marker.get("source") != current_revision:
+            state_path.unlink()
+
+
+def _prepare_last_dispatch_migration(
+    workspace_dir: Path,
+    source_revision: str,
+    target_revision: str,
+) -> None:
+    """Record the config revision produced by a dispatch migration."""
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        payload = read_json(state_path)
+        marker = payload.get(_LAST_DISPATCH_MIGRATION_KEY)
+        if not isinstance(marker, dict):
+            return
+        if marker.get("source") != source_revision:
+            return
+        marker["target"] = target_revision
+        write_json_atomic(state_path, payload)
+
+
+def _finalize_last_dispatch_migration(
+    workspace_dir: Path,
+    source_revision: str,
+    target_revision: str,
+) -> None:
+    """Remove migration metadata after the source cleanup commits."""
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        payload = read_json(state_path)
+        marker = payload.get(_LAST_DISPATCH_MIGRATION_KEY)
+        if not isinstance(marker, dict):
+            return
+        if marker != {
+            "source": source_revision,
+            "target": target_revision,
+        }:
+            return
+        payload.pop(_LAST_DISPATCH_MIGRATION_KEY, None)
+        write_json_atomic(state_path, payload)
 
 
 def read_last_dispatch(agent_id: str) -> Optional[LastDispatchConfig]:
