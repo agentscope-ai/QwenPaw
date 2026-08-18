@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 POWERCONTEXT_MEMORY_GUIDANCE_ZH = """\
 ## PowerContext 长期记忆
 
@@ -8,6 +10,7 @@ POWERCONTEXT_MEMORY_GUIDANCE_ZH = """\
 POWERCONTEXT_MEMORY_GUIDANCE_EN = """\
 ## PowerContext long-term memory
 
-Important project goals, decisions, constraints, states, outcomes, and next steps are saved to PowerContext.
-Use `memory_search` before answering questions about prior work, decisions, or pending tasks.
+Important project goals, decisions, constraints, states, outcomes, and next
+steps are saved to PowerContext. Use `memory_search` before answering
+questions about prior work, decisions, or pending tasks.
 """

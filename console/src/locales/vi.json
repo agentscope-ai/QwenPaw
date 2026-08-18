@@ -1777,7 +1777,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Timeout phải lớn hơn tổng thời gian tạm dừng và jitter",
     "contextManagementTitle": "Quản lý ngữ cảnh",
     "memoryManagerBackend": "Backend quản lý bộ nhớ dài hạn",
-    "memoryManagerBackendTooltip": "Chọn remelight (file cục bộ) hoặc adbpg (cơ sở dữ liệu đám mây).",
+    "memoryManagerBackendTooltip": "Chọn remelight (tệp cục bộ), adbpg (cơ sở dữ liệu đám mây), PowerContext (dịch vụ bộ nhớ từ xa), hoặc none (tắt bộ nhớ).",
     "memoryManagerBackendRestartWarning": "Đổi backend quản lý bộ nhớ dài hạn yêu cầu khởi động lại QwenPaw.",
     "powercontextMemoryTitle": "Bộ nhớ PowerContext",
     "powercontextConfig": {

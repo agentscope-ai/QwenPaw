@@ -2334,7 +2334,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Backend de gerenciamento de memória de longo prazo",
-    "memoryManagerBackendTooltip": "Backend para o gerenciador de memória. Escolha remelight (arquivos locais) ou adbpg (banco de dados na nuvem).",
+    "memoryManagerBackendTooltip": "Backend para o gerenciador de memória. Escolha remelight (arquivos locais), adbpg (banco de dados na nuvem), PowerContext (serviço remoto de memória) ou none (desativar memória).",
     "memoryManagerBackendRestartWarning": "A troca do backend de gerenciamento de memória de longo prazo não permite recarregamento a quente. Salve e reinicie o QwenPaw para aplicar as alterações.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",

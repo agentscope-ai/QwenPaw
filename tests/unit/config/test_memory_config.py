@@ -32,6 +32,13 @@ def test_powercontext_memory_ignores_removed_fallback_backend():
     assert "fallback_backend" not in cfg.model_dump()
 
 
+def test_powercontext_memory_rejects_more_than_fifty_auto_results():
+    with pytest.raises(ValidationError, match="less than or equal to 50"):
+        PowerContextMemoryConfig(
+            auto_memory_search_config={"enabled": True, "max_results": 51},
+        )
+
+
 def test_reme_light_job_notifications_default_to_enabled():
     cfg = ReMeLightMemoryConfig()
 

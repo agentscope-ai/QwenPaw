@@ -2589,7 +2589,7 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Long-term Memory Management Backend",
-    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files), adbpg (cloud database), or none (disable memory).",
+    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files), adbpg (cloud database), PowerContext (remote memory service), or none (disable memory).",
     "memoryManagerBackendRestartWarning": "Switching the long-term memory management backend does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",

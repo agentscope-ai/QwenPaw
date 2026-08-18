@@ -861,8 +861,21 @@ class PowerContextMemoryConfig(BaseModel):
     scope_id: str = "workspace:qwenpaw"
     timeout: float = Field(default=10.0, ge=1.0)
     auto_memory_search_config: AutoMemorySearchConfig = Field(
-        default_factory=lambda: AutoMemorySearchConfig(enabled=True, max_results=3),
+        default_factory=lambda: AutoMemorySearchConfig(
+            enabled=True,
+            max_results=3,
+        ),
     )
+
+    @model_validator(mode="after")
+    def validate_powercontext_search_limit(self):
+        """Keep the configured result count within PowerContext's limit."""
+        if self.auto_memory_search_config.max_results > 50:
+            raise ValueError(
+                "PowerContext auto memory search max_results must be "
+                "less than or equal to 50",
+            )
+        return self
 
 
 class ReMeLightMemoryConfig(BaseModel):
@@ -1861,7 +1874,10 @@ class AgentsRunningConfig(BaseModel):
 
     powercontext_memory_config: Optional[PowerContextMemoryConfig] = Field(
         default=None,
-        description="PowerContext memory configuration (used when memory_manager_backend='powercontext')",
+        description=(
+            "PowerContext memory configuration (used when "
+            "memory_manager_backend='powercontext')"
+        ),
     )
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(

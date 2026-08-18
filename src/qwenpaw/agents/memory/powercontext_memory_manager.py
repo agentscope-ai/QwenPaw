@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """PowerContext-backed QwenPaw memory manager."""
 
 from __future__ import annotations
@@ -12,7 +13,11 @@ from agentscope.tool import ToolChunk
 
 from ...config.config import PowerContextMemoryConfig, load_agent_config
 from .base_memory_manager import BaseMemoryManager, memory_registry
-from .powercontext_client import PowerContextConfig, PowerContextMemoryClient
+from .powercontext_client import (
+    PowerContextConfig,
+    PowerContextMemoryClient,
+    truncate_utf8_text,
+)
 from .powercontext_prompts import (
     POWERCONTEXT_MEMORY_GUIDANCE_EN,
     POWERCONTEXT_MEMORY_GUIDANCE_ZH,
@@ -31,7 +36,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
 
     async def start(self) -> None:
         cfg = load_agent_config(
-            self.agent_id
+            self.agent_id,
         ).running.powercontext_memory_config
         self._config = cfg
         if cfg is None or not cfg.base_url.strip():
@@ -44,7 +49,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
                     token=cfg.token.strip(),
                     scope_id=cfg.scope_id.strip() or f"agent:{self.agent_id}",
                     timeout=cfg.timeout,
-                )
+                ),
             )
         except Exception as exc:
             logger.warning("PowerContext initialization failed: %s", exc)
@@ -66,7 +71,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
 
     def get_memory_config(self) -> Any:
         return load_agent_config(
-            self.agent_id
+            self.agent_id,
         ).running.powercontext_memory_config
 
     def get_memory_prompt(self) -> str:
@@ -86,11 +91,17 @@ class PowerContextMemoryManager(BaseMemoryManager):
         return 1
 
     async def auto_memory_search(
-        self, messages: list[Msg] | Msg, **kwargs: Any
+        self,
+        messages: list[Msg] | Msg,
+        agent_name: str = "",
+        **kwargs: Any,
     ) -> dict | None:
+        del agent_name
         del kwargs
         if self._client is None or not getattr(
-            self._config.auto_memory_search_config, "enabled", True
+            self._config.auto_memory_search_config,
+            "enabled",
+            True,
         ):
             return None
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
@@ -98,7 +109,9 @@ class PowerContextMemoryManager(BaseMemoryManager):
         if not query:
             return None
         max_results = getattr(
-            self._config.auto_memory_search_config, "max_results", 3
+            self._config.auto_memory_search_config,
+            "max_results",
+            3,
         )
         result = await self.memory_search(
             query,
@@ -115,17 +128,22 @@ class PowerContextMemoryManager(BaseMemoryManager):
             "msg": msgs
             + [
                 self._build_auto_memory_search_msg(
-                    query=query, max_results=max_results, text=text
-                )
+                    query=query,
+                    max_results=max_results,
+                    text=text,
+                ),
             ],
         }
 
     async def auto_memory(
-        self, all_messages: list[Msg], **kwargs: Any
+        self,
+        all_messages: list[Msg],
+        **kwargs: Any,
     ) -> None:
         del kwargs
         if self._client is None:
             return
+        all_messages = self._messages_without_auto_memory_search(all_messages)
         user = [
             m.get_text_content().strip()
             for m in all_messages
@@ -141,14 +159,17 @@ class PowerContextMemoryManager(BaseMemoryManager):
         text = "用户目标/输入:\n" + "\n".join(user[-3:])
         if assistant:
             text += "\n\nAgent结果:\n" + "\n".join(assistant[-2:])
-        self._schedule_remember("task_state", text[:8000])
+        self._schedule_remember("task_state", truncate_utf8_text(text))
 
     async def summarize(self, messages: list[Msg], **kwargs: Any) -> str:
         await self.auto_memory(messages, **kwargs)
         return ""
 
     async def memory_search(
-        self, query: str, max_results: int = 5, min_score: float = 0.0
+        self,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0.0,
     ) -> ToolChunk:
         """Search PowerContext memories and include their exact Citation."""
         if self._client is None:
@@ -157,7 +178,8 @@ class PowerContextMemoryManager(BaseMemoryManager):
         parts: list[str] = []
         try:
             for hit in await self._client.search(
-                query=query, limit=max_results
+                query=query,
+                limit=max_results,
             ):
                 score = float(hit.get("score", 0.0))
                 text = hit.get("text", "")
@@ -169,12 +191,12 @@ class PowerContextMemoryManager(BaseMemoryManager):
                             score=score,
                             text=text,
                             citation=citation,
-                        )
+                        ),
                     )
         except Exception as exc:
             logger.warning("PowerContext memory search failed: %s", exc)
             return self._tool_error(
-                f"PowerContext memory search failed: {exc}"
+                f"PowerContext memory search failed: {exc}",
             )
         return ToolChunk(
             is_last=True,
@@ -183,7 +205,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 TextBlock(
                     type="text",
                     text="\n\n".join(parts) or "No relevant memories found.",
-                )
+                ),
             ],
         )
 
@@ -194,10 +216,14 @@ class PowerContextMemoryManager(BaseMemoryManager):
         if not kind.strip() or not text.strip():
             return self._tool_error("Both kind and text are required.")
         try:
-            await self._client.remember(kind=kind.strip(), text=text.strip())
+            await self._client.remember(
+                kind=kind.strip(),
+                text=truncate_utf8_text(text.strip()),
+            )
         except Exception as exc:
             logger.warning(
-                "PowerContext explicit memory write failed: %s", exc
+                "PowerContext explicit memory write failed: %s",
+                exc,
             )
             return self._tool_error(f"PowerContext memory write failed: {exc}")
         return self._tool_success("Memory saved to PowerContext.")
@@ -250,7 +276,10 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 f"entry_version_id: {citation['entry_version_id']}, "
                 f"scope: {self._scope_id()}"
             )
-        return f"[{index}] (powercontext, score: {score:.2f}, {citation_text})\n{text}"
+        return (
+            f"[{index}] (powercontext, score: {score:.2f}, "
+            f"{citation_text})\n{text}"
+        )
 
     @staticmethod
     def _tool_success(text: str) -> ToolChunk:

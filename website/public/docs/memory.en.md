@@ -15,6 +15,26 @@ In plain language, it works like a research assistant that remembers how an anal
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="The complete QwenPaw long-term memory loop" />
 </p>
 
+## Optional PowerContext Backend
+
+`remelight` remains the default long-term-memory backend. To use the optional
+`powercontext` backend, first deploy or start a PowerContext Server separately;
+QwenPaw does not download or start it automatically. For a local server, the
+default endpoint is `http://127.0.0.1:8000`. Install and start it with:
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext server run
+```
+
+In **Agent Config**, select **PowerContext**, then set its Server URL, optional
+Bearer token, memory scope, timeout, and automatic-search result limit. Save
+and restart QwenPaw for the backend change to take effect. When selected,
+QwenPaw sends the current turn's bounded task state to that configured service
+and retrieves relevant memories before later turns. Treat the endpoint and
+scope as a data boundary: choose a service and scope that are appropriate for
+the conversation data you intend to persist.
+
 ## Understand the Memory Loop First
 
 Imagine you are a financial analyst researching the electric-vehicle supply chain. Over several weeks, you discuss CATL's product mix, battery-cell pricing, lithium-carbonate supply and demand, and whether falling lithium prices help battery makers or create inventory write-downs.

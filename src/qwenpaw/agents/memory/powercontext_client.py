@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Small async client for PowerContext's public memory HTTP contract."""
 
 from __future__ import annotations
@@ -6,6 +7,31 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+MAX_MEMORY_TEXT_BYTES = 8000
+MIN_SEARCH_RESULTS = 1
+MAX_SEARCH_RESULTS = 50
+
+
+def truncate_utf8_text(
+    text: str,
+    *,
+    max_bytes: int = MAX_MEMORY_TEXT_BYTES,
+) -> str:
+    """Bound text without splitting a UTF-8 code point.
+
+    PowerContext accepts at most 8192 normalized UTF-8 bytes.  Keep a small
+    margin so the client remains valid when the server normalizes whitespace.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def bound_search_limit(limit: int) -> int:
+    """Clamp a caller-provided result count to the PowerContext contract."""
+    return min(MAX_SEARCH_RESULTS, max(MIN_SEARCH_RESULTS, limit))
 
 
 @dataclass(frozen=True)
@@ -25,14 +51,29 @@ class PowerContextHTTPError(RuntimeError):
     """
 
     def __init__(
-        self, *, operation: str, response: httpx.Response, token: str = ""
+        self,
+        *,
+        operation: str,
+        response: httpx.Response,
+        token: str = "",
     ) -> None:
         self.operation = operation
         self.status_code = response.status_code
         self.summary = _safe_error_summary(response, token=token)
         super().__init__(
             f"PowerContext {operation} failed with HTTP {self.status_code}: "
-            f"{self.summary}"
+            f"{self.summary}",
+        )
+
+
+class PowerContextProtocolError(RuntimeError):
+    """Safe error for a successful response that violates the API contract."""
+
+    def __init__(self, *, operation: str, summary: str) -> None:
+        self.operation = operation
+        self.summary = summary
+        super().__init__(
+            f"PowerContext {operation} returned invalid response: {summary}",
         )
 
 
@@ -70,7 +111,11 @@ def _safe_error_summary(response: httpx.Response, *, token: str = "") -> str:
                 )
     if isinstance(payload, str) and payload.strip():
         summary = payload.strip()
-        return summary.replace(token, "<redacted>")[:300] if token else summary[:300]
+        return (
+            summary.replace(token, "<redacted>")[:300]
+            if token
+            else summary[:300]
+        )
     return response.reason_phrase or "request failed"
 
 
@@ -87,39 +132,64 @@ class PowerContextMemoryClient:
         )
 
     async def remember(
-        self, *, kind: str, text: str, scope_id: str | None = None
+        self,
+        *,
+        kind: str,
+        text: str,
+        scope_id: str | None = None,
     ) -> dict[str, Any]:
         response = await self._http.post(
             "/v1/memory/remember",
             json={
                 "scope_id": scope_id or self.config.scope_id,
                 "kind": kind,
-                "text": text,
+                "text": truncate_utf8_text(text),
             },
         )
         self._raise_for_status("memory remember", response)
         return response.json()
 
     async def search(
-        self, *, query: str, limit: int = 5, scope_id: str | None = None
+        self,
+        *,
+        query: str,
+        limit: int = 5,
+        scope_id: str | None = None,
     ) -> list[dict[str, Any]]:
         response = await self._http.post(
             "/v1/memory/search",
             json={
                 "scope_id": scope_id or self.config.scope_id,
                 "query": query,
-                "limit": limit,
+                "limit": bound_search_limit(limit),
             },
         )
         self._raise_for_status("memory search", response)
         payload = response.json()
-        return payload.get("hits", []) if isinstance(payload, dict) else []
+        if not isinstance(payload, dict):
+            raise PowerContextProtocolError(
+                operation="memory search",
+                summary="response body must be an object",
+            )
+        hits = payload.get("hits")
+        if not isinstance(hits, list):
+            raise PowerContextProtocolError(
+                operation="memory search",
+                summary="response does not contain a hits list",
+            )
+        return hits
 
     async def close(self) -> None:
         await self._http.aclose()
 
-    def _raise_for_status(self, operation: str, response: httpx.Response) -> None:
+    def _raise_for_status(
+        self,
+        operation: str,
+        response: httpx.Response,
+    ) -> None:
         if response.is_error:
             raise PowerContextHTTPError(
-                operation=operation, response=response, token=self.config.token
+                operation=operation,
+                response=response,
+                token=self.config.token,
             )

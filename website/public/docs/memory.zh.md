@@ -15,6 +15,19 @@ QwenPaw 的长期记忆由工作区的文件系统和 [ReMe](https://github.com/
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从记录、整理到找回的完整循环" />
 </p>
 
+## 可选的 PowerContext 后端
+
+`remelight` 仍是默认长期记忆后端。如需使用可选的 `powercontext` 后端，必须先单独部署或启动
+PowerContext Server；QwenPaw 不会自动下载或启动该服务。本地服务默认地址为
+`http://127.0.0.1:8000`。可使用以下命令安装并启动：
+
+```bash
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext server run
+```
+
+在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时和自动检索结果数量。保存后重启 QwenPaw，后端切换才会生效。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。
+
 ## 先理解它怎样工作
 
 假设你是一名金融分析师，正在持续研究新能源汽车产业链。几周内，你可能先后讨论过宁德时代的产品结构、动力电池价格、碳酸锂供需，以及“锂价下跌究竟利好电池厂还是会带来库存减值”这样的判断。

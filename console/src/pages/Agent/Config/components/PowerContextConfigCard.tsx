@@ -74,10 +74,18 @@ export function PowerContextConfigCard() {
                     "max_results",
                   ]}
                   initialValue={3}
-                  rules={[{ required: true }, { type: "number", min: 1 }]}
+                  rules={[
+                    { required: true },
+                    { type: "number", min: 1, max: 50 },
+                  ]}
                   tooltip={t("agentConfig.autoMaxResultsTooltip")}
                 >
-                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={1}
+                    max={50}
+                    step={1}
+                  />
                 </Form.Item>
               </>
             ),
