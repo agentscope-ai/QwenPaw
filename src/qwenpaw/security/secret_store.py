@@ -269,14 +269,22 @@ def _read_key_file() -> Optional[str]:
     return None
 
 
+def _chmod_best_effort(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        # Some systems/filesystems do not support chmod semantics.
+        pass
+
+
 def _write_key_file(key_hex: str) -> None:
     path = _master_key_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(key_hex, encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _chmod_best_effort(path.parent, 0o700)
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(key_hex)
+    _chmod_best_effort(path, 0o600)
 
 
 def _generate_master_key() -> str:

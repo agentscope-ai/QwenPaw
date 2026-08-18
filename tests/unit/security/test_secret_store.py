@@ -3,6 +3,8 @@
 """Tests for the encrypted secret store layer."""
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -249,3 +251,115 @@ class TestKeyringAccountIsolation:
         monkeypatch.setenv("QWENPAW_SECRET_DIR", "set-to-mark-relocated")
         monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path / "x")
         assert mod._keyring_account() == mod._keyring_account()
+
+
+@pytest.fixture
+def _umask_022():
+    """Pin a permissive umask so mode assertions are deterministic."""
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX mode bits are not meaningful on Windows",
+)
+@pytest.mark.usefixtures("_umask_022")
+class TestMasterKeyFilePermissions:
+    """The fallback key file must be owner-only from the moment it exists.
+
+    The module docstring promises ``SECRET_DIR/.master_key`` is persisted
+    "with mode ``0o600``", and its own ``os.chmod`` is best effort
+    (``except OSError: pass``), so the mode has to come from the creation
+    itself rather than from a follow-up call.
+    """
+
+    @staticmethod
+    def _secret_dir(mod, monkeypatch, tmp_path: Path) -> Path:
+        secret_dir = tmp_path / "secrets"
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: secret_dir)
+        return secret_dir
+
+    def test_key_is_not_world_readable_before_chmod_runs(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = secret_dir / ".master_key"
+        observed: dict = {}
+        real_chmod = os.chmod
+
+        def _spy_chmod(path, mode, *args, **kwargs):
+            if Path(path) == key_path and key_path.exists():
+                observed["mode"] = stat.S_IMODE(key_path.stat().st_mode)
+                observed["content"] = key_path.read_text(encoding="utf-8")
+            return real_chmod(path, mode, *args, **kwargs)
+
+        monkeypatch.setattr(os, "chmod", _spy_chmod)
+
+        mod._write_key_file("ab" * 32)
+
+        assert observed, "the key file was never chmod-ed"
+        assert observed["content"] == "ab" * 32
+        assert observed["mode"] == 0o600
+
+    def test_key_is_owner_only_when_chmod_cannot_help(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = secret_dir / ".master_key"
+        real_chmod = os.chmod
+
+        def _chmod_without_the_key_file(path, mode, *args, **kwargs):
+            if Path(path) == key_path:
+                return None
+            return real_chmod(path, mode, *args, **kwargs)
+
+        monkeypatch.setattr(os, "chmod", _chmod_without_the_key_file)
+
+        mod._write_key_file("cd" * 32)
+
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+    def test_secret_dir_is_owner_only(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+
+        mod._write_key_file("ef" * 32)
+
+        assert stat.S_IMODE(secret_dir.stat().st_mode) == 0o700
+
+
+class TestMasterKeyFileContent:
+    """Tightening the permissions must not change what is written."""
+
+    def test_key_file_is_written_and_replaced(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = tmp_path / "secrets"
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: secret_dir)
+
+        mod._write_key_file("11" * 32)
+        assert mod._read_key_file() == "11" * 32
+
+        mod._write_key_file("22" * 32)
+        assert mod._read_key_file() == "22" * 32
