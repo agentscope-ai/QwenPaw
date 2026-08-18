@@ -104,6 +104,10 @@ class ProAuthService:
                 "INSERT OR IGNORE INTO pro_settings(key, value) "
                 "VALUES ('registration_enabled', 'false')",
             )
+            connection.execute(
+                "INSERT OR IGNORE INTO pro_settings(key, value) "
+                "VALUES ('registration_default_role', 'user')",
+            )
 
     def status(self) -> dict[str, object]:
         """Return public bootstrap and registration state."""
@@ -131,6 +135,15 @@ class ProAuthService:
             ).fetchone()
         return row is not None and str(row["value"]).lower() == "true"
 
+    def registration_setting(self) -> dict[str, object]:
+        """Return the effective value and whether SQLite can change it."""
+        return {
+            "enabled": self.registration_enabled(),
+            "source": "database",
+            "mutable": True,
+            "source_label": None,
+        }
+
     def set_registration_enabled(self, enabled: bool) -> bool:
         with self._connect() as connection:
             connection.execute(
@@ -149,9 +162,21 @@ class ProAuthService:
             user = self.create_user(
                 username=username,
                 password=password,
-                role="admin" if first_user else "user",
+                role=(
+                    "admin"
+                    if first_user
+                    else self._registration_default_role()
+                ),
             )
             return user, self.create_token(user)
+
+    def _registration_default_role(self) -> str:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM pro_settings WHERE key = ?",
+                ("registration_default_role",),
+            ).fetchone()
+        return str(row["value"]) if row is not None else "user"
 
     def create_user(
         self,

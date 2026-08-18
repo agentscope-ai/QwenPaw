@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
+from .config import ProConfig
 from .driver import RuntimeDriver
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 from .registry import RuntimeRegistry
@@ -26,12 +27,18 @@ class RuntimeService:
         registry: RuntimeRegistry,
         drivers: dict[str, RuntimeDriver],
         credential_provider: Callable[[RuntimeRecord], Mapping[str, str]],
+        pro_config: ProConfig | None = None,
     ) -> None:
         self.root_dir = root_dir.resolve()
         self.registry = registry
         self.drivers = dict(drivers)
         self.credential_provider = credential_provider
+        self.pro_config = pro_config or ProConfig()
+        self.default_driver = self.pro_config.default_driver
+        self.allowed_drivers = self.pro_config.allowed_drivers
+        self._validate_driver_policy()
         self._lock_registry = threading.Lock()
+        self._admission_lock = threading.Lock()
         self._runtime_locks: dict[str, threading.RLock] = {}
 
     def create(self, spec: RuntimeSpec) -> RuntimeRecord:
@@ -43,17 +50,35 @@ class RuntimeService:
         """Create a runtime while the lifecycle lock is held."""
         self._validate_identifier(spec.runtime_id, "runtime_id")
         self._validate_identifier(spec.tenant_id, "tenant_id")
-        if spec.driver not in self.drivers:
-            raise ValueError(f"Unknown runtime driver: {spec.driver}")
+        driver_name = spec.driver or self.default_driver
+        if driver_name not in self.drivers:
+            raise ValueError(f"Unknown runtime driver: {driver_name}")
+        if (
+            self.allowed_drivers is not None
+            and driver_name not in self.allowed_drivers
+        ):
+            raise ValueError(f"Runtime driver is not allowed: {driver_name}")
         if self.registry.get(spec.runtime_id) is not None:
             raise ValueError(f"Runtime already exists: {spec.runtime_id}")
+        quota = self.pro_config.quota_for(spec.tenant_id)
+        tenant_runtime_count = sum(
+            record.tenant_id == spec.tenant_id
+            for record in self.registry.list()
+        )
+        if (
+            quota.max_runtimes is not None
+            and tenant_runtime_count >= quota.max_runtimes
+        ):
+            raise ValueError(
+                f"Tenant runtime limit reached: {quota.max_runtimes}",
+            )
 
         runtime_root = self._runtime_root(spec.runtime_id)
         record = RuntimeRecord(
             runtime_id=spec.runtime_id,
             tenant_id=spec.tenant_id,
             owner_user_id=spec.owner_user_id,
-            driver=spec.driver,
+            driver=driver_name,
             host=spec.host,
             port=spec.port,
             state=RuntimeState.CREATED,
@@ -89,11 +114,31 @@ class RuntimeService:
     def start(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime and persist either success or failure."""
         with self._runtime_lock(runtime_id):
-            return self._start_locked(runtime_id)
+            with self._admission_lock:
+                return self._start_locked(runtime_id)
 
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
         record = self.get(runtime_id)
+        quota = self.pro_config.quota_for(record.tenant_id)
+        running_count = sum(
+            item.tenant_id == record.tenant_id
+            and item.runtime_id != record.runtime_id
+            and item.state
+            in {
+                RuntimeState.STARTING,
+                RuntimeState.RUNNING,
+            }
+            for item in self.registry.list()
+        )
+        if (
+            quota.max_running_runtimes is not None
+            and running_count >= quota.max_running_runtimes
+        ):
+            raise ValueError(
+                "Tenant running runtime limit reached: "
+                f"{quota.max_running_runtimes}",
+            )
         driver = self._driver(record)
         starting = self.registry.save(
             replace(record, state=RuntimeState.STARTING, last_error=None),
@@ -180,6 +225,25 @@ class RuntimeService:
             return self._runtime_locks.setdefault(
                 runtime_id,
                 threading.RLock(),
+            )
+
+    def _validate_driver_policy(self) -> None:
+        """Fail startup when configuration names unavailable drivers."""
+        available = set(self.drivers)
+        if self.default_driver not in available:
+            raise ValueError(
+                f"Unknown default runtime driver: {self.default_driver}",
+            )
+        if self.allowed_drivers is None:
+            return
+        unknown = sorted(self.allowed_drivers - available)
+        if unknown:
+            raise ValueError(
+                f"Unknown allowed runtime drivers: {', '.join(unknown)}",
+            )
+        if self.default_driver not in self.allowed_drivers:
+            raise ValueError(
+                "default_driver must be included in allowed_drivers",
             )
 
     @staticmethod

@@ -8,6 +8,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from qwenpaw.pro.auth import ProAuthService
+from qwenpaw.pro.config import ProConfig
 from qwenpaw.pro.control_app import create_pro_app
 from qwenpaw.pro.credentials import TenantCredentialVault
 from qwenpaw.pro.driver import RuntimeDriver
@@ -58,6 +59,7 @@ class _ProxyStream(httpx.AsyncByteStream):
 def _client(
     tmp_path: Path,
     proxy_transport: httpx.AsyncBaseTransport | None = None,
+    pro_config: ProConfig | None = None,
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -85,6 +87,7 @@ def _client(
         registry=registry,
         drivers={"local": _FakeDriver()},
         credential_provider=runtime_environment,
+        pro_config=pro_config,
     )
     auth = ProAuthService(database, vault)
     return TestClient(
@@ -92,6 +95,7 @@ def _client(
             service,
             auth,
             proxy_transport=proxy_transport,
+            pro_config=pro_config,
         ),
     )
 
@@ -118,6 +122,8 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             headers=_headers(admin_token),
         )
         assert settings.status_code == 200
+        assert settings.json()["source"] == "database"
+        assert settings.json()["mutable"] is True
         user_token = _register(client, "member")
 
         created = client.post(

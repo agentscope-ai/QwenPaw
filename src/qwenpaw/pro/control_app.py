@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from .auth import ProAuthService, ProUser
+from .config import ProConfig, ProConfigStore
 from .credentials import TenantCredentialVault
 from .local_driver import LocalProcessRuntimeDriver
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
@@ -36,7 +37,7 @@ class RuntimeCreateBody(BaseModel):
     """Request body for a new managed runtime."""
 
     runtime_id: str = Field(min_length=1, max_length=64)
-    driver: str = "local"
+    driver: str | None = None
     host: str = "127.0.0.1"
     port: int = Field(default=0, ge=0, le=65535)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -85,7 +86,10 @@ def get_pro_root() -> Path:
     return (WORKING_DIR / "pro").resolve()
 
 
-def build_runtime_service(root_dir: Path | None = None) -> RuntimeService:
+def build_runtime_service(
+    root_dir: Path | None = None,
+    pro_config: ProConfig | None = None,
+) -> RuntimeService:
     """Build the local service through deployment-neutral interfaces."""
     resolved_root = (root_dir or get_pro_root()).resolve()
     registry = RuntimeRegistry(resolved_root / "control.db")
@@ -114,6 +118,7 @@ def build_runtime_service(root_dir: Path | None = None) -> RuntimeService:
         registry=registry,
         drivers={local_driver.name: local_driver},
         credential_provider=runtime_environment,
+        pro_config=pro_config,
     )
 
 
@@ -121,9 +126,15 @@ def create_pro_app(  # pylint: disable=too-many-statements
     service: RuntimeService | None = None,
     auth_service: ProAuthService | None = None,
     proxy_transport: httpx.AsyncBaseTransport | None = None,
+    pro_config: ProConfig | None = None,
+    root_dir: Path | None = None,
 ) -> FastAPI:
     """Create a Pro control-plane app with an injectable runtime service."""
-    runtime_service = service or build_runtime_service()
+    runtime_service = service or build_runtime_service(
+        root_dir=root_dir,
+        pro_config=pro_config,
+    )
+    effective_config = pro_config or runtime_service.pro_config
     credential_vault = TenantCredentialVault(
         runtime_service.registry.database_path,
         runtime_service.root_dir / "secrets" / ".vault_key",
@@ -143,6 +154,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
     app = FastAPI(title="QwenPaw Pro", lifespan=lifespan)
     app.state.runtime_service = runtime_service
     app.state.auth_service = pro_auth
+    app.state.pro_config = effective_config
 
     def require_user(
         authorization: str | None = Header(default=None),
@@ -364,20 +376,19 @@ def create_pro_app(  # pylint: disable=too-many-statements
     @app.get("/api/pro/admin/settings/registration")
     async def get_registration_settings(
         _: ProUser = Depends(require_admin),
-    ) -> dict[str, bool]:
-        enabled = await run_in_threadpool(pro_auth.registration_enabled)
-        return {"enabled": enabled}
+    ) -> dict[str, object]:
+        return await run_in_threadpool(pro_auth.registration_setting)
 
     @app.put("/api/pro/admin/settings/registration")
     async def update_registration_settings(
         body: RegistrationSettingsBody,
         _: ProUser = Depends(require_admin),
-    ) -> dict[str, bool]:
-        enabled = await run_in_threadpool(
+    ) -> dict[str, object]:
+        await run_in_threadpool(
             pro_auth.set_registration_enabled,
             body.enabled,
         )
-        return {"enabled": enabled}
+        return await run_in_threadpool(pro_auth.registration_setting)
 
     @app.get("/api/pro/credentials")
     async def list_credentials(
@@ -501,6 +512,8 @@ def create_pro_app(  # pylint: disable=too-many-statements
                 status_code=404,
                 detail="Runtime not found",
             ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return _runtime_payload(runtime_service, record)
@@ -684,14 +697,19 @@ def run_pro_app(
     host: str,
     port: int,
     log_level: str,
+    config_path: Path | None = None,
 ) -> None:
     """Run the local-only QwenPaw Pro control plane."""
     if not is_loopback_host(host):
         raise ValueError(
             f"QwenPaw Pro local mode only supports a loopback host: {host}",
         )
+    root_dir = get_pro_root()
+    pro_config = ProConfigStore(
+        root_dir / "control.db",
+    ).resolve(config_path, available_drivers={"local"})
     uvicorn.run(
-        create_pro_app(),
+        create_pro_app(pro_config=pro_config, root_dir=root_dir),
         host=host,
         port=port,
         workers=1,

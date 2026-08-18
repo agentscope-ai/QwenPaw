@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import click
 import uvicorn
@@ -71,6 +72,17 @@ Recommended:
     help="Run the local QwenPaw Pro runtime control plane.",
 )
 @click.option(
+    "--config",
+    "pro_config",
+    type=click.Path(
+        path_type=Path,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    help="Startup configuration file for --pro mode.",
+)
+@click.option(
     "--log-level",
     default="info",
     type=click.Choice(
@@ -100,6 +112,7 @@ def app_cmd(
     port: int,
     reload: bool,
     pro: bool,
+    pro_config: Path | None,
     workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
@@ -114,6 +127,9 @@ def app_cmd(
     # reduced isolation before the server starts.
 
     # Handle deprecated --workers parameter
+    if pro_config is not None and not pro:
+        raise click.ClickException("--config is only supported with --pro.")
+
     if workers is not None:
         click.echo(
             "⚠️  WARNING: --workers option is deprecated and will be removed "
@@ -162,7 +178,12 @@ def app_cmd(
         from ..pro.control_app import run_pro_app
 
         try:
-            run_pro_app(host=host, port=port, log_level=log_level)
+            run_pro_app(
+                host=host,
+                port=port,
+                log_level=log_level,
+                config_path=pro_config,
+            )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
         return

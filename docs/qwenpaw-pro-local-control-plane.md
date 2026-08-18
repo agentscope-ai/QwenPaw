@@ -49,19 +49,24 @@ qwenpaw app --pro
 第一版本地控制面仅允许绑定 loopback 地址。未来加入认证和传输安全之后，才能
 开放非 loopback 地址。
 
-### Pro 配置文件扩展
+### Pro 配置文件
 
-后续版本应提供独立的 Pro 配置入口，避免把 backend、tenant policy 和容量限制
-继续堆叠为环境变量：
+Pro 支持独立、版本化的 YAML 配置入口，避免把 runtime policy 和容量限制继续
+堆叠为环境变量：
 
 ```bash
 qwenpaw app --pro --config ./qwenpaw-pro.yaml
 ```
 
-建议配置结构：
+当前支持的配置结构：
 
 ```yaml
 version: 1
+
+control_plane:
+  registration:
+    enabled: false
+    default_role: user
 
 runtime:
   default_driver: local
@@ -70,27 +75,25 @@ runtime:
 tenant_defaults:
   max_runtimes: 3
   max_running_runtimes: 2
-  max_concurrent_tasks: 4
 
-drivers:
-  local:
-    enabled: true
-  docker:
-    enabled: false
-    cpu_limit: "2"
-    memory_limit: 4Gi
-    disk_limit: 20Gi
-  kubernetes:
-    enabled: false
-    namespace_prefix: qwenpaw-tenant
+tenants:
+  personal-example-user-id:
+    max_running_runtimes: 1
 ```
 
-配置解析应生成与部署实现无关的 `ProConfig`、`TenantQuota` 和 `DriverConfig`，
-再由 `RuntimeService` 在创建、启动和派发任务前执行准入检查。tenant 单独覆盖
-默认限制时必须以 `tenant_id` 为键，不能使用可修改的 username。
+配置采用字段级导入：显式 YAML 值高于 SQLite 值并在启动事务中回写控制面
+数据库，未出现的字段保留 SQLite 中的现有值；数据库没有记录时才使用内置
+默认值。完成一次导入后，即使下次不带 `--config`，仍继续使用最近持久化的结果。
+管理员 UI 修改数据库后立即生效；如果下次仍使用包含该字段的 YAML 启动，YAML
+会再次覆盖它。YAML 中出现未知字段、错误版本、不可用 driver 或非法 quota 时
+启动失败，避免拼写错误被静默忽略。
 
-第一阶段 local driver 可以可靠执行 Runtime 数量、运行中 Runtime 数量和并发
-任务准入限制，但不能把应用层统计冒充 CPU、内存或磁盘硬配额。硬资源限制只在
+解析结果生成与部署实现无关的 `ProConfig` 和 `TenantQuota`，由
+`RuntimeService` 在创建和启动 Runtime 前执行准入检查。tenant 单独覆盖默认限制
+时必须以 `tenant_id` 为键，不能使用可修改的 username。
+
+当前 local driver 可靠执行 Runtime 数量和运行中 Runtime 数量限制，但不能把
+应用层统计冒充 CPU、内存、磁盘或任务并发硬配额。硬资源限制只在
 能够由 cgroup、容器 runtime、Kubernetes ResourceQuota 或 Windows Job Object
 强制执行的 driver 上标记为 `enforced`。不支持的限制必须在启动时明确报错或标记
 为 `advisory`，不得静默忽略。
@@ -433,12 +436,15 @@ Docker socket、默认断网、资源配额和 fail-closed。Kubernetes driver �
       `InjectionConfig` 可导入。
 - [x] 将 Pro 管理页面视觉、布局和交互统一到 QwenPaw 设计语言。
 - [x] 补齐 Pro 管理页面暗色模式与桌面、平板、手机响应式布局。
-- [x] 定义未来 `--config`、backend 选择和 tenant quota 配置边界。
+- [x] 定义 `--config`、backend 选择和 tenant quota 配置边界。
+- [x] 实现严格、版本化的 Pro YAML 配置加载与字段级持久化导入。
+- [x] 将配置中的注册策略回写 SQLite，并保留管理员 UI 修改能力。
+- [x] 配置默认/允许 Runtime driver 与 tenant Runtime 准入限制。
+- [x] 补齐配置解析、覆盖优先级、quota 和 CLI 单元测试。
 - [x] 完成 UI 回归、后端测试、生产构建和本地端到端验证。
 - [x] 整理 scope、用法、安全边界和测试结果并创建 Draft PR。
 - [ ] 增加 Windows adapter 和三平台隔离集成测试。
-- [ ] 修复测试环境 AgentScope 版本后运行完整 unit suite；当前 collection 缺少
-      `agentscope.agent.InjectionConfig`，与本改动无关。
+- [x] conda `QwenPaw` 环境完整 unit suite 通过（7324 passed，20 skipped）。
 
 ## 参考
 
