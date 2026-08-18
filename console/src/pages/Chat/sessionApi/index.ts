@@ -122,6 +122,10 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
   pinned?: boolean;
+  /** Whether the chat is archived. */
+  archived?: boolean;
+  /** ISO 8601 archive timestamp from backend. */
+  archivedAt?: string | null;
   source?: ChatSpec["source"];
   groupId?: string | null;
   parentSessionId?: string | null;
@@ -1251,9 +1255,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         a.name !== b.name ||
         a.status !== b.status ||
         a.updatedAt !== b.updatedAt ||
+        a.createdAt !== b.createdAt ||
         a.pinned !== b.pinned ||
         a.generating !== b.generating ||
-        a.realId !== b.realId
+        a.realId !== b.realId ||
+        a.sessionId !== b.sessionId ||
+        a.userId !== b.userId ||
+        a.channel !== b.channel ||
+        a.archivedAt !== b.archivedAt ||
+        a.archived !== b.archived ||
+        a.source !== b.source ||
+        a.groupId !== b.groupId ||
+        a.parentSessionId !== b.parentSessionId ||
+        a.rootSessionId !== b.rootSessionId
       ) {
         return false;
       }

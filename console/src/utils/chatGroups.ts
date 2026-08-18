@@ -19,11 +19,15 @@ interface GroupableChat {
   createdAt?: string | null;
 }
 
-export function resolveChatGroupId(chat: GroupableChat): string {
-  if (chat.groupId) return chat.groupId;
+function resolveSourceGroupId(chat: GroupableChat): string {
   if (chat.source === "cron") return CRON_GROUP_ID;
   if (chat.source === "subagent") return SUBAGENT_GROUP_ID;
   return DEFAULT_GROUP_ID;
+}
+
+export function resolveChatGroupId(chat: GroupableChat): string {
+  if (chat.groupId) return chat.groupId;
+  return resolveSourceGroupId(chat);
 }
 
 export function localizeSystemGroups(
@@ -49,9 +53,13 @@ export function groupChats<T extends GroupableChat>(
   groups: ChatGroup[],
 ): GroupedChats<T>[] {
   const buckets = new Map<string, T[]>();
+  const groupIds = new Set(groups.map((group) => group.id));
 
   for (const session of sessions) {
-    const groupId = resolveChatGroupId(session);
+    const resolvedGroupId = resolveChatGroupId(session);
+    const groupId = groupIds.has(resolvedGroupId)
+      ? resolvedGroupId
+      : resolveSourceGroupId(session);
     const bucket = buckets.get(groupId) ?? [];
     bucket.push(session);
     buckets.set(groupId, bucket);

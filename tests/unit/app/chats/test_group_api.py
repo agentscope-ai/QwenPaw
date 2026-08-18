@@ -82,3 +82,19 @@ def test_system_group_cannot_be_deleted(tmp_path: Path) -> None:
         json={"pinned": True},
     )
     assert response.status_code == 400
+
+
+def test_create_chat_rejects_unknown_group(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    response = client.post(
+        "/chats",
+        json={
+            "session_id": "console:user",
+            "user_id": "user",
+            "group_id": "missing",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unknown chat group: missing"

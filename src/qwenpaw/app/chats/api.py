@@ -172,7 +172,10 @@ async def create_chat(
         parent_session_id=request.parent_session_id,
         root_session_id=request.root_session_id,
     )
-    return await mgr.create_chat(spec)
+    try:
+        return await mgr.create_chat(spec)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ----- Chat group endpoints -----

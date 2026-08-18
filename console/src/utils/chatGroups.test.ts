@@ -82,6 +82,25 @@ describe("chatGroups", () => {
     expect(result[3].sessions.map((session) => session.id)).toEqual(["worker"]);
   });
 
+  it("falls back to the source group when a group no longer exists", () => {
+    const result = groupChats(
+      [
+        { id: "regular", source: "chat" as const, groupId: "deleted" },
+        {
+          id: "worker",
+          source: "subagent" as const,
+          groupId: "deleted",
+        },
+      ],
+      groups,
+    );
+
+    expect(result[1].sessions.map((session) => session.id)).toEqual([
+      "regular",
+    ]);
+    expect(result[3].sessions.map((session) => session.id)).toEqual(["worker"]);
+  });
+
   it("places pinned conversations before date sections inside a group", () => {
     const result = groupChatsByDate([
       { id: "recent", updatedAt: new Date().toISOString() },

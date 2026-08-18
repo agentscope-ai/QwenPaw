@@ -82,6 +82,15 @@ async def test_create_and_get_chat_round_trip(manager: ChatManager):
 
 
 @pytest.mark.asyncio
+async def test_create_chat_rejects_unknown_group(manager: ChatManager):
+    spec = _make_spec()
+    spec.group_id = "missing"
+
+    with pytest.raises(ValueError, match="Unknown chat group: missing"):
+        await manager.create_chat(spec)
+
+
+@pytest.mark.asyncio
 async def test_list_chats_filters_by_user_and_channel(manager: ChatManager):
     await manager.create_chat(
         _make_spec(session_id="console:alice", user_id="alice"),
@@ -310,6 +319,21 @@ async def test_patch_chat_merges_partial_updates(manager: ChatManager):
     assert patched.pinned is True
     # patch_chat refreshes updated_at.
     assert patched.updated_at >= before_updated
+
+
+@pytest.mark.asyncio
+async def test_move_chat_preserves_updated_at(manager: ChatManager):
+    work = await manager.create_group("Work")
+    spec = await manager.create_chat(_make_spec())
+
+    moved = await manager.patch_chat(
+        spec.id,
+        ChatUpdate(group_id=work.id),
+    )
+
+    assert moved is not None
+    assert moved.group_id == work.id
+    assert moved.updated_at == spec.updated_at
 
 
 @pytest.mark.asyncio

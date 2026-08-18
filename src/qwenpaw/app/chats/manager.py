@@ -221,8 +221,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 spec = spec.model_copy(
                     update={"group_id": _default_group_id(spec.source)},
                 )
+            await self._validate_group_id_locked(spec.group_id)
             await self._repo.upsert_chat(spec)
             return spec
+
+    async def _validate_group_id_locked(self, group_id: str) -> None:
+        """Validate a group ID while the manager lock is held."""
+        chats_file = await self._repo.load()
+        if group_id not in {group.id for group in chats_file.groups}:
+            raise ValueError(f"Unknown chat group: {group_id}")
 
     async def list_groups(self) -> list[ChatGroup]:
         """List persisted groups in display order."""
@@ -378,17 +385,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 return None
 
         if "group_id" in patch.model_fields_set:
-            chats_file = await self._repo.load()
-            group_ids = {group.id for group in chats_file.groups}
-            if patch.group_id not in group_ids:
-                raise ValueError(f"Unknown chat group: {patch.group_id}")
+            await self._validate_group_id_locked(patch.group_id)
 
         updates = patch.model_dump(
             exclude_none=True,
             exclude_unset=True,
         )
         merged = existing.model_copy(update=updates)
-        merged.updated_at = datetime.now(timezone.utc)
+        if patch.model_fields_set != {"group_id"}:
+            merged.updated_at = datetime.now(timezone.utc)
         await self._repo.upsert_chat(merged)
         return merged
 
