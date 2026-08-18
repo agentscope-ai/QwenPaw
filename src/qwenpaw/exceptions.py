@@ -41,6 +41,22 @@ class ConfigurationException(AppBaseException):
         super().__init__(message=message, **kwargs)
 
 
+class AgentConfigConflictError(ConfigurationException):
+    """An agent configuration changed after it was loaded."""
+
+    ERROR_CODE = "AGENT_CONFIG_STALE"
+
+    def __init__(self, agent_id: str) -> None:
+        self.agent_id = agent_id
+        super().__init__(
+            config_key="agent",
+            message=(
+                f"Agent '{agent_id}' changed on disk; reload it and retry"
+            ),
+            error_code=self.ERROR_CODE,
+        )
+
+
 class AgentRuntimeErrorException(AppBaseException):
     """Base for runtime/model errors carrying ``error_code`` + ``details``."""
 

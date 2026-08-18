@@ -23,7 +23,7 @@ from qwenpaw.config.config import (
     load_agent_config,
 )
 from qwenpaw.config.utils import read_last_dispatch, update_last_dispatch
-from qwenpaw.exceptions import ConfigurationException
+from qwenpaw.exceptions import AgentConfigConflictError
 from qwenpaw.utils.io_utils import write_json_atomic
 
 
@@ -149,11 +149,12 @@ def test_stale_loaded_config_cannot_overwrite_external_update(
     write_json_atomic(agent_path, raw)
     stale.description = "stale update"
 
-    with pytest.raises(ConfigurationException, match="changed on disk"):
+    with pytest.raises(AgentConfigConflictError, match="changed on disk"):
         config_module.save_agent_config("agent", stale)
 
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
     assert persisted["name"] == "New"
+    assert "agent" not in config_utils._agent_config_cache
 
 
 def test_loaded_config_cannot_recreate_externally_deleted_file(
@@ -165,10 +166,31 @@ def test_loaded_config_cannot_recreate_externally_deleted_file(
     stale = load_agent_config("agent")
     agent_path.unlink()
 
-    with pytest.raises(ConfigurationException, match="changed on disk"):
+    with pytest.raises(AgentConfigConflictError, match="changed on disk"):
         config_module.save_agent_config("agent", stale)
 
     assert not agent_path.exists()
+    assert "agent" not in config_utils._agent_config_cache
+
+
+def test_failed_save_evicts_mutated_cached_config(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A failed write cannot leave a mutated model in the shared cache."""
+    _agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
+    loaded = load_agent_config("agent")
+    loaded.description = "not persisted"
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("filesystem unavailable")
+
+    monkeypatch.setattr(config_module, "write_json_atomic", fail_write)
+
+    with pytest.raises(OSError, match="filesystem unavailable"):
+        config_module.save_agent_config("agent", loaded)
+
+    assert "agent" not in config_utils._agent_config_cache
 
 
 def test_successful_save_updates_model_version(
@@ -212,6 +234,38 @@ def test_last_dispatch_migration_publishes_state_then_removes_legacy(
         "user_id": "user-1",
         "session_id": "session-1",
     }
+
+
+def test_migration_rejects_an_external_update_before_replacement(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Migration never replaces a newer external agent configuration."""
+    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
+    raw["last_dispatch"] = {
+        "channel": "telegram",
+        "user_id": "user-1",
+        "session_id": "session-1",
+    }
+    agent_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    external = {**raw, "name": "External"}
+
+    def publish_external_update(*_args, **_kwargs):
+        write_json_atomic(agent_path, external)
+
+    monkeypatch.setattr(
+        config_utils,
+        "_migrate_last_dispatch_state",
+        publish_external_update,
+    )
+
+    with pytest.raises(AgentConfigConflictError):
+        load_agent_config("agent")
+
+    persisted = json.loads(agent_path.read_text(encoding="utf-8"))
+    assert persisted["name"] == "External"
+    assert "agent" not in config_utils._agent_config_cache
 
 
 def test_last_dispatch_migration_keeps_existing_valid_state(

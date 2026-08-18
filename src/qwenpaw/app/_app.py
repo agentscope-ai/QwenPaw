@@ -43,6 +43,7 @@ from .auth import (
     auto_register_from_env,
     check_proxy_config_sanity,
 )
+from .exception_handlers import register_exception_handlers
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
@@ -684,6 +685,7 @@ app = FastAPI(
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
+register_exception_handlers(app)
 
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)

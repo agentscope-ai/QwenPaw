@@ -14,7 +14,11 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
-from ..config.config import load_agent_config
+from ..config.config import (
+    _AgentConfigFingerprint,
+    _agent_config_fingerprint,
+    load_agent_config,
+)
 from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -25,6 +29,23 @@ logger = logging.getLogger(__name__)
 
 # How often to poll (seconds)
 DEFAULT_POLL_INTERVAL = 2.0
+_SNAPSHOT_RETRIES = 3
+
+
+def _load_config_snapshot(
+    agent_id: str,
+    config_path: Path,
+) -> tuple[Any, _AgentConfigFingerprint]:
+    """Load config while the observed disk fingerprint stays stable."""
+    for _attempt in range(_SNAPSHOT_RETRIES):
+        before = _agent_config_fingerprint(config_path)
+        agent_config = load_agent_config(agent_id)
+        after = _agent_config_fingerprint(config_path)
+        if before == after:
+            return agent_config, after
+    raise OSError(
+        f"Agent config changed repeatedly while loading {config_path}",
+    )
 
 
 def _channels_hash(channels: Any) -> Optional[int]:
@@ -68,6 +89,7 @@ class AgentConfigWatcher:
         self._poll_interval = poll_interval
         self._task: Optional[asyncio.Task] = None
 
+        self._last_fingerprint: Optional[_AgentConfigFingerprint] = None
         self._last_channels_hash: Optional[int] = None
         self._last_heartbeat_hash: Optional[int] = None
 
@@ -111,9 +133,10 @@ class AgentConfigWatcher:
     async def _snapshot(self) -> None:
         """Record current section hashes as the new baseline."""
         try:
-            agent_config = await run_sync_io(
-                load_agent_config,
+            agent_config, fingerprint = await run_sync_io(
+                _load_config_snapshot,
                 self._agent_id,
+                self._config_path,
             )
         except Exception:
             logger.exception(
@@ -121,6 +144,7 @@ class AgentConfigWatcher:
                 f"failed to load initial config",
             )
             return
+        self._last_fingerprint = fingerprint
         self._last_channels_hash = _channels_hash(
             getattr(agent_config, "channels", None),
         )
@@ -150,9 +174,16 @@ class AgentConfigWatcher:
     async def _check(self) -> None:
         """Check for meaningful config changes and trigger a reload."""
         try:
-            agent_config = await run_sync_io(
-                load_agent_config,
+            fingerprint = await run_sync_io(
+                _agent_config_fingerprint,
+                self._config_path,
+            )
+            if fingerprint == self._last_fingerprint:
+                return
+            agent_config, fingerprint = await run_sync_io(
+                _load_config_snapshot,
                 self._agent_id,
+                self._config_path,
             )
         except Exception:
             logger.exception(
@@ -161,6 +192,7 @@ class AgentConfigWatcher:
             )
             return
 
+        self._last_fingerprint = fingerprint
         new_channels_hash = _channels_hash(
             getattr(agent_config, "channels", None),
         )

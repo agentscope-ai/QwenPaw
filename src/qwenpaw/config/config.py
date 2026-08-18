@@ -32,6 +32,7 @@ from pydantic import (
 )
 import shortuuid
 from qwenpaw.exceptions import (
+    AgentConfigConflictError,
     ConfigurationException,
 )
 
@@ -115,6 +116,20 @@ def _json_payload_digest(payload: Any) -> bytes:
         sort_keys=False,
     ).encode("utf-8")
     return hashlib.sha256(content).digest()
+
+
+def _assert_agent_config_unchanged(
+    path: Path,
+    expected_digest: bytes,
+    agent_id: str,
+) -> None:
+    """Reject a write when its source snapshot is no longer current."""
+    try:
+        current_content, _fingerprint = _read_agent_config_snapshot(path)
+    except FileNotFoundError as exc:
+        raise AgentConfigConflictError(agent_id) from exc
+    if hashlib.sha256(current_content).digest() != expected_digest:
+        raise AgentConfigConflictError(agent_id)
 
 
 # ============================================================================
@@ -3106,6 +3121,11 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             or last_dispatch_migrated
         ):
             try:
+                _assert_agent_config_unchanged(
+                    agent_config_path,
+                    content_digest,
+                    agent_id,
+                )
                 if project_dir_migrated or weixin_migrated or display_migrated:
                     import uuid as _uuid
                     import shutil as _shutil
@@ -3129,6 +3149,9 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                     )
                 except OSError:
                     pass
+            except AgentConfigConflictError:
+                _agent_config_cache.pop(agent_id, None)
+                raise
             except OSError:
                 migration_write_failed = True
                 logger.exception(
@@ -3201,42 +3224,33 @@ def save_agent_config(
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
     agent_config_path = workspace_dir / "agent.json"
     with _agent_config_lock:
-        source_digest = agent_config.source_digest()
-        if source_digest is not None:
-            if not agent_config_path.exists():
-                raise ConfigurationException(
-                    config_key="agent",
-                    message=(
-                        f"Agent '{agent_id}' changed on disk; reload it "
-                        f"before saving"
-                    ),
-                )
-            current_content, _fingerprint = _read_agent_config_snapshot(
-                agent_config_path,
-            )
-            current_digest = hashlib.sha256(current_content).digest()
-            if current_digest != source_digest:
-                raise ConfigurationException(
-                    config_key="agent",
-                    message=(
-                        f"Agent '{agent_id}' changed on disk; reload it "
-                        f"before saving"
-                    ),
+        try:
+            source_digest = agent_config.source_digest()
+            if source_digest is not None:
+                _assert_agent_config_unchanged(
+                    agent_config_path,
+                    source_digest,
+                    agent_id,
                 )
 
-        payload = agent_config.model_dump(exclude_none=True)
-        saved_digest = _json_payload_digest(payload)
-        write_json_atomic(agent_config_path, payload)
-        agent_config.record_source_digest(saved_digest)
-        try:
-            saved_fingerprint = _agent_config_fingerprint(agent_config_path)
-        except OSError:
+            payload = agent_config.model_dump(exclude_none=True)
+            saved_digest = _json_payload_digest(payload)
+            write_json_atomic(agent_config_path, payload)
+            agent_config.record_source_digest(saved_digest)
+            try:
+                saved_fingerprint = _agent_config_fingerprint(
+                    agent_config_path,
+                )
+            except OSError:
+                _agent_config_cache.pop(agent_id, None)
+            else:
+                _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+                    config=agent_config,
+                    fingerprint=saved_fingerprint,
+                )
+        except Exception:
             _agent_config_cache.pop(agent_id, None)
-        else:
-            _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
-                config=agent_config,
-                fingerprint=saved_fingerprint,
-            )
+            raise
 
 
 async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
