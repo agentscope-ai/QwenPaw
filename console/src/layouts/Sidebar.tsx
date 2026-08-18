@@ -14,7 +14,7 @@ import type { TourProps } from "antd";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MessageSquareText } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
@@ -615,6 +615,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             <div className={styles.agentSelectorContainer}>
               <AgentSelector collapsed={collapsed} />
             </div>
+            <button
+              type="button"
+              className={`${styles.simpleNavItem} ${styles.simpleChatItem} ${
+                isChatActive ? styles.simpleNavItemActive : ""
+              }`}
+              onClick={() => navigate(chatPath)}
+            >
+              <MessageSquareText size={16} />
+              <span>{t("nav.chat")}</span>
+            </button>
             {simpleInboxEntry && (
               <button
                 type="button"
