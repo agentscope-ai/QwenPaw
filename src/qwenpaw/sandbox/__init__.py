@@ -53,6 +53,7 @@ from .windows_elevated_sandbox import (
     shutdown_cleanup as _restricted_shutdown_cleanup,
 )
 from .windows_unelevated_sandbox import (
+    DenyPathsProtection,
     WindowsSandboxBase,
     WindowsUnelevatedSandbox,
 )
@@ -62,6 +63,7 @@ from .windows_unelevated_sandbox import (
 
 __all__ = [
     "BubblewrapSandbox",
+    "DenyPathsProtection",
     "ExecutionResult",
     "LocalSandbox",
     "MacOSSandbox",
