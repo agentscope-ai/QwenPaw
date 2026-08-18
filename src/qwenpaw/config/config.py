@@ -2871,18 +2871,15 @@ def build_fallback_agent_profile_config(
     )
 
 
-# pylint: disable=too-many-branches
-def _migrate_access_control_fields(
+def _migrate_access_control_fields(  # pylint: disable=too-many-branches
     channels: dict,
-    store: Any,
-    source_revision: str,
-) -> tuple[bool, bool]:
+    workspace_dir: Path,
+) -> bool:
     """Migrate legacy dm_policy/group_policy/allow_from to new fields.
 
-    Returns whether agent fields changed and ACL state needs finalization.
+    Returns True if any field was migrated (caller should rewrite file).
     """
     migrated = False
-    acl_pending = False
     for ch_key, ch_cfg in channels.items():
         if not isinstance(ch_cfg, dict):
             continue
@@ -2913,12 +2910,12 @@ def _migrate_access_control_fields(
             migration_succeeded = True
             if allow_from:
                 try:
-                    store.import_allow_from(
-                        ch_key,
-                        set(allow_from),
-                        source_revision,
+                    from ..app.channels.access_control import (
+                        get_access_control_store,
                     )
-                    acl_pending = True
+
+                    store = get_access_control_store(workspace_dir)
+                    store.import_allow_from(ch_key, set(allow_from))
                 except Exception:
                     migration_succeeded = False
                     logger.exception(
@@ -2934,12 +2931,12 @@ def _migrate_access_control_fields(
             migration_succeeded = True
             if grp_allow:
                 try:
-                    store.import_allow_from(
-                        ch_key,
-                        set(grp_allow),
-                        source_revision,
+                    from ..app.channels.access_control import (
+                        get_access_control_store,
                     )
-                    acl_pending = True
+
+                    store = get_access_control_store(workspace_dir)
+                    store.import_allow_from(ch_key, set(grp_allow))
                 except Exception:
                     migration_succeeded = False
                     logger.exception(
@@ -2949,7 +2946,7 @@ def _migrate_access_control_fields(
             if migration_succeeded:
                 del ch_cfg["group_allow_from"]
                 migrated = True
-    return migrated, acl_pending
+    return migrated
 
 
 def migrate_channel_display_fields(channels: object) -> bool:
@@ -3014,18 +3011,9 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     """
     from .utils import (
         load_config,
-        _finalize_last_dispatch_migration,
         _migrate_last_dispatch_state,
-        _prepare_last_dispatch_migration,
-        _recover_last_dispatch_migration,
         _agent_config_cache,
         _agent_config_lock,
-    )
-    from ..app.channels.access_control import (
-        finalize_allow_from_migration,
-        get_access_control_store,
-        prepare_allow_from_migration,
-        recover_allow_from_migration,
     )
 
     config = load_config()
@@ -3086,32 +3074,31 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 ),
             ) from exc
 
-        source_revision = content_digest.hex()
-        access_store = get_access_control_store(workspace_dir)
-        recover_allow_from_migration(access_store, source_revision)
+        try:
+            _assert_agent_config_unchanged(
+                agent_config_path,
+                content_digest,
+                agent_id,
+            )
+        except AgentConfigConflictError:
+            _agent_config_cache.pop(agent_id, None)
+            raise
         last_dispatch_migrated = False
         last_dispatch_migration_failed = False
-        last_dispatch_pending = False
         migration_write_failed = False
-        try:
-            _recover_last_dispatch_migration(
-                workspace_dir,
-                source_revision,
-            )
-            if "last_dispatch" in data:
-                last_dispatch_pending = _migrate_last_dispatch_state(
+        if "last_dispatch" in data:
+            try:
+                _migrate_last_dispatch_state(
                     workspace_dir,
                     data["last_dispatch"],
-                    source_revision,
                 )
-        except Exception:
-            last_dispatch_migration_failed = True
-            logger.exception(
-                f"Failed to migrate last dispatch state for agent "
-                f"{agent_id}",
-            )
-        else:
-            if "last_dispatch" in data:
+            except Exception:
+                last_dispatch_migration_failed = True
+                logger.exception(
+                    f"Failed to migrate last dispatch state for agent "
+                    f"{agent_id}",
+                )
+            else:
                 data.pop("last_dispatch")
                 last_dispatch_migrated = True
         project_dir_migrated = migrate_project_directory_config(data)
@@ -3127,18 +3114,13 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
         if isinstance(channels, dict):
             display_migrated = migrate_channel_display_fields(channels)
-            (
-                access_control_migrated,
-                access_control_pending,
-            ) = _migrate_access_control_fields(
+            access_control_migrated = _migrate_access_control_fields(
                 channels,
-                access_store,
-                source_revision,
+                workspace_dir,
             )
         else:
             display_migrated = False
             access_control_migrated = False
-            access_control_pending = False
 
         if (
             project_dir_migrated
@@ -3148,20 +3130,6 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             or last_dispatch_migrated
         ):
             try:
-                target_digest = _json_payload_digest(data)
-                target_revision = target_digest.hex()
-                if last_dispatch_pending:
-                    _prepare_last_dispatch_migration(
-                        workspace_dir,
-                        source_revision,
-                        target_revision,
-                    )
-                if access_control_pending:
-                    prepare_allow_from_migration(
-                        access_store,
-                        source_revision,
-                        target_revision,
-                    )
                 _assert_agent_config_unchanged(
                     agent_config_path,
                     content_digest,
@@ -3183,19 +3151,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                     )
                     _shutil.copy2(agent_config_path, backup_path)
                 write_json_atomic(agent_config_path, data)
-                content_digest = target_digest
-                if last_dispatch_pending:
-                    _finalize_last_dispatch_migration(
-                        workspace_dir,
-                        source_revision,
-                        target_revision,
-                    )
-                if access_control_pending:
-                    finalize_allow_from_migration(
-                        access_store,
-                        source_revision,
-                        target_revision,
-                    )
+                content_digest = _json_payload_digest(data)
                 try:
                     current_fingerprint = _agent_config_fingerprint(
                         agent_config_path,

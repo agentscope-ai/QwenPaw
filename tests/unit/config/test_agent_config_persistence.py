@@ -80,45 +80,26 @@ def test_acl_migration_replaces_long_agent_json_completely(
     assert "allow_from" not in migrated["channels"]["telegram"]
 
 
-def test_acl_migration_keeps_legacy_field_when_state_write_fails() -> None:
+def test_acl_migration_keeps_legacy_field_when_state_write_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     """ACL source data remains when the destination cannot be persisted."""
     channels = {"telegram": {"allow_from": ["user-1"]}}
 
     class FailingStore:
-        def import_allow_from(self, _channel, _users, _revision):
+        def import_allow_from(self, _channel, _users):
             raise OSError("ACL state unavailable")
 
-    migrated, pending = _migrate_access_control_fields(
-        channels,
-        FailingStore(),
-        "source",
+    monkeypatch.setattr(
+        "qwenpaw.app.channels.access_control.get_access_control_store",
+        lambda _workspace_dir: FailingStore(),
     )
 
+    migrated = _migrate_access_control_fields(channels, tmp_path)
+
     assert migrated is False
-    assert pending is False
     assert channels["telegram"]["allow_from"] == ["user-1"]
-
-
-def test_acl_migration_restores_memory_when_state_write_fails(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """A failed migration publication is not visible through the store."""
-    from qwenpaw.app.channels.access_control import AccessControlStore
-
-    store = AccessControlStore(tmp_path / "access_control.json")
-    store.add_to_whitelist("telegram", "kept-user")
-    monkeypatch.setattr(store, "_save", lambda: False)
-
-    with pytest.raises(OSError, match="Failed to persist"):
-        store.import_allow_from(
-            "telegram",
-            {"new-user"},
-            "source",
-        )
-
-    whitelist = store.get_acl("telegram")["whitelist"]
-    assert set(whitelist) == {"kept-user"}
 
 
 def test_cache_detects_same_mtime_atomic_replacement(
@@ -255,86 +236,55 @@ def test_last_dispatch_migration_publishes_state_then_removes_legacy(
     }
 
 
-def test_dispatch_migration_retries_with_newer_legacy_source(
+def test_migration_rejects_an_external_update_before_replacement(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """A published old dispatch cannot hide a newer legacy dispatch."""
+    """Migration never replaces a newer external agent configuration."""
     agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
     raw["last_dispatch"] = {
-        "channel": "old",
-        "user_id": "old-user",
-        "session_id": "old-session",
+        "channel": "telegram",
+        "user_id": "user-1",
+        "session_id": "session-1",
     }
     agent_path.write_text(json.dumps(raw), encoding="utf-8")
 
-    external = dict(raw)
-    external["last_dispatch"] = {
-        "channel": "new",
-        "user_id": "new-user",
-        "session_id": "new-session",
-    }
-    original_migrate = config_utils._migrate_last_dispatch_state
+    external = {**raw, "name": "External"}
 
-    def migrate_then_publish_external(*args, **kwargs):
-        result = original_migrate(*args, **kwargs)
+    def publish_external_update(*_args, **_kwargs):
         write_json_atomic(agent_path, external)
-        return result
 
     monkeypatch.setattr(
         config_utils,
         "_migrate_last_dispatch_state",
-        migrate_then_publish_external,
+        publish_external_update,
     )
 
     with pytest.raises(AgentConfigConflictError):
         load_agent_config("agent")
 
-    monkeypatch.setattr(
-        config_utils,
-        "_migrate_last_dispatch_state",
-        original_migrate,
-    )
-    load_agent_config("agent")
-
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
-    dispatch = read_last_dispatch("agent")
-    assert "last_dispatch" not in persisted
-    assert dispatch is not None
-    assert dispatch.channel == "new"
-    assert dispatch.user_id == "new-user"
+    assert persisted["name"] == "External"
+    assert "agent" not in config_utils._agent_config_cache
 
 
-def test_acl_migration_removes_revoked_users_after_conflict(
+def test_migration_checks_source_before_publishing_state(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Retry removes only users imported by an obsolete source revision."""
-    from qwenpaw.app.channels.access_control import get_access_control_store
-
+    """A stale source is rejected before migration side effects."""
     agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    raw["channels"] = {
-        "telegram": {
-            "allow_from": ["old-user"],
-        },
+    raw["last_dispatch"] = {
+        "channel": "telegram",
+        "user_id": "user-1",
+        "session_id": "session-1",
     }
     agent_path.write_text(json.dumps(raw), encoding="utf-8")
-    store = get_access_control_store(agent_path.parent)
-    store.add_to_whitelist("telegram", "kept-user")
-    external = dict(raw)
-    external["channels"] = {
-        "telegram": {
-            "allow_from": ["new-user"],
-        },
-    }
+    external = {**raw, "name": "External"}
     original_assert = config_module._assert_agent_config_unchanged
-    injected = False
 
     def publish_then_assert(*args, **kwargs):
-        nonlocal injected
-        if not injected:
-            injected = True
-            write_json_atomic(agent_path, external)
+        write_json_atomic(agent_path, external)
         return original_assert(*args, **kwargs)
 
     monkeypatch.setattr(
@@ -346,164 +296,8 @@ def test_acl_migration_removes_revoked_users_after_conflict(
     with pytest.raises(AgentConfigConflictError):
         load_agent_config("agent")
 
-    monkeypatch.setattr(
-        config_module,
-        "_assert_agent_config_unchanged",
-        original_assert,
-    )
-    load_agent_config("agent")
-
-    whitelist = store.get_acl("telegram")["whitelist"]
-    persisted = json.loads(agent_path.read_text(encoding="utf-8"))
-    assert set(whitelist) == {"kept-user", "new-user"}
-    assert "allow_from" not in persisted["channels"]["telegram"]
-
-
-def test_acl_migration_rolls_back_when_latest_source_removes_channels(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Retry removes obsolete imports even when channels are now absent."""
-    from qwenpaw.app.channels.access_control import get_access_control_store
-
-    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    raw["channels"] = {
-        "telegram": {
-            "allow_from": ["old-user"],
-        },
-    }
-    agent_path.write_text(json.dumps(raw), encoding="utf-8")
-    store = get_access_control_store(agent_path.parent)
-    store.add_to_whitelist("telegram", "kept-user")
-    external = dict(raw)
-    external.pop("channels")
-    original_assert = config_module._assert_agent_config_unchanged
-    injected = False
-
-    def publish_then_assert(*args, **kwargs):
-        nonlocal injected
-        if not injected:
-            injected = True
-            write_json_atomic(agent_path, external)
-        return original_assert(*args, **kwargs)
-
-    monkeypatch.setattr(
-        config_module,
-        "_assert_agent_config_unchanged",
-        publish_then_assert,
-    )
-
-    with pytest.raises(AgentConfigConflictError):
-        load_agent_config("agent")
-
-    monkeypatch.setattr(
-        config_module,
-        "_assert_agent_config_unchanged",
-        original_assert,
-    )
-    load_agent_config("agent")
-
-    whitelist = store.get_acl("telegram")["whitelist"]
-    assert set(whitelist) == {"kept-user"}
-
-
-def test_dispatch_migration_recovers_after_source_cleanup_failure(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """A prepared dispatch migration resumes after agent write failure."""
-    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    raw["last_dispatch"] = {
-        "channel": "telegram",
-        "user_id": "user-1",
-        "session_id": "session-1",
-    }
-    agent_path.write_text(json.dumps(raw), encoding="utf-8")
-    original_write = config_module.write_json_atomic
-
-    def fail_agent_write(path, payload, **kwargs):
-        if Path(path) == agent_path:
-            raise OSError("agent config unavailable")
-        return original_write(path, payload, **kwargs)
-
-    monkeypatch.setattr(
-        config_module,
-        "write_json_atomic",
-        fail_agent_write,
-    )
-    load_agent_config("agent")
-
-    monkeypatch.setattr(
-        config_module,
-        "write_json_atomic",
-        original_write,
-    )
-    load_agent_config("agent")
-
-    dispatch = read_last_dispatch("agent")
-    persisted = json.loads(agent_path.read_text(encoding="utf-8"))
-    assert dispatch is not None
-    assert dispatch.channel == "telegram"
-    assert "last_dispatch" not in persisted
-
-
-def test_dispatch_migration_recovers_after_finalize_failure(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Committed source cleanup recovers pending destination metadata."""
-    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    raw["last_dispatch"] = {
-        "channel": "telegram",
-        "user_id": "user-1",
-        "session_id": "session-1",
-    }
-    agent_path.write_text(json.dumps(raw), encoding="utf-8")
-    original_finalize = config_utils._finalize_last_dispatch_migration
-
-    def fail_finalize(*_args, **_kwargs):
-        raise OSError("finalize unavailable")
-
-    monkeypatch.setattr(
-        config_utils,
-        "_finalize_last_dispatch_migration",
-        fail_finalize,
-    )
-    load_agent_config("agent")
-
-    monkeypatch.setattr(
-        config_utils,
-        "_finalize_last_dispatch_migration",
-        original_finalize,
-    )
-    load_agent_config("agent")
-
     state_path = agent_path.parent / "state" / "last_dispatch.json"
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert "_migration" not in state
-    assert state["channel"] == "telegram"
-
-
-def test_dispatch_migration_replaces_invalid_existing_state(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Recovery inspection does not block replacement of invalid state."""
-    agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    raw["last_dispatch"] = {
-        "channel": "telegram",
-        "user_id": "user-1",
-        "session_id": "session-1",
-    }
-    agent_path.write_text(json.dumps(raw), encoding="utf-8")
-    state_path = agent_path.parent / "state" / "last_dispatch.json"
-    write_json_atomic(state_path, ["invalid"])
-
-    load_agent_config("agent")
-
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["channel"] == "telegram"
-    assert "_migration" not in state
+    assert not state_path.exists()
 
 
 def test_last_dispatch_migration_keeps_existing_valid_state(

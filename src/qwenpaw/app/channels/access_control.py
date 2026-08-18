@@ -6,13 +6,12 @@ to a JSON file under the working directory.
 """
 from __future__ import annotations
 
-import copy
 import json
 import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 from ...constant import WORKING_DIR
 from ...utils.io_utils import write_json_atomic
@@ -20,8 +19,6 @@ from ...utils.io_utils import write_json_atomic
 logger = logging.getLogger(__name__)
 
 ACCESS_CONTROL_FILE = "access_control.json"
-_MIGRATION_SOURCE_KEY = "_migration_source"
-_MIGRATION_TARGET_KEY = "_migration_target"
 
 
 class PendingEntry:
@@ -77,32 +74,14 @@ class PendingEntry:
 class UserInfo:
     """Per-user metadata stored in whitelist/blacklist."""
 
-    __slots__ = (
-        "remark",
-        "username",
-        "migration_source",
-        "migration_target",
-    )
+    __slots__ = ("remark", "username")
 
-    def __init__(
-        self,
-        remark: str = "",
-        username: str = "",
-        migration_source: str = "",
-        migration_target: str = "",
-    ):
+    def __init__(self, remark: str = "", username: str = ""):
         self.remark = remark
         self.username = username
-        self.migration_source = migration_source
-        self.migration_target = migration_target
 
     def to_dict(self) -> Dict[str, str]:
-        payload = {"remark": self.remark, "username": self.username}
-        if self.migration_source:
-            payload[_MIGRATION_SOURCE_KEY] = self.migration_source
-        if self.migration_target:
-            payload[_MIGRATION_TARGET_KEY] = self.migration_target
-        return payload
+        return {"remark": self.remark, "username": self.username}
 
     @classmethod
     def from_dict(cls, data: Any) -> UserInfo:
@@ -110,8 +89,6 @@ class UserInfo:
             return cls(
                 remark=str(data.get("remark", "")),
                 username=str(data.get("username", "")),
-                migration_source=str(data.get(_MIGRATION_SOURCE_KEY, "")),
-                migration_target=str(data.get(_MIGRATION_TARGET_KEY, "")),
             )
         # Legacy format: plain string = remark only
         return cls(remark=str(data) if data else "")
@@ -516,7 +493,6 @@ class AccessControlStore:
         self,
         channel: str,
         allow_from: Set[str],
-        source_revision: str = "",
     ) -> None:
         """Import a set of user IDs into the whitelist for a channel.
 
@@ -526,14 +502,15 @@ class AccessControlStore:
         if not allow_from:
             return
         with self._lock:
-            original_data = copy.deepcopy(self._data)
             acl = self._acl(channel)
             for uid in allow_from:
                 if uid not in acl.whitelist:
-                    acl.whitelist[uid] = UserInfo(
-                        migration_source=source_revision,
-                    )
-            _persist_migration(self, original_data, "persist")
+                    acl.whitelist[uid] = UserInfo()
+            if not self._save():
+                raise OSError(
+                    f"Failed to persist access control migration to "
+                    f"{self._path}",
+                )
             logger.info(
                 "Imported %d allow_from entries to whitelist for channel %s",
                 len(allow_from),
@@ -570,95 +547,3 @@ def get_access_control_store(
         workspace_dir: Workspace directory. If None, uses WORKING_DIR fallback.
     """
     return init_access_control_store(workspace_dir)
-
-
-def _persist_migration(
-    store: AccessControlStore,
-    original_data: Dict[str, ChannelACL],
-    action: str,
-) -> None:
-    """Persist a migration change or restore its in-memory state."""
-    if store._save():  # pylint: disable=protected-access
-        return
-    store._data = original_data  # pylint: disable=protected-access
-    raise OSError(
-        f"Failed to {action} access control migration at "
-        f"{store._path}",  # pylint: disable=protected-access
-    )
-
-
-def recover_allow_from_migration(
-    store: AccessControlStore,
-    current_revision: str,
-) -> None:
-    """Finalize or roll back interrupted legacy ACL imports."""
-    with store._lock:  # pylint: disable=protected-access
-        changes: List[Tuple[ChannelACL, str, Optional[UserInfo]]] = []
-        for acl in store._data.values():  # pylint: disable=protected-access
-            for user_id, info in list(acl.whitelist.items()):
-                if not info.migration_source:
-                    continue
-                if info.migration_target == current_revision:
-                    changes.append((acl, user_id, info))
-                elif info.migration_source != current_revision:
-                    changes.append((acl, user_id, None))
-        if not changes:
-            return
-        original_data = copy.deepcopy(
-            store._data,  # pylint: disable=protected-access
-        )
-        for acl, user_id, info in changes:
-            if info is None:
-                del acl.whitelist[user_id]
-            else:
-                info.migration_source = ""
-                info.migration_target = ""
-        _persist_migration(store, original_data, "recover")
-
-
-def prepare_allow_from_migration(
-    store: AccessControlStore,
-    source_revision: str,
-    target_revision: str,
-) -> None:
-    """Record the agent revision produced by pending ACL imports."""
-    with store._lock:  # pylint: disable=protected-access
-        pending = [
-            info
-            for acl in store._data.values()  # pylint: disable=protected-access
-            for info in acl.whitelist.values()
-            if info.migration_source == source_revision
-        ]
-        if not pending:
-            return
-        original_data = copy.deepcopy(
-            store._data,  # pylint: disable=protected-access
-        )
-        for info in pending:
-            info.migration_target = target_revision
-        _persist_migration(store, original_data, "prepare")
-
-
-def finalize_allow_from_migration(
-    store: AccessControlStore,
-    source_revision: str,
-    target_revision: str,
-) -> None:
-    """Remove provenance after the agent config cleanup commits."""
-    with store._lock:  # pylint: disable=protected-access
-        pending = [
-            info
-            for acl in store._data.values()  # pylint: disable=protected-access
-            for info in acl.whitelist.values()
-            if info.migration_source == source_revision
-            and info.migration_target == target_revision
-        ]
-        if not pending:
-            return
-        original_data = copy.deepcopy(
-            store._data,  # pylint: disable=protected-access
-        )
-        for info in pending:
-            info.migration_source = ""
-            info.migration_target = ""
-        _persist_migration(store, original_data, "finalize")
