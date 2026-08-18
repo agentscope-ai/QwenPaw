@@ -150,6 +150,7 @@ Currently supported cloud providers include:
 - Aliyun Coding Plan
 - OpenRouter
 - OpenAI
+- NVIDIA NIM
 - Azure OpenAI
 - Anthropic
 - Google Gemini

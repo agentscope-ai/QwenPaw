@@ -1023,6 +1023,26 @@ async def test_github_models_provider_uses_new_endpoint_and_prefixes(
     assert info.api_key_prefixes == ["ghp_", "github_pat_"]
 
 
+async def test_nvidia_nim_provider_registration_and_discovery(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("nvidia-nim")
+
+    assert provider is not None
+    assert isinstance(provider, OpenAIProvider)
+    assert provider.base_url == "https://integrate.api.nvidia.com/v1"
+    assert provider.api_key_prefix == "nvapi-"
+    assert provider.support_model_discovery is True
+    assert provider.support_connection_check is True
+    assert any(m.id == "meta/llama-3.1-8b-instruct" for m in provider.models)
+
+    info = await provider.get_info()
+    assert info.base_url == "https://integrate.api.nvidia.com/v1"
+    assert info.api_key_prefix == "nvapi-"
+    assert any(m.id == "meta/llama-3.1-8b-instruct" for m in info.models)
+
+
 async def test_update_config_persists_api_key_prefixes(
     isolated_secret_dir,
 ) -> None:
