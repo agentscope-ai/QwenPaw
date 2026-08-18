@@ -89,13 +89,6 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    // If we already applied this exact chatId and the context is in sync, skip.
-    // This prevents the polling-triggered sessions refresh (pinned drawer)
-    // from re-calling setCurrentSessionId and causing circular getSession loops.
-    if (chatId === lastAppliedChatIdRef.current) {
-      return;
-    }
-
     // Match by multiple criteria in order of specificity:
     // 1) Library id (localId or UUID)
     let matching = sessions.find((s) => s.id === chatId);
@@ -111,6 +104,17 @@ const ChatSessionInitializer: React.FC = () => {
       matching = sessions.find(
         (s) => (s as ExtendedSession).sessionId === chatId,
       );
+    }
+
+    // If we already applied this exact chatId and the context is in sync, skip.
+    // Comparing both values lets a blank new chat reopen the same URL later,
+    // while still ignoring polling-only session list updates.
+    if (
+      matching &&
+      chatId === lastAppliedChatIdRef.current &&
+      currentSessionIdRef.current === matching.id
+    ) {
+      return;
     }
 
     if (matching && currentSessionIdRef.current !== matching.id) {

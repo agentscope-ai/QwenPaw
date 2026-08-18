@@ -527,6 +527,9 @@ def _normalize_messages_for_formatter(
     supports_multimodal = _supports_multimodal_for_current_model()
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
+    strip_audio = bool(
+        getattr(formatter_instance, "_qwenpaw_force_strip_audio", False),
+    )
 
     if is_anthropic_formatter:
         target_family = "anthropic"
@@ -539,6 +542,7 @@ def _normalize_messages_for_formatter(
         msgs,
         supports_multimodal=supports_multimodal,
         target_family=target_family,
+        strip_audio=strip_audio,
     )
 
     return (
@@ -588,6 +592,7 @@ _WIRE_MEDIA_BLOCK_TYPES = frozenset(
     },
 )
 _WIRE_MEDIA_CONTAINER_KEYS = frozenset({"file_data", "inline_data"})
+_WIRE_AUDIO_BLOCK_TYPES = frozenset({"audio", "input_audio"})
 
 
 def _count_wire_media_blocks(value: Any) -> int:
@@ -602,6 +607,21 @@ def _count_wire_media_blocks(value: Any) -> int:
     if any(key in value for key in _WIRE_MEDIA_CONTAINER_KEYS):
         return 1
     return sum(_count_wire_media_blocks(item) for item in value.values())
+
+
+def _count_wire_audio_blocks(value: Any) -> int:
+    """Count provider-formatted audio blocks in a nested payload."""
+    if isinstance(value, list):
+        return sum(_count_wire_audio_blocks(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+
+    if value.get("type") in _WIRE_AUDIO_BLOCK_TYPES:
+        return 1
+    media_type = value.get("mime_type") or value.get("media_type")
+    if isinstance(media_type, str) and media_type.startswith("audio/"):
+        return 1
+    return sum(_count_wire_audio_blocks(item) for item in value.values())
 
 
 def _video_oversize_placeholder(
@@ -1408,6 +1428,7 @@ def _create_file_block_support_formatter(
             # A formatter failure must not leave media evidence from a
             # previous request behind for the capability fallback layer.
             self._qwenpaw_last_wire_media_count = 0
+            self._qwenpaw_last_wire_audio_count = 0
 
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder.  Reset on
@@ -1628,6 +1649,9 @@ def _create_file_block_support_formatter(
 
             wire_messages = _strip_top_level_message_name(messages)
             self._qwenpaw_last_wire_media_count = _count_wire_media_blocks(
+                wire_messages,
+            )
+            self._qwenpaw_last_wire_audio_count = _count_wire_audio_blocks(
                 wire_messages,
             )
             return wire_messages

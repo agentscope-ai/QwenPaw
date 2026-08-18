@@ -51,6 +51,13 @@ from ..utils.media_paths import local_media_path
 # rationale.
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
+_DASHSCOPE_AUDIO_FORMAT_BY_MIME = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+}
+
 
 def inline_media_size(source: Any) -> int | None:
     """Return the byte size of *source* if it would be inlined locally.
@@ -251,9 +258,28 @@ class _CappingDashScopeFormatter(
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
+        # Local files reach the formatter as Base64Source via the async
+        # media preparation; a still-local URLSource means prep did not
+        # run, and the sync formatter must not read disk to recover.
         unprepared = self._unprepared_local_placeholder(source, "audio")
         if unprepared is not None:
             return unprepared
+        # TODO: Remove this workaround after AgentScope formats DashScope
+        # Base64Source audio data as a data URL.
+        if isinstance(source, Base64Source):
+            media_type = source.media_type
+            provider_format = _DASHSCOPE_AUDIO_FORMAT_BY_MIME.get(media_type)
+            if provider_format is None:
+                raise ValueError(
+                    f"Unsupported DashScope audio MIME type: {media_type}",
+                )
+            return {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": (f"data:{media_type};base64,{source.data}"),
+                    "format": provider_format,
+                },
+            }
         return super()._format_audio_source(source)
 
 

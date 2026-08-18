@@ -159,16 +159,47 @@ def test_put_channels_saves_and_triggers_reload(
             "qwenpaw.app.routers.config.schedule_agent_reload",
         ) as reload_mock,
     ):
-        payload = ChannelConfig(
-            console=ConsoleConfig(enabled=False),
-        ).model_dump()
-        response = client.put("/api/config/channels", json=payload)
+        response = client.put(
+            "/api/config/channels",
+            json={
+                "console": {"enabled": False},
+                "discord": {"enabled": True},
+            },
+        )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["console"]["enabled"] is False
+    assert body["console"]["enabled"] is True
+    assert body["discord"]["enabled"] is True
+    assert fake_agent_workspace.config.channels.console.enabled is True
+    assert fake_agent_workspace.config.channels.discord.enabled is True
 
     # Side-effects fired exactly once.
+    save_mock.assert_called_once()
+    reload_mock.assert_called_once()
+
+
+def test_put_console_channel_keeps_it_enabled(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    with (
+        patch(
+            "qwenpaw.config.config.save_agent_config",
+        ) as save_mock,
+        patch(
+            "qwenpaw.app.routers.config.schedule_agent_reload",
+        ) as reload_mock,
+    ):
+        response = client.put(
+            "/api/config/channels/console",
+            json={"enabled": False},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is True
+    assert fake_agent_workspace.config.channels.console.enabled is True
     save_mock.assert_called_once()
     reload_mock.assert_called_once()
 
