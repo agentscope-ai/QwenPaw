@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 import time
 import uuid
 from contextlib import AsyncExitStack
@@ -41,6 +40,7 @@ from ....agents.acp.meta import (
     ACP_PROJECT_DIR_META_KEY,
     ACP_EPHEMERAL_META_KEY,
 )
+from ....utils.self_invoke import qwenpaw_cli_command
 from ..__version__ import __version__
 from ..events import (
     BackendWarmed,
@@ -367,20 +367,27 @@ class AcpTransport:
         # When set, ``start()`` resumes this session (load + replay) instead
         # of opening a fresh one.
         self._resume_session_id = resume_session_id
-        # Default: re-invoke this very interpreter as `python -m qwenpaw acp`.
+        # Default: re-invoke this very install as `qwenpaw acp` (as
+        # `python -m qwenpaw acp` when running under a real interpreter; see
+        # qwenpaw_cli_command for why the packaged build differs).
         # The TUI owns that subprocess, so opt it into local diagnostics.
         # Copy the caller's list so appending options never mutates it.
+        self._command: list[str] = []
+        # A resolution failure is held here and re-raised from ``start()``, so
+        # the TUI shows it as an in-app "transport: ..." error like any other
+        # startup failure instead of a traceback in place of the whole UI.
+        self._command_error: str | None = None
         if command is None:
-            self._command = [
-                sys.executable,
-                "-m",
-                "qwenpaw",
-                "acp",
-                "--local-diagnostics",
-            ]
+            try:
+                self._command = qwenpaw_cli_command(
+                    "acp",
+                    "--local-diagnostics",
+                )
+            except RuntimeError as exc:
+                self._command_error = str(exc)
         else:
             self._command = list(command)
-        if agent:
+        if agent and self._command:
             self._command += ["--agent", agent]
 
         self._queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -399,12 +406,19 @@ class AcpTransport:
     def session_id(self) -> str | None:
         return self._session_id
 
+    @property
+    def command(self) -> list[str]:
+        """The resolved argv this transport spawns (for display/debugging)."""
+        return list(self._command)
+
     def _session_kwargs(self) -> dict[str, str]:
         if not self._project_dir:
             return {}
         return {ACP_PROJECT_DIR_META_KEY: self._project_dir}
 
     async def start(self) -> Connected:
+        if self._command_error is not None:
+            raise RuntimeError(self._command_error)
         self._stack = AsyncExitStack()
         cmd, *args = self._command
         self._stderr_fd, self._stderr_path = _open_agent_stderr_log()
