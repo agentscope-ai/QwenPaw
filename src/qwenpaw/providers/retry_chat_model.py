@@ -380,10 +380,26 @@ class RetryChatModel(ChatModelBase):
             context_size=getattr(inner, "context_size", 32768),
         )
         self._inner = inner
+        # AgentScope 2.0.6 reads the formatter from the outermost model
+        # wrapper while normalizing incoming messages.  Keep this retry
+        # layer transparent just like the model metadata forwarded above.
+        formatter = getattr(inner, "formatter", None)
+        if formatter is not None:
+            self.formatter = formatter
         self._retry_config = _normalize_retry_config(retry_config)
         self._rate_limit_config = _normalize_rate_limit_config(
             rate_limit_config,
         )
+
+    @property
+    def formatter(self) -> Any:
+        """Expose the wrapped model's formatter to AgentScope."""
+        return self._inner.formatter
+
+    @formatter.setter
+    def formatter(self, value: Any) -> None:
+        """Keep formatter updates synchronized with the wrapped model."""
+        self._inner.formatter = value
 
     # Expose the real model's class so that formatter mapping keeps working
     # when code inspects ``model.__class__`` after wrapping.

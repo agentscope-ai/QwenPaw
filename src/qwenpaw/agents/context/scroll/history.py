@@ -18,6 +18,7 @@ from ..types import LogEntry
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
+_UNSET = object()
 
 # The recall tool's own turns — the model's ``ms.*`` Python source and its
 # printed stdout/stderr — are written through to history like any turn, but
@@ -363,6 +364,7 @@ class HistoryStore:
         name: str | None = None,
         tool_state: str | None = None,
         tool_input: Any = None,
+        metadata: Any = _UNSET,
     ) -> None:
         """Refresh an already-appended row in place (keeping FTS in sync).
 
@@ -370,9 +372,10 @@ class HistoryStore:
         accumulates a whole reply into a single assistant Msg, so the durable
         row must end up with every cell's blocks and any later-emitted
         headline. The scalar ``tool_call_id``/``name``/``tool_state``/
-        ``tool_input`` are refreshed too, so a turn that grows a *later* tool
-        call doesn't leave them frozen at their first-write values. ``seq`` is
-        unchanged.
+        ``tool_input`` and message ``metadata`` are refreshed too, so a turn
+        that grows a *later* tool call doesn't leave them frozen at their
+        first-write values. ``seq`` is unchanged. Omitting ``metadata`` keeps
+        the stored value unchanged for backwards-compatible direct callers.
         """
         # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
         # so don't touch the index for them on update either.
@@ -385,20 +388,37 @@ class HistoryStore:
                     (seq,),
                 ).fetchone()
                 old_content = r["content"] if r else None
+            # Keep every column name below as a hard-coded literal. Only
+            # values are parameterized; never add caller-controlled names.
+            assignments = [
+                "content = ?",
+                "headline = ?",
+                "blocks = ?",
+                "tool_call_id = ?",
+                "name = ?",
+                "tool_state = ?",
+                "tool_input = ?",
+            ]
+            values: list[Any] = [
+                content,
+                headline,
+                _to_json(blocks),
+                tool_call_id,
+                name,
+                tool_state,
+                _to_json(tool_input),
+            ]
+            if metadata is not _UNSET:
+                assignments.append("metadata = ?")
+                # The history schema canonically represents empty metadata
+                # as SQL NULL, matching the initial insert path.
+                values.append(_to_json(metadata or None))
+            values.append(seq)
             self._conn.execute(
-                "UPDATE conversation_history SET content = ?, headline = ?, "
-                "blocks = ?, tool_call_id = ?, name = ?, tool_state = ?, "
-                "tool_input = ? WHERE seq = ?",
-                (
-                    content,
-                    headline,
-                    _to_json(blocks),
-                    tool_call_id,
-                    name,
-                    tool_state,
-                    _to_json(tool_input),
-                    seq,
-                ),
+                "UPDATE conversation_history SET "
+                + ", ".join(assignments)
+                + " WHERE seq = ?",
+                values,
             )
             if fts_sync:
                 if old_content is not None:

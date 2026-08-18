@@ -3,8 +3,8 @@
  *
  * Lists all plugins with `meta.pawapp` from the backend. Clicking an
  * app renders its registered route component INLINE within this page
- * (no full-page navigation). The URL bar mirrors the app path while keeping
- * OS-owned pages under `/os`, so refresh never falls back to the classic UI.
+ * (no full-page navigation). The classic console mirrors the app path in the
+ * URL; the Desktop OS keeps its single `/os` browser entry point.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,26 +23,30 @@ import type { MenuProps } from "antd";
 import {
   AppWindow,
   BadgeCheck,
+  CircleX,
   LayoutGrid,
   Search,
   RefreshCw,
   Info,
-  RotateCcw,
   Store,
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
+import type { InstallPluginResult } from "../../api/modules/plugin";
 import { useRoutes } from "../../plugins/registry/hooks";
+import { loadPawApp } from "../../plugins/usePluginLoader";
+import { removePluginAppState } from "../../os/osCleanup";
 import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
 import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,
-  getOsAppHref,
+  getOsPawAppIdFromHistoryState,
   getOsRootHref,
   isOsPath,
+  withOsPawAppHistoryState,
 } from "../../utils/navigationMode";
 import styles from "./index.module.less";
 
@@ -56,7 +60,6 @@ const { Option } = Select;
 
 /** URL-persisted App Center views; unknown values fall back to installed. */
 type AppCenterView = "installed" | "official" | "market";
-
 // Featured installed apps (e.g. Creator) are pinned to the top of the grid.
 // Lower index = higher placement.
 const FEATURED_APP_IDS = ["qwenpaw-creator"];
@@ -122,6 +125,15 @@ export default function AppCenterPage() {
     }
   };
 
+  const handleMarketInstalled = async (result: InstallPluginResult) => {
+    if (apps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
+    await loadPawApp(result.id);
+    await fetchApps();
+  };
+
   useEffect(() => {
     fetchApps();
   }, []);
@@ -167,28 +179,59 @@ export default function AppCenterPage() {
 
   const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
 
-  // Resolve the registered route component for the active app so it can be
-  // rendered inline (no full-page navigation).
   const activeRoute = useMemo(() => {
     if (!activeApp) return null;
     const target = appTarget(activeApp);
-    return routes.find((r) => r.path === target) ?? null;
+    return routes.find((route) => route.path === target) ?? null;
   }, [activeApp, routes]);
 
-  const handleAppClick = (app: AppCardData) => {
+  const handleAppClick = async (app: AppCardData) => {
     const target = appTarget(app);
-    const browserPath = isOsPath(window.location.pathname)
-      ? getOsAppHref(window.location.pathname, target)
-      : addRouterBasename(window.location.pathname, target);
-    window.history.pushState({ pawappInline: true }, "", browserPath);
+    try {
+      await loadPawApp(app.id, target);
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("appCenter.appLoadFailed", "Failed to load app"),
+      );
+      return;
+    }
+    if (isOsPath(window.location.pathname)) {
+      window.history.pushState(
+        withOsPawAppHistoryState(window.history.state, app.id),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+    } else {
+      window.history.pushState(
+        { pawappInline: true },
+        "",
+        addRouterBasename(window.location.pathname, target),
+      );
+    }
     setActiveApp(app);
   };
 
   const handleBack = () => {
-    const browserPath = isOsPath(window.location.pathname)
-      ? getOsRootHref(window.location.pathname)
-      : addRouterBasename(window.location.pathname, "/apps");
-    window.history.pushState({}, "", browserPath);
+    if (isOsPath(window.location.pathname)) {
+      if (getOsPawAppIdFromHistoryState(window.history.state)) {
+        window.history.back();
+        return;
+      }
+      window.history.replaceState(
+        withOsPawAppHistoryState(window.history.state, null),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+      setActiveApp(null);
+      return;
+    }
+    window.history.pushState(
+      {},
+      "",
+      addRouterBasename(window.location.pathname, "/apps"),
+    );
     setActiveApp(null);
   };
 
@@ -207,6 +250,7 @@ export default function AppCenterPage() {
       onOk: async () => {
         try {
           await pawappApi.uninstall(app.id);
+          removePluginAppState(app.id);
           message.success(t("appCenter.uninstallSuccess", "App uninstalled"));
           await fetchApps();
         } catch (err) {
@@ -223,17 +267,15 @@ export default function AppCenterPage() {
 
   // Keep the inline view in sync with browser back/forward.
   useEffect(() => {
-    const onPop = () => {
-      const pathAppId =
-        window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
-      if (!pathAppId) {
+    const onPop = (event: PopStateEvent) => {
+      const appId = isOsPath(window.location.pathname)
+        ? getOsPawAppIdFromHistoryState(event.state)
+        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+      if (!appId) {
         setActiveApp(null);
         return;
       }
-      const found = apps.find((app) => app.id === pathAppId);
-      if (found) {
-        setActiveApp(found);
-      }
+      setActiveApp(apps.find((app) => app.id === appId) ?? null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -254,20 +296,8 @@ export default function AppCenterPage() {
   // ── Embedded app view ─────────────────────────────────────────────────────
   if (activeApp) {
     const AppComponent = activeRoute?.Component;
-
     // App menu items
     const appMenuItems: MenuProps["items"] = [
-      {
-        key: "refresh",
-        icon: <RotateCcw size={14} />,
-        label: t("appCenter.refreshApp", "刷新应用"),
-        onClick: () => {
-          // Force reload by unmounting and remounting the app component
-          setActiveApp(null);
-          setTimeout(() => setActiveApp(activeApp), 0);
-          message.success(t("appCenter.appRefreshed", "应用已刷新"));
-        },
-      },
       {
         key: "about",
         icon: <Info size={14} />,
@@ -339,16 +369,7 @@ export default function AppCenterPage() {
             onClick={handleBack}
             title={t("appCenter.backToListHint", "返回应用列表 (ESC)")}
           >
-            <svg
-              className={styles.capsuleCloseIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            >
-              <circle cx="12" cy="12" r="9" />
-            </svg>
+            <CircleX className={styles.capsuleCloseIcon} size={20} />
           </button>
         </div>
 
@@ -362,7 +383,7 @@ export default function AppCenterPage() {
               image={<AppWindow size={48} strokeWidth={1} />}
               description={t(
                 "appCenter.appNotLoaded",
-                "This app is not loaded yet. Open it once from the sidebar, then retry.",
+                "This app is not loaded yet.",
               )}
               style={{ marginTop: 48 }}
             />
@@ -558,7 +579,10 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket channel="official" onInstalled={fetchApps} />
+              <AppMarket
+                channel="official"
+                onInstalled={handleMarketInstalled}
+              />
             </Suspense>
           ) : view === "market" ? (
             <Suspense
@@ -568,7 +592,7 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket onInstalled={fetchApps} />
+              <AppMarket onInstalled={handleMarketInstalled} />
             </Suspense>
           ) : (
             installedContent

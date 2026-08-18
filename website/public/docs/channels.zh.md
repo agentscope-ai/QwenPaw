@@ -540,6 +540,9 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 | `ws_host`                | string | `127.0.0.1` | WebSocket 服务器监听地址。默认仅监听回环地址，端口不对网络开放  |
 | `ws_port`                | int    | `6199`      | WebSocket 服务器监听端口                                        |
 | `access_token`           | string | `""`        | OneBot 客户端携带的共享 Token。**`ws_host` 不是回环地址时必填** |
+| `media_base64`           | bool   | `false`     | 发送本地媒体前，将其编码为 Base64 后再交给 OneBot 客户端        |
+| `media_base64_max_mb`    | int    | `10`        | 出站媒体使用 Base64 编码的大小上限（MB）；超限时使用原始路径    |
+| `media_download_max_mb`  | int    | `50`        | 从 OneBot 客户端下载单个远程入站媒体文件的大小上限（MB）        |
 | `share_session_in_group` | bool   | `false`     | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话   |
 
 ### 安全说明
@@ -552,18 +555,6 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 - **优先使用内网或反向代理**，而不是直接把端口暴露到公网：`ws://` 是明文传输，在公网链路上传递的 Token 可被中途窃取。
 
 > **Docker Compose 提示：** QwenPaw 和 NapCat 一起用 Docker Compose 部署时，两个容器不在同一个回环网口上，因此需将 `ws_host` 设为 `0.0.0.0` 并**同时设置 `access_token`**，NapCat 的反向 WS 地址填 `ws://qwenpaw:6199/ws`（使用服务名）。不要将 6199 端口 publish 到宿主机，或按 `127.0.0.1:6199:6199` 的形式 publish 以保持仅本机可访问。
-
-**多模态支持：**
-
-| 类型 | 接收 | 发送 |
-| ---- | ---- | ---- |
-| 文本 | ✓    | ✓    |
-| 图片 | ✓    | ✓    |
-| 语音 | 🚧   | ✓    |
-| 视频 | 🚧   | ✓    |
-| 文件 | ✓    | ✓    |
-
-> **提示：** 语音和视频在渠道层已正确接收，但需要配置 QwenPaw 的转写服务（`transcription_provider_type`）才能让 LLM 理解内容。未配置时语音消息显示为占位符。
 
 ---
 
@@ -1708,6 +1699,7 @@ https://xxxx.ngrok-free.app/api/messages
 | Slack      | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| OneBot     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 企业微信   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 微信个人   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
@@ -1726,6 +1718,7 @@ https://xxxx.ngrok-free.app/api/messages
 - **Slack**：原生支持所有文件类型 — 图片、音频、视频、PDF 及任意文件。用户上传的文件会自动下载并作为多模态输入处理；发送侧通过 `files.uploadV2` 支持所有媒体类型。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
+- **OneBot**：接收图片、视频、音频和文件并下载到本地；发送时使用 OneBot 原生媒体消息段，本地出站媒体可选择编码为 Base64。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
 - **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送支持文本、图片、文件和视频；音频文件（如 MP3）因 iLink API 限制暂不支持。

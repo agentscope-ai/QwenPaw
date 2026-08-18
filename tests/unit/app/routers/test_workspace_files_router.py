@@ -45,6 +45,11 @@ def fixture_files_client(
         "get_project_dir_for_request",
         get_project_dir,
     )
+    monkeypatch.setattr(
+        workspace_router,
+        "get_agent_project_dir",
+        lambda _workspace: project_dir,
+    )
     app = FastAPI()
     app.state.project_dir = project_dir
     app.state.workspace_dir = workspace_dir
@@ -133,6 +138,53 @@ def test_save_if_match_rejects_an_externally_deleted_file(
 
     assert response.status_code == 409
     assert not target.exists()
+
+
+def test_save_preserves_crlf_bytes_across_repeated_writes(
+    files_client: TestClient,
+) -> None:
+    """Repeated workspace saves must not expand CRLF into CRCRLF."""
+    target = files_client.app.state.project_dir / "source.ts"
+    content = "const first = 1;\r\nconst second = 2;\r\n"
+    expected = content.encode("utf-8")
+    target.write_bytes(expected)
+    metadata = files_client.get(
+        "/api/workspace/file-metadata",
+        params={"path": "source.ts"},
+    ).json()
+
+    etag = metadata["etag"]
+    for _index in range(2):
+        response = files_client.put(
+            "/api/workspace/file-content",
+            params={"path": "source.ts"},
+            headers={"If-Match": etag},
+            json={"content": content},
+        )
+
+        assert response.status_code == 200
+        etag = response.json()["etag"]
+        assert target.read_bytes() == expected
+        assert b"\r\r\n" not in target.read_bytes()
+
+
+def test_legacy_code_save_preserves_crlf_bytes(
+    files_client: TestClient,
+) -> None:
+    """The legacy coding endpoint must write line endings byte-for-byte."""
+    target = files_client.app.state.project_dir / "legacy.ts"
+    content = "const first = 1;\r\nconst second = 2;\r\n"
+    expected = content.encode("utf-8")
+
+    for _index in range(2):
+        response = files_client.put(
+            "/api/workspace/code-files/legacy.ts",
+            json={"content": content},
+        )
+
+        assert response.status_code == 200
+        assert target.read_bytes() == expected
+        assert b"\r\r\n" not in target.read_bytes()
 
 
 def test_upload_requests_policy_only_for_conflicting_files(

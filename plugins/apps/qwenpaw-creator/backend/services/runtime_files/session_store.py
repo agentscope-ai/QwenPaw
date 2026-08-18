@@ -1803,6 +1803,17 @@ class ProjectRuntimeSessionStore:
             or session.status not in _REVIEW_ACTIVE_STATUSES
         ):
             return False
+        # Delegated governance means "never ask mid-flight": mainline
+        # feedback is auto-applied instead of parked behind a diff review
+        # nobody is attending. Imported lazily — runtime_files must not
+        # depend on models at module load.
+        from models.config import (  # pylint: disable=import-outside-toplevel
+            EXECUTION_MODE_DELEGATED,
+            get_execution_mode,
+        )
+
+        if get_execution_mode() == EXECUTION_MODE_DELEGATED:
+            return False
         # A running Session must expose a coherent Goal/Run pair before an
         # interrupt boundary may be captured.
         if session.active_run_id:

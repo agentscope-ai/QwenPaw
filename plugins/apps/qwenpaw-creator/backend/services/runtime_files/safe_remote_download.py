@@ -8,6 +8,7 @@ the validated response streaming into their own staging/file boundary.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 import ipaddress
@@ -412,11 +413,15 @@ def safe_download_to_file(
     *,
     max_bytes: int,
     timeout: float | httpx.Timeout,
+    on_progress: Callable[[int, int | None], None] | None = None,
 ) -> tuple[int, str, str]:
     """Stream a large public HTTP(S) resource into an explicit local file.
 
     Returns ``(size_bytes, media_type, final_url)``. A partial destination is
-    removed on every failure.
+    removed on every failure.  ``on_progress``, when given, is invoked on the
+    calling thread after each received chunk with ``(received, total)`` where
+    ``total`` is the declared Content-Length (``None`` when absent); receivers
+    are responsible for their own throttling and must treat errors as fatal.
     """
 
     path = Path(destination)
@@ -431,6 +436,8 @@ def safe_download_to_file(
                 for chunk in remote.iter_raw():
                     output.write(chunk)
                     size += len(chunk)
+                    if on_progress is not None:
+                        on_progress(size, remote.declared_size)
                 media_type = remote.media_type
                 final_url = remote.final_url
         if size == 0:

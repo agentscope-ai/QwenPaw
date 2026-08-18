@@ -30,6 +30,8 @@ import type {
   HostThemeMode,
   QwenPawChatNamespace,
 } from "./types/qwenpaw";
+import { pawSdkFactory } from "./pawapp-sdk";
+import type { PawSdkFactory } from "./pawapp-sdk/types";
 
 declare const VITE_API_BASE_URL: string;
 
@@ -103,6 +105,10 @@ class PluginSystem {
     if (options?.isBuiltin) rec.isBuiltin = true;
     Object.assign(rec.toolRenderers, renderers);
     this._notify();
+  }
+
+  removePlugin(pluginId: string): void {
+    if (this.records.delete(pluginId)) this._notify();
   }
 
   // ── Read API (consumed by PluginContext / usePlugins) ────────────────────
@@ -187,6 +193,8 @@ export interface WindowNamespace {
   chat?: QwenPawChatNamespace;
   /** Override audit log (debug). Attached by installHostExternals(). */
   audit?: QwenPawAuditNamespace;
+  /** App-scoped PawApp SDK. */
+  paw?: PawSdkFactory;
 }
 
 declare global {
@@ -247,6 +255,7 @@ export function installHostExternals(): void {
   if (!window.QwenPaw.route) window.QwenPaw.route = buildRouteNamespace();
   if (!window.QwenPaw.slot) window.QwenPaw.slot = buildSlotNamespace();
   if (!window.QwenPaw.audit) window.QwenPaw.audit = buildAuditNamespace();
+  if (!window.QwenPaw.paw) window.QwenPaw.paw = pawSdkFactory;
 
   // ── Back-compat shim ───────────────────────────────────────────────────
   // Legacy registerRoutes(pluginId, routes[]) fans out to:

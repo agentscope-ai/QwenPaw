@@ -202,8 +202,9 @@ class TestSysModulesCleanup:
         loader,
         tmp_path,
     ):
-        """Modules imported via bare ``import`` (after sys.path manipulation)
-        are cleaned via __file__ path scanning."""
+        """Modules that land in the global top-level namespace (e.g. via
+        ``importlib.import_module``, which bypasses the plugin-namespace
+        ``__import__`` redirection) are cleaned via __file__ scanning."""
         plugin_dir = tmp_path / "bare-imp"
         (plugin_dir).mkdir()
         # A helper that the plugin will import via bare name
@@ -213,9 +214,12 @@ class TestSysModulesCleanup:
         )
         _write_plugin(
             plugin_dir,
-            "import sys, os\n"
+            "import sys, os, importlib\n"
             "sys.path.insert(0, os.path.dirname(__file__))\n"
-            "import bare_helper_xyzzy\n"
+            "bare_helper_xyzzy = importlib.import_module(\n"
+            "    'bare_helper_xyzzy',\n"
+            ")\n"
+            "assert 'bare_helper_xyzzy' in sys.modules\n"
             "\n"
             "class P:\n"
             "    def register(self, api):\n"

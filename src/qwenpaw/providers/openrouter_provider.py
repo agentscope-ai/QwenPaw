@@ -36,11 +36,7 @@ class OpenRouterProvider(Provider):
         ),
     )
 
-    _OPENROUTER_CATEGORIES = (
-        "cli-agent,cloud-agent,programming-app,"
-        "creative-writing,writing-assistant,"
-        "general-chat,personal-agent"
-    )
+    _OPENROUTER_CATEGORIES = "personal-agent,cli-agent"
 
     _DEFAULT_HEADERS = {
         "HTTP-Referer": "https://qwenpaw.agentscope.io/",
@@ -452,6 +448,7 @@ class OpenRouterProvider(Provider):
         )
         return OpenAIChatModelCompat(
             credential=credential,
+            provider_id=self.id,
             model=model_id,
             stream=True,
             default_headers=self._build_default_headers() or None,

@@ -13,14 +13,23 @@ use std::sync::Mutex;
 
 use super::app_identity::{launch_at, resolve_launch_target};
 use super::approval::request_approval;
-use super::state::{Observation, PendingAction, ServerState, WindowInfo, INPUT_GUARD_GRACE_MS};
 #[cfg(target_os = "macos")]
-use super::target_is_frontmost;
-use super::{
-    click, close_window, desktop_locked, drag, ensure_permissions, invoke_element,
-    last_input_age_ms, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
-    set_value, type_text, validate_observation, PROTOCOL_VERSION,
+use super::platform_macos::element_is_transient_menu_item;
+use super::state::{
+    accessibility_revision, Observation, PendingAction, ServerState, WindowInfo,
+    INPUT_GUARD_GRACE_MS,
 };
+use super::{
+    active_window, click, close_window, desktop_locked, drag, ensure_permissions, input_sequence,
+    invoke_element, last_input_age_ms, list_apps, list_windows, observe_window, press_key,
+    resolve_window, scroll, set_value, type_text, validate_observation, InputStep,
+    PROTOCOL_VERSION,
+};
+#[cfg(target_os = "macos")]
+use super::{element_requires_frontmost, target_is_frontmost};
+
+const MAX_SEQUENCE_STEPS: usize = 20;
+const MAX_SEQUENCE_TEXT_CHARS: usize = 512;
 
 /// How recently a person must have used the keyboard or mouse for an action to
 /// be refused as racing them.
@@ -47,6 +56,7 @@ const SERVED_METHODS: &[&str] = &[
     "observe_window",
     "press_key",
     "scroll",
+    "sequence",
     "set_value",
     "type_text",
 ];
@@ -141,6 +151,11 @@ pub(super) fn dispatch_request(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    let sequence_steps = if method == "sequence" {
+        Some(parse_input_steps(&params)?)
+    } else {
+        None
+    };
     let meta = message
         .get("meta")
         .and_then(Value::as_object)
@@ -164,6 +179,15 @@ pub(super) fn dispatch_request(
             return Ok(json!({"windows": list_windows(app)}));
         }
         _ => {}
+    }
+
+    #[cfg(windows)]
+    if requests_text_edit(method, &params) {
+        return Err((
+            "unsupported_operation",
+            "This platform cannot begin text editing through an element invocation; use an observed semantic action or a platform-standard shortcut, then observe editable focus."
+                .to_string(),
+        ));
     }
 
     enforce_pending_action(state, method)?;
@@ -209,15 +233,24 @@ pub(super) fn dispatch_request(
     // Mutations are serialized across agent sessions. Human input is a
     // separate concern: this lock cannot prevent it, so only operations that
     // actually require foreground input apply the recent-input guard below.
+    let mut needs_user_idle = requires_user_idle(method, &window);
+    #[cfg(target_os = "macos")]
+    if method == "invoke_element" {
+        needs_user_idle |=
+            element_requires_frontmost(observation(state, observation_id)?, &params)?;
+    }
     let _desktop = if changes_window_state(method) {
         let held = take_desktop()?;
-        if requires_user_idle(method, &window) {
+        if needs_user_idle {
             enforce_input_guard(state)?;
         }
         Some(held)
     } else {
         None
     };
+    if needs_user_idle {
+        state.ensure_interaction_session()?;
+    }
     // Approval may wait for user input, so freshness must be checked only
     // after approval and the desktop guard, immediately before the action.
     if requires_stable_observation(method) {
@@ -232,6 +265,13 @@ pub(super) fn dispatch_request(
             "requires_observe": true,
         }));
     }
+    let previous_revision = observation_id
+        .and_then(|id| state.observations.get(id))
+        .and_then(|observation| observation.accessibility_revision);
+    let active_before = changes_window_state(method).then(active_window).flatten();
+    #[cfg(target_os = "macos")]
+    let transient_text_candidate = requests_text_edit(method, &params)
+        && element_is_transient_menu_item(observation(state, observation_id)?, &params)?;
     let mut pending_action: Option<PendingAction> = None;
     let mut completed_pending_action = false;
     let mut result = match method {
@@ -244,7 +284,35 @@ pub(super) fn dispatch_request(
         "scroll" => scroll(observation(state, observation_id)?, &params),
         "drag" => drag(observation(state, observation_id)?, &params),
         "press_key" => press_key(observation(state, observation_id)?, &params),
-        "type_text" => type_text(observation(state, observation_id)?, &params),
+        "sequence" => {
+            let result = input_sequence(
+                observation(state, observation_id)?,
+                sequence_steps.as_deref().unwrap_or_default(),
+            );
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.0 == "user_intervention")
+            {
+                state.invalidate_observations();
+            }
+            result
+        }
+        "type_text" => {
+            #[cfg(target_os = "macos")]
+            {
+                let transient_text_ready = take_transient_text_ready(state, observation_id)?;
+                type_text(
+                    observation(state, observation_id)?,
+                    &params,
+                    transient_text_ready,
+                )
+            }
+            #[cfg(windows)]
+            {
+                type_text(observation(state, observation_id)?, &params)
+            }
+        }
         "invoke_element" => {
             let pending = state.pending_action();
             let result = invoke_element(observation(state, observation_id)?, &params, pending);
@@ -276,12 +344,29 @@ pub(super) fn dispatch_request(
     if !changes_window_state(method) {
         return Ok(result);
     }
-    state.note_action(window.hwnd);
+    state.note_action(&window);
     if completed_pending_action {
         state.clear_pending_action();
     }
     if let Some(pending) = pending_action {
         state.set_pending_action(pending);
+    }
+    state.settle_before_observe(window.hwnd);
+    if method == "sequence" {
+        // A sequence spans more than one input event. Recheck after it settles
+        // so physical input during the sequence cannot be mistaken for ours.
+        enforce_input_guard(state)?;
+    }
+    let active_after = active_window();
+    if let Some(active_after) = active_after.as_ref().filter(|active_after| {
+        action_changed_active_window(
+            &window,
+            active_before.as_ref(),
+            Some(*active_after),
+            needs_user_idle,
+        )
+    }) {
+        return Ok(action_handoff(result, active_after));
     }
     // Keep the safety boundary -- the input observation has already been
     // consumed -- but make the normal action cycle atomic for the caller. A
@@ -291,13 +376,54 @@ pub(super) fn dispatch_request(
     // the dispatch receipt and direct the caller to discover the new target.
     let refreshed = refresh_after_action(state, &window);
     let has_refreshed_observation = refreshed.is_some();
-    let mut response = action_receipt(result, refreshed);
+    let changed = accessibility_changed(previous_revision, refreshed.as_ref());
+    #[cfg(target_os = "macos")]
+    let transient_text_ready = transient_text_candidate
+        && changed == Some(true)
+        && mark_transient_text_ready(state, refreshed.as_ref());
+    let mut response = action_receipt(result, refreshed, changed);
+    #[cfg(target_os = "macos")]
+    if transient_text_ready {
+        if let Some(object) = response.as_object_mut() {
+            object.insert("transient_text_ready".to_string(), json!(true));
+            object.insert("next_action".to_string(), json!("type"));
+        }
+    }
     if let Some(pending) = state.pending_action().filter(|pending| {
         should_attach_pending_action(has_refreshed_observation, pending.hwnd, window.hwnd)
     }) {
         attach_pending_action(&mut response, pending);
     }
     Ok(response)
+}
+
+#[cfg(target_os = "macos")]
+fn take_transient_text_ready(
+    state: &mut ServerState,
+    observation_id: Option<&str>,
+) -> Result<bool, (&'static str, String)> {
+    let observation = observation_mut(state, observation_id)?;
+    Ok(std::mem::take(&mut observation.transient_text_ready))
+}
+
+#[cfg(target_os = "macos")]
+fn mark_transient_text_ready(state: &mut ServerState, refreshed: Option<&Value>) -> bool {
+    let Some(observation_id) = refreshed
+        .and_then(|value| value.get("observation_id"))
+        .and_then(Value::as_str)
+    else {
+        return false;
+    };
+    let Some(observation) = state.observations.get_mut(observation_id) else {
+        return false;
+    };
+    observation.transient_text_ready = true;
+    true
+}
+
+fn requests_text_edit(method: &str, params: &serde_json::Map<String, Value>) -> bool {
+    method == "invoke_element"
+        && params.get("expects_text_input").and_then(Value::as_bool) == Some(true)
 }
 
 /// Observe the action's target without turning an already-dispatched action
@@ -309,6 +435,63 @@ fn refresh_after_action(state: &mut ServerState, previous: &WindowInfo) -> Optio
     }
     state.settle_before_observe(current.hwnd);
     observe_window(state, &current).ok()
+}
+
+fn parse_input_steps(
+    params: &serde_json::Map<String, Value>,
+) -> Result<Vec<InputStep>, (&'static str, String)> {
+    let steps = params
+        .get("steps")
+        .and_then(Value::as_array)
+        .filter(|steps| !steps.is_empty() && steps.len() <= MAX_SEQUENCE_STEPS)
+        .ok_or((
+            "invalid_request",
+            "steps must contain 1 to 20 input steps.".to_string(),
+        ))?;
+    let mut parsed = Vec::with_capacity(steps.len());
+    let mut text_chars = 0;
+    for (index, step) in steps.iter().enumerate() {
+        let step = step.as_object().ok_or((
+            "invalid_request",
+            format!("steps[{index}] must be an object."),
+        ))?;
+        let action = step.get("action").and_then(Value::as_str).unwrap_or("");
+        let (field, value) = match action {
+            "type" => ("text", step.get("text").and_then(Value::as_str)),
+            "press_key" => ("key", step.get("key").and_then(Value::as_str)),
+            _ => {
+                return Err((
+                    "invalid_request",
+                    format!("steps[{index}] must use type or press_key."),
+                ))
+            }
+        };
+        let value = value
+            .filter(|value| !value.is_empty() && (action == "type" || !value.trim().is_empty()))
+            .ok_or((
+                "invalid_request",
+                format!("steps[{index}] requires non-empty {field}."),
+            ))?;
+        if step.len() != 2 {
+            return Err((
+                "invalid_request",
+                format!("steps[{index}] accepts only action and {field}."),
+            ));
+        }
+        if action == "type" {
+            text_chars += value.chars().count();
+            if text_chars > MAX_SEQUENCE_TEXT_CHARS {
+                return Err((
+                    "invalid_request",
+                    "Sequence text is limited to 512 characters.".to_string(),
+                ));
+            }
+            parsed.push(InputStep::Type(value.to_string()));
+        } else {
+            parsed.push(InputStep::PressKey(value.to_string()));
+        }
+    }
+    Ok(parsed)
 }
 
 /// Keep an incomplete native edit from being crossed with another mutation.
@@ -348,7 +531,18 @@ fn should_attach_pending_action(
 /// Combine the dispatch result with the post-action observation when the
 /// original window remains available. The old observation is never restored:
 /// only the new identifier in this response can authorize the next action.
-fn action_receipt(mut result: Value, refreshed: Option<Value>) -> Value {
+fn accessibility_changed(previous: Option<[u8; 32]>, refreshed: Option<&Value>) -> Option<bool> {
+    let current = refreshed?
+        .get("accessibility")
+        .and_then(accessibility_revision)?;
+    Some(previous? != current)
+}
+
+fn action_receipt(
+    mut result: Value,
+    refreshed: Option<Value>,
+    accessibility_changed: Option<bool>,
+) -> Value {
     let Some(mut observation) = refreshed else {
         if let Some(object) = result.as_object_mut() {
             if object.remove("applied").is_some() {
@@ -372,8 +566,49 @@ fn action_receipt(mut result: Value, refreshed: Option<Value>) -> Value {
     action.remove("next_action");
     if let Some(response) = observation.as_object_mut() {
         response.extend(std::mem::take(action));
+        if let Some(changed) = accessibility_changed {
+            response.insert("accessibility_changed".to_string(), json!(changed));
+        }
     }
     observation
+}
+
+/// Whether a mutation handed the foreground to another concrete surface.
+///
+/// Foreground actions are expected to leave their target active, so any other
+/// active window is the action's result. A background semantic action only
+/// hands off when the active window actually changed while it ran; an
+/// unrelated window the user was already using must not become the target.
+fn action_changed_active_window(
+    target: &WindowInfo,
+    active_before: Option<&WindowInfo>,
+    active_after: Option<&WindowInfo>,
+    foreground_expected: bool,
+) -> bool {
+    let Some(active_after) = active_after else {
+        return false;
+    };
+    !same_surface(active_after, target)
+        && (foreground_expected
+            || active_before.is_none_or(|active_before| !same_surface(active_before, active_after)))
+}
+
+fn same_surface(left: &WindowInfo, right: &WindowInfo) -> bool {
+    left.hwnd == right.hwnd && left.app_id == right.app_id
+}
+
+/// Preserve the action receipt while requiring a fresh observation of the
+/// window that replaced its target.
+fn action_handoff(mut result: Value, window: &WindowInfo) -> Value {
+    if let Some(object) = result.as_object_mut() {
+        if object.remove("applied").is_some() {
+            object.insert("dispatched".to_string(), json!(true));
+        }
+        object.insert("requires_observe".to_string(), json!(true));
+        object.insert("next_action".to_string(), json!("observe_window"));
+        object.insert("window".to_string(), window.to_json());
+    }
+    result
 }
 
 fn observation<'a>(
@@ -382,6 +617,19 @@ fn observation<'a>(
 ) -> Result<&'a Observation, (&'static str, String)> {
     let id = id.ok_or(("invalid_request", "observation_id is required.".to_string()))?;
     state.observations.get(id).ok_or((
+        "stale_observation",
+        "Observation is stale or already consumed; observe the window again and use its new observation_id."
+            .to_string(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn observation_mut<'a>(
+    state: &'a mut ServerState,
+    id: Option<&str>,
+) -> Result<&'a mut Observation, (&'static str, String)> {
+    let id = id.ok_or(("invalid_request", "observation_id is required.".to_string()))?;
+    state.observations.get_mut(id).ok_or((
         "stale_observation",
         "Observation is stale or already consumed; observe the window again and use its new observation_id."
             .to_string(),
@@ -447,6 +695,7 @@ fn changes_window_state(method: &str) -> bool {
             | "scroll"
             | "drag"
             | "press_key"
+            | "sequence"
             | "type_text"
             | "invoke_element"
             | "set_value"
@@ -484,7 +733,7 @@ fn requires_user_idle(method: &str, window: &WindowInfo) -> bool {
 fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
     matches!(
         method,
-        "click" | "scroll" | "drag" | "press_key" | "type_text" | "launch_app"
+        "click" | "scroll" | "drag" | "press_key" | "sequence" | "type_text" | "launch_app"
     ) || (matches!(method, "invoke_element" | "set_value" | "close_window") && target_is_frontmost)
 }
 
@@ -492,6 +741,7 @@ fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
 mod tests {
     use super::super::state::WindowInfo;
     use super::*;
+    use std::io::Cursor;
 
     fn observation(hwnd: isize) -> Observation {
         Observation {
@@ -508,17 +758,177 @@ mod tests {
             display_width: 100,
             display_height: 100,
             accessibility_revision: None,
+            #[cfg(target_os = "macos")]
+            transient_text_ready: false,
             elements: Default::default(),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn transient_text_capability_is_observation_bound_and_one_shot() {
+        let mut state = ServerState::default();
+        let mut observed = observation(1);
+        observed.transient_text_ready = true;
+        state.observations.insert("observed".to_string(), observed);
+        state
+            .observations
+            .insert("other".to_string(), observation(1));
+
+        assert!(!take_transient_text_ready(&mut state, Some("other")).unwrap());
+        assert!(take_transient_text_ready(&mut state, Some("observed")).unwrap());
+        assert!(!take_transient_text_ready(&mut state, Some("observed")).unwrap());
+    }
+
+    #[test]
+    fn only_explicit_text_edit_invocation_requests_an_editor() {
+        let ordinary = json!({"element_id": "ax-1"});
+        let text_edit = json!({
+            "element_id": "ax-1",
+            "expects_text_input": true,
+        });
+
+        assert!(!requests_text_edit(
+            "invoke_element",
+            ordinary.as_object().unwrap(),
+        ));
+        assert!(!requests_text_edit("click", text_edit.as_object().unwrap()));
+        assert!(requests_text_edit(
+            "invoke_element",
+            text_edit.as_object().unwrap(),
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_text_edit_before_resolving_an_observation() {
+        let message = json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "method": "invoke_element",
+            "params": {
+                "element_id": "uia-1",
+                "expects_text_input": true,
+            },
+        });
+        let mut connection = Cursor::new(Vec::new());
+
+        let error = dispatch_request(&mut connection, &mut ServerState::default(), &message)
+            .expect_err("Windows must not treat an invoke as a text editor");
+
+        assert_eq!(error.0, "unsupported_operation");
+    }
+
+    #[test]
+    fn input_sequence_contract_is_bounded_and_keyboard_only() {
+        let value = json!({
+            "steps": [
+                {"action": "type", "text": "INV-001"},
+                {"action": "press_key", "key": "TAB"},
+            ]
+        });
+        let steps = parse_input_steps(value.as_object().unwrap()).unwrap();
+
+        assert_eq!(
+            steps,
+            vec![
+                InputStep::Type("INV-001".to_string()),
+                InputStep::PressKey("TAB".to_string()),
+            ]
+        );
+
+        for invalid in [
+            json!({"steps": []}),
+            json!({"steps": [{"action": "click", "x": 1, "y": 1}]}),
+            json!({"steps": [{"action": "type", "text": "x", "extra": true}]}),
+            json!({"steps": [{"action": "type", "text": "x".repeat(513)}]}),
+        ] {
+            assert!(parse_input_steps(invalid.as_object().unwrap()).is_err());
         }
     }
 
     #[test]
     fn an_action_without_a_refresh_requires_window_discovery() {
-        let result = action_receipt(json!({"applied": true}), None);
+        let result = action_receipt(json!({"applied": true}), None, None);
 
         assert_eq!(result.get("dispatched"), Some(&json!(true)));
         assert_eq!(result.get("requires_observe"), Some(&json!(true)));
         assert_eq!(result.get("next_action"), Some(&json!("list_windows")));
+    }
+
+    #[test]
+    fn a_foreground_action_hands_off_to_the_active_window() {
+        let target = observation(1).window;
+        let active = observation(2).window;
+
+        assert!(action_changed_active_window(
+            &target,
+            Some(&active),
+            Some(&active),
+            true,
+        ));
+        let result = action_handoff(json!({"applied": true}), &active);
+        assert_eq!(result.get("dispatched"), Some(&json!(true)));
+        assert_eq!(result.get("requires_observe"), Some(&json!(true)));
+        assert_eq!(result.get("next_action"), Some(&json!("observe_window")));
+        assert_eq!(result["window"]["id"], json!("2"));
+    }
+
+    #[test]
+    fn a_background_action_ignores_an_unchanged_foreground_window() {
+        let target = observation(1).window;
+        let active = observation(2).window;
+
+        assert!(!action_changed_active_window(
+            &target,
+            Some(&active),
+            Some(&active),
+            false,
+        ));
+        assert!(action_changed_active_window(
+            &target,
+            Some(&active),
+            Some(&observation(3).window),
+            false,
+        ));
+    }
+
+    #[test]
+    fn refreshed_actions_report_accessibility_changes() {
+        let before = accessibility_revision(&json!({
+            "available": true,
+            "elements": ["before"],
+        }));
+        let refreshed = json!({
+            "accessibility": {
+                "available": true,
+                "elements": ["after"],
+            },
+        });
+
+        assert_eq!(accessibility_changed(before, Some(&refreshed)), Some(true));
+        assert_eq!(
+            accessibility_changed(
+                accessibility_revision(&refreshed["accessibility"]),
+                Some(&refreshed),
+            ),
+            Some(false),
+        );
+    }
+
+    #[test]
+    fn unavailable_accessibility_has_no_change_claim() {
+        let before = accessibility_revision(&json!({
+            "available": true,
+            "elements": ["before"],
+        }));
+        let refreshed = json!({
+            "accessibility": {
+                "available": false,
+                "elements": [],
+            },
+        });
+
+        assert_eq!(accessibility_changed(before, Some(&refreshed)), None);
     }
 
     #[test]
@@ -578,6 +988,7 @@ mod tests {
             "scroll",
             "drag",
             "press_key",
+            "sequence",
             "type_text",
             "invoke_element",
             "set_value",
@@ -623,7 +1034,14 @@ mod tests {
                 "{method} must not race a user in the target app"
             );
         }
-        for method in ["click", "drag", "type_text", "press_key", "launch_app"] {
+        for method in [
+            "click",
+            "drag",
+            "type_text",
+            "press_key",
+            "sequence",
+            "launch_app",
+        ] {
             assert!(
                 requires_user_idle_on_mac(method, false),
                 "{method} must guard its foreground input"

@@ -11,7 +11,32 @@ PawApp = a Plugin that has both frontend + backend entries and declares
 """
 
 from .app import PawApp
+from .agent import ManagedAgentProfile, ManagedAgentProfileSpec
 from .context import PawAppContext
-from .deps import get_ctx
+from .dependency import (
+    DependencyError,
+    DependencyHealth,
+    DependencyLifecycle,
+    DependencyProbe,
+    DependencyRegistry,
+    DependencySpec,
+)
+from .deps import get_ctx, get_scoped_ctx
+from .service import ManagedService, ManagedServiceSpec
 
-__all__ = ["PawApp", "PawAppContext", "get_ctx"]
+__all__ = [
+    "ManagedService",
+    "ManagedServiceSpec",
+    "ManagedAgentProfile",
+    "ManagedAgentProfileSpec",
+    "DependencyError",
+    "DependencyHealth",
+    "DependencyLifecycle",
+    "DependencyProbe",
+    "DependencyRegistry",
+    "DependencySpec",
+    "PawApp",
+    "PawAppContext",
+    "get_ctx",
+    "get_scoped_ctx",
+]

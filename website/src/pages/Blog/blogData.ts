@@ -7,6 +7,24 @@ export type BlogPostMeta = {
 /** Display order is determined by frontmatter `date` (newest first). */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: "qwenpaw-long-term-memory",
+    cover:
+      "https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png",
+  },
+  {
+    slug: "qwenpaw-files-workspace",
+    cover:
+      "https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png",
+  },
+  {
+    slug: "tool-call-offload-mechanism",
+    cover:
+      "https://img.alicdn.com/imgextra/i4/O1CN019X5yeUaofRG37MB6_!!6000000005163-0-tps-1536-1024.jpg",
+  },
+  {
+    slug: "qwenpaw-scroll-executable-memory",
+  },
+  {
     slug: "qwenpaw-os-shell",
     cover:
       "https://img.alicdn.com/imgextra/i1/O1CN01KdzUBgLJLmH3OTaP_!!6000000003854-2-tps-1672-941.png",
@@ -60,6 +78,11 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     slug: "qwenpaw-plugin-picks-1",
     cover:
       "https://img.alicdn.com/imgextra/i1/6000000004826/O1CN014843Da1lWMZIlKBgv_!!6000000004826-0-tbvideo.jpg",
+  },
+  {
+    slug: "qwenpaw-checkpoint",
+    cover:
+      "https://img.alicdn.com/imgextra/i3/O1CN01LXaNPg4UfYB3rvs1_!!6000000007061-2-tps-1906-943.png",
   },
 ];
 

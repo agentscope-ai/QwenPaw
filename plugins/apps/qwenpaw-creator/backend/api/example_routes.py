@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -55,6 +56,15 @@ router = APIRouter(
 )
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+# The first open of an example downloads tens of MB from OSS; the download
+# runs inside the blocking open request, so progress is mirrored to a small
+# file that a lightweight polling route can read without touching the worker.
+_PROGRESS_DIR_NAME = ".example-progress"
+_PROGRESS_MIN_INTERVAL_SECONDS = 1.0
+# A progress file older than this outlived its download (host restart or an
+# unclean worker death) and must read as idle instead of stuck-downloading.
+_PROGRESS_STALE_AFTER_SECONDS = 600.0
 
 
 def examples_root() -> Path:
@@ -154,15 +164,127 @@ async def list_examples() -> dict[str, Any]:
     return {"items": await asyncio.to_thread(catalogue)}
 
 
-def _download_archive(entry: dict[str, Any], archive_path: Path) -> None:
+def _progress_path(data_root: Path, example_id: str) -> Path:
+    return (
+        data_root / _PROGRESS_DIR_NAME / f"{_safe_example_id(example_id)}.json"
+    )
+
+
+def _safe_example_id(example_id: str) -> str:
+    """Only manifest ids may address progress files on disk."""
+
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", example_id):
+        raise NotFoundError(f"灵感示例不存在: {example_id}")
+    return example_id
+
+
+class _ExampleProgressWriter:
+    """Throttled progress mirror readable by the open-progress route.
+
+    The open request blocks in a worker thread for the whole download; the
+    polling route therefore reads a small JSON file instead of shared memory,
+    which also keeps progress observable across the plugin host's threads.
+    """
+
+    def __init__(self, data_root: Path, example_id: str) -> None:
+        self._path = _progress_path(data_root, example_id)
+        self._last_write = 0.0
+
+    def report(self, received_bytes: int, total_bytes: int | None) -> None:
+        now = time.monotonic()
+        complete = total_bytes is not None and received_bytes >= total_bytes
+        if (
+            not complete
+            and now - self._last_write < _PROGRESS_MIN_INTERVAL_SECONDS
+        ):
+            return
+        self._last_write = now
+        try:
+            self._path.parent.mkdir(mode=0o700, exist_ok=True)
+            payload = json.dumps(
+                {
+                    "receivedBytes": int(received_bytes),
+                    "totalBytes": int(total_bytes) if total_bytes else None,
+                    "updatedAt": time.time(),
+                },
+            )
+            temporary = self._path.with_suffix(f".{uuid4().hex}.tmp")
+            temporary.write_text(payload, encoding="utf-8")
+            os.replace(temporary, self._path)
+        except OSError:
+            # Progress is best effort; a write failure must never break the
+            # download itself.
+            logger.warning("example progress write failed", exc_info=True)
+
+    def clear(self) -> None:
+        try:
+            self._path.unlink(missing_ok=True)
+        except OSError:  # pragma: no cover - best-effort cleanup
+            pass
+
+
+def _read_open_progress(
+    data_root: Path,
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    if (data_root / entry["projectId"] / "project.json").is_file():
+        return {"state": "installed"}
+    try:
+        raw = json.loads(
+            _progress_path(data_root, entry["id"]).read_text(encoding="utf-8"),
+        )
+    except (OSError, ValueError):
+        return {"state": "idle"}
+    updated_at = raw.get("updatedAt")
+    if (
+        not isinstance(updated_at, (int, float))
+        or time.time() - float(updated_at) > _PROGRESS_STALE_AFTER_SECONDS
+    ):
+        return {"state": "idle"}
+    received = raw.get("receivedBytes")
+    total = raw.get("totalBytes")
+    return {
+        "state": "downloading",
+        "receivedBytes": int(received) if isinstance(received, int) else 0,
+        "totalBytes": int(total) if isinstance(total, int) else None,
+    }
+
+
+@router.get("/{example_id}/open-progress")
+async def open_progress(example_id: str) -> dict[str, Any]:
+    """Lightweight download progress for the blocking open request."""
+
+    data_root = require_creator_data_root(create=False)
+    entries = await asyncio.to_thread(_load_manifest)
+    entry = next(
+        (item for item in entries if item["id"] == example_id),
+        None,
+    )
+    if entry is None:
+        raise NotFoundError(f"灵感示例不存在: {example_id}")
+    return await asyncio.to_thread(_read_open_progress, data_root, entry)
+
+
+def _download_archive(
+    entry: dict[str, Any],
+    archive_path: Path,
+    data_root: Path,
+) -> None:
     """Fetch the example archive from OSS and verify its checksum."""
 
+    progress = _ExampleProgressWriter(data_root, entry["id"])
     try:
-        download_remote_file(entry["archiveUrl"], str(archive_path))
+        download_remote_file(
+            entry["archiveUrl"],
+            str(archive_path),
+            on_progress=progress.report,
+        )
     except RuntimeError as exc:
         raise StorageIntegrityError(
             f"灵感示例下载失败: {entry['id']}（{str(exc)[:200]}）",
         ) from exc
+    finally:
+        progress.clear()
     expected = entry.get("sha256")
     if not expected:
         return
@@ -190,7 +312,7 @@ def _materialize_example(entry: dict[str, Any], data_root: Path) -> str:
     extract_dir.mkdir(mode=0o700)
     try:
         archive_path = extract_dir / "archive.zip"
-        _download_archive(entry, archive_path)
+        _download_archive(entry, archive_path, data_root)
         # Pure ZipInfo-level filesystem preflight; no request-scoped state, so
         # it is safe to run inside asyncio.to_thread worker threads.
         _validate_import_archive(archive_path)

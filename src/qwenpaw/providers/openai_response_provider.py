@@ -14,6 +14,23 @@ from .openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
+_NONE_REASONING_EFFORT_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-5.6",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+    },
+)
+
+
+def _supports_none_reasoning_effort(model_name: str) -> bool:
+    """Whether a documented model accepts ``reasoning.effort=none``."""
+    canonical_name = model_name.rsplit("/", 1)[-1].lower()
+    return canonical_name in _NONE_REASONING_EFFORT_MODELS
+
 
 def _extract_response_text(response: Any) -> str:
     """Extract aggregated output text from a Responses API
@@ -81,8 +98,6 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
-        # Pop the neutral ``disable_thinking`` flag
-        generate_kwargs.pop("disable_thinking", None)
         max_tokens = generate_kwargs.pop("max_tokens", None)
         if (
             max_tokens is not None
@@ -90,6 +105,17 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        disable_thinking = merged.pop("disable_thinking", False)
+        inherited_max_tokens = merged.pop("max_tokens", None)
+        if (
+            inherited_max_tokens is not None
+            and "max_output_tokens" not in merged
+        ):
+            merged["max_output_tokens"] = inherited_max_tokens
+        if disable_thinking:
+            merged.pop("reasoning", None)
+            if _supports_none_reasoning_effort(model_name):
+                merged["reasoning"] = {"effort": "none"}
         return await super()._call_api(
             model_name,
             messages,

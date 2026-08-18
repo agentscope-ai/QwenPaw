@@ -256,7 +256,7 @@ class TestChatInCodingMode:
 
             log_test_step("3. Send a question that mentions README.md")
             chat_input = coding_page.page.locator(
-                "textarea.qwenpaw-sender-input"
+                '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
             ).first
             expect(chat_input).to_be_visible(timeout=coding_page.timeout)
             chat_input.fill(

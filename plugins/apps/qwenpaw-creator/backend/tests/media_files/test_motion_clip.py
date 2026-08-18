@@ -32,13 +32,15 @@ _PLAYWRIGHT = importlib.util.find_spec("playwright") is not None
 _CLIP_HTML = (
     "<!DOCTYPE html><html><head><style>"
     "html,body{margin:0;width:100%;height:100%;overflow:hidden}"
-    "body{background:linear-gradient(160deg,#1c2f5e,#7a3d8f)}"
+    ".stage{position:fixed;inset:0;"
+    "background:linear-gradient(160deg,#1c2f5e,#7a3d8f)}"
     ".orb{position:absolute;left:35%;top:30%;width:30%;height:40%;"
     "border-radius:50%;background:radial-gradient(circle,#ffd27d,#ff8a5c);"
     "animation:drift 2s linear infinite}"
     "@keyframes drift{0%{transform:translateX(-12%)}"
     "50%{transform:translateX(12%)}100%{transform:translateX(-12%)}}"
-    "</style></head><body><div class='orb'></div></body></html>"
+    "</style></head><body><div class='stage'><div class='orb'></div></div>"
+    "</body></html>"
 )
 
 

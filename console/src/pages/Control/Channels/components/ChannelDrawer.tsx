@@ -1374,6 +1374,36 @@ export function ChannelDrawer({
               <Input.Password placeholder="Access token for authentication" />
             </Form.Item>
             <Form.Item
+              name="media_dir"
+              label={t("channels.onebotMediaDir")}
+              tooltip={t("channels.onebotMediaDirTooltip")}
+            >
+              <Input placeholder={defaultMediaDir} />
+            </Form.Item>
+            <Form.Item
+              name="media_download_max_mb"
+              label={t("channels.onebotMediaDownloadMaxMb")}
+              tooltip={t("channels.onebotMediaDownloadMaxMbTooltip")}
+              rules={[
+                {
+                  required: true,
+                  message: t("channels.onebotMediaDownloadMaxMbRequired"),
+                },
+                {
+                  type: "number",
+                  min: 1,
+                  message: t("channels.onebotMediaDownloadMaxMbMin"),
+                },
+              ]}
+            >
+              <InputNumber
+                min={1}
+                precision={0}
+                style={{ width: "100%" }}
+                addonAfter="MB"
+              />
+            </Form.Item>
+            <Form.Item
               name="media_base64"
               label={t("channels.onebotMediaBase64")}
               valuePropName="checked"

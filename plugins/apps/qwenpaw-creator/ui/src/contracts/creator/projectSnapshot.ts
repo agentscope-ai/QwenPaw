@@ -385,9 +385,43 @@ export interface TimelineElementDocument extends ProjectJsonRecord {
   provenance_refs: string[];
 }
 
+export interface EditPlanDialsDocument extends ProjectJsonRecord {
+  energy: "low" | "mid" | "high";
+  density: "low" | "mid" | "high";
+  decoration: "low" | "mid" | "high";
+}
+
+export interface EditPlanDesignFloorDocument extends ProjectJsonRecord {
+  opening: string;
+  transitions: string;
+  body: string;
+  ending: string;
+}
+
+export interface SceneLedgerRowDocument extends ProjectJsonRecord {
+  scene_id: string;
+  label: string;
+  element_ids: string[];
+  status: "draft" | "locked";
+  review_round: number;
+  locked_fingerprint?: string | null;
+}
+
+/** Taste contract for one Timeline (upstream video-edit methodology). */
+export interface EditPlanDocument extends ProjectJsonRecord {
+  concept: string;
+  dials: EditPlanDialsDocument;
+  signature_device: string;
+  pacing: string;
+  design_floor: EditPlanDesignFloorDocument;
+  mechanical_exemption: boolean;
+  scene_ledger: SceneLedgerRowDocument[];
+}
+
 export interface TimelineDocument extends ProjectJsonRecord {
   timeline_id: string;
   ticks_per_second: number;
+  edit_plan?: EditPlanDocument | null;
   elements_by_id: Record<string, TimelineElementDocument>;
 }
 
@@ -415,6 +449,8 @@ export interface ProjectSnapshotEnvelope {
   generation: number;
   etag: string;
   syncStatus: ProjectServerSyncStatus;
+  /** Bundled inspiration example; gates flows needing the remote original. */
+  builtinExample?: boolean;
   project: ProjectDocument;
 }
 
