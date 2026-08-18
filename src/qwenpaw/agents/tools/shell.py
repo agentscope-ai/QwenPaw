@@ -96,6 +96,29 @@ def _sanitize_win_cmd(cmd: str) -> str:
     return cmd
 
 
+def _list_user_python_dirs(local_apps: str) -> list[str]:
+    """Return per-user Python version/Scripts directories (Windows)."""
+    if not local_apps:
+        return []
+    python_base = os.path.join(local_apps, "Programs", "Python")
+    if not os.path.isdir(python_base):
+        return []
+    dirs: list[str] = []
+    try:
+        entries = sorted(os.listdir(python_base))
+    except OSError:
+        return []
+    for entry in entries:
+        ver_dir = os.path.join(python_base, entry)
+        if not os.path.isdir(ver_dir):
+            continue
+        dirs.append(ver_dir)
+        scripts_dir = os.path.join(ver_dir, "Scripts")
+        if os.path.isdir(scripts_dir):
+            dirs.append(scripts_dir)
+    return dirs
+
+
 def _ensure_user_bins_on_path(
     env: dict[str, str],
     user_home: str | None = None,
@@ -138,19 +161,7 @@ def _ensure_user_bins_on_path(
         )
     else:
         local_apps = env.get("LOCALAPPDATA") or ""
-        if local_apps:
-            python_base = os.path.join(local_apps, "Programs", "Python")
-            if os.path.isdir(python_base):
-                try:
-                    for entry in sorted(os.listdir(python_base)):
-                        ver_dir = os.path.join(python_base, entry)
-                        if os.path.isdir(ver_dir):
-                            candidate_dirs.append(ver_dir)
-                            scripts_dir = os.path.join(ver_dir, "Scripts")
-                            if os.path.isdir(scripts_dir):
-                                candidate_dirs.append(scripts_dir)
-                except OSError:
-                    pass
+        candidate_dirs.extend(_list_user_python_dirs(local_apps))
 
     additions: list[str] = []
     for d in candidate_dirs:

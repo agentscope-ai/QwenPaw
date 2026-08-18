@@ -271,7 +271,11 @@ class TestEnsureUserBinsOnPath:
         result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
         assert result["PATH"] == str(local_bin)
 
-    def test_windows_adds_version_dirs_and_scripts(self, monkeypatch, tmp_path):
+    def test_windows_adds_version_dirs_and_scripts(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
         monkeypatch.setattr(sys, "platform", "win32")
         base = tmp_path / "Programs" / "Python"
         ver311 = base / "Python311"
