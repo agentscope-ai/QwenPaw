@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -385,7 +386,8 @@ class ResourceGovernor:
 
         Strategy:
             - WORKSPACE_DIR/* → workspace_dir (mount as a whole)
-            - /absolute/path/* → /absolute/path (take directory part)
+            - ``~`` / ``$VAR`` → expanded before anything else
+            - absolute path/* → that path (take directory part)
             - relative path → workspace_dir / relative (take directory part)
             - Pure wildcards (*, **) → skip, cannot derive a concrete path
         """
@@ -399,8 +401,17 @@ class ResourceGovernor:
         if "WORKSPACE_DIR" in p:
             p = p.replace("WORKSPACE_DIR", workspace_dir)
 
-        # Absolute path
-        if p.startswith("/"):
+        # ``~/.cache/uv`` is how an operator naturally writes a tool cache
+        # in policy.yaml, and every backend already expands ``~`` for
+        # deny_paths. Leaving it literal here fell through to the relative
+        # branch below and produced ``<workspace>/~/.cache/uv`` -- a path
+        # that never exists, so the backends' existence check dropped the
+        # mount and the grant silently did nothing.
+        p = os.path.expanduser(os.path.expandvars(p))
+
+        # isabs() rather than startswith("/") so a Windows path such as
+        # ``C:\Users\...`` is not mistaken for a workspace-relative one.
+        if os.path.isabs(p):
             return p
 
         # Relative path → resolve based on workspace
