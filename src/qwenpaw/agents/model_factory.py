@@ -1818,11 +1818,11 @@ def _load_agent_model_settings(
 
     try:
         if agent_config is None:
-            from ..config.config import load_agent_config
+            from ..config.config import _load_agent_config
 
             if not agent_id:
                 return settings
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
         settings.model_slot = agent_config.active_model
         settings.thinking_level = getattr(
             agent_config,

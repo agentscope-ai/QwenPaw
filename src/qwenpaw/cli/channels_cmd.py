@@ -25,7 +25,7 @@ from ..config.config import (
     QQConfig,
     VoiceChannelConfig,
     WeChatConfig,
-    load_agent_config,
+    _load_agent_config,
     save_agent_config,
 )
 from ..config.utils import get_plugins_dir
@@ -858,7 +858,7 @@ def _channel_enabled(ch) -> bool:
 def list_cmd(agent_id: str) -> None:
     """Show current channel configuration."""
     try:
-        agent_config = load_agent_config(agent_id)
+        agent_config = _load_agent_config(agent_id)
         click.echo(f"Channels for agent: {agent_id}\n")
 
         if not agent_config.channels:
@@ -906,7 +906,7 @@ def list_cmd(agent_id: str) -> None:
 def configure_cmd(agent_id: str) -> None:
     """Interactively configure channels."""
     try:
-        agent_config = load_agent_config(agent_id)
+        agent_config = _load_agent_config(agent_id)
         click.echo(f"Configuring channels for agent: {agent_id}\n")
 
         # Create a temporary Config object for the interactive configurator

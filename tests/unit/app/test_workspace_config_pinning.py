@@ -24,7 +24,7 @@ from qwenpaw.config.config import (
     AgentsConfig,
     Config,
     HeartbeatConfig,
-    load_agent_config,
+    _load_agent_config,
     save_agent_config,
 )
 
@@ -88,7 +88,7 @@ def test_patch_then_save_idiom_persists(isolated_agent):
     ws.config.heartbeat = HeartbeatConfig(enabled=True, every="6h")
     save_agent_config(ws.agent_id, ws.config)
 
-    reloaded = load_agent_config("agent")
+    reloaded = _load_agent_config("agent")
     assert reloaded.heartbeat is not None
     assert reloaded.heartbeat.enabled is True
     assert reloaded.heartbeat.every == "6h"
@@ -102,7 +102,7 @@ def test_config_property_refreshes_after_external_save(isolated_agent):
     ws = _pinned_workspace(isolated_agent)
     assert ws.config.description == "original"
 
-    external = load_agent_config("agent")
+    external = _load_agent_config("agent")
     external.description = "updated-elsewhere"
     save_agent_config("agent", external)
 

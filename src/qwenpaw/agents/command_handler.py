@@ -21,7 +21,11 @@ from .middlewares import (
     reset_auto_memory_turn_state,
 )
 from .utils.context_stats import format_history_str
-from ..config.config import load_agent_config, get_model_max_input_length
+from ..config.config import (
+    _load_agent_config,
+    get_model_max_input_length,
+    load_agent_config,
+)
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
@@ -194,8 +198,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _get_agent_config(self):
         """Get hot-reloaded agent config."""
         if self.memory_manager is not None:
-            return load_agent_config(self.memory_manager.agent_id)
-        return load_agent_config(self._agent_id)
+            return _load_agent_config(self.memory_manager.agent_id)
+        return _load_agent_config(self._agent_id)
 
     async def _get_agent_config_async(self):
         """Get hot-reloaded agent config without blocking the event loop."""
@@ -1347,10 +1351,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         # Get current agent ID and language
         active_agent_id = get_current_agent_id()
-        agent_config = await run_sync_io(
-            load_agent_config,
-            active_agent_id,
-        )
+        agent_config = await load_agent_config(active_agent_id)
         agent_lang = getattr(agent_config, "language", "en")
 
         # Define warnings in both languages

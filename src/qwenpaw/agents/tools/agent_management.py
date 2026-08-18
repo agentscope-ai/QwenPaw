@@ -1019,10 +1019,7 @@ async def _build_subagent_request_context(
     """Build request_context with approval routing + tool/skill filters."""
     rc = _build_spawn_request_context(current_agent_id)
     try:
-        agent_config = await asyncio.to_thread(
-            load_agent_config,
-            current_agent_id,
-        )
+        agent_config = await load_agent_config(current_agent_id)
         subagent_model = agent_config.subagent_model
         if subagent_model is not None:
             rc["model_slot_override"] = subagent_model.model_dump()

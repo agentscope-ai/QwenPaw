@@ -293,13 +293,13 @@ class CodingModeContributor(SyncPromptContributor):
         if project_dir:
             return project_dir
 
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
 
         agent_id = getattr(agent_config, "id", None)
         if not agent_id:
             return None
         try:
-            fresh = load_agent_config(agent_id)
+            fresh = _load_agent_config(agent_id)
             if fresh.project_dir:
                 return fresh.project_dir
         except Exception:

@@ -792,7 +792,7 @@ def sync_all_scroll_agents() -> None:
 def _sync_all_scroll_agents() -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
-    from ....config.config import load_agent_config
+    from ....config.config import _load_agent_config
     from .history import HistoryStore
 
     config = load_config()
@@ -802,7 +802,7 @@ def _sync_all_scroll_agents() -> None:
 
     for agent_id, agent_ref in config.agents.profiles.items():
         try:
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "session-sync[%s]: config load failed: %s",

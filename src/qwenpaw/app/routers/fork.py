@@ -16,7 +16,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from ...config.config import load_agent_config
+from ...config.config import _load_agent_config
 from ..chats.session import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def _get_project_dir(agent_id: str) -> Optional[Path]:
     or None if no valid git repo is found (in-place fork).
     """
     try:
-        config = load_agent_config(agent_id)
+        config = _load_agent_config(agent_id)
     except Exception as exc:
         raise HTTPException(
             status_code=404,
@@ -84,7 +84,7 @@ def _get_project_dir(agent_id: str) -> Optional[Path]:
 def _get_sessions_dir(agent_id: str) -> Path:
     """Resolve the sessions directory for the agent."""
     try:
-        config = load_agent_config(agent_id)
+        config = _load_agent_config(agent_id)
         workspace = Path(config.workspace_dir).expanduser().resolve()
     except Exception as exc:
         raise HTTPException(

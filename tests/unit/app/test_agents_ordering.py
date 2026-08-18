@@ -3,6 +3,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -81,7 +82,7 @@ async def test_list_agents_uses_persisted_order(monkeypatch):
     monkeypatch.setattr(
         agents_router,
         "load_agent_config",
-        _agent_config,
+        AsyncMock(side_effect=_agent_config),
     )
 
     response = await agents_router.list_agents()
@@ -105,7 +106,7 @@ async def test_list_agents_appends_missing_ids(monkeypatch):
     monkeypatch.setattr(
         agents_router,
         "load_agent_config",
-        _agent_config,
+        AsyncMock(side_effect=_agent_config),
     )
 
     response = await agents_router.list_agents()
@@ -129,7 +130,11 @@ async def test_list_agents_marks_pawapp_profiles_as_app_managed(monkeypatch):
         return profile
 
     monkeypatch.setattr(agents_router, "load_config", lambda: config)
-    monkeypatch.setattr(agents_router, "load_agent_config", load_profile)
+    monkeypatch.setattr(
+        agents_router,
+        "load_agent_config",
+        AsyncMock(side_effect=load_profile),
+    )
 
     response = await agents_router.list_agents()
     by_id = {agent.id: agent for agent in response.agents}
@@ -155,7 +160,7 @@ async def test_list_agents_groups_default_and_pinned_without_reordering_peers(
     monkeypatch.setattr(
         agents_router,
         "load_agent_config",
-        _agent_config,
+        AsyncMock(side_effect=_agent_config),
     )
 
     response = await agents_router.list_agents()

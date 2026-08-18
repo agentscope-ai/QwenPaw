@@ -91,9 +91,9 @@ def _resolve_effective_approval_level(
     if not agent_id:
         return None
     try:
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
 
-        profile = load_agent_config(agent_id)
+        profile = _load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
         return ToolExecutionLevel.from_config(raw)
     except Exception:

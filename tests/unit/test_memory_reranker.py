@@ -565,7 +565,7 @@ async def test_auto_memory_search_uses_reranker(manager):
 
     with patch.object(
         mgr,
-        "load_agent_config_async",
+        "load_agent_config",
         AsyncMock(return_value=agent_config),
     ):
         result = await manager.auto_memory_search(

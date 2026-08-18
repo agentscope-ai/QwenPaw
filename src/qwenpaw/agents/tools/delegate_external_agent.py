@@ -70,7 +70,7 @@ def _resolve_execution_cwd(cwd: str, workspace_dir: Path) -> Path:
 def _get_acp_service() -> Any:
     from ...app.agent_context import get_current_agent_id
     from ...config.config import ACPConfig
-    from ...config.config import load_agent_config
+    from ...config.config import _load_agent_config
 
     # pylint: disable=no-name-in-module
     # ``get_acp_service`` / ``init_acp_service`` are exposed via the
@@ -84,7 +84,7 @@ def _get_acp_service() -> Any:
     )
 
     agent_id = get_current_agent_id()
-    agent_config = load_agent_config(agent_id)
+    agent_config = _load_agent_config(agent_id)
     acp_config = agent_config.acp or ACPConfig()
     service = get_service(agent_id)
     if service is None or getattr(service, "config", None) != acp_config:
@@ -94,10 +94,10 @@ def _get_acp_service() -> Any:
 
 def _get_available_acp_runners() -> list[str]:
     from ...app.agent_context import get_current_agent_id
-    from ...config.config import ACPConfig, load_agent_config
+    from ...config.config import ACPConfig, _load_agent_config
 
     agent_id = get_current_agent_id()
-    agent_config = load_agent_config(agent_id)
+    agent_config = _load_agent_config(agent_id)
     acp_config = agent_config.acp or ACPConfig()
     return sorted(
         name

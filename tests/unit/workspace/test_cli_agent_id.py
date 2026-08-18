@@ -54,7 +54,7 @@ def test_channels_list_default_agent(
 
     runner = CliRunner()
 
-    with patch("qwenpaw.cli.channels_cmd.load_agent_config") as mock_load:
+    with patch("qwenpaw.cli.channels_cmd._load_agent_config") as mock_load:
         mock_load.return_value = agent_config
         runner.invoke(channels_group, ["list"])
 
@@ -82,7 +82,7 @@ def test_channels_list_custom_agent(
 
     runner = CliRunner()
 
-    with patch("qwenpaw.cli.channels_cmd.load_agent_config") as mock_load:
+    with patch("qwenpaw.cli.channels_cmd._load_agent_config") as mock_load:
         mock_load.return_value = agent_config
         runner.invoke(
             channels_group,

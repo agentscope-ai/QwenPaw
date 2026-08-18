@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..utils.file_handling import read_text_file_with_encoding_fallback
-from ...config.config import load_agent_config
+from ...config.config import _load_agent_config
 
 
 class AgentMdManager:
@@ -33,7 +33,7 @@ class AgentMdManager:
 
         # Dynamically get memory_dir from config if agent_id provided
         if agent_id:
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
             reme_config = agent_config.running.reme_light_memory_config
             memory_dir_name = reme_config.daily_dir
             digest_dir_name = reme_config.digest_dir

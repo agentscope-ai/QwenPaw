@@ -189,7 +189,7 @@ async def list_tools(
     from ...config.config import load_agent_config
 
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
 
     # Ensure tools config exists with defaults
     if not agent_config.tools or not agent_config.tools.builtin_tools:
@@ -229,7 +229,7 @@ async def toggle_tool(
     from ...config.config import load_agent_config, save_agent_config
 
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
 
     if (
         not agent_config.tools
@@ -276,7 +276,7 @@ async def update_tool_async_execution(
     from ...config.config import load_agent_config, save_agent_config
 
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
 
     if (
         not agent_config.tools

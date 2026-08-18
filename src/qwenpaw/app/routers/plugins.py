@@ -275,7 +275,7 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
         from ...config.utils import load_config
         from ...config.config import (
             BuiltinToolConfig,
-            load_agent_config,
+            _load_agent_config,
             save_agent_config,
         )
 
@@ -285,7 +285,7 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
 
         for agent_id in config.agents.profiles:
             try:
-                agent_cfg = load_agent_config(agent_id)
+                agent_cfg = _load_agent_config(agent_id)
                 changed = False
                 for tool_name in tool_names:
                     if tool_name in agent_cfg.tools.builtin_tools:
@@ -318,7 +318,7 @@ def _remove_named_tools_from_agents(
 
     try:
         from ...config.utils import load_config
-        from ...config.config import load_agent_config, save_agent_config
+        from ...config.config import _load_agent_config, save_agent_config
 
         config = load_config()
         if not config.agents or not config.agents.profiles:
@@ -326,7 +326,7 @@ def _remove_named_tools_from_agents(
 
         for agent_id in config.agents.profiles:
             try:
-                agent_cfg = load_agent_config(agent_id)
+                agent_cfg = _load_agent_config(agent_id)
                 changed = False
                 for tool_name in tool_names:
                     if tool_name in agent_cfg.tools.builtin_tools:

@@ -410,7 +410,7 @@ class TestAutoMemorySearchSanitization:
             )
 
         monkeypatch.setattr(
-            "qwenpaw.config.config.load_agent_config",
+            "qwenpaw.config.config._load_agent_config",
             fake_load_agent_config,
         )
 

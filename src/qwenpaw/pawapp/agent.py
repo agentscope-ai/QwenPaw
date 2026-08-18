@@ -28,7 +28,7 @@ from qwenpaw.config.config import (
     MCPConfig,
     PlanConfig,
     ToolsConfig,
-    load_agent_config,
+    _load_agent_config,
     save_agent_config,
     validate_agent_id,
 )
@@ -144,7 +144,7 @@ class ManagedAgentProfile:
                 plan=PlanConfig(enabled=self.spec.plan_enabled),
             )
         else:
-            profile = load_agent_config(agent_id)
+            profile = _load_agent_config(agent_id)
             if profile.template_id not in {
                 self.spec.template_id,
                 self.spec.agent_id,
@@ -167,7 +167,7 @@ class ManagedAgentProfile:
         if ref is None:
             return False
         try:
-            profile = load_agent_config(self.spec.agent_id)
+            profile = _load_agent_config(self.spec.agent_id)
         except Exception:  # pragma: no cover - corrupted profile is not owned
             return False
         if profile.template_id != self.spec.template_id:

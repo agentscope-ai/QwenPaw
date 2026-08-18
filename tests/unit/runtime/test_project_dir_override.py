@@ -99,7 +99,7 @@ def test_coding_prompt_prefers_request_project(monkeypatch, tmp_path):
         raise AssertionError("request project should be used first")
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         fail_load_agent_config,
     )
 

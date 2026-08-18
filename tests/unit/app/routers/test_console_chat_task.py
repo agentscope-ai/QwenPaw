@@ -143,7 +143,7 @@ async def _submit_forked_task(
 
     monkeypatch.setattr(console, "get_agent_for_request", _get_workspace)
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _agent_id: SimpleNamespace(project_dir=None),
     )
     request_context = {

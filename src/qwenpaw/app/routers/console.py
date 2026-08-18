@@ -364,14 +364,14 @@ async def post_console_chat(
             chat,
             native_payload,
         )
-        from ...config.config import load_agent_config
+        from ...config.config import _load_agent_config
         from ...services.project_directory import (
             resolve_effective_project_dir,
             session_project_dir,
         )
 
         agent_config = await asyncio.to_thread(
-            load_agent_config,
+            _load_agent_config,
             workspace.agent_id,
         )
         project_dir, project_source = await asyncio.to_thread(
@@ -825,14 +825,14 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         )
         fork_scope_id = str(rc.get("fork_scope_id") or "")
 
-    from ...config.config import load_agent_config
+    from ...config.config import _load_agent_config
     from ...services.project_directory import (
         resolve_effective_project_dir,
         session_project_dir,
     )
 
     agent_config = await asyncio.to_thread(
-        load_agent_config,
+        _load_agent_config,
         workspace.agent_id,
     )
     project_dir, project_source = await asyncio.to_thread(

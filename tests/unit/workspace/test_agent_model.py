@@ -10,7 +10,7 @@ from qwenpaw.exceptions import (
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentsRunningConfig,
-    load_agent_config,
+    _load_agent_config,
     save_agent_config,
 )
 from qwenpaw.constant import (
@@ -68,7 +68,7 @@ def test_agent_model_config_defaults_to_none(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test that agent model config defaults to None."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
     assert agent_config.active_model is None
 
 
@@ -76,7 +76,7 @@ def test_agent_model_config_can_be_set(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test setting agent-specific model config."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
 
     # Set active model
     agent_config.active_model = ModelSlotConfig(
@@ -86,7 +86,7 @@ def test_agent_model_config_can_be_set(
     save_agent_config("test_agent", agent_config)
 
     # Reload and verify
-    reloaded_config = load_agent_config("test_agent")
+    reloaded_config = _load_agent_config("test_agent")
     assert reloaded_config.active_model is not None
     assert reloaded_config.active_model.provider_id == "openai"
     assert reloaded_config.active_model.model == "gpt-4"
@@ -96,7 +96,7 @@ def test_agent_model_config_persists_across_reloads(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test that model config persists across multiple save/load cycles."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
 
     # Set model
     agent_config.active_model = ModelSlotConfig(
@@ -107,7 +107,7 @@ def test_agent_model_config_persists_across_reloads(
 
     # Reload multiple times
     for _ in range(3):
-        reloaded = load_agent_config("test_agent")
+        reloaded = _load_agent_config("test_agent")
         assert reloaded.active_model is not None
         assert reloaded.active_model.provider_id == "anthropic"
         assert reloaded.active_model.model == "claude-3-5-sonnet-20241022"
@@ -117,7 +117,7 @@ def test_agent_model_config_can_be_cleared(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test that model config can be set to None."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
 
     # Set a model
     agent_config.active_model = ModelSlotConfig(
@@ -131,7 +131,7 @@ def test_agent_model_config_can_be_cleared(
     save_agent_config("test_agent", agent_config)
 
     # Verify it's cleared
-    reloaded = load_agent_config("test_agent")
+    reloaded = _load_agent_config("test_agent")
     assert reloaded.active_model is None
 
 
@@ -200,8 +200,8 @@ def test_different_agents_have_independent_models(tmp_path, monkeypatch):
     save_agent_config("agent2", config2)
 
     # Verify they're independent
-    reloaded1 = load_agent_config("agent1")
-    reloaded2 = load_agent_config("agent2")
+    reloaded1 = _load_agent_config("agent1")
+    reloaded2 = _load_agent_config("agent2")
 
     assert reloaded1.active_model.provider_id == "openai"
     assert reloaded1.active_model.model == "gpt-4"
@@ -214,7 +214,7 @@ def test_model_config_excluded_when_none(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name
     """Test that active_model is excluded from agent.json when None."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
     agent_config.active_model = None
     save_agent_config("test_agent", agent_config)
 
@@ -233,7 +233,7 @@ def test_model_config_included_when_set(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name
     """Test that active_model is included in agent.json when set."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
     agent_config.active_model = ModelSlotConfig(
         provider_id="openai",
         model="gpt-4-turbo",
@@ -257,7 +257,7 @@ def test_agent_running_config_has_llm_retry_defaults(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test that agent running config exposes LLM retry defaults."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
 
     assert agent_config.running.llm_retry_enabled is (LLM_MAX_RETRIES > 0)
     assert agent_config.running.llm_max_retries == max(LLM_MAX_RETRIES, 1)
@@ -269,7 +269,7 @@ def test_agent_running_config_llm_retry_persists(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test that LLM retry settings persist in agent.json."""
-    agent_config = load_agent_config("test_agent")
+    agent_config = _load_agent_config("test_agent")
     agent_config.running = AgentsRunningConfig(
         llm_retry_enabled=False,
         llm_max_retries=5,
@@ -278,7 +278,7 @@ def test_agent_running_config_llm_retry_persists(
     )
     save_agent_config("test_agent", agent_config)
 
-    reloaded_config = load_agent_config("test_agent")
+    reloaded_config = _load_agent_config("test_agent")
 
     assert reloaded_config.running.llm_retry_enabled is False
     assert reloaded_config.running.llm_max_retries == 5

@@ -92,9 +92,9 @@ def _guarded_tool_resolve_execution_level(self: Any) -> str:
     if not agent_id:
         return "bypass"
     try:
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
 
-        profile = load_agent_config(agent_id)
+        profile = _load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
         return ToolExecutionLevel.from_config(raw).value
     except Exception as exc:

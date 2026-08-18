@@ -35,7 +35,6 @@ from ...providers.provider import (
 )
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
-from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 from ...providers.openrouter_provider import OpenRouterProvider
 from ...config.config import ModelSlotConfig
@@ -273,10 +272,7 @@ async def _load_agent_model(
 ) -> ModelSlotConfig | None:
     """Load the model configured for a specific agent."""
     workspace = await get_agent_for_request(request, agent_id=agent_id)
-    agent_config = await run_sync_io(
-        load_agent_config,
-        workspace.agent_id,
-    )
+    agent_config = await load_agent_config(workspace.agent_id)
     return agent_config.active_model
 
 

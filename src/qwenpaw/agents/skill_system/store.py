@@ -99,9 +99,9 @@ def get_workspace_identity(workspace_dir: Path) -> dict[str, str]:
     workspace_id = workspace_dir.name
     workspace_name = workspace_id
     try:
-        from ...config.config import load_agent_config
+        from ...config.config import _load_agent_config
 
-        workspace_name = load_agent_config(workspace_id).name or workspace_id
+        workspace_name = _load_agent_config(workspace_id).name or workspace_id
     except Exception:
         pass
     return {

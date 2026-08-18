@@ -36,19 +36,19 @@ def _make_daemon_adapter(subcommand: str) -> CommandSpec:
             DaemonCommandHandlerMixin,
             DaemonContext,
         )
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config, load_agent_config
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         workspace = getattr(ctx, "workspace", None)
 
         try:
-            cfg = load_agent_config(agent_id)
+            cfg = await load_agent_config(agent_id)
             agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
         except Exception:
             agent_name = "QwenPaw"
 
         daemon_ctx = DaemonContext(
-            load_config_fn=lambda: load_agent_config(agent_id),
+            load_config_fn=lambda: _load_agent_config(agent_id),
             memory_manager=getattr(workspace, "memory_manager", None),
             manager=getattr(workspace, "_manager", None),
             agent_id=agent_id,
@@ -82,7 +82,7 @@ def _make_daemon_compound_adapter() -> CommandSpec:
             DaemonContext,
             parse_daemon_query,
         )
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config, load_agent_config
 
         full_query = f"/daemon {args}".strip()
         parsed = parse_daemon_query(full_query)
@@ -104,13 +104,13 @@ def _make_daemon_compound_adapter() -> CommandSpec:
         workspace = getattr(ctx, "workspace", None)
 
         try:
-            cfg = load_agent_config(agent_id)
+            cfg = await load_agent_config(agent_id)
             agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
         except Exception:
             agent_name = "QwenPaw"
 
         daemon_ctx = DaemonContext(
-            load_config_fn=lambda: load_agent_config(agent_id),
+            load_config_fn=lambda: _load_agent_config(agent_id),
             memory_manager=getattr(
                 workspace,
                 "memory_manager",
@@ -436,7 +436,7 @@ def _make_conversation_adapter(
 
                 from ..config.config import load_agent_config
 
-                cfg = load_agent_config(agent_id)
+                cfg = await load_agent_config(agent_id)
                 lcc = cfg.running.light_context_config
                 # Under scroll, dialog archiving is opt-in (history.db is the
                 # source of truth); only wire an offloader for the commands
@@ -458,7 +458,7 @@ def _make_conversation_adapter(
             pass
 
         try:
-            cfg = load_agent_config(agent_id)
+            cfg = await load_agent_config(agent_id)
             agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
         except Exception:
             agent_name = "QwenPaw"

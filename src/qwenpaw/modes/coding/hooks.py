@@ -21,7 +21,7 @@ class ProjectDirInjectionHook(ModeGatedHook):
             try:
                 from ...config.config import load_agent_config
 
-                cfg = load_agent_config(ctx.agent_id)
+                cfg = await load_agent_config(ctx.agent_id)
             except Exception:
                 return HookResult()
         project_dir = getattr(cfg, "project_dir", None)

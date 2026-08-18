@@ -72,9 +72,9 @@ def _save_project_dir(agent_id: str, project_dir: str | None) -> None:
 
     Intended to run inside an executor thread.
     """
-    from ...config.config import load_agent_config, save_agent_config
+    from ...config.config import _load_agent_config, save_agent_config
 
-    config = load_agent_config(agent_id)
+    config = _load_agent_config(agent_id)
     config.project_dir = project_dir
     save_agent_config(config.id, config)
 

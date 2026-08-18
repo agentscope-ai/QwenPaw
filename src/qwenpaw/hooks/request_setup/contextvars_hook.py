@@ -90,7 +90,7 @@ class ContextVarsSetupHook(LifecycleHook):
         try:
             from ...config.config import load_agent_config
 
-            cfg = load_agent_config(ctx.agent_id)
+            cfg = await load_agent_config(ctx.agent_id)
             running = cfg.running
             pruning_cfg = (
                 running.light_context_config.tool_result_pruning_config

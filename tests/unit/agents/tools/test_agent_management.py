@@ -536,31 +536,25 @@ async def test_spawn_subagent_inherits_approval_level(monkeypatch):
     assert context["approval_level"] == "off"
 
 
-async def test_subagent_model_config_load_runs_off_event_loop(monkeypatch):
+async def test_subagent_model_config_uses_async_loader(monkeypatch):
     calls = []
 
     class Config:
         subagent_model = None
 
-    def fake_load_agent_config(agent_id):
+    async def fake_load_agent_config(agent_id):
         calls.append(("load", agent_id))
         return Config()
-
-    async def fake_to_thread(func, *args, **kwargs):
-        calls.append(("thread", func))
-        return func(*args, **kwargs)
 
     monkeypatch.setattr(
         agent_management,
         "load_agent_config",
         fake_load_agent_config,
     )
-    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
 
     await agent_management._build_subagent_request_context("bot-a")
 
-    assert calls[0] == ("thread", fake_load_agent_config)
-    assert calls[1] == ("load", "bot-a")
+    assert calls == [("load", "bot-a")]
 
 
 async def test_subagent_model_becomes_request_override(monkeypatch):
@@ -572,10 +566,13 @@ async def test_subagent_model_becomes_request_override(monkeypatch):
             },
         )
 
+    async def load_agent_config(_agent_id):
+        return Config()
+
     monkeypatch.setattr(
         agent_management,
         "load_agent_config",
-        lambda _agent_id: Config(),
+        load_agent_config,
     )
 
     context = await agent_management._build_subagent_request_context(

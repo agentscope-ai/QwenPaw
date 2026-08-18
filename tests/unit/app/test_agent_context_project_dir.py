@@ -35,7 +35,7 @@ async def test_pending_session_project_dir_is_used(
 ) -> None:
     """Use the pending directory before a backend Chat exists."""
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _agent_id: SimpleNamespace(project_dir=None),
     )
     workspace = SimpleNamespace(
@@ -58,7 +58,7 @@ async def test_pending_session_project_dir_must_exist(
 ) -> None:
     """Reject an unavailable pending directory."""
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _agent_id: SimpleNamespace(project_dir=None),
     )
     workspace = SimpleNamespace(
@@ -87,7 +87,7 @@ async def test_project_resolution_does_not_block_the_event_loop(
         return SimpleNamespace(project_dir=None)
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         _slow_load,
     )
     workspace = SimpleNamespace(

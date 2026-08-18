@@ -477,7 +477,7 @@ async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
         lambda: service,
     )
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _agent_id: SimpleNamespace(approval_level="OFF"),
     )
     manager = await _registry_with_policy(
@@ -542,7 +542,7 @@ async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
         lambda: service,
     )
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _agent_id: SimpleNamespace(approval_level="AUTO"),
     )
     manager = await _registry_with_policy(
@@ -603,7 +603,7 @@ async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
         return SimpleNamespace(approval_level="OFF")
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         fake_load_agent_config,
     )
     manager = await _registry_with_policy(

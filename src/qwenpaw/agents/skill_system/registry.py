@@ -1168,7 +1168,7 @@ def list_workspaces() -> list[dict[str, str]]:
     workspaces: list[dict[str, str]] = []
     try:
         from ...config.utils import load_config
-        from ...config.config import load_agent_config
+        from ...config.config import _load_agent_config
 
         config = load_config()
         # Only return agents that are still in the configuration
@@ -1176,7 +1176,7 @@ def list_workspaces() -> list[dict[str, str]]:
         for agent_id, profile in sorted(config.agents.profiles.items()):
             agent_name = agent_id
             try:
-                agent_name = load_agent_config(agent_id).name or agent_id
+                agent_name = _load_agent_config(agent_id).name or agent_id
             except Exception:
                 pass
             workspaces.append(

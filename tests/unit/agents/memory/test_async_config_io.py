@@ -42,7 +42,7 @@ async def test_reme_auto_search_loads_config_in_worker_thread(monkeypatch):
         return agent_config
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         load_config,
     )
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
@@ -75,7 +75,7 @@ async def test_reme_inbox_config_loads_in_worker_thread(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+        "qwenpaw.agents.memory.reme_light_memory_manager._load_agent_config",
         load_config,
     )
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
@@ -107,7 +107,10 @@ async def test_proactive_final_message_loads_config_in_worker_thread(
     async def send_message(**_kwargs):
         return None
 
-    monkeypatch.setattr(proactive_responder, "load_agent_config", load_config)
+    monkeypatch.setattr(
+        "qwenpaw.config.config._load_agent_config",
+        load_config,
+    )
     monkeypatch.setattr(
         proactive_responder,
         "send_proactive_message_via_http",

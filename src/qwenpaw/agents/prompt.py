@@ -297,10 +297,10 @@ def build_system_prompt_from_working_dir(
     if enabled_files is None:
         # Use agent-specific config if agent_id provided
         if agent_id:
-            from ..config.config import load_agent_config
+            from ..config.config import _load_agent_config
 
             try:
-                agent_config = load_agent_config(agent_id)
+                agent_config = _load_agent_config(agent_id)
                 enabled_files = agent_config.system_prompt_files
             except (ValueError, FileNotFoundError, ConfigurationException):
                 # Agent not found in config, fallback to global config
@@ -395,7 +395,7 @@ def _get_active_model_info():
     """
     try:
         from ..app.agent_context import get_current_agent_id
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
@@ -404,7 +404,7 @@ def _get_active_model_info():
         active = None
         try:
             agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
             if agent_config.active_model:
                 active = agent_config.active_model
         except Exception:

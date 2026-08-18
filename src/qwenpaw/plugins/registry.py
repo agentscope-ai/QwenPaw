@@ -1054,9 +1054,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             Tool configuration dict or None
         """
         try:
-            from ..config.config import load_agent_config
+            from ..config.config import _load_agent_config
 
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
             if (
                 not agent_config.tools
                 or tool_name not in agent_config.tools.builtin_tools
@@ -1084,11 +1084,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         try:
             from ..config.config import (
-                load_agent_config,
+                _load_agent_config,
                 save_agent_config,
             )
 
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
             if (
                 not agent_config.tools
                 or tool_name not in agent_config.tools.builtin_tools

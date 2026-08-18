@@ -45,7 +45,7 @@ async def test_watcher_ignores_mutated_cache_without_disk_change(
     )
     monkeypatch.setattr(
         watcher_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
 
@@ -77,7 +77,7 @@ async def test_watcher_reloads_after_disk_and_channel_change(
     )
     monkeypatch.setattr(
         watcher_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
 

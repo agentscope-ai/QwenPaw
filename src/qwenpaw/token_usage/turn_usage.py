@@ -70,7 +70,7 @@ async def snapshot_context_usage_for_state(
 
         max_input_length = int(preferred_max_input_length or 0)
         if max_input_length <= 0:
-            agent_config = load_agent_config(agent_id)
+            agent_config = await load_agent_config(agent_id)
             max_input_length = int(
                 get_model_max_input_length(agent_config) or 0,
             )

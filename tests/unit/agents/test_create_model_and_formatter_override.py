@@ -82,7 +82,7 @@ def _patch_dependencies(monkeypatch):
 
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         _patched_load_agent_config,
     )
     monkeypatch.setattr(
@@ -299,7 +299,7 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     )
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: pytest.fail("preloaded config must be reused"),
     )
     providers = {
@@ -387,7 +387,7 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     )
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
     providers = {
@@ -452,7 +452,7 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
     )
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
     providers = {
@@ -509,7 +509,7 @@ def test_invalid_fallback_slots_are_skipped(monkeypatch):
     )
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
     providers = {

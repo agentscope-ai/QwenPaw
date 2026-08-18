@@ -399,7 +399,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             )
         )
         try:
-            agent_config = await run_sync_io(load_agent_config, agent_id)
+            agent_config = await load_agent_config(agent_id)
             description = agent_config.description or ""
 
             profile_desc = await run_sync_io(
@@ -549,7 +549,7 @@ async def set_agent_pinned(
 async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
     """Get agent configuration."""
     try:
-        agent_config = await run_sync_io(load_agent_config, agentId)
+        agent_config = await load_agent_config(agentId)
         return agent_config
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -898,7 +898,7 @@ async def copy_agent(
         )
 
     try:
-        source_config = await run_sync_io(load_agent_config, agentId)
+        source_config = await load_agent_config(agentId)
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -1060,7 +1060,7 @@ async def rebuild_agent_memory_index(
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = await run_sync_io(load_agent_config, agentId)
+    agent_config = await load_agent_config(agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -1112,7 +1112,7 @@ async def get_agent_memory_runtime_status(
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = await run_sync_io(load_agent_config, agentId)
+    agent_config = await load_agent_config(agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -1149,7 +1149,7 @@ async def get_agent_memory_status(
             detail=f"Agent '{agentId}' not found",
         )
 
-    agent_config = await run_sync_io(load_agent_config, agentId)
+    agent_config = await load_agent_config(agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -1215,16 +1215,13 @@ async def get_agent_memory_graph(
 ) -> MemoryGraphSnapshot:
     """Return a frontend-ready graph snapshot from embedded ReMe."""
 
-    def load_memory_configs() -> AgentProfileConfig:
-        config = load_config()
-        if agentId not in config.agents.profiles:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Agent '{agentId}' not found",
-            )
-        return load_agent_config(agentId)
-
-    agent_config = await run_sync_io(load_memory_configs)
+    config = await run_sync_io(load_config)
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+    agent_config = await load_agent_config(agentId)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,

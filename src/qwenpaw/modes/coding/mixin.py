@@ -157,7 +157,7 @@ class CodingModeMixin:
 
         Returns None when no project has been set (use workspace default).
         """
-        from ...config.config import load_agent_config
+        from ...config.config import _load_agent_config
 
         agent_config = getattr(self, "_agent_config", None)
         agent_id: str | None = None
@@ -176,7 +176,7 @@ class CodingModeMixin:
             return project_dir
 
         try:
-            config = load_agent_config(agent_id)
+            config = _load_agent_config(agent_id)
             if config.project_dir:
                 return config.project_dir
         except Exception:

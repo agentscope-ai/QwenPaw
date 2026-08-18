@@ -33,6 +33,7 @@ from ..config.config import (
     MCPConfig,
     SecurityConfig,
     ToolsConfig,
+    _load_agent_config,
     load_agent_config,
 )
 from ..config.utils import (
@@ -579,7 +580,7 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
     notes: list[str] = []
     for agent_id in cfg.agents.profiles:
         try:
-            ac = load_agent_config(agent_id)
+            ac = _load_agent_config(agent_id)
         except Exception:  # pylint: disable=broad-exception-caught
             continue
         emb = ac.running.reme_light_memory_config.embedding_model_config
@@ -719,10 +720,10 @@ def check_agent_json_profiles(cfg: Config) -> tuple[bool, str]:
 
 
 def check_enabled_agents_load_agent_config(cfg: Config) -> tuple[bool, str]:
-    """Dry-run :func:`~qwenpaw.config.config.load_agent_config` for enabled.
+    """Dry-run :func:`~qwenpaw.config.config._load_agent_config` for enabled.
 
     Matches ``MultiAgentManager.start_all_configured_agents``. When
-    ``agent.json`` is missing, we do **not** call ``load_agent_config`` (that
+    ``agent.json`` is missing, we do **not** call ``_load_agent_config`` (that
     would write a fallback on disk); we report FAIL for enabled agents.
     """
     problems: list[str] = []
@@ -743,7 +744,7 @@ def check_enabled_agents_load_agent_config(cfg: Config) -> tuple[bool, str]:
             )
             continue
         try:
-            load_agent_config(agent_id)
+            _load_agent_config(agent_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             problems.append(f"{agent_id}: load_agent_config failed — {exc}")
             continue
@@ -1153,7 +1154,7 @@ async def check_enabled_agents_model_connections(
         if not getattr(ref, "enabled", True):
             continue
         try:
-            ac = load_agent_config(agent_id)
+            ac = await load_agent_config(agent_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             all_ok = False
             lines.append(

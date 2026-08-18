@@ -20,7 +20,7 @@ from qwenpaw.config.config import (
     AgentsConfig,
     Config,
     _migrate_access_control_fields,
-    load_agent_config,
+    _load_agent_config,
 )
 from qwenpaw.config.utils import read_last_dispatch, update_last_dispatch
 from qwenpaw.exceptions import AgentConfigConflictError
@@ -72,7 +72,7 @@ def test_acl_migration_replaces_long_agent_json_completely(
     agent_path.write_text(json.dumps(raw), encoding="utf-8")
     old_size = agent_path.stat().st_size
 
-    load_agent_config("agent")
+    _load_agent_config("agent")
 
     migrated_content = agent_path.read_text(encoding="utf-8")
     migrated = json.loads(migrated_content)
@@ -108,7 +108,7 @@ def test_cache_detects_same_mtime_atomic_replacement(
 ) -> None:
     """A same-mtime replacement invalidates the cached model."""
     agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    assert load_agent_config("agent").name == "Old"
+    assert _load_agent_config("agent").name == "Old"
     old_stat = agent_path.stat()
     raw["name"] = "New"
     replacement = agent_path.with_name("replacement.json")
@@ -120,7 +120,7 @@ def test_cache_detects_same_mtime_atomic_replacement(
     os.replace(replacement, agent_path)
 
     assert agent_path.stat().st_mtime_ns == old_stat.st_mtime_ns
-    assert load_agent_config("agent").name == "New"
+    assert _load_agent_config("agent").name == "New"
 
 
 def test_cache_returns_an_isolated_config_copy(
@@ -129,10 +129,10 @@ def test_cache_returns_an_isolated_config_copy(
 ) -> None:
     """Mutating one loaded config cannot change a later cache hit."""
     _agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
-    first = load_agent_config("agent")
+    first = _load_agent_config("agent")
     first.description = "updated"
 
-    second = load_agent_config("agent")
+    second = _load_agent_config("agent")
 
     assert second is not first
     assert second.description == ""
@@ -144,7 +144,7 @@ def test_stale_loaded_config_cannot_overwrite_external_update(
 ) -> None:
     """A loaded model cannot replace a newer external file version."""
     agent_path, raw = _prepare_agent(tmp_path, monkeypatch)
-    stale = load_agent_config("agent")
+    stale = _load_agent_config("agent")
     raw["name"] = "New"
     write_json_atomic(agent_path, raw)
     stale.description = "stale update"
@@ -163,7 +163,7 @@ def test_loaded_config_cannot_recreate_externally_deleted_file(
 ) -> None:
     """A loaded model cannot silently recreate an externally deleted file."""
     agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
-    stale = load_agent_config("agent")
+    stale = _load_agent_config("agent")
     agent_path.unlink()
 
     with pytest.raises(AgentConfigConflictError, match="changed on disk"):
@@ -179,7 +179,7 @@ def test_failed_save_evicts_mutated_cached_config(
 ) -> None:
     """A failed write cannot leave a mutated model in the shared cache."""
     _agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
-    loaded = load_agent_config("agent")
+    loaded = _load_agent_config("agent")
     loaded.description = "not persisted"
 
     def fail_write(*_args, **_kwargs):
@@ -199,7 +199,7 @@ def test_successful_save_updates_model_version(
 ) -> None:
     """The same loaded model can be saved repeatedly after local changes."""
     agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
-    loaded = load_agent_config("agent")
+    loaded = _load_agent_config("agent")
     loaded.description = "first"
     config_module.save_agent_config("agent", loaded)
     loaded.description = "second"
@@ -223,7 +223,7 @@ def test_last_dispatch_migration_publishes_state_then_removes_legacy(
     }
     agent_path.write_text(json.dumps(raw), encoding="utf-8")
 
-    loaded = load_agent_config("agent")
+    loaded = _load_agent_config("agent")
 
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
     state_path = agent_path.parent / "state" / "last_dispatch.json"
@@ -261,7 +261,7 @@ def test_migration_rejects_an_external_update_before_replacement(
     )
 
     with pytest.raises(AgentConfigConflictError):
-        load_agent_config("agent")
+        _load_agent_config("agent")
 
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
     assert persisted["name"] == "External"
@@ -294,7 +294,7 @@ def test_migration_checks_source_before_publishing_state(
     )
 
     with pytest.raises(AgentConfigConflictError):
-        load_agent_config("agent")
+        _load_agent_config("agent")
 
     state_path = agent_path.parent / "state" / "last_dispatch.json"
     assert not state_path.exists()
@@ -322,7 +322,7 @@ def test_last_dispatch_migration_keeps_existing_valid_state(
         },
     )
 
-    load_agent_config("agent")
+    _load_agent_config("agent")
 
     dispatch = read_last_dispatch("agent")
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
@@ -356,8 +356,8 @@ def test_last_dispatch_migration_failure_keeps_legacy_and_retries(
         fail_state_write,
     )
 
-    first = load_agent_config("agent")
-    second = load_agent_config("agent")
+    first = _load_agent_config("agent")
+    second = _load_agent_config("agent")
 
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
     assert first.last_dispatch is not None

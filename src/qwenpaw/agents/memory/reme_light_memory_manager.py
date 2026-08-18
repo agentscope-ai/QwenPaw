@@ -32,8 +32,8 @@ from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
 from ...config import load_config
 from ...config.config import (
+    _load_agent_config,
     load_agent_config,
-    load_agent_config_async,
     update_agent_config_async,
     AgentProfileConfig,
     EmbeddingModelConfig,
@@ -109,7 +109,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self._lifecycle_operation: str | None = None
         self._tested_embedding: tuple[tuple[Any, ...], Any] | None = None
         self._active_embedding_config: EmbeddingModelConfig | None = None
-        # Reranker config is not cached here; load_agent_config() already
+        # Reranker config is not cached here; _load_agent_config() already
         # provides mtime-based caching, so every call reads fresh data.
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
@@ -125,7 +125,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         try:
             from reme import ReMe as ReMeApp  # type: ignore
 
-            agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
+            agent_config: AgentProfileConfig = _load_agent_config(
+                self.agent_id,
+            )
             memory_config = agent_config.running.reme_light_memory_config
             self._active_embedding_config = (
                 memory_config.embedding_model_config.model_copy(deep=True)
@@ -221,7 +223,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     def get_memory_prompt(self) -> str:
         """Return memory guidance for system prompt injection."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = _load_agent_config(self.agent_id)
         cfg = agent_config.running.reme_light_memory_config
         return build_memory_guidance_prompt(
             agent_config.language,
@@ -232,7 +234,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     def get_memory_config(self) -> Any:
         """Return ReMe Light memory configuration."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = _load_agent_config(self.agent_id)
         return agent_config.running.reme_light_memory_config
 
     def list_cron_jobs(self) -> list[ServiceCronJob]:
@@ -272,7 +274,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = _load_agent_config(self.agent_id)
         interval = (
             agent_config.running.reme_light_memory_config.auto_memory_interval
         )
@@ -944,14 +946,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def _get_reranker_config(self) -> RerankerConfig | None:
         """Return the reranker config, or None if not enabled.
 
-        Config is read fresh on every call — ``load_agent_config()``
+        Config is read fresh on every call — ``_load_agent_config()``
         already provides its own mtime-based caching, so an additional
         layer here would risk stale values (the user may change the
         API key, base URL, model, or disable reranking without restarting
         the agent process).
         """
         try:
-            agent_cfg = await load_agent_config_async(self.agent_id)
+            agent_cfg = await load_agent_config(self.agent_id)
             cfg = getattr(
                 agent_cfg.running.reme_light_memory_config,
                 "reranker_config",
@@ -1087,7 +1089,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Auto-search memory and expose it as a completed tool interaction."""
         del agent_name
         del kwargs
-        agent_config = await load_agent_config_async(self.agent_id)
+        agent_config = await load_agent_config(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
         if not memory_cfg.auto_memory_search_config.enabled:
             return None

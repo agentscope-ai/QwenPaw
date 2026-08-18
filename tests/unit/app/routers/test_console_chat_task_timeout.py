@@ -127,7 +127,7 @@ def console_workspace(workspace_mock, monkeypatch):
     workspace_mock.workspace_dir = "/tmp/qwenpaw-test-workspace"
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _agent_id: MagicMock(project_dir=None),
     )
     monkeypatch.setattr(

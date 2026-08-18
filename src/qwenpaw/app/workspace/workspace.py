@@ -31,7 +31,7 @@ from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
-from ...config.config import load_agent_config
+from ...config.config import _load_agent_config, load_agent_config
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ class Workspace:
         """
         current_mtime = self._agent_config_file_mtime()
         if self._config is None or current_mtime != self._config_mtime:
-            self._config = load_agent_config(self.agent_id)
+            self._config = _load_agent_config(self.agent_id)
             self._config_mtime = current_mtime
         return self._config
 
@@ -316,7 +316,7 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
-        config = load_agent_config(self.agent_id)
+        config = await load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
             settings = dict(getattr(config, "backend_settings", {}))
@@ -567,7 +567,7 @@ class Workspace:
 
         try:
             # 1. Load agent configuration
-            self._config = load_agent_config(self.agent_id)
+            self._config = await load_agent_config(self.agent_id)
             logger.debug(
                 "Loaded config for agent: "
                 f"{sanitize_log_value(self.agent_id)}",

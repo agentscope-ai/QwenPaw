@@ -30,7 +30,7 @@ async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
 
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         load_agent_config,
     )
     monkeypatch.setattr(
@@ -70,7 +70,7 @@ async def test_build_constructs_model_in_worker_thread(monkeypatch):
 
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
     monkeypatch.setattr(
@@ -158,7 +158,7 @@ async def test_build_constructs_prompt_in_worker_thread(monkeypatch):
 
     monkeypatch.setattr(
         config_module,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _agent_id: config,
     )
     monkeypatch.setattr(

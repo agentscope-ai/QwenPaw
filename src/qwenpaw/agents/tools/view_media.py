@@ -199,7 +199,7 @@ async def _probe_multimodal_if_needed(
             from ...config.config import load_agent_config
 
             agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
+            agent_config = await load_agent_config(agent_id)
             if agent_config.active_model:
                 active = agent_config.active_model
         except Exception:

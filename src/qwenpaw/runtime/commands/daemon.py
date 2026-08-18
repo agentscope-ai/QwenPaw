@@ -108,10 +108,10 @@ def run_daemon_status(context: DaemonContext) -> str:
             try:
                 from ...config.config import (
                     get_model_max_input_length,
-                    load_agent_config,
+                    _load_agent_config,
                 )
 
-                agent_cfg = load_agent_config(agent_id)
+                agent_cfg = _load_agent_config(agent_id)
                 max_in = get_model_max_input_length(agent_cfg)
             except Exception:
                 pass

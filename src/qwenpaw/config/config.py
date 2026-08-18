@@ -2862,7 +2862,7 @@ def build_fallback_agent_profile_config(
     """Build the same profile as when ``agent.json``
     is missing (no disk read/write).
 
-    Used by :func:`load_agent_config` and ``qwenpaw doctor fix``
+    Used by :func:`_load_agent_config` and ``qwenpaw doctor fix``
     so defaults stay in sync.
     """
     if agent_id not in config.agents.profiles:
@@ -3031,7 +3031,8 @@ def migrate_project_directory_config(data: object) -> bool:
     return True
 
 
-def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
+# pylint: disable-next=too-many-branches,too-many-statements
+def _load_agent_config(
     agent_id: str,
 ) -> AgentProfileConfig:
     """Load an agent configuration with fingerprint-based caching.
@@ -3311,17 +3312,17 @@ def mutate_agent_config(
     from .utils import _agent_config_lock
 
     with _agent_config_lock:
-        candidate = load_agent_config(agent_id)
+        candidate = _load_agent_config(agent_id)
         mutator(candidate)
         save_agent_config(agent_id, candidate)
         return candidate.model_copy(deep=True)
 
 
-async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
+async def load_agent_config(agent_id: str) -> AgentProfileConfig:
     """Load an agent configuration without blocking the event loop."""
     from ..utils.io_utils import run_sync_io
 
-    return await run_sync_io(load_agent_config, agent_id)
+    return await run_sync_io(_load_agent_config, agent_id)
 
 
 async def update_agent_config_async(

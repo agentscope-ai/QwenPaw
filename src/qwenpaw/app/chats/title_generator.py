@@ -21,7 +21,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
-from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
 from .models import ChatUpdate
@@ -85,10 +84,7 @@ async def generate_and_update_title(
         from ...config.config import load_agent_config
 
         try:
-            agent_config = await run_sync_io(
-                load_agent_config,
-                workspace.agent_id,
-            )
+            agent_config = await load_agent_config(workspace.agent_id)
             cfg = agent_config.running
         except (ValueError, AppBaseException) as exc:
             logger.debug(

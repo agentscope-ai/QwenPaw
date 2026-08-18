@@ -17,7 +17,7 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     AgentsConfig,
     Config,
-    load_agent_config,
+    _load_agent_config,
     mutate_agent_config,
     save_agent_config,
 )
@@ -116,10 +116,10 @@ def isolated_agent(isolated_config, tmp_path: Path):
 
 def test_load_agent_config_returns_detached_cache_copy(isolated_agent):
     """Agent cache state is not exposed as a mutable canonical object."""
-    loaded = load_agent_config("agent")
+    loaded = _load_agent_config("agent")
     loaded.description = "unsaved"
 
-    assert load_agent_config("agent").description == "original"
+    assert _load_agent_config("agent").description == "original"
 
 
 def test_concurrent_agent_mutations_retain_both_changes(isolated_agent):
@@ -147,7 +147,7 @@ def test_concurrent_agent_mutations_retain_both_changes(isolated_agent):
         for future in futures:
             future.result()
 
-    reloaded = load_agent_config("agent")
+    reloaded = _load_agent_config("agent")
     assert reloaded.description == "updated"
     assert reloaded.language == "zh"
 
@@ -168,4 +168,4 @@ def test_failed_agent_write_preserves_disk_and_cache(isolated_agent):
 
     after = json.loads(isolated_agent.read_text(encoding="utf-8"))
     assert after == before
-    assert load_agent_config("agent").description == "original"
+    assert _load_agent_config("agent").description == "original"

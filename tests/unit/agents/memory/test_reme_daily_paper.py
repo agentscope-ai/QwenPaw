@@ -159,7 +159,7 @@ def test_memory_prompt_omits_disabled_search_tool() -> None:
     )
 
     config_loader = (
-        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config"
+        "qwenpaw.agents.memory.reme_light_memory_manager._load_agent_config"
     )
     with patch(
         config_loader,
@@ -187,7 +187,7 @@ def test_memory_prompt_includes_enabled_search_tool() -> None:
     )
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
+        "qwenpaw.agents.memory.reme_light_memory_manager._load_agent_config",
         return_value=agent_config,
     ):
         prompt = manager.get_memory_prompt()
@@ -257,8 +257,7 @@ async def test_automatic_search_works_when_agent_tool_is_hidden() -> None:
     manager.get_memory_config = lambda: memory_config
 
     with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "load_agent_config_async",
+        "qwenpaw.agents.memory.reme_light_memory_manager.load_agent_config",
         AsyncMock(return_value=agent_config),
     ):
         result = await manager.auto_memory_search([object()])

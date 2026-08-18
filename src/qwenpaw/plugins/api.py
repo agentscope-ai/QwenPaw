@@ -262,7 +262,7 @@ def _write_tool_config(
     """Persist BuiltinToolConfig entry to the agent config file."""
     from ..config.config import (
         BuiltinToolConfig,
-        load_agent_config,
+        _load_agent_config,
         save_agent_config,
     )
     from ..app.agent_context import get_current_agent_id
@@ -276,7 +276,7 @@ def _write_tool_config(
         )
         return
 
-    agent_config = load_agent_config(agent_id)
+    agent_config = _load_agent_config(agent_id)
 
     if not agent_config.tools:
         from ..config.config import ToolsConfig

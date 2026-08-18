@@ -96,7 +96,7 @@ def test_gate_allows_no_project_when_flag_true(
         lambda: "other-agent",
     )
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: SimpleNamespace(
             coding_mode=SimpleNamespace(
                 enabled=True,
@@ -294,7 +294,7 @@ def test_finalize_does_not_resurrect_pruned_fork(
         lambda: "other-agent",
     )
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: SimpleNamespace(
             coding_mode=SimpleNamespace(
                 enabled=True,
@@ -341,7 +341,7 @@ def test_matching_agent_dual_root_bind(tmp_path: Path, monkeypatch) -> None:
         lambda: "agent-a",
     )
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: SimpleNamespace(
             project_dir=str(project),
             workspace_dir=str(workspace),

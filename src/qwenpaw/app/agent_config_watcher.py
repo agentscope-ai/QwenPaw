@@ -17,7 +17,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from ..config.config import (
     _AgentConfigFingerprint,
     _agent_config_fingerprint,
-    load_agent_config,
+    _load_agent_config,
 )
 from ..utils.io_utils import run_sync_io
 
@@ -39,7 +39,7 @@ def _load_config_snapshot(
     """Load config while the observed disk fingerprint stays stable."""
     for _attempt in range(_SNAPSHOT_RETRIES):
         before = _agent_config_fingerprint(config_path)
-        agent_config = load_agent_config(agent_id)
+        agent_config = _load_agent_config(agent_id)
         after = _agent_config_fingerprint(config_path)
         if before == after:
             return agent_config, after

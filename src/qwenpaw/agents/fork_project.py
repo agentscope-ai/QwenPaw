@@ -352,9 +352,9 @@ def resolve_git_project_dir(
             aid = None
     if aid is not None:
         try:
-            from ..config.config import load_agent_config
+            from ..config.config import _load_agent_config
 
-            cfg = load_agent_config(aid)
+            cfg = _load_agent_config(aid)
             project_dir = getattr(cfg, "project_dir", None)
             if project_dir:
                 candidates.append(
@@ -394,12 +394,12 @@ def _matching_agent_id_for_workspace(
     """Return active agent_id only when it owns *workspace_dir*."""
     try:
         from ..app.agent_context import get_current_agent_id
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
 
         aid = get_current_agent_id() or None
         if not aid:
             return None
-        cfg = load_agent_config(aid)
+        cfg = _load_agent_config(aid)
         raw = getattr(cfg, "workspace_dir", None)
         if not raw:
             return None
@@ -662,9 +662,9 @@ def _fallback_agent_workspace_dir(
     if not aid:
         return None
     try:
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
 
-        cfg = load_agent_config(aid)
+        cfg = _load_agent_config(aid)
         raw = getattr(cfg, "workspace_dir", None)
         if not raw:
             return None

@@ -256,7 +256,7 @@ def test_get_agent_returns_config(client):
 
 
 async def test_get_agent_loads_config_off_event_loop(monkeypatch):
-    """Route config reads through ``run_sync_io``."""
+    """The public async loader keeps route config reads off the loop."""
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
@@ -264,24 +264,22 @@ async def test_get_agent_loads_config_off_event_loop(monkeypatch):
     )
     calls = []
 
-    async def fake_run_sync_io(func, *args):
-        calls.append((func, args))
-        return func(*args)
+    event_loop_thread = threading.get_ident()
+
+    def load_config(agent_id):
+        calls.append((agent_id, threading.get_ident()))
+        return cfg
 
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.run_sync_io",
-        fake_run_sync_io,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.app.routers.agents.load_agent_config",
-        lambda _agent_id: cfg,
+        "qwenpaw.config.config._load_agent_config",
+        load_config,
     )
 
     result = await get_agent("bot")
 
     assert result is cfg
-    assert len(calls) == 1
-    assert calls[0][1] == ("bot",)
+    assert calls[0][0] == "bot"
+    assert calls[0][1] != event_loop_thread
 
 
 def test_update_backend_settings_from_chat(client):
@@ -918,7 +916,7 @@ async def test_get_memory_graph_config_io_does_not_block_loop(
     )
     monkeypatch.setattr(
         "qwenpaw.app.routers.agents.load_agent_config",
-        lambda _agent_id: agent_config,
+        AsyncMock(return_value=agent_config),
     )
     monkeypatch.setattr(
         "qwenpaw.app.routers.agents._get_multi_agent_manager",

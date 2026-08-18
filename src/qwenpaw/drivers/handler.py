@@ -72,9 +72,9 @@ def _resolve_driver_execution_level(
             agent_id = "default"
 
     try:
-        from ..config.config import load_agent_config
+        from ..config.config import _load_agent_config
 
-        profile = load_agent_config(agent_id)
+        profile = _load_agent_config(agent_id)
         return ToolExecutionLevel.from_config(
             getattr(profile, "approval_level", None),
         )

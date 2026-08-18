@@ -53,7 +53,7 @@ def test_task_command_registered_in_cli() -> None:
 
 def test_task_rejects_empty_instruction(monkeypatch) -> None:
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         MagicMock(),
     )
     result = CliRunner().invoke(cli, ["task", "-i", "   "])
@@ -76,7 +76,7 @@ def test_task_reports_missing_agent_without_traceback(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         _raise_missing_agent,
     )
 
@@ -108,7 +108,7 @@ def test_model_flag_overrides_agent_config(monkeypatch) -> None:
 
     fake_config = AgentProfileConfig(id="default", name="Default")
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: fake_config,
     )
     monkeypatch.setattr(
@@ -133,7 +133,7 @@ def test_model_flag_without_slash(monkeypatch) -> None:
 
     fake_config = AgentProfileConfig(id="default", name="Default")
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: fake_config,
     )
     monkeypatch.setattr(
@@ -160,7 +160,7 @@ def test_output_dir_writes_result_json(monkeypatch, tmp_path) -> None:
 
     fake_config = AgentProfileConfig(id="default", name="Default")
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: fake_config,
     )
 
@@ -207,7 +207,7 @@ def test_exit_code_one_on_failure(monkeypatch, status) -> None:
     from qwenpaw.config.config import AgentProfileConfig
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: AgentProfileConfig(id="default", name="Default"),
     )
     monkeypatch.setattr(
@@ -230,7 +230,7 @@ def test_stdout_json_and_default_context(monkeypatch) -> None:
     from qwenpaw.config.config import AgentProfileConfig
 
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: AgentProfileConfig(id="default", name="Default"),
     )
 
@@ -284,7 +284,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
     )
     (tmp_path / "workspace").mkdir()
     monkeypatch.setattr(
-        "qwenpaw.config.config.load_agent_config",
+        "qwenpaw.config.config._load_agent_config",
         lambda _aid: fake_config,
     )
 

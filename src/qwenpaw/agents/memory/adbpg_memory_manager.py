@@ -23,7 +23,7 @@ from .adbpg_client import (
 )
 from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 from .base_memory_manager import BaseMemoryManager, memory_registry
-from ...config.config import load_agent_config
+from ...config.config import _load_agent_config, load_agent_config
 from ...exceptions import ConfigurationException as ConfigurationError
 from ...utils.io_utils import run_sync_io
 
@@ -55,7 +55,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     async def start(self) -> None:
         """Initialize ADBPGMemoryClient from agent config."""
-        agent_config = await run_sync_io(load_agent_config, self.agent_id)
+        agent_config = await load_agent_config(self.agent_id)
         self._adbpg_config = getattr(
             agent_config.running,
             "adbpg_memory_config",
@@ -136,12 +136,12 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     def get_memory_config(self) -> Any:
         """Return ADBPG memory configuration."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = _load_agent_config(self.agent_id)
         return agent_config.running.adbpg_memory_config
 
     def get_memory_prompt(self) -> str:
         """Return ADBPG memory guidance prompt."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = _load_agent_config(self.agent_id)
         language = getattr(agent_config, "language", "zh") or "zh"
         prompts = {
             "zh": ADBPG_MEMORY_GUIDANCE_ZH,
@@ -222,7 +222,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     def _load_auto_search_config(self) -> tuple[Any, float]:
         """Load ADBPG search settings and token estimate configuration."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = _load_agent_config(self.agent_id)
         return (
             agent_config.running.adbpg_memory_config,
             self._resolve_token_estimate_divisor(agent_config),

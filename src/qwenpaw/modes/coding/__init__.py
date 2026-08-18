@@ -36,9 +36,9 @@ class CodingMode(AgentMode):
         cfg = ctx.agent_config
         if cfg is None:
             try:
-                from ...config.config import load_agent_config
+                from ...config.config import _load_agent_config
 
-                cfg = load_agent_config(ctx.agent_id)
+                cfg = _load_agent_config(ctx.agent_id)
             except Exception:
                 return False
         cm = getattr(cfg, "coding_mode", None)

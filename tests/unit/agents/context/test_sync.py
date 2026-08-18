@@ -930,7 +930,7 @@ def _stub_config_loaders(
     monkeypatch.setattr(cfg, "load_config", lambda: config, raising=False)
     monkeypatch.setattr(
         cfgcfg,
-        "load_agent_config",
+        "_load_agent_config",
         lambda _id: agent_config,
         raising=False,
     )

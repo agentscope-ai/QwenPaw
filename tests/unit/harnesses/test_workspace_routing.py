@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -37,7 +38,7 @@ async def test_coding_mode_routes_directly_to_harness(
     )
     monkeypatch.setattr(
         "qwenpaw.app.workspace.workspace.load_agent_config",
-        lambda _agent_id: config,
+        AsyncMock(return_value=config),
     )
     workspace = Workspace("agent-1", str(tmp_path / "workspace"))
     runtime = FakeHarnessRuntime()

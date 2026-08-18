@@ -9,7 +9,7 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     AgentsConfig,
     Config,
-    load_agent_config,
+    _load_agent_config,
     migrate_channel_display_fields,
 )
 from qwenpaw.config import utils as config_utils
@@ -104,7 +104,7 @@ def test_loaded_agent_config_migration_persists(
     monkeypatch.setattr(config_utils, "_agent_config_cache", {})
     monkeypatch.setattr(config_utils, "_agent_config_lock", Lock())
 
-    config = load_agent_config("agent")
+    config = _load_agent_config("agent")
     persisted = json.loads(agent_config_path.read_text(encoding="utf-8"))
 
     assert config.channels.slack.show_tool_calls is False

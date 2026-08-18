@@ -36,13 +36,13 @@ async def get_coding_mode(request: Request) -> dict:
     browser cache.
     """
     import asyncio
-    from ...config.config import load_agent_config
+    from ...config.config import _load_agent_config
 
     workspace = await get_agent_for_request(request)
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(
         None,
-        load_agent_config,
+        _load_agent_config,
         workspace.agent_id,
     )
     cm = config.coding_mode
@@ -68,14 +68,14 @@ async def post_coding_mode_toggle(
         Dict with ``enabled`` field reflecting the new state.
     """
     import asyncio
-    from ...config.config import load_agent_config, save_agent_config
+    from ...config.config import _load_agent_config, save_agent_config
 
     workspace = await get_agent_for_request(request)
 
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(
         None,
-        load_agent_config,
+        _load_agent_config,
         workspace.agent_id,
     )
 

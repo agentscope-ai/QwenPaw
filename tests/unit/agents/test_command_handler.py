@@ -49,7 +49,7 @@ async def test_agent_config_load_runs_in_worker_thread(monkeypatch) -> None:
         return SimpleNamespace()
 
     monkeypatch.setattr(
-        "qwenpaw.agents.command_handler.load_agent_config",
+        "qwenpaw.agents.command_handler._load_agent_config",
         load_config,
     )
     handler = CommandHandler(

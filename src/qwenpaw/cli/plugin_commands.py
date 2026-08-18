@@ -363,7 +363,7 @@ def _sync_tool_plugin_to_agents(manifest: dict):
 
     from ..config.config import (
         BuiltinToolConfig,
-        load_agent_config,
+        _load_agent_config,
         save_agent_config,
     )
 
@@ -371,7 +371,7 @@ def _sync_tool_plugin_to_agents(manifest: dict):
     for agent_id in config.agents.profiles.keys():
         try:
             # Load agent config using agent_id
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
 
             # Check if tool already exists
             if tool_name in agent_config.tools.builtin_tools:
@@ -422,7 +422,7 @@ def _remove_tool_plugin_from_agents(manifest: dict):
         click.echo("   No agents found, skipping cleanup")
         return
 
-    from ..config.config import load_agent_config, save_agent_config
+    from ..config.config import _load_agent_config, save_agent_config
 
     removed_count = 0
     for agent_dir in agent_dirs:
@@ -432,7 +432,7 @@ def _remove_tool_plugin_from_agents(manifest: dict):
 
         try:
             # Load agent config using Pydantic model
-            config = load_agent_config(str(agent_dir))
+            config = _load_agent_config(str(agent_dir))
 
             # Check if tool exists
             if tool_name not in config.tools.builtin_tools:

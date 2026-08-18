@@ -142,11 +142,11 @@ def get_agent_project_dir(workspace: "Workspace") -> Path:
 
     The Coding tools switch does not participate in directory resolution.
     """
-    from ..config.config import load_agent_config
+    from ..config.config import _load_agent_config
     from ..services.project_directory import resolve_effective_project_dir
 
     try:
-        config = load_agent_config(workspace.agent_id)
+        config = _load_agent_config(workspace.agent_id)
         project_dir = config.project_dir
     except Exception:
         project_dir = None
@@ -162,7 +162,7 @@ async def get_project_dir_for_request(
     workspace: "Workspace",
 ) -> Path:
     """Resolve the effective project directory for a Files API request."""
-    from ..config.config import load_agent_config
+    from ..config.config import _load_agent_config
     from ..services.project_directory import (
         resolve_effective_project_dir,
         session_project_dir,
@@ -183,7 +183,7 @@ async def get_project_dir_for_request(
 
     def _resolve() -> Path:
         try:
-            config = load_agent_config(workspace.agent_id)
+            config = _load_agent_config(workspace.agent_id)
             agent_project_dir = config.project_dir
         except Exception:
             agent_project_dir = None

@@ -1188,7 +1188,7 @@ async def write_memory_file(
 async def get_agent_language(request: Request) -> dict:
     """Get agent language setting for current agent."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
     return {
         "language": agent_config.language,
         "agent_id": workspace.agent_id,
@@ -1227,7 +1227,7 @@ async def put_agent_language(
     workspace = await get_agent_for_request(request)
     agent_id = workspace.agent_id
 
-    agent_config = load_agent_config(agent_id)
+    agent_config = await load_agent_config(agent_id)
     old_language = agent_config.language
 
     agent_config.language = language
@@ -1551,7 +1551,7 @@ async def get_agents_running_config(
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
     workspace = await get_agent_for_request(request)
-    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
     running = agent_config.running or AgentsRunningConfig()
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
     return running
@@ -1796,7 +1796,7 @@ async def get_system_prompt_files(
 ) -> list[str]:
     """Get list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
     return agent_config.system_prompt_files or []
 
 
@@ -1815,7 +1815,7 @@ async def put_system_prompt_files(
 ) -> list[str]:
     """Update list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    agent_config = await load_agent_config(workspace.agent_id)
     agent_config.system_prompt_files = files
     save_agent_config(workspace.agent_id, agent_config)
 

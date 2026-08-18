@@ -626,7 +626,7 @@ class ChannelManager:
                     " on ChannelManager",
                 )
 
-            agent_config = load_agent_config(agent_id)
+            agent_config = await load_agent_config(agent_id)
             channels_cfg = agent_config.channels
             if channels_cfg is None:
                 raise RuntimeError(

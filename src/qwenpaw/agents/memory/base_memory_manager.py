@@ -209,9 +209,9 @@ class BaseMemoryManager(ABC):
     def _get_token_estimate_divisor(self) -> float:
         """Return configured byte/token divisor for lightweight estimates."""
         try:
-            from ...config.config import load_agent_config
+            from ...config.config import _load_agent_config
 
-            agent_config = load_agent_config(self.agent_id)
+            agent_config = _load_agent_config(self.agent_id)
             return self._resolve_token_estimate_divisor(agent_config)
         except Exception:
             logger.debug(

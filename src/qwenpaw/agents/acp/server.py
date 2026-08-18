@@ -1330,7 +1330,7 @@ class QwenPawACPAgent(Agent):
                     )
 
             agent_id = self._resolve_agent_id()
-            agent_config = load_agent_config(agent_id)
+            agent_config = await load_agent_config(agent_id)
             active = agent_config.active_model
             if active and active.provider_id and active.model:
                 current_model_id = f"{active.provider_id}:{active.model}"
@@ -1544,7 +1544,7 @@ class QwenPawACPAgent(Agent):
         )
 
         agent_id = self._resolve_agent_id()
-        agent_config = load_agent_config(agent_id)
+        agent_config = await load_agent_config(agent_id)
         agent_config.active_model = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,

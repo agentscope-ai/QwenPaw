@@ -96,10 +96,10 @@ class ProjectDirectoryUpdate(BaseModel):
 
 async def _project_directory_response(chat: ChatSpec, workspace) -> dict:
     """Build the effective Session project directory response."""
-    from ...config.config import load_agent_config
+    from ...config.config import _load_agent_config
 
     def _build() -> dict:
-        agent_config = load_agent_config(workspace.agent_id)
+        agent_config = _load_agent_config(workspace.agent_id)
         project_dir, source = resolve_effective_project_dir(
             workspace.workspace_dir,
             agent_project_dir=agent_config.project_dir,

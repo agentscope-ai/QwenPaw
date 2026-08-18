@@ -35,7 +35,7 @@ from .config import (
     HeartbeatConfig,
     LastApiConfig,
     LastDispatchConfig,
-    load_agent_config,
+    _load_agent_config,
     migrate_channel_display_fields,
 )
 
@@ -725,7 +725,7 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
     """
     if agent_id is not None:
         try:
-            agent_config = load_agent_config(agent_id)
+            agent_config = _load_agent_config(agent_id)
             hb = agent_config.heartbeat
             return hb if hb is not None else HeartbeatConfig()
         except Exception:
