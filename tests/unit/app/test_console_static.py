@@ -98,7 +98,8 @@ async def test_compresses_text_assets_and_sets_immutable_cache(
 
 
 @pytest.mark.parametrize(
-    "accept_encoding", [b"GZip;q=1, identity;q=0", b"*;q=1, identity;q=0"]
+    "accept_encoding",
+    [b"GZip;q=1, identity;q=0", b"*;q=1, identity;q=0"],
 )
 async def test_normalizes_accepted_gzip_codings(
     assets: tuple[ConsoleAssetFiles, bytes, bytes],
