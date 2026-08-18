@@ -14,7 +14,6 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from ..__version__ import __version__
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
@@ -43,6 +42,7 @@ from .auth import (
     auto_register_from_env,
     check_proxy_config_sanity,
 )
+from .console_static import ConsoleAssetFiles
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
@@ -887,7 +887,7 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     if _assets_dir.is_dir():
         app.mount(
             "/assets",
-            StaticFiles(directory=str(_assets_dir)),
+            ConsoleAssetFiles(directory=str(_assets_dir)),
             name="assets",
         )
 
