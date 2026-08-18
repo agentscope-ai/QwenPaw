@@ -118,18 +118,28 @@ async def _initialize_single_proactive_agent(
 
     model, formatter = create_model_and_formatter(agent_id=agent_config.id)
 
+    # This path constructs ``FunctionTool`` directly, bypassing the guarded
+    # wrappers that normally resolve PEP 563 annotations, so apply the fix
+    # here too or agentscope's schema extraction can fail (QwenPaw #7082).
+    from ....utils.tool_annotations import resolve_tool_annotations
+
     tools = [
-        FunctionTool(web_search),
-        FunctionTool(web_fetch),
-        FunctionTool(read_file),
-        FunctionTool(execute_shell_command),
-        FunctionTool(browser),
+        FunctionTool(resolve_tool_annotations(func))
+        for func in (
+            web_search,
+            web_fetch,
+            read_file,
+            execute_shell_command,
+            browser,
+        )
     ]
 
     from ...prompt import get_active_model_supports_multimodal
 
     if get_active_model_supports_multimodal():
-        tools.append(FunctionTool(desktop_screenshot))
+        tools.append(
+            FunctionTool(resolve_tool_annotations(desktop_screenshot)),
+        )
 
     toolkit = Toolkit(tools=tools)
 
