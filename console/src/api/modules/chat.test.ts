@@ -154,6 +154,16 @@ describe("chatApi.listChats", () => {
       expect.stringContaining("channel=dingtalk"),
     );
   });
+
+  it("can exclude PawApp-owned dialogues for the main Chat surface", async () => {
+    await chatApi.listChats({
+      archived: false,
+      include_app_owned: false,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats?archived=false&include_app_owned=false",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -167,6 +177,14 @@ describe("chatApi CRUD", () => {
     await chatApi.getChat("chat/1");
     expect(request).toHaveBeenCalledWith(
       "/chats/chat%2F1",
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  it("getChat can exclude PawApp-owned dialogue history", async () => {
+    await chatApi.getChat("chat-1", { include_app_owned: false });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=false",
       expect.objectContaining({ signal: undefined }),
     );
   });
@@ -202,6 +220,48 @@ describe("chatApi CRUD", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify(["id1", "id2"]),
+      }),
+    );
+  });
+
+  it("creates and renames chat groups", async () => {
+    await chatApi.createGroup("Work");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Work" }),
+      }),
+    );
+
+    await chatApi.updateGroup("group/1", { name: "Projects" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/group%2F1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ name: "Projects" }),
+      }),
+    );
+  });
+
+  it("pins a chat group", async () => {
+    await chatApi.updateGroup("group-1", { pinned: true });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/group-1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ pinned: true }),
+      }),
+    );
+  });
+
+  it("persists the complete chat-group order", async () => {
+    await chatApi.reorderGroups(["default", "subagents"]);
+    expect(request).toHaveBeenCalledWith(
+      "/chats/groups/order",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ group_ids: ["default", "subagents"] }),
       }),
     );
   });

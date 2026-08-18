@@ -2,6 +2,7 @@
 """Tests for message_request_normalizer module."""
 
 # pylint: disable=redefined-outer-name,protected-access
+from copy import deepcopy
 import json
 
 import pytest
@@ -264,6 +265,46 @@ def test_normalize_preserves_original_messages(mixed_content_message):
         supports_multimodal=False,
     )
     assert mixed_content_message.to_dict() == original_dict
+
+
+def test_normalize_strip_audio_handles_nested_tool_result():
+    msgs = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="call_1",
+                    name="media_tool",
+                    input="{}",
+                ),
+                ToolResultBlock(
+                    type="tool_result",
+                    id="call_1",
+                    name="media_tool",
+                    output=[
+                        TextBlock(text="Tool output"),
+                        _data_block("image/png", "file:///tmp/image.png"),
+                        _data_block("audio/mpeg", "file:///tmp/audio.mp3"),
+                        _data_block("video/mp4", "file:///tmp/video.mp4"),
+                    ],
+                ),
+            ],
+        ),
+    ]
+    original = [msg.model_dump(mode="json") for msg in msgs]
+    expected = deepcopy(original)
+    del expected[0]["content"][1]["output"][2]
+
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=True,
+        strip_audio=True,
+    )
+
+    assert [msg.model_dump(mode="json") for msg in msgs] == original
+    assert [msg.model_dump(mode="json") for msg in normalized] == expected
 
 
 def test_normalize_returns_new_message_instances(text_message):

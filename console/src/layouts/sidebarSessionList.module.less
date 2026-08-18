@@ -46,6 +46,41 @@
   font-size: 12px;
 }
 
+.createGroupBtn {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px dashed var(--colorBorder, rgba(43, 18, 0, 0.14));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+
+  &:hover {
+    border-color: color-mix(in srgb, #ff7f16 46%, transparent);
+    background: color-mix(in srgb, #ff7f16 6%, transparent);
+    color: #ff7f16;
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+.groupInput {
+  margin-top: 5px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
 /* Session items container */
 .scroll {
   flex: 1;
@@ -53,6 +88,18 @@
   overflow: hidden;
   padding: 0 4px 8px;
   position: relative;
+}
+
+.stickyGroupHeader {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 4px;
+  left: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.055));
+  background: color-mix(in srgb, #f9f8f4 96%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 /* Date group container */
@@ -101,11 +148,11 @@
   }
 
   .groupLabel {
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.42);
   }
 
   .groupHeader {
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.42);
 
     &:hover {
       color: rgba(255, 255, 255, 0.45);
@@ -128,6 +175,28 @@
   .searchInput {
     background: rgba(255, 255, 255, 0.06);
     border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .groupInput {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .createGroupBtn {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(255, 255, 255, 0.62);
+
+    &:hover {
+      border-color: rgba(255, 143, 50, 0.5);
+      background: rgba(255, 127, 22, 0.1);
+      color: #ff8f32;
+    }
+  }
+
+  .stickyGroupHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    background: color-mix(in srgb, #1a1a1a 96%, transparent);
   }
 }
 

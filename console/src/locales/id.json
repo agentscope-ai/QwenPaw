@@ -224,7 +224,8 @@
       "gotIt": "Mengerti"
     },
     "simpleMode": "Mode sederhana",
-    "fullMode": "Mode lengkap"
+    "fullMode": "Mode lengkap",
+    "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },
   "login": {
     "title": "Masuk ke QwenPaw",
@@ -246,6 +247,10 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Terjadwal",
+      "subagentShort": "Subagen"
+    },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"
     },
@@ -266,7 +271,7 @@
     "description": "Saya asisten yang dapat membantu menjawab pertanyaan Anda.",
     "prompt1": "Mari mulai perjalanan baru!",
     "prompt2": "Bisa jelaskan skill apa saja yang Anda miliki?",
-    "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat (\"/approve\" atau \"/deny\" saat approval)",
+    "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat",
     "longTextUploadPrompt": "Harap baca file prompt yang diunggah dan jawab berdasarkan isinya.",
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
     "commands": {
@@ -421,6 +426,7 @@
     "oauthWaitingDescription": "Silakan selesaikan otorisasi di jendela browser.",
     "oauthConnected": "Berhasil terhubung ke {{provider}}",
     "oauthFailed": "Otorisasi gagal, silakan coba lagi",
+    "oauthTimeout": "Otorisasi habis waktu, silakan coba lagi",
     "viewMore": "Lihat lebih ({{count}})"
   },
   "agent": {
@@ -1895,6 +1901,17 @@
     "executeDefault": "Jalankan alat"
   },
   "models": {
+    "discoveryOriginApi": "Terdeteksi via API",
+    "discoveryOriginCatalog": "Katalog resmi",
+    "discoveryOriginBoth": "API + katalog",
+    "availabilityAvailable": "Tersedia",
+    "availabilityPermissionDenied": "Tidak ada izin",
+    "availabilityNotFound": "Tidak ditemukan",
+    "availabilityIncompatible": "Tidak kompatibel dengan chat",
+    "availabilityRateLimited": "Dibatasi laju",
+    "availabilityTransientError": "Sementara tidak tersedia",
+    "availabilityUnverified": "Belum diverifikasi",
+    "modelAlreadyConfigured": "Sudah dikonfigurasi",
     "llmConfiguration": "Konfigurasi LLM",
     "providersTitle": "Penyedia",
     "providersDescription": "Konfigurasi API key dan endpoint untuk setiap penyedia.",
@@ -2254,6 +2271,11 @@
     "uploadConflictTitle": "File dengan nama sama ditemukan",
     "uploadConflictDescription": "File berikut sudah ada: {{files}}. Pilih cara melanjutkan.",
     "promptToggle": "Atur apakah {{name}} disertakan dalam prompt sistem",
+    "addSystemPrompt": "Tambahkan dari ruang kerja",
+    "addSystemPromptTitle": "Tambahkan file prompt sistem",
+    "addSystemPromptDescription": "Pilih file Markdown ruang kerja untuk disertakan dalam prompt sistem.",
+    "searchSystemPromptFiles": "Cari file Markdown ruang kerja",
+    "noSystemPromptCandidates": "Tidak ada file yang cocok.",
     "sourceControl": "Kontrol sumber",
     "preview": "Preview",
     "edit": "Edit",

@@ -19,6 +19,7 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator
 
+from ..exceptions import ConfigurationException
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -162,6 +163,19 @@ class Runtime:
             await self._try_save_on_cancel(ctx)
 
             async for ev in envelope.cancel_envelope():
+                yield ev
+            raise
+        except ConfigurationException as e:
+            ctx.error = e
+            logger.info(
+                "runtime: configuration required session=%s code=%s",
+                getattr(ctx, "session_id", ""),
+                e.error_code or "CONFIGURATION_REQUIRED",
+            )
+            async for ev in envelope.error_envelope(
+                e.message or str(e),
+                e.error_code or "CONFIGURATION_REQUIRED",
+            ):
                 yield ev
             raise
         except BaseException as e:

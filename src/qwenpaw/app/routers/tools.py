@@ -10,7 +10,10 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from ...config import load_config, save_config
+from ...config import load_config
+from ...config.config import AgentProfileConfig, update_agent_config_async
+from ...config.utils import mutate_config
+from ...utils.io_utils import run_sync_io
 from ..utils import schedule_agent_reload
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -90,15 +93,11 @@ def _persist_browser_experimental(config: dict[str, Any]) -> None:
     experimental = config.get("experimental")
     if not isinstance(experimental, bool):
         return
-    application_config = load_config()
-    application_config.browser.experimental = experimental
-    save_config(application_config)
-    if experimental:
-        from ...browser.runtime.managed_playwright import (
-            start_managed_chromium_download,
-        )
 
-        start_managed_chromium_download()
+    def apply_experimental(application_config: Any) -> None:
+        application_config.browser.experimental = experimental
+
+    mutate_config(apply_experimental)
 
 
 def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
@@ -322,7 +321,14 @@ async def get_tool_config(
     registry = PluginRegistry()
 
     # Get tool config for this agent
-    config = registry.get_tool_config(tool_name, workspace.agent_id) or {}
+    config = (
+        await run_sync_io(
+            registry.get_tool_config,
+            tool_name,
+            workspace.agent_id,
+        )
+        or {}
+    )
 
     # Mask sensitive fields
     plugin_id = registry.get_plugin_id_for_tool(tool_name)
@@ -387,7 +393,8 @@ async def update_tool_config(
 
     # Get plugin manifest to check for password fields
     plugin_id = registry.get_plugin_id_for_tool(tool_name)
-    config_to_save = dict(body.config)
+    requested_config = dict(body.config)
+    password_fields: set[str] = set()
 
     if plugin_id:
         manifest = registry.get_plugin_manifest(plugin_id)
@@ -410,33 +417,49 @@ async def update_tool_config(
             if config_fields is None:
                 config_fields = meta.get("config_fields", [])
 
-            # Get existing config
-            existing_config = (
-                registry.get_tool_config(
-                    tool_name,
-                    workspace.agent_id,
-                )
-                or {}
-            )
-
-            # Preserve existing password values if user sent masked value
             for field in config_fields:
                 if field.get("type") == "password":
-                    field_name = field["name"]
-                    new_value = config_to_save.get(field_name)
+                    password_fields.add(field["name"])
 
-                    # If value is "***" (masked), keep existing value
-                    if new_value == "***" and field_name in existing_config:
-                        config_to_save[field_name] = existing_config[
-                            field_name
-                        ]
+    def apply_tool_config(agent_config: AgentProfileConfig) -> None:
+        if (
+            not agent_config.tools
+            or tool_name not in agent_config.tools.builtin_tools
+        ):
+            raise ValueError(f"Tool '{tool_name}' not found in agent")
+
+        tool_config = agent_config.tools.builtin_tools[tool_name]
+        existing_config = tool_config.config or {}
+        config_to_save = dict(requested_config)
+        for field_name in password_fields:
+            if (
+                config_to_save.get(field_name) == "***"
+                and field_name in existing_config
+            ):
+                config_to_save[field_name] = existing_config[field_name]
+        tool_config.config = config_to_save
 
     # Save tool config for this agent
     try:
-        registry.set_tool_config(tool_name, workspace.agent_id, config_to_save)
+        agent_config = await update_agent_config_async(
+            workspace.agent_id,
+            apply_tool_config,
+        )
+        persisted_config = dict(
+            agent_config.tools.builtin_tools[tool_name].config,
+        )
 
         if tool_name == "browser":
-            _persist_browser_experimental(config_to_save)
+            await run_sync_io(
+                _persist_browser_experimental,
+                persisted_config,
+            )
+            if persisted_config.get("experimental") is True:
+                from ...browser.runtime.managed_playwright import (
+                    start_managed_chromium_download,
+                )
+
+                start_managed_chromium_download()
 
         # Hot reload config to apply changes without full restart
         schedule_agent_reload(request, workspace.agent_id)

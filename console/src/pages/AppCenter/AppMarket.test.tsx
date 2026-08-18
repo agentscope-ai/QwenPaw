@@ -215,14 +215,17 @@ describe("AppMarket", () => {
       plugins: [makeEntry("installable")],
       total: 1,
     });
-    hoisted.installPlugin.mockResolvedValue({ name: "installable" });
+    const installResult = { id: "installable", name: "installable" };
+    hoisted.installPlugin.mockResolvedValue(installResult);
     const onInstalled = vi.fn();
 
     render(<AppMarket onInstalled={onInstalled} />);
 
     fireEvent.click(await screen.findByText("appCenter.install"));
 
-    await waitFor(() => expect(onInstalled).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onInstalled).toHaveBeenCalledWith(installResult),
+    );
     expect(hoisted.installPlugin).toHaveBeenCalledTimes(1);
   });
 

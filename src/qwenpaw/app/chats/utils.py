@@ -623,6 +623,13 @@ def agentscope_msg_to_message(
                 )
                 current_message.add_content(new_content=text_content)
 
+            elif btype == "hint":
+                # Hint blocks are runtime/model-facing state (for example,
+                # current-time reminders). They belong in the agent context,
+                # but never in a user-visible transcript restored by either
+                # the console chat UI or a PawApp.
+                continue
+
             elif btype == "thinking":
                 if current_type != MessageType.REASONING:
                     if current_message:

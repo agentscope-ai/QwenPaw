@@ -37,6 +37,7 @@ const {
   mockDeleteChat,
   mockUpdateChat,
   mockGetSessionList,
+  mockListGroups,
   mockNavigate,
   mockGetEffectiveSessionId,
 } = vi.hoisted(() => ({
@@ -46,6 +47,32 @@ const {
   mockDeleteChat: vi.fn().mockResolvedValue(undefined),
   mockUpdateChat: vi.fn().mockResolvedValue(undefined),
   mockGetSessionList: vi.fn().mockResolvedValue([]),
+  mockListGroups: vi.fn().mockResolvedValue([
+    {
+      id: "default",
+      name: "Uncategorized",
+      order: 0,
+      kind: "default",
+      source: "chat",
+      pinned: false,
+    },
+    {
+      id: "cron",
+      name: "Scheduled tasks",
+      order: 1,
+      kind: "cron",
+      source: "cron",
+      pinned: false,
+    },
+    {
+      id: "subagents",
+      name: "Subagents",
+      order: 2,
+      kind: "subagents",
+      source: "subagent",
+      pinned: false,
+    },
+  ]),
   mockNavigate: vi.fn(),
   mockGetEffectiveSessionId: vi.fn((id: string) => id),
 }));
@@ -61,7 +88,15 @@ vi.mock("@agentscope-ai/chat", () => ({
 }));
 
 vi.mock("@/api/modules/chat", () => ({
-  chatApi: { deleteChat: mockDeleteChat, updateChat: mockUpdateChat },
+  chatApi: {
+    deleteChat: mockDeleteChat,
+    updateChat: mockUpdateChat,
+    listGroups: mockListGroups,
+    createGroup: vi.fn(),
+    updateGroup: vi.fn(),
+    reorderGroups: vi.fn(),
+    deleteGroup: vi.fn(),
+  },
   sessionApi: {
     listChats: vi.fn(),
     createChat: vi.fn(),
@@ -143,7 +178,6 @@ vi.mock("../../../../components/SessionItem", () => ({
     onClick,
     onEdit,
     onDelete,
-    onPin,
     onEditSubmit,
     onEditCancel,
   }: any) => (
@@ -154,9 +188,6 @@ vi.mock("../../../../components/SessionItem", () => ({
       </button>
       <button data-testid="delete-btn" onClick={() => onDelete?.(sessionId)}>
         delete
-      </button>
-      <button data-testid="pin-btn" onClick={() => onPin?.(sessionId)}>
-        pin
       </button>
       <button data-testid="edit-submit-btn" onClick={onEditSubmit}>
         submit
@@ -259,11 +290,7 @@ describe("ChatSessionDrawer", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
-    await user.click(
-      document
-        .querySelector('[data-icon="SparkOperateRightLine"]')!
-        .closest("button")!,
-    );
+    await user.click(screen.getByRole("button", { name: "common.close" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -337,17 +364,6 @@ describe("ChatSessionDrawer", () => {
     expect(mockUpdateChat).not.toHaveBeenCalled();
   });
 
-  it("pin toggle calls updateChat with toggled pinned state", async () => {
-    withSession({ realId: "uuid-1", pinned: false });
-    const user = userEvent.setup();
-    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByTestId("pin-btn")).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId("pin-btn"));
-    expect(mockUpdateChat).toHaveBeenCalledWith("uuid-1", { pinned: true });
-  });
-
   it("on open=true triggers session list refresh", async () => {
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await vi.waitFor(() => expect(mockGetSessionList).toHaveBeenCalled());
@@ -397,24 +413,24 @@ describe("ChatSessionDrawer", () => {
     expect(await screen.findByText("Agent B Chat")).toBeInTheDocument();
   });
 
-  it("pinned sessions sort before unpinned", async () => {
+  it("places pinned sessions at the top of their group", async () => {
     mockGetSessionList.mockResolvedValue([
       {
         id: "s1",
-        name: "Unpinned",
+        name: "Recent unpinned",
         pinned: false,
         updatedAt: new Date().toISOString(),
       },
       {
         id: "s2",
-        name: "Pinned",
+        name: "Old pinned",
         pinned: true,
-        updatedAt: new Date().toISOString(),
+        updatedAt: "2000-01-01T00:00:00.000Z",
       },
     ]);
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     const items = await screen.findAllByTestId("session-item");
-    expect(items[0]).toHaveTextContent("Pinned");
-    expect(items[1]).toHaveTextContent("Unpinned");
+    expect(items[0]).toHaveTextContent("Old pinned");
+    expect(items[1]).toHaveTextContent("Recent unpinned");
   });
 });

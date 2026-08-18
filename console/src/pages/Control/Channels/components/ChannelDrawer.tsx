@@ -1704,7 +1704,7 @@ export function ChannelDrawer({
             label={t("common.enabled")}
             valuePropName="checked"
           >
-            <Switch />
+            <Switch disabled={activeKey === "console"} />
           </Form.Item>
 
           {activeKey !== "voice" && (
