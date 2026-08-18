@@ -8,7 +8,7 @@ Tests cover:
 
 import pytest
 
-from .conftest import app_server
+from conftest import app_server
 
 
 @pytest.mark.integration
@@ -26,7 +26,8 @@ async def test_project_directory_set_invalid():
     """Test POST /api/workspace/project-directory with invalid path."""
     async with app_server() as server:
         response = await server.post(
-            "/api/workspace/project-directory", json={"path": "/no/such/path"}
+            "/api/workspace/project-directory",
+            json={"path": "/no/such/path"},
         )
         # Should return 400 or 404 for invalid path
         assert response.status_code in [400, 404]
@@ -58,7 +59,8 @@ async def test_project_directory_set_relative_path():
     """Test POST /api/workspace/project-directory with relative path."""
     async with app_server() as server:
         response = await server.post(
-            "/api/workspace/project-directory", json={"path": "./rel"}
+            "/api/workspace/project-directory",
+            json={"path": "./rel"},
         )
         # Should handle relative paths appropriately
         assert response.status_code in [200, 400]

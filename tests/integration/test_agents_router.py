@@ -10,7 +10,7 @@ Tests cover:
 
 import pytest
 
-from .conftest import app_server
+from conftest import app_server
 
 
 @pytest.mark.integration

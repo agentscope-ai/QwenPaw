@@ -9,7 +9,7 @@ Tests cover:
 
 import pytest
 
-from .conftest import app_server
+from conftest import app_server
 
 
 @pytest.mark.integration
@@ -37,7 +37,8 @@ async def test_local_models_download_invalid():
     """Test POST /api/local-models/download with invalid model."""
     async with app_server() as server:
         response = await server.post(
-            "/api/local-models/download", json={"model_id": "no-such-model"}
+            "/api/local-models/download",
+            json={"model_id": "no-such-model"},
         )
         # Should fail gracefully
         assert response.status_code in [400, 404, 422]
