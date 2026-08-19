@@ -2,6 +2,7 @@
 """Authorization tests for QwenPaw Hub control-plane APIs."""
 
 from collections.abc import AsyncIterator, Mapping
+import gzip
 from pathlib import Path
 from urllib.parse import urlsplit
 from unittest.mock import patch
@@ -138,6 +139,44 @@ def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
         assert response.status_code == 200
         assert response.json() == {"version": __version__}
         assert client.app.state.runtime_service.registry.list() == []
+
+
+def test_console_assets_use_precompression_and_immutable_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    static_dir = tmp_path / "console"
+    assets_dir = static_dir / "assets"
+    assets_dir.mkdir(parents=True)
+    source = b"const product = 'QwenPaw';" * 100
+    asset = assets_dir / "index-contenthash.js"
+    asset.write_bytes(source)
+    asset.with_suffix(".js.br").write_bytes(b"brotli-placeholder")
+    asset.with_suffix(".js.gz").write_bytes(gzip.compress(source))
+    (static_dir / "index.html").write_text(
+        "<div id='root'></div>",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QWENPAW_CONSOLE_STATIC_DIR", str(static_dir))
+
+    with _client(tmp_path) as client:
+        compressed = client.get(
+            "/assets/index-contenthash.js",
+            headers={"Accept-Encoding": "br;q=0, gzip;q=1"},
+        )
+        identity = client.get(
+            "/assets/index-contenthash.js",
+            headers={"Accept-Encoding": "identity"},
+        )
+
+    assert compressed.status_code == 200
+    assert compressed.content == source
+    assert compressed.headers["content-encoding"] == "gzip"
+    assert compressed.headers["vary"] == "Accept-Encoding"
+    assert "immutable" in compressed.headers["cache-control"]
+    assert identity.status_code == 200
+    assert identity.content == source
+    assert "content-encoding" not in identity.headers
 
 
 def test_public_bind_requires_initialized_admin(

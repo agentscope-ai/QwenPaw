@@ -1,16 +1,30 @@
-import { authApi } from "../api/modules/auth";
+import { authApi, type AuthStatusResponse } from "../api/modules/auth";
 import { clearAuthToken, getApiToken, getApiUrl } from "../api/config";
 
 export type AuthGateState = "ok" | "auth-required";
 export type BackendMode = "standard" | "hub";
 
-export async function resolveBackendMode(): Promise<BackendMode> {
-  const status = await authApi.getStatus();
-  return status.mode === "hub" ? "hub" : "standard";
+export interface BackendInfo {
+  mode: BackendMode;
+  authStatus: AuthStatusResponse;
 }
 
-export async function resolveAuthGate(): Promise<AuthGateState> {
-  const status = await authApi.getStatus();
+export async function resolveBackendInfo(): Promise<BackendInfo> {
+  const authStatus = await authApi.getStatus();
+  return {
+    mode: authStatus.mode === "hub" ? "hub" : "standard",
+    authStatus,
+  };
+}
+
+export async function resolveBackendMode(): Promise<BackendMode> {
+  return (await resolveBackendInfo()).mode;
+}
+
+export async function resolveAuthGate(
+  knownStatus?: AuthStatusResponse,
+): Promise<AuthGateState> {
+  const status = knownStatus ?? (await authApi.getStatus());
   if (!status.enabled) {
     return "ok";
   }

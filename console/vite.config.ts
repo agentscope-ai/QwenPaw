@@ -152,6 +152,23 @@ export default defineConfig(({ command, mode }) => {
             ) {
               return "react-vendor";
             }
+            // Keep route-heavy dependencies separately cacheable instead of
+            // merging them into the shared UI chunk.
+            if (id.includes("node_modules/@agentscope-ai/chat/")) {
+              return "chat-vendor";
+            }
+            if (
+              id.includes("node_modules/@ant-design/plots/") ||
+              id.includes("node_modules/@antv/")
+            ) {
+              return "charts-vendor";
+            }
+            if (
+              id.includes("node_modules/monaco-editor/") ||
+              id.includes("node_modules/@monaco-editor/")
+            ) {
+              return "editor-vendor";
+            }
             // Ant Design + AgentScope design system (merged to avoid circular deps)
             if (
               id.includes("node_modules/antd/") ||

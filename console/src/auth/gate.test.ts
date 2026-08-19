@@ -13,6 +13,7 @@ describe("authentication gate", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("detects Hub and standard backends explicitly", async () => {
@@ -42,6 +43,17 @@ describe("authentication gate", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     await expect(resolveAuthGate()).resolves.toBe("auth-required");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("reuses backend status during startup authentication", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      resolveAuthGate({ enabled: true, has_users: true, mode: "hub" }),
+    ).resolves.toBe("auth-required");
+
+    expect(getStatus).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

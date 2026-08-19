@@ -24,7 +24,7 @@ import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
-import { PluginProvider, usePlugins } from "./plugins/PluginContext";
+import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
@@ -49,9 +49,10 @@ import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
 import BackendLoadingPage from "./tauri/BackendLoadingPage";
 import {
   resolveAuthGate,
-  resolveBackendMode,
-  type BackendMode,
+  resolveBackendInfo,
+  type BackendInfo,
 } from "./auth/gate";
+import type { AuthStatusResponse } from "./api/modules/auth";
 import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
@@ -84,9 +85,11 @@ const GlobalStyle = createGlobalStyle`
 
 function AuthGuard({
   children,
+  authStatus,
   useHardRedirect = false,
 }: {
   children: React.ReactNode;
+  authStatus: AuthStatusResponse;
   useHardRedirect?: boolean;
 }) {
   const [status, setStatus] = useState<
@@ -99,7 +102,7 @@ function AuthGuard({
     let cancelled = false;
     setStatus("loading");
     setErrorMessage("");
-    resolveAuthGate()
+    resolveAuthGate(authStatus)
       .then((nextStatus) => {
         if (!cancelled) setStatus(nextStatus);
       })
@@ -113,9 +116,11 @@ function AuthGuard({
     return () => {
       cancelled = true;
     };
-  }, [retryKey]);
+  }, [authStatus, retryKey]);
 
-  if (status === "loading") return null;
+  if (status === "loading") {
+    return <BackendLoadingPage status="checking" elapsed={0} totalSec={1} />;
+  }
   if (status === "error") {
     return (
       <BackendLoadingPage
@@ -197,11 +202,11 @@ function RuntimeAvailabilityGuard({
   );
 }
 
-function AppInner({ hubMode = false }: { hubMode?: boolean }) {
+function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
+  const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
-  const { loading: pluginsLoading } = usePlugins();
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
@@ -259,18 +264,13 @@ function AppInner({ hubMode = false }: { hubMode?: boolean }) {
     return interceptBlankLinkClicks();
   }, []);
 
-  // Wait for plugins to load before rendering routes that might be patched
-  if (pluginsLoading) {
-    return null;
-  }
-
   const osActive = isOsPath(window.location.pathname);
 
   // The Desktop OS shell renders OUTSIDE any Router: each window supplies its
   // own MemoryRouter (WindowRouter.tsx) and React Router forbids nesting a
   // <Router> inside another. The classic browser layout keeps its BrowserRouter.
   const routedContent = osActive ? (
-    <AuthGuard useHardRedirect>
+    <AuthGuard authStatus={backendInfo.authStatus} useHardRedirect>
       <RuntimeAvailabilityGuard enabled={hubMode}>
         <Suspense fallback={null}>
           <DesktopOSPage />
@@ -292,7 +292,7 @@ function AppInner({ hubMode = false }: { hubMode?: boolean }) {
           path="/hub/admin"
           element={
             hubMode ? (
-              <AuthGuard>
+              <AuthGuard authStatus={backendInfo.authStatus}>
                 <Suspense fallback={null}>
                   <HubPage />
                 </Suspense>
@@ -305,7 +305,7 @@ function AppInner({ hubMode = false }: { hubMode?: boolean }) {
         <Route
           path="/*"
           element={
-            <AuthGuard>
+            <AuthGuard authStatus={backendInfo.authStatus}>
               <RuntimeAvailabilityGuard enabled={hubMode}>
                 <MainLayout />
               </RuntimeAvailabilityGuard>
@@ -356,34 +356,36 @@ function App() {
 }
 
 function BackendModeRouter() {
-  const [mode, setMode] = useState<"loading" | "error" | BackendMode>(
-    "loading",
-  );
+  const [backendInfo, setBackendInfo] = useState<
+    "loading" | "error" | BackendInfo
+  >("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setMode("loading");
+    setBackendInfo("loading");
     setErrorMessage("");
-    resolveBackendMode()
-      .then((nextMode) => {
-        if (!cancelled) setMode(nextMode);
+    resolveBackendInfo()
+      .then((nextInfo) => {
+        if (!cancelled) setBackendInfo(nextInfo);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         setErrorMessage(
           error instanceof Error ? error.message : "Backend detection failed",
         );
-        setMode("error");
+        setBackendInfo("error");
       });
     return () => {
       cancelled = true;
     };
   }, [retryKey]);
 
-  if (mode === "loading") return null;
-  if (mode === "error") {
+  if (backendInfo === "loading") {
+    return <BackendLoadingPage status="checking" elapsed={0} totalSec={1} />;
+  }
+  if (backendInfo === "error") {
     return (
       <BackendLoadingPage
         status="error"
@@ -396,7 +398,7 @@ function BackendModeRouter() {
   }
   return (
     <PluginProvider>
-      <AppInner hubMode={mode === "hub"} />
+      <AppInner backendInfo={backendInfo} />
     </PluginProvider>
   );
 }
