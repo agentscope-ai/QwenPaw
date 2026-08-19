@@ -1055,6 +1055,13 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
             raise RuntimeError("AppContainer sandbox is not initialized")
         return self._container_name
 
+    @property
+    def container_sid(self) -> str:
+        """Return the initialized AppContainer profile SID."""
+        if self._container_sid is None:
+            raise RuntimeError("AppContainer sandbox is not initialized")
+        return self._container_sid
+
     def spawn_process(
         self,
         command: Sequence[str],

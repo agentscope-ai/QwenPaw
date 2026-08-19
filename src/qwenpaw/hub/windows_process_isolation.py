@@ -92,7 +92,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         broker: subprocess.Popen[bytes] | None = None
         try:
             asyncio.run(sandbox.__aenter__())
-            broker = self._start_loopback_broker(sandbox.container_name)
+            broker = self._start_loopback_broker(sandbox.container_sid)
             boundary = _WindowsRuntimeBoundary(sandbox, broker)
             with self._lock:
                 self._boundaries[record.runtime_id] = boundary
@@ -161,13 +161,13 @@ class WindowsAppContainerIsolator(ProcessIsolator):
 
     def _start_loopback_broker(
         self,
-        container_name: str,
+        container_sid: str,
     ) -> subprocess.Popen[bytes]:
         command = [
             self._checknetisolation_path(),
             "LoopbackExempt",
             "-is",
-            f"-n={container_name}",
+            f"-p={container_sid}",
         ]
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         # pylint: disable-next=consider-using-with

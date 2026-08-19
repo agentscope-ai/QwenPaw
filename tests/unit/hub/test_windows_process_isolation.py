@@ -44,6 +44,7 @@ def _record(tmp_path: Path) -> RuntimeRecord:
 class _Broker:
     returncode = None
     stopped = False
+    requested_sid: str | None = None
 
     def poll(self) -> None:
         return None
@@ -83,6 +84,7 @@ class _Sandbox:
     def __init__(self, config: Any) -> None:
         self.config = config
         self.container_name = "qwenpaw_runtime_a"
+        self.container_sid = "S-1-15-2-123"
         self.stopped = False
         self.spawned: tuple[list[str], str, dict[str, str]] | None = None
         self.instances.append(self)
@@ -121,11 +123,12 @@ def _mock_windows_boundary(
         "qwenpaw.hub.windows_process_isolation.WindowsAppContainerSandbox",
         _Sandbox,
     )
-    monkeypatch.setattr(
-        isolator,
-        "_start_loopback_broker",
-        lambda _name: broker,
-    )
+
+    def start_broker(container_sid: str) -> _Broker:
+        broker.requested_sid = container_sid
+        return broker
+
+    monkeypatch.setattr(isolator, "_start_loopback_broker", start_broker)
     monkeypatch.setattr(isolator, "_probe", lambda *_args: None)
     return broker
 
@@ -167,6 +170,7 @@ def test_windows_boundary_uses_private_writable_mounts(
         record.log_file.parent,
     }
     assert launch == IsolatedLaunch(["python", "-m", "qwenpaw"], {})
+    assert broker.requested_sid == "S-1-15-2-123"
 
     isolator.release(record.runtime_id)
 
