@@ -16,7 +16,12 @@ from .provisioner import (
     RuntimeProvisionerAvailability,
     RuntimeProvisionerUnavailableError,
 )
-from .models import RuntimeRecord, RuntimeSpec, RuntimeState
+from .models import (
+    RuntimeRecord,
+    RuntimeSpec,
+    RuntimeStartPolicy,
+    RuntimeState,
+)
 from .registry import RuntimeRegistry
 
 _RUNTIME_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
@@ -182,6 +187,7 @@ class RuntimeService:
             replace(
                 record,
                 desired_state=RuntimeState.RUNNING,
+                start_policy=RuntimeStartPolicy.OWNER_ALLOWED,
                 state=RuntimeState.STARTING,
                 last_error=None,
             ),
@@ -201,21 +207,39 @@ class RuntimeService:
             raise
         return self.registry.save(running)
 
-    def stop(self, runtime_id: str) -> RuntimeRecord:
+    def stop(
+        self,
+        runtime_id: str,
+        *,
+        start_policy: RuntimeStartPolicy = RuntimeStartPolicy.OWNER_ALLOWED,
+    ) -> RuntimeRecord:
         """Stop a runtime through its configured provisioner."""
         with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
             requested = replace(
                 record,
                 desired_state=RuntimeState.STOPPED,
+                start_policy=start_policy,
             )
             stopped = self._provisioner(requested).stop(requested)
             return self.registry.save(stopped)
 
-    def restart(self, runtime_id: str) -> RuntimeRecord:
+    def restart(
+        self,
+        runtime_id: str,
+        *,
+        owner_initiated: bool = False,
+    ) -> RuntimeRecord:
         """Restart one runtime as an atomic lifecycle operation."""
         with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
+            if (
+                owner_initiated
+                and record.start_policy is RuntimeStartPolicy.ADMIN_ONLY
+            ):
+                raise PermissionError(
+                    "Runtime start is restricted by an administrator.",
+                )
             if record.state in {
                 RuntimeState.STARTING,
                 RuntimeState.RUNNING,
@@ -263,7 +287,6 @@ class RuntimeService:
                 self.registry.save(
                     replace(
                         record,
-                        desired_state=RuntimeState.STOPPED,
                         state=RuntimeState.STOPPED,
                         pid=None,
                     ),

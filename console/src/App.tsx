@@ -151,8 +151,10 @@ function RuntimeAvailabilityGuard({
   children: React.ReactNode;
   enabled: boolean;
 }) {
+  const { t } = useTranslation();
   const [health, setHealth] = useState<HubHealth | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [restarting, setRestarting] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
@@ -178,6 +180,21 @@ function RuntimeAvailabilityGuard({
     };
   }, [enabled, retryKey]);
 
+  const restartRuntime = async () => {
+    setRestarting(true);
+    setErrorMessage("");
+    try {
+      await hubApi.restartOwnRuntime();
+      setRetryKey((current) => current + 1);
+    } catch (error: unknown) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Runtime restart failed",
+      );
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   useEffect(() => {
     if (!enabled || !health || health.runtime_available) return;
     window.location.replace(
@@ -187,6 +204,35 @@ function RuntimeAvailabilityGuard({
 
   if (!enabled) return <>{children}</>;
   if (!health && !errorMessage) return null;
+  if (health?.runtime_desired_state === "stopped") {
+    const ownerCanStart = health.runtime_start_policy === "owner_allowed";
+    return (
+      <BackendLoadingPage
+        status="error"
+        elapsed={0}
+        totalSec={1}
+        statusText={t(
+          ownerCanStart
+            ? "account.runtimeStoppedTitle"
+            : "account.runtimeDisabledTitle",
+        )}
+        hintText={t(
+          ownerCanStart
+            ? "account.runtimeStoppedDescription"
+            : "account.runtimeDisabledDescription",
+        )}
+        errorMessage={errorMessage}
+        onRetry={restartRuntime}
+        retryLabel={
+          restarting
+            ? t("account.runtimeRestarting")
+            : t("account.runtimeRestart")
+        }
+        showRetry={ownerCanStart}
+        retryDisabled={restarting}
+      />
+    );
+  }
   if (health?.runtime_available) return <>{children}</>;
 
   if (health) return null;

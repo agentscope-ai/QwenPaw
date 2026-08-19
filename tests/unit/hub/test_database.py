@@ -10,7 +10,11 @@ from qwenpaw.hub.database import (
     HubExtensionStore,
     initialize_hub_database,
 )
-from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.models import (
+    RuntimeRecord,
+    RuntimeStartPolicy,
+    RuntimeState,
+)
 from qwenpaw.hub.registry import RuntimeRegistry
 
 
@@ -122,3 +126,35 @@ def test_runtime_revision_rejects_lost_updates(tmp_path: Path) -> None:
     assert updated.revision == 2
     with pytest.raises(RuntimeError, match="changed concurrently"):
         registry.save(stale)
+
+
+def test_runtime_config_defaults_existing_records_to_owner_allowed(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.db"
+    registry = RuntimeRegistry(database)
+    registry.create(
+        RuntimeRecord(
+            runtime_id="runtime-a",
+            tenant_id="tenant-a",
+            owner_user_id="user-a",
+            provisioner="local",
+            host="127.0.0.1",
+            port=8001,
+            state=RuntimeState.STOPPED,
+            working_dir=tmp_path / "working",
+            secret_dir=tmp_path / "secrets",
+            backup_dir=tmp_path / "backups",
+            log_file=tmp_path / "runtime.log",
+        ),
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE runtimes SET config_json = ? WHERE runtime_id = ?",
+            ('{"schema_version":1}', "runtime-a"),
+        )
+
+    loaded = registry.get("runtime-a")
+
+    assert loaded is not None
+    assert loaded.start_policy is RuntimeStartPolicy.OWNER_ALLOWED

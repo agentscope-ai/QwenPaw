@@ -3457,7 +3457,9 @@
       "useDarkTheme": "Use dark theme",
       "signOut": "Sign out",
       "start": "Start",
-      "stop": "Stop"
+      "stop": "Stop",
+      "disable": "Disable",
+      "enableAndStart": "Enable and start"
     },
     "roles": {
       "admin": "Administrator",
@@ -3473,6 +3475,10 @@
       "running": "Running",
       "stopped": "Stopped",
       "failed": "Failed"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "Owner can restart",
+      "admin_only": "Administrator locked"
     },
     "errors": {
       "actionFailed": "Action failed",
@@ -3519,6 +3525,8 @@
       "tenant": "Tenant",
       "removeTitle": "Remove {{id}}?",
       "removeDescription": "Registration is removed; runtime data is retained.",
+      "disableTitle": "Disable {{id}}?",
+      "disableDescription": "The process will stop and the owner cannot restart it until an administrator enables it.",
       "emptyTitle": "No runtimes yet",
       "emptyDescription": "Create the first isolated local QwenPaw runtime."
     },
@@ -3604,6 +3612,7 @@
         "create": "Created runtime",
         "start": "Started runtime",
         "stop": "Stopped runtime",
+        "disable": "Disabled runtime",
         "delete": "Deleted runtime"
       },
       "user": {
@@ -3699,8 +3708,13 @@
     "runtimeRestartConfirmTitle": "Restart your runtime?",
     "runtimeRestartConfirmDescription": "Running tasks will be interrupted while the runtime starts again.",
     "runtimeRestart": "Restart runtime",
+    "runtimeRestarting": "Restarting runtime...",
     "runtimeRestartSuccess": "Runtime restarted",
-    "runtimeRestartFailed": "Failed to restart runtime"
+    "runtimeRestartFailed": "Failed to restart runtime",
+    "runtimeStoppedTitle": "Your runtime is stopped",
+    "runtimeStoppedDescription": "An administrator stopped the process. Restart it when you are ready to continue.",
+    "runtimeDisabledTitle": "Your runtime is disabled",
+    "runtimeDisabledDescription": "An administrator has blocked this runtime from starting. Contact an administrator to restore access."
   },
   "approval": {
     "title": "Security Approval Required",

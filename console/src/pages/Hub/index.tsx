@@ -33,6 +33,7 @@ import {
   RefreshCw,
   ScrollText,
   Search,
+  ShieldBan,
   Sun,
   Trash2,
   UserPlus,
@@ -271,12 +272,13 @@ export default function HubPage() {
 
   const runRuntimeAction = async (
     runtimeId: string,
-    action: "start" | "stop" | "delete",
+    action: "start" | "stop" | "disable" | "delete",
   ) => {
     setBusyId(runtimeId);
     try {
       if (action === "start") await hubApi.startRuntime(runtimeId);
       if (action === "stop") await hubApi.stopRuntime(runtimeId);
+      if (action === "disable") await hubApi.disableRuntime(runtimeId);
       if (action === "delete") await hubApi.deleteRuntime(runtimeId);
       await loadRuntimes(runtimes.page);
     } catch (error) {
@@ -584,9 +586,24 @@ export default function HubPage() {
                                 />
                               </td>
                               <td>
-                                <Tag color={STATE_COLORS[runtime.state]}>
-                                  {t(`hub.runtimeStates.${runtime.state}`)}
-                                </Tag>
+                                <div className={styles.runtimeStateStack}>
+                                  <Tag color={STATE_COLORS[runtime.state]}>
+                                    {t(`hub.runtimeStates.${runtime.state}`)}
+                                  </Tag>
+                                  {runtime.desired_state === "stopped" && (
+                                    <Tag
+                                      color={
+                                        runtime.start_policy === "admin_only"
+                                          ? "error"
+                                          : "warning"
+                                      }
+                                    >
+                                      {t(
+                                        `hub.runtimePolicies.${runtime.start_policy}`,
+                                      )}
+                                    </Tag>
+                                  )}
+                                </div>
                               </td>
                               <td>
                                 <EntityCell
@@ -612,36 +629,70 @@ export default function HubPage() {
                               </td>
                               <td>
                                 <div className={styles.rowActions}>
-                                  {runtime.state === "running" ? (
-                                    <Button
-                                      size="small"
-                                      icon={<CircleStop size={14} />}
-                                      loading={busyId === runtime.runtime_id}
-                                      onClick={() =>
-                                        runRuntimeAction(
-                                          runtime.runtime_id,
-                                          "stop",
-                                        )
-                                      }
-                                    >
-                                      {t("hub.actions.stop")}
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      size="small"
-                                      icon={<Play size={14} />}
-                                      disabled={!runtimeAvailable}
-                                      loading={busyId === runtime.runtime_id}
-                                      onClick={() =>
-                                        runRuntimeAction(
-                                          runtime.runtime_id,
-                                          "start",
-                                        )
-                                      }
-                                    >
-                                      {t("hub.actions.start")}
-                                    </Button>
-                                  )}
+                                  {me?.role === "admin" &&
+                                    (runtime.state === "running" ? (
+                                      <Button
+                                        size="small"
+                                        icon={<CircleStop size={14} />}
+                                        loading={busyId === runtime.runtime_id}
+                                        onClick={() =>
+                                          runRuntimeAction(
+                                            runtime.runtime_id,
+                                            "stop",
+                                          )
+                                        }
+                                      >
+                                        {t("hub.actions.stop")}
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="small"
+                                        icon={<Play size={14} />}
+                                        disabled={!runtimeAvailable}
+                                        loading={busyId === runtime.runtime_id}
+                                        onClick={() =>
+                                          runRuntimeAction(
+                                            runtime.runtime_id,
+                                            "start",
+                                          )
+                                        }
+                                      >
+                                        {t(
+                                          runtime.start_policy === "admin_only"
+                                            ? "hub.actions.enableAndStart"
+                                            : "hub.actions.start",
+                                        )}
+                                      </Button>
+                                    ))}
+                                  {me?.role === "admin" &&
+                                    runtime.start_policy !== "admin_only" && (
+                                      <Button
+                                        size="small"
+                                        danger
+                                        icon={<ShieldBan size={14} />}
+                                        loading={busyId === runtime.runtime_id}
+                                        onClick={() =>
+                                          modal.confirm({
+                                            title: t(
+                                              "hub.runtimes.disableTitle",
+                                              { id: runtime.runtime_id },
+                                            ),
+                                            content: t(
+                                              "hub.runtimes.disableDescription",
+                                            ),
+                                            okButtonProps: { danger: true },
+                                            okText: t("hub.actions.disable"),
+                                            onOk: () =>
+                                              runRuntimeAction(
+                                                runtime.runtime_id,
+                                                "disable",
+                                              ),
+                                          })
+                                        }
+                                      >
+                                        {t("hub.actions.disable")}
+                                      </Button>
+                                    )}
                                   <Button
                                     size="small"
                                     danger

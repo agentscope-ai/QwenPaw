@@ -19,6 +19,13 @@ class RuntimeState(str, Enum):
     FAILED = "failed"
 
 
+class RuntimeStartPolicy(str, Enum):
+    """Define who may start an intentionally stopped runtime."""
+
+    OWNER_ALLOWED = "owner_allowed"
+    ADMIN_ONLY = "admin_only"
+
+
 @dataclass(frozen=True)
 class RuntimeSpec:
     """Logical runtime request independent of its deployment provisioner."""
@@ -49,6 +56,7 @@ class RuntimeRecord:
     log_file: Path
     pid: int | None = None
     desired_state: RuntimeState = RuntimeState.CREATED
+    start_policy: RuntimeStartPolicy = RuntimeStartPolicy.OWNER_ALLOWED
     runtime_type: str = "qwenpaw"
     revision: int = 1
     created_at: str = ""
@@ -62,6 +70,7 @@ class RuntimeRecord:
         data = asdict(self)
         data["state"] = self.state.value
         data["desired_state"] = self.desired_state.value
+        data["start_policy"] = self.start_policy.value
         for key in ("working_dir", "secret_dir", "backup_dir", "log_file"):
             data[key] = str(data[key])
         return data

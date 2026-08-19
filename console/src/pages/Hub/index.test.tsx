@@ -36,6 +36,10 @@ vi.mock("../../api/modules/hub", async () => {
       getRegistration: vi.fn(),
       listCredentials: vi.fn(),
       listAuditEvents: vi.fn(),
+      startRuntime: vi.fn(),
+      stopRuntime: vi.fn(),
+      disableRuntime: vi.fn(),
+      deleteRuntime: vi.fn(),
     },
   };
 });
@@ -63,6 +67,9 @@ describe("HubPage", () => {
       mode: "hub",
       default_provisioner: "local",
       runtime_available: true,
+      runtime_state: "running",
+      runtime_desired_state: "running",
+      runtime_start_policy: "owner_allowed",
       provisioner_statuses: {
         local: { available: true, security_level: "isolated-local" },
       },
@@ -138,6 +145,8 @@ describe("HubPage", () => {
           host: "127.0.0.1",
           port: 35583,
           state: "running",
+          desired_state: "running",
+          start_policy: "owner_allowed",
           endpoint: "http://127.0.0.1:35583",
           security_level: "isolated-local",
           created_at: "2026-01-01T00:00:00Z",
@@ -159,5 +168,45 @@ describe("HubPage", () => {
 
     expect(await screen.findByText("ray")).toBeInTheDocument();
     expect(screen.getByText("a4715bbaa57446b7b3b15b54")).toBeInTheDocument();
+  });
+
+  it("shows administrator-locked runtimes as enable-only", async () => {
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue({
+      items: [
+        {
+          runtime_id: "personal-disabled",
+          tenant_id: "personal-user-b",
+          owner_user_id: "user-b",
+          owner_username: "member",
+          provisioner: "local",
+          host: "127.0.0.1",
+          port: 32001,
+          state: "stopped",
+          desired_state: "stopped",
+          start_policy: "admin_only",
+          endpoint: "http://127.0.0.1:32001",
+          security_level: "isolated-local",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      page: 1,
+      page_size: 20,
+      total: 1,
+      pages: 1,
+    });
+
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+    fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
+
+    expect(
+      await screen.findByText("hub.runtimePolicies.admin_only"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("hub.actions.enableAndStart")).toBeInTheDocument();
+    expect(screen.queryByText("hub.actions.disable")).not.toBeInTheDocument();
   });
 });

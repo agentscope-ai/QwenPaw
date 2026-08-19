@@ -15,7 +15,7 @@ from .database import (
     initialize_hub_database,
     utc_now,
 )
-from .models import RuntimeRecord, RuntimeState
+from .models import RuntimeRecord, RuntimeStartPolicy, RuntimeState
 
 
 class RuntimeRegistry:
@@ -249,7 +249,13 @@ class RuntimeRegistry:
                 },
                 sort_keys=True,
             ),
-            json.dumps({"schema_version": 1}, sort_keys=True),
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "start_policy": record.start_policy.value,
+                },
+                sort_keys=True,
+            ),
             json.dumps(
                 {
                     "schema_version": 1,
@@ -277,6 +283,7 @@ class RuntimeRegistry:
     def _from_row(row: sqlite3.Row) -> RuntimeRecord:
         endpoint = json.loads(str(row["endpoint_json"]))
         storage = json.loads(str(row["storage_json"]))
+        config = json.loads(str(row["config_json"]))
         status = json.loads(str(row["status_json"]))
         metadata = json.loads(str(row["metadata_json"]))
         return RuntimeRecord(
@@ -288,6 +295,9 @@ class RuntimeRegistry:
             host=str(endpoint["host"]),
             port=int(endpoint["port"]),
             desired_state=RuntimeState(str(row["desired_state"])),
+            start_policy=RuntimeStartPolicy(
+                str(config.get("start_policy", "owner_allowed")),
+            ),
             state=RuntimeState(str(row["observed_state"])),
             pid=(
                 int(status["pid"]) if status.get("pid") is not None else None

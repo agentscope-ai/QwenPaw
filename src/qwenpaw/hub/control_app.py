@@ -36,7 +36,12 @@ from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
 from .provisioner import RuntimeProvisionerUnavailableError
 from .local_provisioner import LocalProcessRuntimeProvisioner
-from .models import RuntimeRecord, RuntimeSpec, RuntimeState
+from .models import (
+    RuntimeRecord,
+    RuntimeSpec,
+    RuntimeStartPolicy,
+    RuntimeState,
+)
 from .oauth_relay import OAuthRelayStore
 from .operations import HubOperationsStore
 from .registry import RuntimeRegistry
@@ -384,6 +389,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     async def ensure_personal_runtime(user: HubUser) -> RuntimeRecord:
         record = await personal_runtime(user)
+        if record.desired_state is RuntimeState.STOPPED:
+            detail = (
+                "Personal runtime was disabled by an administrator."
+                if record.start_policy is RuntimeStartPolicy.ADMIN_ONLY
+                else "Personal runtime is stopped. Restart it to continue."
+            )
+            raise HTTPException(status_code=423, detail=detail)
         if record.state is not RuntimeState.RUNNING:
             try:
                 record = await run_in_threadpool(
@@ -419,22 +431,29 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @app.get("/api/hub/healthz")
     async def healthz(
-        _: HubUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
+        runtime_available = runtime_service.runtime_available()
+        record = await personal_runtime(user) if runtime_available else None
         security_levels = {
             name: provisioner.security_level
             for name, provisioner in runtime_service.provisioners.items()
         }
         return {
-            "status": (
-                "ok" if runtime_service.runtime_available() else "degraded"
-            ),
+            "status": ("ok" if runtime_available else "degraded"),
             "mode": "hub",
             "security_levels": security_levels,
             "provisioners": sorted(runtime_service.provisioners),
             "provisioner_statuses": runtime_service.provisioner_statuses(),
             "default_provisioner": runtime_service.default_provisioner,
-            "runtime_available": runtime_service.runtime_available(),
+            "runtime_available": runtime_available,
+            "runtime_state": record.state.value if record else None,
+            "runtime_desired_state": (
+                record.desired_state.value if record else None
+            ),
+            "runtime_start_policy": (
+                record.start_policy.value if record else None
+            ),
         }
 
     @app.get("/api/version")
@@ -535,7 +554,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
             restarted = await run_in_threadpool(
                 runtime_service.restart,
                 record.runtime_id,
+                owner_initiated=True,
             )
+        except PermissionError as exc:
+            raise HTTPException(status_code=423, detail=str(exc)) from exc
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
@@ -812,7 +834,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     @app.post("/api/hub/runtimes/{runtime_id}/start")
     async def start_runtime(
         runtime_id: str,
-        user: HubUser = Depends(require_user),
+        user: HubUser = Depends(require_admin),
     ) -> dict[str, Any]:
         require_runtime_access(runtime_id, user)
         try:
@@ -842,7 +864,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     @app.post("/api/hub/runtimes/{runtime_id}/stop")
     async def stop_runtime(
         runtime_id: str,
-        user: HubUser = Depends(require_user),
+        user: HubUser = Depends(require_admin),
     ) -> dict[str, Any]:
         require_runtime_access(runtime_id, user)
         try:
@@ -858,6 +880,31 @@ def create_hub_app(  # pylint: disable=too-many-statements
         await record_audit(
             user,
             "runtime.stop",
+            "runtime",
+            runtime_id,
+        )
+        return await runtime_payload(record)
+
+    @app.post("/api/hub/runtimes/{runtime_id}/disable")
+    async def disable_runtime(
+        runtime_id: str,
+        user: HubUser = Depends(require_admin),
+    ) -> dict[str, Any]:
+        require_runtime_access(runtime_id, user)
+        try:
+            record = await run_in_threadpool(
+                runtime_service.stop,
+                runtime_id,
+                start_policy=RuntimeStartPolicy.ADMIN_ONLY,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Runtime not found",
+            ) from exc
+        await record_audit(
+            user,
+            "runtime.disable",
             "runtime",
             runtime_id,
         )

@@ -19,6 +19,8 @@ export interface HubRuntime {
   host: string;
   port: number;
   state: "created" | "starting" | "running" | "stopped" | "failed";
+  desired_state: "created" | "running" | "stopped";
+  start_policy: "owner_allowed" | "admin_only";
   endpoint: string;
   security_level: string;
   last_error?: string | null;
@@ -104,6 +106,9 @@ export interface HubHealth {
   mode: "hub";
   default_provisioner: string;
   runtime_available: boolean;
+  runtime_state: HubRuntime["state"] | null;
+  runtime_desired_state: HubRuntime["desired_state"] | null;
+  runtime_start_policy: HubRuntime["start_policy"] | null;
   provisioner_statuses: Record<string, HubProvisionerStatus>;
 }
 
@@ -174,6 +179,10 @@ export const hubApi = {
     }),
   stopRuntime: (runtimeId: string) =>
     request<HubRuntime>(`/hub/runtimes/${runtimeId}/stop`, {
+      method: "POST",
+    }),
+  disableRuntime: (runtimeId: string) =>
+    request<HubRuntime>(`/hub/runtimes/${runtimeId}/disable`, {
       method: "POST",
     }),
   deleteRuntime: (runtimeId: string) =>

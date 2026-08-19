@@ -3314,7 +3314,9 @@
       "useDarkTheme": "使用深色主题",
       "signOut": "退出登录",
       "start": "启动",
-      "stop": "停止"
+      "stop": "停止",
+      "disable": "禁用",
+      "enableAndStart": "启用并启动"
     },
     "roles": {
       "admin": "管理员",
@@ -3330,6 +3332,10 @@
       "running": "运行中",
       "stopped": "已停止",
       "failed": "失败"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "用户可重启",
+      "admin_only": "管理员锁定"
     },
     "errors": {
       "actionFailed": "操作失败",
@@ -3376,6 +3382,8 @@
       "tenant": "租户",
       "removeTitle": "移除 {{id}}？",
       "removeDescription": "仅移除注册记录，运行环境数据将保留。",
+      "disableTitle": "禁用 {{id}}？",
+      "disableDescription": "进程将被停止；在管理员重新启用之前，用户无法自行启动或重启。",
       "emptyTitle": "尚无运行环境",
       "emptyDescription": "创建第一个隔离的本地 QwenPaw 运行环境。"
     },
@@ -3461,6 +3469,7 @@
         "create": "创建运行实例",
         "start": "启动运行实例",
         "stop": "停止运行实例",
+        "disable": "禁用运行实例",
         "delete": "删除运行实例"
       },
       "user": {
@@ -3556,8 +3565,13 @@
     "runtimeRestartConfirmTitle": "确认重启运行环境？",
     "runtimeRestartConfirmDescription": "正在运行的任务会被中断，运行环境就绪后页面将自动刷新。",
     "runtimeRestart": "重启运行环境",
+    "runtimeRestarting": "正在重启运行环境…",
     "runtimeRestartSuccess": "运行环境已重启",
-    "runtimeRestartFailed": "运行环境重启失败"
+    "runtimeRestartFailed": "运行环境重启失败",
+    "runtimeStoppedTitle": "运行环境已停止",
+    "runtimeStoppedDescription": "管理员已停止进程。需要继续使用时，你可以手动重新启动。",
+    "runtimeDisabledTitle": "运行环境已被禁用",
+    "runtimeDisabledDescription": "管理员已禁止该运行环境启动，请联系管理员恢复使用。"
   },
   "voiceTranscription": {
     "title": "语音转写",

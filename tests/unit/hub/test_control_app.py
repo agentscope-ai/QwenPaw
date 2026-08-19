@@ -490,6 +490,83 @@ def test_authenticated_user_restarts_only_their_personal_runtime(
         assert audit.json()["items"][0]["actor_user_id"] == member.user_id
 
 
+def test_admin_stop_and_disable_have_distinct_owner_recovery(
+    tmp_path: Path,
+) -> None:
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        admin_token = _register(client, "owner")
+        auth = client.app.state.auth_service
+        member = auth.create_user(
+            username="member",
+            password="safe-password",
+        )
+        _, member_token = auth.authenticate("member", "safe-password")
+        member_headers = _headers(member_token)
+        assert (
+            client.get("/api/probe", headers=member_headers).status_code == 200
+        )
+        runtime_id = f"personal-{member.user_id[:24]}"
+
+        stopped = client.post(
+            f"/api/hub/runtimes/{runtime_id}/stop",
+            headers=_headers(admin_token),
+        )
+        health = client.get("/api/hub/healthz", headers=member_headers)
+        blocked_proxy = client.get("/api/probe", headers=member_headers)
+
+        assert stopped.status_code == 200
+        assert stopped.json()["desired_state"] == "stopped"
+        assert stopped.json()["start_policy"] == "owner_allowed"
+        assert health.json()["runtime_desired_state"] == "stopped"
+        assert health.json()["runtime_start_policy"] == "owner_allowed"
+        assert blocked_proxy.status_code == 423
+        assert (
+            client.app.state.runtime_service.get(
+                runtime_id,
+            ).state
+            is RuntimeState.STOPPED
+        )
+
+        restarted = client.post(
+            "/api/hub/me/runtime/restart",
+            headers=member_headers,
+        )
+        assert restarted.status_code == 200
+        assert restarted.json()["state"] == "running"
+
+        disabled = client.post(
+            f"/api/hub/runtimes/{runtime_id}/disable",
+            headers=_headers(admin_token),
+        )
+        denied_restart = client.post(
+            "/api/hub/me/runtime/restart",
+            headers=member_headers,
+        )
+        denied_start = client.post(
+            f"/api/hub/runtimes/{runtime_id}/start",
+            headers=member_headers,
+        )
+
+        assert disabled.status_code == 200
+        assert disabled.json()["start_policy"] == "admin_only"
+        assert denied_restart.status_code == 423
+        assert denied_start.status_code == 403
+
+        enabled = client.post(
+            f"/api/hub/runtimes/{runtime_id}/start",
+            headers=_headers(admin_token),
+        )
+        assert enabled.status_code == 200
+        assert enabled.json()["start_policy"] == "owner_allowed"
+        assert (
+            client.get("/api/probe", headers=member_headers).status_code == 200
+        )
+
+
 def test_hub_lists_use_server_side_pagination_and_filters(
     tmp_path: Path,
 ) -> None:

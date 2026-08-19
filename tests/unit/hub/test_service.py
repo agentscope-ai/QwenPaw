@@ -13,7 +13,12 @@ from qwenpaw.hub.provisioner import (
     RuntimeProvisionerAvailability,
     RuntimeProvisionerUnavailableError,
 )
-from qwenpaw.hub.models import RuntimeRecord, RuntimeSpec, RuntimeState
+from qwenpaw.hub.models import (
+    RuntimeRecord,
+    RuntimeSpec,
+    RuntimeStartPolicy,
+    RuntimeState,
+)
 from qwenpaw.hub.registry import RuntimeRegistry
 from qwenpaw.hub.service import RuntimeService
 
@@ -158,6 +163,60 @@ def test_restart_starts_failed_runtime_without_stopping(
     assert restarted.state is RuntimeState.RUNNING
     assert provisioner.start_calls == 1
     assert provisioner.stop_calls == 0
+
+
+def test_owner_can_restart_runtime_after_recoverable_stop(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, HubConfig())
+    service.create(_spec("runtime-a"))
+    service.start("runtime-a")
+
+    stopped = service.stop("runtime-a")
+    restarted = service.restart("runtime-a", owner_initiated=True)
+
+    assert stopped.desired_state is RuntimeState.STOPPED
+    assert stopped.start_policy is RuntimeStartPolicy.OWNER_ALLOWED
+    assert restarted.state is RuntimeState.RUNNING
+    assert restarted.desired_state is RuntimeState.RUNNING
+
+
+def test_owner_cannot_restart_admin_disabled_runtime(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
+    service.create(_spec("runtime-a"))
+    service.start("runtime-a")
+    disabled = service.stop(
+        "runtime-a",
+        start_policy=RuntimeStartPolicy.ADMIN_ONLY,
+    )
+
+    with pytest.raises(PermissionError, match="administrator"):
+        service.restart("runtime-a", owner_initiated=True)
+
+    persisted = service.get("runtime-a")
+    assert disabled.start_policy is RuntimeStartPolicy.ADMIN_ONLY
+    assert persisted.desired_state is RuntimeState.STOPPED
+    assert persisted.state is RuntimeState.STOPPED
+
+
+def test_close_preserves_runtime_control_intent(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
+    service.create(_spec("running"))
+    service.create(_spec("disabled"))
+    service.start("running")
+    service.stop(
+        "disabled",
+        start_policy=RuntimeStartPolicy.ADMIN_ONLY,
+    )
+
+    service.close()
+
+    running = service.get("running")
+    disabled = service.get("disabled")
+    assert running.state is RuntimeState.STOPPED
+    assert running.desired_state is RuntimeState.RUNNING
+    assert disabled.desired_state is RuntimeState.STOPPED
+    assert disabled.start_policy is RuntimeStartPolicy.ADMIN_ONLY
 
 
 def test_provisioner_policy_fails_closed_at_startup(tmp_path: Path) -> None:

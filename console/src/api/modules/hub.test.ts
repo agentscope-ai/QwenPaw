@@ -94,4 +94,13 @@ describe("hubApi pagination", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("uses a distinct endpoint for administrator disable", async () => {
+    await hubApi.disableRuntime("personal-user-a");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/hub/runtimes/personal-user-a/disable",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
 });
