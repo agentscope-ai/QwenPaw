@@ -390,6 +390,9 @@ class ResourceGovernor:
             - absolute path/* → that path (take directory part)
             - relative path → workspace_dir / relative (take directory part)
             - Pure wildcards (*, **) → skip, cannot derive a concrete path
+
+        The result is always normalised, so the same directory written two
+        ways yields one string.
         """
         p = pattern.rstrip("*").rstrip("/")
 
@@ -411,11 +414,17 @@ class ResourceGovernor:
 
         # isabs() rather than startswith("/") so a Windows path such as
         # ``C:\Users\...`` is not mistaken for a workspace-relative one.
-        if os.path.isabs(p):
-            return p
+        if not os.path.isabs(p):
+            # Relative path → resolve based on workspace
+            p = str(Path(workspace_dir) / p)
 
-        # Relative path → resolve based on workspace
-        return str(Path(workspace_dir) / p)
+        # expanduser only rewrites the leading ``~``, so on Windows it
+        # returns mixed separators (``C:\Users\x/.cache/uv``).
+        # ``compile_sandbox_config`` de-duplicates mounts by path string and
+        # relies on that to let a Write rule override a Read rule for the
+        # same directory; without normalising, the two spellings become two
+        # separate MountSpecs and the write never wins.
+        return os.path.normpath(p)
 
     # ------------------------------------------------------------------
     # Core interface 4: Dynamic rule addition

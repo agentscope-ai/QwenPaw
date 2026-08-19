@@ -92,3 +92,42 @@ class TestUnchangedBehaviour:
         assert _resolve(f"{expected}/**") == expected
         assert _resolve(f"{expected}/*") == expected
         assert _resolve(f"{expected}/") == expected
+
+
+class TestNormalisation:
+    """The result must be a normalised path, not just a correct one.
+
+    ``expanduser`` only rewrites the leading ``~``, so on Windows it hands
+    back mixed separators (``C:\\Users\\x/.cache/uv``).
+    ``compile_sandbox_config`` de-duplicates mounts by path string and uses
+    that to let a ``Write`` rule override a ``Read`` rule for the same
+    directory -- two spellings would defeat it and the write would never
+    win.
+    """
+
+    def test_separators_are_native(self):
+        resolved = _resolve("~/.cache/uv/**")
+        # On POSIX there is nothing to convert; on Windows the forward
+        # slashes expanduser left behind must be gone.
+        assert resolved == os.path.normpath(resolved)
+        if os.sep != "/":
+            assert "/" not in resolved
+
+    def test_two_spellings_of_one_directory_agree(self):
+        # Pre-normalisation these differed on Windows, producing duplicate
+        # MountSpecs for the same directory.
+        home = os.path.expanduser("~")
+        via_tilde = _resolve("~/.cache/uv/**")
+        via_absolute = _resolve(os.path.join(home, ".cache", "uv") + "/**")
+        assert via_tilde == via_absolute
+
+    def test_redundant_segments_are_collapsed(self):
+        base = os.path.join(os.sep, "data")
+        assert _resolve(f"{base}/sub/../cache/**") == os.path.join(
+            base,
+            "cache",
+        )
+
+    def test_relative_result_is_also_normalised(self):
+        resolved = _resolve("sub/./dir/**")
+        assert resolved == os.path.join(_WS, "sub", "dir")
