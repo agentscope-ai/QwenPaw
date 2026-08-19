@@ -11,6 +11,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.hub.auth import HubAuthService
@@ -537,6 +538,40 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes["items"][0]["state"] == "running"
         assert runtimes["items"][0]["owner_user_id"]
         assert runtimes["items"][0]["metadata"]["hub_default"] is True
+
+
+def test_proxy_closes_upstream_client_when_request_disconnects(
+    tmp_path: Path,
+) -> None:
+    class _DisconnectingClient:
+        closed = False
+
+        def build_request(self, *_: object, **__: object) -> object:
+            return object()
+
+        async def send(self, *_: object, **__: object) -> None:
+            raise ClientDisconnect()
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    upstream_client = _DisconnectingClient()
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        with (
+            patch(
+                "qwenpaw.hub.control_app.httpx.AsyncClient",
+                return_value=upstream_client,
+            ),
+            pytest.raises(ClientDisconnect),
+        ):
+            client.post(
+                "/api/runtime-probe",
+                content=b"partial request",
+                headers=_headers(token),
+            )
+
+    assert upstream_client.closed is True
 
 
 def test_authenticated_user_changes_only_their_password(

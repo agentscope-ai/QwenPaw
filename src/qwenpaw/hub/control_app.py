@@ -22,7 +22,6 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
@@ -1366,6 +1365,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=502,
                 detail=f"Personal QwenPaw is unavailable: {exc}",
             ) from exc
+        except BaseException:
+            await client.aclose()
+            raise
 
         excluded_response_headers = {
             "connection",
@@ -1383,15 +1385,18 @@ def create_hub_app(  # pylint: disable=too-many-statements
             if name.lower() not in excluded_response_headers
         }
 
-        async def close_upstream() -> None:
-            await upstream.aclose()
-            await client.aclose()
+        async def stream_upstream() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in upstream.aiter_raw():
+                    yield chunk
+            finally:
+                await upstream.aclose()
+                await client.aclose()
 
         return StreamingResponse(
-            upstream.aiter_raw(),
+            stream_upstream(),
             status_code=upstream.status_code,
             headers=response_headers,
-            background=BackgroundTask(close_upstream),
         )
 
     static_dir = _resolve_console_static_dir()
