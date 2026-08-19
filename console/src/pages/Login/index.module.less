@@ -48,18 +48,32 @@
   font-weight: 600;
 }
 
-.disclaimerLinks {
+.hubLinks {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid rgba(41, 24, 13, 0.09);
+
+  > span {
+    width: 1px;
+    height: 12px;
+    background: rgba(41, 24, 13, 0.14);
+  }
 
   a {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    color: #9b4b13;
-    font-size: 11px;
+    gap: 6px;
+    color: #776c64;
+    font-size: 12px;
+    transition: color 160ms ease;
+
+    &:hover {
+      color: #d95300;
+    }
   }
 }
 
@@ -74,9 +88,24 @@
 }
 
 :global(html.dark-mode) .disclaimerHeading,
-:global(html.dark-mode) .disclaimerLinks a,
 :global(html.dark-mode) .consentText button {
   color: #ff9d56;
+}
+
+:global(html.dark-mode) .hubLinks {
+  border-top-color: rgba(255, 255, 255, 0.09);
+
+  > span {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  a {
+    color: rgba(255, 255, 255, 0.48);
+
+    &:hover {
+      color: #ff9d56;
+    }
+  }
 }
 
 .termsModal {

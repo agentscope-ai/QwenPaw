@@ -56,6 +56,12 @@ describe("LoginPage", () => {
     expect(screen.getByText("login.hubDisclaimerPoint1")).toBeInTheDocument();
     expect(screen.getByText("login.hubDisclaimerPoint2")).toBeInTheDocument();
     expect(screen.getByText("login.hubDisclaimerPoint3")).toBeInTheDocument();
+    const disclaimer = screen.getByText("login.hubDisclaimerTitle")
+      .parentElement?.parentElement;
+    expect(disclaimer?.querySelector("a")).toBeNull();
+    expect(
+      screen.getByRole("navigation", { name: "login.hubLinks" }),
+    ).toContainElement(screen.getByRole("link", { name: /GitHub/ }));
     const submit = screen.getByRole("button", { name: "login.submit" });
     expect(submit).toBeDisabled();
 

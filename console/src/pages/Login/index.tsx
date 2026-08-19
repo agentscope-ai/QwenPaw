@@ -236,24 +236,6 @@ export default function LoginPage() {
                   {t("login.hubTerms")}
                 </button>
               </span>
-              <div className={styles.disclaimerLinks}>
-                <a
-                  href="https://github.com/agentscope-ai/QwenPaw"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Github size={13} aria-hidden="true" />
-                  GitHub
-                </a>
-                <a
-                  href="https://qwenpaw.agentscope.io/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Globe2 size={13} aria-hidden="true" />
-                  {t("login.officialWebsite")}
-                </a>
-              </div>
             </div>
           )}
 
@@ -279,6 +261,27 @@ export default function LoginPage() {
           >
             {isRegister ? t("login.returnToSignIn") : t("login.createAccount")}
           </Button>
+        )}
+        {isHub && (
+          <nav className={styles.hubLinks} aria-label={t("login.hubLinks")}>
+            <a
+              href="https://github.com/agentscope-ai/QwenPaw"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Github size={14} strokeWidth={1.8} aria-hidden="true" />
+              GitHub
+            </a>
+            <span aria-hidden="true" />
+            <a
+              href="https://qwenpaw.agentscope.io/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Globe2 size={14} strokeWidth={1.8} aria-hidden="true" />
+              {t("login.officialWebsite")}
+            </a>
+          </nav>
         )}
       </div>
       {isHub && (
