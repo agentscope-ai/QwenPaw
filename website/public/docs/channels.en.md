@@ -914,12 +914,12 @@ Find `channels.matrix` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
 
 **Matrix-specific fields:**
 
-| Field                     | Type   | Default         | Description                                                                                              |
-| ------------------------- | ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `homeserver`              | string | `""` (required) | Matrix server address (e.g., `https://matrix.org`)                                                       |
-| `user_id`                 | string | `""` (required) | Bot User ID (e.g., `@mybot:matrix.org`)                                                                  |
-| `access_token`            | string | `""` (required) | Bot access token (starts with `syt_`)                                                                    |
-| `share_session_in_group`  | bool   | `true`          | If `true`, all members in a group room share one session; if `false`, each member gets an independent session |
+| Field                    | Type   | Default         | Description                                                                                                   |
+| ------------------------ | ------ | --------------- | ------------------------------------------------------------------------------------------------------------- |
+| `homeserver`             | string | `""` (required) | Matrix server address (e.g., `https://matrix.org`)                                                            |
+| `user_id`                | string | `""` (required) | Bot User ID (e.g., `@mybot:matrix.org`)                                                                       |
+| `access_token`           | string | `""` (required) | Bot access token (starts with `syt_`)                                                                         |
+| `share_session_in_group` | bool   | `true`          | If `true`, all members in a group room share one session; if `false`, each member gets an independent session |
 
 Save the file; the channel will reload automatically if QwenPaw is already running.
 

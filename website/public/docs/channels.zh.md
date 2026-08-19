@@ -912,12 +912,12 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
 **Matrix 专属字段说明：**
 
-| 字段                      | 类型   | 默认值       | 说明                                                                 |
-| ------------------------- | ------ | ------------ | -------------------------------------------------------------------- |
-| `homeserver`              | string | `""`（必填） | Matrix 服务器地址（如 `https://matrix.org`）                          |
-| `user_id`                 | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）                              |
-| `access_token`            | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）                               |
-| `share_session_in_group`  | bool   | `true`       | 为 `true` 时群聊所有成员共享一个会话；为 `false` 时每个成员拥有独立会话 |
+| 字段                     | 类型   | 默认值       | 说明                                                                    |
+| ------------------------ | ------ | ------------ | ----------------------------------------------------------------------- |
+| `homeserver`             | string | `""`（必填） | Matrix 服务器地址（如 `https://matrix.org`）                            |
+| `user_id`                | string | `""`（必填） | 机器人 User ID（如 `@mybot:matrix.org`）                                |
+| `access_token`           | string | `""`（必填） | 机器人的 Access Token（以 `syt_` 开头）                                 |
+| `share_session_in_group` | bool   | `true`       | 为 `true` 时群聊所有成员共享一个会话；为 `false` 时每个成员拥有独立会话 |
 
 保存后，若 QwenPaw 已在运行，频道会自动重载。
 
