@@ -39,11 +39,11 @@ from qwenpaw.agents.tools.shell import (
     _is_cmd,
     _is_dangerous_self_kill,
     _is_powershell,
-    _PosixTempOutputs,
     _open_temp_output,
     _open_windows_temp_output,
-    _read_temp_file,
+    _PosixTempOutputs,
     _read_output_snapshot,
+    _read_temp_file,
     _read_temp_output,
     _sanitize_win_cmd,
     _shell_basename,
@@ -2042,6 +2042,10 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
         patch(
             "qwenpaw.agents.tools.shell.subprocess.Popen",
             return_value=proc,
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell._create_job_object_win32",
+            return_value=None,
         ),
         patch(
             "qwenpaw.agents.tools.shell._kill_process_tree_win32",
