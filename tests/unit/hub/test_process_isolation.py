@@ -59,6 +59,70 @@ class _RecordingIsolator(ProcessIsolator):
         )
 
 
+class _WindowsRecordingIsolator(_RecordingIsolator):
+    name = "windows-appcontainer"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.command: list[str] = []
+        self.process = _RuntimeProcess()
+
+    def prepare(
+        self,
+        record: RuntimeRecord,
+        command: Sequence[str],
+        environment: Mapping[str, str],
+    ) -> IsolatedLaunch:
+        del record
+        self.called = True
+        self.command = list(command)
+        return IsolatedLaunch(list(command), dict(environment))
+
+    def launch(self, *args, **kwargs) -> "_RuntimeProcess":
+        del args, kwargs
+        return self.process
+
+
+class _RuntimeProcess:
+    pid = 12345
+
+    def __init__(self) -> None:
+        self.running = True
+
+    def poll(self) -> int | None:
+        return None if self.running else 0
+
+    def terminate(self) -> None:
+        self.running = False
+
+    def kill(self) -> None:
+        self.running = False
+
+    def wait(self, timeout: float | None = None) -> int:
+        del timeout
+        self.running = False
+        return 0
+
+
+class _TunnelBroker:
+    instances: list["_TunnelBroker"] = []
+
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+        self.control_port = 9100
+        self.token = "tunnel-token"
+        self.started = False
+        self.closed = False
+        self.instances.append(self)
+
+    def start(self) -> None:
+        self.started = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def test_unsupported_platform_fails_closed(tmp_path: Path) -> None:
     isolator = UnsupportedProcessIsolator("required isolation unavailable")
 
@@ -208,6 +272,46 @@ def test_provisioner_never_bypasses_injected_isolator(tmp_path: Path) -> None:
     isolator.prepare(record, ["python"], environment)
 
     assert isolator.called is True
+
+
+def test_windows_runtime_uses_outbound_reverse_tunnel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _TunnelBroker.instances.clear()
+    isolator = _WindowsRecordingIsolator()
+    provisioner = LocalProcessRuntimeProvisioner(isolator=isolator)
+    monkeypatch.setattr(
+        "qwenpaw.hub.local_provisioner.WindowsReverseTunnelBroker",
+        _TunnelBroker,
+    )
+    monkeypatch.setattr(provisioner, "_wait_until_ready", lambda *_: None)
+
+    started = provisioner.start(
+        _record(tmp_path),
+        {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "secret"},
+    )
+
+    command = isolator.command
+    separator = command.index("--")
+    assert command[command.index("-m") + 1] == (
+        "qwenpaw.hub.windows_runtime_bridge"
+    )
+    assert command[command.index("--control-port") + 1] == "9100"
+    assert command[command.index("--token") + 1] == "tunnel-token"
+    assert command[separator + 1 : separator + 4] == [
+        sys.executable,
+        "-m",
+        "qwenpaw",
+    ]
+    assert command[command.index("--host", separator) + 1] == "127.0.0.1"
+    assert started.port == 9001
+    assert _TunnelBroker.instances[0].started is True
+
+    isolator.process.running = False
+    provisioner.close()
+
+    assert _TunnelBroker.instances[0].closed is True
 
 
 def test_local_readiness_ignores_optional_integration_health(

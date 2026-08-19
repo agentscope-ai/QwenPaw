@@ -26,6 +26,7 @@ from .process_isolation import (
     ProcessIsolator,
     platform_process_isolator,
 )
+from .windows_reverse_tunnel import WindowsReverseTunnelBroker
 
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 10.0
@@ -62,6 +63,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             self.security_level = "isolated-local-windows-appcontainer"
         self._processes: dict[str, ManagedProcess] = {}
         self._log_handles: dict[str, IO[str]] = {}
+        self._windows_tunnels: dict[str, WindowsReverseTunnelBroker] = {}
         self._launcher = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="qwenpaw-runtime-launcher",
@@ -149,21 +151,41 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             encoding="utf-8",
             buffering=1,
         )
-        bind_host = (
-            "0.0.0.0"
-            if self._isolator.name == "windows-appcontainer"
-            else record.host
-        )
         command = [
             sys.executable,
             "-m",
             "qwenpaw",
             "app",
             "--host",
-            bind_host,
+            record.host,
             "--port",
             str(port),
         ]
+        tunnel: WindowsReverseTunnelBroker | None = None
+        if self._isolator.name == "windows-appcontainer":
+            internal_port = allocate_loopback_port()
+            tunnel = WindowsReverseTunnelBroker(record.host, port)
+            tunnel.start()
+            command = [
+                sys.executable,
+                "-m",
+                "qwenpaw.hub.windows_runtime_bridge",
+                "--control-port",
+                str(tunnel.control_port),
+                "--token",
+                tunnel.token,
+                "--target-port",
+                str(internal_port),
+                "--",
+                sys.executable,
+                "-m",
+                "qwenpaw",
+                "app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(internal_port),
+            ]
         launch_record = replace(record, port=port)
         environment = self.runtime_environment(launch_record, credentials)
         try:
@@ -184,12 +206,16 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             # close.
             process = self._launcher.submit(launch_process).result()
         except Exception:
+            if tunnel is not None:
+                tunnel.close()
             log_handle.close()
             self._isolator.release(record.runtime_id)
             raise
 
         self._processes[record.runtime_id] = process
         self._log_handles[record.runtime_id] = log_handle
+        if tunnel is not None:
+            self._windows_tunnels[record.runtime_id] = tunnel
         starting = replace(
             launch_record,
             state=RuntimeState.STARTING,
@@ -221,6 +247,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         if process is not None and process.poll() is None:
             self._terminate(record.runtime_id, process)
         else:
+            self._close_tunnel(record.runtime_id)
             self._close_log(record.runtime_id)
             self._isolator.release(record.runtime_id)
         return replace(
@@ -253,6 +280,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 last_error=None,
             )
         self._processes.pop(record.runtime_id, None)
+        self._close_tunnel(record.runtime_id)
         self._close_log(record.runtime_id)
         self._isolator.release(record.runtime_id)
         return replace(
@@ -273,6 +301,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 self._terminate(runtime_id, process)
             else:
                 self._processes.pop(runtime_id, None)
+                self._close_tunnel(runtime_id)
                 self._close_log(runtime_id)
                 self._isolator.release(runtime_id)
         self._launcher.shutdown(wait=True)
@@ -393,6 +422,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                     pass
             process.wait(timeout=self._stop_timeout)
         self._processes.pop(runtime_id, None)
+        self._close_tunnel(runtime_id)
         self._close_log(runtime_id)
         self._isolator.release(runtime_id)
 
@@ -400,3 +430,8 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         handle = self._log_handles.pop(runtime_id, None)
         if handle is not None:
             handle.close()
+
+    def _close_tunnel(self, runtime_id: str) -> None:
+        tunnel = self._windows_tunnels.pop(runtime_id, None)
+        if tunnel is not None:
+            tunnel.close()
