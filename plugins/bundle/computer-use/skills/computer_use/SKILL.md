@@ -52,7 +52,8 @@ grant it. Do not retry until the user confirms the permission was granted.
 
 ## Read an Observation
 
-`observe_window` returns a point-in-time window observation. Start with:
+`observe_window` returns a point-in-time window observation with screenshots
+and accessibility text. Start with:
 
 - `accessibility.focused_element`: the control that owns keyboard focus.
 - `accessibility.document_text`: a capped view of the focused document; never
@@ -65,6 +66,13 @@ infer behavior from an opaque identifier alone.
 
 Indentation preserves the native accessibility hierarchy. Use parent and
 container context to distinguish controls with duplicate names.
+
+Each attached image has a `screenshots[].id`, image-local dimensions, screen
+origin, kind, and z-index. On Windows, one observation may include the selected
+window plus related menus, drop-downs, or dialogs. Treat the highest z-index
+related image as the frontmost visual surface, while keeping the original
+`window_id` as the stable target. Attached images and `screenshots` entries
+use the same order.
 
 Common markers:
 
@@ -85,6 +93,10 @@ valid for that observation.
 Every successful desktop mutation invalidates its input observation. The
 response normally installs and returns a settled replacement observation.
 Inspect it before the next action and derive fresh element IDs from it.
+Post-action replacements do not attach images. On Windows,
+`visual.related_surface_count` reports related menus, drop-downs, or dialogs
+seen during that lightweight refresh. Call `observe_window` before choosing a
+visual target or using coordinates.
 
 Interpret result fields conservatively:
 
@@ -129,14 +141,17 @@ claim that one of these actions used `CTRL`, `ALT`, `SHIFT`, or `WIN`. Use
 another supported action only when it preserves the requested semantics;
 otherwise report the limitation.
 
-Use coordinates only with the current observation. The runtime revalidates
-window geometry and the hit window before input. If it rejects a changed,
-covered, or interrupted target, observe again; never bypass the failure by
-reusing the same coordinates.
+Use coordinates only with an attached image from the current observation and
+pass that image's `screenshots[].id` as `screenshot_id`. Coordinates are
+local to that image. The runtime revalidates its geometry and the hit window
+before input. If it rejects an unknown, changed, covered, or interrupted
+target, observe again; never bypass the failure by reusing the same
+coordinates.
 
 For drag and drop, use `source_element_id` and `target_element_id` whenever
-both endpoints are observed. Use coordinates only for an endpoint without an
-accessibility element, and verify the requested state change afterward.
+both endpoints are observed. A coordinate drag uses one `screenshot_id`, so
+both endpoints must belong to that attached image. Verify the requested state
+change afterward.
 
 ### Text and Resource Editing
 
