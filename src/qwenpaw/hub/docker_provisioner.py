@@ -512,14 +512,16 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         runtime_token: str,
     ) -> str:
         deadline = time.monotonic() + self._start_timeout
-        url = f"http://{record.host}:{record.port}/api/healthz"
-        last_error = "health endpoint was not reachable"
+        url = f"http://{record.host}:{record.port}/api/version"
+        last_error = "readiness endpoint was not reachable"
         while time.monotonic() < deadline:
             try:
                 with urllib.request.urlopen(url, timeout=1) as response:
                     if 200 <= response.status < 300:
                         return "loopback_only"
-                    last_error = f"health endpoint returned {response.status}"
+                    last_error = (
+                        f"readiness endpoint returned {response.status}"
+                    )
             except urllib.error.HTTPError as exc:
                 if exc.code != 401:
                     last_error = f"unexpected anonymous status {exc.code}"
@@ -538,7 +540,8 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                             if 200 <= response.status < 300:
                                 return "token"
                             last_error = (
-                                f"health endpoint returned {response.status}"
+                                f"readiness endpoint returned "
+                                f"{response.status}"
                             )
                     except (OSError, urllib.error.URLError) as token_exc:
                         last_error = str(token_exc)

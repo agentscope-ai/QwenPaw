@@ -280,6 +280,7 @@ def test_readiness_requires_anonymous_rejection_and_token_success(
 
     assert result == "token"
     assert len(calls) == 2
+    assert str(calls[0]).endswith("/api/version")
     token_request = calls[1]
     assert isinstance(token_request, urllib.request.Request)
     assert token_request.get_header("X-qwenpaw-runtime-token") == (

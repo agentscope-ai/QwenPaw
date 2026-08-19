@@ -330,8 +330,8 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         runtime_token: str,
     ) -> None:
         deadline = time.monotonic() + self._start_timeout
-        url = f"http://{record.host}:{record.port}/api/healthz"
-        last_error = "health endpoint was not reachable"
+        url = f"http://{record.host}:{record.port}/api/version"
+        last_error = "readiness endpoint was not reachable"
         while time.monotonic() < deadline:
             exit_code = process.poll()
             if exit_code is not None:
@@ -348,7 +348,9 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 with urllib.request.urlopen(request, timeout=1) as response:
                     if response.status == 200:
                         return
-                    last_error = f"health endpoint returned {response.status}"
+                    last_error = (
+                        f"readiness endpoint returned {response.status}"
+                    )
             except (OSError, urllib.error.URLError) as exc:
                 last_error = str(exc)
             time.sleep(0.1)

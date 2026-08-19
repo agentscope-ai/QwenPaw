@@ -3,6 +3,7 @@
 
 import sys
 import threading
+import urllib.request
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -174,6 +175,51 @@ def test_provisioner_never_bypasses_injected_isolator(tmp_path: Path) -> None:
     isolator.prepare(record, ["python"], environment)
 
     assert isolator.called is True
+
+
+def test_local_readiness_ignores_optional_integration_health(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provisioner = LocalProcessRuntimeProvisioner(
+        isolator=_RecordingIsolator(),
+    )
+    requests: list[urllib.request.Request] = []
+
+    class _Process:
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    class _Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+    def urlopen(
+        request: urllib.request.Request,
+        timeout: int,
+    ) -> _Response:
+        del timeout
+        requests.append(request)
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
+    provisioner._wait_until_ready(  # pylint: disable=protected-access
+        _record(tmp_path),
+        _Process(),
+        "runtime-token",
+    )
+
+    assert requests[0].full_url == "http://127.0.0.1:9001/api/version"
+    assert requests[0].get_header("X-qwenpaw-runtime-token") == (
+        "runtime-token"
+    )
 
 
 def test_runtime_parent_thread_survives_request_worker(
