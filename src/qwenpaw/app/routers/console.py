@@ -244,6 +244,26 @@ def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
     return getattr(request_data, "reconnect", None) is True
 
 
+def _chat_registration_fields(native_payload: dict[str, Any]) -> dict:
+    """Return first-class subagent fields from an internal request."""
+    request_context = native_payload["meta"].get("request_context")
+    if not isinstance(request_context, dict):
+        return {}
+    if request_context.get("_spawn_subagent") is not True:
+        return {}
+    return {
+        "source": "subagent",
+        "parent_session_id": str(
+            request_context.get("parent_session_id") or "",
+        )
+        or None,
+        "root_session_id": str(
+            request_context.get("root_session_id") or "",
+        )
+        or None,
+    }
+
+
 def _empty_sse_response() -> StreamingResponse:
     """An SSE response that terminates immediately."""
 
@@ -325,6 +345,7 @@ async def post_console_chat(
         native_payload["sender_id"],
         native_payload["channel_id"],
         name=name,
+        **_chat_registration_fields(native_payload),
     )
     tracker = workspace.task_tracker
     is_reconnect = _is_reconnect_request(request_data)
@@ -785,6 +806,7 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         native_payload["sender_id"],
         native_payload["channel_id"],
         name=name,
+        **_chat_registration_fields(native_payload),
     )
     chat = await _apply_session_project_dir(
         workspace,

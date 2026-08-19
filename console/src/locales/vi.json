@@ -195,7 +195,8 @@
       "gotIt": "Đã hiểu"
     },
     "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ"
+    "fullMode": "Chế độ đầy đủ",
+    "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
   "theme": {
     "dark": "Tối",
@@ -252,6 +253,10 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Định kỳ",
+      "subagentShort": "Tác tử con"
+    },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
@@ -1124,6 +1129,11 @@
     "uploadConflictTitle": "Phát hiện file trùng tên",
     "uploadConflictDescription": "Các file sau đã tồn tại: {{files}}. Hãy chọn cách xử lý.",
     "promptToggle": "Bật hoặc tắt {{name}} trong prompt hệ thống",
+    "addSystemPrompt": "Thêm từ workspace",
+    "addSystemPromptTitle": "Thêm tệp prompt hệ thống",
+    "addSystemPromptDescription": "Chọn một tệp Markdown trong workspace để đưa vào prompt hệ thống.",
+    "searchSystemPromptFiles": "Tìm tệp Markdown trong workspace",
+    "noSystemPromptCandidates": "Không có tệp phù hợp.",
     "sourceControl": "Quản lý mã nguồn",
     "preview": "Preview",
     "edit": "Chỉnh sửa",

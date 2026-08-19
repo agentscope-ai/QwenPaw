@@ -16,6 +16,7 @@ import {
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { keepConsoleEnabled } from "./components/channelConfig";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
@@ -82,7 +83,10 @@ function ChannelsPage() {
     (key: ChannelKey) => {
       setActiveKey(key);
       setDrawerOpen(true);
-      const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
+      const channelConfig = keepConsoleEnabled(
+        key,
+        channels[key] || { enabled: false, bot_prefix: "" },
+      );
       // Migrate legacy allowlist policy to new access control fields
       const accessControlDm =
         channelConfig.access_control_dm ||
@@ -114,10 +118,10 @@ function ChannelsPage() {
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
-    const updatedChannel: Record<string, unknown> = {
+    const updatedChannel = keepConsoleEnabled(activeKey, {
       ...savedConfig,
       ...values,
-    };
+    });
     const proposedConfig = updatedChannel as unknown as Parameters<
       typeof api.updateChannelConfig
     >[1];

@@ -34,18 +34,18 @@ async def get_provider_manager(request: Request) -> ProviderManager:
     return request.app.state.provider_manager
 
 
-def _clear_local_runtime_provider_state(
+async def _clear_local_runtime_provider_state(
     provider_manager: ProviderManager,
 ) -> None:
     """Reset persisted provider state for the managed local runtime."""
-    provider_manager.update_provider(
+    await provider_manager.update_provider_async(
         "qwenpaw-local",
         {
             "base_url": "",
             "extra_models": [],
         },
     )
-    provider_manager.clear_active_model("qwenpaw-local")
+    await provider_manager.clear_active_model_async("qwenpaw-local")
 
 
 class ServerStatus(BaseModel):
@@ -252,7 +252,7 @@ async def start_llamacpp_download(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if server_stopped:
-        _clear_local_runtime_provider_state(provider_manager)
+        await _clear_local_runtime_provider_state(provider_manager)
     return ActionResponse(
         status="accepted",
         message="llama.cpp download started",
@@ -306,7 +306,7 @@ async def start_llamacpp_server(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        provider_manager.update_provider(
+        await provider_manager.update_provider_async(
             "qwenpaw-local",
             {
                 "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
@@ -336,7 +336,7 @@ async def stop_llamacpp_server(
 ) -> ActionResponse:
     """Stop the active llama.cpp server."""
     await model_manager.shutdown_server()
-    _clear_local_runtime_provider_state(provider_manager)
+    await _clear_local_runtime_provider_state(provider_manager)
 
     return ActionResponse(
         status="ok",
@@ -471,7 +471,7 @@ async def configure_local_model_settings(
         await local_manager.set_port(payload.port)
 
     if payload.generate_kwargs is not None:
-        provider_manager.update_provider(
+        await provider_manager.update_provider_async(
             "qwenpaw-local",
             {
                 "generate_kwargs": payload.generate_kwargs,

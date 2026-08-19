@@ -34,6 +34,7 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): void {
+  useTurnUsageStore.getState().invalidateTurn();
   const snap = extractLatestSnapshotFromCards(messages);
   const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
   if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
@@ -122,6 +123,14 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
   pinned?: boolean;
+  /** Whether the chat is archived. */
+  archived?: boolean;
+  /** ISO 8601 archive timestamp from backend. */
+  archivedAt?: string | null;
+  source?: ChatSpec["source"];
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +367,10 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
+    source: chat.source ?? "chat",
+    groupId: chat.group_id ?? null,
+    parentSessionId: chat.parent_session_id ?? null,
+    rootSessionId: chat.root_session_id ?? null,
     archived: chat.archived ?? false,
     archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
@@ -1243,9 +1256,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         a.name !== b.name ||
         a.status !== b.status ||
         a.updatedAt !== b.updatedAt ||
+        a.createdAt !== b.createdAt ||
         a.pinned !== b.pinned ||
         a.generating !== b.generating ||
-        a.realId !== b.realId
+        a.realId !== b.realId ||
+        a.sessionId !== b.sessionId ||
+        a.userId !== b.userId ||
+        a.channel !== b.channel ||
+        a.archivedAt !== b.archivedAt ||
+        a.archived !== b.archived ||
+        a.source !== b.source ||
+        a.groupId !== b.groupId ||
+        a.parentSessionId !== b.parentSessionId ||
+        a.rootSessionId !== b.rootSessionId
       ) {
         return false;
       }

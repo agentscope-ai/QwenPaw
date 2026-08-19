@@ -318,6 +318,56 @@
   min-width: 0;
 }
 
+.sourceTag {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--colorPrimaryBg, #fff2e8);
+  color: var(--colorPrimary, #ff7f16);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
+.sourceIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--colorPrimary, #ff7f16);
+}
+
+.dragHint {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.24));
+  cursor: grab;
+  opacity: 0;
+}
+
+.pinMark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--colorPrimary, #ff7f16);
+}
+
+.item:hover .dragHint,
+.dropdownOpen .dragHint {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .dragHint {
+    opacity: 0.58;
+  }
+}
+
 /* ── Pin button (drawer only) ─────────────────────────────────────────── */
 
 .pinButton {

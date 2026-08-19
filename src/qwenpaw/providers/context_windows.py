@@ -14,9 +14,11 @@ it, so what the UI reports and when compression fires can never diverge.
 Precedence:
 
 1. an explicit per-model ``max_input_length`` configured by the user;
-2. this catalog (skipped for local-serving providers such as Ollama, where
+2. context metadata auto-detected from the provider API;
+3. a positive non-default ``max_input_length`` from provider/catalog data;
+4. this pattern catalog (skipped for local-serving providers such as Ollama,
    the family's cloud window says nothing about a local ``num_ctx``);
-3. :data:`DEFAULT_CONTEXT_WINDOW` (128k).
+5. :data:`DEFAULT_CONTEXT_WINDOW` (128k).
 
 Values are deliberately CONSERVATIVE: a too-small window merely compacts
 earlier, while a too-large one lets the live context grow past what the API
@@ -125,18 +127,25 @@ def resolve_context_window(
     configured: int | None = None,
     configured_is_explicit: bool = False,
     use_catalog: bool = True,
+    auto_detected: int | None = None,
 ) -> int:
-    """Resolve a model's input-context window. The single entry point.
+    """Resolve a model's input-context window by the canonical precedence.
 
-    ``configured`` is the model's ``max_input_length`` from user/provider
-    config. A value marked by ``configured_is_explicit`` wins outright, even
-    when it is exactly :data:`DEFAULT_CONTEXT_WINDOW`. For compatibility with
-    existing provider data, any non-default configured value also wins. The
-    static catalog answers otherwise, unless ``use_catalog`` is False
-    (local-serving providers). Everything else falls back to the default.
+    Resolution order is an explicit user value, API-detected metadata, a
+    positive non-default provider value, the static pattern catalog when
+    enabled, and finally :data:`DEFAULT_CONTEXT_WINDOW`. An explicit value
+    equal to the default still wins. ``use_catalog`` should be false for
+    local-serving providers whose actual runtime context is deployment
+    specific.
     """
-    if configured is not None and (
-        configured_is_explicit or configured != DEFAULT_CONTEXT_WINDOW
+    if configured is not None and configured_is_explicit:
+        return configured
+    if auto_detected is not None and auto_detected > 0:
+        return auto_detected
+    if (
+        configured is not None
+        and configured > 0
+        and configured != DEFAULT_CONTEXT_WINDOW
     ):
         return configured
     if use_catalog:

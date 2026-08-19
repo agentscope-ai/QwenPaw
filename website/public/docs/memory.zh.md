@@ -1,142 +1,303 @@
 # 长期记忆
 
-QwenPaw 的长期记忆由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动。它不是把历史对话全部塞回上下文，而是让对话与 Daily Paper 精读持续沉淀为**可读、可编辑、可检索、相互链接的 Markdown 记忆**，逐步长成一个由用户和 Agent 共同维护的自进化个人知识库。
+QwenPaw 的长期记忆由工作区的文件系统和 [ReMe](https://github.com/agentscope-ai/ReMe) 个人知识库共同组成。其中，`MEMORY.md` 可由用户和 Agent 共同维护并按需读取；ReMe 则在后台把值得保留的对话和当前已接入的资料整理成结构化的 Markdown 记忆，逐步沉淀为个人知识库，并在需要时找回与当前问题有关的部分。
 
-默认的 `remelight` 后端会在 QwenPaw 进程内嵌入 ReMe，并复用当前 Agent 的模型完成记忆抽取和整理。整个系统沿着“捕获、沉淀、检索、发现”的闭环运行：
+简单来说，它像一位不会忘记研究过程、又能随时翻出证据的研究助理，主要做六件事：
 
-![QwenPaw 长期记忆从捕获到检索与发现的整体架构](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
+1. **记录**：从对话中留下偏好、事实、判断、理由和待验证假设；
+2. **引入**：从已接入的外部数据源补充论文等资料；
+3. **整理**：把不同日期的零散记录沉淀为长期知识；
+4. **连接**：用来源链接和 Wikilink 串起公司、产业链、结论与证据；
+5. **找回**：通过关键词、语义和知识关系找到真正相关的内容；
+6. **展开**：先返回最相关的片段，证据不足时再沿文件和链接继续阅读。
 
-对话和外部资源先成为可追溯的每日记忆，再由 Auto-Dream 整合进 `digest/`；索引与搜索只按需取回相关片段，而不是重新装载全部历史。
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从记录、整理到找回的完整循环" />
+</p>
 
-这套框架由四项核心能力组成：
+## 先理解它怎样工作
 
-| 能力               | 作用                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| **Memory as File** | 以带 frontmatter 和 `[[wikilink]]` 的 Markdown 保存记忆；文件是用户可直接管理的事实来源 |
-| **Auto-Memory**    | 从对话中提取值得长期保留的事实、偏好、决策和进展，写入当天的每日记忆                    |
-| **Daily Paper**    | 筛选论文、保存 PDF，并把三篇精读和一份每日简报写入每日记忆                              |
-| **Auto-Dream**     | 从近期每日记忆中提炼稳定知识，合并或修正长期节点，并通过 Auto-Link 建立关系             |
-| **Memory Search**  | 用 BM25 与可选的向量检索召回相关片段，经 RRF 融合后再沿 Wikilink 展开上下文             |
+假设你是一名金融分析师，正在持续研究新能源汽车产业链。几周内，你可能先后讨论过宁德时代的产品结构、动力电池价格、碳酸锂供需，以及“锂价下跌究竟利好电池厂还是会带来库存减值”这样的判断。
 
-其中 Auto-Memory 是构建个人知识库的前提：先把对话变成可靠素材；Auto-Dream 是知识库持续进化的关键：再把分散素材整合为稳定、互联的长期知识。
+这些信息如果只留在聊天记录里，很快就会被新的行情和新闻淹没。QwenPaw 的长期记忆会保留当时的研究现场，把反复验证的结论沉淀为个人知识库，并在下一次写报告时找回相关证据。
 
-这些能力都可以在控制台的长期记忆页面中统一查看和配置：
+### 1. 记忆首先是你拥有的文件
 
-![QwenPaw 长期记忆控制台总览](https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg)
-
-页面把记忆捕获、定时整理、Daily Paper、搜索与维护状态集中展示；后文会分别说明每个区域对应的运行机制。
-
----
-
-## Memory as File：记忆就是文件
-
-ReMe 遵循 **Memory as File, File as Memory**：
-
-- 对用户而言，记忆是工作区里的普通文件，可以直接阅读、修改、移动、删除、备份和迁移。
-- 对 Agent 而言，每个 Markdown 文件又是一个可分块、可索引、可链接、可持续演化的记忆节点。
-- 检索索引、图谱和缓存只是可以从源文件重建的派生状态；真正的记忆源数据仍由用户掌控。
-
-下图把这种关系浓缩为一个可读、可编辑、可追溯且相互连接的 Markdown 网络：
-
-![Markdown 文件作为可读、可编辑和相互连接的记忆节点](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
-
-文件正文承载知识，frontmatter 提供概要，Wikilink 则把长期节点与其工作流和每日证据连接起来。
-
-### 文件结构
-
-默认情况下，每个 Agent 的工作区位于 `~/.qwenpaw/workspaces/{agent_id}/`，长期记忆使用以下结构：
+QwenPaw 和 ReMe 遵循 **Memory as File, File as Memory**。记忆不是藏在不可见的数据库中，而是保存在 Agent workspace 里的普通文件：
 
 ```text
-{工作区}/
-├── memory/                              # 每日记忆：对话事实与论文精读
-│   ├── 2026-08-06.md                    # 当日索引页
-│   └── 2026-08-06/
-│       ├── project-plan.md              # Auto-Memory 创建或更新的记忆卡片
-│       ├── paper-reading.md             # Daily Paper 生成的论文精读
-│       └── interests.yaml               # Auto-Dream 生成的兴趣主题
-├── mem_session/
-│   └── dialog/
-│       └── qpsid_sha256_<64-hex>.jsonl  # Auto-Memory 的哈希来源对话
-├── digest/                              # 长期个人知识库
-│   ├── personal/                        # 用户、团队、项目事实与偏好
-│   ├── procedure/                       # 流程、runbook、可复用经验
-│   └── wiki/                            # 概念、原则、观察与决策先例
-├── resource/                            # 知识工作流产生的原始资源
-│   └── papers/
-│       └── <arxiv_id>.pdf               # Daily Paper 下载的 PDF
-└── mem_metadata/                        # 索引、图谱、catalog 与缓存等派生状态
+workspace/
+├── MEMORY.md                         # 少量、稳定的核心长期记忆
+├── memory/
+│   ├── 2026-08-14.md                 # 当天记忆笔记的自动索引页
+│   └── 2026-08-14/
+│       ├── 宁德时代盈利讨论.md        # 一个 session 对应的一条记忆笔记
+│       └── 锂价敏感性分析.md
+├── digest/
+│   ├── personal/                     # 个人偏好、关注范围与长期约定
+│   ├── procedure/                    # 可复用的研究流程
+│   └── wiki/                         # 公司、行业、指标等知识
+├── mem_session/                      # 可追溯的来源对话
+├── resource/                         # PDF 等原始资料
+└── mem_metadata/                     # 可重建的索引、图谱与缓存
 ```
 
-四类用户可见目录各自承担不同职责：
+| 对象或机制                           | 定位与维护方式                                                                                              | 读取或检索方式                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `MEMORY.md`                          | QwenPaw 管理的核心长期记忆；用户和主会话中的 Agent 都可以自由读取、编辑和更新                               | 通过文件工具按需读取；不属于 ReMe 的 `memory_search` 索引               |
+| `memory/YYYY-MM-DD.md`               | 当天所有记忆笔记的索引页；ReMe 自动维护 `<!-- notes:auto -->` 区块，用户和主 Agent 可在自动区块之外补充内容 | 属于个人知识库，可被 `memory_search` 找到；也可直接读取并沿索引继续展开 |
+| `memory/YYYY-MM-DD/{name}.md`        | Auto-Memory 为一个 session 创建或更新的一条记忆笔记；`name` 是模型生成的稳定主题或事件名                    | 属于个人知识库；主 Agent 通常不需要主动管理                             |
+| `digest/` 中的所有 `.md`             | ReMe 管理的长期个人知识库；分为 `personal`、`procedure` 和 `wiki` 三类，并用 Wikilink 相互连接              | 属于 `memory_search` 的检索范围，可沿图谱继续展开                       |
+| `memory/` + `digest/` 中的所有 `.md` | ReMe 个人知识库的完整文件范围：`memory/` 保存每日现场，`digest/` 保存跨时间整理后的知识                     | `memory_search` 的完整检索范围                                          |
+| `memory_search` 返回的片段           | 当前问题最相关的局部内容，并附带文件路径                                                                    | 片段不足时使用 `read_file` 按路径渐进式展开，只读取当前任务所需内容     |
 
-| 目录                         | 内容                                       | 是否直接参与 QwenPaw 记忆检索 |
-| ---------------------------- | ------------------------------------------ | ----------------------------- |
-| `memory/YYYY-MM-DD/*.md`     | 当天事实、对话摘要、决策、进度和论文精读   | 是                            |
-| `mem_session/dialog/*.jsonl` | 经过清理的来源对话，用于追溯和后续抽取     | 否                            |
-| `digest/`                    | Auto-Dream 整合后的长期个人知识库          | 是                            |
-| `resource/`                  | Daily Paper 和未来知识工作流产生的原始资源 | 不直接检索                    |
+此外，`mem_session/` 保存可追溯的来源对话，`resource/` 保存 Daily Paper 下载的 PDF 等原始资料，`mem_metadata/` 保存可重建的索引、图谱和缓存。
 
-> QwenPaw 的嵌入式 ReMe 只索引 `memory/` 和 `digest/` 下的 `.md` 文件。原始对话由上下文系统负责查询；Daily Paper 会把可检索的 Markdown 精读写入 `memory/`，而 `resource/` 下的任意文件不会被监听。
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01vwIbuJ1zAkVDvcYjh_!!6000000006674-55-tps-1200-640.svg" alt="Markdown 记忆文件连接长期知识和原始证据" />
+</p>
 
-### Markdown、Frontmatter 与 Wikilink
+这意味着你可以直接查看、修改、备份或迁移记忆。Markdown 文件是事实来源；搜索索引和图谱只是派生状态，损坏后可以从文件重新构建。`MEMORY.md` 不由 Auto-Memory 或 Auto-Dream 自动覆盖，适合保持短小、稳定的信息。
 
-一条记忆通常由 YAML frontmatter、正文和 Wikilink 组成：
+一条关于新能源汽车产业链的长期记忆可能长这样：
 
 ```markdown
 ---
-name: 用户偏好的发布流程
-description: 用户希望先在测试环境验证，再安排生产发布。
-source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
+name: 新能源汽车产业链
+description: 跟踪整车需求、动力电池盈利与上游锂资源的传导关系。
 ---
 
-# 发布偏好
+# 新能源汽车产业链
 
-任何生产发布都应先执行 [[digest/procedure/staging-verification.md]]。
+需求从整车销量传导到动力电池排产，再影响正极材料和锂资源需求。
+
+- 代表性电池企业：[[digest/wiki/宁德时代.md]]
+- 关键成本项：[[digest/wiki/碳酸锂.md]]
+- 分析方法：[[digest/procedure/动力电池盈利敏感性分析.md]]
 
 ## Sources
 
-- [[memory/2026-08-06/release-discussion.md]]
+- [[memory/2026-08-14/锂价敏感性分析.md]]
 ```
 
-Frontmatter 提供节点级摘要与来源元数据；正文保存事实、条件和解释；`[[...]]` 使用工作区相对路径建立文件关系。搜索命中文件后，ReMe 可以从图索引中展开它的入链和出链，让 Agent 同时看到相关长期节点与来源。
+正文保存知识，frontmatter 提供概要，`[[...]]` 则连接来源和相关节点。上例中，“新能源汽车产业链”到“宁德时代”是一条**出边（outlink）**；系统同时建立反向索引，因此从“宁德时代”也能看到谁引用了它，这就是**入边（inlink）**。作者只需写一次链接，检索时便可以双向行走：既能从行业走到公司，也能从公司回到它所在的产业链和研究记录。
 
+#### Markdown 怎样变成可检索片段
+
+ReMe 不是简单地“每隔固定字符切一刀”。索引器会先解析 frontmatter，再把 Markdown 构造成 AST（抽象语法树）：标题按层级形成 section，段落、列表、表格和代码块成为叶子节点。随后它按树递归切分，并尽量合并同一父标题下相邻的小块。
+
+这样做有三个直接好处：
+
+- **语义不被截断**：`## 宁德时代` 下的毛利率讨论尽量留在同一片段；
+- **上下文不丢失**：片段会携带必要的祖先标题 breadcrumb，即使单独召回也知道它属于哪一章；
+- **结构仍然有效**：超长表格按行切分并重复表头，超长列表按条目切分，代码块保留围栏；每个片段保留原文件路径和行号。
+
+Wikilink 则独立抽取成文件图谱。最终，一个 Markdown 文件同时贡献了“用于 BM25/向量检索的片段”和“用于关系展开的边”。标题特别多的超大文档会回退为纯文本分块，避免构建 AST 带来不必要的开销。
+
+### 2. Auto-Memory 从对话中留下有用的事
+
+Auto-Memory 不会复制整段聊天，而是周期性识别以后仍可能有用的内容，例如：
+
+- 稳定偏好与长期约定；
+- 项目背景和限制条件；
+- 已确认的决定及其原因；
+- 当前进展、阻塞项与下一步；
+- 可以复用的流程和排查经验。
+
+例如，你说“先把宁德时代加入重点跟踪；当前假设是碳酸锂价格下跌有利于电芯单位成本，但还要检查库存减值和价格联动”，它会保留研究对象、当前判断、限制条件、待验证项和来源，而不是把一句临时观点直接写成永久事实。
+
+默认每累计 5 个用户回合触发一次。发生上下文淘汰或折叠时，尚未处理的对话也会先进入同一条记忆流程。若没有值得新增或更新的内容，本次运行不会制造空记忆，也不会发送 Inbox 事件。
+
+Auto-Memory 会把来源会话写入哈希命名的 JSONL 文件，并在当天的日期目录中为这个 session 创建或更新一条记忆笔记：
+
+```text
+mem_session/dialog/qpsid_sha256_<64-hex>.jsonl
+memory/2026-08-14.md
+memory/2026-08-14/锂价敏感性分析.md
+```
+
+这里需要区分“索引页”和“记忆笔记”：`memory/2026-08-14.md` 是 ReMe 根据 `memory/2026-08-14/*.md` 自动刷新的索引页；真正从对话中总结出的内容写在日期子目录的笔记里。索引页的实际结构类似下面这样：
+
+```text
+---
+name: 2026-08-14
+description: 2 note(s) today.
 ---
 
-## Auto-Memory：把对话变成每日记忆
-
-Auto-Memory 是个人知识库的入口。它不会保存聊天流水账，而是提取以后仍可能有用的信息，例如：
-
-- 稳定偏好和长期约定；
-- 项目背景、关键事实和限制条件；
-- 已确认的决策及其原因；
-- 当前进展、阻塞项和下一步；
-- 可复用的命令、流程和排查经验。
-
-### 工作原理
-
-```mermaid
-flowchart LR
-    A[累计 N 个用户回合] --> B[筛选本批对话消息]
-    B --> C[清理工具结果与大块 Base64 数据]
-    C --> D[哈希 session id 并追加到<br/>mem_session/dialog/qpsid_sha256_HASH.jsonl]
-    D --> E[LLM 判断值得记住的内容]
-    E --> F[创建或更新 memory/date/note.md]
-    F --> G[刷新 date 索引并增量更新搜索索引]
+<!-- notes:auto -->
+- [[memory/2026-08-14/宁德时代盈利讨论.md]] name: 宁德时代盈利讨论 description: 跟踪动力与储能业务的量、价、成本驱动。
+- [[memory/2026-08-14/锂价敏感性分析.md]] name: 锂价敏感性分析 description: 分析锂价下跌对电芯成本、售价与库存减值的影响。
+<!-- /notes:auto -->
 ```
 
-QwenPaw 默认每累计 5 个用户回合触发一次。调用 ReMe 前，QwenPaw 会把 session ID 的原始 UTF-8
-字节转换为 `qpsid_sha256_<64-hex>`，使文件名长度固定，并避免大小写不敏感或 Unicode 规范化文件系统上的冲突。
-ReMe 按这个哈希标识保存来源对话，再查找当天属于该哈希会话的已有记忆卡片；已有则更新，否则最多创建一条新卡片。
-自动搜索注入的旧记忆会在抽取前移除，避免把“召回内容”误写成用户刚刚提供的新事实。
+索引的每一行来自对应笔记的 frontmatter：除了链接，还会展示 `name`、`description` 和其他业务字段；用于内部关联的 `session_id`、`source_conversation` 等字段不会出现在索引行中。`notes:auto` 标记之间的内容会在刷新时整体重建，因此不应手工编辑；索引页已有的 frontmatter 和自动区块之外的正文会被保留。
 
-该哈希是单向映射，旧版未哈希的 dialog 文件不会迁移。升级后，已有会话会开始写入新的哈希 dialog；
-此前已抽取的 Markdown 记忆仍可继续使用。
+日期子目录中的 `{name}.md` 才是 Auto-Memory 生成的 session 记忆。首次处理一个 session 时，系统最多创建一条笔记，并写入 `session_id` 与指向原始 JSONL 的 `source_conversation`；同一天再次处理该 session 时，会通过这两个字段找到原笔记并合并更新，而不是再按对话中的多个话题拆出多份文件。如果 frontmatter 中的 `name` 被优化，文件也会随之安全重命名并更新链接。换句话说，日期文件像当天研究底稿的自动目录，子目录中的文件才是一张张研究底稿。
 
-当上下文实际发生淘汰或折叠时，即使尚未达到正常触发间隔，待保存回合也会进入同一条 Auto-Memory 流程。已搜索回合与待处理回合的状态会跨 middleware 重建和会话恢复保留。自动召回结果只临时注入当前用户回合的模型输入，不会写入正式会话历史或持久化历史。
+例如，“锂价敏感性分析”笔记会保留类似这样的可追溯信息：
 
-### 配置
+```markdown
+---
+name: 锂价敏感性分析
+description: 分析锂价下跌对电芯成本、售价与库存减值的影响。
+session_id: qpsid_sha256_<64-hex>
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
+---
 
-配置位于 `agent.json` 的 `running.reme_light_memory_config`：
+## 当前判断
+
+锂价下跌通常降低电芯材料成本，但仍需检查售价联动速度和高价库存减值。
+```
+
+自动召回的旧记忆会在抽取前移除，避免把“刚找回的内容”误当成用户新提供的事实。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg" alt="Auto-Memory 完成后推送到 Inbox 的任务结果" />
+</p>
+
+Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然是 workspace 中的文件。
+
+### 3. Auto Resource（Beta）从外部补充知识
+
+分析师的知识不只来自对话，还来自论文、新闻和数据源。Auto Resource 是这条外部资料管线的总称，目前仍处于 Beta，正在持续扩展。
+
+当前内置能力是 **Daily Paper**：启用后，QwenPaw 会从 Hugging Face Papers 的周榜和月榜中筛选与你关注主题相关的热门论文，保存原始 PDF，并生成三篇精读和一份每日简报。例如把主题设置为 `battery, lithium, energy storage`，就可以持续补充电池材料、寿命预测和储能技术相关研究。
+
+- PDF 写入 `resource/papers/`；
+- 精读和简报写入 `memory/YYYY-MM-DD/`；
+- Markdown 阅读记录进入普通记忆索引，也能继续参与长期整理。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper 的调度与主题配置" />
+</p>
+
+Daily Paper 是当前内置的资料入口。任意文件仅仅放进 `resource/` 并不会被自动处理。自动抓取你感兴趣的财经新闻并沉淀到知识库仍在规划中（TODO）；在正式接入前，不应把 Auto Resource 理解成一个通用的文件导入器。
+
+### 4. Auto-Dream 把每日记录整理成长期经验
+
+只有 daily note 还不够。随着记录越来越多，Auto-Dream 会扫描近期发生变化的每日记忆，把可复用内容整合到 `digest/`。
+
+#### 先分成三类记忆
+
+Auto-Dream 首先判断一条信息属于哪种长期记忆。三种类型不仅对应不同目录，也决定最终笔记应该怎样表达：
+
+| 记忆类型    | 保存内容与写法                                           | 金融分析师示例                           |
+| ----------- | -------------------------------------------------------- | ---------------------------------------- |
+| `personal`  | 用户的身份、偏好、关注范围和长期约定                     | 重点跟踪中国新能源汽车产业链和锂资源公司 |
+| `procedure` | 可复用的操作流程，写成包含步骤、输入和注意事项的 runbook | 动力电池公司盈利敏感性分析流程           |
+| `wiki`      | 定义、事实、观察、原则和心智模型，写成简洁的百科知识节点 | 宁德时代、碳酸锂、库存减值及锂价传导机制 |
+
+分类之后，关于“我长期研究什么”的内容进入 `personal/`，关于“以后应该怎样分析”的方法进入 `procedure/`，关于“公司、行业和指标是什么、如何相互影响”的知识进入 `wiki/`。这样，Auto-Dream 不是简单压缩日记，而是在把研究记录变成结构清晰、可以复用的个人知识库。
+
+#### 再选择四种整理动作
+
+确定记忆类型后，Auto-Dream 会检索已有的 digest 节点，判断新材料与旧知识的关系，并且只选择一个动作：
+
+| 动作          | 含义                                       |
+| ------------- | ------------------------------------------ |
+| `CREATE`      | 没有相同知识时创建新节点                   |
+| `CORROBORATE` | 新材料再次证明已有记忆，补充来源或强化表述 |
+| `REFINE`      | 新材料增加步骤、条件、边界或细节           |
+| `CORRECT`     | 新材料修正已有节点中的错误、遗漏或冲突     |
+
+例如，不同日期的研究记录可能分别写着：“锂价下跌降低正极材料成本”“电芯价格也可能随之下调”“高价库存会造成短期减值压力”。Auto-Dream 不会把其中任何一句孤立地当成结论，而会把它们整合为更有边界的长期知识：
+
+> 锂价下跌通常缓解动力电池材料成本，但对宁德时代利润的净影响还取决于售价联动速度、库存成本、客户议价与产品结构，不能只依据锂价方向判断。
+
+在这个例子中，如果知识库里还没有“锂价传导机制”，就执行 `CREATE`；如果新的季度数据再次支持原判断，就执行 `CORROBORATE`；如果发现库存周期会改变短期影响，就执行 `REFINE`；如果原来写成“锂价下跌必然利好宁德时代”，则执行 `CORRECT`，把结论收紧到证据能够支持的范围。
+
+#### 最后由 Auto-Link 构建记忆图谱
+
+Auto-Link 是 Auto-Dream 构建文档图谱的关键。它不是等整理结束后，仅凭文件名机械补链接；在整合每条记忆时，Agent 同时拥有较完整的上下文：
+
+- 当前从 daily note 中抽取出的记忆单元，以及对应的来源路径；
+- 搜索召回的现有 `personal`、`procedure` 和 `wiki` 节点；
+- 经过读取后确认的同一知识节点和相关知识节点；
+- 本次准备创建或更新的目标节点及其原有正文。
+
+有了这些上下文，Agent 可以先区分“同一知识”和“相关知识”：同一知识决定应该执行四种动作中的哪一种；相关知识则被自然地织入正文，形成有语义的 Wikilink。例如，“锂价变化通过 [[digest/wiki/碳酸锂.md]] 影响 [[digest/wiki/宁德时代.md]] 的材料成本，具体评估可使用 [[digest/procedure/动力电池盈利敏感性分析.md]]。”这比单独罗列几个裸链接更清楚，因为链接周围的文字同时说明了节点之间的关系。
+
+每个长期节点还会在 `## Sources` 中用带上下文的 Wikilink 指回 daily note，保留结论到原始材料的证据链；digest 节点之间的 Wikilink 则承载概念图谱。索引器随后从这些链接生成出边和入边，供 Memory Search 渐进式展开。Auto-Dream 不会改写每日记忆：`memory/` 保留“当时看到了什么、怎样判断”，`digest/` 保存“跨时间后仍值得复用的结论”。这就是“让日记长成个人知识库”。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 完成后推送到 Inbox 的任务摘要" />
+</p>
+
+Auto-Dream 还会生成 `interests.yaml`。它与 QwenPaw 当前的 `/proactive` mode 是独立能力；当前 `/proactive` 不读取该文件。
+
+### 5. Memory Search 在需要时找回正确的记忆
+
+当你问“锂价下跌对宁德时代是利好吗？”，`memory_search` 不需要重新阅读全部研究历史。它会：
+
+1. 用 BM25 找到关键词相符的片段；
+2. 配置 Embedding 后，再找到措辞不同但意思相近的片段；
+3. 用 RRF 融合两组结果；
+4. 为命中文件附上 Wikilink 的出边和入边，供 Agent 按需继续展开。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg" alt="BM25 与向量检索融合后按需展开相关记忆" />
+</p>
+
+BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向量检索可以让“上游原料降价对电芯龙头利润的影响”找到措辞不同的“锂价敏感性分析”。RRF（Reciprocal Rank Fusion）根据两路结果的名次进行融合，避免某一路分数尺度支配最终排序。没有配置 Embedding 时，BM25 和 Wikilink 图谱仍然可用。详细配置见 [向量模型](./embedding)。
+
+个人知识库包括 `daily_dir`（默认 `memory/`）和 `digest_dir`（默认 `digest/`）下的所有 Markdown 文件。索引后台只监听这两个目录，每个文件最大 10 MiB。文件会按 Markdown 结构分块，并保留路径和行号；`MEMORY.md`、`resource/` 与 `mem_session/` 不直接进入 ReMe 的 `memory_search`。
+
+例如，搜索“锂价下跌如何影响宁德时代盈利”可能返回：
+
+```text
+========== digest/wiki/宁德时代.md:18-24 [score=0.0325 vector=0.8120 keyword=8.4700] ==========
+## 锂价与盈利敏感性
+锂价下跌通常降低材料成本，但净影响取决于售价联动、库存成本与产品结构。
+参见 [[digest/wiki/碳酸锂.md]] 和 [[digest/procedure/动力电池盈利敏感性分析.md]]。
+  outlinks (2):
+    → digest/wiki/碳酸锂.md  name="碳酸锂"
+    → digest/procedure/动力电池盈利敏感性分析.md  name="动力电池盈利敏感性分析"
+  inlinks (2):
+    ← digest/wiki/新能源汽车产业链.md  name="新能源汽车产业链"
+    ← memory/2026-08-14/宁德时代盈利讨论.md  name="宁德时代盈利讨论"
+```
+
+返回结果先给出命中片段的路径和行号，以及关键词、向量和融合排序的相关信息；片段正文可以包含原始 Wikilink。`outlinks` 是命中文档主动引用的下游文档，`inlinks` 是引用命中文档的上游文档。
+
+这是一种**渐进式混合搜索**：第一步只拿回最相关的局部片段；如果还不能回答“为什么”，Agent 再用 `read_file` 打开“碳酸锂”或分析流程；如果要核对这条判断何时形成，则沿入边打开 8 月 14 日的讨论。系统不必一开始把整座知识库塞进上下文，却保留了从结论走向概念、方法和原始记录的路径。
+
+`MEMORY.md` 通过文件工具按需读取，不依赖 ReMe 搜索。
+
+### 完整循环
+
+回到金融分析师的例子：
+
+1. 你在 `MEMORY.md` 中写下“重点跟踪新能源汽车、锂电池和锂资源”的稳定研究范围；
+2. Auto-Memory 把当天关于宁德时代与锂价的 session 总结成一条日期子目录笔记，并刷新当天索引页；
+3. Auto Resource 把已接入的相关论文精读补充进每日记忆；
+4. Markdown AST 分块、BM25、向量索引与文件图谱在后台持续更新；
+5. Auto-Dream 把多天记录整理成 `personal`、`procedure` 和 `wiki` 长期节点，并建立 Wikilink；
+6. Memory Search 在下一次写研报时先返回命中片段，再按需沿出边、入边和文件路径展开；
+7. 你可以随时检查和修正 Markdown，修改后的内容继续参与后续协作。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg" alt="QwenPaw 长期记忆控制台总览" />
+</p>
+
+### 6. 实验效果：历史变长后还能找回来吗？
+
+上面的新能源汽车案例用于解释工作方式，不能代替量化评测。ReMe 另外使用公开 benchmark 测试多会话与超长历史中的记忆能力：
+
+| Benchmark             | 规模                 | 整体 Agentic 得分 |
+| --------------------- | -------------------- | ----------------- |
+| LongMemEval cleaned-S | 500 道题             | **89.4%**         |
+| BEAM 100K             | 20 个案例 / 400 道题 | **66.1%**         |
+| BEAM 1M               | 35 个案例 / 700 道题 | **65.0%**         |
+
+![ReMe 在 LongMemEval 与 BEAM 上的公开基准结果](https://img.alicdn.com/imgextra/i4/O1CN01ohO0e31MntKw6mQZL_!!6000000001480-55-tps-1200-640.svg)
+
+这些数字不代表每一种真实业务，也会受到模型、数据集和评测设置影响。它们说明的是：即使历史扩展到很长的尺度，文件化整理、混合检索和按需展开仍能帮助 Agent 找到回答依据。完整设置与分项结果见 [LongMemEval benchmark](https://github.com/agentscope-ai/ReMe/tree/main/benchmark/longmemeval) 和 [BEAM benchmark](https://github.com/agentscope-ai/ReMe/tree/main/benchmark/beam)。
+
+## 参数配置
+
+默认的 `remelight` backend 在 QwenPaw 进程内运行，并复用当前 Agent 的模型完成记忆抽取和整理。你可以在控制台配置，也可以编辑 `agent.json` 中的 `running.reme_light_memory_config`。
+
+### 常用配置
 
 ```json
 {
@@ -144,231 +305,18 @@ ReMe 按这个哈希标识保存来源对话，再查找当天属于该哈希会
     "memory_manager_backend": "remelight",
     "reme_light_memory_config": {
       "auto_memory_interval": 5,
-      "auto_memory_inbox_push_enabled": true
-    }
-  }
-}
-```
-
-| 配置项                           | 默认值 | 说明                                                       |
-| -------------------------------- | ------ | ---------------------------------------------------------- |
-| `auto_memory_interval`           | `5`    | 每累计 N 个用户回合触发；`null` 或 `<= 0` 表示关闭周期触发 |
-| `auto_memory_inbox_push_enabled` | `true` | Auto-Memory 实际修改记忆后，是否把任务结果推送到 Inbox     |
-
-间隔设得越小，记忆更新越及时，但模型调用、Token 消耗和后台任务负担也越高。
-
-### Inbox
-
-开启 `auto_memory_inbox_push_enabled` 后，Auto-Memory 的执行结果会进入 QwenPaw Inbox。若本次判断没有值得新增或更新的内容，ReMe 会标记 `modified=false`，QwenPaw 不会为这次空变更生成 Inbox 事件。
-
-发生实际变更时，Inbox 会给出处理状态、更新文件和提取结果，方便快速确认这次自动记忆做了什么：
-
-![Auto-Memory 完成后推送到 Inbox 的任务结果](https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg)
-
-Inbox 只是通知入口；可继续复用和编辑的记忆仍以工作区中的 Markdown 文件为准。
-
-### 示例
-
-假设用户在一个 QwenPaw 会话中说：
-
-```text
-以后所有生产发布都先跑 staging 验证；发布说明用中文，列出风险和回滚步骤。
-```
-
-达到触发间隔后，Auto-Memory 会保留来源对话，并生成或更新类似文件：
-
-```text
-mem_session/dialog/qpsid_sha256_<64-hex>.jsonl
-memory/2026-08-06/release-discussion.md
-```
-
-```markdown
----
-name: 生产发布约定
-description: 生产发布前先验证 staging，中文发布说明需包含风险和回滚步骤。
-source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
----
-
-- 生产发布前必须先完成 staging 验证。
-- 发布说明使用中文，并列出风险与回滚步骤。
-```
-
-这还是“每日素材”；当相同偏好在更多对话中出现，Auto-Dream 会把它沉淀进稳定的 `digest/` 节点。
-
----
-
-## Daily Paper
-
-Daily Paper 会收集 Hugging Face 周榜和月榜，排除昨日榜单以及过去 30 天每日笔记 frontmatter 中已经出现的
-arXiv ID，再用加权 RRF 生成最多 20 篇候选池。Memory Agent 必须从候选池中选择三篇互不重复的论文。
-ReMe 下载 PDF，每篇最多分析 20 页和 300,000 字符（文件最大 50 MiB），最终生成三篇详细精读和一份每日简报。
-PDF 保存到 `resource/papers/`，Markdown 写入 `memory/YYYY-MM-DD/`，进入正常记忆索引，并可通过 QwenPaw Inbox 推送结果。
-
-控制台可以配置 Daily Paper 的调度、主题和镜像来源，并决定任务结束后是否发送通知：
-
-![Daily Paper 的调度与主题配置](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
-
-这些选项只控制自动运行方式；生成的 PDF、精读和每日简报仍分别进入前述 `resource/` 与 `memory/` 目录。
-
-如果运行日期已经存在每日简报，正常定时调用会成功跳过。底层 job 支持调用方传入 `force=true` 主动重新生成，
-但定时配置表单没有暴露这个开关。
-
-Daily Paper 默认关闭。通过 `daily_paper_cron_enabled` 启用，`daily_paper_cron` 控制调度且默认值为 `"0 9 * * *"`。`daily_paper_use_hf_mirror` 用于选择 Hugging Face 镜像，`daily_paper_topics` 用于设置优先主题。
-
----
-
-## Auto-Dream：让个人知识库持续进化
-
-Auto-Dream 是从每日记忆到长期知识的整合流程。它默认每天定时运行，扫描近期有变化的每日记忆，提取可长期复用的 memory unit，更新 `digest/`，同时生成可供主动交互使用的兴趣主题。
-
-### 工作原理
-
-QwenPaw 的 Auto-Dream 默认扫描目标日期及其前一天（`scan_days=2`），最多抽取 5 个 memory unit，分四个阶段执行：
-
-```mermaid
-flowchart LR
-    A[Extract<br/>扫描变化并提取 units/topics] --> B[Integrate + Auto-Link<br/>新建、合并、修正、连边]
-    B --> C[Topics<br/>选择非重复兴趣主题]
-    C --> D[Finish<br/>保存处理进度]
-```
-
-1. **Extract**：刷新日期索引，比对 dream catalog，只把新增或修改的每日记忆交给 LLM；抽取 `personal`、`procedure`、`wiki` 三类 unit 和兴趣主题候选。
-2. **Integrate + Auto-Link**：对每个 unit 调用 `node_search` 查找可能相同或相关的 digest 节点，再选择 `CREATE`、`CORROBORATE`、`REFINE` 或 `CORRECT`。
-3. **Topics**：结合最近 7 天的主题去重，默认最多写入 3 个主题到 `memory/<date>/interests.yaml`。
-4. **Finish**：把成功处理的输入写入 dream catalog；失败路径不做 checkpoint，下一次仍可重试。
-
-Auto-Dream 不改写每日记忆正文。`memory/` 保留当时发生的事实与现场，`digest/` 保存跨时间复用的抽象。
-
-### Auto-Link 在哪里发生
-
-Auto-Link 不是独立的定时任务，而是 Auto-Dream 的 **Integrate** 阶段：
-
-- `node_search` 只召回 `digest/` 节点的 `name`、`description` 和路径，用于去重与关系发现；
-- 相同抽象会更新已有节点，而不是重复创建；
-- digest 节点的 `## Sources` 链接回 `memory/` 中的证据；
-- 相关 digest 节点通过正文中的 `[[digest/...]]` 相互连接；
-- 更新节点时保留既有来源和 Wikilink，知识图谱因此持续生长。
-
-四种整合动作的含义如下：
-
-| 动作          | 含义                                       |
-| ------------- | ------------------------------------------ |
-| `CREATE`      | 没有相同抽象，创建新的长期节点             |
-| `CORROBORATE` | 新材料再次证明已有记忆，补充来源或强化表述 |
-| `REFINE`      | 新材料增加步骤、边界、条件或细节           |
-| `CORRECT`     | 新材料修正旧节点中的错误、遗漏或冲突       |
-
-### 配置
-
-```json
-{
-  "running": {
-    "reme_light_memory_config": {
+      "auto_memory_inbox_push_enabled": true,
       "dream_cron_enabled": true,
       "dream_cron": "0 23 * * *",
-      "auto_dream_inbox_push_enabled": true
-    }
-  }
-}
-```
-
-| 配置项                          | 默认值         | 说明                                                           |
-| ------------------------------- | -------------- | -------------------------------------------------------------- |
-| `dream_cron_enabled`            | `true`         | 是否启用定时 Auto-Dream                                        |
-| `dream_cron`                    | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动，避免任务集中运行 |
-| `auto_dream_inbox_push_enabled` | `true`         | 是否把 Auto-Dream 任务结果推送到 Inbox                         |
-
-### Inbox
-
-开启 Inbox 推送后，每次 Auto-Dream 的成功或失败摘要都会形成记忆事件，便于查看扫描、整合和主题生成结果。它只用于通知，不是记忆源数据；真正的长期知识仍保存在 `digest/` Markdown 中。
-
-任务完成后，Inbox 会汇总处理日期、整合动作、更新节点和生成的兴趣主题：
-
-![Auto-Dream 完成后推送到 Inbox 的任务摘要](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
-
-这张摘要适合确认任务结果；需要审查具体结论和证据时，仍应打开对应的 `digest/` 与 `memory/` 文件。
-
-### 示例
-
-假设近两天的每日记忆多次出现“发布前验证 staging”和“发布说明必须带回滚步骤”。Auto-Dream 可能：
-
-1. 通过 `node_search` 找到已有的 `digest/procedure/production-release.md`；
-2. 选择 `REFINE`，把中文说明、风险列表和回滚步骤补入该流程；
-3. 在 `## Sources` 中加入新的每日记忆链接；
-4. 链接相关的 `[[digest/personal/release-communication-preference.md]]`；
-5. 在当天 `interests.yaml` 中加入“检查生产发布流程是否覆盖回滚演练”的候选主题。
-
-结果不是又复制一份聊天摘要，而是已有长期知识被证据强化并补全关系。
-
----
-
-## Memory Index 与 Memory Search
-
-后台 `index_update_loop` 负责让文件持续可检索，`memory_search` 负责在需要时召回最相关的内容。索引是派生状态，可以从 `memory/` 与 `digest/` 的 Markdown 重新构建。
-
-### 索引能力与范围
-
-QwenPaw 启动嵌入式 ReMe 后，后台 `index_update_loop` 会：
-
-- 启动时扫描 `daily_dir`（默认 `memory`）和 `digest_dir`（默认 `digest`）；
-- 运行期间监听这两个目录下新增、修改和删除的 `.md` 文件；
-- 按 Markdown 标题与内容块进行语义分块，保留文件路径和行号；
-- 为每个 chunk 更新 BM25 索引，并在启用 Embedding 时生成向量；
-- 从 Markdown 中解析 Wikilink，更新文件节点和双向关系图；
-- 将派生状态持久化到 `mem_metadata/`。
-
-单个被索引文件上限为 10 MiB。`resource/` 与 `mem_session/` 不在这一索引监听范围内。
-
-### BM25 + Vector 混合索引如何构建
-
-```mermaid
-flowchart LR
-    A[memory/**/*.md<br/>digest/**/*.md] --> B[监听文件变化]
-    B --> C[Markdown 结构化分块]
-    C --> D[FileChunk<br/>文本 + 路径 + 行号]
-    D --> E[BM25 倒排索引]
-    D --> F[Embedding 向量<br/>可选]
-    C --> G[Wikilink 图]
-    E --> H[mem_metadata]
-    F --> H
-    G --> H
-```
-
-BM25 把每个 chunk 当作一篇文档，记录 token、词频和倒排表，适合函数名、错误码、专有名词等精确命中。启用 Embedding 后，同一 chunk 还会生成向量，用于召回措辞不同但语义相近的内容。
-
-Embedding 的支持后端、启用条件、字段含义、缓存和排查方法请参阅独立文档：[Embedding 向量模型](./embedding)。未配置 Embedding 时，BM25 和 Wikilink 展开仍可正常工作。
-
-### BM25 + Vector 如何进行混合搜索
-
-`memory_search(query, max_results, min_score)` 会调用 ReMe 的 `search` job：
-
-![BM25 与向量检索融合后按需展开相关记忆](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
-
-查询会同时利用精确关键词和语义相似度，经 RRF 融合得到相关片段；结果还会提供路径、行号和 Wikilink 邻居，让 Agent 只在确有需要时继续展开证据。
-
-当两路都有结果时，默认使用加权 Reciprocal Rank Fusion（RRF）：
-
-```text
-score = 0.7 / (60 + vector_rank)
-      + 0.3 / (60 + keyword_rank)
-```
-
-RRF 比较的是各自结果列表中的排名，不直接比较数值尺度完全不同的余弦相似度和 BM25 分数。一个 chunk 同时被两路命中时会累加两份贡献；只被一路命中时仍可进入最终结果。若 Embedding 未启用或向量分支没有结果，则直接使用 BM25 排名。
-
-完成融合后，ReMe 会按命中文件从图索引中展开最多 10 条出链和 10 条入链。这样结果既包含最相关的正文片段，也能带出其来源、相关流程和相邻知识节点。
-
-> `min_score` 默认是 `0`。正常使用建议保持默认值，因为单路检索的原始分数与混合检索的 RRF 分数量纲不同，盲目提高阈值可能隐藏有效结果。
-
-### 手动搜索与 Auto-Memory-Search
-
-Agent 可以在判断需要历史信息时主动调用 `memory_search`。如果希望每个普通用户请求都先自动召回记忆，可启用 Auto-Memory-Search：
-
-```json
-{
-  "running": {
-    "reme_light_memory_config": {
+      "auto_dream_inbox_push_enabled": true,
+      "daily_paper_cron_enabled": false,
+      "daily_paper_cron": "0 9 * * *",
+      "daily_paper_use_hf_mirror": false,
+      "daily_paper_topics": "",
+      "daily_paper_inbox_push_enabled": true,
+      "memory_search_enabled": true,
       "auto_memory_search_config": {
-        "enabled": true,
+        "enabled": false,
         "max_results": 2
       }
     }
@@ -376,95 +324,58 @@ Agent 可以在判断需要历史信息时主动调用 `memory_search`。如果�
 }
 ```
 
-启用后，QwenPaw 会在模型处理当前用户请求前，用这条请求构造查询并执行同一个 ReMe `search` job。结果以一组已完成的 `memory_search` 工具交互注入当前 live context，供本轮后续模型调用使用。自动化来源的请求不会触发；注入结果也不会被写回会话历史或 Auto-Memory，避免记忆自我复制。
+| 配置项                                  | 默认值         | 说明                                                               |
+| --------------------------------------- | -------------- | ------------------------------------------------------------------ |
+| `auto_memory_interval`                  | `5`            | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
+| `auto_memory_inbox_push_enabled`        | `true`         | 记忆实际变化后，把 Auto-Memory 结果推送到 Inbox                    |
+| `dream_cron_enabled`                    | `true`         | 启用定时 Auto-Dream                                                |
+| `dream_cron`                            | `"0 23 * * *"` | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
+| `auto_dream_inbox_push_enabled`         | `true`         | 把 Auto-Dream 结果推送到 Inbox                                     |
+| `daily_paper_cron_enabled`              | `false`        | 启用定时 Daily Paper                                               |
+| `daily_paper_cron`                      | `"0 9 * * *"`  | Daily Paper 的五段式 cron                                          |
+| `daily_paper_use_hf_mirror`             | `false`        | 通过 Hugging Face 镜像获取论文信息                                 |
+| `daily_paper_topics`                    | `""`           | 选论文时优先考虑的主题                                             |
+| `daily_paper_inbox_push_enabled`        | `true`         | 把 Daily Paper 结果推送到 Inbox                                    |
+| `memory_search_enabled`                 | `true`         | 向 Agent 提供手动 `memory_search` 工具                             |
+| `auto_memory_search_config.enabled`     | `false`        | 每次普通用户请求前自动搜索记忆                                     |
+| `auto_memory_search_config.max_results` | `2`            | 自动搜索时最多注入的结果数                                         |
 
-| 配置项        | 默认值  | 说明                               |
-| ------------- | ------- | ---------------------------------- |
-| `enabled`     | `false` | 是否为每个普通用户请求自动搜索记忆 |
-| `max_results` | `2`     | 每次自动搜索最多注入的结果数       |
+自动搜索结果只注入当前请求，不写入正式会话历史，也不会再次被 Auto-Memory 保存。自动化产生的请求不会触发自动搜索。
 
-### 搜索示例
+### 目录与索引配置
 
-已有记忆：
+| 配置项                   | 默认值           | 说明                                         |
+| ------------------------ | ---------------- | -------------------------------------------- |
+| `metadata_dir`           | `"mem_metadata"` | 索引、图谱、catalog 和缓存目录               |
+| `session_dir`            | `"mem_session"`  | Auto-Memory 来源对话目录                     |
+| `mem_session_dir`        | `"mem_agent"`    | ReMe 内部 memory-agent 会话目录              |
+| `resource_dir`           | `"resource"`     | Daily Paper 等工作流的原始资源目录           |
+| `daily_dir`              | `"memory"`       | 每日记忆目录                                 |
+| `digest_dir`             | `"digest"`       | 长期知识目录                                 |
+| `embedding_model_config` | 默认关闭         | 可选向量模型配置，见 [向量模型](./embedding) |
+| `needs_reindex`          | `false`          | 向量空间变化后由运行时维护的待重建标记       |
 
-```text
-memory/2026-08-06/release-discussion.md
-digest/procedure/production-release.md
-```
+旧字段 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的三个任务级 Inbox 开关，但不会写回已验证的配置。
 
-用户问“我们上线前要做哪些检查？”时，`memory_search` 可以同时利用：
+### 状态与重建索引
 
-- **Vector**：把“上线前检查”与“生产发布 staging 验证”按语义匹配；
-- **BM25**：精确命中 `staging`、`rollback` 等关键词；
-- **Wikilink**：从每日讨论展开到长期发布流程与相关偏好。
+长期记忆页面可以查看后台任务、等待队列、资源占用和索引组件状态。
 
-返回结果形态类似：
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
+</p>
 
-```text
-========== digest/procedure/production-release.md:1-18 [score=0.0162 vector=0.84 keyword=3.71] ==========
-...生产发布前先完成 staging 验证，并准备风险清单和回滚步骤...
-  outlinks (1):
-    -> digest/personal/release-communication-preference.md
-  inlinks (1):
-    <- memory/2026-08-06/release-discussion.md
-```
-
-Agent 可根据返回的路径和行号继续精确读取原文件。
-
-### ReMeLight 完整配置
-
-主要用户配置字段都位于 `running.reme_light_memory_config`：
-
-| 配置项                           | 默认值           | 说明                                                   |
-| -------------------------------- | ---------------- | ------------------------------------------------------ |
-| `metadata_dir`                   | `"mem_metadata"` | 索引、图谱、catalog 与缓存目录                         |
-| `session_dir`                    | `"mem_session"`  | Auto-Memory 来源对话目录                               |
-| `mem_session_dir`                | `"mem_agent"`    | ReMe 内部 memory-agent 会话目录                        |
-| `resource_dir`                   | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录         |
-| `daily_dir`                      | `"memory"`       | 每日记忆目录                                           |
-| `digest_dir`                     | `"digest"`       | 长期知识库目录                                         |
-| `auto_memory_inbox_push_enabled` | `true`           | 是否把 Auto-Memory 结果推送到 Inbox                    |
-| `auto_dream_inbox_push_enabled`  | `true`           | 是否把 Auto-Dream 结果推送到 Inbox                     |
-| `daily_paper_inbox_push_enabled` | `true`           | 是否把 Daily Paper 结果推送到 Inbox                    |
-| `auto_memory_interval`           | `5`              | Auto-Memory 的用户回合间隔                             |
-| `dream_cron_enabled`             | `true`           | 是否启用定时 Auto-Dream                                |
-| `dream_cron`                     | `"0 23 * * *"`   | Auto-Dream 的 5 段 Cron 表达式                         |
-| `daily_paper_cron_enabled`       | `false`          | 是否启用定时 Daily Paper                               |
-| `daily_paper_cron`               | `"0 9 * * *"`    | Daily Paper 的 5 段 Cron 表达式                        |
-| `daily_paper_use_hf_mirror`      | `false`          | 是否通过 Hugging Face 镜像获取论文信息                 |
-| `daily_paper_topics`             | `""`             | 筛选论文时优先考虑的主题                               |
-| `memory_search_enabled`          | `true`           | 是否向 Agent 提供 `memory_search` 工具                 |
-| `auto_memory_search_config`      | 见上文           | 自动记忆搜索配置                                       |
-| `embedding_model_config`         | 默认未启用       | 可选向量模型配置，见 [Embedding 向量模型](./embedding) |
-| `needs_reindex`                  | `false`          | 运行时维护的待重建向量索引标记                         |
-
-旧字段 `inbox_push_enabled` 仅作为迁移输入：它会初始化三个尚未显式配置的独立 Inbox 开关，
-并在配置校验后的序列化结果中被排除。
-
-需要检查后台任务、等待队列或各索引组件的资源占用时，可以从长期记忆页面打开 ReMe 运行状态：
-
-![ReMe 后台活动、资源占用和索引组件状态](https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg)
-
-这里显示的是运行与派生组件状态，不是记忆正文；异常排查完成后，源数据仍应以工作区中的 Markdown 为准。
-
-### 重建索引
-
-索引通常由后台增量维护。当 Console 提示 Embedding 向量空间变化需要重建、索引损坏或搜索结果明显异常时，
-在 Agent 长期记忆设置中选择**重建记忆索引**，或调用：
+正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**，或调用：
 
 ```http
 POST /api/agents/{agentId}/memory/reindex
 ```
 
-重建会清空并从现有 `memory/`、`digest/` Markdown 重新生成派生索引，期间 CPU 和内存占用可能升高。
-同一 Agent 同时只能运行一个重建任务，重建期间修改 Embedding 会被拒绝。只有持久化配置和当前运行配置仍与
-本次重建目标的向量空间指纹一致时，成功重建才会清除 `needs_reindex`。`rebuild_memory_index_on_start` 已不再支持。
+重建会清空派生索引，再从 `memory/` 和 `digest/` 的 Markdown 生成新索引；不会删除源记忆。运行期间 CPU 和内存占用可能上升，同一个 Agent 同时只能运行一个重建任务。
 
-因此，控制台会在真正清理派生索引前要求再次确认：
-
-![重建记忆索引前的资源占用确认提示](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
-
-只有确实需要修复索引或切换向量空间时才执行该操作；普通的 Markdown 增删改由后台增量维护即可。
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的资源占用确认提示" />
+</p>
 
 ---
 
@@ -533,6 +444,6 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 ## 相关页面
 
 - [智能体记忆进化](./memory-evolving-and-proactive) — Auto-Memory、Auto-Dream、Auto-Memory-Search 与 Proactive 工作流
-- [Embedding 向量模型](./embedding) — 向量模型能力、后端、配置与排查
+- [向量模型](./embedding) — 向量模型能力、后端、配置与排查
 - [控制台](./console) — 在控制台管理记忆与配置
 - [配置与工作目录](./config) — 工作目录与 Agent 配置

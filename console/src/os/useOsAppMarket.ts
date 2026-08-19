@@ -7,7 +7,7 @@ import {
   isMarketPluginApp,
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
-import { installPlugin } from "@/api/modules/plugin";
+import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 const APP_CATEGORY = "app";
@@ -15,7 +15,7 @@ const APP_MARKET_PAGE_SIZE = 20;
 const MARKET_REQUEST_PAGE_SIZE = 100;
 
 interface UseOsAppMarketOptions {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 export function useOsAppMarket({ onInstalled }: UseOsAppMarketOptions) {
@@ -148,8 +148,7 @@ export function useOsAppMarket({ onInstalled }: UseOsAppMarketOptions) {
           force: true,
         });
         message.success(`${tRef.current("os.appInstalled")}: ${result.name}`);
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled(result);
       } catch (err) {
         message.error(
           err instanceof Error

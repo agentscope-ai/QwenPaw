@@ -8,8 +8,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from agentscope.agent import Agent, ContextConfig
+from agentscope.agent import Agent, ContextConfig, ReActConfig
 from agentscope.message import HintBlock, Msg, TextBlock
+from agentscope.tool import Toolkit
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.middlewares import (
@@ -49,6 +50,21 @@ class _MemoryManager:
     ) -> None:
         self._events.append("handler_memory")
         self.submitted.append([msg.get_text_content() for msg in messages])
+
+
+def test_qwenpaw_agent_disables_runtime_state_injection() -> None:
+    """The AgentScope 2.0.6 opt-in must preserve QwenPaw's old prompts."""
+    agent = QwenPawAgent(
+        name="QwenPaw",
+        model=_TokenModel(),
+        system_prompt="",
+        toolkit=Toolkit(tools=[]),
+        react_config=ReActConfig(),
+        middlewares=[],
+        agent_config=SimpleNamespace(language="en-US"),
+    )
+
+    assert agent.injection_config.inject_runtime_state is False
 
 
 class _ScrollManager:

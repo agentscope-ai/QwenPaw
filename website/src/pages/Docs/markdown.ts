@@ -24,11 +24,36 @@ export function slugifyHeading(text: string): string {
 export function parseToc(md: string): TocItem[] {
   const toc: TocItem[] = [];
   const idCounter = new Map<string, number>();
-  const re = /^#{2,3}\s+(.+)$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(md)) !== null) {
-    const level = m[0].startsWith("###") ? 3 : 2;
-    const text = m[1].replace(/#+\s*$/, "").trim();
+  let fence: { marker: "`" | "~"; length: number } | null = null;
+
+  for (const line of md.split("\n")) {
+    if (fence) {
+      const closingFence = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line);
+      if (
+        closingFence &&
+        closingFence[1][0] === fence.marker &&
+        closingFence[1].length >= fence.length
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+
+    const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (openingFence) {
+      const marker = openingFence[1][0] as "`" | "~";
+      // CommonMark does not allow backticks in a backtick fence's info string.
+      if (marker === "~" || !openingFence[2].includes("`")) {
+        fence = { marker, length: openingFence[1].length };
+        continue;
+      }
+    }
+
+    const headingMatch = /^(#{2,3})\s+(.+)$/.exec(line);
+    if (!headingMatch) continue;
+
+    const level = headingMatch[1].length as 2 | 3;
+    const text = headingMatch[2].replace(/#+\s*$/, "").trim();
     const baseId = slugifyHeading(text);
     const count = (idCounter.get(baseId) ?? 0) + 1;
     idCounter.set(baseId, count);

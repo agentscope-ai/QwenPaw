@@ -96,6 +96,16 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # None when compaction is disabled/unknown.
         self._compact_threshold = compact_threshold
 
+    @property
+    def formatter(self) -> Any:
+        """Expose the wrapped model's formatter to AgentScope."""
+        return self._model.formatter
+
+    @formatter.setter
+    def formatter(self, value: Any) -> None:
+        """Keep formatter updates synchronized with the wrapped model."""
+        self._model.formatter = value
+
     def _record_usage(
         self,
         usage: ChatUsage | None,
@@ -213,31 +223,34 @@ class TokenRecordingModelWrapper(ChatModelBase):
         seen: set[str] = set()
         anon = 0
         count_warned = False
-        async for chunk in stream:
-            usage = safe_attr(chunk, "usage")
-            if usage is not None:
-                last_usage = usage
-            try:
-                ids = _tool_ids(chunk)
-                if ids is not None:
-                    named, n_anon = ids
-                    if named or n_anon:
-                        # Last frame with tools: AgentScope snapshot.
-                        # 0-tool last unions deltas (last-is-delta compat).
-                        if safe_attr(chunk, "is_last"):
-                            last_complete_calls = len(named) + n_anon
-                        else:
-                            seen |= named
-                            anon += n_anon
-            except Exception:
-                if not count_warned:
-                    count_warned = True
-                    logger.debug(
-                        "token_usage: failed to count stream tool calls",
-                        exc_info=True,
-                    )
-            yield chunk
-        if last_complete_calls is not None:
-            self._record_usage(last_usage, tool_calls=last_complete_calls)
-        else:
-            self._record_usage(last_usage, tool_calls=len(seen) + anon)
+        try:
+            async for chunk in stream:
+                usage = safe_attr(chunk, "usage")
+                if usage is not None:
+                    last_usage = usage
+                try:
+                    ids = _tool_ids(chunk)
+                    if ids is not None:
+                        named, n_anon = ids
+                        if named or n_anon:
+                            # Last frame with tools: AgentScope snapshot.
+                            # 0-tool last unions deltas (last-is-delta compat).
+                            if safe_attr(chunk, "is_last"):
+                                last_complete_calls = len(named) + n_anon
+                            else:
+                                seen |= named
+                                anon += n_anon
+                except Exception:
+                    if not count_warned:
+                        count_warned = True
+                        logger.debug(
+                            "token_usage: failed to count stream tool calls",
+                            exc_info=True,
+                        )
+                yield chunk
+        finally:
+            await stream.aclose()
+            if last_complete_calls is not None:
+                self._record_usage(last_usage, tool_calls=last_complete_calls)
+            else:
+                self._record_usage(last_usage, tool_calls=len(seen) + anon)
