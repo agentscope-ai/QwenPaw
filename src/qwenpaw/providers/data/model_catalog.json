@@ -1856,8 +1856,8 @@
         "relay_reasoning": true
       },
       {
-        "id": "glm-5.2",
-        "name": "GLM-5.2",
+        "id": "glm-5.3",
+        "name": "GLM-5.3",
         "supports_image": false,
         "supports_video": false,
         "probe_source": "documentation",

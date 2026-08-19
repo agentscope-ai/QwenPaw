@@ -69,6 +69,11 @@ def test_volcengine_models_list() -> None:
     assert "doubao-seed-2-0-code-preview-260215" in model_ids
     assert len(VOLCENGINE_MODELS) == 16
     assert len(VOLCENGINE_CODINGPLAN_MODELS) == 8
+    # Coding Plan: glm-5.3 live; glm-5.2 "deprecating soon"
+    # (docs updated 2026-08-18).
+    codingplan_ids = [m.id for m in VOLCENGINE_CODINGPLAN_MODELS]
+    assert "glm-5.3" in codingplan_ids
+    assert "glm-5.2" not in codingplan_ids
 
 
 def test_volcengine_agentplan_models_list() -> None:
