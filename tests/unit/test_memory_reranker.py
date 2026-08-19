@@ -16,12 +16,13 @@ Tests cover:
 """
 
 import types
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 import qwenpaw.agents.memory.reme_light_memory_manager as mgr
+from qwenpaw.agents.agent_types import DEFAULT_AGENT_TYPE
 
 ReMeLightMemoryManager = mgr.ReMeLightMemoryManager
 NO_MEMORY_RESULTS = mgr.NO_MEMORY_RESULTS
@@ -128,8 +129,28 @@ def _make_config(**overrides):
 
 @pytest.fixture
 def manager():
+    """Bare manager for reranker tests.
+
+    ``memory_search`` / ``auto_memory_search`` read ``load_agent_config``
+    to decide KB scope. Use a default (non-KB) agent so ``kb_enabled`` is
+    False, scope stays ``"agent"``, and the knowledge-dir fields are never
+    accessed — these tests exercise ``memory/*.md`` (agent-scope) paths.
+    """
     m = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
-    return m
+    m.agent_id = "test-agent"
+    default_cfg = types.SimpleNamespace(
+        agent_type=DEFAULT_AGENT_TYPE,
+        running=types.SimpleNamespace(
+            reme_light_memory_config=types.SimpleNamespace(
+                knowledge_search_default="all",
+                knowledge_dir_name="knowledge",
+                daily_dir="memory",
+                digest_dir="digest",
+            ),
+        ),
+    )
+    with patch.object(mgr, "load_agent_config", return_value=default_cfg):
+        yield m
 
 
 # ── disabled ──
@@ -543,6 +564,7 @@ async def test_auto_memory_search_uses_reranker(manager):
         auto_memory_search_config=search_cfg,
     )
     agent_config = types.SimpleNamespace(
+        agent_type=DEFAULT_AGENT_TYPE,
         running=types.SimpleNamespace(
             reme_light_memory_config=memory_cfg,
         ),
@@ -589,3 +611,19 @@ async def test_auto_memory_search_uses_reranker(manager):
     assert (
         len(resp.metadata["results"]) == 2
     ), f"expected 2 results, got {len(resp.metadata['results'])}"
+
+
+def test_rerank_doc_text_prefixes_path_and_raises_truncate_limit():
+    short = ReMeLightMemoryManager._rerank_doc_text(
+        {"path": "knowledge/test/test_cases/pay.md", "text": "余额不足应拒绝"},
+    )
+    assert short.startswith("knowledge/test/test_cases/pay.md\n")
+    assert "余额不足应拒绝" in short
+
+    long_body = "步骤" * 2000
+    truncated = ReMeLightMemoryManager._rerank_doc_text(
+        {"path": "knowledge/business/wiki/gmv.md", "text": long_body},
+    )
+    assert truncated.startswith("knowledge/business/wiki/gmv.md\n")
+    assert len(truncated) == mgr._RERANK_TEXT_CHARS
+    assert len(truncated) > 500

@@ -50,8 +50,46 @@ def build_reme_app_config(
             "log_to_console": True,
         },
     )
-
+    _apply_knowledge_watch(cfg, agent_config)
     return cfg
+
+
+def _apply_knowledge_watch(
+    cfg: dict[str, Any],
+    agent_config: AgentProfileConfig,
+) -> None:
+    """Add published KB bucket dirs to ReMe watch/reindex/index_sync jobs.
+
+    ReMe resolves each non-absolute ``watch_dirs`` entry via
+    ``getattr(app_config, entry, entry)``. ``ApplicationConfig`` uses
+    pydantic's default ``extra="ignore"``, so any non-standard key we set on
+    the config dict is silently dropped. We therefore append **absolute**
+    published-bucket paths (``knowledge/business/wiki``, …) —
+    ``build_watch_rules`` short-circuits on ``Path.is_absolute()``.
+
+    The whole mount is intentionally not watched: ``_inbox``, ``_audit``,
+    and ``KB.md`` must not enter the search index.
+    """
+    from qwenpaw.agents.agent_types import agent_type_has_knowledge_base
+    from qwenpaw.agents.knowledge.store import knowledge_watch_dirs
+
+    if not agent_type_has_knowledge_base(agent_config.agent_type):
+        return
+    reme_config = agent_config.running.reme_light_memory_config
+    knowledge_dir = reme_config.knowledge_dir_name or "knowledge"
+    workspace_dir = cfg.get("workspace_dir") or ""
+    # Watch published buckets only — never the whole mount (that would
+    # index _inbox, _audit, and KB.md).
+    extra = knowledge_watch_dirs(workspace_dir, knowledge_dir)
+    for job_name in ("index_update_loop", "reindex", "index_sync"):
+        job = cfg.get("jobs", {}).get(job_name)
+        if not isinstance(job, dict):
+            continue
+        watch_dirs = list(job.get("watch_dirs") or [])
+        for path in extra:
+            if path not in watch_dirs:
+                watch_dirs.append(path)
+        job["watch_dirs"] = watch_dirs
 
 
 def _base_config() -> dict[str, Any]:
@@ -167,6 +205,25 @@ def _base_config() -> dict[str, Any]:
                     },
                 ],
             },
+            "index_sync": {
+                "backend": "base",
+                "max_file_bytes": _MAX_FILE_BYTES,
+                "description": (
+                    "Scan watched directories and apply added/modified/"
+                    "deleted files to the search index without wiping it."
+                ),
+                "watch_dirs": watch_dirs,
+                "watch_suffixes": watch_suffixes,
+                "parameters": {"type": "object", "properties": {}},
+                "steps": [
+                    {
+                        "backend": "init_changes_step",
+                        "monitor_type": "file_store",
+                        "monitor_name": "default",
+                        "dispatch_steps": ["update_index_step"],
+                    },
+                ],
+            },
             "search": {
                 "backend": "base",
                 "description": (
@@ -189,6 +246,15 @@ def _base_config() -> dict[str, Any]:
                             "description": "min fused score",
                             "default": 0.0,
                         },
+                        "search_filter": {
+                            "type": "object",
+                            "description": (
+                                "Optional ReMe search filter (path prefixes, "
+                                "dates). QwenPaw uses prefixes to scope "
+                                "chunk recall to published knowledge or "
+                                "private memory."
+                            ),
+                        },
                     },
                     "required": ["query"],
                 },
@@ -198,16 +264,16 @@ def _base_config() -> dict[str, Any]:
                         "vector_weight": 0.7,
                         "candidate_multiplier": 3.0,
                         "expand_links": True,
-                        "max_links_per_direction": 10,
+                        "max_links_per_direction": 3,
                     },
                 ],
             },
             "node_search": {
                 "backend": "base",
                 "description": (
-                    "Digest node recall — given a candidate abstraction's "
-                    "name+description, surface existing digest nodes similar "
-                    "enough to either dedup against or link to as related."
+                    "Node-level recall — one row per memory/knowledge "
+                    "entity (name + description + path), scoped by "
+                    "optional path prefixes."
                 ),
                 "parameters": {
                     "type": "object",
@@ -218,8 +284,16 @@ def _base_config() -> dict[str, Any]:
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "max digest nodes to return",
+                            "description": "max nodes to return",
                             "default": 20,
+                        },
+                        "prefixes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Path prefixes to admit (e.g. knowledge/"
+                                "business/). Default is digest/ only."
+                            ),
                         },
                     },
                     "required": ["query"],
@@ -569,7 +643,13 @@ def _base_config() -> dict[str, Any]:
 
 def _base_components() -> dict[str, Any]:
     return {
-        "tokenizer": {"default": {"backend": "regex"}},
+        "tokenizer": {
+            # Jieba segments Chinese words. Regex treated each CJK char as
+            # its own BM25 token, which drowned out real terms. ReMe rebuilds
+            # the keyword index from existing chunks on the next file-store
+            # load after this switch (fingerprint mismatch).
+            "default": {"backend": "jieba"},
+        },
         # The actual model object is injected by ReMeLightMemoryManager before
         # ReMe starts.  These fields exist only to satisfy ReMe's config model.
         "as_llm": {

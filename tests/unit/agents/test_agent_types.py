@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from qwenpaw.agents.agent_types import (
     BUSINESS_ANALYSIS_AGENT_TYPE,
     DEFAULT_AGENT_TYPE,
+    TEST_DESIGN_AGENT_TYPE,
     AgentTypeDefinition,
     get_agent_type,
     is_valid_agent_type,
@@ -30,6 +31,11 @@ def test_builtin_agent_types_are_registered():
     assert is_valid_agent_type(DEFAULT_AGENT_TYPE)
     assert is_valid_agent_type(BUSINESS_ANALYSIS_AGENT_TYPE)
     assert not is_valid_agent_type("unknown_type")
+    assert get_agent_type(DEFAULT_AGENT_TYPE).capabilities.knowledge_base is False
+    assert (
+        get_agent_type(BUSINESS_ANALYSIS_AGENT_TYPE).capabilities.knowledge_base
+        is True
+    )
 
 
 def test_register_agent_type_extends_registry():
@@ -95,7 +101,11 @@ def test_list_agent_types_endpoint(client):
     assert response.status_code == 200
     body = response.json()
     ids = {item["id"] for item in body["types"]}
-    assert ids == {DEFAULT_AGENT_TYPE, BUSINESS_ANALYSIS_AGENT_TYPE}
+    assert ids == {
+        DEFAULT_AGENT_TYPE,
+        BUSINESS_ANALYSIS_AGENT_TYPE,
+        TEST_DESIGN_AGENT_TYPE,
+    }
     assert all("name" in item and "description" in item for item in body["types"])
 
 

@@ -288,6 +288,35 @@ async def _resolve_files_root(
     )
 
 
+def _knowledge_extra_roots(workspace: Any) -> tuple[Path, ...]:
+    """Allow the shared knowledge-base mount to resolve outside workspace."""
+    try:
+        agent_config = load_agent_config(workspace.agent_id)
+        name = (
+            agent_config.running.reme_light_memory_config.knowledge_dir_name
+            or "knowledge"
+        )
+        mount = Path(workspace.workspace_dir).expanduser() / name
+        if not (mount.exists() or mount.is_dir() or mount.is_symlink()):
+            return ()
+        resolved = mount.resolve()
+        workspace_resolved = Path(workspace.workspace_dir).expanduser().resolve()
+        try:
+            resolved.relative_to(workspace_resolved)
+        except ValueError:
+            return (resolved,)
+        return ()
+    except Exception:
+        return ()
+
+
+def _file_extra_roots(workspace: Any, root: str) -> tuple[Path, ...]:
+    """Extra resolved roots admitted when browsing the agent workspace."""
+    if root != "workspace":
+        return ()
+    return _knowledge_extra_roots(workspace)
+
+
 @router.get(
     "/tree",
     summary="List one workspace directory page",
@@ -306,6 +335,7 @@ async def list_workspace_tree(
     """List immediate children without materializing the full project."""
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
     try:
         async with _FILESYSTEM_SEMAPHORE:
             return await asyncio.to_thread(
@@ -314,6 +344,7 @@ async def list_workspace_tree(
                 path,
                 cursor,
                 limit,
+                extra_roots,
             )
     except InvalidCursor as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -338,12 +369,14 @@ async def read_workspace_file_metadata(
     """Return file metadata before content is requested."""
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
     try:
         async with _FILESYSTEM_SEMAPHORE:
             return await asyncio.to_thread(
                 get_file_metadata,
                 files_root,
                 path,
+                extra_roots,
             )
     except InvalidWorkspacePath as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -365,6 +398,7 @@ async def read_workspace_file_content(
     """Read text by byte range with UTF-8 boundary protection."""
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
     try:
         async with _FILESYSTEM_SEMAPHORE:
             return await asyncio.to_thread(
@@ -373,6 +407,7 @@ async def read_workspace_file_content(
                 path,
                 offset,
                 limit,
+                extra_roots,
             )
     except InvalidWorkspacePath as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -403,6 +438,7 @@ async def write_workspace_file_content(
         raise HTTPException(status_code=422, detail="content must be a string")
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
     try:
         async with _FILESYSTEM_SEMAPHORE:
             return await asyncio.to_thread(
@@ -411,6 +447,7 @@ async def write_workspace_file_content(
                 path,
                 content,
                 request.headers.get("if-match"),
+                extra_roots,
             )
     except InvalidWorkspacePath as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -435,9 +472,14 @@ async def download_workspace_file(
     """Stream one safe workspace file without buffering it in memory."""
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
 
     def _resolve_download() -> tuple[Path, os.stat_result]:
-        target = resolve_workspace_path(files_root, path)
+        target = resolve_workspace_path(
+            files_root,
+            path,
+            extra_roots=extra_roots,
+        )
         return target, target.stat()
 
     try:
@@ -480,9 +522,14 @@ async def resolve_workspace_html_file_uri(
     """Return the URI of one validated HTML file in the selected workspace."""
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
 
     def _resolve_html() -> Path:
-        target = resolve_workspace_path(files_root, path)
+        target = resolve_workspace_path(
+            files_root,
+            path,
+            extra_roots=extra_roots,
+        )
         if target.suffix.lower() not in {".html", ".htm"}:
             raise InvalidWorkspacePath("Path must reference an HTML file")
         if not target.is_file():
@@ -690,12 +737,14 @@ async def upload_workspace_files(
         )
     workspace = await get_agent_for_request(request)
     files_root = await _resolve_files_root(request, workspace, root)
+    extra_roots = _file_extra_roots(workspace, root)
 
     def _resolve_directory() -> Path:
         directory = resolve_workspace_path(
             files_root,
             path,
             allow_root=True,
+            extra_roots=extra_roots,
         )
         if not directory.is_dir():
             raise NotADirectoryError(path)

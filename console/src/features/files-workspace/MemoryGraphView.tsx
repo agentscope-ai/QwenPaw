@@ -91,6 +91,11 @@ function nodeFileTarget(
   // Older graph endpoints did not include navigation metadata. Keep the
   // standard ReMe/QwenPaw roots openable while the backend is being upgraded.
   const normalizedPath = node.path.replace(/\\/g, "/").replace(/^\/+/, "");
+  // Keep the knowledge/ prefix so AgentMdManager can route to the shared
+  // business knowledge-base mount from the digest ("知识库") tab.
+  if (normalizedPath.startsWith("knowledge/")) {
+    return { section: "digest", path: normalizedPath };
+  }
   const conventionalRoots: Array<[MemorySection, string]> = [
     ["digest", "digest/"],
     ["daily", "memory/"],

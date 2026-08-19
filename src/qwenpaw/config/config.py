@@ -796,6 +796,141 @@ class ReMeLightMemoryConfig(BaseModel):
         default_factory=RerankerConfig,
     )
 
+    # Knowledge-base fields (effective only when agent_type has
+    # capabilities.knowledge_base=True; ignored for default agents).
+    knowledge_base_id: str | None = Field(
+        default=None,
+        description=(
+            "Shared knowledge-base id under WORKING_DIR/knowledge_bases/. "
+            "None for KB-capable agents means auto-bind kb_{agent_id}."
+        ),
+    )
+    knowledge_dir_name: str = Field(
+        default="knowledge",
+        description=(
+            "Mount name inside the agent workspace pointing at the shared "
+            "knowledge base (symlink/junction)."
+        ),
+    )
+    knowledge_dream_enabled: bool = Field(
+        default=True,
+        description="Run knowledge dream after auto_dream for KB agents.",
+    )
+    knowledge_max_units: int = Field(
+        default=8,
+        ge=1,
+        le=50,
+        description="Max knowledge units extracted per knowledge dream.",
+    )
+    knowledge_scan_days: int = Field(
+        default=2,
+        ge=1,
+        le=30,
+        description="How many recent daily notes knowledge dream scans.",
+    )
+    knowledge_write_mode: Literal["open", "strict"] = Field(
+        default="strict",
+        description=(
+            "strict: low-confidence units and unmatched CORRECT go to "
+            "_inbox; open: publish units directly."
+        ),
+    )
+    knowledge_search_default: Literal["all", "knowledge", "agent"] = Field(
+        default="knowledge",
+        description=(
+            "Default memory_search scope for KB agents. ``knowledge`` keeps "
+            "digest/daily out of the default hit list so published nodes "
+            "are not crowded by private notes. Pass scope=all to mix both."
+        ),
+    )
+    knowledge_inbox_enabled: bool = Field(
+        default=True,
+        description=(
+            "When true, knowledge dream auto-replays retryable _inbox drafts "
+            "(missing_payload / stale / stale_target / corroborate_failed, "
+            "up to 3 retries). Human promote/merge/reject APIs are always on; "
+            "drafts are always written regardless of this flag."
+        ),
+    )
+    knowledge_dedup_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run a semantic near-neighbor check against the shared KB "
+            "before publishing each extracted unit. Near-duplicates without "
+            "a clear auto-merge target are routed to _inbox; when "
+            "knowledge_merge_enabled is true and a clear same-abstraction "
+            "target exists, the unit is CORROBORATE/REFINE'd instead."
+        ),
+    )
+    knowledge_dedup_threshold: float = Field(
+        default=0.78,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum name-similarity (difflib SequenceMatcher ratio) "
+            "between a new unit and an existing published KB node — recalled "
+            "via ReMe node_search scoped to the knowledge mount — for the "
+            "new unit to be treated as a semantic duplicate. Only effective "
+            "when knowledge_dedup_enabled is true."
+        ),
+    )
+    knowledge_merge_enabled: bool = Field(
+        default=True,
+        description=(
+            "Auto-integrate units into an existing published KB node when "
+            "the merge probe returns a clear, same-domain target. "
+            "CORROBORATE reaffirms provenance without rewriting the body; "
+            "REFINE/CORRECT rewrite via an LLM merge prompt. CREATE + clear "
+            "candidate still goes to _inbox. When false, "
+            "CORROBORATE/REFINE/CORRECT/semantic-dup units go to _inbox."
+        ),
+    )
+    knowledge_merge_threshold: float = Field(
+        default=0.82,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum name-similarity for a candidate to be considered a "
+            "merge target. Higher than knowledge_dedup_threshold because "
+            "merging rewrites a published node and is more consequential "
+            "than flagging a duplicate."
+        ),
+    )
+    knowledge_merge_margin: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Required similarity gap between the top candidate and the "
+            "runner-up. A candidate is only 'clear' (auto-merge) when it "
+            "beats the second hit by at least this margin, so two "
+            "equally-similar nodes do not trigger an ambiguous merge."
+        ),
+    )
+    knowledge_related_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum name-similarity for a non-target node_search hit to be "
+            "treated as a related entity and woven into unit.links "
+            "(synapse / wikilink enrichment). Kept well above weak "
+            "co-mention noise (e.g. 退款政策 vs 退款流程) and below "
+            "knowledge_dedup_threshold. Business-domain nodes skip this "
+            "weaving entirely so weak neighbors do not enter chunk recall."
+        ),
+    )
+    knowledge_merge_max_updates: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "Maximum number of auto body-rewrite merges (REFINE/CORRECT) a "
+            "single node accepts before further rewrites are routed to "
+            "_inbox for human review. CORROBORATE reaffirmations use a "
+            "separate corroborate_count and do not consume this quota."
+        ),
+    )
+
 
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""

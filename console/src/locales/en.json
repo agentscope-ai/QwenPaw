@@ -699,6 +699,10 @@
     "agentTypeRequired": "Please select an agent type",
     "agentTypePlaceholder": "Select agent type",
     "agentTypeReadonlyHelp": "Agent type is set at creation and cannot be changed.",
+    "businessKnowledgeBase": "Business Knowledge Base",
+    "businessKnowledgeBasePlaceholder": "Select a shared business knowledge base",
+    "businessKnowledgeBaseHelp": "Bind this agent to a shared business knowledge base. Leave it empty to keep a private knowledge base.",
+    "noBusinessKnowledgeBases": "No business knowledge bases found",
     "types": {
       "default": {
         "name": "Default",

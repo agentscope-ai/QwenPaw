@@ -73,6 +73,7 @@ export interface ReMeLightMemoryConfig {
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
+  knowledge_base_id?: string | null;
 }
 
 export interface AutoTitleConfig {

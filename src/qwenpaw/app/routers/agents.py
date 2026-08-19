@@ -35,9 +35,17 @@ from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ...agents.agent_types import (
     DEFAULT_AGENT_TYPE,
     AgentTypeDefinition,
+    agent_type_has_knowledge_base,
     is_valid_agent_type,
     list_agent_types,
 )
+from ...agents.knowledge.binding import (
+    WorkspaceConflictError,
+    assert_unique_workspace,
+    bind_knowledge_base,
+    normalize_requested_kb_id,
+)
+from ...agents.knowledge.mount import KnowledgeMountError
 from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
@@ -138,6 +146,13 @@ class CreateAgentRequest(BaseModel):
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
     agent_type: str = DEFAULT_AGENT_TYPE
+    knowledge_base_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional shared knowledge-base id for KB-capable agent types. "
+            "When omitted, a private kb_{agent_id} is created and mounted."
+        ),
+    )
 
     @field_validator("id", mode="before")
     @classmethod
@@ -173,6 +188,15 @@ class CreateAgentRequest(BaseModel):
             )
         return value
 
+    @field_validator("knowledge_base_id", mode="before")
+    @classmethod
+    def normalize_knowledge_base_id(cls, value: str | None) -> str | None:
+        """Validate optional knowledge_base_id."""
+        try:
+            return normalize_requested_kb_id(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
 
 class CopyAgentRequest(BaseModel):
     """Request model for copying an existing agent's configuration files."""
@@ -182,6 +206,15 @@ class CopyAgentRequest(BaseModel):
     copy_md_files: bool = True
     copy_skills: bool = False
     copy_jobs: bool = False
+    share_knowledge_base: bool = Field(
+        default=True,
+        description=(
+            "For knowledge-base-capable agents: when True (default), the "
+            "copy re-mounts the same shared knowledge_base_id into the new "
+            "workspace (true sharing). When False, the copy binds a fresh "
+            "private kb_{new_agent_id} instead."
+        ),
+    )
 
 
 _COPYABLE_MD_FILES = (
@@ -577,6 +610,14 @@ async def create_agent(
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
+    try:
+        assert_unique_workspace(
+            workspace_dir,
+            agent_id=new_id,
+            profiles=config.agents.profiles,
+        )
+    except WorkspaceConflictError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     from ...config.config import (
@@ -605,6 +646,17 @@ async def create_agent(
         except Exception:
             pass
 
+    if request.knowledge_base_id and not agent_type_has_knowledge_base(
+        request.agent_type,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "knowledge_base_id is only valid for agent types with "
+                "capabilities.knowledge_base=true"
+            ),
+        )
+
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
@@ -628,6 +680,15 @@ async def create_agent(
         ),
         language=language,
     )
+
+    if agent_type_has_knowledge_base(request.agent_type):
+        try:
+            bind_knowledge_base(
+                agent_config,
+                knowledge_base_id=request.knowledge_base_id,
+            )
+        except (KnowledgeMountError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     agent_ref = AgentProfileRef(
         id=new_id,
@@ -763,6 +824,26 @@ async def copy_agent(
         workspace_dir=workspace_dir,
     )
 
+    if agent_type_has_knowledge_base(agent_config.agent_type):
+        try:
+            # Remount shared KB into the new workspace (do not copy the link).
+            # ``share_knowledge_base=False`` clears the inherited id so the
+            # copy gets its own private kb_{new_id} instead of sharing.
+            inherited_kb_id = (
+                agent_config.running.reme_light_memory_config.knowledge_base_id
+            )
+            bind_kb_id = inherited_kb_id if request.share_knowledge_base else None
+            if not request.share_knowledge_base:
+                agent_config.running.reme_light_memory_config.knowledge_base_id = (
+                    None
+                )
+            bind_knowledge_base(
+                agent_config,
+                knowledge_base_id=bind_kb_id,
+            )
+        except (KnowledgeMountError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     agent_ref = AgentProfileRef(
         id=new_id,
         workspace_dir=str(workspace_dir),
@@ -818,11 +899,45 @@ async def update_agent(
     update_data = agent_config.model_dump(exclude_unset=True)
     # Agent type is fixed at creation time.
     update_data.pop("agent_type", None)
+
+    # Detect a knowledge_base_id change for KB-capable agents so we can
+    # re-bind/re-mount before reload. ``bind_knowledge_base`` is idempotent
+    # and handles unmounting the old link when the target changes.
+    kb_enabled = agent_type_has_knowledge_base(existing_config.agent_type)
+    new_kb_id = None
+    if kb_enabled:
+        new_running = update_data.get("running")
+        if isinstance(new_running, dict):
+            new_mem = new_running.get("reme_light_memory_config")
+            if isinstance(new_mem, dict):
+                new_kb_id = new_mem.get("knowledge_base_id")
+        # ``knowledge_base_id`` may also arrive unset (None) to clear the
+        # explicit binding and fall back to kb_{agent_id}; treat both as a
+        # change worth re-binding when the value differs from current.
+    old_kb_id = (
+        existing_config.running.reme_light_memory_config.knowledge_base_id
+        if kb_enabled
+        else None
+    )
+    kb_changed = kb_enabled and (new_kb_id != old_kb_id or "running" in update_data)
+
     for key, value in update_data.items():
         if key != "id":
             setattr(existing_config, key, value)
 
     existing_config.id = agentId
+
+    if kb_changed:
+        try:
+            bind_knowledge_base(
+                existing_config,
+                knowledge_base_id=(
+                    existing_config.running.reme_light_memory_config.knowledge_base_id
+                ),
+            )
+        except (KnowledgeMountError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     save_agent_config(agentId, existing_config)
     schedule_agent_reload(request, agentId)
 
@@ -925,24 +1040,35 @@ async def get_agent_memory_graph(
 
     snapshot = MemoryGraphSnapshot.model_validate(response.answer)
     reme_config = agent_config.running.reme_light_memory_config
-    roots = sorted(
-        (
-            ("daily", reme_config.daily_dir),
-            ("digest", reme_config.digest_dir),
-        ),
-        key=lambda item: len(item[1].replace("\\", "/").strip("/").split("/")),
+    knowledge_dir = (reme_config.knowledge_dir_name or "knowledge").replace(
+        "\\",
+        "/",
+    ).strip("/")
+    digest_dir = reme_config.digest_dir.replace("\\", "/").strip("/")
+    daily_dir = reme_config.daily_dir.replace("\\", "/").strip("/")
+    roots: list[tuple[str, str, bool]] = [
+        ("daily", daily_dir, False),
+        ("digest", digest_dir, False),
+    ]
+    if knowledge_dir and knowledge_dir not in {daily_dir, digest_dir}:
+        # Keep the mount prefix so the Files "知识库" tab can open the
+        # shared business knowledge base via section=digest.
+        roots.append(("digest", knowledge_dir, True))
+    roots.sort(
+        key=lambda item: len(item[1].split("/")),
         reverse=True,
     )
     for node in snapshot.nodes:
         if not node.indexed or node.virtual:
             continue
         node_path = node.path.replace("\\", "/").strip("/")
-        for section, configured_root in roots:
-            root = configured_root.replace("\\", "/").strip("/")
-            prefix = f"{root}/"
-            if root and node_path.startswith(prefix):
+        for section, configured_root, keep_prefix in roots:
+            prefix = f"{configured_root}/"
+            if configured_root and node_path.startswith(prefix):
                 node.section = section
-                node.relative_path = node_path[len(prefix) :]
+                node.relative_path = (
+                    node_path if keep_prefix else node_path[len(prefix) :]
+                )
                 break
 
     return snapshot
@@ -979,6 +1105,29 @@ async def delete_agent(
             detail=f"Agent '{agentId}' cannot be deleted while starting",
         )
     await manager.stop_agent(agentId)
+
+    # Unmount the knowledge symlink/junction before removing the agent so
+    # the shared KB is never touched and the workspace link is left clean.
+    # The shared KB itself is only removed via an explicit KB-delete API.
+    agent_ref = config.agents.profiles[agentId]
+    try:
+        agent_cfg = load_agent_config(agentId)
+        if agent_type_has_knowledge_base(agent_cfg.agent_type):
+            from ...agents.knowledge.mount import unmount_knowledge
+
+            unmount_knowledge(
+                agent_ref.workspace_dir,
+                mount_name=(
+                    agent_cfg.running.reme_light_memory_config.knowledge_dir_name
+                    or "knowledge"
+                ),
+            )
+    except Exception:
+        logger.debug(
+            "Failed to unmount knowledge base for agent %s",
+            agentId,
+            exc_info=True,
+        )
 
     del config.agents.profiles[agentId]
     config.agents.agent_order = _normalized_agent_order(config)

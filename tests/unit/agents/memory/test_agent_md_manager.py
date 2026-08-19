@@ -418,3 +418,100 @@ class TestAgentMdManagerWriteMemoryMd:
         (mem / "old.md").write_text("old data", encoding="utf-8")
         manager.write_memory_md("old.md", "new data")
         assert (mem / "old.md").read_text(encoding="utf-8") == "new data"
+
+
+class TestAgentMdManagerKnowledgeMount:
+    """Digest listing includes the shared business knowledge-base mount."""
+
+    def test_digest_section_lists_knowledge_files(self, manager, tmp_path):
+        wiki = tmp_path / "knowledge" / "business" / "wiki"
+        wiki.mkdir(parents=True)
+        (wiki / "gmv.md").write_text("# GMV")
+        (tmp_path / "digest" / "local.md").write_text("# Local")
+
+        digest_files = manager.list_memory_mds("digest")
+        names = {item["filename"] for item in digest_files}
+        assert "local.md" in names
+        assert "knowledge/business/wiki/gmv.md" in names
+
+    def test_daily_section_does_not_list_knowledge_files(
+        self,
+        manager,
+        tmp_path,
+    ):
+        wiki = tmp_path / "knowledge" / "business" / "wiki"
+        wiki.mkdir(parents=True)
+        (wiki / "gmv.md").write_text("# GMV")
+        (tmp_path / "memory" / "daily.md").write_text("# Daily")
+
+        daily_files = manager.list_memory_mds("daily")
+        assert [item["filename"] for item in daily_files] == ["daily.md"]
+
+    def test_reads_and_writes_knowledge_via_digest_section(
+        self,
+        manager,
+        tmp_path,
+    ):
+        wiki = tmp_path / "knowledge" / "business" / "wiki"
+        wiki.mkdir(parents=True)
+        (wiki / "gmv.md").write_text("old", encoding="utf-8")
+
+        assert (
+            manager.read_memory_md(
+                "knowledge/business/wiki/gmv.md",
+                "digest",
+            )
+            == "old"
+        )
+        manager.write_memory_md(
+            "knowledge/business/wiki/gmv.md",
+            "new",
+            "digest",
+        )
+        assert (wiki / "gmv.md").read_text(encoding="utf-8") == "new"
+
+    def test_legacy_list_includes_knowledge_prefix(self, manager, tmp_path):
+        wiki = tmp_path / "knowledge" / "business" / "wiki"
+        wiki.mkdir(parents=True)
+        (wiki / "gmv.md").write_text("# GMV")
+
+        names = {item["filename"] for item in manager.list_memory_mds()}
+        assert "knowledge/business/wiki/gmv.md" in names
+
+    def test_digest_section_lists_knowledge_junction(
+        self,
+        manager,
+        tmp_path,
+    ):
+        import os
+        import subprocess
+
+        shared = tmp_path.parent / f"{tmp_path.name}-kb"
+        wiki = shared / "business" / "wiki"
+        wiki.mkdir(parents=True)
+        (wiki / "gmv.md").write_text("# GMV")
+        mount = tmp_path / "knowledge"
+        try:
+            mount.symlink_to(shared, target_is_directory=True)
+        except OSError:
+            if os.name != "nt":
+                pytest.skip("Symlinks are unavailable")
+            completed = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(mount), str(shared)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode != 0:
+                pytest.skip("Junctions are unavailable")
+
+        digest_files = manager.list_memory_mds("digest")
+        names = {item["filename"] for item in digest_files}
+        assert "knowledge/business/wiki/gmv.md" in names
+        assert (
+            manager.read_memory_md(
+                "knowledge/business/wiki/gmv.md",
+                "digest",
+            )
+            == "# GMV"
+        )

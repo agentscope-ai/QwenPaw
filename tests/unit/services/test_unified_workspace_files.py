@@ -21,6 +21,27 @@ from qwenpaw.services.workspace_files import (
 )
 
 
+def _make_dir_link(link: Path, target: Path) -> None:
+    """Create a directory symlink, or a Windows junction when that fails."""
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except OSError:
+        pass
+    if os.name == "nt":
+        import subprocess
+
+        completed = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return
+    pytest.skip("Symlinks are unavailable")
+
+
 def test_resolve_workspace_path_accepts_portable_relative_path(
     tmp_path: Path,
 ) -> None:
@@ -91,13 +112,61 @@ def test_resolve_workspace_path_rejects_symlink_escape(
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
     link = tmp_path / "outside"
-    try:
-        link.symlink_to(outside, target_is_directory=True)
-    except OSError:
-        pytest.skip("Symlinks are unavailable")
+    _make_dir_link(link, outside)
 
     with pytest.raises(InvalidWorkspacePath):
         resolve_workspace_path(tmp_path, "outside/secret.txt")
+
+
+def test_resolve_workspace_path_allows_configured_extra_roots(
+    tmp_path: Path,
+) -> None:
+    """A knowledge-base junction/symlink is readable via extra_roots."""
+    outside = tmp_path.parent / f"{tmp_path.name}-knowledge"
+    target = outside / "business" / "wiki"
+    target.mkdir(parents=True)
+    (target / "gmv.md").write_text("gmv", encoding="utf-8")
+    link = tmp_path / "knowledge"
+    _make_dir_link(link, outside)
+
+    listed = list_directory(
+        tmp_path,
+        "knowledge",
+        None,
+        20,
+        extra_roots=(outside,),
+    )
+    names = {entry["name"] for entry in listed["entries"]}
+    assert "business" in names
+    assert get_file_metadata(
+        tmp_path,
+        "knowledge/business/wiki/gmv.md",
+        extra_roots=(outside,),
+    )["size"] == 3
+    assert (
+        read_file_chunk(
+            tmp_path,
+            "knowledge/business/wiki/gmv.md",
+            0,
+            20,
+            extra_roots=(outside,),
+        )["content"]
+        == "gmv"
+    )
+
+
+def test_list_directory_treats_directory_symlink_as_directory(
+    tmp_path: Path,
+) -> None:
+    """Workspace tree can expand a knowledge mount symlink."""
+    outside = tmp_path.parent / f"{tmp_path.name}-kb"
+    outside.mkdir()
+    link = tmp_path / "knowledge"
+    _make_dir_link(link, outside)
+
+    listed = list_directory(tmp_path, "", None, 20)
+    entry = next(item for item in listed["entries"] if item["name"] == "knowledge")
+    assert entry["kind"] == "directory"
 
 
 def test_list_directory_is_sorted_paginated_and_non_recursive(

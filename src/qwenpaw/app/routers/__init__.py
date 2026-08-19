@@ -35,10 +35,12 @@ from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
+from .knowledge_bases import router as knowledge_bases_router
 
 router = APIRouter()
 
 router.include_router(agents_router)
+router.include_router(knowledge_bases_router)
 router.include_router(config_router)
 router.include_router(console_router)
 router.include_router(fork_router)

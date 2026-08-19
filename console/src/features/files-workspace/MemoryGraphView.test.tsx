@@ -167,6 +167,49 @@ describe("MemoryGraphView", () => {
     expect(openFile).toHaveBeenCalledWith("digest", "wiki/legacy.md");
   });
 
+  it("opens knowledge-base files from the digest section", async () => {
+    vi.mocked(agentsApi.getMemoryGraph).mockResolvedValueOnce({
+      version: 1,
+      nodes: [
+        {
+          id: "virtual:wiki",
+          path: "digest/wiki",
+          name: "wiki",
+          description: "",
+          indexed: false,
+          virtual: true,
+        },
+        {
+          id: "knowledge/business/wiki/gmv.md",
+          path: "knowledge/business/wiki/gmv.md",
+          name: "GMV",
+          description: "",
+          indexed: true,
+        },
+      ],
+      edges: [
+        {
+          source: "virtual:wiki",
+          target: "knowledge/business/wiki/gmv.md",
+          target_anchor: null,
+        },
+      ],
+    });
+
+    render(
+      <MemoryGraphView agentId="agent-a" root="wiki" onOpenFile={openFile} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "GMV" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.memoryGraphOpenFile" }),
+    );
+
+    expect(openFile).toHaveBeenCalledWith(
+      "digest",
+      "knowledge/business/wiki/gmv.md",
+    );
+  });
+
   it("keeps dense graphs readable by limiting persistent labels", async () => {
     const nodes = Array.from({ length: 27 }, (_, index) => ({
       id: `memory/node-${index}.md`,

@@ -30,6 +30,7 @@ class AgentMdManager:
         self.working_dir.mkdir(parents=True, exist_ok=True)
 
         digest_dir_name = "digest"
+        knowledge_dir_name = "knowledge"
 
         # Dynamically get memory_dir from config if agent_id provided
         if agent_id:
@@ -37,6 +38,7 @@ class AgentMdManager:
             reme_config = agent_config.running.reme_light_memory_config
             memory_dir_name = reme_config.daily_dir
             digest_dir_name = reme_config.digest_dir
+            knowledge_dir_name = reme_config.knowledge_dir_name or "knowledge"
         else:
             memory_dir_name = "memory"
 
@@ -44,6 +46,9 @@ class AgentMdManager:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.digest_dir: Path = self.working_dir / digest_dir_name
         self.digest_dir.mkdir(parents=True, exist_ok=True)
+        # Shared business KB is a symlink/junction mount. Do not mkdir: that
+        # would create a real directory and block mounting.
+        self.knowledge_dir: Path = self.working_dir / knowledge_dir_name
 
     # ------------------------------------------------------------------
     # Path safety helpers
@@ -171,12 +176,26 @@ class AgentMdManager:
         """Return the configured root for a memory section."""
         return self.memory_dir if section == "daily" else self.digest_dir
 
+    def _knowledge_rel_path(self, rel_path: str) -> str | None:
+        """Return the path under the knowledge mount, if *rel_path* is in it."""
+        prefix = self.knowledge_dir.name.replace("\\", "/").strip("/")
+        if not prefix:
+            return None
+        if rel_path.startswith(f"{prefix}/"):
+            return rel_path[len(prefix) + 1 :]
+        return None
+
     def _memory_path_for_read_write(
         self,
         md_path: str,
         section: Literal["daily", "digest"] | None = None,
     ) -> Path:
         rel_path = self._normalize_md_path(md_path)
+        knowledge_rel = self._knowledge_rel_path(rel_path)
+        if knowledge_rel is not None and section != "daily":
+            target = self.knowledge_dir / knowledge_rel
+            self._assert_within_dir(target, self.knowledge_dir)
+            return target
         if section is not None:
             base_dir = self._memory_root(section)
             target = base_dir / rel_path
@@ -259,10 +278,23 @@ class AgentMdManager:
             self.digest_dir,
             self.memory_dir,
         )
+        knowledge_prefix = f"{self.knowledge_dir.name}/"
+        knowledge_roots: tuple[tuple[Path, str, Path | None], ...] = ()
+        if self.knowledge_dir.is_dir():
+            knowledge_roots = (
+                (
+                    self.knowledge_dir,
+                    knowledge_prefix,
+                    self._nested_root_to_exclude(
+                        self.knowledge_dir,
+                        self.digest_dir,
+                    ),
+                ),
+            )
         if section == "daily":
             roots = ((self.memory_dir, "", daily_exclusion),)
         elif section == "digest":
-            roots = ((self.digest_dir, "", digest_exclusion),)
+            roots = ((self.digest_dir, "", digest_exclusion),) + knowledge_roots
         else:
             roots = (
                 (self.memory_dir, "", daily_exclusion),
@@ -271,7 +303,7 @@ class AgentMdManager:
                     f"{self.digest_dir.name}/",
                     digest_exclusion,
                 ),
-            )
+            ) + knowledge_roots
         for root_dir, prefix, excluded_root in roots:
             for file_path in root_dir.rglob("*.md"):
                 if not file_path.is_file():
@@ -284,9 +316,15 @@ class AgentMdManager:
                     else:
                         continue
                 stat = file_path.stat()
-                filename = (
-                    f"{prefix}{file_path.relative_to(root_dir).as_posix()}"
-                )
+                try:
+                    relative = file_path.relative_to(root_dir).as_posix()
+                except ValueError:
+                    relative = (
+                        file_path.resolve()
+                        .relative_to(root_dir.resolve())
+                        .as_posix()
+                    )
+                filename = f"{prefix}{relative}"
                 result.append(
                     self._memory_file_info(file_path, filename, stat),
                 )

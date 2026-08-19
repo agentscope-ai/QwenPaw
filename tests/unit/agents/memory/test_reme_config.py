@@ -29,7 +29,7 @@ def _config_for_embedding(embedding: EmbeddingModelConfig) -> dict:
 def test_memory_search_indexes_only_memory_markdown() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
-    for job_name in ("index_update_loop", "reindex"):
+    for job_name in ("index_update_loop", "reindex", "index_sync"):
         job = cfg["jobs"][job_name]
         assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
         assert job["watch_suffixes"] == ["md"]
@@ -38,7 +38,7 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
 def test_reme_file_processing_is_limited_to_10_mb() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
-    for job_name in ("index_update_loop", "resource_watch_loop", "reindex"):
+    for job_name in ("index_update_loop", "resource_watch_loop", "reindex", "index_sync"):
         assert cfg["jobs"][job_name]["max_file_bytes"] == 10 * 1024 * 1024
 
 
@@ -211,3 +211,8 @@ def test_ollama_embedding_without_host_still_enables_with_model() -> None:
         == "default"
     )
     assert cfg["components"]["as_embedding"]["default"]["credential"] == {}
+
+
+def test_bm25_tokenizer_uses_jieba() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+    assert cfg["components"]["tokenizer"]["default"]["backend"] == "jieba"

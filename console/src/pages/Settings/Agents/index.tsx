@@ -5,7 +5,12 @@ import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
-import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
+import type {
+  AgentProfileConfig,
+  AgentSummary,
+  CopyAgentRequest,
+  CreateAgentRequest,
+} from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
 import { AgentTable, AgentModal, CopyAgentModal } from "./components";
@@ -45,6 +50,7 @@ export default function AgentsPage() {
       active_model_model: undefined,
       backend: "qwenpaw",
       agent_type: "default",
+      knowledge_base_id: undefined,
     });
     setSelectedSkills([]);
     installedSkillsRef.current = [];
@@ -57,11 +63,14 @@ export default function AgentsPage() {
       installedSkillsRef.current = [];
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
+      const knowledgeBaseId =
+        config.running?.reme_light_memory_config?.knowledge_base_id ?? undefined;
       setEditingAgent(agent);
       form.setFieldsValue({
         ...config,
         active_model_provider: config.active_model?.provider_id || undefined,
         active_model_model: config.active_model?.model || undefined,
+        knowledge_base_id: knowledgeBaseId,
       });
       setModalVisible(true);
     } catch (error) {
@@ -147,15 +156,43 @@ export default function AgentsPage() {
 
       const providerId = values.active_model_provider;
       const modelId = values.active_model_model;
+      const knowledgeBaseId = values.knowledge_base_id;
       const active_model =
         values.backend === "qwenpaw" && providerId && modelId
           ? { provider_id: providerId, model: modelId }
           : null;
 
-      const { active_model_provider, active_model_model, ...rest } = values;
-      const payload = { ...rest, workspace_dir, active_model };
+      const { running, ...rest } = values;
+      const basePayload = {
+        ...rest,
+        workspace_dir,
+        active_model,
+      };
 
       if (editingAgent) {
+        const previousRunning =
+          running && typeof running === "object"
+            ? (running as Record<string, unknown>)
+            : {};
+        const previousReMeConfig =
+          previousRunning.reme_light_memory_config &&
+          typeof previousRunning.reme_light_memory_config === "object"
+            ? (previousRunning.reme_light_memory_config as Record<
+                string,
+                unknown
+              >)
+            : {};
+
+        const payload: AgentProfileConfig = {
+          ...basePayload,
+          running: {
+            ...previousRunning,
+            reme_light_memory_config: {
+              ...previousReMeConfig,
+              knowledge_base_id: knowledgeBaseId ?? null,
+            },
+          } as AgentProfileConfig["running"],
+        };
         const previousInstalledSkills = installedSkillsRef.current;
         const newSkills =
           values.backend === "qwenpaw"
@@ -180,11 +217,13 @@ export default function AgentsPage() {
         invalidateSkillCache({ agentId: editingAgent.id });
         message.success(t("agent.updateSuccess"));
       } else {
-        const result = await agentsApi.createAgent({
-          ...payload,
+        const createPayload: CreateAgentRequest = {
+          ...basePayload,
+          knowledge_base_id: knowledgeBaseId ?? undefined,
           language: i18n.language,
           skill_names: values.backend === "qwenpaw" ? selectedSkills : [],
-        });
+        };
+        const result = await agentsApi.createAgent(createPayload);
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 

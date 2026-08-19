@@ -1,4 +1,4 @@
-{
+﻿{
   "nav": {
     "docs": "文档",
     "blog": "博客",
@@ -313,6 +313,7 @@
     "plugins": "插件系统",
     "pluginsMigration": "插件迁移指南",
     "architecture": "架构设计",
+    "knowledgeBaseDesign": "知识库设计方案",
     "faq": "常见问题",
     "apiTutorial": "RESTful API 接口",
     "community": "问题反馈与交流",
@@ -532,3 +533,4 @@
     "noReleases": "暂无更新日志"
   }
 }
+

@@ -20,7 +20,8 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.1.4",
+    "reme-ai>=0.4.1.4,<0.5",
+    "jieba>=0.42.1",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -206,3 +207,15 @@ show_missing = true
 
 [tool.coverage.html]
 directory = "htmlcov"
+
+# Local editable override for reme-ai: pulls from the local ReMe source
+# checkout instead of PyPI, so QwenPaw picks up local ReMe patches
+# immediately. To return to the PyPI release, comment out / remove this
+# section (the `reme-ai>=0.4.1.4,<0.5` spec in [project].dependencies
+# still resolves to the published wheel).
+#
+# Keep the local ReMe patch on a dedicated branch (e.g. qwenpaw-patches)
+# rebased onto origin/main so upstream updates apply cleanly.
+[tool.uv.sources]
+reme-ai = { path = "D:/code/python/ReMe", editable = true }
+

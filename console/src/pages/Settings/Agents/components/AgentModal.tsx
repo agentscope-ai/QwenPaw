@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   Modal,
   Form,
@@ -14,11 +14,13 @@ import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary, AgentTypeDefinition } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
+import type { KnowledgeBaseMeta } from "@/api/types/knowledgeBases";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import { providerApi } from "@/api/modules/provider";
 import { agentsApi } from "@/api/modules/agents";
+import { knowledgeBasesApi } from "@/api/modules/knowledgeBases";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
@@ -62,12 +64,19 @@ export function AgentModal({
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [agentTypes, setAgentTypes] = useState<AgentTypeDefinition[]>([]);
   const [loadingAgentTypes, setLoadingAgentTypes] = useState(false);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseMeta[]>(
+    [],
+  );
+  const [loadingKnowledgeBases, setLoadingKnowledgeBases] = useState(false);
+  const knowledgeBaseAutoSelectedRef = useRef(false);
+  const previousAgentTypeRef = useRef<string | null>(null);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
   const selectedBackend = Form.useWatch("backend", form) ?? "qwenpaw";
   const selectedAgentType =
     Form.useWatch("agent_type", form) ?? DEFAULT_AGENT_TYPE;
+  const selectedKnowledgeBaseId = Form.useWatch("knowledge_base_id", form);
 
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
     return providers
@@ -98,6 +107,18 @@ export function AgentModal({
     [agentTypes, selectedAgentType],
   );
 
+  const businessKnowledgeBases = useMemo(
+    () =>
+      knowledgeBases
+        .filter((kb) => kb.domain === "business")
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    [knowledgeBases],
+  );
+
+  const selectedTypeCanUseKnowledgeBase =
+    !!selectedTypeMeta?.capabilities?.knowledge_base &&
+    selectedBackend === "qwenpaw";
+
   useEffect(() => {
     if (!open) return;
 
@@ -112,6 +133,21 @@ export function AgentModal({
       .catch((err) => console.error("Failed to load agent types:", err))
       .finally(() => setLoadingAgentTypes(false));
   }, [open]);
+
+  useEffect(() => {
+    if (!open || selectedBackend !== "qwenpaw") return;
+
+    setLoadingKnowledgeBases(true);
+    knowledgeBasesApi
+      .listKnowledgeBases()
+      .then((data) => {
+        if (Array.isArray(data?.knowledge_bases)) {
+          setKnowledgeBases(data.knowledge_bases);
+        }
+      })
+      .catch((err) => console.error("Failed to load knowledge bases:", err))
+      .finally(() => setLoadingKnowledgeBases(false));
+  }, [open, selectedBackend]);
 
   useEffect(() => {
     if (!open || selectedBackend !== "qwenpaw") return;
@@ -157,6 +193,54 @@ export function AgentModal({
     selectedBackend,
   ]);
 
+  useEffect(() => {
+    if (!open) {
+      previousAgentTypeRef.current = null;
+      knowledgeBaseAutoSelectedRef.current = false;
+      return;
+    }
+
+    if (previousAgentTypeRef.current !== selectedAgentType) {
+      previousAgentTypeRef.current = selectedAgentType;
+      knowledgeBaseAutoSelectedRef.current = false;
+    }
+  }, [open, selectedAgentType]);
+
+  useEffect(() => {
+    if (!open || editingAgent || selectedBackend !== "qwenpaw") {
+      return;
+    }
+
+    if (!selectedTypeCanUseKnowledgeBase) {
+      if (selectedKnowledgeBaseId) {
+        form.setFieldsValue({ knowledge_base_id: undefined });
+      }
+      return;
+    }
+
+    if (selectedKnowledgeBaseId || knowledgeBaseAutoSelectedRef.current) {
+      return;
+    }
+
+    const firstBusinessKnowledgeBase = businessKnowledgeBases[0];
+    if (!firstBusinessKnowledgeBase) {
+      return;
+    }
+
+    knowledgeBaseAutoSelectedRef.current = true;
+    form.setFieldsValue({
+      knowledge_base_id: firstBusinessKnowledgeBase.id,
+    });
+  }, [
+    businessKnowledgeBases,
+    editingAgent,
+    form,
+    open,
+    selectedBackend,
+    selectedKnowledgeBaseId,
+    selectedTypeCanUseKnowledgeBase,
+  ]);
+
   const handleProviderChange = (providerId: string) => {
     form.setFieldsValue({
       active_model_provider: providerId,
@@ -169,6 +253,11 @@ export function AgentModal({
       active_model_provider: undefined,
       active_model_model: undefined,
     });
+  };
+
+  const handleKnowledgeBaseChange = (knowledgeBaseId: string | undefined) => {
+    knowledgeBaseAutoSelectedRef.current = true;
+    form.setFieldsValue({ knowledge_base_id: knowledgeBaseId });
   };
 
   const toggleSkill = (name: string) => {
@@ -258,6 +347,41 @@ export function AgentModal({
             placeholder={t("agent.agentTypePlaceholder")}
           />
         </Form.Item>
+
+        {selectedTypeCanUseKnowledgeBase && (
+          <Form.Item
+            name="knowledge_base_id"
+            label={t("agent.businessKnowledgeBase", {
+              defaultValue: "Business Knowledge Base",
+            })}
+            help={t("agent.businessKnowledgeBaseHelp", {
+              defaultValue:
+                "Bind this agent to a shared business knowledge base. Use a short alias such as `zhb`.",
+            })}
+          >
+            <Select
+              loading={loadingKnowledgeBases}
+              allowClear
+              placeholder={t("agent.businessKnowledgeBasePlaceholder", {
+                defaultValue: "Select a shared business knowledge base alias",
+              })}
+              options={businessKnowledgeBases.map((kb) => ({
+                value: kb.id,
+                label: kb.id,
+              }))}
+              notFoundContent={
+                loadingKnowledgeBases ? (
+                  <Spin size="small" />
+                ) : (
+                  t("agent.noBusinessKnowledgeBases", {
+                    defaultValue: "No business knowledge bases found",
+                  })
+                )
+              }
+              onChange={handleKnowledgeBaseChange}
+            />
+          </Form.Item>
+        )}
 
         <AgentBackendFields form={form} open={open} />
 

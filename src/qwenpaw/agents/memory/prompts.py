@@ -48,9 +48,24 @@ def build_memory_guidance_prompt(
     language: str = "zh",
     *,
     daily_dir: str,
+    knowledge_enabled: bool = False,
+    knowledge_dir: str = "knowledge",
 ) -> str:
     """Build memory guidance using the configured daily memory directory."""
-    return MEMORY_GUIDANCE_TEMPLATES.get(
+    base = MEMORY_GUIDANCE_TEMPLATES.get(
         language,
         MEMORY_GUIDANCE_EN_TEMPLATE,
     ).format(daily_dir=daily_dir)
+    if not knowledge_enabled:
+        return base
+    from ..knowledge.prompts import (
+        KB_MEMORY_GUIDANCE_EN_EXTRA,
+        KB_MEMORY_GUIDANCE_ZH_EXTRA,
+    )
+
+    extra_tmpl = (
+        KB_MEMORY_GUIDANCE_ZH_EXTRA
+        if language.lower().startswith("zh")
+        else KB_MEMORY_GUIDANCE_EN_EXTRA
+    )
+    return base + "\n" + extra_tmpl.format(knowledge_dir=knowledge_dir)

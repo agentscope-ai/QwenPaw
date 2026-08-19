@@ -35,6 +35,9 @@ export interface AgentTypeDefinition {
   id: AgentType;
   name: string;
   description?: string;
+  capabilities?: {
+    knowledge_base?: boolean;
+  };
 }
 
 export interface AgentTypeListResponse {
@@ -91,11 +94,21 @@ export interface AgentProfileConfig {
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
-  running?: unknown;
+  running?: AgentRuntimeConfig;
   llm_routing?: unknown;
   system_prompt_files?: string[];
   tools?: unknown;
   security?: unknown;
+}
+
+export interface ReMeRunningMemoryConfig {
+  knowledge_base_id?: string | null;
+  [key: string]: unknown;
+}
+
+export interface AgentRuntimeConfig {
+  reme_light_memory_config?: ReMeRunningMemoryConfig;
+  [key: string]: unknown;
 }
 
 export interface CreateAgentRequest {
@@ -108,6 +121,7 @@ export interface CreateAgentRequest {
   active_model?: ModelSlotConfig | null;
   backend?: AgentBackend;
   agent_type?: AgentType;
+  knowledge_base_id?: string | null;
   backend_settings?: {
     binary?: string;
     model?: string;

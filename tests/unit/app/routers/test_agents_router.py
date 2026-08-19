@@ -492,6 +492,57 @@ def test_get_memory_graph_maps_nested_memory_roots(
     ]
 
 
+def test_get_memory_graph_keeps_knowledge_mount_prefix(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    graph_response = MagicMock(
+        success=True,
+        answer={
+            "version": 1,
+            "nodes": [
+                {
+                    "id": "knowledge/business/wiki/gmv.md",
+                    "path": "knowledge/business/wiki/gmv.md",
+                    "indexed": True,
+                },
+                {
+                    "id": "digest/local.md",
+                    "path": "digest/local.md",
+                    "indexed": True,
+                },
+            ],
+            "edges": [],
+        },
+    )
+    memory_manager = MagicMock()
+    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/graph")
+
+    assert response.status_code == 200
+    nodes = response.json()["nodes"]
+    assert [(node["section"], node["relative_path"]) for node in nodes] == [
+        ("digest", "knowledge/business/wiki/gmv.md"),
+        ("digest", "local.md"),
+    ]
+
+
 def test_get_memory_graph_reports_unavailable_reme(
     client,
     fake_config,

@@ -130,8 +130,15 @@ def resolve_workspace_path(
     *,
     allow_root: bool = False,
     portable: bool = False,
+    extra_roots: tuple[Path, ...] | list[Path] | None = None,
 ) -> Path:
-    """Resolve a relative POSIX API path below an allowed workspace root."""
+    """Resolve a relative POSIX API path below an allowed workspace root.
+
+    ``extra_roots`` admits resolved targets that live outside *root* because
+    the workspace path is a directory junction/symlink (the shared business
+    knowledge-base mount). Arbitrary symlink escapes are still rejected
+    unless their resolved target is under an extra root.
+    """
     if not isinstance(api_path, str):
         raise InvalidWorkspacePath("Path must be a string")
     if len(api_path.encode("utf-8")) > MAX_API_PATH_BYTES:
@@ -157,11 +164,16 @@ def resolve_workspace_path(
     resolved_target = (resolved_root / Path(*relative.parts)).resolve()
     try:
         resolved_target.relative_to(resolved_root)
-    except ValueError as exc:
-        raise InvalidWorkspacePath(
-            "Path resolves outside the workspace",
-        ) from exc
-    return resolved_target
+        return resolved_target
+    except ValueError:
+        pass
+    for extra in extra_roots or ():
+        try:
+            resolved_target.relative_to(Path(extra).resolve())
+            return resolved_target
+        except ValueError:
+            continue
+    raise InvalidWorkspacePath("Path resolves outside the workspace")
 
 
 def _encode_cursor(offset: int) -> str:
@@ -215,9 +227,15 @@ def list_directory(
     api_path: str,
     cursor: str | None,
     limit: int,
+    extra_roots: tuple[Path, ...] | list[Path] | None = None,
 ) -> dict[str, Any]:
     """List one directory page using ``os.scandir``."""
-    directory = resolve_workspace_path(root, api_path, allow_root=True)
+    directory = resolve_workspace_path(
+        root,
+        api_path,
+        allow_root=True,
+        extra_roots=extra_roots,
+    )
     if not directory.is_dir():
         raise NotADirectoryError(api_path)
     offset = _decode_cursor(cursor)
@@ -232,9 +250,15 @@ def list_directory(
                 info = entry.stat(follow_symlinks=False)
             except OSError:
                 continue
-            kind = (
-                "directory" if entry.is_dir(follow_symlinks=False) else "file"
-            )
+            is_directory = entry.is_dir(follow_symlinks=False)
+            if not is_directory and entry.is_symlink():
+                # POSIX knowledge mounts are directory symlinks; Windows
+                # junctions already report is_dir(follow_symlinks=False).
+                try:
+                    is_directory = entry.is_dir(follow_symlinks=True)
+                except OSError:
+                    is_directory = False
+            kind = "directory" if is_directory else "file"
             relative = (
                 PurePosixPath(api_path, entry.name).as_posix()
                 if api_path
@@ -277,9 +301,13 @@ def file_etag(info: os.stat_result) -> str:
     return f'W/"{info.st_mtime_ns}-{info.st_size}"'
 
 
-def get_file_metadata(root: Path, api_path: str) -> dict[str, Any]:
+def get_file_metadata(
+    root: Path,
+    api_path: str,
+    extra_roots: tuple[Path, ...] | list[Path] | None = None,
+) -> dict[str, Any]:
     """Return metadata without reading file content."""
-    target = resolve_workspace_path(root, api_path)
+    target = resolve_workspace_path(root, api_path, extra_roots=extra_roots)
     info = target.stat()
     if not stat.S_ISREG(info.st_mode):
         raise FileNotFoundError(api_path)
@@ -297,9 +325,10 @@ def read_file_chunk(
     api_path: str,
     offset: int,
     limit: int,
+    extra_roots: tuple[Path, ...] | list[Path] | None = None,
 ) -> dict[str, Any]:
     """Read a bounded text chunk and preserve UTF-8 character boundaries."""
-    target = resolve_workspace_path(root, api_path)
+    target = resolve_workspace_path(root, api_path, extra_roots=extra_roots)
     chunk_limit = min(max(limit, 1), MAX_CHUNK_SIZE)
 
     with target.open("rb") as handle:
@@ -353,9 +382,10 @@ def save_text_file(
     api_path: str,
     content: str,
     expected_etag: str | None,
+    extra_roots: tuple[Path, ...] | list[Path] | None = None,
 ) -> dict[str, Any]:
     """Atomically save text after an optional optimistic concurrency check."""
-    target = resolve_workspace_path(root, api_path)
+    target = resolve_workspace_path(root, api_path, extra_roots=extra_roots)
     save_lock = _SAVE_LOCKS[hash(target) % len(_SAVE_LOCKS)]
     with save_lock:
         exists = target.exists()
@@ -366,7 +396,12 @@ def save_text_file(
             if expected_etag != current:
                 raise FileVersionConflict(api_path)
         elif not exists:
-            target = resolve_workspace_path(root, api_path, portable=True)
+            target = resolve_workspace_path(
+                root,
+                api_path,
+                portable=True,
+                extra_roots=extra_roots,
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         token = secrets.token_hex(8)
         temporary = target.with_name(f".{target.name}.{token}.qwenpaw.tmp")

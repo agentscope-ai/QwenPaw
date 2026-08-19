@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 import httpx
@@ -22,6 +23,18 @@ from agentscope.tool import ToolChunk
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
+from ..agent_types import agent_type_has_knowledge_base, agent_type_to_domain
+from ..knowledge.dream import (
+    MergeCandidate,
+    knowledge_claim_similarity,
+    MAX_SYNAPSE_LINKS,
+)
+from ..knowledge.store import (
+    PUBLISHED_BUCKETS,
+    knowledge_bucket_choices,
+    knowledge_published_path_prefixes,
+    knowledge_scope_path_prefixes,
+)
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
@@ -30,16 +43,26 @@ from ...config.config import (
     AgentProfileConfig,
     RerankerConfig,
 )
+from ...utils.model_response import consume_model_response
 
 if TYPE_CHECKING:
     from reme import ReMe
     from reme.application import Response
+
+    from ...config.config import ReMeLightMemoryConfig
 
 logger = logging.getLogger(__name__)
 
 os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 
 NO_MEMORY_RESULTS = "(no memory results)"
+_INDEX_SYNC_ATTEMPTS = 3
+_INDEX_SYNC_RETRY_DELAY = 0.2
+# Reranker APIs are short-context; keep path + enough body that test
+# steps / procedure details are not cut off at 500 CJK/Latin chars.
+_RERANK_TEXT_CHARS = 1500
+_NODE_SURVEY_FIELDS = ("bucket", "priority", "requirement_id", "status")
+_EXPANSION_HEADER_RE = re.compile(r"^\s+(outlinks|inlinks) \(\d+\):\s*$")
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
@@ -119,6 +142,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
+        self._knowledge_mount_warning: str | None = None
         # Reranker config is not cached here; load_agent_config() already
         # provides mtime-based caching, so every call reads fresh data.
         logger.info(
@@ -131,6 +155,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             from reme import ReMe as ReMeApp  # type: ignore
 
             agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
+            self._ensure_knowledge_mount(agent_config)
             global_config = load_config()
             self._reme = ReMeApp(
                 **get_reme_app_config(
@@ -146,6 +171,41 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self._install_reme_result_hook()
         except Exception as exc:
             logger.warning("ReMe import failed; memory disabled: %s", exc)
+
+    def _ensure_knowledge_mount(self, agent_config: AgentProfileConfig) -> None:
+        """Remount shared KB for KB-capable agents (idempotent).
+
+        A dangling mount (link present but KB target deleted by a human)
+        is captured into ``self._knowledge_mount_warning`` and surfaced to
+        the user rather than silently recreating an empty KB.
+        """
+        if not agent_type_has_knowledge_base(agent_config.agent_type):
+            return
+        try:
+            from ..knowledge.binding import bind_knowledge_base
+
+            before = agent_config.running.reme_light_memory_config.knowledge_base_id
+            bound = bind_knowledge_base(agent_config)
+            after = agent_config.running.reme_light_memory_config.knowledge_base_id
+            if bound and before != after:
+                from ...config.config import save_agent_config
+
+                save_agent_config(agent_config.id, agent_config)
+        except Exception as exc:
+            from ..knowledge.mount import KnowledgeMountError
+
+            if isinstance(exc, KnowledgeMountError):
+                self._knowledge_mount_warning = str(exc)
+                logger.warning(
+                    "Dangling knowledge mount for agent %s: %s",
+                    agent_config.id,
+                    exc,
+                )
+                return
+            logger.exception(
+                "Failed to mount knowledge base for agent %s",
+                agent_config.id,
+            )
 
     async def start(self) -> None:
         """Start the embedded ReMe application."""
@@ -186,9 +246,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Return memory guidance for system prompt injection."""
         agent_config = load_agent_config(self.agent_id)
         cfg = agent_config.running.reme_light_memory_config
+        kb_enabled = agent_type_has_knowledge_base(agent_config.agent_type)
         return build_memory_guidance_prompt(
             agent_config.language,
             daily_dir=cfg.daily_dir,
+            knowledge_enabled=kb_enabled,
+            knowledge_dir=cfg.knowledge_dir_name or "knowledge",
         )
 
     def get_memory_config(self) -> Any:
@@ -196,9 +259,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         agent_config = load_agent_config(self.agent_id)
         return agent_config.running.reme_light_memory_config
 
+    def _kb_enabled(self) -> bool:
+        agent_config = load_agent_config(self.agent_id)
+        return agent_type_has_knowledge_base(agent_config.agent_type)
+
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
-        return [self.memory_search]
+        tools = [self.memory_search]
+        if self._kb_enabled():
+            tools.append(self.save_to_knowledge)
+        return tools
 
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
@@ -391,16 +461,42 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 5,
         min_score: float = 0,
+        scope: str = "knowledge",
+        recall: str = "chunk",
+        bucket: str = "",
     ) -> ToolChunk:
         """Search memory files semantically.
 
         Use this tool before answering questions about prior work,
-        decisions, dates, people, preferences, or todos. Returns top
-        relevant snippets with file paths and line numbers.
+        decisions, dates, people, preferences, or todos.
 
-        When a reranker is configured and enabled, this over-fetches
-        (``max_results × candidate_multiplier``), reranks the candidates,
-        caps back to ``max_results``, and rebuilds the answer text.
+        Choose the recall mode by intent, not by habit — they answer
+        different questions:
+
+        - ``recall="chunk"`` (default): passage-level snippets with file
+          paths and line numbers. Use this to **ground an answer** in the
+          actual text — i.e. when you need to quote, paraphrase, or verify
+          specific content. This is the right choice for most "what does the
+          memory say about X" questions.
+        - ``recall="node"``: entity-level results — one row per memory node
+          (name + one-line description + path + score, plus bucket /
+          priority / requirement_id when present). Use this to
+          **survey what knowledge entities exist** about a topic before
+          reading any of them, e.g. "what concepts do we have around
+          refund?", "list the business entities we've captured". It returns
+          no body text; once you know which path matters, open it with
+          ``read_file`` (more precise than a second ``recall="chunk"``
+          search).
+
+        Rule of thumb: if you'd answer with "here is what it says" →
+        ``chunk``; if you'd answer with "here is what we have" → ``node``
+        then ``read_file``. When unsure, start with ``chunk``.
+
+        When a reranker is configured and enabled, ``chunk`` recall
+        over-fetches (``max_results × candidate_multiplier``), reranks the
+        candidates, caps back to ``max_results``, and rebuilds the answer
+        text. ``node`` recall bypasses the reranker (entities, not
+        passages).
 
         Args:
             query (`str`):
@@ -412,15 +508,69 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 at 0 in normal use because ReMe search may mix BM25 and fused
                 scores with different scales, and raising it can hide valid
                 keyword matches.
+            scope (`str`, optional):
+                For knowledge-base agents only: ``knowledge`` (default;
+                shared KB), ``all`` (private digest/daily + shared KB),
+                or ``agent`` (private digest/daily). Ignored for default
+                agents. Both recall modes honor scope. Business-analysis
+                agents default to ``knowledge`` so digest notes do not
+                crowd published nodes.
+            recall (`str`, optional):
+                ``"chunk"`` (default) for passage-level grounding, or
+                ``"node"`` for entity-level survey. See the guidance above.
+            bucket (`str`, optional):
+                Knowledge-base agents only: narrow shared-KB recall to a
+                domain (``business``, ``test``) or a published bucket
+                (``business/wiki``, ``test/test_cases``, …). Empty means
+                all published knowledge, except business-analysis agents
+                default to ``business`` (pass ``all`` to search every
+                published domain). Ignored when ``scope="agent"``.
 
         Returns:
             `ToolResponse`:
                 Search results formatted with paths, line numbers, and
-                content.
+                content (``chunk``), or one row per entity with name +
+                description (``node``).
         """
         query = query.strip()
         if not query:
             return _tool_chunk("Error: query cannot be empty", ok=False)
+
+        agent_config = load_agent_config(self.agent_id)
+        mem_cfg = agent_config.running.reme_light_memory_config
+        kb_enabled = agent_type_has_knowledge_base(agent_config.agent_type)
+        if not kb_enabled:
+            scope = "agent"
+            bucket = ""
+        else:
+            scope, bucket = self._resolve_kb_search_defaults(
+                scope=scope,
+                bucket=bucket,
+                mem_cfg=mem_cfg,
+                agent_type=agent_config.agent_type,
+            )
+            if bucket:
+                kd = mem_cfg.knowledge_dir_name or "knowledge"
+                if not knowledge_scope_path_prefixes(kd, bucket):
+                    choices = ", ".join(knowledge_bucket_choices())
+                    return _tool_chunk(
+                        f"Error: unknown bucket {bucket!r}. "
+                        f"Use one of: {choices}.",
+                        ok=False,
+                    )
+
+        recall_mode = (recall or "chunk").strip().lower()
+        if recall_mode not in ("chunk", "node"):
+            recall_mode = "chunk"
+        if recall_mode == "node":
+            return await self._memory_search_nodes(
+                query=query,
+                max_results=max_results,
+                scope=scope,
+                kb_enabled=kb_enabled,
+                mem_cfg=mem_cfg,
+                bucket=bucket,
+            )
 
         reranker_config = self._get_reranker_config()
         cap = max(1, max_results)
@@ -433,26 +583,943 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             else cap
         )
 
-        response = await self._run_reme_job(
-            "search",
-            query=query,
-            limit=effective_limit,
-            min_score=max(0.0, min_score),
-        )
+        if kb_enabled and scope == "all":
+            response = await self._dual_chunk_search(
+                query=query,
+                cap=cap,
+                effective_limit=effective_limit,
+                min_score=max(0.0, min_score),
+                mem_cfg=mem_cfg,
+                reranker_config=reranker_config,
+                bucket=bucket,
+            )
+        else:
+            prefixes = self._chunk_search_prefixes(
+                scope=scope,
+                kb_enabled=kb_enabled,
+                mem_cfg=mem_cfg,
+                bucket=bucket,
+            )
+            response = await self._run_chunk_search(
+                query=query,
+                limit=effective_limit,
+                min_score=max(0.0, min_score),
+                prefixes=prefixes,
+            )
+            if response is None:
+                return _tool_chunk("ReMe is not started.", ok=False)
+            if kb_enabled:
+                self._filter_search_response_by_scope(
+                    response,
+                    scope=scope,
+                    knowledge_dir=mem_cfg.knowledge_dir_name or "knowledge",
+                    daily_dir=mem_cfg.daily_dir,
+                    digest_dir=mem_cfg.digest_dir,
+                    tag=False,
+                )
+            await self._rerank_and_cap_response(
+                query,
+                response,
+                cap,
+                reranker_config,
+            )
+
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
 
-        await self._rerank_and_cap_response(
-            query,
-            response,
-            cap,
-            reranker_config,
-        )
+        if kb_enabled:
+            if agent_type_to_domain(agent_config.agent_type) == "business":
+                self._drop_link_expansions(response)
+            answer = str(response.answer or "")
+            if answer:
+                response.answer = self._tag_answer_by_scope(
+                    answer,
+                    scope=scope,
+                    knowledge_dir=mem_cfg.knowledge_dir_name or "knowledge",
+                    daily_dir=mem_cfg.daily_dir,
+                    digest_dir=mem_cfg.digest_dir,
+                )
 
         answer = str(response.answer or "").strip()
         if not answer:
             answer = NO_MEMORY_RESULTS
+        if kb_enabled and scope != "agent" and answer == NO_MEMORY_RESULTS:
+            answer = self._with_inbox_empty_hint(answer, mem_cfg)
         return _tool_chunk(answer, ok=response.success)
+
+    def _with_inbox_empty_hint(
+        self,
+        answer: str,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> str:
+        """Append a pending-_inbox count when published recall is empty.
+
+        ``_inbox`` drafts are excluded from search; an empty hit list can
+        still mean knowledge is waiting for review. Failures listing inbox
+        must not change the empty-result contract.
+        """
+        if answer != NO_MEMORY_RESULTS:
+            return answer
+        kb_id = (getattr(mem_cfg, "knowledge_base_id", None) or "").strip()
+        if not kb_id:
+            try:
+                from ..knowledge.store import resolve_kb_id
+
+                kb_id = resolve_kb_id(
+                    agent_id=self.agent_id, knowledge_base_id=None,
+                )
+            except Exception:
+                return answer
+        try:
+            from ..knowledge.dream import list_inbox_items
+
+            pending = list_inbox_items(kb_id)
+        except Exception:
+            logger.debug("empty-recall inbox hint failed for kb=%s", kb_id)
+            return answer
+        count = len(pending)
+        if count <= 0:
+            return answer
+        return (
+            f"{answer}\n"
+            f"({count} pending _inbox draft(s) are not recalled by default; "
+            f"review them in the knowledge-base inbox.)"
+        )
+
+    def _resolve_kb_search_defaults(
+        self,
+        *,
+        scope: str,
+        bucket: str,
+        mem_cfg: "ReMeLightMemoryConfig",
+        agent_type: str,
+    ) -> tuple[str, str]:
+        """Apply KB-agent search defaults that keep published nodes uncrowded.
+
+        Empty ``scope`` falls back to ``knowledge_search_default`` (now
+        ``knowledge``). Business-analysis agents with an empty bucket
+        default to ``business`` so test artifacts and personal notes do
+        not mix into the hit list; pass ``bucket=all`` for every
+        published domain. ``scope=agent`` always clears the bucket.
+        """
+        domain = agent_type_to_domain(agent_type)
+        resolved_scope = (
+            scope or mem_cfg.knowledge_search_default or "knowledge"
+        ).strip().lower()
+        if resolved_scope not in ("all", "knowledge", "agent"):
+            resolved_scope = "knowledge"
+        resolved_bucket = (bucket or "").strip()
+        explicit_all_buckets = resolved_bucket.lower() in ("all", "*")
+        if explicit_all_buckets:
+            resolved_bucket = ""
+        if resolved_scope == "agent":
+            resolved_bucket = ""
+        elif not resolved_bucket and not explicit_all_buckets and domain == "business":
+            resolved_bucket = "business"
+        return resolved_scope, resolved_bucket
+
+    def _agent_search_prefixes(
+        self,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> list[str]:
+        """Path prefixes for this agent's private digest + daily notes."""
+        dd = (mem_cfg.digest_dir or "digest").replace("\\", "/").strip("/")
+        daily = (mem_cfg.daily_dir or "memory").replace("\\", "/").strip("/")
+        prefixes = [dd + "/"]
+        if daily and daily != dd:
+            prefixes.append(daily + "/")
+        return prefixes
+
+    def _chunk_search_prefixes(
+        self,
+        *,
+        scope: str,
+        kb_enabled: bool,
+        mem_cfg: "ReMeLightMemoryConfig",
+        bucket: str = "",
+    ) -> list[str] | None:
+        """Prefixes for a single-scope chunk search, or None for unfiltered."""
+        if not kb_enabled:
+            return None
+        kd = mem_cfg.knowledge_dir_name or "knowledge"
+        if scope == "knowledge":
+            return knowledge_scope_path_prefixes(kd, bucket)
+        if scope == "agent":
+            return self._agent_search_prefixes(mem_cfg)
+        return None
+
+    async def _run_chunk_search(
+        self,
+        *,
+        query: str,
+        limit: int,
+        min_score: float,
+        prefixes: list[str] | None,
+    ) -> "Response | None":
+        kwargs: dict[str, Any] = {
+            "query": query,
+            "limit": limit,
+            "min_score": min_score,
+        }
+        if prefixes:
+            kwargs["search_filter"] = {"prefixes": list(prefixes)}
+        return await self._run_reme_job("search", **kwargs)
+
+    @staticmethod
+    def _merge_dual_quota(
+        knowledge_results: list,
+        agent_results: list,
+        cap: int,
+    ) -> list:
+        """Keep both sides of a dual search with a knowledge-floor quota.
+
+        Knowledge gets ``max(ceil(cap/2), min(cap, 2))`` seats when both
+        sides have hits — a floor of 2 when ``cap >= 2`` — so digest/daily
+        cannot crowd out published KB passages. Leftovers fill from
+        whichever side still has results.
+        """
+        cap = max(1, cap)
+        if not knowledge_results:
+            return list(agent_results[:cap])
+        if not agent_results:
+            return list(knowledge_results[:cap])
+        k_quota = max((cap + 1) // 2, min(cap, 2))
+        a_quota = cap - k_quota
+        taken = list(knowledge_results[:k_quota]) + list(agent_results[:a_quota])
+        if len(taken) < cap:
+            extras = list(knowledge_results[k_quota:]) + list(
+                agent_results[a_quota:],
+            )
+            taken.extend(extras[: cap - len(taken)])
+        return taken
+
+    def _combine_search_responses(
+        self,
+        knowledge_resp: "Response",
+        agent_resp: "Response",
+        ordered_results: list,
+    ) -> "Response":
+        """Rebuild ``knowledge_resp`` around ``ordered_results``."""
+        sections: dict[str, str] = {}
+        for resp in (knowledge_resp, agent_resp):
+            answer = str(getattr(resp, "answer", "") or "")
+            if answer:
+                sections.update(self._parse_answer_into_sections(answer))
+        expansions: dict[str, dict] = {}
+        for resp in (knowledge_resp, agent_resp):
+            meta = getattr(resp, "metadata", None) or {}
+            extra = meta.get("link_expansion") or {}
+            if isinstance(extra, dict):
+                expansions.update(extra)
+        knowledge_resp.metadata = knowledge_resp.metadata or {}
+        knowledge_resp.metadata["results"] = ordered_results
+        knowledge_resp.metadata["link_expansion"] = expansions
+        knowledge_resp.success = True
+        if sections:
+            knowledge_resp.answer = self._reconstruct_answer_from_sections(
+                sections, ordered_results,
+            )
+        else:
+            knowledge_resp.answer = self._rebuild_search_answer_with_expansions(
+                ordered_results, expansions,
+            )
+        return knowledge_resp
+
+    async def _dual_chunk_search(
+        self,
+        *,
+        query: str,
+        cap: int,
+        effective_limit: int,
+        min_score: float,
+        mem_cfg: "ReMeLightMemoryConfig",
+        reranker_config: RerankerConfig | None,
+        bucket: str = "",
+    ) -> "Response | None":
+        """Search published KB and private memory separately, then quota-merge."""
+        kd = mem_cfg.knowledge_dir_name or "knowledge"
+        k_prefixes = knowledge_scope_path_prefixes(kd, bucket)
+        a_prefixes = self._agent_search_prefixes(mem_cfg)
+        k_resp, a_resp = await asyncio.gather(
+            self._run_chunk_search(
+                query=query,
+                limit=effective_limit,
+                min_score=min_score,
+                prefixes=k_prefixes,
+            ),
+            self._run_chunk_search(
+                query=query,
+                limit=effective_limit,
+                min_score=min_score,
+                prefixes=a_prefixes,
+            ),
+        )
+        if k_resp is None and a_resp is None:
+            return None
+
+        kd_name = kd
+        if k_resp is not None:
+            self._filter_search_response_by_scope(
+                k_resp,
+                scope="knowledge",
+                knowledge_dir=kd_name,
+                daily_dir=mem_cfg.daily_dir,
+                digest_dir=mem_cfg.digest_dir,
+                tag=False,
+            )
+        if a_resp is not None:
+            self._filter_search_response_by_scope(
+                a_resp,
+                scope="agent",
+                knowledge_dir=kd_name,
+                daily_dir=mem_cfg.daily_dir,
+                digest_dir=mem_cfg.digest_dir,
+                tag=False,
+            )
+
+        if k_resp is None:
+            await self._rerank_and_cap_response(
+                query, a_resp, cap, reranker_config,
+            )
+            return a_resp
+        if a_resp is None:
+            await self._rerank_and_cap_response(
+                query, k_resp, cap, reranker_config,
+            )
+            return k_resp
+
+        # Rerank each side to ``cap`` (not the per-side quota) so
+        # ``_merge_dual_quota`` can still fill leftover seats when one
+        # side is short.
+        await self._rerank_and_cap_response(
+            query, k_resp, cap, reranker_config,
+        )
+        await self._rerank_and_cap_response(
+            query, a_resp, cap, reranker_config,
+        )
+        k_results = list(
+            (k_resp.metadata or {}).get("results") or [],
+        ) if k_resp.success else []
+        a_results = list(
+            (a_resp.metadata or {}).get("results") or [],
+        ) if a_resp.success else []
+        merged = self._merge_dual_quota(k_results, a_results, cap)
+        return self._combine_search_responses(k_resp, a_resp, merged)
+
+    def _node_search_prefixes(
+        self,
+        *,
+        scope: str,
+        kb_enabled: bool,
+        mem_cfg: "ReMeLightMemoryConfig",
+        bucket: str = "",
+    ) -> list[str]:
+        """Map a recall scope to ``node_search`` path prefixes.
+
+        ``node_search`` filters candidates by path prefix; we translate the
+        scope into the vault directories it should cover:
+        - ``knowledge`` → published KB (optionally narrowed by ``bucket``).
+        - ``agent`` → the agent's private digest.
+        - ``all`` → both (KB agents) or just digest (default agents).
+        """
+        kd = mem_cfg.knowledge_dir_name or "knowledge"
+        dd = (mem_cfg.digest_dir or "digest").replace("\\", "/").strip("/")
+        k_prefixes = knowledge_scope_path_prefixes(kd, bucket)
+        if scope == "knowledge" and kb_enabled:
+            return k_prefixes
+        if scope == "agent":
+            return [dd + "/"]
+        # all
+        if kb_enabled:
+            return [dd + "/", *k_prefixes]
+        return [dd + "/"]
+
+    async def _memory_search_nodes(
+        self,
+        *,
+        query: str,
+        max_results: int,
+        scope: str,
+        kb_enabled: bool,
+        mem_cfg: "ReMeLightMemoryConfig",
+        bucket: str = "",
+    ) -> ToolChunk:
+        """Node-level recall via ReMe ``node_search`` scoped by prefix.
+
+        Returns one row per matching memory entity (name + description +
+        path + score), excluding ``_inbox`` drafts. Complements chunk-level
+        recall: use it to survey which knowledge entities exist about a
+        topic rather than to ground an answer in passage text.
+        """
+        cap = max(1, max_results)
+        kd = (mem_cfg.knowledge_dir_name or "knowledge").replace("\\", "/").strip("/")
+        k_prefixes = knowledge_scope_path_prefixes(kd, bucket)
+        a_prefixes = [
+            (mem_cfg.digest_dir or "digest").replace("\\", "/").strip("/") + "/",
+        ]
+
+        if kb_enabled and scope == "all":
+            k_hits, a_hits = await asyncio.gather(
+                self._node_search_hits(
+                    query, limit=max(cap * 8, 40), prefixes=k_prefixes,
+                ),
+                self._node_search_hits(
+                    query, limit=cap, prefixes=a_prefixes,
+                ),
+            )
+            if k_hits is None and a_hits is None:
+                return _tool_chunk("ReMe is not started.", ok=False)
+            k_hits = self._filter_node_hits(
+                k_hits or [], knowledge_dir=kd, mem_cfg=mem_cfg,
+            )
+            a_hits = self._filter_node_hits(
+                a_hits or [], knowledge_dir=kd, mem_cfg=mem_cfg,
+            )
+            hits = self._merge_dual_quota(k_hits, a_hits, cap)
+        else:
+            prefixes = self._node_search_prefixes(
+                scope=scope,
+                kb_enabled=kb_enabled,
+                mem_cfg=mem_cfg,
+                bucket=bucket,
+            )
+            # Over-fetch when prefix-filtering knowledge out of a mixed
+            # index: ReMe node_search_step filters *after* a bounded
+            # candidate pool.
+            internal_limit = (
+                max(cap * 8, 40) if kb_enabled and scope == "knowledge" else cap
+            )
+            raw = await self._node_search_hits(
+                query, limit=internal_limit, prefixes=prefixes,
+            )
+            if raw is None:
+                return _tool_chunk("ReMe is not started.", ok=False)
+            hits = self._filter_node_hits(
+                raw, knowledge_dir=kd, mem_cfg=mem_cfg,
+            )[:cap]
+
+        if not hits:
+            answer = NO_MEMORY_RESULTS
+            if kb_enabled and scope != "agent":
+                answer = self._with_inbox_empty_hint(answer, mem_cfg)
+            return _tool_chunk(answer)
+        hits = [self._enrich_node_hit(hit) for hit in hits if isinstance(hit, dict)]
+        lines = [
+            self._format_node_hit(hit, knowledge_dir=kd, mem_cfg=mem_cfg)
+            for hit in hits
+        ]
+        if any(
+            self._path_scope_tag(
+                str(hit.get("path") or ""),
+                knowledge_dir=kd,
+                daily_dir=mem_cfg.daily_dir,
+                digest_dir=mem_cfg.digest_dir,
+            ) == "knowledge"
+            for hit in hits
+        ):
+            lines.append(
+                "To read a node in full, call read_file on its path.",
+            )
+        answer = "\n".join(line for line in lines if line).strip() or NO_MEMORY_RESULTS
+        if kb_enabled and scope != "agent" and answer == NO_MEMORY_RESULTS:
+            answer = self._with_inbox_empty_hint(answer, mem_cfg)
+        return _tool_chunk(answer, ok=True)
+
+    async def _node_search_hits(
+        self,
+        query: str,
+        *,
+        limit: int,
+        prefixes: list[str],
+    ) -> list | None:
+        """Run node_search and return hits, or None if ReMe is down."""
+        response = await self._run_reme_job(
+            "node_search",
+            query=query,
+            limit=limit,
+            prefixes=prefixes,
+        )
+        if response is None:
+            return None
+        if not response.success:
+            return []
+        hits = response.metadata.get("hits") if response.metadata else None
+        return list(hits) if hits else []
+
+    def _filter_node_hits(
+        self,
+        hits: list,
+        *,
+        knowledge_dir: str,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> list[dict]:
+        kept: list[dict] = []
+        for hit in hits:
+            if not isinstance(hit, dict):
+                continue
+            path = str(hit.get("path") or "").replace("\\", "/").lstrip("./")
+            tag = self._path_scope_tag(
+                path,
+                knowledge_dir=knowledge_dir,
+                daily_dir=mem_cfg.daily_dir,
+                digest_dir=mem_cfg.digest_dir,
+            )
+            if tag in ("inbox", "excluded"):
+                continue
+            kept.append(hit)
+        return kept
+
+    def _format_node_hit(
+        self,
+        hit: dict,
+        *,
+        knowledge_dir: str,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> str:
+        path = str(hit.get("path") or "").replace("\\", "/").lstrip("./")
+        name = str(hit.get("name") or "").strip()
+        desc = str(hit.get("description") or "").strip()
+        score = hit.get("score")
+        score_str = f"{float(score):.4f}" if isinstance(score, (int, float)) else "-"
+        tag = self._path_scope_tag(
+            path,
+            knowledge_dir=knowledge_dir,
+            daily_dir=mem_cfg.daily_dir,
+            digest_dir=mem_cfg.digest_dir,
+        )
+        header = f"========== {path} [{score_str}] (source: {tag}) =========="
+        lines = [f"name: {name}"]
+        if desc:
+            lines.append(f"description: {desc}")
+        for key in _NODE_SURVEY_FIELDS:
+            value = str(hit.get(key) or "").strip().strip('"').strip("'")
+            if value:
+                lines.append(f"{key}: {value}")
+        return f"{header}\n" + "\n".join(lines)
+
+    def _enrich_node_hit(self, hit: dict) -> dict:
+        """Fill survey fields from on-disk frontmatter when ReMe omitted them."""
+        if any(str(hit.get(key) or "").strip() for key in _NODE_SURVEY_FIELDS):
+            return hit
+        path = str(hit.get("path") or "").replace("\\", "/").lstrip("./")
+        ws = getattr(self, "working_dir", "") or ""
+        if not path or not ws:
+            return hit
+        file_path = Path(ws).expanduser() / path
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except OSError:
+            return hit
+        from ..knowledge.dream import _parse_frontmatter
+
+        fm, _body = _parse_frontmatter(text)
+        enriched = dict(hit)
+        for key in _NODE_SURVEY_FIELDS:
+            raw = str(fm.get(key) or "").strip().strip('"').strip("'")
+            if raw:
+                enriched[key] = raw
+        if not str(enriched.get("name") or "").strip():
+            name = str(fm.get("name") or "").strip().strip('"').strip("'")
+            if name:
+                enriched["name"] = name
+        return enriched
+
+    def _path_scope_tag(
+        self,
+        path: str,
+        *,
+        knowledge_dir: str,
+        daily_dir: str,
+        digest_dir: str,
+    ) -> str:
+        """Classify a result path as knowledge or agent (digest/daily)."""
+        del daily_dir, digest_dir
+        normalized = path.replace("\\", "/").lstrip("./")
+        kd = knowledge_dir.replace("\\", "/").strip("/")
+        if normalized == kd or normalized.startswith(kd + "/"):
+            rest = normalized[len(kd) :].lstrip("/")
+            if rest == "_inbox" or rest.startswith("_inbox/"):
+                return "inbox"
+            if rest == "_audit" or rest.startswith("_audit/"):
+                return "excluded"
+            if rest.lower() == "kb.md":
+                return "excluded"
+            return "knowledge"
+        if "/_inbox/" in f"/{normalized}/" or normalized.startswith("_inbox/"):
+            return "inbox"
+        if "/_audit/" in f"/{normalized}/" or normalized.startswith("_audit/"):
+            return "excluded"
+        return "agent"
+
+    def _filter_search_response_by_scope(
+        self,
+        response: "Response",
+        *,
+        scope: str,
+        knowledge_dir: str,
+        daily_dir: str,
+        digest_dir: str,
+        tag: bool = False,
+    ) -> None:
+        """Filter search results by knowledge vs agent scope.
+
+        When ``tag`` is True, also rewrite ``response.answer`` with source
+        labels. Prefer tagging *after* rerank/cap so section headers remain
+        parseable.
+        """
+        if not response.success:
+            return
+        results = response.metadata.get("results") if response.metadata else None
+        if results:
+            filtered = []
+            for item in results:
+                path = ""
+                if isinstance(item, dict):
+                    path = str(item.get("path") or item.get("file") or "")
+                else:
+                    path = str(getattr(item, "path", "") or "")
+                path_tag = self._path_scope_tag(
+                    path,
+                    knowledge_dir=knowledge_dir,
+                    daily_dir=daily_dir,
+                    digest_dir=digest_dir,
+                )
+                if path_tag in ("inbox", "excluded"):
+                    continue
+                if scope == "knowledge" and path_tag != "knowledge":
+                    continue
+                if scope == "agent" and path_tag != "agent":
+                    continue
+                if isinstance(item, dict):
+                    item = dict(item)
+                    item["_scope_tag"] = path_tag
+                filtered.append(item)
+            response.metadata["results"] = filtered
+
+        original = str(response.answer or "")
+        if not original:
+            return
+        # Always drop out-of-scope / inbox sections from the answer text.
+        response.answer = self._tag_answer_by_scope(
+            original,
+            scope=scope,
+            knowledge_dir=knowledge_dir,
+            daily_dir=daily_dir,
+            digest_dir=digest_dir,
+            add_labels=tag,
+        )
+
+    def _tag_answer_by_scope(
+        self,
+        answer: str,
+        *,
+        scope: str,
+        knowledge_dir: str,
+        daily_dir: str,
+        digest_dir: str,
+        add_labels: bool = True,
+    ) -> str:
+        """Keep answer sections matching scope; optionally add source labels.
+
+        Labels are inserted *after* the ``==========`` header line so
+        ``_parse_answer_into_sections`` still works if called again.
+        """
+        sections = self._parse_answer_into_sections(answer)
+        if not sections:
+            return answer
+        kept: list[str] = []
+        for key, body in sections.items():
+            path = key.split(":")[0] if ":" in key else key
+            path_tag = self._path_scope_tag(
+                path,
+                knowledge_dir=knowledge_dir,
+                daily_dir=daily_dir,
+                digest_dir=digest_dir,
+            )
+            if path_tag in ("inbox", "excluded"):
+                continue
+            if scope == "knowledge" and path_tag != "knowledge":
+                continue
+            if scope == "agent" and path_tag != "agent":
+                continue
+            lines = body.splitlines()
+            if add_labels and lines:
+                label = "[knowledge]" if path_tag == "knowledge" else "[digest]"
+                if lines[0].startswith("=========="):
+                    lines.insert(1, f"source: {label}")
+                elif not lines[0].startswith("source:"):
+                    lines[0] = f"{label} {lines[0]}"
+            kept.append("\n".join(lines) if lines else body)
+        return "\n\n".join(kept) if kept else ""
+
+    def _drop_link_expansions(self, response: "Response | None") -> None:
+        """Strip ReMe ``expand_links`` neighbor bodies from a search response.
+
+        Neighbor outlinks/inlinks are useful for test-domain traceability
+        on an explicit ``memory_search``, but they dominate auto-injected
+        context and business chunk recall. Clears ``link_expansion``
+        metadata and rebuilds the answer from hit text only.
+        """
+        if response is None or not getattr(response, "success", False):
+            return
+        meta = response.metadata if isinstance(response.metadata, dict) else {}
+        results = list(meta.get("results") or [])
+        meta["link_expansion"] = {}
+        response.metadata = meta
+        if results and any(
+            str(r.get("text") or "").strip()
+            for r in results
+            if isinstance(r, dict)
+        ):
+            response.answer = self._rebuild_search_answer_with_expansions(
+                results, {},
+            )
+            return
+        answer = str(response.answer or "")
+        if not answer:
+            return
+        stripped = self._strip_expansion_lines(answer)
+        if stripped != answer:
+            response.answer = stripped
+
+    @staticmethod
+    def _strip_expansion_lines(answer: str) -> str:
+        """Drop ``outlinks`` / ``inlinks`` blocks from a ReMe search answer."""
+        kept: list[str] = []
+        skipping = False
+        for line in answer.split("\n"):
+            if _EXPANSION_HEADER_RE.match(line):
+                skipping = True
+                continue
+            if skipping:
+                if line.startswith(" ") or line.startswith("\t"):
+                    continue
+                skipping = False
+            kept.append(line)
+        return "\n".join(kept)
+
+    async def save_to_knowledge(
+        self,
+        title: str,
+        content: str,
+        bucket: str = "wiki",
+        preconditions: str = "",
+        steps: list[str] | None = None,
+        expected: str = "",
+        priority: str = "",
+        requirement_id: str = "",
+        links: list[str] | None = None,
+    ) -> ToolChunk:
+        """Explicitly write a published node into the shared knowledge base.
+
+        Only available for knowledge-base-capable agent types. Confidence
+        is 1.0. When a published node with the same title already exists,
+        the save refines (or corroborates if the content is already in
+        the body) instead of skipping. New titles are published as CREATE.
+
+        Test-domain agents pass structured test fields
+        (``preconditions``/``steps``/``expected``/``priority``/
+        ``requirement_id``) and ``links`` (titles of related KB nodes);
+        these are serialized into frontmatter and rendered as body
+        sections plus ``[[wikilink]]`` lines so ReMe's ``expand_links``
+        surfaces the requirement↔case↔defect traceability graph on recall.
+        Business-domain agents leave them empty.
+
+        Args:
+            title (`str`): Short node title.
+            content (`str`): Markdown body / summary to store.
+            bucket (`str`, optional): Domain-namespaced bucket, e.g.
+                ``business/wiki``, ``business/procedure``,
+                ``test/test_design``, ``test/test_cases``,
+                ``test/test_data``, ``test/defects``. Legacy flat
+                ``personal``/``procedure``/``wiki`` are accepted and
+                normalized to ``business/`` for backward compat.
+            preconditions (`str`, optional): Test case preconditions.
+            steps (`list[str]`, optional): Ordered test steps.
+            expected (`str`, optional): Expected result.
+            priority (`str`, optional): P0 / P1 / P2 / P3.
+            requirement_id (`str`, optional): Linked requirement id.
+            links (`list[str]`, optional): Titles of related KB nodes.
+        """
+        if not self._kb_enabled():
+            return _tool_chunk(
+                "save_to_knowledge is only available for knowledge-base agents.",
+                ok=False,
+            )
+        title = (title or "").strip()
+        content = (content or "").strip()
+        if not title or not content:
+            return _tool_chunk(
+                "Error: title and content are required.",
+                ok=False,
+            )
+        bucket = (bucket or "").strip().lower()
+        # Accept legacy flat buckets and normalize to business/ for
+        # backward compat with existing callers.
+        legacy_flat = {"personal", "procedure", "wiki"}
+        if bucket in legacy_flat:
+            bucket = f"business/{bucket}"
+        if bucket not in PUBLISHED_BUCKETS:
+            # Fall back to a domain-appropriate default rather than a
+            # hardcoded business bucket so a test agent that passes a
+            # wrong bucket still lands in the test domain.
+            domain = agent_type_to_domain(
+                load_agent_config(self.agent_id).agent_type,
+            )
+            bucket = "test/test_cases" if domain.startswith("test") else "business/wiki"
+
+        agent_config = load_agent_config(self.agent_id)
+        mem_cfg = agent_config.running.reme_light_memory_config
+        kb_id = mem_cfg.knowledge_base_id
+        if not kb_id:
+            from ..knowledge.store import resolve_kb_id
+
+            kb_id = resolve_kb_id(agent_id=self.agent_id, knowledge_base_id=None)
+
+        from ..knowledge.dream import (
+            KnowledgeUnit,
+            MergePayload,
+            integrate_units,
+            structural_merge_body,
+            _find_exact_published_node,
+            _parse_frontmatter,
+            _wikilink_title_index,
+            format_wikilink,
+            resolve_wikilink_target,
+        )
+        from ..knowledge.lock import KnowledgeLockTimeout
+        from ..knowledge.store import kb_root
+
+        unit = KnowledgeUnit(
+            name=title,
+            bucket=bucket,
+            summary=content,
+            confidence=1.0,
+            signals=["save_to_knowledge"],
+            preconditions=(preconditions or "").strip(),
+            steps=list(steps or []),
+            expected=(expected or "").strip(),
+            priority=(priority or "").strip(),
+            requirement_id=(requirement_id or "").strip(),
+            links=list(links or []),
+        )
+        merge_candidates = {}
+        merge_payloads = {}
+        exact = _find_exact_published_node(
+            kb_id, title, preferred_bucket=bucket,
+        )
+        mount_name = mem_cfg.knowledge_dir_name or "knowledge"
+        if exact is not None:
+            target = kb_root(kb_id) / exact.path
+            try:
+                text = target.read_text(encoding="utf-8")
+                fm, body = _parse_frontmatter(text)
+                title_index = _wikilink_title_index(kb_id)
+                formatted_links = [
+                    format_wikilink(*resolve_wikilink_target(
+                        link,
+                        title_index=title_index,
+                        knowledge_dir=mount_name,
+                    ))
+                    for link in unit.links
+                ]
+                merged = structural_merge_body(
+                    body, unit, formatted_links=formatted_links or None,
+                )
+                merge_candidates[title.lower()] = exact
+                merge_payloads[title.lower()] = MergePayload(
+                    target_path=target,
+                    expected_updated_at=(
+                        fm.get("updated_at", "").strip().strip('"')
+                    ),
+                    merged_body=merged,
+                    llm_ok=True,
+                )
+            except OSError:
+                logger.debug(
+                    "save_to_knowledge: existing node unreadable %s",
+                    target,
+                    exc_info=True,
+                )
+        try:
+            written = integrate_units(
+                kb_id=kb_id,
+                agent_id=self.agent_id,
+                units=[unit],
+                derived_from=["tool:save_to_knowledge"],
+                write_mode=mem_cfg.knowledge_write_mode,
+                inbox_enabled=mem_cfg.knowledge_inbox_enabled,
+                knowledge_dir=mount_name,
+                merge_enabled=True,
+                merge_candidates=merge_candidates,
+                merge_payloads=merge_payloads,
+            )
+        except KnowledgeLockTimeout:
+            return _tool_chunk(
+                "Knowledge base is locked by another writer; try again.",
+                ok=False,
+            )
+        except Exception as exc:
+            logger.exception("save_to_knowledge failed")
+            return _tool_chunk(f"Failed to save: {exc}", ok=False)
+
+        if not written:
+            return _tool_chunk(
+                f"No new node written (possible duplicate of {title!r}).",
+                ok=True,
+            )
+        await self._sync_search_index()
+        return _tool_chunk(
+            f"Saved to knowledge base {kb_id}: {written[0]}",
+            ok=True,
+        )
+
+    async def _sync_search_index(self) -> None:
+        """Apply watched-dir diffs to the ReMe index without wiping it.
+
+        Newly written KB files are invisible to ``memory_search`` until this
+        job lands. Retry a few times on a missing/failed response so a
+        transient index hiccup does not leave published nodes unsearchable
+        until the next watch cycle.
+        """
+        reme = getattr(self, "_reme", None)
+        if reme is None:
+            return
+        if not getattr(reme, "is_started", True):
+            return
+        last_error = "unknown"
+        for attempt in range(1, _INDEX_SYNC_ATTEMPTS + 1):
+            try:
+                response = await self._run_reme_job("index_sync")
+            except Exception:
+                last_error = "raised"
+                logger.warning(
+                    "knowledge index_sync raised attempt=%s/%s",
+                    attempt,
+                    _INDEX_SYNC_ATTEMPTS,
+                )
+                response = None
+            if response is not None and getattr(response, "success", False):
+                return
+            if response is None:
+                last_error = "no response"
+            else:
+                last_error = str(
+                    getattr(response, "answer", "") or "success=False",
+                )
+            if attempt < _INDEX_SYNC_ATTEMPTS:
+                logger.warning(
+                    "knowledge index_sync failed attempt=%s/%s: %s",
+                    attempt,
+                    _INDEX_SYNC_ATTEMPTS,
+                    last_error,
+                )
+                await asyncio.sleep(_INDEX_SYNC_RETRY_DELAY * attempt)
+        logger.warning(
+            "knowledge index_sync failed after %s attempts: %s",
+            _INDEX_SYNC_ATTEMPTS,
+            last_error,
+        )
 
     # ── reranker helpers ──────────────────────────────────────────────
 
@@ -548,8 +1615,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not results or len(results) <= 1:
             return
 
-        # Truncate long texts to 500 chars each for the reranker call
-        texts: list[str] = [r.get("text", "")[:500] for r in results]
+        # Truncate long texts for the reranker call. Keep the path so the
+        # model can tell entities apart even when bodies start similarly.
+        texts: list[str] = [self._rerank_doc_text(r) for r in results]
 
         new_order = await self._call_reranker_api(query, texts, config)
         if not new_order or len(new_order) != len(results):
@@ -576,6 +1644,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             len(results),
             config.model_name,
         )
+
+    @staticmethod
+    def _rerank_doc_text(result: dict) -> str:
+        """Build the short document the reranker sees for one hit."""
+        path = str(result.get("path") or result.get("file") or "").strip()
+        body = str(result.get("text") or "").strip()
+        if path and body:
+            combined = f"{path}\n{body}"
+        else:
+            combined = body or path
+        if len(combined) <= _RERANK_TEXT_CHARS:
+            return combined
+        return combined[:_RERANK_TEXT_CHARS]
 
     @staticmethod
     def _format_scores_for_header(
@@ -893,21 +1974,86 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if reranker_config
             else cap
         )
-        response = await self._run_reme_job(
-            "search",
-            query=query,
-            limit=effective_limit,
-            min_score=0,
-        )
+        kb_enabled = agent_type_has_knowledge_base(agent_config.agent_type)
+        if kb_enabled:
+            scope, bucket = self._resolve_kb_search_defaults(
+                scope="knowledge",
+                bucket="",
+                mem_cfg=memory_cfg,
+                agent_type=agent_config.agent_type,
+            )
+            if scope == "all":
+                response = await self._dual_chunk_search(
+                    query=query,
+                    cap=cap,
+                    effective_limit=effective_limit,
+                    min_score=0,
+                    mem_cfg=memory_cfg,
+                    reranker_config=reranker_config,
+                    bucket=bucket,
+                )
+            else:
+                prefixes = self._chunk_search_prefixes(
+                    scope=scope,
+                    kb_enabled=True,
+                    mem_cfg=memory_cfg,
+                    bucket=bucket,
+                )
+                response = await self._run_chunk_search(
+                    query=query,
+                    limit=effective_limit,
+                    min_score=0,
+                    prefixes=prefixes,
+                )
+                if response is None:
+                    return None
+                self._filter_search_response_by_scope(
+                    response,
+                    scope=scope,
+                    knowledge_dir=memory_cfg.knowledge_dir_name or "knowledge",
+                    daily_dir=memory_cfg.daily_dir,
+                    digest_dir=memory_cfg.digest_dir,
+                    tag=False,
+                )
+                await self._rerank_and_cap_response(
+                    query,
+                    response,
+                    cap,
+                    reranker_config,
+                )
+        else:
+            response = await self._run_reme_job(
+                "search",
+                query=query,
+                limit=effective_limit,
+                min_score=0,
+            )
+            if response is None or not response.success:
+                return None
+            await self._rerank_and_cap_response(
+                query,
+                response,
+                cap,
+                reranker_config,
+            )
+
         if response is None or not response.success:
             return None
 
-        await self._rerank_and_cap_response(
-            query,
-            response,
-            cap,
-            reranker_config,
-        )
+        # Auto-injected context cannot afford neighbor-body noise.
+        self._drop_link_expansions(response)
+
+        if kb_enabled:
+            answer = str(response.answer or "")
+            if answer:
+                response.answer = self._tag_answer_by_scope(
+                    answer,
+                    scope=scope,
+                    knowledge_dir=memory_cfg.knowledge_dir_name or "knowledge",
+                    daily_dir=memory_cfg.daily_dir,
+                    digest_dir=memory_cfg.digest_dir,
+                    add_labels=True,
+                )
 
         text = str(response.answer or "").strip()
         if not text:
@@ -951,7 +2097,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
     async def dream(self, **kwargs: Any) -> None:
-        """Run one ReMe auto-dream pass."""
+        """Run one ReMe auto-dream pass, then knowledge dream when enabled."""
         response = await self._run_reme_job(
             "auto_dream",
             needs_llm=True,
@@ -961,9 +2107,458 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
 
+        await self._maybe_run_knowledge_dream(**kwargs)
+
+    async def _maybe_run_knowledge_dream(self, **kwargs: Any) -> None:
+        """Extract private daily notes into the shared knowledge base."""
+        agent_config = load_agent_config(self.agent_id)
+        if not agent_type_has_knowledge_base(agent_config.agent_type):
+            return
+        mem_cfg = agent_config.running.reme_light_memory_config
+        if not mem_cfg.knowledge_dream_enabled:
+            return
+        kb_id = mem_cfg.knowledge_base_id
+        if not kb_id:
+            from ..knowledge.store import resolve_kb_id
+
+            kb_id = resolve_kb_id(
+                agent_id=self.agent_id,
+                knowledge_base_id=None,
+            )
+
+        from agentscope.message import Msg
+
+        from ..knowledge.dream import run_knowledge_dream
+
+        async def _llm_call(prompt: str) -> str:
+            await self._update_qwenpaw_model()
+            model, _formatter = create_model_and_formatter(self.agent_id)
+            messages = [
+                Msg(name="system", role="system", content=prompt),
+            ]
+            return await consume_model_response(model, messages)
+
+        dedup_search = self._build_knowledge_dedup_search(mem_cfg) if mem_cfg.knowledge_dedup_enabled else None
+        # Always build the merge/related probe when dedup or merge is on so
+        # related_names can enrich wikilinks even if auto-merge is off.
+        merge_search = (
+            self._build_knowledge_merge_search(mem_cfg)
+            if (mem_cfg.knowledge_merge_enabled or mem_cfg.knowledge_dedup_enabled)
+            else None
+        )
+        catalog_search = (
+            self._build_knowledge_catalog_search(mem_cfg)
+            if (mem_cfg.knowledge_merge_enabled or mem_cfg.knowledge_dedup_enabled)
+            else None
+        )
+
+        try:
+            result = await run_knowledge_dream(
+                agent_id=self.agent_id,
+                workspace_dir=self.working_dir,
+                kb_id=kb_id,
+                daily_dir_name=mem_cfg.daily_dir,
+                metadata_dir=mem_cfg.metadata_dir,
+                language=agent_config.language,
+                domain=agent_type_to_domain(agent_config.agent_type),
+                scan_days=mem_cfg.knowledge_scan_days,
+                max_units=mem_cfg.knowledge_max_units,
+                write_mode=mem_cfg.knowledge_write_mode,
+                inbox_enabled=mem_cfg.knowledge_inbox_enabled,
+                knowledge_dir=mem_cfg.knowledge_dir_name or "knowledge",
+                llm_call=_llm_call,
+                dedup_search=dedup_search,
+                merge_search=merge_search,
+                catalog_search=catalog_search,
+                merge_enabled=mem_cfg.knowledge_merge_enabled,
+                merge_max_updates=mem_cfg.knowledge_merge_max_updates,
+            )
+            logger.info(
+                "knowledge_dream finished agent=%s kb=%s result=%s",
+                self.agent_id,
+                kb_id,
+                result,
+            )
+            if result.get("written"):
+                await self._sync_search_index()
+            needs_review = result.get("needs_review_count", 0)
+            audit_reports = result.get("audit_reports") or []
+            if audit_reports:
+                logger.info(
+                    "knowledge_dream audit agent=%s kb=%s reports=%d "
+                    "needs_review=%d",
+                    self.agent_id,
+                    kb_id,
+                    len(audit_reports),
+                    needs_review,
+                )
+                for report in audit_reports:
+                    level = logger.warning if report.get("needs_review") else logger.info
+                    level(
+                        "knowledge_dream audit report id=%s node=%s mode=%s "
+                        "anomalies=%s needs_review=%s",
+                        report.get("report_id"),
+                        report.get("node_path"),
+                        report.get("mode"),
+                        ",".join(report.get("anomalies", [])) or "none",
+                        report.get("needs_review"),
+                    )
+                if needs_review:
+                    logger.warning(
+                        "knowledge_dream: %d merge report(s) need human "
+                        "audit in kb=%s (see GET /knowledge-bases/%s/"
+                        "audit-reports?needs_review=true)",
+                        needs_review,
+                        kb_id,
+                        kb_id,
+                    )
+        except Exception:
+            logger.exception(
+                "knowledge_dream failed agent=%s kb=%s",
+                self.agent_id,
+                kb_id,
+            )
+
+    def _build_knowledge_dedup_search(
+        self,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> "Callable[[str, str], Awaitable[bool]]":
+        """Build a semantic-duplicate probe for ``run_knowledge_dream``.
+
+        Returns an async ``(name, summary) -> bool`` that runs the ReMe
+        ``node_search`` job scoped to the shared knowledge mount via
+        ``prefixes=["knowledge/"]`` (ReMe's node-level recall — one row per
+        A new unit is treated as a semantic duplicate when ``node_search``
+        recalls an existing published KB node whose alias-aware name
+        similarity — lifted by summary/description overlap for near-miss
+        titles — is >= ``knowledge_dedup_threshold``.
+
+        Node-level name matching is more precise than the chunk-level
+        cosine probe it replaces: it compares whole entities (by title,
+        with extract-alias awareness so ``退款政策-补充`` matches
+        ``退款政策``) rather than overlapping fragments, so it catches
+        "same entity, rephrased/superset name" (e.g. ``客户画像`` vs
+        ``客户画像分析``) while avoiding false positives from chunks that
+        merely share wording. ``_inbox`` nodes are excluded so unpublished
+        drafts never block a publish. The probe is best-effort: any
+        ReMe/index failure resolves to False (no dedup), so a temporarily
+        unavailable index never blocks publishing.
+        """
+        knowledge_dir = (mem_cfg.knowledge_dir_name or "knowledge").replace("\\", "/").strip("/")
+        knowledge_prefixes = knowledge_published_path_prefixes(knowledge_dir)
+        threshold = float(mem_cfg.knowledge_dedup_threshold)
+
+        def _is_duplicate(name: str, hits: list, summary: str = "") -> bool:
+            target = (name or "").strip().lower()
+            if not target:
+                return False
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                path = str(hit.get("path") or "").replace("\\", "/").lstrip("./")
+                if not any(path.startswith(p) for p in knowledge_prefixes):
+                    continue
+                candidate = str(hit.get("name") or "").strip()
+                if not candidate:
+                    continue
+                ratio = knowledge_claim_similarity(
+                    target,
+                    candidate,
+                    summary,
+                    str(hit.get("description") or ""),
+                )
+                if ratio >= threshold:
+                    return True
+            return False
+
+        async def _dedup_search(name: str, summary: str) -> bool:
+            query = f"{name} {summary}".strip() or name
+            if not query:
+                return False
+            try:
+                response = await self._run_reme_job(
+                    "node_search",
+                    query=query,
+                    limit=20,
+                    prefixes=knowledge_prefixes,
+                )
+            except Exception:
+                logger.debug(
+                    "knowledge dedup node_search failed for %r",
+                    name,
+                    exc_info=True,
+                )
+                return False
+            if response is None or not response.success:
+                return False
+            hits = response.metadata.get("hits") if response.metadata else None
+            if not hits:
+                return False
+            try:
+                return _is_duplicate(name, hits, summary)
+            except Exception:
+                logger.debug(
+                    "knowledge dedup hit parsing failed for %r",
+                    name,
+                    exc_info=True,
+                )
+                return False
+
+        return _dedup_search
+
+    def _build_knowledge_merge_search(
+        self,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> "Callable[[str, str], Awaitable[MergeCandidate | None]]":
+        """Build a merge-target + related-link probe for ``run_knowledge_dream``.
+
+        Returns an async ``(name, summary) -> MergeCandidate | None`` that
+        runs the same ReMe ``node_search`` as the dedup probe but returns a
+        ranked candidate instead of a bool. A candidate is ``is_clear``
+        only when its claim similarity (alias-aware name, lifted by
+        summary/description overlap) >= ``knowledge_merge_threshold`` AND
+        it beats the runner-up by >= ``knowledge_merge_margin`` (or it is
+        the only hit). Near-duplicates (similarity >= ``knowledge_dedup_threshold``
+        but not a clear merge) return ``is_clear=False`` **with a path**
+        so integrate routes them to ``_inbox`` instead of publishing a
+        sibling node. Weaker related hits keep an empty path for synapse
+        weaving only.
+
+        Non-target hits with name-similarity >= ``knowledge_related_threshold``
+        are collected into ``related_names`` so integrate can weave
+        ``[[wikilink]]`` associations (ReMe-style synapse) even when the
+        top hit is not a same-abstraction merge target.
+
+        The path is returned relative to the KB root (stripping the
+        ``knowledge/`` mount prefix) so :func:`integrate_units` can resolve
+        it on disk.
+        """
+        knowledge_dir = (mem_cfg.knowledge_dir_name or "knowledge").replace("\\", "/").strip("/")
+        knowledge_prefix = knowledge_dir + "/"
+        knowledge_prefixes = knowledge_published_path_prefixes(knowledge_dir)
+        threshold = float(mem_cfg.knowledge_merge_threshold)
+        margin = float(mem_cfg.knowledge_merge_margin)
+        related_threshold = float(
+            getattr(mem_cfg, "knowledge_related_threshold", 0.70),
+        )
+        dedup_threshold = float(
+            getattr(mem_cfg, "knowledge_dedup_threshold", 0.78),
+        )
+
+        def _rank(name: str, hits: list, summary: str = "") -> MergeCandidate | None:
+            target = (name or "").strip().lower()
+            if not target:
+                return None
+            scored: list[tuple[float, str, str]] = []
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                path = str(hit.get("path") or "").replace("\\", "/").lstrip("./")
+                if not any(path.startswith(p) for p in knowledge_prefixes):
+                    continue
+                candidate = str(hit.get("name") or "").strip()
+                if not candidate:
+                    continue
+                ratio = knowledge_claim_similarity(
+                    target,
+                    candidate,
+                    summary,
+                    str(hit.get("description") or ""),
+                )
+                scored.append((ratio, candidate, path))
+            if not scored:
+                return None
+            scored.sort(key=lambda t: t[0], reverse=True)
+            top_ratio, top_name, top_path = scored[0]
+            second_ratio = scored[1][0] if len(scored) > 1 else 0.0
+            is_clear = (
+                top_ratio >= threshold
+                and ((top_ratio - second_ratio) >= margin or len(scored) == 1)
+            )
+            # Related = other hits above related_threshold that are not the
+            # same-abstraction target (when clear) / not the unit itself.
+            related: list[str] = []
+            for ratio, cand_name, _path in scored:
+                if ratio < related_threshold:
+                    continue
+                if cand_name.strip().lower() == target:
+                    continue
+                if is_clear and cand_name.strip().lower() == top_name.strip().lower():
+                    continue
+                if cand_name not in related:
+                    related.append(cand_name)
+                if len(related) >= MAX_SYNAPSE_LINKS:
+                    break
+            if top_ratio < related_threshold and not is_clear:
+                # Nothing useful for merge or synapse.
+                return None
+            # Strip the knowledge mount prefix so the path is KB-relative.
+            rel = top_path
+            if rel.startswith(knowledge_prefix):
+                rel = rel[len(knowledge_prefix):]
+            if top_ratio < threshold:
+                if top_ratio >= dedup_threshold:
+                    # Near-duplicate: hold for review instead of CREATE.
+                    return MergeCandidate(
+                        name=top_name,
+                        path=rel,
+                        ratio=top_ratio,
+                        is_clear=False,
+                        related_names=related,
+                    )
+                # Below merge and dedup: synapse weaving only.
+                if not related:
+                    return None
+                return MergeCandidate(
+                    name="",
+                    path="",
+                    ratio=top_ratio,
+                    is_clear=False,
+                    related_names=related,
+                )
+            return MergeCandidate(
+                name=top_name,
+                path=rel,
+                ratio=top_ratio,
+                is_clear=is_clear,
+                related_names=related,
+            )
+
+        async def _merge_search(name: str, summary: str) -> MergeCandidate | None:
+            query = f"{name} {summary}".strip() or name
+            if not query:
+                return None
+            try:
+                response = await self._run_reme_job(
+                    "node_search",
+                    query=query,
+                    limit=20,
+                    prefixes=knowledge_prefixes,
+                )
+            except Exception:
+                logger.debug(
+                    "knowledge merge node_search failed for %r",
+                    name,
+                    exc_info=True,
+                )
+                return None
+            if response is None or not response.success:
+                return None
+            hits = response.metadata.get("hits") if response.metadata else None
+            if not hits:
+                return None
+            try:
+                return _rank(name, hits, summary)
+            except Exception:
+                logger.debug(
+                    "knowledge merge hit parsing failed for %r",
+                    name,
+                    exc_info=True,
+                )
+                return None
+
+        return _merge_search
+
+    def _build_knowledge_catalog_search(
+        self,
+        mem_cfg: "ReMeLightMemoryConfig",
+    ) -> "Callable[[str], Awaitable[list[tuple[str, str]]]]":
+        """Recall published KB titles related to a daily-note query.
+
+        Returns ``(name, bucket)`` rows from ReMe ``node_search`` scoped to
+        published prefixes. Used to seed the extract prompt's existing-node
+        catalog so ``merge_target`` can point at nodes that are actually
+        about today's notes, not the first 80 files on disk. Best-effort:
+        index failures yield an empty list and lexical ranking still runs.
+        """
+        from ..knowledge.dream import _bucket_from_rel
+
+        knowledge_dir = (mem_cfg.knowledge_dir_name or "knowledge").replace(
+            "\\", "/",
+        ).strip("/")
+        knowledge_prefix = knowledge_dir + "/"
+        knowledge_prefixes = knowledge_published_path_prefixes(knowledge_dir)
+
+        def _hits_to_entries(hits: list) -> list[tuple[str, str]]:
+            out: list[tuple[str, str]] = []
+            seen: set[str] = set()
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                path = str(hit.get("path") or "").replace("\\", "/").lstrip("./")
+                if not any(path.startswith(p) for p in knowledge_prefixes):
+                    continue
+                name = str(hit.get("name") or "").strip()
+                if not name:
+                    continue
+                key = name.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                rel = (
+                    path[len(knowledge_prefix):]
+                    if path.startswith(knowledge_prefix)
+                    else path
+                )
+                out.append((name, _bucket_from_rel(rel)))
+            return out
+
+        async def _catalog_search(query: str) -> list[tuple[str, str]]:
+            q = (query or "").strip()
+            if not q:
+                return []
+            if len(q) > 1200:
+                q = q[:1200]
+            try:
+                response = await self._run_reme_job(
+                    "node_search",
+                    query=q,
+                    limit=20,
+                    prefixes=knowledge_prefixes,
+                )
+            except Exception:
+                logger.debug(
+                    "knowledge catalog node_search failed",
+                    exc_info=True,
+                )
+                return []
+            if response is None or not response.success:
+                return []
+            hits = response.metadata.get("hits") if response.metadata else None
+            if not hits:
+                return []
+            try:
+                return _hits_to_entries(hits)
+            except Exception:
+                logger.debug(
+                    "knowledge catalog hit parsing failed",
+                    exc_info=True,
+                )
+                return []
+
+        return _catalog_search
+
+    def knowledge_mount_warning(self) -> str | None:
+        """Return a user-facing dangling-mount warning, if any.
+
+        Populated when the shared knowledge-base directory was removed on
+        disk while the agent still references it. ``None`` when the mount
+        is healthy (or the agent has no KB).
+        """
+        return self._knowledge_mount_warning
+
     async def reme_status(self) -> "Response | None":
-        """Return embedded ReMe component memory estimates and process RSS."""
-        return await self._run_reme_job("status")
+        """Return embedded ReMe component memory estimates and process RSS.
+
+        Attaches ``knowledge_mount_warning`` to the response metadata so the
+        console can surface a dangling-mount notice to the user.
+        """
+        response = await self._run_reme_job("status")
+        if response is not None and self._knowledge_mount_warning:
+            if response.metadata is None:
+                response.metadata = {}
+            response.metadata["knowledge_mount_warning"] = self._knowledge_mount_warning
+        return response
 
     async def graph_snapshot(self) -> "Response | None":
         """Return the complete indexed wikilink graph for the console."""

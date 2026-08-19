@@ -18,6 +18,9 @@ def test_reme_light_inbox_push_defaults_to_enabled():
     cfg = ReMeLightMemoryConfig()
 
     assert cfg.inbox_push_enabled is True
+    assert cfg.knowledge_search_default == "knowledge"
+    assert cfg.knowledge_related_threshold == 0.70
+    assert cfg.knowledge_write_mode == "strict"
 
 
 def test_legacy_rebuild_on_start_setting_is_ignored():
