@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
 """Load image or video files into the LLM context for analysis."""
 
+import asyncio
+import ipaddress
 import logging
 import mimetypes
 import os
+import socket
 import unicodedata
 import urllib.parse
-from urllib.parse import unquote
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
+import httpx
 from agentscope.message import (
     DataBlock,
     TextBlock,
@@ -20,10 +25,26 @@ from agentscope.tool import ToolChunk
 
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import run_sync_io
+from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .file_io import _path_to_file_url, _resolve_file_path
-from ..utils.image_freezing import freeze_local_image
+from ..utils.image_freezing import freeze_image_bytes, freeze_local_image
 
 logger = logging.getLogger(__name__)
+
+_REMOTE_IMAGE_CHUNK_SIZE = 64 * 1024
+_REMOTE_IMAGE_CONNECT_TIMEOUT = 5.0
+_REMOTE_IMAGE_READ_TIMEOUT = 10.0
+_REMOTE_IMAGE_TOTAL_TIMEOUT = 30.0
+_REMOTE_IMAGE_MAX_REDIRECTS = 3
+
+
+@dataclass(frozen=True)
+class _RemoteImageTarget:
+    """Describe one validated remote target with a DNS-pinned URL."""
+
+    request_url: str
+    host_header: str
+    server_hostname: str
 
 
 def _media_data_block(url: str, modality: str) -> DataBlock:
@@ -64,6 +85,223 @@ _VIDEO_EXTENSIONS = {
 def _is_url(path: str) -> bool:
     """Return True if *path* looks like an HTTP(S) URL."""
     return path.startswith(("http://", "https://"))
+
+
+def _resolve_host_addresses(host: str, port: int) -> tuple[str, ...]:
+    """Resolve a remote host to its candidate IP addresses."""
+    infos = socket.getaddrinfo(
+        host,
+        port,
+        type=socket.SOCK_STREAM,
+    )
+    addresses = (
+        str(info[4][0]).split("%", maxsplit=1)[0] for info in infos if info[4]
+    )
+    return tuple(dict.fromkeys(addresses))
+
+
+def _url_host(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
+    """Format an IP address for use as a URL host."""
+    return f"[{address}]" if address.version == 6 else str(address)
+
+
+def _host_header(host: str, port: int | None, scheme: str) -> str:
+    """Build the original authority for HTTP virtual hosting."""
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        authority = host.encode("idna").decode("ascii")
+    else:
+        authority = _url_host(literal)
+
+    default_port = 443 if scheme == "https" else 80
+    if port is not None and port != default_port:
+        return f"{authority}:{port}"
+    return authority
+
+
+# pylint: disable-next=too-many-branches,too-many-return-statements
+async def _resolve_remote_image_target(
+    url: str,
+) -> tuple[_RemoteImageTarget | None, str | None]:
+    """Validate a URL and pin its request to one checked IP address."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except (UnicodeError, ValueError):
+        return None, "remote image URL is invalid"
+
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None, "remote image URL must use HTTP or HTTPS"
+    if parsed.username is not None or parsed.password is not None:
+        return None, "remote image URL must not contain credentials"
+
+    host = parsed.hostname.rstrip(".")
+    if host.lower() == "localhost":
+        return None, "remote image URL targets a non-public address"
+
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            addresses = await run_sync_io(
+                _resolve_host_addresses,
+                host,
+                port,
+            )
+        except OSError:
+            return None, "remote image host could not be resolved"
+    else:
+        addresses = (str(literal),)
+
+    if not addresses:
+        return None, "remote image host could not be resolved"
+    validated: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for value in addresses:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            return None, "remote image host resolved to an invalid address"
+        if not address.is_global:
+            return None, "remote image URL targets a non-public address"
+        validated.append(address)
+
+    selected = validated[0]
+    request_netloc = _url_host(selected)
+    if parsed.port is not None:
+        request_netloc = f"{request_netloc}:{parsed.port}"
+    request_url = urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            request_netloc,
+            parsed.path,
+            parsed.query,
+            "",
+        ),
+    )
+    try:
+        server_hostname = host.encode("idna").decode("ascii")
+        host_header = _host_header(host, parsed.port, parsed.scheme)
+    except UnicodeError:
+        return None, "remote image URL is invalid"
+    return (
+        _RemoteImageTarget(
+            request_url=request_url,
+            host_header=host_header,
+            server_hostname=server_hostname,
+        ),
+        None,
+    )
+
+
+# pylint: disable-next=too-many-return-statements
+async def _download_remote_image(
+    url: str,
+    max_bytes: int,
+) -> tuple[bytes | None, str | None]:
+    """Download one remote image with bounded resource usage."""
+    current_url = url
+    timeout = httpx.Timeout(
+        _REMOTE_IMAGE_READ_TIMEOUT,
+        connect=_REMOTE_IMAGE_CONNECT_TIMEOUT,
+    )
+    try:
+        async with asyncio.timeout(_REMOTE_IMAGE_TOTAL_TIMEOUT):
+            async with httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=timeout,
+                trust_env=False,
+            ) as client:
+                for _ in range(_REMOTE_IMAGE_MAX_REDIRECTS + 1):
+                    (
+                        target,
+                        validation_error,
+                    ) = await _resolve_remote_image_target(current_url)
+                    if validation_error is not None or target is None:
+                        return None, validation_error
+
+                    # Connect to the checked IP while preserving the origin.
+                    async with client.stream(
+                        "GET",
+                        target.request_url,
+                        headers={"Host": target.host_header},
+                        extensions={
+                            "sni_hostname": target.server_hostname,
+                        },
+                    ) as response:
+                        if response.is_redirect:
+                            location = response.headers.get("location")
+                            if not location:
+                                return (
+                                    None,
+                                    "remote image redirect is missing a URL",
+                                )
+                            current_url = urllib.parse.urljoin(
+                                current_url,
+                                location,
+                            )
+                            continue
+
+                        try:
+                            response.raise_for_status()
+                        except httpx.HTTPStatusError:
+                            return (
+                                None,
+                                "remote server returned HTTP "
+                                f"{response.status_code}",
+                            )
+
+                        content_length = response.headers.get(
+                            "content-length",
+                        )
+                        if content_length:
+                            try:
+                                reported_size = int(content_length)
+                            except ValueError:
+                                reported_size = 0
+                            if 0 < max_bytes < reported_size:
+                                return (
+                                    None,
+                                    "remote image exceeds the size limit",
+                                )
+
+                        content = bytearray()
+                        async for chunk in response.aiter_bytes(
+                            chunk_size=_REMOTE_IMAGE_CHUNK_SIZE,
+                        ):
+                            if 0 < max_bytes < len(content) + len(chunk):
+                                return (
+                                    None,
+                                    "remote image exceeds the size limit",
+                                )
+                            content.extend(chunk)
+                        return bytes(content), None
+                return None, "remote image exceeded redirect limit"
+    except (TimeoutError, httpx.TimeoutException):
+        return None, "remote image download timed out"
+    except (httpx.RequestError, OSError, ValueError):
+        return None, "remote image download failed"
+
+
+def _remote_image_name(url: str) -> str:
+    """Return a display-only filename for a remote image URL."""
+    path = urllib.parse.urlsplit(url).path
+    return Path(unquote(path)).name or "remote-image"
+
+
+def _image_error_chunk(error: str | None) -> ToolChunk:
+    """Build a text-only result for an unavailable remote image."""
+    detail = error or "unknown error"
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[
+            TextBlock(
+                type="text",
+                text=f"Error: failed to load remote image: {detail}",
+            ),
+        ],
+    )
 
 
 def _validate_url_extension(
@@ -229,8 +467,6 @@ async def _probe_multimodal_if_needed(
                 supports,
             )
             # Fire full probe in background to persist video support too
-            import asyncio
-
             asyncio.create_task(
                 manager.probe_model_multimodal(
                     active.provider_id,
@@ -354,13 +590,14 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     ui_icon="🖼️",
     display_to_user=False,
 )
+# pylint: disable-next=too-many-return-statements
 async def view_image(image_path: str) -> ToolChunk:
     """Load an image file into the LLM context so the model can see it.
 
     Use this after desktop_screenshot or any tool that
     produces an image file path.  Also accepts an HTTP(S) URL for
-    online images — the URL is passed directly to the model without
-    downloading.
+    online images. Remote images are downloaded, validated, and frozen
+    before they are added to the model context.
 
     When the model does not support multimodal, the image is still
     returned (so the user/frontend can see it) along with a text hint
@@ -391,16 +628,32 @@ async def view_image(image_path: str) -> ToolChunk:
         )
         if err is not None:
             return err
+
+        image_bytes, download_error = await _download_remote_image(
+            image_path,
+            MAX_INLINE_MEDIA_BYTES,
+        )
+        if download_error is not None or image_bytes is None:
+            return _image_error_chunk(download_error)
+
+        frozen_image, freeze_error = await run_sync_io(
+            freeze_image_bytes,
+            image_bytes,
+            _remote_image_name(image_path),
+        )
+        if freeze_error is not None or frozen_image is None:
+            return _image_error_chunk(freeze_error)
+
         text_msg = (
             fallback_hint
             if fallback_hint
-            else f"Image loaded from URL: {image_path}"
+            else "Image loaded from remote source."
         )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
             content=[
-                _media_data_block(image_path, "image"),
+                frozen_image,
                 TextBlock(type="text", text=text_msg),
             ],
         )
@@ -452,8 +705,9 @@ async def view_video(video_path: str) -> ToolChunk:
     """Load a video file into the LLM context so the model can see it.
 
     Use this when the user asks about a video file or when another
-    tool produces a video file path.  Also accepts an HTTP(S) URL —
-    the URL is passed directly to the model without downloading.
+    tool produces a video file path. Unlike remote images, an HTTP(S)
+    video URL is passed directly to the model without downloading or
+    freezing. Durable remote video handling is outside the current scope.
 
     When the model does not support multimodal, the video is still
     returned (so the user/frontend can see it) along with a text hint
