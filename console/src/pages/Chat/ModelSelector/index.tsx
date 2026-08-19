@@ -63,6 +63,7 @@ function publishActiveMaxInputLength(
 const RECENT_STORAGE_KEY = "qwenpaw_model_selector_recent";
 const RECOMMENDED_LIMIT = 6;
 const DEFAULT_VISIBLE_MODELS = 5;
+const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
   showAdvancedModelControls?: boolean;
@@ -744,12 +745,15 @@ export default function ModelSelector({
                   e.stopPropagation();
                   setExpandedModels((prev) => ({
                     ...prev,
-                    [provider.id]: provider.models.length,
+                    [provider.id]: Math.min(
+                      visibleCount + VIEW_MORE_STEP,
+                      provider.models.length,
+                    ),
                   }));
                 }}
               >
                 {t("modelSelector.viewMore", {
-                  count: remaining,
+                  count: Math.min(remaining, VIEW_MORE_STEP),
                 })}
               </button>
             )}
@@ -867,7 +871,7 @@ export default function ModelSelector({
           <span>{t("modelSelector.freeBannerText")}</span>
         </div>
         {rankModels(readyProviders).map((provider) =>
-          renderProviderModels(provider),
+          renderProviderModels(provider, false),
         )}
         {oauthOnlyProviders.map(renderOAuthConnectEntry)}
         {needsKeyProviders.length > 0 && (

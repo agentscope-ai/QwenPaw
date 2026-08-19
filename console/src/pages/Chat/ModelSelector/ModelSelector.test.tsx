@@ -709,6 +709,74 @@ describe("ModelSelector", () => {
     expect(screen.queryByText("Anthropic Model 5")).not.toBeInTheDocument();
   });
 
+  it("does not persist provider collapse state", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "chat.modelSelectTooltip",
+      }),
+    );
+
+    await user.click(screen.getByText("OpenAI").closest("button")!);
+
+    expect(localStorage.getItem("qwenpaw_model_selector_collapsed")).toBeNull();
+  });
+
+  it("loads large provider lists step by step instead of all at once", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        models: Array.from({ length: 105 }, (_, index) => ({
+          ...mockProvider.models[0],
+          id: `large-model-${index}`,
+          name: `Large Model ${index}`,
+          is_recommended: false,
+        })),
+      },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "chat.modelSelectTooltip",
+      }),
+    );
+
+    // Button shows the next batch size (20), not the full remaining count
+    const viewMore = await screen.findByRole("button", {
+      name: "modelSelector.viewMore (20)",
+    });
+    expect(viewMore).toBeInTheDocument();
+    expect(screen.queryByText("Large Model 5")).not.toBeInTheDocument();
+
+    await user.click(viewMore);
+
+    // One click reveals one more batch (5 + 20 = 25), not everything
+    expect(await screen.findByText("Large Model 24")).toBeInTheDocument();
+    expect(screen.queryByText("Large Model 25")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "modelSelector.viewMore (20)",
+      }),
+    ).toBeInTheDocument();
+
+    // Keep clicking until all models are revealed and the button disappears
+    for (let i = 0; i < 4; i += 1) {
+      await user.click(
+        screen.getByRole("button", {
+          name: /modelSelector\.viewMore/,
+        }),
+      );
+    }
+    expect(await screen.findByText("Large Model 104")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /modelSelector\.viewMore/,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows configured PRO models even when none are recommended", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       {
