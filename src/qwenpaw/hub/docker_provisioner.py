@@ -258,15 +258,6 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         if pull_policy not in PULL_POLICIES:
             raise ValueError("Invalid Docker image pull policy.")
         if not pinned_image_id:
-            registry = self.registry_for(image)
-            allowed_value = self._policy.get("allowed_registries", [])
-            allowed = (
-                {str(item) for item in allowed_value}
-                if isinstance(allowed_value, (list, tuple, set))
-                else set()
-            )
-            if allowed and registry not in allowed:
-                raise ValueError(f"Docker registry is not allowed: {registry}")
             source = str(self._policy.get("source", "docker_hub"))
             if source in OFFICIAL_DOCKER_IMAGES:
                 repository = OFFICIAL_DOCKER_IMAGES[source]
@@ -290,16 +281,6 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 str(item) for item in config.get("image_digests", [])
             ]
         return normalized
-
-    @staticmethod
-    def registry_for(reference: str) -> str:
-        """Resolve the registry host using Docker reference rules."""
-        first, separator, _ = reference.partition("/")
-        if separator and (
-            "." in first or ":" in first or first == "localhost"
-        ):
-            return first
-        return "docker.io"
 
     @staticmethod
     def is_official_image(reference: str) -> bool:

@@ -722,8 +722,7 @@
   }
 }
 
-.imagePolicySection,
-.registrySection {
+.imagePolicySection {
   padding: 16px;
   border: 1px solid var(--hub-border);
   border-radius: 11px;
@@ -738,13 +737,31 @@
 
 .imageIdentityCard {
   display: grid;
-  grid-template-columns: auto minmax(180px, 0.8fr) minmax(0, 1.4fr);
+  grid-template-columns:
+    auto minmax(180px, 0.8fr) minmax(0, 1.4fr)
+    auto;
   align-items: center;
   gap: 14px;
   padding: 14px;
   border: 1px solid var(--hub-border);
   border-radius: 10px;
   background: var(--hub-surface);
+}
+
+.imageIdentityActions {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+
+  span {
+    color: var(--hub-muted);
+    font-size: 9px;
+  }
+}
+
+.imageIdentityProgress {
+  grid-column: 2 / -1;
+  width: 100%;
 }
 
 .imageIdentityIcon {
@@ -815,11 +832,6 @@
   }
 }
 
-.registrySection {
-  margin-top: 12px;
-}
-
-.registryHeader,
 .rateLimitHeader {
   display: flex;
   align-items: flex-start;
@@ -840,25 +852,6 @@
     color: var(--hub-muted);
     font-size: 9px;
   }
-
-  svg {
-    flex: 0 0 auto;
-    color: var(--hub-accent-deep);
-  }
-}
-
-.builtInRegistries {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 12px 0;
-
-  :global(.qwenpaw-tag) {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin: 0;
-  }
 }
 
 .dockerWarning {
@@ -878,18 +871,6 @@
   border: 1px solid var(--hub-border);
   border-radius: 9px;
   background: var(--hub-surface-subtle);
-}
-
-.imagePullRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 2px 0 14px;
-
-  span {
-    color: var(--hub-muted);
-    font-size: 10px;
-  }
 }
 
 .resourceTitle {
@@ -1197,7 +1178,16 @@
   .imageIdentityCard {
     grid-template-columns: auto minmax(0, 1fr);
 
-    dl {
+    dl,
+    .imageIdentityActions {
+      grid-column: 1 / -1;
+    }
+
+    .imageIdentityActions {
+      justify-items: start;
+    }
+
+    .imageIdentityProgress {
       grid-column: 1 / -1;
     }
   }

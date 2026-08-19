@@ -77,7 +77,6 @@ interface SettingsFormValues {
   dockerSource: "docker_hub" | "aliyun_acr" | "local" | "custom";
   dockerImage: string;
   dockerPullPolicy: "always" | "if_not_present" | "never";
-  dockerAllowedRegistries: string[];
   dockerCpuLimit?: number;
   dockerMemoryLimitMb?: number;
   dockerPidsLimit?: number;
@@ -103,10 +102,6 @@ interface PageData<T> {
 }
 
 const PAGE_SIZE = 20;
-const BUILT_IN_DOCKER_REGISTRIES = [
-  "docker.io",
-  "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
-] as const;
 
 const STATE_COLORS: Record<HubRuntime["state"], string> = {
   created: "default",
@@ -118,15 +113,6 @@ const STATE_COLORS: Record<HubRuntime["state"], string> = {
 
 function emptyPage<T>(): PageData<T> {
   return { items: [], page: 1, pageSize: PAGE_SIZE, total: 0 };
-}
-
-function customDockerRegistries(registries: string[]) {
-  return registries.filter(
-    (registry) =>
-      !BUILT_IN_DOCKER_REGISTRIES.includes(
-        registry as (typeof BUILT_IN_DOCKER_REGISTRIES)[number],
-      ),
-  );
 }
 
 function dockerReferenceParts(reference: string) {
@@ -284,9 +270,6 @@ export default function HubPage() {
       dockerSource: result.config.runtime.docker.source,
       dockerImage: result.config.runtime.docker.image,
       dockerPullPolicy: result.config.runtime.docker.pull_policy,
-      dockerAllowedRegistries: customDockerRegistries(
-        result.config.runtime.docker.allowed_registries,
-      ),
       dockerCpuLimit: result.config.runtime.docker.cpu_limit ?? undefined,
       dockerMemoryLimitMb:
         result.config.runtime.docker.memory_limit_mb ?? undefined,
@@ -471,10 +454,6 @@ export default function HubPage() {
               values.dockerSource === "local" ? "custom" : values.dockerSource,
             image: values.dockerImage.trim(),
             pull_policy: values.dockerPullPolicy,
-            allowed_registries: [
-              ...BUILT_IN_DOCKER_REGISTRIES,
-              ...customDockerRegistries(values.dockerAllowedRegistries),
-            ],
             cpu_limit: values.dockerCpuLimit ?? null,
             memory_limit_mb: values.dockerMemoryLimitMb ?? null,
             pids_limit: values.dockerPidsLimit ?? null,
@@ -1911,87 +1890,36 @@ function SettingsPanel({
                               </dd>
                             </div>
                           </dl>
-                        </div>
-                      </div>
-                      <div className={styles.registrySection}>
-                        <div className={styles.registryHeader}>
-                          <div>
-                            <strong>
-                              {t("hub.settings.docker.allowedRegistries")}
-                            </strong>
+                          <div className={styles.imageIdentityActions}>
+                            {dockerSource !== "local" && (
+                              <Button
+                                icon={<RefreshCw size={14} />}
+                                loading={dockerPulling}
+                                disabled={
+                                  !dockerImages?.available || !dockerImage
+                                }
+                                onClick={() => onPullImage(dockerImage)}
+                              >
+                                {t("hub.settings.docker.pullImage")}
+                              </Button>
+                            )}
                             <span>
-                              {t("hub.settings.docker.allowedRegistriesHint")}
+                              {t("hub.settings.docker.localImages", {
+                                count: dockerImages?.local_images.length || 0,
+                              })}
                             </span>
                           </div>
-                          <LockKeyhole size={16} />
+                          {currentPull && (
+                            <div className={styles.imageIdentityProgress}>
+                              <Progress
+                                percent={currentPull.progress}
+                                status="active"
+                                size="small"
+                              />
+                            </div>
+                          )}
                         </div>
-                        <div className={styles.builtInRegistries}>
-                          {BUILT_IN_DOCKER_REGISTRIES.map((registry) => (
-                            <Tag
-                              key={registry}
-                              icon={<LockKeyhole size={11} />}
-                            >
-                              {registry}
-                            </Tag>
-                          ))}
-                        </div>
-                        <Form.Item
-                          name="dockerAllowedRegistries"
-                          label={t("hub.settings.docker.customRegistries")}
-                          extra={t("hub.settings.docker.customRegistriesHint")}
-                          rules={[
-                            {
-                              validator: (_, registries: string[] = []) => {
-                                const invalid = registries.find(
-                                  (registry) =>
-                                    !/^[a-zA-Z0-9.-]+(?::[0-9]+)?$/.test(
-                                      registry,
-                                    ),
-                                );
-                                return invalid
-                                  ? Promise.reject(
-                                      new Error(
-                                        t(
-                                          "hub.settings.docker.invalidRegistry",
-                                        ),
-                                      ),
-                                    )
-                                  : Promise.resolve();
-                              },
-                            },
-                          ]}
-                        >
-                          <Select
-                            mode="tags"
-                            tokenSeparators={[","]}
-                            placeholder="registry.example.com"
-                          />
-                        </Form.Item>
                       </div>
-                      <div className={styles.imagePullRow}>
-                        {dockerSource !== "local" && (
-                          <Button
-                            icon={<RefreshCw size={14} />}
-                            loading={dockerPulling}
-                            disabled={!dockerImages?.available || !dockerImage}
-                            onClick={() => onPullImage(dockerImage)}
-                          >
-                            {t("hub.settings.docker.pullImage")}
-                          </Button>
-                        )}
-                        <span>
-                          {t("hub.settings.docker.localImages", {
-                            count: dockerImages?.local_images.length || 0,
-                          })}
-                        </span>
-                      </div>
-                      {currentPull && (
-                        <Progress
-                          percent={currentPull.progress}
-                          status="active"
-                          size="small"
-                        />
-                      )}
                       <div className={styles.resourceTitle}>
                         {t("hub.settings.docker.resources")}
                       </div>

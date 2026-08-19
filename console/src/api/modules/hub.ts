@@ -160,7 +160,6 @@ export interface HubDockerConfig {
   source: "docker_hub" | "aliyun_acr" | "custom";
   image: string;
   pull_policy: "always" | "if_not_present" | "never";
-  allowed_registries: string[];
   cpu_limit: number | null;
   memory_limit_mb: number | null;
   pids_limit: number | null;

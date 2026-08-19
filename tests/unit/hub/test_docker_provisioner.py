@@ -118,7 +118,6 @@ def _configure(provisioner: DockerRuntimeProvisioner) -> None:
             "source": "docker_hub",
             "image": "docker.io/agentscope/qwenpaw:latest",
             "pull_policy": "if_not_present",
-            "allowed_registries": ["docker.io"],
             "cpu_limit": 2.5,
             "memory_limit_mb": 3072,
             "pids_limit": 512,
@@ -195,7 +194,7 @@ def test_pinned_runtime_uses_saved_image_id_after_policy_change(
     assert client.containers.run_kwargs["image"] == "sha256:pinned-image"
 
 
-def test_official_source_and_registry_validation_fail_closed(
+def test_official_source_validation_rejects_mismatched_image(
     tmp_path: Path,
 ) -> None:
     provisioner = DockerRuntimeProvisioner(tmp_path, client=_FakeClient())
@@ -205,21 +204,11 @@ def test_official_source_and_registry_validation_fail_closed(
             {
                 "source": "docker_hub",
                 "image": "docker.io/example/qwenpaw:latest",
-                "allowed_registries": ["docker.io"],
-            },
-        )
-
-    with pytest.raises(ValueError, match="not allowed"):
-        provisioner.configure(
-            {
-                "source": "custom",
-                "image": "registry.example.com/qwenpaw:v1",
-                "allowed_registries": ["docker.io"],
             },
         )
 
 
-def test_unqualified_tagged_image_uses_docker_hub_registry(
+def test_custom_source_accepts_qualified_and_local_image_tags(
     tmp_path: Path,
 ) -> None:
     provisioner = DockerRuntimeProvisioner(tmp_path, client=_FakeClient())
@@ -227,12 +216,14 @@ def test_unqualified_tagged_image_uses_docker_hub_registry(
     provisioner.configure(
         {
             "source": "custom",
-            "image": "qwenpaw-hub-e2e:test",
-            "allowed_registries": ["docker.io"],
+            "image": "registry.example.com/qwenpaw:v1",
         },
     )
+    qualified = provisioner.validate_config({})
+    local = provisioner.validate_config({"image": "qwenpaw-hub-e2e:test"})
 
-    assert provisioner.registry_for("qwenpaw-hub-e2e:test") == "docker.io"
+    assert qualified["image"] == "registry.example.com/qwenpaw:v1"
+    assert local["image"] == "qwenpaw-hub-e2e:test"
 
 
 def test_readiness_requires_anonymous_rejection_and_token_success(

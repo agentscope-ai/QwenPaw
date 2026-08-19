@@ -76,7 +76,6 @@ runtime:
     source: custom
     image: registry.example.com/qwenpaw:v2
     pull_policy: never
-    allowed_registries: [registry.example.com]
     cpu_limit: 3.5
     memory_limit_mb: 6144
     pids_limit: 768
@@ -92,7 +91,6 @@ runtime:
         source="custom",
         image="registry.example.com/qwenpaw:v2",
         pull_policy="never",
-        allowed_registries=["registry.example.com"],
         cpu_limit=3.5,
         memory_limit_mb=6144,
         pids_limit=768,
@@ -102,7 +100,6 @@ runtime:
         "source",
         "image",
         "pull_policy",
-        "allowed_registries",
         "cpu_limit",
         "memory_limit_mb",
         "pids_limit",
@@ -110,11 +107,10 @@ runtime:
     }
 
 
-def test_tagged_unqualified_docker_image_uses_docker_hub_registry() -> None:
+def test_custom_source_accepts_a_tagged_local_image() -> None:
     config = DockerRuntimeConfig(
         source="custom",
         image="qwenpaw-hub-e2e:test",
-        allowed_registries=["docker.io"],
     )
 
     assert config.image == "qwenpaw-hub-e2e:test"
@@ -133,6 +129,11 @@ def test_tagged_unqualified_docker_image_uses_docker_hub_registry() -> None:
         (
             "version: 1\nruntime:\n  provisioner: unsupported",
             "Input should be 'local' or 'docker'",
+        ),
+        (
+            "version: 1\nruntime:\n  docker:\n"
+            "    allowed_registries: [docker.io]",
+            "Extra inputs are not permitted",
         ),
         (
             "version: 1\ncontrol_plane:\n  public_base_url: localhost",

@@ -131,10 +131,6 @@ describe("HubPage", () => {
             source: "docker_hub",
             image: "docker.io/agentscope/qwenpaw:latest",
             pull_policy: "if_not_present",
-            allowed_registries: [
-              "docker.io",
-              "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
-            ],
             cpu_limit: 2,
             memory_limit_mb: 4096,
             pids_limit: 1024,
@@ -169,7 +165,6 @@ describe("HubPage", () => {
         source: "docker_hub",
         image: "docker.io/agentscope/qwenpaw:latest",
         pull_policy: "if_not_present",
-        allowed_registries: ["docker.io"],
         cpu_limit: 2,
         memory_limit_mb: 4096,
         pids_limit: 1024,
@@ -365,10 +360,6 @@ describe("HubPage", () => {
               source: "docker_hub",
               image: "docker.io/agentscope/qwenpaw:latest",
               pull_policy: "if_not_present",
-              allowed_registries: [
-                "docker.io",
-                "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
-              ],
               cpu_limit: 2,
               memory_limit_mb: 4096,
               pids_limit: 1024,
@@ -413,7 +404,16 @@ describe("HubPage", () => {
     expect(
       screen.getAllByText("hub.settings.docker.dockerHub"),
     ).not.toHaveLength(0);
-    expect(screen.getByText("docker.io")).toBeInTheDocument();
+    const imageCard = screen
+      .getByText("hub.settings.docker.selectedImage")
+      .closest("div")?.parentElement;
+    const pullButton = screen
+      .getByText("hub.settings.docker.pullImage")
+      .closest("button");
+    expect(imageCard).toContainElement(pullButton);
+    expect(
+      screen.queryByText("hub.settings.docker.allowedRegistries"),
+    ).not.toBeInTheDocument();
     expect(hubApi.getDockerImages).toHaveBeenCalledOnce();
   });
 
@@ -434,7 +434,7 @@ describe("HubPage", () => {
     expect(hubApi.getDockerImages).not.toHaveBeenCalled();
   });
 
-  it("uses a tagged local image and preserves protected registries", async () => {
+  it("uses a tagged local image without a registry allowlist", async () => {
     vi.mocked(hubApi.getDockerImages).mockResolvedValue({
       available: true,
       sources: {
@@ -457,7 +457,6 @@ describe("HubPage", () => {
         source: "docker_hub",
         image: "docker.io/agentscope/qwenpaw:latest",
         pull_policy: "if_not_present",
-        allowed_registries: ["docker.io"],
         cpu_limit: 2,
         memory_limit_mb: 4096,
         pids_limit: 1024,
@@ -494,10 +493,6 @@ describe("HubPage", () => {
               source: "custom",
               image: "qwenpaw-hub-e2e:test",
               pull_policy: "never",
-              allowed_registries: [
-                "docker.io",
-                "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
-              ],
             }),
           }),
         }),

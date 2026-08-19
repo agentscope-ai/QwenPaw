@@ -161,12 +161,6 @@ class DockerRuntimeConfig(BaseModel):
         "if_not_present",
         "never",
     ] = "if_not_present"
-    allowed_registries: list[str] = Field(
-        default_factory=lambda: [
-            "docker.io",
-            "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
-        ],
-    )
     cpu_limit: float | None = Field(default=2.0, gt=0, le=128)
     memory_limit_mb: int | None = Field(default=4096, ge=256)
     pids_limit: int | None = Field(default=1024, ge=64)
@@ -182,32 +176,9 @@ class DockerRuntimeConfig(BaseModel):
             raise ValueError("image must be a valid Docker image reference")
         return value
 
-    @field_validator("allowed_registries")
-    @classmethod
-    def validate_allowed_registries(cls, value: list[str]) -> list[str]:
-        """Require a non-empty list of unique registry host names."""
-        if not value or any(not item.strip() for item in value):
-            raise ValueError("allowed_registries must not be empty")
-        if any("/" in item or "://" in item for item in value):
-            raise ValueError("allowed_registries must contain registry hosts")
-        if len(set(value)) != len(value):
-            raise ValueError("allowed_registries must not contain duplicates")
-        return value
-
     @model_validator(mode="after")
-    def validate_source_and_registry(self) -> DockerRuntimeConfig:
-        """Keep the selected source, image, and registry policy aligned."""
-        first, separator, _ = self.image.partition("/")
-        registry = (
-            first
-            if separator
-            and ("." in first or ":" in first or first == "localhost")
-            else "docker.io"
-        )
-        if registry not in self.allowed_registries:
-            raise ValueError(
-                f"image registry is not allowed: {registry}",
-            )
+    def validate_source_and_image(self) -> DockerRuntimeConfig:
+        """Keep official sources aligned with their image repository."""
         repository = _DOCKER_SOURCE_REPOSITORIES.get(self.source)
         if repository and not (
             self.image.startswith(f"{repository}:")
