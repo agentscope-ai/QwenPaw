@@ -176,6 +176,22 @@
     display: flex;
     flex-direction: column;
     padding: 0 8px;
+    // #7125: the rail must not scroll as a whole — the pinned chat entry
+    // stays put while only .collapsedNavScroll scrolls. Mirror the
+    // .siderSimple pattern: make the children wrapper a constrained flex
+    // column so the inner flex chain gets a fixed height. (Global prefix
+    // is "qwenpaw", see App.tsx prefixCls.)
+    overflow: hidden;
+
+    :global {
+      .qwenpaw-layout-sider-children {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+    }
 
     .agentSelectorContainer {
       display: flex;
@@ -833,11 +849,23 @@
 /* Collapsed nav (icon-only group list) */
 .collapsedNav {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 4px 0;
+}
+
+// #7125: only the non-pinned entries scroll; the chat entry above this
+// container stays visible at the top of the collapsed rail.
+.collapsedNavScroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -850,6 +878,10 @@
 .collapsedNavItem {
   width: 40px;
   height: 40px;
+  // #7125: inside the constrained .collapsedNavScroll flex column, items
+  // must keep their 40px box and overflow into the scrollbar instead of
+  // shrinking (flex-shrink default 1 would squash the icons).
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -895,6 +927,12 @@
   .collapsedNav {
     gap: 2px;
     padding: 2px 0;
+  }
+
+  // #7125: keep mobile rail spacing uniform — the scroll container owns
+  // the inter-item gap now.
+  .collapsedNavScroll {
+    gap: 2px;
   }
 
   .collapsedNavItem {
