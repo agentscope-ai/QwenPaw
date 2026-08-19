@@ -435,10 +435,9 @@ def test_windows_background_handles_are_eventually_deleted(
 
     # Launcher spawns the background child that inherits stdout/stderr
     # handles via close_fds=False.  The child keeps the inherited
-    # O_TEMPORARY handles alive, so the temp files survive the launcher exit.
-    # When the child sees the release signal, it exits and releases the handles,
-    # causing the temp files to be deleted.
-    escaped_python = sys.executable.replace("\\", "\\\\")
+    # O_TEMPORARY handles alive, so the temp files survive the
+    # launcher exit.  When the child sees the release signal, it exits
+    # and releases the handles, causing the temp files to be deleted.
     launcher_script = tmp_path / "launcher.py"
     launcher_script.write_text(
         "import subprocess, sys\n"
