@@ -72,7 +72,12 @@ vi.mock("./OAuthConfirmModal", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
+  useTranslation: () => ({
+    t: (key: string, options?: { count?: number }) =>
+      key === "modelSelector.viewMore"
+        ? `${key} (${options?.count ?? 0})`
+        : key,
+  }),
 }));
 
 vi.mock("lucide-react", () => ({
@@ -87,7 +92,6 @@ vi.mock("lucide-react", () => ({
   Link: () => "Link",
   Loader2: () => "Loader2",
   LoaderCircle: () => "LoaderCircle",
-  Pin: () => "Pin",
   Plus: () => "Plus",
   Search: () => "Search",
   Save: () => "Save",
@@ -214,35 +218,62 @@ describe("ModelSelector", () => {
     expect((await screen.findAllByText("GPT-4"))[0]).toBeInTheDocument();
   });
 
-  it("shows agent model routing at the bottom of the model list", async () => {
+  it("keeps advanced model controls out of the release UI", async () => {
+    const candidate = {
+      ...mockProvider.models[0],
+      id: "gpt-new",
+      name: "GPT New",
+      source: "discovered" as const,
+    };
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      { ...mockProvider, discovered_models: [candidate] },
+    ]);
+    useTurnUsageStore.getState().setSnapshot({
+      usage: {
+        provider_id: "openai",
+        model_name: "gpt-3.5-turbo",
+        total_tokens: 3,
+      },
+      context_usage: null,
+    });
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
     await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
-
-    const routingToggle = await screen.findByRole("button", {
-      name: /modelSelector.agentModelSettings/,
-    });
-    const searchInput = screen.getByPlaceholderText(
-      "modelSelector.searchModels",
-    );
-    const proTab = screen.getByRole("tab", { name: "PRO" });
-    const showAllButton = screen.getByRole("button", {
-      name: "modelSelector.showAll",
+    const trigger = screen.getByRole("button", {
+      name: "chat.modelSelectTooltip",
     });
 
+    expect(trigger).toHaveTextContent("GPT-4");
     expect(
-      routingToggle.compareDocumentPosition(searchInput) &
-        Node.DOCUMENT_POSITION_PRECEDING,
-    ).toBeTruthy();
+      screen.queryByLabelText("modelSelector.fallbackActive"),
+    ).not.toBeInTheDocument();
+
+    await user.click(trigger);
+
     expect(
-      routingToggle.compareDocumentPosition(proTab) &
-        Node.DOCUMENT_POSITION_PRECEDING,
-    ).toBeTruthy();
+      screen.getByPlaceholderText("modelSelector.searchModels"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "PRO" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "FREE" })).toBeInTheDocument();
     expect(
-      routingToggle.compareDocumentPosition(showAllButton) &
-        Node.DOCUMENT_POSITION_PRECEDING,
-    ).toBeTruthy();
+      screen.queryByText("modelSelector.proBannerText"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "modelSelector.showAll" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "modelSelector.showRecommended" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /modelSelector.availableToAdd/,
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /modelSelector.agentModelSettings/,
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("displays i18n key when there is no active model", async () => {
@@ -593,7 +624,7 @@ describe("ModelSelector", () => {
     });
   });
 
-  it("shows only explicitly recommended models by default", async () => {
+  it("shows five configured PRO models then expands all remaining models", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       {
         ...mockProvider,
@@ -611,12 +642,142 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getAllByText("gpt-4")[0]);
 
-    expect(await screen.findByText("Model 4")).toBeInTheDocument();
-    expect(screen.getByText("Model 6")).toBeInTheDocument();
-    expect(screen.queryByText("Model 1")).not.toBeInTheDocument();
+    expect(await screen.findByText("Model 0")).toBeInTheDocument();
+    expect(screen.getByText("Model 4")).toBeInTheDocument();
+    expect(screen.queryByText("Model 5")).not.toBeInTheDocument();
+    const viewMore = screen.getByRole("button", {
+      name: "modelSelector.viewMore (3)",
+    });
+
+    await user.click(viewMore);
+
+    expect(await screen.findByText("Model 5")).toBeInTheDocument();
+    expect(screen.getByText("Model 7")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "modelSelector.viewMore (3)",
+      }),
+    ).not.toBeInTheDocument();
   });
 
-  it("keeps the active model visible when no models are recommended", async () => {
+  it("expands each provider by default and limits each to five models", async () => {
+    localStorage.setItem(
+      "qwenpaw_model_selector_collapsed",
+      JSON.stringify(["openai", "anthropic"]),
+    );
+    const openAiModels = Array.from({ length: 6 }, (_, index) => ({
+      ...mockProvider.models[0],
+      id: `openai-model-${index}`,
+      name: `OpenAI Model ${index}`,
+      is_recommended: false,
+    }));
+    const anthropicModels = Array.from({ length: 6 }, (_, index) => ({
+      ...mockProvider.models[0],
+      id: `anthropic-model-${index}`,
+      name: `Anthropic Model ${index}`,
+      is_recommended: false,
+    }));
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      { ...mockProvider, models: openAiModels },
+      {
+        ...mockProvider,
+        id: "anthropic",
+        name: "Anthropic",
+        models: anthropicModels,
+      },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "chat.modelSelectTooltip",
+      }),
+    );
+    await screen.findByText("OpenAI Model 0");
+
+    expect(screen.getByText("OpenAI").closest("button")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByText("Anthropic").closest("button")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByText("OpenAI Model 4")).toBeInTheDocument();
+    expect(screen.queryByText("OpenAI Model 5")).not.toBeInTheDocument();
+    expect(screen.getByText("Anthropic Model 4")).toBeInTheDocument();
+    expect(screen.queryByText("Anthropic Model 5")).not.toBeInTheDocument();
+  });
+
+  it("does not persist provider collapse state", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "chat.modelSelectTooltip",
+      }),
+    );
+
+    await user.click(screen.getByText("OpenAI").closest("button")!);
+
+    expect(localStorage.getItem("qwenpaw_model_selector_collapsed")).toBeNull();
+  });
+
+  it("loads large provider lists step by step instead of all at once", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        models: Array.from({ length: 105 }, (_, index) => ({
+          ...mockProvider.models[0],
+          id: `large-model-${index}`,
+          name: `Large Model ${index}`,
+          is_recommended: false,
+        })),
+      },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "chat.modelSelectTooltip",
+      }),
+    );
+
+    // Button shows the next batch size (20), not the full remaining count
+    const viewMore = await screen.findByRole("button", {
+      name: "modelSelector.viewMore (20)",
+    });
+    expect(viewMore).toBeInTheDocument();
+    expect(screen.queryByText("Large Model 5")).not.toBeInTheDocument();
+
+    await user.click(viewMore);
+
+    // One click reveals one more batch (5 + 20 = 25), not everything
+    expect(await screen.findByText("Large Model 24")).toBeInTheDocument();
+    expect(screen.queryByText("Large Model 25")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "modelSelector.viewMore (20)",
+      }),
+    ).toBeInTheDocument();
+
+    // Keep clicking until all models are revealed and the button disappears
+    for (let i = 0; i < 4; i += 1) {
+      await user.click(
+        screen.getByRole("button", {
+          name: /modelSelector\.viewMore/,
+        }),
+      );
+    }
+    expect(await screen.findByText("Large Model 104")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /modelSelector\.viewMore/,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows configured PRO models even when none are recommended", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       {
         ...mockProvider,
@@ -633,10 +794,10 @@ describe("ModelSelector", () => {
     await user.click(screen.getAllByText("GPT-4")[0]);
 
     expect(screen.getAllByText("GPT-4").length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText("GPT-3.5 Turbo")).not.toBeInTheDocument();
+    expect(screen.getByText("GPT-3.5 Turbo")).toBeInTheDocument();
   });
 
-  it("keeps pinned models visible without recommending other added models", async () => {
+  it("does not render model pin controls", async () => {
     localStorage.setItem(
       "qwenpaw_model_selector_pinned",
       JSON.stringify(["openai:gpt-3.5-turbo"]),
@@ -664,8 +825,10 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getAllByText("GPT-4")[0]);
 
-    expect(await screen.findByText("GPT-3.5 Turbo")).toBeInTheDocument();
-    expect(screen.queryByText("Added Model")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "modelSelector.pinModel" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Added Model")).toBeInTheDocument();
   });
 
   it("keeps recent models visible without showing all models", async () => {
@@ -735,7 +898,7 @@ describe("ModelSelector", () => {
       return { active_llm: null };
     });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.type(
@@ -767,7 +930,7 @@ describe("ModelSelector", () => {
       { ...mockProvider, discovered_models: [candidate] },
     ]);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
 
@@ -801,7 +964,7 @@ describe("ModelSelector", () => {
       { ...mockProvider, discovered_models: [candidate] },
     ]);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
 
@@ -839,7 +1002,7 @@ describe("ModelSelector", () => {
       },
     ]);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(screen.getByRole("tab", { name: "FREE" }));
@@ -868,7 +1031,7 @@ describe("ModelSelector", () => {
       { ...mockProvider, is_free_tier: true, discovered_models: [candidate] },
     ]);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(screen.getByRole("tab", { name: "FREE" }));
@@ -896,7 +1059,7 @@ describe("ModelSelector", () => {
     ]);
     vi.mocked(providerApi.addModel).mockRejectedValue(new Error("blocked"));
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.type(
@@ -927,7 +1090,7 @@ describe("ModelSelector", () => {
     ]);
     vi.mocked(confirmFreeModelSwitch).mockResolvedValue(false);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(screen.getByRole("tab", { name: "FREE" }));
@@ -967,7 +1130,7 @@ describe("ModelSelector", () => {
       },
     ]);
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(await screen.findByText("modelSelector.hiddenModels"));
@@ -1007,7 +1170,7 @@ describe("ModelSelector", () => {
       }),
     );
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(
@@ -1016,18 +1179,27 @@ describe("ModelSelector", () => {
       }),
     );
 
-    await user.selectOptions(
-      await screen.findByLabelText("modelSelector.thinkingLevel"),
-      "high",
+    await user.click(
+      await screen.findByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
     );
-    await user.selectOptions(
-      screen.getByLabelText("modelSelector.subagentModel"),
-      "openai:gpt-3.5-turbo",
+    const thinkingOptions = screen.getAllByText("modelSelector.thinking.high");
+    await user.click(thinkingOptions[thinkingOptions.length - 1]);
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "modelSelector.subagentModel",
+      }),
     );
-    await user.selectOptions(
-      screen.getByLabelText("modelSelector.chooseFallback"),
-      "openai:gpt-3.5-turbo",
+    const subagentOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(subagentOptions[subagentOptions.length - 1]);
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "modelSelector.chooseFallback",
+      }),
     );
+    const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(fallbackOptions[fallbackOptions.length - 1]);
     await user.click(
       screen.getByRole("button", { name: "modelSelector.addFallback" }),
     );
@@ -1108,7 +1280,7 @@ describe("ModelSelector", () => {
       thinking_level: "inherit",
     });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(
@@ -1275,7 +1447,7 @@ describe("ModelSelector", () => {
         thinking_level: "inherit",
       });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(
@@ -1296,7 +1468,7 @@ describe("ModelSelector", () => {
 
   it("disables thinking controls for unsupported active models", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
     await user.click(
@@ -1306,7 +1478,9 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByLabelText("modelSelector.thinkingLevel"),
+      await screen.findByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
     ).toBeDisabled();
     expect(
       screen.getByText("modelSelector.thinkingUnsupported"),
@@ -1352,7 +1526,7 @@ describe("ModelSelector", () => {
       thinking_level: "high",
     });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("New DashScope Model");
     await user.click(screen.getAllByText("New DashScope Model")[0]);
     await user.click(
@@ -1362,7 +1536,9 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByLabelText("modelSelector.thinkingLevel"),
+      await screen.findByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
     ).not.toBeDisabled();
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
@@ -1385,7 +1561,7 @@ describe("ModelSelector", () => {
       context_usage: null,
     });
 
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
 
     expect(
       await screen.findByText(
@@ -1404,7 +1580,7 @@ describe("ModelSelector", () => {
       context_usage: null,
     });
 
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
 
     expect(
@@ -1422,7 +1598,7 @@ describe("ModelSelector", () => {
       context_usage: null,
     });
 
-    renderWithProviders(<ModelSelector />);
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
 
     expect(await screen.findByText("unlisted-model")).toBeInTheDocument();
     expect(
