@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import type { ActiveModelsInfo } from "../../../api/types";
+import type { ActiveModelsInfo, ModelInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
@@ -63,7 +63,7 @@ function publishActiveMaxInputLength(
 
 const PINNED_STORAGE_KEY = "qwenpaw_model_selector_pinned";
 const RECENT_STORAGE_KEY = "qwenpaw_model_selector_recent";
-const RECOMMENDED_LIMIT = 6;
+const PER_PROVIDER_LIMIT = 3;
 
 function readStoredModelKeys(key: string): string[] {
   try {
@@ -305,7 +305,10 @@ export default function ModelSelector() {
   const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
 
   const rankModels = useCallback(
-    (list: EligibleProvider[]): EligibleProvider[] => {
+    (
+      list: EligibleProvider[],
+      options?: { isFreeTab?: boolean },
+    ): EligibleProvider[] => {
       const ranked = list.flatMap((provider) =>
         provider.models.map((model) => ({ provider, model })),
       );
@@ -326,31 +329,31 @@ export default function ModelSelector() {
           score(rightKey, right.provider.id, right.model.id)
         );
       });
-      let visible = ranked;
-      if (!showAllModels && !trimmedSearch) {
-        const alwaysVisible = ranked.filter(({ provider, model }) => {
-          const key = modelKey(provider.id, model.id);
-          return (
-            pinnedModelKeys.includes(key) ||
-            recentModelKeys.includes(key) ||
-            (provider.id === activeProviderId && model.id === activeModelId)
-          );
-        });
-        const alwaysVisibleKeys = new Set(
-          alwaysVisible.map(({ provider, model }) =>
-            modelKey(provider.id, model.id),
-          ),
-        );
-        const recommended = ranked.filter(({ provider, model }) => {
-          const key = modelKey(provider.id, model.id);
-          return model.is_recommended && !alwaysVisibleKeys.has(key);
-        });
-        const remainingSlots = Math.max(
-          0,
-          RECOMMENDED_LIMIT - alwaysVisible.length,
-        );
-        visible = [...alwaysVisible, ...recommended.slice(0, remainingSlots)];
+
+      let visible: Array<{ provider: EligibleProvider; model: ModelInfo }> =
+        ranked;
+      const shouldFold =
+        !options?.isFreeTab && !showAllModels && !trimmedSearch;
+
+      if (shouldFold) {
+        const providerGroups = new Map<
+          string,
+          Array<{ provider: EligibleProvider; model: ModelInfo }>
+        >();
+        for (const item of ranked) {
+          const existing = providerGroups.get(item.provider.id);
+          if (existing) {
+            existing.push(item);
+          } else {
+            providerGroups.set(item.provider.id, [item]);
+          }
+        }
+        visible = [];
+        for (const items of providerGroups.values()) {
+          visible.push(...items.slice(0, PER_PROVIDER_LIMIT));
+        }
       }
+
       const grouped = new Map<string, EligibleProvider>();
       for (const item of visible) {
         const current = grouped.get(item.provider.id);
@@ -876,8 +879,9 @@ export default function ModelSelector() {
       (p) => !p.supports_oauth && !p.has_api_key && p.require_api_key !== false,
     );
 
+    const rankedReady = rankModels(readyProviders, { isFreeTab: true });
     const hasAny =
-      readyProviders.length > 0 ||
+      rankedReady.length > 0 ||
       oauthOnlyProviders.length > 0 ||
       needsKeyProviders.length > 0;
 
@@ -897,7 +901,7 @@ export default function ModelSelector() {
           <AlertTriangle size={14} className={styles.freeBannerIcon} />
           <span>{t("modelSelector.freeBannerText")}</span>
         </div>
-        {rankModels(readyProviders).map(renderProviderModels)}
+        {rankedReady.map(renderProviderModels)}
         {oauthOnlyProviders.map(renderOAuthConnectEntry)}
         {needsKeyProviders.length > 0 && (
           <>
@@ -952,7 +956,9 @@ export default function ModelSelector() {
       );
     }
 
-    if (filteredPro.length === 0) {
+    const rankedPro = rankModels(filteredPro);
+
+    if (rankedPro.length === 0) {
       return (
         <div className={styles.emptyTip} role="status">
           {trimmedSearch
@@ -967,7 +973,7 @@ export default function ModelSelector() {
         <div className={styles.proBanner}>
           <span>{t("modelSelector.proBannerText")}</span>
         </div>
-        {rankModels(filteredPro).map(renderProviderModels)}
+        {rankedPro.map(renderProviderModels)}
       </>
     );
   };

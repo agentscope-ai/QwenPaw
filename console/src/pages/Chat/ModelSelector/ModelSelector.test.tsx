@@ -593,7 +593,7 @@ describe("ModelSelector", () => {
     });
   });
 
-  it("shows only explicitly recommended models by default", async () => {
+  it("shows up to per-provider limit models by default", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       {
         ...mockProvider,
@@ -611,9 +611,13 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getAllByText("gpt-4")[0]);
 
-    expect(await screen.findByText("Model 4")).toBeInTheDocument();
-    expect(screen.getByText("Model 6")).toBeInTheDocument();
-    expect(screen.queryByText("Model 1")).not.toBeInTheDocument();
+    // Per-provider limit is 3, so only first 3 models are shown
+    expect(await screen.findByText("Model 0")).toBeInTheDocument();
+    expect(screen.getByText("Model 1")).toBeInTheDocument();
+    expect(screen.getByText("Model 2")).toBeInTheDocument();
+    // Model 3+ are folded
+    expect(screen.queryByText("Model 3")).not.toBeInTheDocument();
+    expect(screen.queryByText("Model 4")).not.toBeInTheDocument();
   });
 
   it("keeps the active model visible when no models are recommended", async () => {
@@ -632,11 +636,12 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getAllByText("GPT-4")[0]);
 
+    // Both models are within per-provider limit of 3, so both visible
     expect(screen.getAllByText("GPT-4").length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText("GPT-3.5 Turbo")).not.toBeInTheDocument();
+    expect(await screen.findByText("GPT-3.5 Turbo")).toBeInTheDocument();
   });
 
-  it("keeps pinned models visible without recommending other added models", async () => {
+  it("keeps pinned models visible and shows other models within limit", async () => {
     localStorage.setItem(
       "qwenpaw_model_selector_pinned",
       JSON.stringify(["openai:gpt-3.5-turbo"]),
@@ -664,8 +669,10 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getAllByText("GPT-4")[0]);
 
+    // Pinned model is always visible
     expect(await screen.findByText("GPT-3.5 Turbo")).toBeInTheDocument();
-    expect(screen.queryByText("Added Model")).not.toBeInTheDocument();
+    // With 3 models and per-provider limit of 3, Added Model is also visible
+    expect(await screen.findByText("Added Model")).toBeInTheDocument();
   });
 
   it("keeps recent models visible without showing all models", async () => {
@@ -1428,5 +1435,88 @@ describe("ModelSelector", () => {
     expect(
       screen.getByLabelText("modelSelector.fallbackActive"),
     ).toBeInTheDocument();
+  });
+
+  it("shows each provider's top models when multiple providers exist", async () => {
+    const providerA = {
+      ...mockProvider,
+      id: "provider-a",
+      name: "Provider A",
+      models: Array.from({ length: 5 }, (_, index) => ({
+        ...mockProvider.models[0],
+        id: `pa-model-${index}`,
+        name: `PA Model ${index}`,
+        is_recommended: index === 0,
+      })),
+    };
+    const providerB = {
+      ...mockProvider,
+      id: "provider-b",
+      name: "Provider B",
+      models: Array.from({ length: 4 }, (_, index) => ({
+        ...mockProvider.models[0],
+        id: `pb-model-${index}`,
+        name: `PB Model ${index}`,
+        is_recommended: false,
+      })),
+    };
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      providerA,
+      providerB,
+    ]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: { provider_id: "provider-a", model: "pa-model-0" },
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("PA Model 0");
+
+    await user.click(screen.getAllByText("PA Model 0")[0]);
+
+    // Provider A shows top 3: PA Model 0, 1, 2
+    expect(screen.getAllByText("PA Model 0").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("PA Model 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("PA Model 2").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("PA Model 3").length).toBe(0);
+
+    // Provider B shows top 3 (all 4 have is_recommended=false, but first 3 are visible)
+    expect(screen.getAllByText("PB Model 0").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("PB Model 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("PB Model 2").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("PB Model 3").length).toBe(0);
+  });
+
+  it("free tab shows all models without folding", async () => {
+    const freeProvider = {
+      ...mockProvider,
+      id: "free-provider",
+      name: "Free Provider",
+      is_free_tier: true,
+      models: Array.from({ length: 8 }, (_, index) => ({
+        ...mockProvider.models[0],
+        id: `free-model-${index}`,
+        name: `Free Model ${index}`,
+        is_free: true,
+        is_recommended: false,
+      })),
+    };
+    vi.mocked(providerApi.listProviders).mockResolvedValue([freeProvider]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: { provider_id: "free-provider", model: "free-model-0" },
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("Free Model 0");
+
+    await user.click(screen.getAllByText("Free Model 0")[0]);
+    await user.click(screen.getByRole("tab", { name: "FREE" }));
+
+    // All 8 free models should be visible (no folding for free tab)
+    for (let i = 0; i < 8; i++) {
+      const elements = await screen.findAllByText(`Free Model ${i}`);
+      expect(elements.length).toBeGreaterThan(0);
+    }
   });
 });
