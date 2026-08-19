@@ -2052,11 +2052,33 @@
 .modelListItemActions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.modelListActionButton {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+
+  :global(.ant-btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :global(svg) {
+    width: 18px !important;
+    height: 18px !important;
+  }
 }
 
 .modelListItemStatusButton {
@@ -3128,10 +3150,24 @@
   }
 
   .modelListItemActions {
-    gap: 4px;
+    gap: 8px;
     flex-shrink: 0;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .modelListActionButton {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+  }
+
+  .modelListItemActionDivider {
+    flex-basis: 100%;
+    width: 100% !important;
+    height: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
   }
 
   .modelListItemStatusButton {

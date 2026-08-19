@@ -222,23 +222,6 @@
   font-size: 14px;
 }
 
-.pinButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px;
-  border: 0;
-  color: #8b8b82;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-
-  &:hover {
-    color: #c46a28;
-    background: rgba(196, 106, 40, 0.08);
-  }
-}
-
 .showAllButton {
   width: calc(100% - 16px);
   margin: 8px;
@@ -841,24 +824,36 @@
 }
 
 .tabBar {
-  gap: 6px;
-  padding: 7px 11px;
+  gap: 0;
+  padding: 0;
   border-bottom-color: var(--ms-border);
-  background: var(--ms-surface-muted);
+  background: var(--ms-surface);
 }
 
 .tabButton {
-  min-height: 34px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 0;
   color: var(--ms-text-muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  letter-spacing: 0;
+  touch-action: manipulation;
 
   &.tabButtonActive {
     color: var(--ms-accent);
-    background: var(--ms-surface);
-    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.08);
+    background: transparent;
+    box-shadow: none;
+
+    &::after {
+      position: absolute;
+      right: 22%;
+      bottom: -1px;
+      left: 22%;
+      height: 2px;
+      border-radius: 2px 2px 0 0;
+      background: var(--ms-accent);
+      content: "";
+    }
   }
 }
 
@@ -939,7 +934,7 @@
   align-self: stretch;
   flex: 1;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 8px 0 28px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -953,7 +948,6 @@
   }
 }
 
-.pinButton,
 .candidateSecondaryButton,
 .fallbackList button {
   min-width: 32px;
@@ -1007,6 +1001,10 @@
   width: 100%;
   border: 0;
   text-align: left;
+}
+
+.viewMore {
+  text-align: center;
 }
 
 .viewMore:hover,
@@ -1170,7 +1168,6 @@
 .tabButton:focus-visible,
 .providerHeader:focus-visible,
 .modelSelectButton:focus-visible,
-.pinButton:focus-visible,
 .viewMore:focus-visible,
 .moreToggle:focus-visible,
 .connectEntry:focus-visible,
@@ -1273,7 +1270,6 @@
   .trigger,
   .tabButton,
   .modelItem,
-  .pinButton,
   .connectEntry,
   .collapseIcon {
     transition: none;
@@ -1310,11 +1306,10 @@
 
   .panel,
   .searchWrapper,
-  .tabButton.tabButtonActive {
+  .tabBar {
     background: var(--ms-surface);
   }
 
-  .tabBar,
   .candidateItem,
   .candidateModelSection,
   .agentModelSettings {
