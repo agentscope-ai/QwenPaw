@@ -31,9 +31,10 @@ vi.mock("../../api/modules/hub", async () => {
       me: vi.fn(),
       getHealth: vi.fn(),
       getOverview: vi.fn(),
+      getSettings: vi.fn(),
+      updateSettings: vi.fn(),
       listRuntimes: vi.fn(),
       listUsers: vi.fn(),
-      getRegistration: vi.fn(),
       listCredentials: vi.fn(),
       listAuditEvents: vi.fn(),
       startRuntime: vi.fn(),
@@ -90,7 +91,27 @@ describe("HubPage", () => {
     });
     vi.mocked(hubApi.listRuntimes).mockResolvedValue(page);
     vi.mocked(hubApi.listUsers).mockResolvedValue(page);
-    vi.mocked(hubApi.getRegistration).mockResolvedValue({ enabled: false });
+    vi.mocked(hubApi.getSettings).mockResolvedValue({
+      config: {
+        version: 1,
+        control_plane: {
+          public_base_url: "https://hub.example.com",
+          registration: { enabled: false, default_role: "user" },
+        },
+        runtime: {
+          default_provisioner: "local",
+          allowed_provisioners: ["local"],
+        },
+        tenant_defaults: {
+          max_runtimes: null,
+          max_running_runtimes: null,
+        },
+        tenants: {},
+      },
+      revision: 3,
+      updated_at: "2026-01-01T00:00:00Z",
+      available_provisioners: ["local"],
+    });
     vi.mocked(hubApi.listCredentials).mockResolvedValue(page);
     vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page);
   });
@@ -208,5 +229,38 @@ describe("HubPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("hub.actions.enableAndStart")).toBeInTheDocument();
     expect(screen.queryByText("hub.actions.disable")).not.toBeInTheDocument();
+  });
+
+  it("loads and saves the complete Hub settings document", async () => {
+    vi.mocked(hubApi.updateSettings).mockImplementation(
+      async (revision, config) => ({
+        config,
+        revision: revision + 1,
+        updated_at: "2026-01-02T00:00:00Z",
+        available_provisioners: ["local"],
+      }),
+    );
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+
+    fireEvent.click(await screen.findByText("hub.navigation.settings"));
+    expect(
+      await screen.findByDisplayValue("https://hub.example.com"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText("hub.settings.save"));
+
+    await waitFor(() => {
+      expect(hubApi.updateSettings).toHaveBeenCalledWith(
+        3,
+        expect.objectContaining({
+          control_plane: expect.objectContaining({
+            public_base_url: "https://hub.example.com",
+          }),
+        }),
+      );
+    });
   });
 });

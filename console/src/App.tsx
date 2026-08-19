@@ -119,7 +119,7 @@ function AuthGuard({
   }, [authStatus, retryKey]);
 
   if (status === "loading") {
-    return <BackendLoadingPage status="checking" elapsed={0} totalSec={1} />;
+    return null;
   }
   if (status === "error") {
     return (
@@ -429,7 +429,7 @@ function BackendModeRouter() {
   }, [retryKey]);
 
   if (backendInfo === "loading") {
-    return <BackendLoadingPage status="checking" elapsed={0} totalSec={1} />;
+    return null;
   }
   if (backendInfo === "error") {
     return (

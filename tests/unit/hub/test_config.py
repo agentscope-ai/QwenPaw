@@ -11,6 +11,7 @@ from qwenpaw.hub.config import (
     ControlPlaneConfig,
     HubConfig,
     HubConfigStore,
+    RuntimeConfig,
     TenantQuota,
     load_hub_config,
 )
@@ -144,10 +145,48 @@ tenant_defaults:
         "version: 1\ntenant_defaults:\n  max_running_runtimes: 1",
         encoding="utf-8",
     )
-    updated = store.resolve(config_path)
+    unchanged = store.resolve(config_path)
 
-    assert updated.tenant_defaults.max_runtimes == 3
-    assert updated.tenant_defaults.max_running_runtimes == 1
+    assert unchanged.tenant_defaults.max_runtimes == 3
+    assert unchanged.tenant_defaults.max_running_runtimes == 2
+
+
+def test_config_store_updates_with_revision_and_rejects_stale_writes(
+    tmp_path: Path,
+) -> None:
+    store = HubConfigStore(tmp_path / "control.db")
+    store.resolve(None, available_provisioners={"local"})
+    _, revision, _ = store.snapshot()
+    updated = HubConfig(
+        runtime=RuntimeConfig(
+            default_provisioner="local",
+            allowed_provisioners=["local"],
+        ),
+        tenant_defaults=TenantQuota(
+            max_runtimes=4,
+            max_running_runtimes=2,
+        ),
+    )
+
+    saved, next_revision, _ = store.update(
+        updated,
+        expected_revision=revision,
+        available_provisioners={"local"},
+        updated_by_user_id="admin-a",
+    )
+
+    assert saved.tenant_defaults == updated.tenant_defaults
+    assert saved.control_plane.registration.enabled is False
+    assert saved.control_plane.registration.default_role == "user"
+    assert next_revision == revision + 1
+    assert store.snapshot()[0] == saved
+    with pytest.raises(RuntimeError, match="changed concurrently"):
+        store.update(
+            HubConfig(),
+            expected_revision=revision,
+            available_provisioners={"local"},
+            updated_by_user_id="admin-b",
+        )
 
 
 def test_config_store_does_not_persist_unavailable_provisioner(

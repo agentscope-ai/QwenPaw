@@ -112,6 +112,35 @@ export interface HubHealth {
   provisioner_statuses: Record<string, HubProvisionerStatus>;
 }
 
+export interface HubTenantQuota {
+  max_runtimes: number | null;
+  max_running_runtimes: number | null;
+}
+
+export interface HubConfig {
+  version: 1;
+  control_plane: {
+    public_base_url: string | null;
+    registration: {
+      enabled: boolean;
+      default_role: "user";
+    };
+  };
+  runtime: {
+    default_provisioner: string | null;
+    allowed_provisioners: string[] | null;
+  };
+  tenant_defaults: HubTenantQuota;
+  tenants: Record<string, HubTenantQuota>;
+}
+
+export interface HubSettings {
+  config: HubConfig;
+  revision: number;
+  updated_at: string;
+  available_provisioners: string[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getApiToken();
   const response = await fetch(getApiUrl(path), {
@@ -202,12 +231,11 @@ export const hubApi = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
-  getRegistration: () =>
-    request<{ enabled: boolean }>("/hub/admin/settings/registration"),
-  setRegistration: (enabled: boolean) =>
-    request<{ enabled: boolean }>("/hub/admin/settings/registration", {
+  getSettings: () => request<HubSettings>("/hub/admin/settings"),
+  updateSettings: (revision: number, config: HubConfig) =>
+    request<HubSettings>("/hub/admin/settings", {
       method: "PUT",
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify({ revision, config }),
     }),
   listCredentials: (params: HubCredentialListParams = {}) =>
     request<HubPage<HubCredential>>(listPath("/hub/credentials", params)),

@@ -3449,7 +3449,8 @@
       "runtimes": "Runtimes",
       "users": "Users",
       "credentials": "Credentials",
-      "audit": "Audit log"
+      "audit": "Audit log",
+      "settings": "System settings"
     },
     "actions": {
       "backToQwenPaw": "Back to QwenPaw",
@@ -3489,7 +3490,8 @@
     "messages": {
       "runtimeCreated": "Runtime created",
       "accountCreated": "Account created",
-      "credentialStored": "Credential stored"
+      "credentialStored": "Credential stored",
+      "settingsSaved": "Hub settings saved"
     },
     "validation": {
       "required": "This field is required",
@@ -3607,6 +3609,47 @@
       "description": "Review who performed each Hub management action, its target, result and time. Sensitive values are never audited.",
       "empty": "No management events yet"
     },
+    "settings": {
+      "eyebrow": "Platform configuration",
+      "title": "System settings",
+      "description": "Manage the complete Hub configuration from one audited source of truth. Changes take effect immediately and persist across restarts.",
+      "save": "Save settings",
+      "meta": "Revision {{revision}} · Updated {{date}}",
+      "access": {
+        "title": "Access and registration",
+        "description": "Configure the browser-reachable Hub address and public account policy.",
+        "publicBaseUrl": "Public base URL",
+        "publicBaseUrlHint": "Used for OAuth callbacks. Leave empty only for loopback-only deployments.",
+        "registration": "Public registration",
+        "registrationHint": "When disabled, only administrators can create accounts.",
+        "defaultRole": "Default registration role",
+        "defaultRoleHint": "Self-registered accounts are always ordinary users for security."
+      },
+      "runtime": {
+        "title": "Runtime policy",
+        "description": "Choose which installed runtime implementations may be used.",
+        "defaultProvisioner": "Default runtime implementation",
+        "allowedProvisioners": "Allowed runtime implementations",
+        "allowedProvisionersHint": "The default implementation must remain in this list.",
+        "defaultMustBeAllowed": "The default implementation must be allowed."
+      },
+      "quotas": {
+        "title": "Default capacity quotas",
+        "description": "Set global limits inherited by tenants without an override.",
+        "maxRuntimes": "Maximum runtimes",
+        "maxRunningRuntimes": "Maximum running runtimes",
+        "unlimitedHint": "Empty means unlimited.",
+        "runningExceedsTotal": "Running runtimes cannot exceed the total runtime limit."
+      },
+      "tenants": {
+        "title": "Tenant overrides",
+        "description": "Override either capacity limit for a specific tenant while inheriting empty values from the defaults.",
+        "tenantId": "Tenant ID",
+        "add": "Add tenant override",
+        "remove": "Remove tenant override",
+        "duplicate": "Tenant IDs must be unique."
+      }
+    },
     "auditActions": {
       "runtime": {
         "create": "Created runtime",
@@ -3624,9 +3667,7 @@
         "delete": "Deleted credential"
       },
       "settings": {
-        "registration": {
-          "update": "Updated registration policy"
-        }
+        "update": "Updated Hub settings"
       },
       "auth": {
         "register": "Registered Hub user"

@@ -298,14 +298,22 @@ def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
 def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         admin_token = _register(client, "owner")
+        current_settings = client.get(
+            "/api/hub/admin/settings",
+            headers=_headers(admin_token),
+        )
+        payload = current_settings.json()
+        payload["config"]["control_plane"]["registration"]["enabled"] = True
         settings = client.put(
-            "/api/hub/admin/settings/registration",
-            json={"enabled": True},
+            "/api/hub/admin/settings",
+            json={
+                "revision": payload["revision"],
+                "config": payload["config"],
+            },
             headers=_headers(admin_token),
         )
         assert settings.status_code == 200
-        assert settings.json()["source"] == "database"
-        assert settings.json()["mutable"] is True
+        assert settings.json()["revision"] == payload["revision"] + 1
         user_token = _register(client, "member")
 
         created = client.post(
@@ -348,6 +356,52 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             headers=_headers(user_token),
         )
         assert denied_users.status_code == 403
+
+
+def test_settings_apply_immediately_and_reject_stale_revision(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        admin_token = _register(client, "owner")
+        current = client.get(
+            "/api/hub/admin/settings",
+            headers=_headers(admin_token),
+        )
+        assert current.status_code == 200
+        payload = current.json()
+        payload["config"]["tenant_defaults"] = {
+            "max_runtimes": 0,
+            "max_running_runtimes": 0,
+        }
+
+        updated = client.put(
+            "/api/hub/admin/settings",
+            json={
+                "revision": payload["revision"],
+                "config": payload["config"],
+            },
+            headers=_headers(admin_token),
+        )
+        blocked = client.post(
+            "/api/hub/runtimes",
+            json={"runtime_id": "over-quota"},
+            headers=_headers(admin_token),
+        )
+        stale = client.put(
+            "/api/hub/admin/settings",
+            json={
+                "revision": payload["revision"],
+                "config": payload["config"],
+            },
+            headers=_headers(admin_token),
+        )
+
+        assert updated.status_code == 200
+        assert updated.json()["revision"] == payload["revision"] + 1
+        assert blocked.status_code == 409
+        assert "runtime limit reached" in blocked.json()["detail"]
+        assert stale.status_code == 409
+        assert "changed concurrently" in stale.json()["detail"]
 
 
 def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:

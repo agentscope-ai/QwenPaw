@@ -57,6 +57,27 @@ class RuntimeService:
         with self._lock_registry:
             return self._create_locked(spec)
 
+    def apply_config(self, config: HubConfig) -> None:
+        """Apply validated admission and provisioner policy immediately."""
+        with self._lock_registry, self._admission_lock:
+            previous = (
+                self.hub_config,
+                self.default_provisioner,
+                self.allowed_provisioners,
+            )
+            self.hub_config = config
+            self.default_provisioner = config.default_provisioner
+            self.allowed_provisioners = config.allowed_provisioners
+            try:
+                self._validate_provisioner_policy()
+            except ValueError:
+                (
+                    self.hub_config,
+                    self.default_provisioner,
+                    self.allowed_provisioners,
+                ) = previous
+                raise
+
     def _create_locked(self, spec: RuntimeSpec) -> RuntimeRecord:
         """Create a runtime while the lifecycle lock is held."""
         self._validate_identifier(spec.runtime_id, "runtime_id")

@@ -5,6 +5,7 @@ import {
   Button,
   Form,
   Input,
+  InputNumber,
   Modal,
   Pagination,
   Progress,
@@ -13,6 +14,7 @@ import {
   Switch,
   Tag,
 } from "antd";
+import type { FormInstance } from "antd";
 import {
   Activity,
   BellRing,
@@ -31,8 +33,10 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Save,
   ScrollText,
   Search,
+  Settings2,
   ShieldBan,
   Sun,
   Trash2,
@@ -49,11 +53,32 @@ import {
   type HubHealth,
   type HubOverview,
   type HubRuntime,
+  type HubSettings,
   type HubUser,
 } from "../../api/modules/hub";
 import styles from "./index.module.less";
 
-type Section = "overview" | "runtimes" | "users" | "credentials" | "audit";
+type Section =
+  | "overview"
+  | "runtimes"
+  | "users"
+  | "credentials"
+  | "audit"
+  | "settings";
+
+interface SettingsFormValues {
+  publicBaseUrl?: string;
+  registrationEnabled: boolean;
+  defaultProvisioner: string;
+  allowedProvisioners: string[];
+  maxRuntimes?: number;
+  maxRunningRuntimes?: number;
+  tenants: Array<{
+    tenantId: string;
+    maxRuntimes?: number;
+    maxRunningRuntimes?: number;
+  }>;
+}
 
 interface PageData<T> {
   items: T[];
@@ -89,6 +114,7 @@ export default function HubPage() {
   const [credentials, setCredentials] =
     useState<PageData<HubCredential>>(emptyPage);
   const [audit, setAudit] = useState<PageData<HubAuditEvent>>(emptyPage);
+  const [settings, setSettings] = useState<HubSettings | null>(null);
   const [runtimeQuery, setRuntimeQuery] = useState("");
   const [runtimeState, setRuntimeState] = useState<string>();
   const [runtimeOwner, setRuntimeOwner] = useState("");
@@ -102,13 +128,14 @@ export default function HubPage() {
   const [auditAction, setAuditAction] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [credentialModalOpen, setCredentialModalOpen] = useState(false);
   const [runtimeForm] = Form.useForm();
   const [userForm] = Form.useForm();
   const [credentialForm] = Form.useForm();
+  const [settingsForm] = Form.useForm<SettingsFormValues>();
 
   const loadOverview = useCallback(async () => {
     setOverview(await hubApi.getOverview());
@@ -136,29 +163,48 @@ export default function HubPage() {
 
   const loadUsers = useCallback(
     async (page = 1) => {
-      const [result, registration] = await Promise.all([
-        hubApi.listUsers({
-          page,
-          pageSize: PAGE_SIZE,
-          query: userQuery,
-          role: userRole as HubUser["role"] | undefined,
-          disabled:
-            userDisabled === undefined
-              ? undefined
-              : userDisabled === "disabled",
-        }),
-        hubApi.getRegistration(),
-      ]);
+      const result = await hubApi.listUsers({
+        page,
+        pageSize: PAGE_SIZE,
+        query: userQuery,
+        role: userRole as HubUser["role"] | undefined,
+        disabled:
+          userDisabled === undefined ? undefined : userDisabled === "disabled",
+      });
       setUsers({
         items: result.items,
         page: result.page,
         pageSize: result.page_size,
         total: result.total,
       });
-      setRegistrationEnabled(registration.enabled);
     },
     [userDisabled, userQuery, userRole],
   );
+
+  const loadSettings = useCallback(async () => {
+    const result = await hubApi.getSettings();
+    setSettings(result);
+    settingsForm.setFieldsValue({
+      publicBaseUrl: result.config.control_plane.public_base_url || undefined,
+      registrationEnabled: result.config.control_plane.registration.enabled,
+      defaultProvisioner:
+        result.config.runtime.default_provisioner ||
+        result.available_provisioners[0],
+      allowedProvisioners:
+        result.config.runtime.allowed_provisioners ||
+        result.available_provisioners,
+      maxRuntimes: result.config.tenant_defaults.max_runtimes ?? undefined,
+      maxRunningRuntimes:
+        result.config.tenant_defaults.max_running_runtimes ?? undefined,
+      tenants: Object.entries(result.config.tenants).map(
+        ([tenantId, quota]) => ({
+          tenantId,
+          maxRuntimes: quota.max_runtimes ?? undefined,
+          maxRunningRuntimes: quota.max_running_runtimes ?? undefined,
+        }),
+      ),
+    });
+  }, [settingsForm]);
 
   const loadCredentials = useCallback(
     async (page = 1) => {
@@ -229,6 +275,8 @@ export default function HubPage() {
           ? loadCredentials(1)
           : section === "audit" && me?.role === "admin"
           ? loadAudit(1)
+          : section === "settings" && me?.role === "admin"
+          ? loadSettings()
           : Promise.resolve();
       request.catch((error) => message.error(error.message));
     }, 250);
@@ -240,6 +288,7 @@ export default function HubPage() {
     loadAudit,
     loadCredentials,
     loadRuntimes,
+    loadSettings,
     loadUsers,
     me?.role,
     message,
@@ -268,6 +317,51 @@ export default function HubPage() {
     if (section === "users") await loadUsers(users.page);
     if (section === "credentials") await loadCredentials(credentials.page);
     if (section === "audit") await loadAudit(audit.page);
+    if (section === "settings") await loadSettings();
+  };
+
+  const saveSettings = async (values: SettingsFormValues) => {
+    if (!settings) return;
+    setSettingsSaving(true);
+    try {
+      const tenants = Object.fromEntries(
+        (values.tenants || []).map((tenant) => [
+          tenant.tenantId.trim(),
+          {
+            max_runtimes: tenant.maxRuntimes ?? null,
+            max_running_runtimes: tenant.maxRunningRuntimes ?? null,
+          },
+        ]),
+      );
+      const updated = await hubApi.updateSettings(settings.revision, {
+        ...settings.config,
+        control_plane: {
+          public_base_url: values.publicBaseUrl?.trim() || null,
+          registration: {
+            enabled: values.registrationEnabled,
+            default_role: "user",
+          },
+        },
+        runtime: {
+          default_provisioner: values.defaultProvisioner,
+          allowed_provisioners: values.allowedProvisioners,
+        },
+        tenant_defaults: {
+          max_runtimes: values.maxRuntimes ?? null,
+          max_running_runtimes: values.maxRunningRuntimes ?? null,
+        },
+        tenants,
+      });
+      setSettings(updated);
+      message.success(t("hub.messages.settingsSaved"));
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("hub.errors.saveFailed"),
+      );
+      await loadSettings();
+    } finally {
+      setSettingsSaving(false);
+    }
   };
 
   const runRuntimeAction = async (
@@ -395,6 +489,11 @@ export default function HubPage() {
             id: "audit" as const,
             label: t("hub.navigation.audit"),
             icon: ScrollText,
+          },
+          {
+            id: "settings" as const,
+            label: t("hub.navigation.settings"),
+            icon: Settings2,
           },
         ]
       : []),
@@ -751,21 +850,6 @@ export default function HubPage() {
                       </Button>
                     }
                   />
-                  <div className={styles.settingStrip}>
-                    <div>
-                      <strong>{t("hub.users.publicRegistration")}</strong>
-                      <span>
-                        {t("hub.users.publicRegistrationDescription")}
-                      </span>
-                    </div>
-                    <Switch
-                      checked={registrationEnabled}
-                      onChange={async (enabled) => {
-                        await hubApi.setRegistration(enabled);
-                        setRegistrationEnabled(enabled);
-                      }}
-                    />
-                  </div>
                   <DataPanel
                     search={userQuery}
                     onSearch={setUserQuery}
@@ -1038,6 +1122,15 @@ export default function HubPage() {
                   </DataPanel>
                 </section>
               )}
+              {section === "settings" && me?.role === "admin" && settings && (
+                <SettingsPanel
+                  form={settingsForm}
+                  settings={settings}
+                  saving={settingsSaving}
+                  onSave={saveSettings}
+                  t={t}
+                />
+              )}
             </>
           )}
         </div>
@@ -1179,6 +1272,254 @@ export default function HubPage() {
         </Form>
       </Modal>
     </div>
+  );
+}
+
+function SettingsPanel({
+  form,
+  settings,
+  saving,
+  onSave,
+  t,
+}: {
+  form: FormInstance<SettingsFormValues>;
+  settings: HubSettings;
+  saving: boolean;
+  onSave: (values: SettingsFormValues) => Promise<void>;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  const provisionerOptions = settings.available_provisioners.map((name) => ({
+    label: name,
+    value: name,
+  }));
+  return (
+    <section>
+      <PageHeader
+        eyebrow={t("hub.settings.eyebrow")}
+        title={t("hub.settings.title")}
+        description={t("hub.settings.description")}
+        action={
+          <Button
+            type="primary"
+            icon={<Save size={15} />}
+            loading={saving}
+            onClick={() => form.submit()}
+          >
+            {t("hub.settings.save")}
+          </Button>
+        }
+      />
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        onFinish={onSave}
+      >
+        <div className={styles.settingsGrid}>
+          <article className={styles.settingsCard}>
+            <div className={styles.settingsCardHeader}>
+              <div>
+                <strong>{t("hub.settings.access.title")}</strong>
+                <span>{t("hub.settings.access.description")}</span>
+              </div>
+              <Settings2 size={18} />
+            </div>
+            <Form.Item
+              name="publicBaseUrl"
+              label={t("hub.settings.access.publicBaseUrl")}
+              extra={t("hub.settings.access.publicBaseUrlHint")}
+              rules={[{ type: "url" }]}
+            >
+              <Input placeholder="https://hub.example.com" />
+            </Form.Item>
+            <div className={styles.settingRow}>
+              <div>
+                <strong>{t("hub.settings.access.registration")}</strong>
+                <span>{t("hub.settings.access.registrationHint")}</span>
+              </div>
+              <Form.Item
+                name="registrationEnabled"
+                valuePropName="checked"
+                noStyle
+              >
+                <Switch />
+              </Form.Item>
+            </div>
+            <Form.Item
+              label={t("hub.settings.access.defaultRole")}
+              extra={t("hub.settings.access.defaultRoleHint")}
+            >
+              <Input value={t("hub.roles.user")} disabled />
+            </Form.Item>
+          </article>
+
+          <article className={styles.settingsCard}>
+            <div className={styles.settingsCardHeader}>
+              <div>
+                <strong>{t("hub.settings.runtime.title")}</strong>
+                <span>{t("hub.settings.runtime.description")}</span>
+              </div>
+              <Boxes size={18} />
+            </div>
+            <Form.Item
+              name="defaultProvisioner"
+              label={t("hub.settings.runtime.defaultProvisioner")}
+              rules={[
+                { required: true, message: t("hub.validation.required") },
+              ]}
+            >
+              <Select options={provisionerOptions} />
+            </Form.Item>
+            <Form.Item
+              name="allowedProvisioners"
+              label={t("hub.settings.runtime.allowedProvisioners")}
+              extra={t("hub.settings.runtime.allowedProvisionersHint")}
+              dependencies={["defaultProvisioner"]}
+              rules={[
+                { required: true, message: t("hub.validation.required") },
+                ({ getFieldValue }) => ({
+                  validator: async (_, value: string[]) => {
+                    if (value?.includes(getFieldValue("defaultProvisioner"))) {
+                      return;
+                    }
+                    throw new Error(
+                      t("hub.settings.runtime.defaultMustBeAllowed"),
+                    );
+                  },
+                }),
+              ]}
+            >
+              <Select mode="multiple" options={provisionerOptions} />
+            </Form.Item>
+          </article>
+
+          <article className={styles.settingsCard}>
+            <div className={styles.settingsCardHeader}>
+              <div>
+                <strong>{t("hub.settings.quotas.title")}</strong>
+                <span>{t("hub.settings.quotas.description")}</span>
+              </div>
+              <Gauge size={18} />
+            </div>
+            <div className={styles.quotaFields}>
+              <Form.Item
+                name="maxRuntimes"
+                label={t("hub.settings.quotas.maxRuntimes")}
+                extra={t("hub.settings.quotas.unlimitedHint")}
+              >
+                <InputNumber min={0} precision={0} />
+              </Form.Item>
+              <Form.Item
+                name="maxRunningRuntimes"
+                label={t("hub.settings.quotas.maxRunningRuntimes")}
+                extra={t("hub.settings.quotas.unlimitedHint")}
+                dependencies={["maxRuntimes"]}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator: async (_, value?: number) => {
+                      const total = getFieldValue("maxRuntimes");
+                      if (
+                        value === undefined ||
+                        total === undefined ||
+                        value <= total
+                      ) {
+                        return;
+                      }
+                      throw new Error(
+                        t("hub.settings.quotas.runningExceedsTotal"),
+                      );
+                    },
+                  }),
+                ]}
+              >
+                <InputNumber min={0} precision={0} />
+              </Form.Item>
+            </div>
+          </article>
+
+          <article className={`${styles.settingsCard} ${styles.tenantCard}`}>
+            <div className={styles.settingsCardHeader}>
+              <div>
+                <strong>{t("hub.settings.tenants.title")}</strong>
+                <span>{t("hub.settings.tenants.description")}</span>
+              </div>
+              <Users size={18} />
+            </div>
+            <Form.List
+              name="tenants"
+              rules={[
+                {
+                  validator: async (_, rows) => {
+                    const ids = (rows || [])
+                      .map((row: { tenantId?: string }) => row.tenantId?.trim())
+                      .filter(Boolean);
+                    if (new Set(ids).size !== ids.length) {
+                      throw new Error(t("hub.settings.tenants.duplicate"));
+                    }
+                  },
+                },
+              ]}
+            >
+              {(fields, { add, remove }, { errors }) => (
+                <>
+                  <div className={styles.tenantRows}>
+                    {fields.map((field) => (
+                      <div className={styles.tenantRow} key={field.key}>
+                        <Form.Item
+                          name={[field.name, "tenantId"]}
+                          label={t("hub.settings.tenants.tenantId")}
+                          rules={[
+                            {
+                              required: true,
+                              message: t("hub.validation.required"),
+                            },
+                          ]}
+                        >
+                          <Input placeholder="personal-user-id" />
+                        </Form.Item>
+                        <Form.Item
+                          name={[field.name, "maxRuntimes"]}
+                          label={t("hub.settings.quotas.maxRuntimes")}
+                        >
+                          <InputNumber min={0} precision={0} />
+                        </Form.Item>
+                        <Form.Item
+                          name={[field.name, "maxRunningRuntimes"]}
+                          label={t("hub.settings.quotas.maxRunningRuntimes")}
+                        >
+                          <InputNumber min={0} precision={0} />
+                        </Form.Item>
+                        <Button
+                          danger
+                          type="text"
+                          icon={<Trash2 size={15} />}
+                          aria-label={t("hub.settings.tenants.remove")}
+                          onClick={() => remove(field.name)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <Form.ErrorList errors={errors} />
+                  <Button
+                    type="dashed"
+                    icon={<Plus size={15} />}
+                    onClick={() => add({})}
+                  >
+                    {t("hub.settings.tenants.add")}
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          </article>
+        </div>
+      </Form>
+      <p className={styles.settingsMeta}>
+        {t("hub.settings.meta", {
+          revision: settings.revision,
+          date: formatDate(settings.updated_at),
+        })}
+      </p>
+    </section>
   );
 }
 

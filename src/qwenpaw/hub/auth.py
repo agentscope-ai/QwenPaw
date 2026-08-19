@@ -120,28 +120,6 @@ class HubAuthService:
             ).fetchone()
         return row is not None and bool(json.loads(str(row["value_json"])))
 
-    def registration_setting(self) -> dict[str, object]:
-        """Return the effective value and whether SQLite can change it."""
-        return {
-            "enabled": self.registration_enabled(),
-            "source": "database",
-            "mutable": True,
-            "source_label": None,
-        }
-
-    def set_registration_enabled(self, enabled: bool) -> bool:
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE hub_settings SET value_json = ?, "
-                "revision = revision + 1, updated_at = ? WHERE key = ?",
-                (
-                    "true" if enabled else "false",
-                    utc_now(),
-                    "registration_enabled",
-                ),
-            )
-        return enabled
-
     def register(self, username: str, password: str) -> tuple[HubUser, str]:
         """Bootstrap the first admin or register a user when enabled."""
         with self._registration_lock:

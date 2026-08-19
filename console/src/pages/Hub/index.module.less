@@ -516,13 +516,67 @@
   font-size: 10px;
 }
 
-.settingStrip {
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settingsCard {
+  padding: 20px;
+  border: 1px solid var(--hub-border);
+  border-radius: 14px;
+  background: var(--hub-surface);
+
+  :global(.qwenpaw-form-item:last-child) {
+    margin-bottom: 0;
+  }
+
+  :global(.qwenpaw-input-number) {
+    width: 100%;
+  }
+}
+
+.settingsCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    max-width: 500px;
+    margin-top: 4px;
+    color: var(--hub-muted);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  > svg {
+    flex: 0 0 auto;
+    color: var(--hub-accent-deep);
+  }
+}
+
+.settingRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 12px;
-  padding: 15px 17px;
+  margin-bottom: 20px;
+  padding: 13px 14px;
+  border: 1px solid var(--hub-border);
+  border-radius: 10px;
+  background: var(--hub-surface-subtle);
 
   strong,
   span {
@@ -538,6 +592,44 @@
     color: var(--hub-muted);
     font-size: 9px;
   }
+}
+
+.quotaFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tenantCard {
+  grid-column: 1 / -1;
+}
+
+.tenantRows {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.tenantRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 180px 180px 34px;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--hub-border);
+  border-radius: 10px;
+  background: var(--hub-surface-subtle);
+
+  :global(.qwenpaw-form-item) {
+    margin-bottom: 0;
+  }
+}
+
+.settingsMeta {
+  margin: 12px 2px 0;
+  color: var(--hub-faint);
+  font-size: 9px;
+  text-align: right;
 }
 
 .dataPanel {
@@ -772,6 +864,22 @@
   .overviewGrid {
     grid-template-columns: 1fr;
   }
+
+  .settingsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .tenantCard {
+    grid-column: auto;
+  }
+
+  .tenantRow {
+    grid-template-columns: 1fr 1fr;
+
+    > :first-child {
+      grid-column: 1 / -1;
+    }
+  }
 }
 
 @media (max-width: 760px) {
@@ -852,6 +960,14 @@
     width: 100%;
     margin-left: 0;
   }
+
+  .tenantRow {
+    grid-template-columns: 1fr;
+
+    > :first-child {
+      grid-column: auto;
+    }
+  }
 }
 
 @media (max-width: 520px) {
@@ -884,5 +1000,9 @@
   .pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .quotaFields {
+    grid-template-columns: 1fr;
   }
 }

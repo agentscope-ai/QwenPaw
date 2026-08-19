@@ -193,7 +193,7 @@ class HubConfig(BaseModel):
 
 
 class HubConfigStore:
-    """Merge startup YAML into persistent control-plane settings."""
+    """Persist database-owned settings bootstrapped from startup YAML."""
 
     _CONFIG_KEY = "hub_config"
 
@@ -209,60 +209,105 @@ class HubConfigStore:
         path: Path | None,
         available_provisioners: set[str] | None = None,
     ) -> HubConfig:
-        """Apply explicit YAML fields and return persisted effective values."""
-        overlay = load_hub_config(path) if path is not None else None
+        """Bootstrap from YAML once, then return database-owned settings."""
         with self._connect() as connection:
             persisted = self._load_persisted(connection)
-            if overlay is None:
-                return HubConfig.model_validate(persisted)
-            explicit = overlay.model_dump(exclude_unset=True)
-            merged = _deep_merge(persisted, explicit)
-            effective = HubConfig.model_validate(merged)
+            if persisted is not None:
+                effective = self._with_registration(
+                    connection,
+                    HubConfig.model_validate(persisted),
+                )
+                if available_provisioners is not None:
+                    _validate_provisioners(
+                        effective,
+                        available_provisioners,
+                    )
+                return effective
+            overlay = load_hub_config(path) if path is not None else None
+            effective = overlay or HubConfig()
             if available_provisioners is not None:
                 _validate_provisioners(effective, available_provisioners)
-            connection.execute(
-                "INSERT INTO hub_settings("
-                "key, value_json, schema_version, revision, updated_at) "
-                "VALUES (?, ?, 1, 1, ?) "
-                "ON CONFLICT(key) DO UPDATE SET "
-                "value_json = excluded.value_json, "
-                "schema_version = excluded.schema_version, "
-                "revision = hub_settings.revision + 1, "
-                "updated_at = excluded.updated_at",
+            self._insert_config(connection, effective)
+            self._sync_registration(connection, effective)
+            return self._with_registration(connection, effective)
+
+    def snapshot(self) -> tuple[HubConfig, int, str]:
+        """Return the effective configuration and concurrency metadata."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value_json, revision, updated_at FROM hub_settings "
+                "WHERE key = ?",
+                (self._CONFIG_KEY,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Hub configuration is not initialized")
+            config = self._with_registration(
+                connection,
+                HubConfig.model_validate_json(str(row["value_json"])),
+            )
+        return config, int(row["revision"]), str(row["updated_at"])
+
+    def ensure(
+        self,
+        config: HubConfig,
+        *,
+        available_provisioners: set[str],
+    ) -> HubConfig:
+        """Initialize missing settings without replacing persisted values."""
+        _validate_provisioners(config, available_provisioners)
+        with self._connect() as connection:
+            persisted = self._load_persisted(connection)
+            if persisted is None:
+                self._insert_config(connection, config)
+                self._sync_registration(connection, config)
+                return self._with_registration(connection, config)
+            effective = self._with_registration(
+                connection,
+                HubConfig.model_validate(persisted),
+            )
+        _validate_provisioners(effective, available_provisioners)
+        return effective
+
+    def update(
+        self,
+        config: HubConfig,
+        *,
+        expected_revision: int,
+        available_provisioners: set[str],
+        updated_by_user_id: str,
+    ) -> tuple[HubConfig, int, str]:
+        """Persist one validated configuration with optimistic locking."""
+        _validate_provisioners(config, available_provisioners)
+        now = utc_now()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE hub_settings SET value_json = ?, "
+                "revision = revision + 1, updated_by_user_id = ?, "
+                "updated_at = ? WHERE key = ? AND revision = ?",
                 (
+                    config.model_dump_json(exclude_none=True),
+                    updated_by_user_id,
+                    now,
                     self._CONFIG_KEY,
-                    effective.model_dump_json(exclude_none=True),
-                    utc_now(),
+                    expected_revision,
                 ),
             )
-            registration = explicit.get("control_plane", {}).get(
-                "registration",
-                {},
-            )
-            if "enabled" in registration:
-                self._write_setting(
-                    connection,
-                    "registration_enabled",
-                    bool(registration["enabled"]),
-                )
-            if "default_role" in registration:
-                self._write_setting(
-                    connection,
-                    "registration_default_role",
-                    str(registration["default_role"]),
-                )
-            return effective
+            if cursor.rowcount != 1:
+                raise RuntimeError("Hub configuration changed concurrently")
+            self._sync_registration(connection, config)
+            effective = self._with_registration(connection, config)
+        return effective, expected_revision + 1, now
 
     def _load_persisted(
         self,
         connection: sqlite3.Connection,
-    ) -> dict[str, object]:
+    ) -> dict[str, object] | None:
         row = connection.execute(
             "SELECT value_json FROM hub_settings WHERE key = ?",
             (self._CONFIG_KEY,),
         ).fetchone()
         if row is None:
-            return {"version": 1}
+            return None
         try:
             value = json.loads(str(row["value_json"]))
         except json.JSONDecodeError as exc:
@@ -270,6 +315,72 @@ class HubConfigStore:
         if not isinstance(value, dict):
             raise ValueError("Persisted Hub config must be an object")
         return value
+
+    def _insert_config(
+        self,
+        connection: sqlite3.Connection,
+        config: HubConfig,
+    ) -> None:
+        connection.execute(
+            "INSERT INTO hub_settings("
+            "key, value_json, schema_version, revision, updated_at) "
+            "VALUES (?, ?, 1, 1, ?)",
+            (
+                self._CONFIG_KEY,
+                config.model_dump_json(exclude_none=True),
+                utc_now(),
+            ),
+        )
+
+    def _sync_registration(
+        self,
+        connection: sqlite3.Connection,
+        config: HubConfig,
+    ) -> None:
+        registration = config.control_plane.registration
+        if registration.enabled is not None:
+            self._write_setting(
+                connection,
+                "registration_enabled",
+                registration.enabled,
+            )
+        if registration.default_role is not None:
+            self._write_setting(
+                connection,
+                "registration_default_role",
+                registration.default_role,
+            )
+
+    @staticmethod
+    def _with_registration(
+        connection: sqlite3.Connection,
+        config: HubConfig,
+    ) -> HubConfig:
+        registration = config.control_plane.registration
+        values: dict[str, object] = {}
+        for field_name, key in (
+            ("enabled", "registration_enabled"),
+            ("default_role", "registration_default_role"),
+        ):
+            row = connection.execute(
+                "SELECT value_json FROM hub_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+            if row is not None:
+                values[field_name] = json.loads(str(row["value_json"]))
+        if not values:
+            return config
+        return config.model_copy(
+            update={
+                "control_plane": config.control_plane.model_copy(
+                    update={
+                        "registration": registration.model_copy(
+                            update=values,
+                        ),
+                    },
+                ),
+            },
+        )
 
     @staticmethod
     def _write_setting(
@@ -311,21 +422,6 @@ def load_hub_config(path: Path | None) -> HubConfig:
     except ValidationError as exc:
         raise ValueError(f"Invalid Hub config {resolved}: {exc}") from exc
     return config
-
-
-def _deep_merge(
-    base: dict[str, object],
-    override: dict[str, object],
-) -> dict[str, object]:
-    """Merge mappings recursively while replacing scalar and list values."""
-    merged = dict(base)
-    for key, value in override.items():
-        current = merged.get(key)
-        if isinstance(current, dict) and isinstance(value, dict):
-            merged[key] = _deep_merge(current, value)
-        else:
-            merged[key] = value
-    return merged
 
 
 def _validate_provisioners(

@@ -103,4 +103,33 @@ describe("hubApi pagination", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("updates the complete Hub settings document with its revision", async () => {
+    const config = {
+      version: 1 as const,
+      control_plane: {
+        public_base_url: "https://hub.example.com",
+        registration: { enabled: false, default_role: "user" as const },
+      },
+      runtime: {
+        default_provisioner: "local",
+        allowed_provisioners: ["local"],
+      },
+      tenant_defaults: {
+        max_runtimes: 3,
+        max_running_runtimes: 2,
+      },
+      tenants: {},
+    };
+
+    await hubApi.updateSettings(4, config);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/hub/admin/settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ revision: 4, config }),
+      }),
+    );
+  });
 });

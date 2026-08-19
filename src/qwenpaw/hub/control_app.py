@@ -145,10 +145,11 @@ class PasswordChangeBody(BaseModel):
     new_password: str = Field(min_length=8, max_length=1024)
 
 
-class RegistrationSettingsBody(BaseModel):
-    """Public registration policy update."""
+class HubSettingsBody(BaseModel):
+    """Atomic administrator update for the complete Hub configuration."""
 
-    enabled: bool
+    revision: int = Field(ge=1)
+    config: HubConfig
 
 
 class CredentialBody(BaseModel):
@@ -230,13 +231,19 @@ def create_hub_app(  # pylint: disable=too-many-statements
     proxy_transport: httpx.AsyncBaseTransport | None = None,
     hub_config: HubConfig | None = None,
     root_dir: Path | None = None,
+    public_bind: bool = False,
 ) -> FastAPI:
     """Create a Hub control-plane app with an injectable runtime service."""
     runtime_service = service or build_runtime_service(
         root_dir=root_dir,
         hub_config=hub_config,
     )
-    effective_config = hub_config or runtime_service.hub_config
+    config_store = HubConfigStore(runtime_service.registry.database_path)
+    effective_config = config_store.ensure(
+        hub_config or runtime_service.hub_config,
+        available_provisioners=set(runtime_service.provisioners),
+    )
+    runtime_service.apply_config(effective_config)
     credential_vault = TenantCredentialVault(
         runtime_service.registry.database_path,
         runtime_service.root_dir / "secrets" / ".vault_key",
@@ -286,6 +293,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     app.state.runtime_service = runtime_service
     app.state.auth_service = hub_auth
     app.state.hub_config = effective_config
+    app.state.config_store = config_store
     app.state.operations = operations
     oauth_relays = OAuthRelayStore()
     app.state.oauth_relays = oauth_relays
@@ -652,29 +660,58 @@ def create_hub_app(  # pylint: disable=too-many-statements
         )
         return user.to_dict()
 
-    @app.get("/api/hub/admin/settings/registration")
-    async def get_registration_settings(
+    @app.get("/api/hub/admin/settings")
+    async def get_hub_settings(
         _: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
-        return await run_in_threadpool(hub_auth.registration_setting)
+        config, revision, updated_at = await run_in_threadpool(
+            config_store.snapshot,
+        )
+        config_payload = config.model_dump(mode="json")
+        return {
+            "config": config_payload,
+            "revision": revision,
+            "updated_at": updated_at,
+            "available_provisioners": sorted(runtime_service.provisioners),
+        }
 
-    @app.put("/api/hub/admin/settings/registration")
-    async def update_registration_settings(
-        body: RegistrationSettingsBody,
+    @app.put("/api/hub/admin/settings")
+    async def update_hub_settings(
+        body: HubSettingsBody,
         admin: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
-        await run_in_threadpool(
-            hub_auth.set_registration_enabled,
-            body.enabled,
-        )
+        if public_bind and body.config.control_plane.public_base_url is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Public Hub binding requires public_base_url",
+            )
+        try:
+            config, revision, updated_at = await run_in_threadpool(
+                config_store.update,
+                body.config,
+                expected_revision=body.revision,
+                available_provisioners=set(runtime_service.provisioners),
+                updated_by_user_id=admin.user_id,
+            )
+            await run_in_threadpool(runtime_service.apply_config, config)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        app.state.hub_config = config
         await record_audit(
             admin,
-            "settings.registration.update",
+            "settings.update",
             "setting",
-            "registration_enabled",
-            {"enabled": body.enabled},
+            "hub_config",
+            {"revision": revision},
         )
-        return await run_in_threadpool(hub_auth.registration_setting)
+        return {
+            "config": config.model_dump(mode="json"),
+            "revision": revision,
+            "updated_at": updated_at,
+            "available_provisioners": sorted(runtime_service.provisioners),
+        }
 
     @app.get("/api/hub/credentials")
     async def list_credentials(
@@ -1095,7 +1132,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 callback_path,
             )
             public_base_url = (
-                effective_config.control_plane.public_base_url
+                app.state.hub_config.control_plane.public_base_url
                 or str(request.base_url).rstrip("/")
             )
             headers[
@@ -1269,7 +1306,11 @@ def run_hub_app(
         )
         logging.getLogger(__name__).warning("%s", warning)
     uvicorn.run(
-        create_hub_app(hub_config=hub_config, root_dir=root_dir),
+        create_hub_app(
+            hub_config=hub_config,
+            root_dir=root_dir,
+            public_bind=public_bind,
+        ),
         host=host,
         port=port,
         workers=1,
