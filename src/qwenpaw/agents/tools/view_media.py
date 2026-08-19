@@ -2,6 +2,7 @@
 """Load image or video files into the LLM context for analysis."""
 
 import asyncio
+import hashlib
 import ipaddress
 import logging
 import mimetypes
@@ -23,11 +24,17 @@ from agentscope.message import (
 )
 from agentscope.tool import ToolChunk
 
+from ...config.context import get_current_workspace_dir
+from ...constant import EnvVarLoader, WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import make_dirs_async, run_sync_io, write_bytes_async
 from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .file_io import _path_to_file_url, _resolve_file_path
-from ..utils.image_freezing import freeze_image_bytes, freeze_local_image
+from ..utils.image_freezing import (
+    freeze_image_bytes,
+    freeze_local_image,
+    validate_image_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +43,16 @@ _REMOTE_IMAGE_CONNECT_TIMEOUT = 5.0
 _REMOTE_IMAGE_READ_TIMEOUT = 10.0
 _REMOTE_IMAGE_TOTAL_TIMEOUT = 30.0
 _REMOTE_IMAGE_MAX_REDIRECTS = 3
+_REMOTE_IMAGE_DOWNLOAD_MAX_MB_ENV = "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB"
+_REMOTE_IMAGE_DOWNLOAD_DEFAULT_MB = 50
+_REMOTE_IMAGE_SUFFIXES = {
+    "image/bmp": ".bmp",
+    "image/gif": ".gif",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/tiff": ".tiff",
+    "image/webp": ".webp",
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +62,17 @@ class _RemoteImageTarget:
     request_url: str
     host_header: str
     server_hostname: str
+
+
+def _remote_image_download_max_bytes() -> int:
+    """Return the configured remote image download limit in bytes."""
+    max_mb = EnvVarLoader.get_int(
+        _REMOTE_IMAGE_DOWNLOAD_MAX_MB_ENV,
+        default=_REMOTE_IMAGE_DOWNLOAD_DEFAULT_MB,
+    )
+    if max_mb <= 0:
+        max_mb = _REMOTE_IMAGE_DOWNLOAD_DEFAULT_MB
+    return max_mb * 1024 * 1024
 
 
 def _media_data_block(url: str, modality: str) -> DataBlock:
@@ -262,7 +290,8 @@ async def _download_remote_image(
                             if 0 < max_bytes < reported_size:
                                 return (
                                     None,
-                                    "remote image exceeds the size limit",
+                                    "remote image exceeds the "
+                                    f"{max_bytes}-byte download limit",
                                 )
 
                         content = bytearray()
@@ -272,7 +301,8 @@ async def _download_remote_image(
                             if 0 < max_bytes < len(content) + len(chunk):
                                 return (
                                     None,
-                                    "remote image exceeds the size limit",
+                                    "remote image exceeds the "
+                                    f"{max_bytes}-byte download limit",
                                 )
                             content.extend(chunk)
                         return bytes(content), None
@@ -287,6 +317,49 @@ def _remote_image_name(url: str) -> str:
     """Return a display-only filename for a remote image URL."""
     path = urllib.parse.urlsplit(url).path
     return Path(unquote(path)).name or "remote-image"
+
+
+async def _stage_remote_image_for_compression(
+    image_bytes: bytes,
+    media_type: str,
+) -> Path:
+    """Store an oversized remote image in the current workspace."""
+    workspace_dir = get_current_workspace_dir() or WORKING_DIR
+    downloads_dir = workspace_dir / "downloads"
+    await make_dirs_async(downloads_dir)
+
+    digest = hashlib.sha256(image_bytes).hexdigest()[:16]
+    suffix = _REMOTE_IMAGE_SUFFIXES[media_type]
+    image_path = downloads_dir / f"remote-image-{digest}{suffix}"
+    await write_bytes_async(
+        image_path,
+        image_bytes,
+        new_file_mode=0o644,
+    )
+    return image_path.resolve()
+
+
+def _oversized_remote_image_chunk(
+    image_path: Path,
+    image_size: int,
+) -> ToolChunk:
+    """Tell the agent how to process a downloaded oversized image."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[
+            TextBlock(
+                type="text",
+                text=(
+                    f"Remote image is {image_size} bytes and exceeds the "
+                    f"{MAX_INLINE_MEDIA_BYTES}-byte inline image limit. "
+                    f"It was downloaded to: {image_path}. Compress or "
+                    "resize this local file below the inline limit, then "
+                    "call view_image with the compressed file path."
+                ),
+            ),
+        ],
+    )
 
 
 def _image_error_chunk(error: str | None) -> ToolChunk:
@@ -579,7 +652,7 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
 
 
 @tool_descriptor(
-    requires_sandbox=("file_read",),
+    requires_sandbox=("file_read", "file_write"),
     async_execution=True,
     tool_type="file",
     target_param="image_path",
@@ -629,12 +702,35 @@ async def view_image(image_path: str) -> ToolChunk:
         if err is not None:
             return err
 
+        download_limit = _remote_image_download_max_bytes()
         image_bytes, download_error = await _download_remote_image(
             image_path,
-            MAX_INLINE_MEDIA_BYTES,
+            download_limit,
         )
         if download_error is not None or image_bytes is None:
             return _image_error_chunk(download_error)
+
+        if len(image_bytes) > MAX_INLINE_MEDIA_BYTES:
+            media_type, validation_error = await run_sync_io(
+                validate_image_bytes,
+                image_bytes,
+                _remote_image_name(image_path),
+            )
+            if validation_error is not None or media_type is None:
+                return _image_error_chunk(validation_error)
+            try:
+                local_path = await _stage_remote_image_for_compression(
+                    image_bytes,
+                    media_type,
+                )
+            except OSError as exc:
+                return _image_error_chunk(
+                    f"failed to save oversized remote image: {exc}",
+                )
+            return _oversized_remote_image_chunk(
+                local_path,
+                len(image_bytes),
+            )
 
         frozen_image, freeze_error = await run_sync_io(
             freeze_image_bytes,

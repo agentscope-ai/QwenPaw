@@ -307,8 +307,91 @@ class TestViewImage:
         }
         mock_download.assert_awaited_once_with(
             "https://example.com/photo.jpg",
-            MAX_INLINE_MEDIA_BYTES,
+            50 * 1024 * 1024,
         )
+
+    @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_oversized_url_image_is_staged_for_compression(
+        self,
+        mock_support,
+        mock_download,
+        monkeypatch,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        channels = [Image.effect_noise((32, 32), 100) for _ in range(3)]
+        image = Image.merge("RGB", channels)
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        image_bytes = image_buffer.getvalue()
+        assert len(image_bytes) > 64
+        mock_download.return_value = (image_bytes, None)
+        monkeypatch.setattr(view_media, "MAX_INLINE_MEDIA_BYTES", 64)
+        monkeypatch.setattr(
+            view_media,
+            "get_current_workspace_dir",
+            lambda: tmp_path,
+        )
+
+        result = await view_image("https://example.com/photo.png")
+
+        downloaded_files = list((tmp_path / "downloads").iterdir())
+        assert len(downloaded_files) == 1
+        downloaded_file = downloaded_files[0]
+        assert downloaded_file.name.startswith("remote-image-")
+        assert downloaded_file.suffix == ".png"
+        assert downloaded_file.read_bytes() == image_bytes
+        assert [
+            block.model_dump(
+                mode="json",
+                exclude={"id", "created_at", "finished_at"},
+            )
+            for block in result.content
+        ] == [
+            {
+                "type": "text",
+                "text": (
+                    f"Remote image is {len(image_bytes)} bytes and "
+                    "exceeds the 64-byte inline image limit. It was "
+                    f"downloaded to: {downloaded_file}. Compress or "
+                    "resize this local file below the inline limit, "
+                    "then call view_image with the compressed file path."
+                ),
+            },
+        ]
+
+    @pytest.mark.asyncio
+    @patch(
+        "qwenpaw.agents.tools.view_media._download_remote_image",
+        new_callable=AsyncMock,
+    )
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_invalid_oversized_url_image_is_not_staged(
+        self,
+        mock_support,
+        mock_download,
+        monkeypatch,
+        tmp_path,
+    ):
+        mock_support.return_value = True
+        mock_download.return_value = (b"x" * 65, None)
+        monkeypatch.setattr(view_media, "MAX_INLINE_MEDIA_BYTES", 64)
+        monkeypatch.setattr(
+            view_media,
+            "get_current_workspace_dir",
+            lambda: tmp_path,
+        )
+
+        result = await view_image("https://example.com/photo.png")
+
+        assert [block.type for block in result.content] == ["text"]
+        assert "not a valid image" in result.content[0].text
+        assert not (tmp_path / "downloads").exists()
 
     @pytest.mark.asyncio
     @patch(
@@ -655,6 +738,63 @@ class TestFreezeImageBytes:
         assert "not a valid image" in error
 
 
+class TestRemoteImageDownloadLimit:
+    """Tests for the configurable remote image download limit."""
+
+    def test_default_limit(self, monkeypatch):
+        monkeypatch.delenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            raising=False,
+        )
+        monkeypatch.delenv(
+            "COPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            raising=False,
+        )
+
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 50 * 1024 * 1024
+
+    def test_positive_limit_has_no_upper_clamp(self, monkeypatch):
+        monkeypatch.setenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            "10000",
+        )
+
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 10000 * 1024 * 1024
+
+    @pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+    def test_invalid_or_nonpositive_limit_uses_default(
+        self,
+        monkeypatch,
+        value,
+    ):
+        monkeypatch.setenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            value,
+        )
+
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 50 * 1024 * 1024
+
+    def test_legacy_limit_is_supported(self, monkeypatch):
+        monkeypatch.delenv(
+            "QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            raising=False,
+        )
+        monkeypatch.setenv(
+            "COPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB",
+            "75",
+        )
+
+        result = view_media._remote_image_download_max_bytes()
+
+        assert result == 75 * 1024 * 1024
+
+
 class TestDownloadRemoteImage:
     """Tests for bounded remote image downloads."""
 
@@ -773,7 +913,10 @@ class TestDownloadRemoteImage:
                 32,
             )
 
-        assert result == (None, "remote image exceeds the size limit")
+        assert result == (
+            None,
+            "remote image exceeds the 32-byte download limit",
+        )
         assert stream.was_read is False
 
     @pytest.mark.asyncio
@@ -802,7 +945,10 @@ class TestDownloadRemoteImage:
                 32,
             )
 
-        assert result == (None, "remote image exceeds the size limit")
+        assert result == (
+            None,
+            "remote image exceeds the 32-byte download limit",
+        )
 
     @pytest.mark.asyncio
     async def test_total_timeout_is_returned(self, monkeypatch):

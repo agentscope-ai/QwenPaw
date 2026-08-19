@@ -31,6 +31,37 @@ _NATIVE_IMAGE_MEDIA_TYPES = frozenset(
 _PNG_CONVERTIBLE_IMAGE_FORMATS = frozenset({"BMP", "TIFF"})
 
 
+def validate_image_bytes(
+    image_bytes: bytes,
+    display_name: str,
+) -> tuple[str | None, str | None]:
+    """Validate image bytes and return their detected media type."""
+    try:
+        with Image.open(BytesIO(image_bytes)) as image:
+            normalized_format = (image.format or "").upper()
+            media_type = Image.MIME.get(normalized_format)
+            if (
+                media_type not in _NATIVE_IMAGE_MEDIA_TYPES
+                and normalized_format not in _PNG_CONVERTIBLE_IMAGE_FORMATS
+            ):
+                detected = media_type or image.format or "unknown"
+                return (
+                    None,
+                    f"Error: {display_name} uses unsupported image "
+                    f"format {detected}.",
+                )
+            image.verify()
+    except (
+        Image.DecompressionBombError,
+        OSError,
+        UnidentifiedImageError,
+        ValueError,
+    ) as exc:
+        return None, f"Error: {display_name} is not a valid image: {exc}"
+
+    return media_type, None
+
+
 def _local_path_from_url(url: str) -> Path | None:
     """Resolve a local URL or path without treating remote URLs as local."""
     parsed = urlparse(url)
@@ -234,4 +265,5 @@ __all__ = [
     "freeze_local_image",
     "freeze_local_images",
     "freeze_local_images_async",
+    "validate_image_bytes",
 ]

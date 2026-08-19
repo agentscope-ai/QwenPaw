@@ -70,15 +70,16 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **其他配置：**
 
-| 变量                                 | 默认值         | 说明                                                            |
-| ------------------------------------ | -------------- | --------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀        |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                       |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _（自动检测）_ | 控制台前端静态文件路径                                          |
+| 变量                                    | 默认值         | 说明                                                                                              |
+| --------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                     | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`）                                   |
+| `QWENPAW_LOG_MAX_SIZE`                  | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀                                          |
+| `QWENPAW_LOG_MAX_BACKUPS`               | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                                                         |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`      | `100000`       | 触发记忆压缩的字符阈值                                                                            |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`    | `3`            | 压缩后保留的最近消息数                                                                            |
+| `QWENPAW_MEMORY_COMPACT_RATIO`          | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                                                        |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB`  | `50`           | `view_image` 远程图片下载上限（MiB）。接受任意正整数；非法值、`0` 或负数回退到默认值              |
+| `QWENPAW_CONSOLE_STATIC_DIR`            | _（自动检测）_ | 控制台前端静态文件路径                                                                            |
 
 **安全与认证：**
 
