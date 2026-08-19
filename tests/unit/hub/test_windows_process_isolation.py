@@ -1,0 +1,211 @@
+# -*- coding: utf-8 -*-
+"""Tests for Windows AppContainer Hub runtime isolation."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from typing import IO, Any
+
+import pytest
+
+from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
+from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.process_isolation import (
+    IsolatedLaunch,
+    ProcessIsolationError,
+)
+from qwenpaw.hub.windows_process_isolation import (
+    WindowsAppContainerIsolator,
+)
+
+
+def _record(tmp_path: Path) -> RuntimeRecord:
+    root = tmp_path / "runtimes" / "runtime-a"
+    for name in ("working", "secrets", "backups", "logs"):
+        (root / name).mkdir(parents=True)
+    return RuntimeRecord(
+        runtime_id="runtime-a",
+        tenant_id="tenant-a",
+        owner_user_id="user-a",
+        provisioner="local",
+        host="127.0.0.1",
+        port=9001,
+        state=RuntimeState.CREATED,
+        working_dir=root / "working",
+        secret_dir=root / "secrets",
+        backup_dir=root / "backups",
+        log_file=root / "logs" / "app.log",
+    )
+
+
+class _Broker:
+    returncode = None
+    stopped = False
+
+    def poll(self) -> None:
+        return None
+
+    def terminate(self) -> None:
+        self.stopped = True
+
+    def kill(self) -> None:
+        self.stopped = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        del timeout
+        self.returncode = 0
+        return 0
+
+
+class _Process:
+    pid = 42
+
+    def poll(self) -> None:
+        return None
+
+    def terminate(self) -> None:
+        pass
+
+    def kill(self) -> None:
+        pass
+
+    def wait(self, timeout: float | None = None) -> int:
+        del timeout
+        return 0
+
+
+class _Sandbox:
+    instances: list["_Sandbox"] = []
+
+    def __init__(self, config: Any) -> None:
+        self.config = config
+        self.container_name = "qwenpaw_runtime_a"
+        self.stopped = False
+        self.spawned: tuple[list[str], str, dict[str, str]] | None = None
+        self.instances.append(self)
+
+    async def __aenter__(self) -> "_Sandbox":
+        return self
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    def spawn_process(
+        self,
+        command: list[str],
+        *,
+        cwd: str,
+        env: dict[str, str],
+        log_handle: IO[str],
+    ) -> _Process:
+        del log_handle
+        self.spawned = (command, cwd, env)
+        return _Process()
+
+
+def _mock_windows_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    isolator: WindowsAppContainerIsolator,
+) -> _Broker:
+    _Sandbox.instances.clear()
+    broker = _Broker()
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        "qwenpaw.hub.windows_process_isolation.is_windows_admin",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.hub.windows_process_isolation.WindowsAppContainerSandbox",
+        _Sandbox,
+    )
+    monkeypatch.setattr(
+        isolator,
+        "_start_loopback_broker",
+        lambda _name: broker,
+    )
+    monkeypatch.setattr(isolator, "_probe", lambda *_args: None)
+    return broker
+
+
+def test_windows_boundary_is_fail_closed_without_admin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        "qwenpaw.hub.windows_process_isolation.is_windows_admin",
+        lambda: False,
+    )
+    isolator = WindowsAppContainerIsolator()
+
+    with pytest.raises(ProcessIsolationError, match="administrator"):
+        isolator.prepare(_record(tmp_path), ["python", "-m", "qwenpaw"], {})
+
+
+def test_windows_boundary_uses_private_writable_mounts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record(tmp_path)
+    isolator = WindowsAppContainerIsolator()
+    broker = _mock_windows_boundary(monkeypatch, isolator)
+
+    launch = isolator.prepare(record, ["python", "-m", "qwenpaw"], {})
+
+    sandbox = _Sandbox.instances[0]
+    writable = {
+        Path(mount.path) for mount in sandbox.config.mounts if mount.writable
+    }
+    assert sandbox.config.allow_read_all is False
+    assert sandbox.config.network_allow == ["*"]
+    assert writable == {
+        record.secret_dir,
+        record.backup_dir,
+        record.log_file.parent,
+    }
+    assert launch == IsolatedLaunch(["python", "-m", "qwenpaw"], {})
+
+    isolator.release(record.runtime_id)
+
+    assert sandbox.stopped is True
+    assert broker.stopped is True
+
+
+def test_windows_boundary_launches_inside_prepared_sandbox(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _record(tmp_path)
+    isolator = WindowsAppContainerIsolator()
+    _mock_windows_boundary(monkeypatch, isolator)
+    launch = isolator.prepare(record, ["python", "-m", "qwenpaw"], {})
+
+    with record.log_file.open("a", encoding="utf-8") as log_handle:
+        process = isolator.launch(record, launch, log_handle)
+
+    sandbox = _Sandbox.instances[0]
+    assert process.pid == 42
+    assert sandbox.spawned == (
+        ["python", "-m", "qwenpaw"],
+        str(record.working_dir),
+        {},
+    )
+    isolator.release(record.runtime_id)
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32"
+    or os.environ.get("QWENPAW_WINDOWS_APPCONTAINER_E2E") != "1",
+    reason="requires the elevated GitHub Windows AppContainer runner",
+)
+def test_windows_appcontainer_real_preflight(tmp_path: Path) -> None:
+    provisioner = LocalProcessRuntimeProvisioner(
+        isolator=WindowsAppContainerIsolator(),
+    )
+
+    availability = provisioner.preflight(tmp_path / "preflight")
+    provisioner.close()
+
+    assert availability.available, availability.reason

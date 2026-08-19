@@ -114,6 +114,7 @@ jobs:
         shell: bash
         env:
           COVERAGE_FILE: .coverage.unit
+          QWENPAW_WINDOWS_APPCONTAINER_E2E: ${{ matrix.os == 'windows-latest' && '1' || '' }}
         run: |
           # Coverage is collected only on the ubuntu/py3.13 entry so the
           # data file can be uploaded for coverage-report. Other matrix

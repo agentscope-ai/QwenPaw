@@ -16,12 +16,16 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from typing import IO, Any
+from typing import IO
 
 from .credentials import runtime_credential_name_allowed
 from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
 from .models import RuntimeRecord, RuntimeState
-from .process_isolation import ProcessIsolator, platform_process_isolator
+from .process_isolation import (
+    ManagedProcess,
+    ProcessIsolator,
+    platform_process_isolator,
+)
 
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 10.0
@@ -54,7 +58,9 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             self.security_level = "isolated-local"
         elif self._isolator.name == "linux-bubblewrap":
             self.security_level = "isolated-local-shared-network"
-        self._processes: dict[str, subprocess.Popen[str]] = {}
+        elif self._isolator.name == "windows-appcontainer":
+            self.security_level = "isolated-local-windows-appcontainer"
+        self._processes: dict[str, ManagedProcess] = {}
         self._log_handles: dict[str, IO[str]] = {}
         self._launcher = ThreadPoolExecutor(
             max_workers=1,
@@ -94,11 +100,14 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                     "PATH": os.environ.get("PATH", ""),
                     "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
                 }
-                self._isolator.prepare(
-                    record,
-                    [sys.executable, "-B", "-c", "pass"],
-                    environment,
-                )
+                try:
+                    self._isolator.prepare(
+                        record,
+                        [sys.executable, "-B", "-c", "pass"],
+                        environment,
+                    )
+                finally:
+                    self._isolator.release(record.runtime_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return RuntimeProvisionerAvailability(
                 available=False,
@@ -152,40 +161,26 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         ]
         launch_record = replace(record, port=port)
         environment = self.runtime_environment(launch_record, credentials)
-        isolated = self._isolator.prepare(
-            launch_record,
-            command,
-            environment,
-        )
-        popen_options: dict[str, Any] = {}
-        if sys.platform == "win32":
-            popen_options[
-                "creationflags"
-            ] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            popen_options["start_new_session"] = True
-
-        def launch_process() -> subprocess.Popen[str]:
-            # pylint: disable-next=consider-using-with
-            return subprocess.Popen(
-                isolated.command,
-                stdin=subprocess.DEVNULL,
-                stdout=log_handle,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=isolated.environment,
-                cwd=record.working_dir,
-                **popen_options,
+        try:
+            isolated = self._isolator.prepare(
+                launch_record,
+                command,
+                environment,
             )
 
-        try:
+            def launch_process() -> ManagedProcess:
+                return self._isolator.launch(
+                    launch_record,
+                    isolated,
+                    log_handle,
+                )
+
             # The process remains owned by this provisioner until stop or
             # close.
             process = self._launcher.submit(launch_process).result()
         except Exception:
             log_handle.close()
+            self._isolator.release(record.runtime_id)
             raise
 
         self._processes[record.runtime_id] = process
@@ -222,6 +217,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             self._terminate(record.runtime_id, process)
         else:
             self._close_log(record.runtime_id)
+            self._isolator.release(record.runtime_id)
         return replace(
             record,
             state=RuntimeState.STOPPED,
@@ -253,6 +249,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             )
         self._processes.pop(record.runtime_id, None)
         self._close_log(record.runtime_id)
+        self._isolator.release(record.runtime_id)
         return replace(
             record,
             state=RuntimeState.FAILED if exit_code else RuntimeState.STOPPED,
@@ -272,6 +269,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             else:
                 self._processes.pop(runtime_id, None)
                 self._close_log(runtime_id)
+                self._isolator.release(runtime_id)
         self._launcher.shutdown(wait=True)
 
     @staticmethod
@@ -336,7 +334,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
     def _wait_until_ready(
         self,
         record: RuntimeRecord,
-        process: subprocess.Popen[str],
+        process: ManagedProcess,
         runtime_token: str,
     ) -> None:
         deadline = time.monotonic() + self._start_timeout
@@ -369,7 +367,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
     def _terminate(
         self,
         runtime_id: str,
-        process: subprocess.Popen[str],
+        process: ManagedProcess,
     ) -> None:
         if sys.platform == "win32":
             process.terminate()
@@ -391,6 +389,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             process.wait(timeout=self._stop_timeout)
         self._processes.pop(runtime_id, None)
         self._close_log(runtime_id)
+        self._isolator.release(runtime_id)
 
     def _close_log(self, runtime_id: str) -> None:
         handle = self._log_handles.pop(runtime_id, None)

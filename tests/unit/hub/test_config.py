@@ -158,7 +158,7 @@ def test_invalid_config_fails_closed(
         load_hub_config(config_path)
 
 
-def test_config_store_persists_explicit_fields_and_keeps_disk_values(
+def test_config_store_applies_explicit_yaml_on_every_resolve(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "control.db"
@@ -195,14 +195,55 @@ capacity:
         TenantCredentialVault(database, tmp_path / ".vault_key"),
     )
     assert auth.registration_enabled() is True
+    _, revision, _ = store.snapshot()
+    store.update(
+        HubConfig(
+            capacity=RuntimeCapacityConfig(max_running_runtimes=4),
+        ),
+        expected_revision=revision,
+        available_provisioners={"local", "docker"},
+        updated_by_user_id="admin-a",
+    )
+    assert store.resolve(None).capacity.max_running_runtimes == 4
 
     config_path.write_text(
-        "version: 1\ncapacity:\n  max_running_runtimes: 1",
+        """
+version: 1
+control_plane:
+  registration:
+    enabled: false
+capacity:
+  max_running_runtimes: 1
+""".strip(),
         encoding="utf-8",
     )
-    unchanged = store.resolve(config_path)
+    replaced = store.resolve(config_path)
 
-    assert unchanged.capacity.max_running_runtimes == 2
+    assert replaced.capacity.max_running_runtimes == 1
+    assert replaced.control_plane.registration.enabled is False
+    assert store.resolve(None) == replaced
+    assert auth.registration_enabled() is False
+
+
+def test_config_store_without_yaml_keeps_panel_update(
+    tmp_path: Path,
+) -> None:
+    store = HubConfigStore(tmp_path / "control.db")
+    store.resolve(None, available_provisioners={"local", "docker"})
+    _, revision, _ = store.snapshot()
+    panel_config = HubConfig(
+        runtime=RuntimeConfig(provisioner="docker"),
+        capacity=RuntimeCapacityConfig(max_running_runtimes=3),
+    )
+
+    saved, _, _ = store.update(
+        panel_config,
+        expected_revision=revision,
+        available_provisioners={"local", "docker"},
+        updated_by_user_id="admin-a",
+    )
+
+    assert store.resolve(None) == saved
 
 
 def test_config_store_updates_with_revision_and_rejects_stale_writes(

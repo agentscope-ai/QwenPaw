@@ -57,6 +57,8 @@ jobs:
 
       - name: Run unit tests
         shell: bash
+        env:
+          QWENPAW_WINDOWS_APPCONTAINER_E2E: ${{ matrix.os == 'windows-latest' && '1' || '' }}
         run: pytest tests/unit -v
 
   contract-tests:

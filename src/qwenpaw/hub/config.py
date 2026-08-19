@@ -228,7 +228,7 @@ class HubConfig(BaseModel):
 
 
 class HubConfigStore:
-    """Persist database-owned settings bootstrapped from startup YAML."""
+    """Persist Hub settings with an optional startup YAML authority."""
 
     _CONFIG_KEY = "hub_config"
 
@@ -244,9 +244,19 @@ class HubConfigStore:
         path: Path | None,
         available_provisioners: set[str] | None = None,
     ) -> HubConfig:
-        """Bootstrap from YAML once, then return database-owned settings."""
+        """Apply explicit YAML or return the database-owned settings."""
+        overlay = load_hub_config(path) if path is not None else None
+        if overlay is not None and available_provisioners is not None:
+            _validate_provisioners(overlay, available_provisioners)
         with self._connect() as connection:
             persisted = self._load_persisted(connection)
+            if overlay is not None:
+                if persisted is None:
+                    self._insert_config(connection, overlay)
+                else:
+                    self._replace_config(connection, overlay)
+                self._sync_registration(connection, overlay)
+                return self._with_registration(connection, overlay)
             if persisted is not None:
                 effective = self._with_registration(
                     connection,
@@ -258,13 +268,29 @@ class HubConfigStore:
                         available_provisioners,
                     )
                 return effective
-            overlay = load_hub_config(path) if path is not None else None
-            effective = overlay or HubConfig()
+            effective = HubConfig()
             if available_provisioners is not None:
                 _validate_provisioners(effective, available_provisioners)
             self._insert_config(connection, effective)
             self._sync_registration(connection, effective)
             return self._with_registration(connection, effective)
+
+    def _replace_config(
+        self,
+        connection: sqlite3.Connection,
+        config: HubConfig,
+    ) -> None:
+        """Replace persisted settings from an explicit startup YAML."""
+        connection.execute(
+            "UPDATE hub_settings SET value_json = ?, "
+            "schema_version = 1, revision = revision + 1, "
+            "updated_by_user_id = NULL, updated_at = ? WHERE key = ?",
+            (
+                config.model_dump_json(exclude_none=True),
+                utc_now(),
+                self._CONFIG_KEY,
+            ),
+        )
 
     def snapshot(self) -> tuple[HubConfig, int, str]:
         """Return the effective configuration and concurrency metadata."""

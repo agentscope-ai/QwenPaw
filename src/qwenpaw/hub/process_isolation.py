@@ -11,7 +11,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import IO, Any, Mapping, Protocol, Sequence
 
 from .models import RuntimeRecord
 
@@ -28,6 +28,24 @@ class IsolatedLaunch:
     environment: dict[str, str]
 
 
+class ManagedProcess(Protocol):
+    """Process handle required by the local runtime supervisor."""
+
+    pid: int
+
+    def poll(self) -> int | None:
+        """Return the exit code or None while the process is running."""
+
+    def terminate(self) -> None:
+        """Request termination of the complete managed process tree."""
+
+    def kill(self) -> None:
+        """Force termination of the complete managed process tree."""
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Wait for process exit and return its exit code."""
+
+
 class ProcessIsolator(ABC):
     """Wrap a complete runtime process in a platform security boundary."""
 
@@ -41,6 +59,36 @@ class ProcessIsolator(ABC):
         environment: Mapping[str, str],
     ) -> IsolatedLaunch:
         """Return a launch specification or fail closed."""
+
+    def launch(
+        self,
+        record: RuntimeRecord,
+        launch: IsolatedLaunch,
+        log_handle: IO[str],
+    ) -> ManagedProcess:
+        """Start a prepared process inside the platform boundary."""
+        options: dict[str, Any] = {}
+        if sys.platform == "win32":
+            options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            options["start_new_session"] = True
+        # pylint: disable-next=consider-using-with
+        return subprocess.Popen(
+            launch.command,
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=launch.environment,
+            cwd=record.working_dir,
+            **options,
+        )
+
+    def release(self, runtime_id: str) -> None:
+        """Release platform resources retained for one runtime."""
+        del runtime_id
 
 
 def _runtime_root(record: RuntimeRecord) -> Path:
@@ -380,10 +428,9 @@ def platform_process_isolator() -> ProcessIsolator:
     if sys.platform.startswith("linux"):
         return LinuxBubblewrapIsolator()
     if sys.platform == "win32":
-        return UnsupportedProcessIsolator(
-            "Local Hub runtimes require a Windows AppContainer adapter. "
-            "Unsafe bare-process fallback is disabled.",
-        )
+        from .windows_process_isolation import WindowsAppContainerIsolator
+
+        return WindowsAppContainerIsolator()
     return UnsupportedProcessIsolator(
         f"Local Hub process isolation is unsupported on {sys.platform}.",
     )
