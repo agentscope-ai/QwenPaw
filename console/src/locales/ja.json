@@ -1117,6 +1117,12 @@
     "onebotMediaBase64MaxMbTooltip": "この上限を超えるメディアファイルは、元のファイルパスを使用して送信されます。",
     "onebotMediaBase64MaxMbRequired": "Base64 ファイルサイズ上限を入力してください",
     "onebotMediaBase64MaxMbMin": "Base64 ファイルサイズ上限は 1 MB 以上にしてください",
+    "onebotMediaDir": "メディアディレクトリ",
+    "onebotMediaDirTooltip": "ダウンロードしたメディアの保存先です。デフォルトではエージェントワークスペースの media ディレクトリを使用します。",
+    "onebotMediaDownloadMaxMb": "受信メディアサイズ上限",
+    "onebotMediaDownloadMaxMbTooltip": "OneBot からダウンロードする画像、音声、動画、ファイルごとの最大サイズです。",
+    "onebotMediaDownloadMaxMbRequired": "受信メディアサイズ上限を入力してください",
+    "onebotMediaDownloadMaxMbMin": "受信メディアサイズ上限は 1 MB 以上にしてください",
     "onebotWsHostTooltip": "リバース WebSocket サーバーの待ち受けアドレス。127.0.0.1 のままにすると、このマシン上の OneBot クライアントのみ接続できます。他のアドレスを指定するとポートがネットワークに公開されるため、アクセストークンが必須になります。",
     "onebotAccessTokenTooltip": "OneBot クライアントが Authorization ヘッダーで送信する共有トークン。待ち受けアドレスがループバック以外の場合は必須です。",
     "onebotAccessTokenRequired": "待ち受けアドレスがループバックでない場合はアクセストークンが必須です",
@@ -1466,9 +1472,21 @@
     "oauthWaitingDescription": "ブラウザウィンドウで認証を完了してください。",
     "oauthConnected": "{{provider}} に正常に接続しました",
     "oauthFailed": "認証に失敗しました。もう一度お試しください",
+    "oauthTimeout": "認証がタイムアウトしました。もう一度お試しください",
     "viewMore": "もっと見る ({{count}})"
   },
   "models": {
+    "discoveryOriginApi": "API 検出",
+    "discoveryOriginCatalog": "公式カタログ",
+    "discoveryOriginBoth": "API + カタログ",
+    "availabilityAvailable": "利用可能",
+    "availabilityPermissionDenied": "権限なし",
+    "availabilityNotFound": "見つかりません",
+    "availabilityIncompatible": "チャット非対応",
+    "availabilityRateLimited": "レート制限中",
+    "availabilityTransientError": "一時的に利用不可",
+    "availabilityUnverified": "未検証",
+    "modelAlreadyConfigured": "設定済み",
     "llmConfiguration": "LLM設定",
     "providersTitle": "プロバイダー",
     "providersDescription": "各プロバイダーのAPIキーとエンドポイントを設定します。",
@@ -1803,6 +1821,11 @@
     "uploadConflictTitle": "同名ファイルがあります",
     "uploadConflictDescription": "次のファイルは既に存在します：{{files}}。処理方法を選択してください。",
     "promptToggle": "{{name}} をシステムプロンプトに含めるか切り替えます",
+    "addSystemPrompt": "ワークスペースから追加",
+    "addSystemPromptTitle": "システムプロンプトファイルを追加",
+    "addSystemPromptDescription": "システムプロンプトに含めるワークスペースの Markdown ファイルを選択します。",
+    "searchSystemPromptFiles": "ワークスペースの Markdown ファイルを検索",
+    "noSystemPromptCandidates": "一致するファイルはありません。",
     "sourceControl": "ソース管理",
     "preview": "プレビュー",
     "edit": "編集",
@@ -2268,7 +2291,6 @@
     "embeddingMaxBatchSize": "最大バッチサイズ",
     "embeddingMaxBatchSizeTooltip": "単一バッチ埋め込みリクエストの最大アイテム数",
     "embeddingMaxBatchSizeRequired": "最大バッチサイズは必須です",
-    "embeddingRestartWarning": "埋め込み設定を保存すると、サービスが自動的に再読み込みされます",
     "maxContextLength": "最大コンテキスト長",
     "maxContextLengthTooltip": "モデルコンテキストウィンドウの最大トークン数。各リクエストで保持できる最大履歴長を決定します",
     "maxContextLengthRequired": "最大コンテキスト長は必須です",
@@ -2352,6 +2374,10 @@
     "requiresConfig": "設定が必要です",
     "configSaved": "設定を保存しました",
     "configSaveError": "設定の保存に失敗しました",
+    "webSearchProviderLabel": "プロバイダー",
+    "webSearchApiKeyLabel": "APIキー（任意）",
+    "webSearchQuotaHintBefore": "未登録時は1日100回まで。",
+    "webSearchQuotaHintAfter": "で登録すると1日1,000回無料に。",
     "active": "個が有効",
     "available": "利用可能",
     "noEnabled": "有効なツールはありません",
@@ -2429,9 +2455,14 @@
       "gotIt": "わかりました"
     },
     "simpleMode": "シンプルモード",
-    "fullMode": "フルモード"
+    "fullMode": "フルモード",
+    "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
   "chat": {
+    "groups": {
+      "cronShort": "定期タスク",
+      "subagentShort": "サブエージェント"
+    },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
     },
@@ -2452,7 +2483,7 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
+    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
     "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {

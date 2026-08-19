@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for persisted agent ordering."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -41,6 +42,18 @@ def _agent_config(agent_id: str) -> AgentProfileConfig:
         description=f"{agent_id} description",
         workspace_dir=f"/tmp/{agent_id}",
     )
+
+
+def _fake_mutate_config(config: Config, saved: list[Config] | None = None):
+    """Return a fake ``mutate_config`` bound to an in-memory config."""
+
+    def mutate(mutator):
+        mutator(config)
+        if saved is not None:
+            saved.append(config)
+        return config
+
+    return mutate
 
 
 def test_agent_profile_flags_survive_config_round_trip(tmp_path):
@@ -105,6 +118,29 @@ async def test_list_agents_appends_missing_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_agents_marks_pawapp_profiles_as_app_managed(monkeypatch):
+    """PawApp execution profiles stay admin-visible but leave main Chat."""
+    config = _build_config(["default", "datapaw"])
+
+    def load_profile(agent_id: str) -> AgentProfileConfig:
+        profile = _agent_config(agent_id)
+        if agent_id == "datapaw":
+            profile.template_id = "pawapp:datapaw"
+        return profile
+
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(agents_router, "load_agent_config", load_profile)
+
+    response = await agents_router.list_agents()
+    by_id = {agent.id: agent for agent in response.agents}
+
+    assert by_id["default"].available_in_chat is True
+    assert by_id["default"].managed_by_app is None
+    assert by_id["datapaw"].available_in_chat is False
+    assert by_id["datapaw"].managed_by_app == "datapaw"
+
+
+@pytest.mark.asyncio
 async def test_list_agents_groups_default_and_pinned_without_reordering_peers(
     monkeypatch,
 ):
@@ -145,11 +181,10 @@ async def test_pin_agent_persists_without_changing_enabled(monkeypatch):
     config.agents.profiles["disabled"].enabled = False
     saved_configs: list[Config] = []
 
-    monkeypatch.setattr(agents_router, "load_config", lambda: config)
     monkeypatch.setattr(
         agents_router,
-        "save_config",
-        saved_configs.append,
+        "mutate_config",
+        _fake_mutate_config(config, saved_configs),
     )
 
     response = await agents_router.set_agent_pinned("disabled", True)
@@ -164,7 +199,11 @@ async def test_pin_agent_persists_without_changing_enabled(monkeypatch):
 async def test_default_agent_cannot_be_unpinned(monkeypatch):
     """The default agent is always pinned regardless of stored defaults."""
     config = _build_config(["default"])
-    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "mutate_config",
+        _fake_mutate_config(config),
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await agents_router.set_agent_pinned("default", False)
@@ -180,7 +219,11 @@ async def test_reorder_agents_rejects_incomplete_payload(monkeypatch):
         agent_order=["default", "alpha", "beta"],
     )
 
-    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "mutate_config",
+        _fake_mutate_config(config),
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await agents_router.reorder_agents(
@@ -200,14 +243,12 @@ async def test_reorder_agents_persists_valid_order(monkeypatch):
     )
     saved_orders: list[list[str]] = []
 
-    monkeypatch.setattr(agents_router, "load_config", lambda: config)
-    monkeypatch.setattr(
-        agents_router,
-        "save_config",
-        lambda updated_config: saved_orders.append(
-            list(updated_config.agents.agent_order),
-        ),
-    )
+    def fake_mutate(mutator):
+        mutator(config)
+        saved_orders.append(list(config.agents.agent_order))
+        return config
+
+    monkeypatch.setattr(agents_router, "mutate_config", fake_mutate)
 
     response = await agents_router.reorder_agents(
         agents_router.ReorderAgentsRequest(
@@ -228,7 +269,11 @@ async def test_reorder_agents_rejects_non_display_order(monkeypatch):
         agent_order=["default", "pinned", "regular"],
         pinned_ids={"pinned"},
     )
-    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "mutate_config",
+        _fake_mutate_config(config),
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await agents_router.reorder_agents(
@@ -250,12 +295,19 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(agents_router, "load_config", lambda: config)
-    monkeypatch.setattr(agents_router, "save_config", lambda updated: None)
+    monkeypatch.setattr(agents_router, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(
+        agents_router,
+        "mutate_config",
+        _fake_mutate_config(config),
+    )
     saved_agents: list[AgentProfileConfig] = []
     monkeypatch.setattr(
         agents_router,
-        "save_agent_config",
-        lambda agent_id, agent_config: saved_agents.append(agent_config),
+        "write_json_atomic",
+        lambda path, data: saved_agents.append(
+            AgentProfileConfig.model_validate(data),
+        ),
     )
     monkeypatch.setattr(
         agents_router,
@@ -288,7 +340,7 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     assert config.agents.agent_order == ["alpha", "default", "beta"]
     assert scheduled_ids == ["beta"]
     assert saved_agents[0].backend == "codex"
-    assert saved_agents[0].workspace_dir == str(tmp_path / "beta")
+    assert Path(saved_agents[0].workspace_dir) == tmp_path / "beta"
 
 
 @pytest.mark.asyncio
@@ -307,7 +359,11 @@ async def test_delete_agent_removes_id_from_order(monkeypatch):
             assert agent_id == "beta"
 
     monkeypatch.setattr(agents_router, "load_config", lambda: config)
-    monkeypatch.setattr(agents_router, "save_config", lambda updated: None)
+    monkeypatch.setattr(
+        agents_router,
+        "mutate_config",
+        _fake_mutate_config(config),
+    )
     monkeypatch.setattr(
         agents_router,
         "_get_multi_agent_manager",

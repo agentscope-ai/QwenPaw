@@ -1340,6 +1340,12 @@
     "onebotMediaBase64MaxMbTooltip": "Arquivos de mídia acima deste limite são enviados usando o caminho original do arquivo.",
     "onebotMediaBase64MaxMbRequired": "Informe o limite de tamanho do arquivo Base64",
     "onebotMediaBase64MaxMbMin": "O limite de tamanho do arquivo Base64 deve ser de pelo menos 1 MB",
+    "onebotMediaDir": "Diretório de mídia",
+    "onebotMediaDirTooltip": "Diretório usado para armazenar a mídia baixada. Por padrão, usa o diretório media no workspace do agente.",
+    "onebotMediaDownloadMaxMb": "Limite de tamanho da mídia recebida",
+    "onebotMediaDownloadMaxMbTooltip": "Tamanho máximo de cada imagem, áudio, vídeo ou arquivo baixado do OneBot.",
+    "onebotMediaDownloadMaxMbRequired": "Informe o limite de tamanho da mídia recebida",
+    "onebotMediaDownloadMaxMbMin": "O limite de tamanho da mídia recebida deve ser de pelo menos 1 MB",
     "onebotWsHostTooltip": "Endereço de escuta do servidor WebSocket reverso. Mantenha 127.0.0.1 para que apenas clientes OneBot nesta máquina possam conectar. Qualquer outro endereço expõe a porta à rede e exige um token de acesso.",
     "onebotAccessTokenTooltip": "Token compartilhado que o cliente OneBot envia no cabeçalho Authorization. Obrigatório quando o endereço de escuta não é um endereço de loopback.",
     "onebotAccessTokenRequired": "Um token de acesso é obrigatório quando o host do WebSocket não é um endereço de loopback",
@@ -1639,6 +1645,7 @@
     "oauthWaitingDescription": "Por favor, conclua a autorização na janela do navegador.",
     "oauthConnected": "Conectado ao {{provider}} com sucesso",
     "oauthFailed": "Autorização falhou, tente novamente",
+    "oauthTimeout": "Autorização expirou, tente novamente",
     "viewMore": "Ver mais ({{count}})"
   },
   "tokenUsage": {
@@ -1692,6 +1699,17 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "discoveryOriginApi": "Detectado via API",
+    "discoveryOriginCatalog": "Catálogo oficial",
+    "discoveryOriginBoth": "API + catálogo",
+    "availabilityAvailable": "Disponível",
+    "availabilityPermissionDenied": "Sem permissão",
+    "availabilityNotFound": "Não encontrado",
+    "availabilityIncompatible": "Incompatível com chat",
+    "availabilityRateLimited": "Limite de requisições",
+    "availabilityTransientError": "Temporariamente indisponível",
+    "availabilityUnverified": "Não verificado",
+    "modelAlreadyConfigured": "Configurado",
     "llmConfiguration": "LLM Configuracao",
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",
@@ -2041,6 +2059,11 @@
     "uploadConflictTitle": "Já existem arquivos com o mesmo nome",
     "uploadConflictDescription": "Estes arquivos já existem: {{files}}. Escolha como continuar.",
     "promptToggle": "Alternar se {{name}} entra no prompt do sistema",
+    "addSystemPrompt": "Adicionar do workspace",
+    "addSystemPromptTitle": "Adicionar arquivo de prompt do sistema",
+    "addSystemPromptDescription": "Escolha um arquivo Markdown do workspace para incluir no prompt do sistema.",
+    "searchSystemPromptFiles": "Buscar arquivos Markdown do workspace",
+    "noSystemPromptCandidates": "Nenhum arquivo correspondente está disponível.",
     "sourceControl": "Controle de código-fonte",
     "preview": "Preview",
     "edit": "Editar",
@@ -2497,7 +2520,6 @@
     "embeddingMaxBatchSize": "Max Batch Tamanho",
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
-    "embeddingRestartWarning": "Salvar alterações de embedding recarrega o serviço automaticamente.",
     "toolExecutionLevelTitle": "Tool Execution Seguranca",
     "toolExecutionLevel": {
       "title": "Tool Execution Seguranca",
@@ -2596,6 +2618,10 @@
     "requiresConfig": "Requer configuração",
     "configSaved": "Configuração salva",
     "configSaveError": "Falha ao salvar configuração",
+    "webSearchProviderLabel": "Provedor",
+    "webSearchApiKeyLabel": "Chave de API (opcional)",
+    "webSearchQuotaHintBefore": "Grátis: 100 chamadas/dia. Registre-se em ",
+    "webSearchQuotaHintAfter": " para 1.000/dia.",
     "active": "ativo(s)",
     "available": "Disponível",
     "noEnabled": "Nenhuma ferramenta ativada",
@@ -2673,9 +2699,14 @@
       "gotIt": "Entendi"
     },
     "simpleMode": "Modo simples",
-    "fullMode": "Modo completo"
+    "fullMode": "Modo completo",
+    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Agendado",
+      "subagentShort": "Subagente"
+    },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },
@@ -2696,7 +2727,7 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
-    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
     "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "O assistente retornou uma resposta vazia.",
     "commands": {

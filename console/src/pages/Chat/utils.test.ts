@@ -339,4 +339,15 @@ describe("toDisplayUrl", () => {
       "http://localhost:8000/uploads/img.png",
     );
   });
+
+  it("passes data URLs through untouched (issue #7051)", () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+    expect(toDisplayUrl(dataUrl)).toBe(dataUrl);
+  });
+
+  it("passes data URLs through without filePreviewUrl fallback", () => {
+    const dataUrl = "data:image/png;base64,AAA=";
+    expect(toDisplayUrl(dataUrl)).toBe(dataUrl);
+    expect(toDisplayUrl(dataUrl)).not.toContain("/files/preview");
+  });
 });

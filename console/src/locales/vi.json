@@ -195,7 +195,8 @@
       "gotIt": "Đã hiểu"
     },
     "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ"
+    "fullMode": "Chế độ đầy đủ",
+    "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
   "theme": {
     "dark": "Tối",
@@ -252,6 +253,10 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Định kỳ",
+      "subagentShort": "Tác tử con"
+    },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
@@ -270,7 +275,7 @@
     "description": "Tôi là trợ lý AI sẵn sàng hỗ trợ bạn.",
     "prompt1": "Hãy bắt đầu hành trình mới!",
     "prompt2": "Bạn có thể cho tôi biết những kỹ năng của mình không?",
-    "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh (\"/approve\" hoặc \"/deny\" khi phê duyệt)",
+    "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh",
     "longTextUploadPrompt": "Vui lòng đọc tệp prompt đã tải lên và trả lời dựa trên nội dung đó.",
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "commands": {
@@ -849,6 +854,10 @@
     "requiresConfig": "Cần cấu hình",
     "configSaved": "Đã lưu cấu hình",
     "configSaveError": "Lưu cấu hình thất bại",
+    "webSearchProviderLabel": "Nhà cung cấp",
+    "webSearchApiKeyLabel": "Khóa API (tùy chọn)",
+    "webSearchQuotaHintBefore": "Miễn phí 100 lần gọi/ngày. Đăng ký tại ",
+    "webSearchQuotaHintAfter": " để nhận 1.000 lần/ngày.",
     "active": "đang hoạt động",
     "available": "Có sẵn",
     "noEnabled": "Không có công cụ nào được bật",
@@ -1124,6 +1133,11 @@
     "uploadConflictTitle": "Phát hiện file trùng tên",
     "uploadConflictDescription": "Các file sau đã tồn tại: {{files}}. Hãy chọn cách xử lý.",
     "promptToggle": "Bật hoặc tắt {{name}} trong prompt hệ thống",
+    "addSystemPrompt": "Thêm từ workspace",
+    "addSystemPromptTitle": "Thêm tệp prompt hệ thống",
+    "addSystemPromptDescription": "Chọn một tệp Markdown trong workspace để đưa vào prompt hệ thống.",
+    "searchSystemPromptFiles": "Tìm tệp Markdown trong workspace",
+    "noSystemPromptCandidates": "Không có tệp phù hợp.",
     "sourceControl": "Quản lý mã nguồn",
     "preview": "Preview",
     "edit": "Chỉnh sửa",
@@ -1503,7 +1517,6 @@
     "embeddingMaxBatchSize": "Kích thước batch tối đa",
     "embeddingMaxBatchSizeTooltip": "Số mục tối đa trong một yêu cầu embedding theo batch",
     "embeddingMaxBatchSizeRequired": "Bắt buộc nhập kích thước batch tối đa",
-    "embeddingRestartWarning": "Lưu thay đổi embedding sẽ tự động tải lại dịch vụ.",
     "embeddingActivationNote": "Embedding được bật khi các trường bắt buộc của backend đã chọn được điền đầy đủ.",
     "embeddingEnableHint": "Embedding được bật khi các trường bắt buộc được điền: Tên mô hình và API Key cho backend tương thích OpenAI hoặc Gemini; Tên mô hình cho Ollama.",
     "rebuildMemoryIndex": "Xây dựng lại chỉ mục bộ nhớ",
@@ -1745,6 +1758,12 @@
     "onebotMediaBase64MaxMbTooltip": "Tệp phương tiện vượt quá giới hạn này được gửi bằng đường dẫn tệp gốc.",
     "onebotMediaBase64MaxMbRequired": "Vui lòng nhập giới hạn kích thước tệp Base64",
     "onebotMediaBase64MaxMbMin": "Giới hạn kích thước tệp Base64 phải ít nhất là 1 MB",
+    "onebotMediaDir": "Thư mục media",
+    "onebotMediaDirTooltip": "Thư mục lưu media đã tải xuống. Mặc định dùng thư mục media trong không gian làm việc của agent.",
+    "onebotMediaDownloadMaxMb": "Giới hạn kích thước phương tiện đầu vào",
+    "onebotMediaDownloadMaxMbTooltip": "Kích thước tối đa của từng ảnh, âm thanh, video hoặc tệp tải xuống từ OneBot.",
+    "onebotMediaDownloadMaxMbRequired": "Vui lòng nhập giới hạn kích thước phương tiện đầu vào",
+    "onebotMediaDownloadMaxMbMin": "Giới hạn kích thước phương tiện đầu vào phải ít nhất là 1 MB",
     "onebotWsHostTooltip": "Địa chỉ lắng nghe của máy chủ WebSocket đảo ngược. Giữ 127.0.0.1 để chỉ các client OneBot trên máy này có thể kết nối. Bất kỳ địa chỉ khác sẽ mở cổng ra mạng và yêu cầu access token.",
     "onebotAccessTokenTooltip": "Token dùng chung mà client OneBot gửi trong header Authorization. Bắt buộc khi địa chỉ lắng nghe không phải là địa chỉ loopback.",
     "onebotAccessTokenRequired": "Cần có access token khi WebSocket host không phải là địa chỉ loopback",
@@ -1753,6 +1772,8 @@
     "noTextDebounce": "Debounce không văn bản",
     "noTextDebounceTooltip": "Khi bật, các tin nhắn chỉ chứa phương tiện (ảnh/video/tệp) sẽ được lưu tạm, đợi tin nhắn văn bản tiếp theo đến rồi gộp xử lý. Tắt để xử lý ngay tất cả tin nhắn. Tin nhắn thoại luôn được xử lý ngay.",
     "streamingEnabled": "Xuất streaming",
+    "shareSessionInGroup": "Chia sẻ ngữ cảnh trong nhóm",
+    "shareSessionInGroupTooltip": "Khi bật, tất cả thành viên trong nhóm dùng chung một ngữ cảnh hội thoại. Khi tắt, mỗi thành viên có ngữ cảnh độc lập.",
     "ackMessage": "Tin nhắn xác nhận",
     "ackMessageTooltip": "Gửi phản hồi tức thì khi nhận được tin nhắn, trước khi xử lý",
     "wechatSetupGuide": "Bot tài khoản WeChat cá nhân (giao thức iLink). Lần đầu khởi động sẽ in URL mã QR; quét để ủy quyền.",

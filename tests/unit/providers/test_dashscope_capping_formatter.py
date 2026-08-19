@@ -15,7 +15,7 @@ field; ``0`` disables capping.
 # pylint: disable=protected-access
 from __future__ import annotations
 
-import pytest
+import base64
 
 from qwenpaw.providers.dashscope_provider import (
     _CappingDashScopeFormatter,
@@ -23,18 +23,17 @@ from qwenpaw.providers.dashscope_provider import (
 )
 
 
-def _write(tmp_path, name: str, size: int) -> str:
-    path = tmp_path / name
-    path.write_bytes(b"\0" * size)
-    return f"file://{path}"
+def _base64_source(size: int, media_type: str):
+    """Build the in-memory source produced by async media preparation."""
+    from agentscope.message import Base64Source
+
+    data = base64.b64encode(b"\0" * size).decode("ascii")
+    return Base64Source(data=data, media_type=media_type)
 
 
-def test_local_file_size_is_measured(tmp_path) -> None:
-    url = _write(tmp_path, "clip.mp4", 1024)
-    from agentscope.message import URLSource
-
-    source = URLSource(url=url, media_type="video/mp4")
-    assert _CappingDashScopeFormatter._inline_media_size(source) == 1024
+def test_prepared_media_size_is_measured() -> None:
+    source = _base64_source(1023, "video/mp4")
+    assert _CappingDashScopeFormatter._inline_media_size(source) == 1023
 
 
 def test_remote_url_is_not_inlined() -> None:
@@ -44,23 +43,19 @@ def test_remote_url_is_not_inlined() -> None:
     assert _CappingDashScopeFormatter._inline_media_size(source) is None
 
 
-def test_oversized_video_is_replaced_with_text_placeholder(tmp_path) -> None:
-    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
-    from agentscope.message import URLSource
-
+def test_oversized_video_is_replaced_with_text_placeholder() -> None:
+    source = _base64_source(MAX_INLINE_MEDIA_BYTES + 1, "video/mp4")
     out = _CappingDashScopeFormatter()._format_video_source(
-        URLSource(url=url, media_type="video/mp4"),
+        source,
     )
     assert out["type"] == "text"
     assert "omitted" in out["text"]
 
 
-def test_small_image_passes_through(tmp_path) -> None:
-    url = _write(tmp_path, "thumb.jpg", 2048)
-    from agentscope.message import URLSource
-
+def test_small_image_passes_through() -> None:
+    source = _base64_source(2048, "image/jpeg")
     out = _CappingDashScopeFormatter()._format_image_source(
-        URLSource(url=url, media_type="image/jpeg"),
+        source,
     )
     assert out["type"] == "image_url"
     assert out["image_url"]["url"].startswith("data:image/jpeg;base64,")
@@ -79,8 +74,7 @@ def test_remote_video_passes_through_unchanged() -> None:
 
 
 def test_missing_file_is_passed_through_to_base() -> None:
-    # A file:// URL whose target does not exist should not raise; we defer
-    # to the base formatter, which will surface a clear FileNotFoundError.
+    # Unprepared local URLs must not reach AgentScope's synchronous reader.
     from agentscope.message import URLSource
 
     source = URLSource(
@@ -88,17 +82,15 @@ def test_missing_file_is_passed_through_to_base() -> None:
         media_type="video/mp4",
     )
     assert _CappingDashScopeFormatter._inline_media_size(source) is None
-    with pytest.raises(FileNotFoundError):
-        _CappingDashScopeFormatter()._format_video_source(source)
+    out = _CappingDashScopeFormatter()._format_video_source(source)
+    assert out["type"] == "text"
+    assert "preparation was bypassed" in out["text"]
 
 
-def test_custom_threshold_is_honored(tmp_path) -> None:
+def test_custom_threshold_is_honored() -> None:
     # A 4 KB file is well under the 2 MB default, but a 1 KB threshold
     # should cap it — proving the per-provider threshold is honored.
-    url = _write(tmp_path, "clip.mp4", 4096)
-    from agentscope.message import URLSource
-
-    source = URLSource(url=url, media_type="video/mp4")
+    source = _base64_source(4096, "video/mp4")
     assert _CappingDashScopeFormatter()._maybe_cap(source, "video") is None
     assert (
         _CappingDashScopeFormatter(max_bytes=1024)._maybe_cap(source, "video")
@@ -106,11 +98,8 @@ def test_custom_threshold_is_honored(tmp_path) -> None:
     )
 
 
-def test_zero_threshold_disables_capping(tmp_path) -> None:
-    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
-    from agentscope.message import URLSource
-
-    source = URLSource(url=url, media_type="video/mp4")
+def test_zero_threshold_disables_capping() -> None:
+    source = _base64_source(MAX_INLINE_MEDIA_BYTES + 1, "video/mp4")
     # max_bytes=0 means disabled -> never capped, defer to base formatter.
     assert (
         _CappingDashScopeFormatter(max_bytes=0)._maybe_cap(source, "video")

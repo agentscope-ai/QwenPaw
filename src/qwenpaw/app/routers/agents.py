@@ -11,33 +11,35 @@ from pathlib import Path
 from typing import Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
 )
 
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
-from ..utils import schedule_agent_reload
+from ..utils import safe_join, schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
+    FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
-    save_agent_config,
+    mutate_agent_config,
     update_agent_config_async,
     generate_short_agent_id,
     sanitize_agent_id,
     validate_agent_id,
 )
-from ...config.utils import load_config, save_config
+from ...config.utils import load_config, mutate_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import run_sync_io, write_json_atomic
+from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,8 @@ class AgentSummary(BaseModel):
     backend_model: str | None = None
     backend_reasoning_effort: str | None = None
     active_model: ModelSlotConfig | None = None
+    managed_by_app: str | None = None
+    available_in_chat: bool = True
 
 
 class AgentListResponse(BaseModel):
@@ -109,6 +113,39 @@ class BackendSettingsRequest(BaseModel):
     reasoning_effort: str | None = None
 
 
+class AgentModelSettingsPatch(BaseModel):
+    """Model-routing fields editable from the Chat model selector."""
+
+    fallback_models: list[ModelSlotConfig] | None = None
+    fallback_policy: FallbackPolicyConfig | None = None
+    subagent_model: ModelSlotConfig | None = None
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ] | None = None
+
+    @model_validator(mode="after")
+    def reject_null_non_nullable_fields(self):
+        """Reject explicit null for non-null agent model settings."""
+        non_nullable_fields = (
+            "fallback_models",
+            "fallback_policy",
+            "thinking_level",
+        )
+        null_fields = [
+            field
+            for field in non_nullable_fields
+            if field in self.model_fields_set and getattr(self, field) is None
+        ]
+        if null_fields:
+            fields = ", ".join(null_fields)
+            raise ValueError(f"Fields cannot be null: {fields}")
+        return self
+
+
 class ReMeComponentMemoryUsage(BaseModel):
     """Estimated memory owned by one ReMe component."""
 
@@ -124,21 +161,32 @@ class MemoryWorkerRuntimeStatus(BaseModel):
     tasks_running: int
 
 
+class MemoryCaptureTaskStatus(BaseModel):
+    """One bounded memory-capture record, newest records returned first.
+
+    Records share the summarize queue used by periodic auto-memory and the
+    user-triggered ``/new`` and ``/compact`` commands.
+    """
+
+    task_id: str
+    status: Literal["pending", "running", "completed", "failed", "cancelled"]
+    queued_at: str | None = None
+    finished_at: str | None = None
+    message_count: int = 0
+    result: str | None = None
+    error: str | None = None
+
+
 class AutoMemoryRuntimeStatus(BaseModel):
     """Aggregate auto-memory progress without exposing session identity."""
 
     enabled: bool
     interval: int
-    active_sessions: int
-    sessions_with_pending: int
-    pending_turns: int
 
 
 class RecentMemoryRuntimeStatus(BaseModel):
-    """Latest terminal task timestamps and a bounded error summary."""
+    """Latest bounded error summary."""
 
-    last_completed_at: str | None = None
-    last_failed_at: str | None = None
     last_error: str | None = None
 
 
@@ -147,6 +195,7 @@ class MemoryRuntimeStatus(BaseModel):
 
     worker: MemoryWorkerRuntimeStatus
     auto_memory: AutoMemoryRuntimeStatus
+    tasks: list[MemoryCaptureTaskStatus] = Field(default_factory=list)
     recent: RecentMemoryRuntimeStatus
     reindexing: bool
 
@@ -325,7 +374,7 @@ def _read_profile_description(workspace_dir: str) -> str:
 )
 async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
-    config = load_config()
+    config = await run_sync_io(load_config)
     manager = (
         _get_multi_agent_manager(request) if request is not None else None
     )
@@ -350,10 +399,13 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             )
         )
         try:
-            agent_config = load_agent_config(agent_id)
+            agent_config = await run_sync_io(load_agent_config, agent_id)
             description = agent_config.description or ""
 
-            profile_desc = _read_profile_description(agent_ref.workspace_dir)
+            profile_desc = await run_sync_io(
+                _read_profile_description,
+                agent_ref.workspace_dir,
+            )
             if profile_desc:
                 if description.strip():
                     description = f"{description.strip()} | {profile_desc}"
@@ -361,6 +413,12 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description = profile_desc
 
             active_model = agent_config.active_model
+            template_id = agent_config.template_id or ""
+            managed_by_app = (
+                template_id.removeprefix("pawapp:")
+                if template_id.startswith("pawapp:")
+                else None
+            )
             if agent_config.backend == "qwenpaw":
                 backend_capabilities = {"workspace_ui": True}
             else:
@@ -389,6 +447,8 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                         )
                     ),
                     active_model=active_model,
+                    managed_by_app=managed_by_app,
+                    available_in_chat=managed_by_app is None,
                 ),
             )
         except Exception:  # noqa: E722
@@ -416,32 +476,31 @@ async def reorder_agents(
     reorder_request: ReorderAgentsRequest = Body(...),
 ) -> dict:
     """Persist the full ordered list of agent IDs."""
-    config = load_config()
-    configured_ids = list(config.agents.profiles.keys())
 
-    if len(reorder_request.agent_ids) != len(set(reorder_request.agent_ids)):
-        raise HTTPException(
-            status_code=400,
-            detail="Each configured agent ID must appear exactly once.",
-        )
+    def apply_order(config: Any) -> None:
+        configured_ids = list(config.agents.profiles.keys())
+        agent_ids = reorder_request.agent_ids
+        if len(agent_ids) != len(set(agent_ids)):
+            raise HTTPException(
+                status_code=400,
+                detail="Each configured agent ID must appear exactly once.",
+            )
+        if set(agent_ids) != set(configured_ids):
+            raise HTTPException(
+                status_code=400,
+                detail="Each configured agent ID must appear exactly once.",
+            )
+        if not _is_valid_display_order(config, agent_ids):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Agent order must keep default first and pinned agents "
+                    "before unpinned agents."
+                ),
+            )
+        config.agents.agent_order = list(agent_ids)
 
-    if set(reorder_request.agent_ids) != set(configured_ids):
-        raise HTTPException(
-            status_code=400,
-            detail="Each configured agent ID must appear exactly once.",
-        )
-
-    if not _is_valid_display_order(config, reorder_request.agent_ids):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Agent order must keep default first and pinned agents "
-                "before unpinned agents."
-            ),
-        )
-
-    config.agents.agent_order = list(reorder_request.agent_ids)
-    save_config(config)
+    config = await run_sync_io(mutate_config, apply_order)
 
     return {"success": True, "agent_ids": config.agents.agent_order}
 
@@ -456,25 +515,23 @@ async def set_agent_pinned(
     pinned: bool = Body(..., embed=True),
 ) -> dict:
     """Persist an agent's pinned state without changing enabled state."""
-    config = load_config()
 
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
+    def apply_pinned(config: Any) -> None:
+        if agentId not in config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        if agentId == "default" and not pinned:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot unpin the default agent",
+            )
+        if agentId != "default":
+            config.agents.profiles[agentId].pinned = pinned
+            config.agents.agent_order = _display_agent_order(config)
 
-    if agentId == "default" and not pinned:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot unpin the default agent",
-        )
-
-    agent_ref = config.agents.profiles[agentId]
-    if agentId != "default":
-        agent_ref.pinned = pinned
-        config.agents.agent_order = _display_agent_order(config)
-        save_config(config)
+    await run_sync_io(mutate_config, apply_pinned)
 
     return {
         "success": True,
@@ -492,7 +549,7 @@ async def set_agent_pinned(
 async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
     """Get agent configuration."""
     try:
-        agent_config = load_agent_config(agentId)
+        agent_config = await run_sync_io(load_agent_config, agentId)
         return agent_config
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -510,31 +567,74 @@ async def update_backend_settings(
     agentId: str = PathParam(...),
 ) -> AgentProfileConfig:
     """Persist model controls owned by a third-party agent backend."""
+    # PATCH semantics: only fields the caller actually sent may change;
+    # a field absent from the request body must survive untouched, and
+    # an explicit null clears it.
+    values = {field: getattr(body, field) for field in body.model_fields_set}
+
+    def apply_settings(agent_config: AgentProfileConfig) -> None:
+        if agent_config.backend == "qwenpaw":
+            raise HTTPException(
+                status_code=409,
+                detail="QwenPaw models use the native model configuration",
+            )
+        provider = _get_available_third_party_provider(agent_config.backend)
+        settings = dict(agent_config.backend_settings)
+        if provider.capabilities.model_selection and "model" in values:
+            if values["model"]:
+                settings["model"] = values["model"]
+            else:
+                settings.pop("model", None)
+        if (
+            provider.capabilities.reasoning_effort
+            and "reasoning_effort" in values
+        ):
+            if values["reasoning_effort"]:
+                settings["reasoning_effort"] = values["reasoning_effort"]
+            else:
+                settings.pop("reasoning_effort", None)
+        agent_config.backend_settings = settings
+
     try:
-        agent_config = load_agent_config(agentId)
+        return await run_sync_io(
+            mutate_agent_config,
+            agentId,
+            apply_settings,
+        )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if agent_config.backend == "qwenpaw":
+
+
+def _resolve_custom_workspace_dir(raw_workspace_dir: str) -> Path:
+    """Resolve a caller-supplied workspace directory safely.
+
+    Guards against path traversal (the CodeQL uncontrolled-path
+    finding): the raw value must not smuggle ``..`` segments, and a
+    relative value is anchored to the QwenPaw working directory rather
+    than the process CWD.  Any explicit absolute directory is otherwise
+    legal -- deployments routinely keep workspaces on /data, /opt, or
+    other non-home mounts, so a home/WORKING_DIR whitelist would reject
+    previously valid setups.
+
+    Raises:
+        HTTPException(400): empty input or traversal segments.
+    """
+    raw = raw_workspace_dir.strip()
+    if not raw:
         raise HTTPException(
-            status_code=409,
-            detail="QwenPaw models use the native model configuration",
+            status_code=400,
+            detail="workspace_dir must not be empty",
         )
-    provider = _get_available_third_party_provider(agent_config.backend)
-    settings = dict(agent_config.backend_settings)
-    values = body.model_dump()
-    if provider.capabilities.model_selection:
-        if values["model"]:
-            settings["model"] = values["model"]
-        else:
-            settings.pop("model", None)
-    if provider.capabilities.reasoning_effort:
-        if values["reasoning_effort"]:
-            settings["reasoning_effort"] = values["reasoning_effort"]
-        else:
-            settings.pop("reasoning_effort", None)
-    agent_config.backend_settings = settings
-    save_agent_config(agentId, agent_config)
-    return agent_config
+    raw_path = Path(raw)
+    if ".." in raw_path.parts:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace_dir must not contain '..' path segments",
+        )
+    candidate = raw_path.expanduser()
+    if not candidate.is_absolute():
+        candidate = Path(WORKING_DIR).expanduser() / candidate
+    return candidate.resolve()
 
 
 def _generate_unique_id(existing_ids: set[str]) -> str:
@@ -574,7 +674,7 @@ async def create_agent(
     if request.backend != "qwenpaw":
         _get_available_third_party_provider(request.backend)
 
-    config = load_config()
+    config = await run_sync_io(load_config)
     existing_ids = set(config.agents.profiles.keys())
 
     if request.id:
@@ -589,10 +689,18 @@ async def create_agent(
     else:
         new_id = _generate_unique_id(existing_ids)
 
-    workspace_dir = Path(
-        request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
-    ).expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    if request.workspace_dir:
+        workspace_dir = await run_sync_io(
+            _resolve_custom_workspace_dir,
+            request.workspace_dir,
+        )
+    else:
+        workspace_dir = await run_sync_io(
+            safe_join,
+            Path(f"{WORKING_DIR}/workspaces").expanduser(),
+            new_id,
+        )
+    await run_sync_io(workspace_dir.mkdir, parents=True, exist_ok=True)
 
     from ...config.config import (
         ChannelConfig,
@@ -635,7 +743,8 @@ async def create_agent(
         active_model=active_model,
     )
 
-    _initialize_agent_workspace(
+    await run_sync_io(
+        _initialize_agent_workspace,
         workspace_dir,
         skill_names=(
             request.skill_names if request.skill_names is not None else []
@@ -649,12 +758,17 @@ async def create_agent(
         enabled=True,
     )
 
-    config.agents.profiles[new_id] = agent_ref
-    config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
-    save_agent_config(new_id, agent_config)
+    await run_sync_io(
+        _persist_created_agent,
+        new_id,
+        agent_ref,
+        agent_config,
+    )
 
-    logger.info(f"Created new agent: {new_id} (name={request.name})")
+    logger.info(
+        f"Created new agent: {sanitize_log_value(new_id)} "
+        f"(name={sanitize_log_value(request.name)})",
+    )
 
     if http_request is not None:
         manager = _get_multi_agent_manager(http_request)
@@ -713,6 +827,52 @@ def _copy_selected_workspace_files(
             shutil.copy2(src_jobs, workspace_dir / "jobs.json")
 
 
+def _prepare_copied_workspace(
+    request: CopyAgentRequest,
+    source_workspace: Path,
+    workspace_dir: Path,
+    language: str,
+) -> None:
+    """Initialize and copy a new agent workspace synchronously."""
+    _initialize_agent_workspace(
+        workspace_dir,
+        skill_names=[],
+        language=language,
+        apply_md_templates=request.copy_md_files,
+        create_skills_dir=request.copy_skills,
+        create_jobs_file=request.copy_jobs,
+    )
+    _copy_selected_workspace_files(
+        request=request,
+        source_workspace=source_workspace,
+        workspace_dir=workspace_dir,
+    )
+
+
+def _persist_created_agent(
+    agent_id: str,
+    agent_ref: AgentProfileRef,
+    agent_config: AgentProfileConfig,
+) -> None:
+    """Register a new agent under the root-config transaction lock."""
+
+    def register_agent(config: Any) -> None:
+        if agent_id in config.agents.profiles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent ID '{agent_id}' already exists",
+            )
+        agent_path = Path(agent_ref.workspace_dir).expanduser() / "agent.json"
+        write_json_atomic(
+            agent_path,
+            agent_config.model_dump(exclude_none=True),
+        )
+        config.agents.profiles[agent_id] = agent_ref
+        config.agents.agent_order = _normalized_agent_order(config)
+
+    mutate_config(register_agent)
+
+
 @router.post(
     "/{agentId}/copy",
     response_model=AgentProfileRef,
@@ -729,7 +889,7 @@ async def copy_agent(
     http_request: Request = None,
 ) -> AgentProfileRef:
     """Copy selected agent config files into a newly created agent."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -738,7 +898,7 @@ async def copy_agent(
         )
 
     try:
-        source_config = load_agent_config(agentId)
+        source_config = await run_sync_io(load_agent_config, agentId)
     except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -750,7 +910,7 @@ async def copy_agent(
     new_id = _generate_unique_id(existing_ids)
     new_name = (request.name or "").strip() or f"{source_config.name} Copy"
     workspace_dir = Path(f"{WORKING_DIR}/workspaces/{new_id}").expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    await run_sync_io(workspace_dir.mkdir, parents=True, exist_ok=True)
 
     language = normalize_agent_language(
         source_config.language or config.agents.language or "en",
@@ -763,18 +923,12 @@ async def copy_agent(
         workspace_dir=workspace_dir,
     )
 
-    _initialize_agent_workspace(
+    await run_sync_io(
+        _prepare_copied_workspace,
+        request,
+        source_workspace,
         workspace_dir,
-        skill_names=[],
-        language=language,
-        apply_md_templates=request.copy_md_files,
-        create_skills_dir=request.copy_skills,
-        create_jobs_file=request.copy_jobs,
-    )
-    _copy_selected_workspace_files(
-        request=request,
-        source_workspace=source_workspace,
-        workspace_dir=workspace_dir,
+        language,
     )
 
     agent_ref = AgentProfileRef(
@@ -783,17 +937,19 @@ async def copy_agent(
         enabled=True,
     )
 
-    config.agents.profiles[new_id] = agent_ref
-    config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
-    save_agent_config(new_id, agent_config)
+    await run_sync_io(
+        _persist_created_agent,
+        new_id,
+        agent_ref,
+        agent_config,
+    )
 
     logger.info(
         "Copied agent %s -> %s "
         "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
-        agentId,
-        new_id,
-        new_name,
+        sanitize_log_value(agentId),
+        sanitize_log_value(new_id),
+        sanitize_log_value(new_name),
         request.copy_agent_json,
         request.copy_md_files,
         request.copy_skills,
@@ -819,14 +975,6 @@ async def update_agent(
     request: Request = None,
 ) -> AgentProfileConfig:
     """Update agent configuration."""
-    config = load_config()
-
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
-
     update_data = agent_config.model_dump(exclude_unset=True)
 
     def apply_update(existing_config: AgentProfileConfig) -> None:
@@ -853,10 +1001,46 @@ async def update_agent(
                 setattr(existing_config, key, getattr(requested, key))
         existing_config.id = agentId
 
-    await update_agent_config_async(agentId, apply_update)
+    try:
+        existing_config = await update_agent_config_async(
+            agentId,
+            apply_update,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     schedule_agent_reload(request, agentId)
 
-    return agent_config
+    return existing_config
+
+
+@router.patch(
+    "/{agentId}/model-settings",
+    response_model=AgentProfileConfig,
+    summary="Update agent model settings",
+    description="Update only model-routing settings and trigger reload",
+)
+async def update_agent_model_settings(
+    agentId: str = PathParam(...),
+    body: AgentModelSettingsPatch = Body(...),
+    request: Request = None,
+) -> AgentProfileConfig:
+    """Patch model-routing fields without overwriting other settings."""
+    values = {field: getattr(body, field) for field in body.model_fields_set}
+
+    def apply_settings(existing_config: AgentProfileConfig) -> None:
+        for key, value in values.items():
+            setattr(existing_config, key, value)
+
+    try:
+        updated = await run_sync_io(
+            mutate_agent_config,
+            agentId,
+            apply_settings,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    schedule_agent_reload(request, agentId)
+    return updated
 
 
 @router.post(
@@ -1030,14 +1214,17 @@ async def get_agent_memory_graph(
     request: Request = None,
 ) -> MemoryGraphSnapshot:
     """Return a frontend-ready graph snapshot from embedded ReMe."""
-    config = await run_sync_io(load_config)
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
 
-    agent_config = await run_sync_io(load_agent_config, agentId)
+    def load_memory_configs() -> AgentProfileConfig:
+        config = load_config()
+        if agentId not in config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        return load_agent_config(agentId)
+
+    agent_config = await run_sync_io(load_memory_configs)
     if agent_config.running.memory_manager_backend != "remelight":
         raise HTTPException(
             status_code=400,
@@ -1081,7 +1268,8 @@ async def get_agent_memory_graph(
             prefix = f"{root}/"
             if root and node_path.startswith(prefix):
                 node.section = section
-                node.relative_path = node_path[len(prefix) :]
+                prefix_length = len(prefix)
+                node.relative_path = node_path[prefix_length:]
                 break
 
     return snapshot
@@ -1097,7 +1285,7 @@ async def delete_agent(
     request: Request = None,
 ) -> dict:
     """Delete an agent."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -1119,9 +1307,18 @@ async def delete_agent(
         )
     await manager.stop_agent(agentId)
 
-    del config.agents.profiles[agentId]
-    config.agents.agent_order = _normalized_agent_order(config)
-    save_config(config)
+    def remove_agent(latest_config: Any) -> None:
+        if agentId not in latest_config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        del latest_config.agents.profiles[agentId]
+        latest_config.agents.agent_order = _normalized_agent_order(
+            latest_config,
+        )
+
+    await run_sync_io(mutate_config, remove_agent)
 
     return {"success": True, "agent_id": agentId}
 
@@ -1137,7 +1334,7 @@ async def toggle_agent_enabled(
     request: Request = None,
 ) -> dict:
     """Toggle agent enabled state."""
-    config = load_config()
+    config = await run_sync_io(load_config)
 
     if agentId not in config.agents.profiles:
         raise HTTPException(
@@ -1166,8 +1363,15 @@ async def toggle_agent_enabled(
     if not enabled and getattr(agent_ref, "enabled", True):
         await manager.stop_agent(agentId)
 
-    agent_ref.enabled = enabled
-    save_config(config)
+    def apply_enabled(latest_config: Any) -> None:
+        if agentId not in latest_config.agents.profiles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{agentId}' not found",
+            )
+        latest_config.agents.profiles[agentId].enabled = enabled
+
+    await run_sync_io(mutate_config, apply_enabled)
 
     if enabled:
         manager.schedule_agent_startup(agentId)
@@ -1247,16 +1451,16 @@ def _install_initial_skills(
                 continue
             logger.warning(
                 "Failed to install initial skill %s for %s: %s",
-                skill_name,
-                workspace_dir,
-                result.get("reason", "unknown"),
+                sanitize_log_value(skill_name),
+                sanitize_log_value(workspace_dir),
+                sanitize_log_value(result.get("reason", "unknown")),
             )
         except Exception as e:
             logger.warning(
                 "Failed to install initial skill %s for %s: %s",
-                skill_name,
-                workspace_dir,
-                e,
+                sanitize_log_value(skill_name),
+                sanitize_log_value(workspace_dir),
+                sanitize_log_value(e),
             )
 
 

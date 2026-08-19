@@ -230,6 +230,12 @@ HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_DEFAULT_TIMEOUT_SECONDS = 300
 HEARTBEAT_MAX_TIMEOUT_SECONDS = 3600
+
+# Default execution budget for POST /console/chat/task when the request
+# omits ``timeout``. Aligned with Xiaoyi channel task_timeout_ms (1 hour).
+DEFAULT_STREAM_TASK_TIMEOUT_SECONDS = 3600
+# Parent HTTP wait for spawn_subagent foreground (/console/chat).
+DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS = 600
 HEARTBEAT_TARGET_LAST = "last"
 HEARTBEAT_TARGET_INBOX = "inbox"
 

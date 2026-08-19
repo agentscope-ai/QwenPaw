@@ -35,10 +35,27 @@ class TokenRecordingModelWrapper(ChatModelBase):
             context_size=getattr(model, "context_size", 32768),
         )
         self._model = model
+        # AgentScope 2.0.6 consults ``agent.model.formatter`` before the
+        # model call to validate incoming media blocks.  ChatModelBase does
+        # not define that attribute itself, so transparent wrappers must
+        # preserve the concrete provider model's formatter explicitly.
+        formatter = getattr(model, "formatter", None)
+        if formatter is not None:
+            self.formatter = formatter
         self._provider_id = provider_id
         # Auto-compaction threshold (fraction of the window) for the UI, or
         # None when compaction is disabled/unknown.
         self._compact_threshold = compact_threshold
+
+    @property
+    def formatter(self) -> Any:
+        """Expose the wrapped model's formatter to AgentScope."""
+        return self._model.formatter
+
+    @formatter.setter
+    def formatter(self, value: Any) -> None:
+        """Keep formatter updates synchronized with the wrapped model."""
+        self._model.formatter = value
 
     def _record_usage(self, usage: ChatUsage | None) -> None:
         """Enqueue a usage event synchronously — never blocks the caller."""
@@ -136,8 +153,11 @@ class TokenRecordingModelWrapper(ChatModelBase):
         stream: AsyncGenerator[ChatResponse, None],
     ) -> AsyncGenerator[ChatResponse, None]:
         last_usage: ChatUsage | None = None
-        async for chunk in stream:
-            if getattr(chunk, "usage", None) is not None:
-                last_usage = chunk.usage
-            yield chunk
-        self._record_usage(last_usage)
+        try:
+            async for chunk in stream:
+                if getattr(chunk, "usage", None) is not None:
+                    last_usage = chunk.usage
+                yield chunk
+        finally:
+            await stream.aclose()
+            self._record_usage(last_usage)

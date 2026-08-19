@@ -261,20 +261,44 @@ class TestBaseMemoryManagerAddSummarizeTask:
         worker.cancel()
         await asyncio.wait({worker}, timeout=0.5)
 
-    def test_runtime_status_excludes_session_owned_turn_state(self, manager):
+    def test_runtime_status_includes_bounded_memory_capture_tasks(
+        self,
+        manager,
+    ):
         manager.get_auto_memory_interval = MagicMock(return_value=5)
+        long_result = "r" * (base_memory_manager.MAX_RUNTIME_RESULT_CHARS + 10)
         manager._summary_task_info = {
             "task_1": {
+                "task_id": "task_1",
                 "status": "completed",
+                "start_time": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    9,
+                    23,
+                    59,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
                 "finished_at": base_memory_manager.datetime(
                     2026,
                     8,
                     10,
                     tzinfo=base_memory_manager.timezone.utc,
                 ),
+                "message_count": 4,
+                "result": long_result,
             },
             "task_2": {
+                "task_id": "task_2",
                 "status": "failed",
+                "start_time": base_memory_manager.datetime(
+                    2026,
+                    8,
+                    10,
+                    0,
+                    59,
+                    tzinfo=base_memory_manager.timezone.utc,
+                ),
                 "finished_at": base_memory_manager.datetime(
                     2026,
                     8,
@@ -282,7 +306,8 @@ class TestBaseMemoryManagerAddSummarizeTask:
                     1,
                     tzinfo=base_memory_manager.timezone.utc,
                 ),
-                "error": "summary failed\nretry later",
+                "error": "e" * 250,
+                "message_count": 2,
             },
         }
 
@@ -292,14 +317,30 @@ class TestBaseMemoryManagerAddSummarizeTask:
         assert status["auto_memory"] == {
             "enabled": True,
             "interval": 5,
-            "active_sessions": 0,
-            "sessions_with_pending": 0,
-            "pending_turns": 0,
         }
-        assert status["recent"]["last_completed_at"] == (
-            "2026-08-10T00:00:00+00:00"
-        )
-        assert status["recent"]["last_error"] == ("summary failed retry later")
+        assert status["tasks"] == [
+            {
+                "task_id": "task_2",
+                "status": "failed",
+                "queued_at": "2026-08-10T00:59:00+00:00",
+                "finished_at": "2026-08-10T01:00:00+00:00",
+                "message_count": 2,
+                "result": None,
+                "error": "e" * 240,
+            },
+            {
+                "task_id": "task_1",
+                "status": "completed",
+                "queued_at": "2026-08-09T23:59:00+00:00",
+                "finished_at": "2026-08-10T00:00:00+00:00",
+                "message_count": 4,
+                "result": long_result[
+                    : base_memory_manager.MAX_RUNTIME_RESULT_CHARS
+                ],
+                "error": None,
+            },
+        ]
+        assert status["recent"]["last_error"] == "e" * 240
 
 
 class TestAutoMemorySearchSanitization:

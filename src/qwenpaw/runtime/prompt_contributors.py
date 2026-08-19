@@ -67,10 +67,15 @@ def _read_prompt_file(workspace_dir: Path, filename: str) -> str | None:
             return None
 
         from ..agents.utils.file_handling import (
-            read_text_file_with_encoding_fallback,
+            decode_text_bytes_with_encoding_fallback,
         )
+        from ..utils.file_snapshot_cache import get_file_snapshot_cache
 
-        content = read_text_file_with_encoding_fallback(path).strip()
+        snapshot = get_file_snapshot_cache().get_bytes(path)
+        content = decode_text_bytes_with_encoding_fallback(
+            snapshot.data,
+            file_name=path.name,
+        ).strip()
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:

@@ -31,6 +31,14 @@ so a frontend build cannot be silently omitted from a published zip. This
 script does not build plugin sources; release callers must rebuild app
 frontends before invoking it.
 
+Declared ``entry`` files must exist on disk at pack time. A plugin whose
+build produces additional required artifacts (e.g. vendored static assets
+outside its own ``npm run build``) can declare ``"pack_requires"``: a list
+of plugin-root-relative files that must also exist. A missing entry or
+required file fails the pack for that plugin with an actionable error
+(``"pack_requires_hint"`` is printed verbatim when provided) and the run
+exits non-zero, so a broken artifact is never published silently.
+
 Pass ``--only <plugin_id>`` (repeatable) to pack a subset of plugins, e.g.
 for a standalone release of a single plugin driven by its own version bump.
 Conversely, ``--exclude <plugin_id>`` (repeatable) skips plugins that are
@@ -93,12 +101,7 @@ def _normalize_pack_exclude(manifest: dict[str, Any]) -> list[str]:
     for item in raw:
         text = str(item).strip().replace("\\", "/").strip("/")
         parts = [p for p in text.split("/") if p]
-        if (
-            not parts
-            or "." in parts
-            or ".." in parts
-            or ":" in parts[0]
-        ):
+        if not parts or "." in parts or ".." in parts or ":" in parts[0]:
             print(
                 f"WARNING: ignoring unsafe pack_exclude entry: {item!r}",
                 file=sys.stderr,
@@ -117,6 +120,69 @@ def _protected_relpaths(manifest: dict[str, Any]) -> set[str]:
             if isinstance(value, str) and value.strip():
                 protected.add(value.strip().replace("\\", "/").strip("/"))
     return protected
+
+
+def _required_relpaths(manifest: dict[str, Any]) -> list[str]:
+    """Files that must exist on disk before the plugin may be packed.
+
+    Declared ``entry`` files are always required; ``pack_requires`` adds
+    build artifacts the manifest cannot express as entries (e.g. vendored
+    static assets referenced at runtime).
+    """
+    required = sorted(_protected_relpaths(manifest) - {"plugin.json"})
+    raw = manifest.get("pack_requires")
+    if raw is None:
+        return required
+    if not isinstance(raw, list):
+        print(
+            "WARNING: ignoring pack_requires - expected a list of "
+            f"relative paths, got {type(raw).__name__}",
+            file=sys.stderr,
+        )
+        return required
+    for item in raw:
+        text = str(item).strip().replace("\\", "/").strip("/")
+        parts = [p for p in text.split("/") if p]
+        if not parts or "." in parts or ".." in parts or ":" in parts[0]:
+            print(
+                f"WARNING: ignoring unsafe pack_requires entry: {item!r}",
+                file=sys.stderr,
+            )
+            continue
+        rel = "/".join(parts)
+        if rel not in required:
+            required.append(rel)
+    return required
+
+
+def _missing_required_files(
+    plugin_dir: Path,
+    manifest: dict[str, Any],
+) -> list[str]:
+    """Return required files absent from the plugin tree, POSIX-relative."""
+    return [
+        rel
+        for rel in _required_relpaths(manifest)
+        if not (plugin_dir / rel).is_file()
+    ]
+
+
+def _report_missing_required(
+    plugin_dir: Path,
+    manifest: dict[str, Any],
+    missing: list[str],
+) -> None:
+    """Print an actionable per-plugin validation failure."""
+    print(
+        f"ERROR: {plugin_dir.name}: refusing to pack - required "
+        "file(s) missing:",
+        file=sys.stderr,
+    )
+    for rel in missing:
+        print(f"  - {rel}", file=sys.stderr)
+    hint = str(manifest.get("pack_requires_hint") or "").strip()
+    if hint:
+        print(f"  hint: {hint}", file=sys.stderr)
 
 
 def _is_pack_excluded(
@@ -369,21 +435,26 @@ def discover_and_pack(
     cdn_prefix: str,
     only: list[str] | None = None,
     exclude: list[str] | None = None,
-) -> dict[str, Any]:
-    """Scan, zip, and assemble the plugins index. Always full-rebuild."""
+) -> tuple[dict[str, Any], list[str]]:
+    """Scan, validate, zip, and assemble the plugins index.
+
+    Always full-rebuild. Returns the index plus the ids of plugins that
+    failed required-file validation and were not packed.
+    """
     index: dict[str, Any] = {
         "product": "plugins",
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "platforms": {},
         "files": {},
     }
+    failed: list[str] = []
 
     if not plugins_root.is_dir():
         print(
             f"WARNING: plugins root does not exist: {plugins_root}",
             file=sys.stderr,
         )
-        return index
+        return index, failed
 
     for kind in KIND_DIRS:
         kind_dir = plugins_root / kind
@@ -399,6 +470,11 @@ def discover_and_pack(
 
             plugin_id = str(manifest.get("id") or plugin_dir.name)
             if not _selected(only, exclude, plugin_id, plugin_dir.name):
+                continue
+            missing = _missing_required_files(plugin_dir, manifest)
+            if missing:
+                _report_missing_required(plugin_dir, manifest, missing)
+                failed.append(plugin_id)
                 continue
             version = str(manifest.get("version") or "0.0.0")
             zip_name = f"{plugin_id}-{version}.zip"
@@ -428,7 +504,7 @@ def discover_and_pack(
             if file_id not in kind_entry["versions"]:
                 kind_entry["versions"].insert(0, file_id)
 
-    return index
+    return index, failed
 
 
 def _dry_run_scan(
@@ -441,9 +517,7 @@ def _dry_run_scan(
         kind_dir = plugins_root / kind
         if not kind_dir.is_dir():
             continue
-        for plugin_dir in sorted(
-            p for p in kind_dir.iterdir() if p.is_dir()
-        ):
+        for plugin_dir in sorted(p for p in kind_dir.iterdir() if p.is_dir()):
             manifest = _read_manifest(plugin_dir)
             if manifest is None:
                 continue
@@ -452,6 +526,10 @@ def _dry_run_scan(
                 continue
             plugin_id = str(manifest.get("id") or plugin_dir.name)
             if not _selected(only, exclude, plugin_id, plugin_dir.name):
+                continue
+            missing = _missing_required_files(plugin_dir, manifest)
+            if missing:
+                _report_missing_required(plugin_dir, manifest, missing)
                 continue
             print(
                 f"  ~ would pack {kind}/{plugin_dir.name} "
@@ -540,7 +618,7 @@ def main() -> int:
                     shutil.rmtree(child)
     dist_root.mkdir(parents=True, exist_ok=True)
 
-    index = discover_and_pack(
+    index, failed = discover_and_pack(
         plugins_root,
         dist_root,
         args.cdn_prefix,
@@ -557,6 +635,13 @@ def main() -> int:
     n_files = len(index["files"])
     n_kinds = len(index["platforms"])
     print(f"  {n_files} plugin(s) across {n_kinds} kind(s)")
+    if failed:
+        print(
+            "ERROR: required-file validation failed for: "
+            + ", ".join(sorted(failed)),
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

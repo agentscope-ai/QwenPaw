@@ -55,7 +55,31 @@
 .headerRight {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
+}
+
+.headerIconButton {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  cursor: pointer;
+
+  &:hover {
+    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
+    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, #ff9d4d);
+    outline-offset: 1px;
+  }
 }
 
 .pinActive {
@@ -77,6 +101,41 @@
 .searchInput {
   border-radius: 6px;
   font-size: 12px;
+}
+
+.createGroupButton {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 6px;
+  padding: 0 10px;
+  border: 1px dashed var(--colorBorder, rgba(43, 18, 0, 0.14));
+  border-radius: 8px;
+  background: var(--colorBgContainer, rgba(255, 255, 255, 0.45));
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.62));
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+
+  &:hover {
+    border-color: color-mix(in srgb, #ff7f16 46%, transparent);
+    background: color-mix(in srgb, #ff7f16 6%, transparent);
+    color: var(--colorPrimary, #ff7f16);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+.groupInput {
+  margin-top: 6px;
+  border-radius: 6px;
+  font-size: 11px;
 }
 
 .emptyState {
@@ -114,6 +173,18 @@
   position: relative;
   overflow: hidden;
   min-height: 0;
+}
+
+.stickyGroupHeader {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 12px;
+  left: 12px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.055));
+  background: color-mix(in srgb, var(--colorBgBase, #fff) 96%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .list {
@@ -261,6 +332,35 @@
 
   .headerInfoIcon {
     color: rgba(255, 255, 255, 0.5);
+  }
+
+  .searchInput,
+  .groupInput {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.88);
+
+    &::placeholder,
+    :global(.qwenpaw-input)::placeholder {
+      color: rgba(255, 255, 255, 0.34);
+    }
+  }
+
+  .createGroupButton {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.62);
+
+    &:hover {
+      border-color: rgba(255, 143, 50, 0.5);
+      background: rgba(255, 127, 22, 0.1);
+      color: #ff8f32;
+    }
+  }
+
+  .stickyGroupHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    background: color-mix(in srgb, #141414 96%, transparent);
   }
 
   .topGradient {

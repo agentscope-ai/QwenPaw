@@ -16,6 +16,7 @@ import { OS_APPS } from "./osApps";
 import { resolveAppDef } from "./osAppRegistry";
 import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
+import { isAgentAvailableInChat } from "../utils/agentVisibility";
 
 const SPACE_COLORS = [
   "#FF7F16",
@@ -63,8 +64,14 @@ export default function MissionControl() {
   // Ensure the current agent always appears as a space even before the agent
   // list loads from the backend.
   const spaces = useMemo(() => {
-    const list = agents.map((a) => ({ id: a.id, name: a.name }));
-    if (!list.some((s) => s.id === selectedAgent)) {
+    const list = agents
+      .filter(isAgentAvailableInChat)
+      .map((a) => ({ id: a.id, name: a.name }));
+    const selected = agents.find((agent) => agent.id === selectedAgent);
+    if (
+      !list.some((s) => s.id === selectedAgent) &&
+      (!selected || isAgentAvailableInChat(selected))
+    ) {
       list.unshift({ id: selectedAgent, name: selectedAgent });
     }
     return list;

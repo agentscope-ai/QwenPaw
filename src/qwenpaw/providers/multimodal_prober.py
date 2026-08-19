@@ -9,6 +9,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from ..utils.logging import sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # 32x32 red PNG (96 bytes), used as minimal probe image.
@@ -152,6 +154,7 @@ def evaluate_image_probe_answer(
 
     answer = answer.lower().strip()
     reasoning = reasoning.lower().strip()
+    model_id = sanitize_log_value(model_id)
 
     if any(kw in answer for kw in _RED_KW):
         elapsed = time.monotonic() - start_time
@@ -210,6 +213,7 @@ def evaluate_video_probe_answer(
 
     answer = answer.lower().strip()
     reasoning = reasoning.lower().strip()
+    model_id = sanitize_log_value(model_id)
 
     answer_match = any(kw in answer for kw in _BLUE_KW)
     reasoning_match = reasoning and any(kw in reasoning for kw in _BLUE_KW)

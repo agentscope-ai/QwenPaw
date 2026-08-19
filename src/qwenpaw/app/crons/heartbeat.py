@@ -20,6 +20,7 @@ from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
     load_config,
+    read_last_dispatch,
 )
 from ...constant import (
     HEARTBEAT_FILE,
@@ -35,6 +36,7 @@ from ..inbox_trace_store import (
     read_session_messages,
 )
 from ..crons.models import _crontab_dow_to_name
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +196,7 @@ async def run_heartbeat_once(
     """Run one heartbeat: read HEARTBEAT.md, run agent, optionally
     dispatch to last channel (target=last).
     """
-    from ...config.config import load_agent_config
-
-    hb = get_heartbeat_config(agent_id)
+    hb = await run_sync_io(get_heartbeat_config, agent_id)
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
@@ -208,11 +208,13 @@ async def run_heartbeat_once(
     else:
         path = get_heartbeat_query_path()
 
-    if not path.is_file():
+    if not await run_sync_io(path.is_file):
         logger.debug("heartbeat skipped: no file at %s", path)
         return
 
-    query_text = read_text_file_with_encoding_fallback(path).strip()
+    query_text = (
+        await run_sync_io(read_text_file_with_encoding_fallback, path)
+    ).strip()
     if not query_text:
         logger.debug("heartbeat skipped: empty query file")
         return
@@ -231,17 +233,13 @@ async def run_heartbeat_once(
         "request_context": {"source": "heartbeat"},
     }
 
-    # Get last_dispatch from agent config if agent_id provided
+    # Get last_dispatch from per-agent runtime state if agent_id is provided.
     last_dispatch = None
     if agent_id:
-        try:
-            agent_config = load_agent_config(agent_id)
-            last_dispatch = agent_config.last_dispatch
-        except Exception:
-            pass
+        last_dispatch = await run_sync_io(read_last_dispatch, agent_id)
     else:
         # Legacy: try root config
-        config = load_config()
+        config = await run_sync_io(load_config)
         last_dispatch = config.last_dispatch
 
     target = (hb.target or "").strip().lower()

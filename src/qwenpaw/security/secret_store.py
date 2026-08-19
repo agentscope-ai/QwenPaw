@@ -464,3 +464,36 @@ def decrypt_dict_fields(
         ):
             result[field] = decrypt(result[field])
     return result
+
+
+# ---------------------------------------------------------------------------
+# Console-facing secret masking helpers.
+#
+# Pure string manipulation with no protocol-specific dependency; consumers
+# outside MCP (e.g. builtin tool config endpoints) import directly from here
+# instead of an MCP adapter module.
+# ---------------------------------------------------------------------------
+
+
+def mask_secret_value(value: str) -> str:
+    """Mask a secret value for Console display."""
+    if not value:
+        return value
+    length = len(value)
+    if length <= 8:
+        return "*" * length
+    if length <= 12:
+        return f"{value[:1]}{'*' * max(length - 2, 4)}{value[-1:]}"
+    prefix_len = 3 if length > 2 and value[2] == "-" else 2
+    prefix = value[:prefix_len]
+    suffix_len = 4 if length >= 16 else 2
+    suffix = value[-suffix_len:]
+    masked_len = max(length - prefix_len - suffix_len, 4)
+    return f"{prefix}{'*' * masked_len}{suffix}"
+
+
+def restore_masked_secret_value(incoming: str, existing: str) -> str:
+    """Return the existing secret when incoming equals its masked display."""
+    if existing and incoming == mask_secret_value(existing):
+        return existing
+    return incoming
