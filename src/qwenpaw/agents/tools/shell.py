@@ -376,19 +376,35 @@ def _open_windows_temp_output(prefix: str) -> tuple[Any, BinaryIO]:
     sharing and marks the file for automatic deletion when the final inherited
     handle closes.  The separate reader has its own file position, so reading
     captured output cannot disturb a descendant that still holds the writer.
+
+    We avoid ``NamedTemporaryFile(delete=True)`` because on Python < 3.12 its
+    ``close()`` calls ``os.unlink()`` which removes the directory entry even
+    while inherited handles keep the file alive — breaking the delete-on-close
+    contract we rely on.
     """
-    # The handle must outlive this helper and be inherited by the child.
-    # pylint: disable-next=consider-using-with
-    writer = tempfile.NamedTemporaryFile(
-        mode="w+b",
-        prefix=prefix,
-        delete=True,
-    )
+    # Create the temp file path without auto-delete; we rely solely on
+    # O_TEMPORARY (FILE_FLAG_DELETE_ON_CLOSE) for cleanup.
+    fd, name = tempfile.mkstemp(prefix=prefix)
+    os.close(fd)
+    writer = None
+    writer_fd: int | None = None
     reader_fd: int | None = None
     try:
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-        flags |= getattr(os, "O_TEMPORARY", 0)
-        reader_fd = os.open(writer.name, flags)
+        w_flags = (
+            os.O_RDWR
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_TEMPORARY", 0)
+        )
+        writer_fd = os.open(name, w_flags)
+        writer = os.fdopen(writer_fd, "w+b")
+        writer_fd = None
+
+        r_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_TEMPORARY", 0)
+        )
+        reader_fd = os.open(name, r_flags)
         reader = os.fdopen(reader_fd, "rb")
         reader_fd = None
         return writer, reader
@@ -398,8 +414,18 @@ def _open_windows_temp_output(prefix: str) -> tuple[Any, BinaryIO]:
                 os.close(reader_fd)
             except OSError:
                 pass
+        if writer_fd is not None:
+            try:
+                os.close(writer_fd)
+            except OSError:
+                pass
+        if writer is not None:
+            try:
+                writer.close()
+            except OSError:
+                pass
         try:
-            writer.close()
+            os.unlink(name)
         except OSError:
             pass
         raise
