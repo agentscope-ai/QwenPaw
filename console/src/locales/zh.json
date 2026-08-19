@@ -3578,7 +3578,12 @@
     "logout": "退出登录",
     "logoutSuccess": "已成功退出",
     "sessionExpired": "会话已过期，请重新登录",
-    "unauthorized": "未授权，请登录"
+    "unauthorized": "未授权，请登录",
+    "hubDisclaimerTitle": "自托管 Hub 安全提示",
+    "hubDisclaimer": "请仅登录由你本人或可信组织部署的 Hub。实例管理员可能接触服务器中保存的对话、文件、凭据和运行数据。Hub 中的 QwenPaw 运行在沙箱内，依赖宿主机权限、设备或本地服务的部分能力可能不可用。",
+    "hubDisclaimerAccept": "我确认当前 Hub 来源可信，并理解上述数据与能力边界",
+    "officialWebsite": "官方网站",
+    "securityGuide": "安全说明"
   },
   "account": {
     "title": "账户管理",

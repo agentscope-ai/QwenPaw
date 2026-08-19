@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Form, Input } from "antd";
+import { Button, Checkbox, Form, Input } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
-import { LockKeyhole, UserRound } from "lucide-react";
+import {
+  ExternalLink,
+  Github,
+  Globe2,
+  LockKeyhole,
+  ShieldAlert,
+  UserRound,
+} from "lucide-react";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getPostLoginHref } from "../../utils/navigationMode";
+import styles from "./index.module.less";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -18,6 +26,8 @@ export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [isHub, setIsHub] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const { message } = useAppMessage();
   const rawRedirect = searchParams.get("redirect") || "/chat";
   const redirect =
@@ -47,6 +57,7 @@ export default function LoginPage() {
         }
         setHasUsers(res.has_users);
         setRegistrationEnabled(Boolean(res.registration_enabled));
+        setIsHub(res.mode === "hub");
         if (!res.has_users) {
           setIsRegister(true);
         }
@@ -55,6 +66,9 @@ export default function LoginPage() {
   }, [finishNavigation, redirect]);
 
   const onFinish = async (values: { username: string; password: string }) => {
+    if (isHub && !disclaimerAccepted) {
+      return;
+    }
     setLoading(true);
     try {
       if (isRegister) {
@@ -94,10 +108,12 @@ export default function LoginPage() {
   return (
     <div
       style={{
-        height: "100vh",
+        minHeight: "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        overflowY: "auto",
+        padding: "24px 16px",
         background: isDark
           ? "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
           : "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
@@ -106,6 +122,7 @@ export default function LoginPage() {
       <div
         style={{
           width: 400,
+          maxWidth: "100%",
           padding: 32,
           borderRadius: 12,
           background: isDark ? "#1f1f1f" : "#fff",
@@ -177,11 +194,56 @@ export default function LoginPage() {
             />
           </Form.Item>
 
+          {isHub && (
+            <div className={styles.hubDisclaimer}>
+              <div className={styles.disclaimerHeading}>
+                <ShieldAlert size={16} aria-hidden="true" />
+                <span>{t("login.hubDisclaimerTitle")}</span>
+              </div>
+              <p>{t("login.hubDisclaimer")}</p>
+              <Checkbox
+                checked={disclaimerAccepted}
+                onChange={(event) =>
+                  setDisclaimerAccepted(event.target.checked)
+                }
+              >
+                {t("login.hubDisclaimerAccept")}
+              </Checkbox>
+              <div className={styles.disclaimerLinks}>
+                <a
+                  href="https://github.com/agentscope-ai/QwenPaw"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Github size={13} aria-hidden="true" />
+                  GitHub
+                </a>
+                <a
+                  href="https://qwenpaw.agentscope.io/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Globe2 size={13} aria-hidden="true" />
+                  {t("login.officialWebsite")}
+                </a>
+                <a
+                  href="https://github.com/agentscope-ai/QwenPaw/blob/main/SECURITY.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink size={13} aria-hidden="true" />
+                  {t("login.securityGuide")}
+                </a>
+              </div>
+            </div>
+          )}
+
           <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
             <Button
               type="primary"
               htmlType="submit"
               loading={loading}
+              disabled={isHub && !disclaimerAccepted}
               block
               style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
             >

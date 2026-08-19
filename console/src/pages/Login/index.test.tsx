@@ -1,0 +1,86 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { authApi } from "../../api/modules/auth";
+import LoginPage from ".";
+
+const navigate = vi.fn();
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => navigate,
+  useSearchParams: () => [new URLSearchParams()],
+}));
+
+vi.mock("../../api/modules/auth", () => ({
+  authApi: {
+    getStatus: vi.fn(),
+    login: vi.fn(),
+    register: vi.fn(),
+  },
+}));
+
+vi.mock("../../contexts/ThemeContext", () => ({
+  useTheme: () => ({ isDark: false }),
+}));
+
+vi.mock("../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({
+    message: {
+      error: vi.fn(),
+      info: vi.fn(),
+      success: vi.fn(),
+    },
+  }),
+}));
+
+describe("LoginPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("requires accepting the disclaimer in Hub mode", async () => {
+    vi.mocked(authApi.getStatus).mockResolvedValue({
+      enabled: true,
+      has_users: true,
+      mode: "hub",
+    });
+
+    render(<LoginPage />);
+
+    expect(
+      await screen.findByText("login.hubDisclaimerTitle"),
+    ).toBeInTheDocument();
+    const submit = screen.getByRole("button", { name: "login.submit" });
+    expect(submit).toBeDisabled();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "login.hubDisclaimerAccept",
+      }),
+    );
+
+    expect(submit).toBeEnabled();
+    expect(screen.getByRole("link", { name: /GitHub/ })).toHaveAttribute(
+      "href",
+      "https://github.com/agentscope-ai/QwenPaw",
+    );
+  });
+
+  it("does not change the standard app login", async () => {
+    vi.mocked(authApi.getStatus).mockResolvedValue({
+      enabled: true,
+      has_users: true,
+    });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(authApi.getStatus).toHaveBeenCalledOnce());
+    expect(
+      screen.queryByText("login.hubDisclaimerTitle"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "login.submit" })).toBeEnabled();
+  });
+});
