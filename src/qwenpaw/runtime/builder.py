@@ -143,15 +143,13 @@ class AgentBuilder:
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
 
-        skill_dirs = self._resolve_skill_loader_dirs(
+        skills = await run_sync_io(
+            self._load_runtime_skills,
             effective_skills,
             workspace_dir,
+            tools,
         )
-        for extra in _bound_skill_loader_dirs(tools):
-            if extra not in skill_dirs:
-                skill_dirs.append(extra)
-
-        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+        return Toolkit(tools=tools, skills_or_loaders=skills)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -223,6 +221,25 @@ class AgentBuilder:
                     skill_dir,
                 )
         return dirs
+
+    @classmethod
+    def _load_runtime_skills(
+        cls,
+        effective_skills: Iterable[str] | None,
+        workspace_dir: str | None,
+        tools: Iterable[Any],
+    ) -> list[Any]:
+        """Resolve and load runtime Skills in one synchronous I/O job."""
+        from ..agents.skill_system.runtime_cache import load_runtime_skills
+
+        skill_dirs = cls._resolve_skill_loader_dirs(
+            effective_skills,
+            workspace_dir,
+        )
+        for extra in _bound_skill_loader_dirs(tools):
+            if extra not in skill_dirs:
+                skill_dirs.append(extra)
+        return load_runtime_skills(skill_dirs)
 
     # ----------------------------------------------------------------- build
 

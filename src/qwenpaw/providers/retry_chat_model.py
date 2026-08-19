@@ -709,10 +709,7 @@ class RetryChatModel(ChatModelBase):
                     )
                     continue
 
-                if _is_retryable(retry_exc) and _is_rate_limit(retry_exc):
-                    await limiter.report_rate_limit(
-                        _extract_retry_after(retry_exc),
-                    )
+                await self._handle_rate_limit_exc(retry_exc, limiter)
 
                 if not _is_retryable(retry_exc) or attempt >= max_attempts:
                     raise

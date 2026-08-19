@@ -930,3 +930,102 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
         ]
     finally:
         cache.clear(model_key)
+
+
+# ---------------------------------------------------------------------------
+# Streaming rate-limit policy
+# ---------------------------------------------------------------------------
+
+
+async def _failing_stream_rate_limit(
+    retry_after: str,
+) -> AsyncGenerator[Any, None]:
+    for chunk in ():
+        yield chunk
+    exc = Exception("FreeUsageLimitError: daily quota exhausted")
+    exc.status_code = 429  # type: ignore[attr-defined]
+    exc.headers = {"Retry-After": retry_after}  # type: ignore[attr-defined]
+    raise exc
+
+
+class _RateLimitStreamModel:
+    model = "rate-limit-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self, retry_after: str) -> None:
+        self.calls = 0
+        self.retry_after = retry_after
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls == 1:
+            return _failing_stream_rate_limit(self.retry_after)
+        return _successful_stream()
+
+
+def _build_rate_limit_model(inner: _RateLimitStreamModel) -> RetryChatModel:
+    return RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(
+            enabled=True,
+            max_retries=2,
+            backoff_base=0.01,
+            backoff_cap=0.01,
+        ),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_over_cap_raises_without_pause() -> None:
+    """A Retry-After above the cap must not be retried or reported."""
+    _limiters.clear()
+    try:
+        inner = _RateLimitStreamModel("51496")
+        model = _build_rate_limit_model(inner)
+
+        result = await model(messages=[{"role": "user", "content": "hi"}])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(Exception, match="FreeUsageLimitError"):
+            async for _chunk in stream:
+                pass
+
+        assert inner.calls == 1
+        stats = _limiters[model.model_key].stats()
+        assert stats["total_rate_limited"] == 0
+        assert stats["is_paused"] is False
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_under_cap_still_retries() -> None:
+    """A Retry-After below the cap keeps the existing pause-and-retry."""
+    _limiters.clear()
+    try:
+        inner = _RateLimitStreamModel("0.05")
+        model = _build_rate_limit_model(inner)
+
+        result = await model(messages=[{"role": "user", "content": "hi"}])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert [chunk.content for chunk in chunks] == ["ok"]
+        assert inner.calls == 2
+        stats = _limiters[model.model_key].stats()
+        assert stats["total_rate_limited"] == 1
+    finally:
+        _limiters.clear()

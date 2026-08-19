@@ -18,6 +18,14 @@ from ...security.secret_store import decrypt, encrypt, is_encrypted
 
 _STORE_VERSION = 1
 
+# Process-level singleton keyed by canonical path: every AsyncCredentialStore
+# for the same credentials.yaml shares one instance (and one RLock), so
+# concurrent read-modify-write cycles from different call sites cannot
+# silently overwrite each other's changes. Multi-process deployments still
+# need an OS-level file lock (out of scope here).
+_store_instances: dict[str, "AsyncCredentialStore"] = {}
+_store_instances_lock = threading.Lock()
+
 
 class AsyncCredentialStore:
     """Async per-workspace YAML credential store.
@@ -26,11 +34,27 @@ class AsyncCredentialStore:
     FastAPI request/tool paths.  Local YAML operations are still implemented
     with the synchronous standard library and isolated behind ``to_thread`` so
     callers never block the event loop directly.
+
+    Instances are shared per canonical path: constructing the store for the
+    same file returns the same instance, so the internal RLock serializes
+    writers across every call site that touches that file.
     """
 
+    def __new__(cls, credentials_path: Path) -> "AsyncCredentialStore":
+        canonical = str(Path(credentials_path).expanduser().resolve())
+        with _store_instances_lock:
+            instance = _store_instances.get(canonical)
+            if instance is None:
+                instance = super().__new__(cls)
+                _store_instances[canonical] = instance
+            return instance
+
     def __init__(self, credentials_path: Path) -> None:
+        if getattr(self, "_initialized", False):
+            return
         self._path = credentials_path
         self._lock = threading.RLock()
+        self._initialized = True
 
     async def get(self, ref: str) -> CredentialRecord:
         """Read one CredentialRecord and decrypt values under secrets."""
