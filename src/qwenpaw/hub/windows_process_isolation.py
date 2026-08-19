@@ -204,22 +204,37 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         sandbox: WindowsAppContainerSandbox,
     ) -> None:
         self._probe_filesystem(record, runtime_root, sandbox)
-        self._probe_outbound_loopback(sandbox)
+        self._probe_outbound_loopback(record, sandbox)
         self._probe_inbound_loopback(record, sandbox)
 
     @staticmethod
     def _run_probe(
         sandbox: WindowsAppContainerSandbox,
+        record: RuntimeRecord,
         script: str,
     ) -> None:
-        command = subprocess.list2cmdline(
-            [sys.executable, "-B", "-c", script],
-        )
-        result = asyncio.run(sandbox.execute(command))
-        if result.exit_code != 0 or result.timed_out:
-            detail = result.stderr.strip() or result.stdout.strip()
+        probe_log = record.log_file.parent / ".windows-boundary-probe.log"
+        with probe_log.open("a", encoding="utf-8") as log_handle:
+            process = sandbox.spawn_process(
+                [sys.executable, "-B", "-c", script],
+                cwd=str(record.working_dir),
+                env=dict(os.environ),
+                log_handle=log_handle,
+            )
+            try:
+                exit_code = process.wait(timeout=_PROBE_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired as exc:
+                process.terminate()
+                process.wait(timeout=5)
+                raise ProcessIsolationError(
+                    "Windows AppContainer probe timed out.",
+                ) from exc
+        detail = probe_log.read_text(encoding="utf-8").strip()
+        probe_log.unlink(missing_ok=True)
+        if exit_code != 0:
             raise ProcessIsolationError(
-                f"Windows AppContainer probe failed: {detail}",
+                "Windows AppContainer probe failed with code "
+                f"{exit_code}: {detail}",
             )
 
     def _probe_filesystem(
@@ -245,7 +260,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             "assert not forbidden.exists()"
         )
         try:
-            self._run_probe(sandbox, script)
+            self._run_probe(sandbox, record, script)
             if written.read_text(encoding="utf-8") != "ok":
                 raise ProcessIsolationError(
                     "Windows AppContainer write probe failed.",
@@ -257,6 +272,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
 
     def _probe_outbound_loopback(
         self,
+        record: RuntimeRecord,
         sandbox: WindowsAppContainerSandbox,
     ) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -269,7 +285,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
                 f"code=client.connect_ex(('127.0.0.1',{port})); "
                 "client.close(); raise SystemExit(41 if code == 0 else 0)"
             )
-            self._run_probe(sandbox, script)
+            self._run_probe(sandbox, record, script)
 
     def _probe_inbound_loopback(
         self,
