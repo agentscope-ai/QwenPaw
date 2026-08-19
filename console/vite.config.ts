@@ -152,11 +152,6 @@ export default defineConfig(({ command, mode }) => {
             ) {
               return "react-vendor";
             }
-            // Keep route-heavy dependencies separately cacheable instead of
-            // merging them into the shared UI chunk.
-            if (id.includes("node_modules/@agentscope-ai/chat/")) {
-              return "chat-vendor";
-            }
             if (
               id.includes("node_modules/@ant-design/plots/") ||
               id.includes("node_modules/@antv/")
@@ -201,15 +196,6 @@ export default defineConfig(({ command, mode }) => {
             // Drag and drop
             if (id.includes("node_modules/@dnd-kit/")) {
               return "dnd-vendor";
-            }
-            // Utilities (dayjs, zustand, ahooks, etc.)
-            if (
-              id.includes("node_modules/dayjs/") ||
-              id.includes("node_modules/zustand/") ||
-              id.includes("node_modules/ahooks/") ||
-              id.includes("node_modules/@vvo/tzdb/")
-            ) {
-              return "utils-vendor";
             }
           },
         },
