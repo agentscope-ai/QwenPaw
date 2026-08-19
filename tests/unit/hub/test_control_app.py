@@ -15,22 +15,25 @@ from qwenpaw.hub.auth import HubAuthService
 from qwenpaw.hub.config import ControlPlaneConfig, HubConfig
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
-from qwenpaw.hub.driver import RuntimeDriver, RuntimeDriverAvailability
+from qwenpaw.hub.provisioner import (
+    RuntimeProvisioner,
+    RuntimeProvisionerAvailability,
+)
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 from qwenpaw.hub.registry import RuntimeRegistry
 from qwenpaw.hub.service import RuntimeService
 
 
-class _FakeDriver(RuntimeDriver):
+class _FakeProvisioner(RuntimeProvisioner):
     name = "local"
     security_level = "isolated-local"
 
     def __init__(self, available: bool = True) -> None:
         self.available = available
 
-    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+    def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         del root_dir
-        return RuntimeDriverAvailability(
+        return RuntimeProvisionerAvailability(
             available=self.available,
             reason=None if self.available else "sandbox unavailable",
         )
@@ -74,7 +77,7 @@ def _client(
     tmp_path: Path,
     proxy_transport: httpx.AsyncBaseTransport | None = None,
     hub_config: HubConfig | None = None,
-    driver_available: bool = True,
+    provisioner_available: bool = True,
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -100,7 +103,7 @@ def _client(
     service = RuntimeService(
         root_dir=tmp_path,
         registry=registry,
-        drivers={"local": _FakeDriver(driver_available)},
+        provisioners={"local": _FakeProvisioner(provisioner_available)},
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -208,10 +211,10 @@ def test_public_bind_requires_public_base_url(
         )
 
 
-def test_unavailable_driver_keeps_control_plane_in_safe_mode(
+def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
     tmp_path: Path,
 ) -> None:
-    with _client(tmp_path, driver_available=False) as client:
+    with _client(tmp_path, provisioner_available=False) as client:
         anonymous_health = client.get("/api/hub/healthz")
         token = _register(client, "owner")
         health = client.get(
@@ -232,7 +235,7 @@ def test_unavailable_driver_keeps_control_plane_in_safe_mode(
         assert health.status_code == 200
         assert health.json()["status"] == "degraded"
         assert health.json()["runtime_available"] is False
-        assert health.json()["driver_statuses"]["local"] == {
+        assert health.json()["provisioner_statuses"]["local"] == {
             "available": False,
             "reason": "sandbox unavailable",
             "security_level": "isolated-local",

@@ -31,8 +31,8 @@ from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
 from .auth import HubAuthService, HubUser
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
-from .driver import RuntimeDriverUnavailableError
-from .local_driver import LocalProcessRuntimeDriver
+from .provisioner import RuntimeProvisionerUnavailableError
+from .local_provisioner import LocalProcessRuntimeProvisioner
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 from .oauth_relay import OAuthRelayStore
 from .registry import RuntimeRegistry
@@ -43,7 +43,7 @@ class RuntimeCreateBody(BaseModel):
     """Request body for a new managed runtime."""
 
     runtime_id: str = Field(min_length=1, max_length=64)
-    driver: str | None = None
+    provisioner: str | None = None
     host: str = "127.0.0.1"
     port: int = Field(default=0, ge=0, le=65535)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -124,7 +124,7 @@ def build_runtime_service(
         registry.database_path,
         resolved_root / "secrets" / ".vault_key",
     )
-    local_driver = LocalProcessRuntimeDriver()
+    local_provisioner = LocalProcessRuntimeProvisioner()
 
     def runtime_environment(record: Any) -> dict[str, str]:
         environment = credential_vault.resolve_environment(
@@ -143,7 +143,7 @@ def build_runtime_service(
     return RuntimeService(
         root_dir=resolved_root,
         registry=registry,
-        drivers={local_driver.name: local_driver},
+        provisioners={local_provisioner.name: local_provisioner},
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -223,10 +223,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     async def ensure_personal_runtime(user: HubUser) -> RuntimeRecord:
         try:
-            runtime_service.require_driver_available(
-                runtime_service.default_driver,
+            runtime_service.require_provisioner_available(
+                runtime_service.default_provisioner,
             )
-        except RuntimeDriverUnavailableError as exc:
+        except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         records = await run_in_threadpool(
             runtime_service.list,
@@ -301,8 +301,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
         _: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
         security_levels = {
-            name: driver.security_level
-            for name, driver in runtime_service.drivers.items()
+            name: provisioner.security_level
+            for name, provisioner in runtime_service.provisioners.items()
         }
         return {
             "status": (
@@ -310,9 +310,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
             ),
             "mode": "hub",
             "security_levels": security_levels,
-            "drivers": sorted(runtime_service.drivers),
-            "driver_statuses": runtime_service.driver_statuses(),
-            "default_driver": runtime_service.default_driver,
+            "provisioners": sorted(runtime_service.provisioners),
+            "provisioner_statuses": runtime_service.provisioner_statuses(),
+            "default_provisioner": runtime_service.default_provisioner,
             "runtime_available": runtime_service.runtime_available(),
         }
 
@@ -508,7 +508,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     runtime_id=body.runtime_id,
                     tenant_id=personal_tenant_id(user),
                     owner_user_id=user.user_id,
-                    driver=body.driver,
+                    provisioner=body.provisioner,
                     host=body.host,
                     port=body.port,
                     metadata=body.metadata,
@@ -520,7 +520,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     body.runtime_id,
                 )
             return _runtime_payload(runtime_service, record)
-        except RuntimeDriverUnavailableError as exc:
+        except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -556,7 +556,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 runtime_service.start,
                 runtime_id,
             )
-        except RuntimeDriverUnavailableError as exc:
+        except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(
@@ -828,7 +828,7 @@ def _runtime_payload(
 ) -> dict[str, Any]:
     payload = record.to_dict()
     payload["endpoint"] = f"http://{record.host}:{record.port}"
-    payload["security_level"] = service.security_level(record.driver)
+    payload["security_level"] = service.security_level(record.provisioner)
     return payload
 
 
@@ -850,7 +850,7 @@ def run_hub_app(
     root_dir = get_hub_root()
     hub_config = HubConfigStore(
         root_dir / "control.db",
-    ).resolve(config_path, available_drivers={"local"})
+    ).resolve(config_path, available_provisioners={"local"})
     if public_bind:
         database_path = root_dir / "control.db"
         credential_vault = TenantCredentialVault(

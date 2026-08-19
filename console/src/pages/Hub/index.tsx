@@ -235,7 +235,8 @@ export default function HubPage() {
   ).length;
   const runtimeAvailable = health?.runtime_available === true;
   const runtimeAvailabilityKnown = health !== null;
-  const defaultDriverStatus = health?.driver_statuses[health.default_driver];
+  const defaultProvisionerStatus =
+    health?.provisioner_statuses[health.default_provisioner];
 
   return (
     <div className={styles.shell}>
@@ -387,9 +388,9 @@ export default function HubPage() {
                     {runtimeAvailable
                       ? t("hub.runtimes.isolationDescription")
                       : t("hub.runtimes.unavailableDescription", {
-                          driver: health?.default_driver || "local",
+                          provisioner: health?.default_provisioner || "local",
                           reason:
-                            defaultDriverStatus?.reason ||
+                            defaultProvisionerStatus?.reason ||
                             t("hub.runtimes.preflightFailed"),
                         })}
                   </span>
@@ -417,8 +418,8 @@ export default function HubPage() {
                   </div>
                   <dl className={styles.details}>
                     <div>
-                      <dt>{t("hub.runtimes.driver")}</dt>
-                      <dd>{runtime.driver}</dd>
+                      <dt>{t("hub.runtimes.provisioner")}</dt>
+                      <dd>{runtime.provisioner}</dd>
                     </div>
                     <div>
                       <dt>{t("hub.runtimes.security")}</dt>

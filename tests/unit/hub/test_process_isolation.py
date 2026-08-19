@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.hub.local_driver import LocalProcessRuntimeDriver
+from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
@@ -26,7 +26,7 @@ def _record(tmp_path: Path) -> RuntimeRecord:
         runtime_id="runtime-a",
         tenant_id="tenant-a",
         owner_user_id="user-a",
-        driver="local",
+        provisioner="local",
         host="127.0.0.1",
         port=9001,
         state=RuntimeState.CREATED,
@@ -64,19 +64,21 @@ def test_unsupported_platform_fails_closed(tmp_path: Path) -> None:
         isolator.prepare(_record(tmp_path), ["python"], {})
 
 
-def test_driver_requires_runtime_boundary_token(tmp_path: Path) -> None:
-    driver = LocalProcessRuntimeDriver(isolator=_RecordingIsolator())
+def test_provisioner_requires_runtime_boundary_token(tmp_path: Path) -> None:
+    provisioner = LocalProcessRuntimeProvisioner(isolator=_RecordingIsolator())
 
     with pytest.raises(RuntimeError, match="boundary token"):
-        driver.start(_record(tmp_path), {})
+        provisioner.start(_record(tmp_path), {})
 
 
-def test_driver_preflight_reports_isolation_failure(tmp_path: Path) -> None:
-    driver = LocalProcessRuntimeDriver(
+def test_provisioner_preflight_reports_isolation_failure(
+    tmp_path: Path,
+) -> None:
+    provisioner = LocalProcessRuntimeProvisioner(
         isolator=UnsupportedProcessIsolator("required isolation unavailable"),
     )
 
-    availability = driver.preflight(tmp_path / "preflight")
+    availability = provisioner.preflight(tmp_path / "preflight")
 
     assert availability.available is False
     assert availability.reason == "required isolation unavailable"
@@ -162,12 +164,12 @@ def test_linux_command_mounts_python_base_prefix(
     assert (str(base_prefix), str(base_prefix)) in read_only_mounts
 
 
-def test_driver_never_bypasses_injected_isolator(tmp_path: Path) -> None:
+def test_provisioner_never_bypasses_injected_isolator(tmp_path: Path) -> None:
     isolator = _RecordingIsolator()
-    driver = LocalProcessRuntimeDriver(isolator=isolator)
+    provisioner = LocalProcessRuntimeProvisioner(isolator=isolator)
     record = _record(tmp_path)
 
-    environment = driver.runtime_environment(record, {})
+    environment = provisioner.runtime_environment(record, {})
     isolator.prepare(record, ["python"], environment)
 
     assert isolator.called is True

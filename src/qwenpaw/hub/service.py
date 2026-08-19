@@ -10,10 +10,10 @@ from dataclasses import replace
 from pathlib import Path
 
 from .config import HubConfig
-from .driver import (
-    RuntimeDriver,
-    RuntimeDriverAvailability,
-    RuntimeDriverUnavailableError,
+from .provisioner import (
+    RuntimeProvisioner,
+    RuntimeProvisionerAvailability,
+    RuntimeProvisionerUnavailableError,
 )
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 from .registry import RuntimeRegistry
@@ -22,29 +22,29 @@ _RUNTIME_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
 
 
 class RuntimeService:
-    """Coordinate persistent metadata with deployment-specific drivers."""
+    """Coordinate persistent metadata with deployment-specific provisioners."""
 
     def __init__(
         self,
         *,
         root_dir: Path,
         registry: RuntimeRegistry,
-        drivers: dict[str, RuntimeDriver],
+        provisioners: dict[str, RuntimeProvisioner],
         credential_provider: Callable[[RuntimeRecord], Mapping[str, str]],
         hub_config: HubConfig | None = None,
     ) -> None:
         self.root_dir = root_dir.resolve()
         self.registry = registry
-        self.drivers = dict(drivers)
+        self.provisioners = dict(provisioners)
         self.credential_provider = credential_provider
         self.hub_config = hub_config or HubConfig()
-        self.default_driver = self.hub_config.default_driver
-        self.allowed_drivers = self.hub_config.allowed_drivers
-        self._validate_driver_policy()
+        self.default_provisioner = self.hub_config.default_provisioner
+        self.allowed_provisioners = self.hub_config.allowed_provisioners
+        self._validate_provisioner_policy()
         self._lock_registry = threading.Lock()
         self._admission_lock = threading.Lock()
         self._runtime_locks: dict[str, threading.RLock] = {}
-        self._driver_availability = self._preflight_drivers()
+        self._provisioner_availability = self._preflight_provisioners()
 
     def create(self, spec: RuntimeSpec) -> RuntimeRecord:
         """Register a runtime and prepare its isolated data directories."""
@@ -55,15 +55,19 @@ class RuntimeService:
         """Create a runtime while the lifecycle lock is held."""
         self._validate_identifier(spec.runtime_id, "runtime_id")
         self._validate_identifier(spec.tenant_id, "tenant_id")
-        driver_name = spec.driver or self.default_driver
-        if driver_name not in self.drivers:
-            raise ValueError(f"Unknown runtime driver: {driver_name}")
+        provisioner_name = spec.provisioner or self.default_provisioner
+        if provisioner_name not in self.provisioners:
+            raise ValueError(
+                f"Unknown runtime provisioner: {provisioner_name}",
+            )
         if (
-            self.allowed_drivers is not None
-            and driver_name not in self.allowed_drivers
+            self.allowed_provisioners is not None
+            and provisioner_name not in self.allowed_provisioners
         ):
-            raise ValueError(f"Runtime driver is not allowed: {driver_name}")
-        self.require_driver_available(driver_name)
+            raise ValueError(
+                f"Runtime provisioner is not allowed: {provisioner_name}",
+            )
+        self.require_provisioner_available(provisioner_name)
         if self.registry.get(spec.runtime_id) is not None:
             raise ValueError(f"Runtime already exists: {spec.runtime_id}")
         quota = self.hub_config.quota_for(spec.tenant_id)
@@ -84,7 +88,7 @@ class RuntimeService:
             runtime_id=spec.runtime_id,
             tenant_id=spec.tenant_id,
             owner_user_id=spec.owner_user_id,
-            driver=driver_name,
+            provisioner=provisioner_name,
             host=spec.host,
             port=spec.port,
             state=RuntimeState.CREATED,
@@ -126,7 +130,7 @@ class RuntimeService:
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
         record = self.get(runtime_id)
-        self.require_driver_available(record.driver)
+        self.require_provisioner_available(record.provisioner)
         quota = self.hub_config.quota_for(record.tenant_id)
         running_count = sum(
             item.tenant_id == record.tenant_id
@@ -146,13 +150,13 @@ class RuntimeService:
                 "Tenant running runtime limit reached: "
                 f"{quota.max_running_runtimes}",
             )
-        driver = self._driver(record)
+        provisioner = self._provisioner(record)
         starting = self.registry.save(
             replace(record, state=RuntimeState.STARTING, last_error=None),
         )
         try:
             credentials = self.credential_provider(starting)
-            running = driver.start(starting, credentials)
+            running = provisioner.start(starting, credentials)
         except Exception as exc:
             self.registry.save(
                 replace(
@@ -166,17 +170,17 @@ class RuntimeService:
         return self.registry.save(running)
 
     def stop(self, runtime_id: str) -> RuntimeRecord:
-        """Stop a runtime through its configured driver."""
+        """Stop a runtime through its configured provisioner."""
         with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
-            stopped = self._driver(record).stop(record)
+            stopped = self._provisioner(record).stop(record)
             return self.registry.save(stopped)
 
     def status(self, runtime_id: str) -> RuntimeRecord:
         """Refresh one runtime's observed state."""
         with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
-            observed = self._driver(record).status(record)
+            observed = self._provisioner(record).status(record)
             if observed == record:
                 return record
             return self.registry.save(observed)
@@ -195,9 +199,9 @@ class RuntimeService:
             self.registry.delete(runtime_id)
 
     def close(self) -> None:
-        """Close all drivers and persist the resulting stopped states."""
-        for driver in self.drivers.values():
-            driver.close()
+        """Close all provisioners and persist the resulting stopped states."""
+        for provisioner in self.provisioners.values():
+            provisioner.close()
         for record in self.registry.list():
             if record.state in {
                 RuntimeState.RUNNING,
@@ -207,56 +211,63 @@ class RuntimeService:
                     replace(record, state=RuntimeState.STOPPED, pid=None),
                 )
 
-    def security_level(self, driver_name: str) -> str:
-        """Expose the security contract of a registered driver."""
-        driver = self.drivers.get(driver_name)
-        if driver is None:
-            raise ValueError(f"Unknown runtime driver: {driver_name}")
-        return driver.security_level
+    def security_level(self, provisioner_name: str) -> str:
+        """Expose the security contract of a registered provisioner."""
+        provisioner = self.provisioners.get(provisioner_name)
+        if provisioner is None:
+            raise ValueError(
+                f"Unknown runtime provisioner: {provisioner_name}",
+            )
+        return provisioner.security_level
 
-    def driver_statuses(self) -> dict[str, dict[str, object]]:
-        """Return cached startup preflight results for every driver."""
+    def provisioner_statuses(self) -> dict[str, dict[str, object]]:
+        """Return cached startup preflight results for every provisioner."""
         return {
             name: {
                 "available": availability.available,
                 "reason": availability.reason,
-                "security_level": self.drivers[name].security_level,
+                "security_level": self.provisioners[name].security_level,
             }
-            for name, availability in self._driver_availability.items()
+            for name, availability in self._provisioner_availability.items()
         }
 
     def runtime_available(self) -> bool:
-        """Return whether the configured default driver is safe to use."""
-        availability = self._driver_availability[self.default_driver]
+        """Return whether the configured default provisioner is safe to use."""
+        availability = self._provisioner_availability[self.default_provisioner]
         return availability.available
 
-    def require_driver_available(self, driver_name: str) -> None:
-        """Reject execution when a driver failed its security preflight."""
-        availability = self._driver_availability.get(driver_name)
+    def require_provisioner_available(self, provisioner_name: str) -> None:
+        """Reject execution after a provisioner preflight failure."""
+        availability = self._provisioner_availability.get(provisioner_name)
         if availability is None:
-            raise ValueError(f"Unknown runtime driver: {driver_name}")
+            raise ValueError(
+                f"Unknown runtime provisioner: {provisioner_name}",
+            )
         if availability.available:
             return
         reason = availability.reason or "security preflight failed"
-        raise RuntimeDriverUnavailableError(
-            f"Runtime driver '{driver_name}' is unavailable: {reason}",
+        raise RuntimeProvisionerUnavailableError(
+            f"Runtime provisioner '{provisioner_name}' is unavailable: "
+            f"{reason}",
         )
 
-    def _driver(self, record: RuntimeRecord) -> RuntimeDriver:
-        driver = self.drivers.get(record.driver)
-        if driver is None:
-            raise ValueError(f"Unknown runtime driver: {record.driver}")
-        return driver
+    def _provisioner(self, record: RuntimeRecord) -> RuntimeProvisioner:
+        provisioner = self.provisioners.get(record.provisioner)
+        if provisioner is None:
+            raise ValueError(
+                f"Unknown runtime provisioner: {record.provisioner}",
+            )
+        return provisioner
 
-    def _preflight_drivers(
+    def _preflight_provisioners(
         self,
-    ) -> dict[str, RuntimeDriverAvailability]:
-        """Probe all configured drivers before accepting runtime work."""
+    ) -> dict[str, RuntimeProvisionerAvailability]:
+        """Probe all configured provisioners before accepting runtime work."""
         return {
-            name: driver.preflight(
+            name: provisioner.preflight(
                 self.root_dir / "preflight" / name,
             )
-            for name, driver in self.drivers.items()
+            for name, provisioner in self.provisioners.items()
         }
 
     def _runtime_root(self, runtime_id: str) -> Path:
@@ -273,23 +284,24 @@ class RuntimeService:
                 threading.RLock(),
             )
 
-    def _validate_driver_policy(self) -> None:
-        """Fail startup when configuration names unavailable drivers."""
-        available = set(self.drivers)
-        if self.default_driver not in available:
+    def _validate_provisioner_policy(self) -> None:
+        """Fail startup when configuration names unavailable provisioners."""
+        available = set(self.provisioners)
+        if self.default_provisioner not in available:
             raise ValueError(
-                f"Unknown default runtime driver: {self.default_driver}",
+                "Unknown default runtime provisioner: "
+                f"{self.default_provisioner}",
             )
-        if self.allowed_drivers is None:
+        if self.allowed_provisioners is None:
             return
-        unknown = sorted(self.allowed_drivers - available)
+        unknown = sorted(self.allowed_provisioners - available)
         if unknown:
             raise ValueError(
-                f"Unknown allowed runtime drivers: {', '.join(unknown)}",
+                f"Unknown allowed runtime provisioners: {', '.join(unknown)}",
             )
-        if self.default_driver not in self.allowed_drivers:
+        if self.default_provisioner not in self.allowed_provisioners:
             raise ValueError(
-                "default_driver must be included in allowed_drivers",
+                "default_provisioner must be included in allowed_provisioners",
             )
 
     @staticmethod

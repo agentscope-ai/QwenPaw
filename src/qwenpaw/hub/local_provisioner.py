@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Fail-closed isolated local process driver for QwenPaw Hub."""
+"""Fail-closed isolated local process provisioner for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import IO, Any
 
-from .driver import RuntimeDriver, RuntimeDriverAvailability
+from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
 from .models import RuntimeRecord, RuntimeState
 from .process_isolation import ProcessIsolator, platform_process_isolator
 
@@ -32,7 +32,7 @@ def allocate_loopback_port() -> int:
         return int(server.getsockname()[1])
 
 
-class LocalProcessRuntimeDriver(RuntimeDriver):
+class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
     """Run a complete QwenPaw process tree inside an OS sandbox."""
 
     name = "local"
@@ -55,12 +55,12 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._log_handles: dict[str, IO[str]] = {}
 
-    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+    def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         """Run the native isolation probes in a disposable runtime root."""
         root_dir.mkdir(parents=True, exist_ok=True)
         try:
             with tempfile.TemporaryDirectory(
-                prefix=".driver-preflight-",
+                prefix=".provisioner-preflight-",
                 dir=root_dir,
             ) as temporary_dir:
                 runtime_root = Path(temporary_dir) / "runtime"
@@ -68,7 +68,7 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
                     runtime_id="preflight",
                     tenant_id="system",
                     owner_user_id="system",
-                    driver=self.name,
+                    provisioner=self.name,
                     host="127.0.0.1",
                     port=allocate_loopback_port(),
                     state=RuntimeState.CREATED,
@@ -94,11 +94,11 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
                     environment,
                 )
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            return RuntimeDriverAvailability(
+            return RuntimeProvisionerAvailability(
                 available=False,
                 reason=str(exc),
             )
-        return RuntimeDriverAvailability(available=True)
+        return RuntimeProvisionerAvailability(available=True)
 
     def start(
         self,
@@ -160,7 +160,8 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
             popen_options["start_new_session"] = True
 
         try:
-            # The process remains owned by this driver until stop or close.
+            # The process remains owned by this provisioner until stop or
+            # close.
             # pylint: disable-next=consider-using-with
             process = subprocess.Popen(
                 isolated.command,
@@ -203,7 +204,7 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
         return replace(starting, state=RuntimeState.RUNNING)
 
     def stop(self, record: RuntimeRecord) -> RuntimeRecord:
-        """Stop a child owned by this driver.
+        """Stop a child owned by this provisioner.
 
         Persisted process identifiers are deliberately not trusted.
         """
@@ -255,7 +256,7 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
         )
 
     def close(self) -> None:
-        """Stop every child process created by this driver."""
+        """Stop every child process created by this provisioner."""
         for runtime_id, process in list(self._processes.items()):
             if process.poll() is None:
                 self._terminate(runtime_id, process)

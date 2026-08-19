@@ -14,7 +14,7 @@ export interface HubRuntime {
   runtime_id: string;
   tenant_id: string;
   owner_user_id: string;
-  driver: string;
+  provisioner: string;
   host: string;
   port: number;
   state: "created" | "starting" | "running" | "stopped" | "failed";
@@ -32,7 +32,7 @@ export interface HubCredential {
   updated_at: string;
 }
 
-export interface HubDriverStatus {
+export interface HubProvisionerStatus {
   available: boolean;
   reason?: string | null;
   security_level: string;
@@ -41,9 +41,9 @@ export interface HubDriverStatus {
 export interface HubHealth {
   status: "ok" | "degraded";
   mode: "hub";
-  default_driver: string;
+  default_provisioner: string;
   runtime_available: boolean;
-  driver_statuses: Record<string, HubDriverStatus>;
+  provisioner_statuses: Record<string, HubProvisionerStatus>;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

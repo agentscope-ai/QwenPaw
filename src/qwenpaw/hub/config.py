@@ -81,16 +81,16 @@ class ControlPlaneConfig(BaseModel):
 
 
 class RuntimeConfig(BaseModel):
-    """Deployment-neutral runtime driver selection."""
+    """Deployment-neutral runtime provisioner selection."""
 
     model_config = ConfigDict(extra="forbid")
 
-    default_driver: str | None = None
-    allowed_drivers: list[str] | None = None
+    default_provisioner: str | None = None
+    allowed_provisioners: list[str] | None = None
 
-    @field_validator("allowed_drivers")
+    @field_validator("allowed_provisioners")
     @classmethod
-    def validate_allowed_drivers(
+    def validate_allowed_provisioners(
         cls,
         value: list[str] | None,
     ) -> list[str] | None:
@@ -98,11 +98,15 @@ class RuntimeConfig(BaseModel):
         if value is None:
             return value
         if not value:
-            raise ValueError("allowed_drivers must not be empty")
+            raise ValueError("allowed_provisioners must not be empty")
         if any(not item.strip() for item in value):
-            raise ValueError("allowed_drivers must contain driver names")
+            raise ValueError(
+                "allowed_provisioners must contain provisioner names",
+            )
         if len(set(value)) != len(value):
-            raise ValueError("allowed_drivers must not contain duplicates")
+            raise ValueError(
+                "allowed_provisioners must not contain duplicates",
+            )
         return value
 
 
@@ -166,16 +170,16 @@ class HubConfig(BaseModel):
         return self
 
     @property
-    def default_driver(self) -> str:
-        """Return the configured driver or the built-in local default."""
-        return self.runtime.default_driver or "local"
+    def default_provisioner(self) -> str:
+        """Return the configured provisioner or the built-in local default."""
+        return self.runtime.default_provisioner or "local"
 
     @property
-    def allowed_drivers(self) -> frozenset[str] | None:
-        """Return the optional configured driver allowlist."""
-        if self.runtime.allowed_drivers is None:
+    def allowed_provisioners(self) -> frozenset[str] | None:
+        """Return the optional configured provisioner allowlist."""
+        if self.runtime.allowed_provisioners is None:
             return None
-        return frozenset(self.runtime.allowed_drivers)
+        return frozenset(self.runtime.allowed_provisioners)
 
     def quota_for(self, tenant_id: str) -> TenantQuota:
         """Resolve field-level tenant quota overrides."""
@@ -205,7 +209,7 @@ class HubConfigStore:
     def resolve(
         self,
         path: Path | None,
-        available_drivers: set[str] | None = None,
+        available_provisioners: set[str] | None = None,
     ) -> HubConfig:
         """Apply explicit YAML fields and return persisted effective values."""
         overlay = load_hub_config(path) if path is not None else None
@@ -216,8 +220,8 @@ class HubConfigStore:
             explicit = overlay.model_dump(exclude_unset=True)
             merged = _deep_merge(persisted, explicit)
             effective = HubConfig.model_validate(merged)
-            if available_drivers is not None:
-                _validate_drivers(effective, available_drivers)
+            if available_provisioners is not None:
+                _validate_provisioners(effective, available_provisioners)
             connection.execute(
                 "INSERT OR REPLACE INTO hub_settings(key, value) "
                 "VALUES (?, ?)",
@@ -313,24 +317,25 @@ def _deep_merge(
     return merged
 
 
-def _validate_drivers(
+def _validate_provisioners(
     config: HubConfig,
-    available_drivers: set[str],
+    available_provisioners: set[str],
 ) -> None:
-    """Reject unavailable or internally inconsistent driver policy."""
-    if config.default_driver not in available_drivers:
+    """Reject unavailable or internally inconsistent provisioner policy."""
+    if config.default_provisioner not in available_provisioners:
         raise ValueError(
-            f"Unknown default runtime driver: {config.default_driver}",
+            "Unknown default runtime provisioner: "
+            f"{config.default_provisioner}",
         )
-    allowed = config.allowed_drivers
+    allowed = config.allowed_provisioners
     if allowed is None:
         return
-    unknown = sorted(allowed - available_drivers)
+    unknown = sorted(allowed - available_provisioners)
     if unknown:
         raise ValueError(
-            f"Unknown allowed runtime drivers: {', '.join(unknown)}",
+            f"Unknown allowed runtime provisioners: {', '.join(unknown)}",
         )
-    if config.default_driver not in allowed:
+    if config.default_provisioner not in allowed:
         raise ValueError(
-            "default_driver must be included in allowed_drivers",
+            "default_provisioner must be included in allowed_provisioners",
         )

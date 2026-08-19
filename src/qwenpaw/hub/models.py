@@ -21,12 +21,12 @@ class RuntimeState(str, Enum):
 
 @dataclass(frozen=True)
 class RuntimeSpec:
-    """Logical runtime request independent of its deployment driver."""
+    """Logical runtime request independent of its deployment provisioner."""
 
     runtime_id: str
     tenant_id: str
     owner_user_id: str
-    driver: str | None = None
+    provisioner: str | None = None
     host: str = "127.0.0.1"
     port: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -39,7 +39,7 @@ class RuntimeRecord:
     runtime_id: str
     tenant_id: str
     owner_user_id: str
-    driver: str
+    provisioner: str
     host: str
     port: int
     state: RuntimeState

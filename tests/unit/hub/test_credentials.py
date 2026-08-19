@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from qwenpaw.hub.credentials import TenantCredentialVault
-from qwenpaw.hub.local_driver import LocalProcessRuntimeDriver
+from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 
 
@@ -83,7 +83,7 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
         runtime_id="runtime-a",
         tenant_id="tenant-a",
         owner_user_id="user-a",
-        driver="local",
+        provisioner="local",
         host="127.0.0.1",
         port=9001,
         state=RuntimeState.CREATED,
@@ -93,7 +93,7 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
         log_file=tmp_path / "logs" / "app.log",
     )
 
-    environment = LocalProcessRuntimeDriver.runtime_environment(
+    environment = LocalProcessRuntimeProvisioner.runtime_environment(
         record,
         {"ANTHROPIC_API_KEY": "tenant-key"},
     )

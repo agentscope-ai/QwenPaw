@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runtime driver contract used by the QwenPaw Hub control plane."""
+"""Runtime provisioner contract used by the QwenPaw Hub control plane."""
 
 from __future__ import annotations
 
@@ -12,25 +12,25 @@ from .models import RuntimeRecord
 
 
 @dataclass(frozen=True)
-class RuntimeDriverAvailability:
-    """Describe whether a runtime driver can enforce its security boundary."""
+class RuntimeProvisionerAvailability:
+    """Describe whether a provisioner can enforce its security boundary."""
 
     available: bool
     reason: str | None = None
 
 
-class RuntimeDriverUnavailableError(RuntimeError):
-    """Raised when a runtime driver cannot enforce safe execution."""
+class RuntimeProvisionerUnavailableError(RuntimeError):
+    """Raised when a runtime provisioner cannot enforce safe execution."""
 
 
-class RuntimeDriver(ABC):
+class RuntimeProvisioner(ABC):
     """Manage runtime lifecycle without exposing deployment internals."""
 
     name: str
     security_level: str
 
     @abstractmethod
-    def preflight(self, root_dir: Path) -> RuntimeDriverAvailability:
+    def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         """Probe the real runtime boundary without launching QwenPaw."""
 
     @abstractmethod
@@ -51,4 +51,4 @@ class RuntimeDriver(ABC):
 
     @abstractmethod
     def close(self) -> None:
-        """Release all processes or connections owned by this driver."""
+        """Release all processes or connections owned by this provisioner."""

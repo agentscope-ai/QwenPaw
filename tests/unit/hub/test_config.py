@@ -29,8 +29,8 @@ control_plane:
   registration:
     enabled: false
 runtime:
-  default_driver: local
-  allowed_drivers: [local]
+  default_provisioner: local
+  allowed_provisioners: [local]
 tenant_defaults:
   max_runtimes: 3
   max_running_runtimes: 2
@@ -48,8 +48,8 @@ tenants:
         config.control_plane.public_base_url
         == "https://qwenpaw.example.com/root"
     )
-    assert config.default_driver == "local"
-    assert config.allowed_drivers == frozenset({"local"})
+    assert config.default_provisioner == "local"
+    assert config.allowed_provisioners == frozenset({"local"})
     assert config.quota_for("personal-user-a") == TenantQuota(
         max_runtimes=3,
         max_running_runtimes=1,
@@ -75,7 +75,7 @@ def test_no_config_uses_built_in_defaults() -> None:
             "greater than or equal to 0",
         ),
         (
-            "version: 1\nruntime:\n  allowed_drivers: []",
+            "version: 1\nruntime:\n  allowed_provisioners: []",
             "must not be empty",
         ),
         (
@@ -113,7 +113,7 @@ control_plane:
   registration:
     enabled: true
 runtime:
-  allowed_drivers: [local]
+  allowed_provisioners: [local]
 tenant_defaults:
   max_runtimes: 3
   max_running_runtimes: 2
@@ -126,7 +126,7 @@ tenant_defaults:
     loaded_from_disk = store.resolve(None)
 
     assert imported == loaded_from_disk
-    assert loaded_from_disk.allowed_drivers == frozenset({"local"})
+    assert loaded_from_disk.allowed_provisioners == frozenset({"local"})
     assert loaded_from_disk.tenant_defaults.max_runtimes == 3
     with sqlite3.connect(database) as connection:
         registration = connection.execute(
@@ -150,20 +150,23 @@ tenant_defaults:
     assert updated.tenant_defaults.max_running_runtimes == 1
 
 
-def test_config_store_does_not_persist_unavailable_driver(
+def test_config_store_does_not_persist_unavailable_provisioner(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "hub.yaml"
     config_path.write_text(
-        "version: 1\nruntime:\n  default_driver: docker",
+        "version: 1\nruntime:\n  default_provisioner: docker",
         encoding="utf-8",
     )
     store = HubConfigStore(tmp_path / "control.db")
 
-    with pytest.raises(ValueError, match="Unknown default runtime driver"):
-        store.resolve(config_path, available_drivers={"local"})
+    with pytest.raises(
+        ValueError,
+        match="Unknown default runtime provisioner",
+    ):
+        store.resolve(config_path, available_provisioners={"local"})
 
-    assert store.resolve(None).default_driver == "local"
+    assert store.resolve(None).default_provisioner == "local"
 
 
 def test_public_base_url_rejects_query_and_fragment() -> None:

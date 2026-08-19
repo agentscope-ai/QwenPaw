@@ -46,7 +46,7 @@ class RuntimeRegistry:
                     runtime_id TEXT PRIMARY KEY,
                     tenant_id TEXT NOT NULL,
                     owner_user_id TEXT NOT NULL,
-                    driver TEXT NOT NULL,
+                    provisioner TEXT NOT NULL,
                     host TEXT NOT NULL,
                     port INTEGER NOT NULL,
                     state TEXT NOT NULL,
@@ -82,7 +82,8 @@ class RuntimeRegistry:
             connection.execute(
                 """
                 INSERT INTO runtimes(
-                    runtime_id, tenant_id, owner_user_id, driver, host, port,
+                    runtime_id, tenant_id, owner_user_id, provisioner,
+                    host, port,
                     state, pid, working_dir, secret_dir, backup_dir, log_file,
                     created_at, updated_at, last_error, metadata_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -103,7 +104,8 @@ class RuntimeRegistry:
             cursor = connection.execute(
                 """
                 UPDATE runtimes SET
-                    tenant_id = ?, owner_user_id = ?, driver = ?, host = ?,
+                    tenant_id = ?, owner_user_id = ?, provisioner = ?,
+                    host = ?,
                     port = ?, state = ?, pid = ?, working_dir = ?,
                     secret_dir = ?, backup_dir = ?, log_file = ?,
                     created_at = ?, updated_at = ?, last_error = ?,
@@ -156,7 +158,7 @@ class RuntimeRegistry:
             record.runtime_id,
             record.tenant_id,
             record.owner_user_id,
-            record.driver,
+            record.provisioner,
             record.host,
             record.port,
             record.state.value,
@@ -177,7 +179,7 @@ class RuntimeRegistry:
             runtime_id=str(row["runtime_id"]),
             tenant_id=str(row["tenant_id"]),
             owner_user_id=str(row["owner_user_id"]),
-            driver=str(row["driver"]),
+            provisioner=str(row["provisioner"]),
             host=str(row["host"]),
             port=int(row["port"]),
             state=RuntimeState(str(row["state"])),
