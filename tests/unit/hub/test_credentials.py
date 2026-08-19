@@ -2,6 +2,7 @@
 """Tests for tenant-qualified QwenPaw Hub credential storage."""
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,41 @@ def test_windows_runtime_keeps_required_system_drive(
     )
 
     assert environment["SYSTEMDRIVE"] == "C:"
+
+
+def test_windows_runtime_redirects_user_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("USERPROFILE", "C:\\Users\\control-plane")
+    monkeypatch.setenv("APPDATA", "C:\\Users\\control-plane\\AppData")
+    record = RuntimeRecord(
+        runtime_id="runtime-a",
+        tenant_id="tenant-a",
+        owner_user_id="user-a",
+        provisioner="local",
+        host="127.0.0.1",
+        port=9001,
+        state=RuntimeState.CREATED,
+        working_dir=tmp_path / "working",
+        secret_dir=tmp_path / "secrets",
+        backup_dir=tmp_path / "backups",
+        log_file=tmp_path / "logs" / "app.log",
+    )
+
+    environment = LocalProcessRuntimeProvisioner.runtime_environment(
+        record,
+        {},
+    )
+
+    assert environment["USERPROFILE"] == str(record.working_dir)
+    assert environment["APPDATA"] == str(
+        record.working_dir / "appdata" / "roaming",
+    )
+    assert environment["LOCALAPPDATA"] == str(
+        record.working_dir / "appdata" / "local",
+    )
 
 
 @pytest.mark.parametrize(

@@ -93,6 +93,9 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 )
                 for path in (
                     record.working_dir,
+                    record.working_dir / "tmp",
+                    record.working_dir / "appdata" / "roaming",
+                    record.working_dir / "appdata" / "local",
                     record.secret_dir,
                     record.backup_dir,
                     record.log_file.parent,
@@ -142,6 +145,8 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         for path in (
             record.working_dir,
             record.working_dir / "tmp",
+            record.working_dir / "appdata" / "roaming",
+            record.working_dir / "appdata" / "local",
             record.secret_dir,
             record.backup_dir,
             record.log_file.parent,
@@ -323,6 +328,26 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             "WINDIR",
             "COMSPEC",
             "PATHEXT",
+            "ALLUSERSPROFILE",
+            "COMMONPROGRAMFILES",
+            "COMMONPROGRAMFILES(X86)",
+            "COMMONPROGRAMW6432",
+            "COMPUTERNAME",
+            "DRIVERDATA",
+            "NUMBER_OF_PROCESSORS",
+            "OS",
+            "PROCESSOR_ARCHITECTURE",
+            "PROCESSOR_IDENTIFIER",
+            "PROCESSOR_LEVEL",
+            "PROCESSOR_REVISION",
+            "PROGRAMDATA",
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "PROGRAMW6432",
+            "PSMODULEPATH",
+            "PUBLIC",
+            "USERDOMAIN",
+            "USERNAME",
             "TEMP",
             "TMP",
             "TMPDIR",
@@ -353,6 +378,18 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         environment["TMP"] = str(record.working_dir / "tmp")
         environment["TEMP"] = str(record.working_dir / "tmp")
         environment["TMPDIR"] = str(record.working_dir / "tmp")
+        if sys.platform == "win32":
+            working_dir = str(record.working_dir)
+            drive, home_path = os.path.splitdrive(working_dir)
+            environment["USERPROFILE"] = working_dir
+            environment["HOMEDRIVE"] = drive
+            environment["HOMEPATH"] = home_path
+            environment["APPDATA"] = str(
+                record.working_dir / "appdata" / "roaming",
+            )
+            environment["LOCALAPPDATA"] = str(
+                record.working_dir / "appdata" / "local",
+            )
         environment["QWENPAW_WORKING_DIR"] = str(record.working_dir)
         environment["QWENPAW_SECRET_DIR"] = str(record.secret_dir)
         environment["QWENPAW_BACKUP_DIR"] = str(record.backup_dir)
