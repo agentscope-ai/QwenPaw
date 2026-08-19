@@ -52,6 +52,10 @@ class TenantCredentialVault:
                 )
                 """,
             )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_credentials_tenant_updated "
+                "ON tenant_credentials(tenant_id, updated_at DESC)",
+            )
 
     def put(
         self,
@@ -129,6 +133,51 @@ class TenantCredentialVault:
             }
             for row in rows
         ]
+
+    def list_metadata_page(
+        self,
+        *,
+        tenant_id: str,
+        page: int,
+        page_size: int,
+        query: str | None = None,
+        scope: str | None = None,
+    ) -> tuple[list[dict[str, str]], int]:
+        """Return one filtered credential metadata page."""
+        clauses = ["tenant_id = ?"]
+        parameters: list[object] = [tenant_id]
+        if query:
+            clauses.append(
+                "(credential_name LIKE ? OR scope LIKE ?)",
+            )
+            pattern = f"%{query}%"
+            parameters.extend([pattern, pattern])
+        if scope:
+            clauses.append("scope = ?")
+            parameters.append(scope)
+        where = f" WHERE {' AND '.join(clauses)}"
+        with self._connect() as connection:
+            total_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM tenant_credentials" f"{where}",
+                parameters,
+            ).fetchone()
+            rows = connection.execute(
+                "SELECT scope, credential_name, created_at, updated_at "
+                f"FROM tenant_credentials{where} "
+                "ORDER BY updated_at DESC, scope, credential_name "
+                "LIMIT ? OFFSET ?",
+                (*parameters, page_size, (page - 1) * page_size),
+            ).fetchall()
+        items = [
+            {
+                "scope": str(row["scope"]),
+                "name": str(row["credential_name"]),
+                "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
+            }
+            for row in rows
+        ]
+        return items, int(total_row["count"])
 
     def delete(self, *, tenant_id: str, scope: str, name: str) -> None:
         """Delete one exact tenant-qualified credential."""

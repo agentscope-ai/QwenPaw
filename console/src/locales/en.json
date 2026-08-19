@@ -3440,12 +3440,16 @@
   "hub": {
     "brand": {
       "title": "Hub administration",
-      "subtitle": "Local workspace"
+      "subtitle": "Local workspace",
+      "controlPlane": "Control plane"
     },
     "navigation": {
+      "workspace": "Workspace",
+      "overview": "Operations",
       "runtimes": "Runtimes",
       "users": "Users",
-      "credentials": "Credentials"
+      "credentials": "Credentials",
+      "audit": "Audit log"
     },
     "actions": {
       "backToQwenPaw": "Back to QwenPaw",
@@ -3509,7 +3513,8 @@
       "unavailableDescription": "{{provisioner}} cannot start safely: {{reason}} Install or configure a supported sandbox, then restart QwenPaw Hub.",
       "preflightFailed": "Security preflight failed.",
       "localEndpoint": "Local endpoint · {{endpoint}}",
-      "provisioner": "Provisioner",
+      "provisioner": "Execution type",
+      "localExecution": "Local isolation",
       "security": "Security",
       "tenant": "Tenant",
       "removeTitle": "Remove {{id}}?",
@@ -3523,7 +3528,8 @@
       "description": "Create local accounts, assign administrative access and revoke sessions from one place.",
       "addAccount": "Add account",
       "publicRegistration": "Public registration",
-      "publicRegistrationDescription": "When disabled, only administrators can create accounts."
+      "publicRegistrationDescription": "When disabled, only administrators can create accounts.",
+      "empty": "No users match these filters"
     },
     "credentials": {
       "eyebrow": "Tenant-scoped vault",
@@ -3534,7 +3540,92 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteDescription": "Runtimes using this credential may stop working.",
       "emptyTitle": "Vault is empty",
-      "emptyDescription": "Store a tenant or runtime-scoped API key."
+      "emptyDescription": "Store a tenant or runtime-scoped API key.",
+      "encrypted": "Encrypted at rest; plaintext cannot be read"
+    },
+    "overview": {
+      "eyebrow": "Operations cockpit",
+      "title": "Hub operations overview",
+      "description": "Understand Hub health using real runtime state, host resources and audit events.",
+      "availability": "Runtime availability",
+      "availabilityDetail": "{{running}} of {{total}} runtimes are currently online",
+      "totalRuntimes": "Total runtimes",
+      "failedCount": "{{count}} runtimes need attention",
+      "totalUsers": "Hub users",
+      "managedLocally": "Local identity and access management",
+      "hostResources": "Host resources",
+      "liveSnapshot": "Current live snapshot",
+      "memory": "Memory",
+      "dataDisk": "Data disk",
+      "recentActivity": "Recent activity",
+      "auditBacked": "Backed by the persistent audit log",
+      "systemHealthy": "All systems operational",
+      "systemDegraded": "System degraded",
+      "localIsolation": "Local isolated execution"
+    },
+    "table": {
+      "searchRuntimes": "Search runtimes, owners or endpoints",
+      "searchUsers": "Search usernames or user IDs",
+      "searchCredentials": "Search credential names or scopes",
+      "searchAudit": "Search actors or resources",
+      "allStates": "All states",
+      "allOwners": "All owners",
+      "allExecutions": "All execution types",
+      "allRoles": "All roles",
+      "allUserStates": "All user states",
+      "allScopes": "All scopes",
+      "allActions": "All actions",
+      "runtime": "Runtime",
+      "status": "Status",
+      "owner": "Owner",
+      "endpoint": "Endpoint",
+      "execution": "Execution",
+      "updated": "Updated",
+      "user": "User",
+      "role": "Role",
+      "created": "Created",
+      "credential": "Credential",
+      "scope": "Scope",
+      "event": "Event",
+      "actor": "Actor",
+      "resource": "Resource",
+      "result": "Result",
+      "time": "Time",
+      "total": "{{total}} items"
+    },
+    "audit": {
+      "eyebrow": "Security and governance",
+      "title": "Audit log",
+      "description": "Review who performed each Hub management action, its target, result and time. Sensitive values are never audited.",
+      "empty": "No management events yet"
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "Created runtime",
+        "start": "Started runtime",
+        "stop": "Stopped runtime",
+        "delete": "Deleted runtime"
+      },
+      "user": {
+        "create": "Created user",
+        "update": "Updated user"
+      },
+      "credential": {
+        "store": "Stored credential",
+        "delete": "Deleted credential"
+      },
+      "settings": {
+        "registration": {
+          "update": "Updated registration policy"
+        }
+      },
+      "auth": {
+        "register": "Registered Hub user"
+      }
+    },
+    "auditOutcomes": {
+      "success": "Success",
+      "failure": "Failure"
     },
     "runtimeForm": {
       "title": "Create runtime",

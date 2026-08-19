@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -61,6 +62,18 @@ class RuntimeRegistry:
                     metadata_json TEXT NOT NULL
                 )
                 """,
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runtimes_owner_created "
+                "ON runtimes(owner_user_id, created_at DESC)",
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runtimes_state "
+                "ON runtimes(state)",
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runtimes_provisioner "
+                "ON runtimes(provisioner)",
             )
             connection.execute(
                 "INSERT OR REPLACE INTO schema_meta(key, value) "
@@ -141,6 +154,78 @@ class RuntimeRegistry:
                     (owner_user_id,),
                 ).fetchall()
         return [self._from_row(row) for row in rows]
+
+    def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        owner_user_id: str | None = None,
+        query: str | None = None,
+        state: RuntimeState | None = None,
+        provisioner: str | None = None,
+        owner: str | None = None,
+    ) -> tuple[builtins.list[RuntimeRecord], int]:
+        """Return one filtered runtime page and the matching total."""
+        clauses: list[str] = []
+        parameters: list[object] = []
+        if owner_user_id is not None:
+            clauses.append("owner_user_id = ?")
+            parameters.append(owner_user_id)
+        if query:
+            clauses.append(
+                "(runtime_id LIKE ? OR tenant_id LIKE ? "
+                "OR owner_user_id LIKE ? OR host LIKE ?)",
+            )
+            pattern = f"%{query}%"
+            parameters.extend([pattern, pattern, pattern, pattern])
+        if state is not None:
+            clauses.append("state = ?")
+            parameters.append(state.value)
+        if provisioner:
+            clauses.append("provisioner = ?")
+            parameters.append(provisioner)
+        if owner:
+            clauses.append("owner_user_id LIKE ?")
+            parameters.append(f"%{owner}%")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as connection:
+            total_row = connection.execute(
+                f"SELECT COUNT(*) AS count FROM runtimes{where}",
+                parameters,
+            ).fetchone()
+            rows = connection.execute(
+                f"SELECT * FROM runtimes{where} "
+                "ORDER BY created_at DESC, runtime_id "
+                "LIMIT ? OFFSET ?",
+                (*parameters, page_size, (page - 1) * page_size),
+            ).fetchall()
+        return (
+            [self._from_row(row) for row in rows],
+            int(total_row["count"]),
+        )
+
+    def count_by_state(
+        self,
+        owner_user_id: str | None = None,
+    ) -> dict[str, int]:
+        """Return runtime totals grouped by persisted lifecycle state."""
+        parameters: tuple[object, ...] = ()
+        where = ""
+        if owner_user_id is not None:
+            where = " WHERE owner_user_id = ?"
+            parameters = (owner_user_id,)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT state, COUNT(*) AS count FROM runtimes"
+                f"{where} GROUP BY state",
+                parameters,
+            ).fetchall()
+        counts = {state.value: 0 for state in RuntimeState}
+        counts.update(
+            {str(row["state"]): int(row["count"]) for row in rows},
+        )
+        return counts
 
     def delete(self, runtime_id: str) -> None:
         """Delete registration without deleting runtime data."""

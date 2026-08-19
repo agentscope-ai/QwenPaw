@@ -281,14 +281,14 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             "/api/hub/runtimes",
             headers=_headers(user_token),
         )
-        assert [item["runtime_id"] for item in user_list.json()] == [
+        assert [item["runtime_id"] for item in user_list.json()["items"]] == [
             "member-runtime",
         ]
         admin_list = client.get(
             "/api/hub/runtimes",
             headers=_headers(admin_token),
         )
-        assert {item["runtime_id"] for item in admin_list.json()} == {
+        assert {item["runtime_id"] for item in admin_list.json()["items"]} == {
             "admin-runtime",
             "member-runtime",
         }
@@ -319,7 +319,7 @@ def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:
             headers=_headers(token),
         )
         assert listed.status_code == 200
-        assert listed.json()[0]["name"] == "OPENAI_API_KEY"
+        assert listed.json()["items"][0]["name"] == "OPENAI_API_KEY"
         assert "private-value" not in listed.text
 
 
@@ -348,10 +348,94 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
             "/api/hub/runtimes",
             headers=_headers(token),
         ).json()
-        assert len(runtimes) == 1
-        assert runtimes[0]["state"] == "running"
-        assert runtimes[0]["owner_user_id"]
-        assert runtimes[0]["metadata"]["hub_default"] is True
+        assert runtimes["total"] == 1
+        assert runtimes["items"][0]["state"] == "running"
+        assert runtimes["items"][0]["owner_user_id"]
+        assert runtimes["items"][0]["metadata"]["hub_default"] is True
+
+
+def test_hub_lists_use_server_side_pagination_and_filters(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        for index in range(4):
+            created = client.post(
+                "/api/hub/runtimes",
+                json={"runtime_id": f"runtime-{index}"},
+                headers=_headers(token),
+            )
+            assert created.status_code == 201
+        client.post(
+            "/api/hub/runtimes/runtime-3/start",
+            headers=_headers(token),
+        )
+
+        page = client.get(
+            "/api/hub/runtimes?page=2&page_size=2",
+            headers=_headers(token),
+        )
+        filtered = client.get(
+            "/api/hub/runtimes?q=runtime-3&state=running",
+            headers=_headers(token),
+        )
+
+        assert page.status_code == 200
+        assert page.json()["total"] == 4
+        assert page.json()["pages"] == 2
+        assert len(page.json()["items"]) == 2
+        assert filtered.json()["total"] == 1
+        assert filtered.json()["items"][0]["runtime_id"] == "runtime-3"
+
+
+def test_operations_overview_and_audit_are_real_and_sanitized(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        stored = client.put(
+            "/api/hub/credentials",
+            json={
+                "scope": "tenant",
+                "name": "OPENAI_API_KEY",
+                "value": "must-never-be-audited",
+            },
+            headers=_headers(token),
+        )
+        created = client.post(
+            "/api/hub/runtimes",
+            json={"runtime_id": "audited-runtime"},
+            headers=_headers(token),
+        )
+
+        overview = client.get(
+            "/api/hub/admin/overview",
+            headers=_headers(token),
+        )
+        audit = client.get(
+            "/api/hub/admin/audit?page_size=10",
+            headers=_headers(token),
+        )
+
+        assert stored.status_code == 204
+        assert created.status_code == 201
+        assert overview.status_code == 200
+        assert overview.json()["total_runtimes"] == 1
+        assert overview.json()["runtime_counts"]["created"] == 1
+        assert overview.json()["total_users"] == 1
+        assert set(overview.json()["host"]) == {
+            "cpu_percent",
+            "memory_percent",
+            "disk_percent",
+        }
+        assert audit.status_code == 200
+        assert audit.json()["total"] == 3
+        assert "must-never-be-audited" not in audit.text
+        assert {event["action"] for event in audit.json()["items"]} == {
+            "auth.register",
+            "credential.store",
+            "runtime.create",
+        }
 
 
 @pytest.mark.parametrize(

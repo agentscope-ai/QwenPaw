@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import builtins
 import re
 import threading
 from collections.abc import Callable, Mapping
@@ -113,6 +114,32 @@ class RuntimeService:
             self.status(record.runtime_id)
             for record in self.registry.list(owner_user_id)
         ]
+
+    def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        owner_user_id: str | None = None,
+        query: str | None = None,
+        state: RuntimeState | None = None,
+        provisioner: str | None = None,
+        owner: str | None = None,
+    ) -> tuple[builtins.list[RuntimeRecord], int]:
+        """Refresh only one filtered page of runtime records."""
+        records, total = self.registry.list_page(
+            page=page,
+            page_size=page_size,
+            owner_user_id=owner_user_id,
+            query=query,
+            state=state,
+            provisioner=provisioner,
+            owner=owner,
+        )
+        return (
+            [self.status(record.runtime_id) for record in records],
+            total,
+        )
 
     def get(self, runtime_id: str) -> RuntimeRecord:
         """Return a runtime or raise KeyError."""

@@ -57,3 +57,29 @@ def test_last_active_admin_cannot_be_disabled_or_demoted(
         auth.update_user(admin.user_id, disabled=True)
     with pytest.raises(ValueError, match="last active administrator"):
         auth.update_user(admin.user_id, role="user")
+
+
+def test_user_pages_filter_without_loading_all_accounts(
+    tmp_path: Path,
+) -> None:
+    auth = _auth_service(tmp_path)
+    auth.register("owner", "safe-password")
+    for index in range(5):
+        auth.create_user(
+            username=f"member-{index}",
+            password="safe-password",
+            role="admin" if index == 4 else "user",
+        )
+
+    users, total = auth.list_users_page(page=2, page_size=2)
+    admins, admin_total = auth.list_users_page(
+        page=1,
+        page_size=10,
+        query="member",
+        role="admin",
+    )
+
+    assert total == 6
+    assert len(users) == 2
+    assert admin_total == 1
+    assert admins[0].username == "member-4"

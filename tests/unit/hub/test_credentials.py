@@ -103,3 +103,37 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
     assert environment["ANTHROPIC_API_KEY"] == "tenant-key"
     assert environment["QWENPAW_TENANT_ID"] == "tenant-a"
     assert environment.get("PATH") == os.environ.get("PATH")
+
+
+def test_credential_metadata_pages_are_tenant_scoped_and_filterable(
+    tmp_path: Path,
+) -> None:
+    vault = TenantCredentialVault(
+        tmp_path / "control.db",
+        tmp_path / ".vault_key",
+    )
+    for index in range(5):
+        vault.put(
+            tenant_id="tenant-a",
+            scope="tenant" if index < 3 else "runtime:runtime-a",
+            name=f"API_KEY_{index}",
+            value=f"secret-{index}",
+        )
+    vault.put(
+        tenant_id="tenant-b",
+        scope="tenant",
+        name="API_KEY_OTHER",
+        value="other-secret",
+    )
+
+    items, total = vault.list_metadata_page(
+        tenant_id="tenant-a",
+        page=1,
+        page_size=2,
+        scope="runtime:runtime-a",
+    )
+
+    assert total == 2
+    assert len(items) == 2
+    assert {item["name"] for item in items} == {"API_KEY_3", "API_KEY_4"}
+    assert "secret" not in str(items)

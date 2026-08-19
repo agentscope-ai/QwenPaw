@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -35,6 +35,7 @@ from .provisioner import RuntimeProvisionerUnavailableError
 from .local_provisioner import LocalProcessRuntimeProvisioner
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 from .oauth_relay import OAuthRelayStore
+from .operations import HubOperationsStore
 from .registry import RuntimeRegistry
 from .service import RuntimeService
 
@@ -170,6 +171,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         credential_vault,
     )
+    operations = HubOperationsStore(
+        runtime_service.registry.database_path,
+        runtime_service.root_dir,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -182,6 +187,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     app.state.runtime_service = runtime_service
     app.state.auth_service = hub_auth
     app.state.hub_config = effective_config
+    app.state.operations = operations
     oauth_relays = OAuthRelayStore()
     app.state.oauth_relays = oauth_relays
 
@@ -220,6 +226,23 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     def personal_tenant_id(user: HubUser) -> str:
         return f"personal-{user.user_id}"
+
+    async def record_audit(
+        user: HubUser,
+        action: str,
+        resource_type: str,
+        resource_id: str,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        await run_in_threadpool(
+            operations.record,
+            actor_user_id=user.user_id,
+            actor_username=user.username,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            detail=detail,
+        )
 
     async def ensure_personal_runtime(user: HubUser) -> RuntimeRecord:
         try:
@@ -337,6 +360,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await record_audit(
+            user,
+            "auth.register",
+            "user",
+            user.user_id,
+            {"role": user.role},
+        )
         return {
             "token": token,
             "username": user.username,
@@ -378,14 +408,34 @@ def create_hub_app(  # pylint: disable=too-many-statements
     @app.get("/api/hub/admin/users")
     async def list_users(
         _: HubUser = Depends(require_admin),
-    ) -> list[dict[str, object]]:
-        users = await run_in_threadpool(hub_auth.list_users)
-        return [user.to_dict() for user in users]
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=20, ge=1, le=100),
+        query: str | None = Query(default=None, alias="q", max_length=128),
+        role: str | None = Query(default=None),
+        disabled: bool | None = Query(default=None),
+    ) -> dict[str, object]:
+        try:
+            users, total = await run_in_threadpool(
+                hub_auth.list_users_page,
+                page=page,
+                page_size=page_size,
+                query=query,
+                role=role,
+                disabled=disabled,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _page_payload(
+            [listed_user.to_dict() for listed_user in users],
+            page,
+            page_size,
+            total,
+        )
 
     @app.post("/api/hub/admin/users", status_code=201)
     async def create_user(
         body: AdminUserCreateBody,
-        _: HubUser = Depends(require_admin),
+        admin: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
         try:
             user = await run_in_threadpool(
@@ -396,13 +446,20 @@ def create_hub_app(  # pylint: disable=too-many-statements
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await record_audit(
+            admin,
+            "user.create",
+            "user",
+            user.user_id,
+            {"role": user.role, "username": user.username},
+        )
         return user.to_dict()
 
     @app.patch("/api/hub/admin/users/{user_id}")
     async def patch_user(
         user_id: str,
         body: AdminUserPatchBody,
-        _: HubUser = Depends(require_admin),
+        admin: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
         try:
             user = await run_in_threadpool(
@@ -418,6 +475,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
             ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await record_audit(
+            admin,
+            "user.update",
+            "user",
+            user_id,
+            {"disabled": user.disabled, "role": user.role},
+        )
         return user.to_dict()
 
     @app.get("/api/hub/admin/settings/registration")
@@ -429,21 +493,42 @@ def create_hub_app(  # pylint: disable=too-many-statements
     @app.put("/api/hub/admin/settings/registration")
     async def update_registration_settings(
         body: RegistrationSettingsBody,
-        _: HubUser = Depends(require_admin),
+        admin: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
         await run_in_threadpool(
             hub_auth.set_registration_enabled,
             body.enabled,
+        )
+        await record_audit(
+            admin,
+            "settings.registration.update",
+            "setting",
+            "registration_enabled",
+            {"enabled": body.enabled},
         )
         return await run_in_threadpool(hub_auth.registration_setting)
 
     @app.get("/api/hub/credentials")
     async def list_credentials(
         user: HubUser = Depends(require_user),
-    ) -> list[dict[str, str]]:
-        return await run_in_threadpool(
-            credential_vault.list_metadata,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=20, ge=1, le=100),
+        query: str | None = Query(default=None, alias="q", max_length=128),
+        scope: str | None = Query(default=None, max_length=128),
+    ) -> dict[str, object]:
+        items, total = await run_in_threadpool(
+            credential_vault.list_metadata_page,
             tenant_id=personal_tenant_id(user),
+            page=page,
+            page_size=page_size,
+            query=query,
+            scope=scope,
+        )
+        return _page_payload(
+            items,
+            page,
+            page_size,
+            total,
         )
 
     @app.put("/api/hub/credentials", status_code=204)
@@ -462,6 +547,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await record_audit(
+            user,
+            "credential.store",
+            "credential",
+            f"{body.scope}:{body.name}",
+        )
 
     @app.delete("/api/hub/credentials/{scope}/{name}", status_code=204)
     async def delete_credential(
@@ -482,19 +573,38 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=404,
                 detail="Credential not found",
             ) from exc
+        await record_audit(
+            user,
+            "credential.delete",
+            "credential",
+            f"{scope}:{name}",
+        )
 
     @app.get("/api/hub/runtimes")
     async def list_runtimes(
         user: HubUser = Depends(require_user),
-    ) -> list[dict[str, Any]]:
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=20, ge=1, le=100),
+        query: str | None = Query(default=None, alias="q", max_length=128),
+        state: RuntimeState | None = Query(default=None),
+        provisioner: str | None = Query(default=None, max_length=64),
+        owner: str | None = Query(default=None, max_length=128),
+    ) -> dict[str, object]:
         owner_user_id = None if user.is_admin else user.user_id
-        records = await run_in_threadpool(
-            runtime_service.list,
-            owner_user_id,
+        records, total = await run_in_threadpool(
+            runtime_service.list_page,
+            page=page,
+            page_size=page_size,
+            owner_user_id=owner_user_id,
+            query=query,
+            state=state,
+            provisioner=provisioner,
+            owner=owner if user.is_admin else None,
         )
-        return [
+        items = [
             _runtime_payload(runtime_service, record) for record in records
         ]
+        return _page_payload(items, page, page_size, total)
 
     @app.post("/api/hub/runtimes", status_code=201)
     async def create_runtime(
@@ -519,6 +629,16 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     runtime_service.start,
                     body.runtime_id,
                 )
+            await record_audit(
+                user,
+                "runtime.create",
+                "runtime",
+                record.runtime_id,
+                {
+                    "auto_start": body.auto_start,
+                    "provisioner": record.provisioner,
+                },
+            )
             return _runtime_payload(runtime_service, record)
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -567,6 +687,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        await record_audit(
+            user,
+            "runtime.start",
+            "runtime",
+            runtime_id,
+        )
         return _runtime_payload(runtime_service, record)
 
     @app.post("/api/hub/runtimes/{runtime_id}/stop")
@@ -585,6 +711,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=404,
                 detail="Runtime not found",
             ) from exc
+        await record_audit(
+            user,
+            "runtime.stop",
+            "runtime",
+            runtime_id,
+        )
         return _runtime_payload(runtime_service, record)
 
     @app.delete("/api/hub/runtimes/{runtime_id}", status_code=204)
@@ -602,6 +734,53 @@ def create_hub_app(  # pylint: disable=too-many-statements
             ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await record_audit(
+            user,
+            "runtime.delete",
+            "runtime",
+            runtime_id,
+        )
+
+    @app.get("/api/hub/admin/overview")
+    async def operations_overview(
+        _: HubUser = Depends(require_admin),
+    ) -> dict[str, object]:
+        runtime_counts = await run_in_threadpool(
+            runtime_service.registry.count_by_state,
+        )
+        host = await run_in_threadpool(operations.host_metrics)
+        recent_events, _ = await run_in_threadpool(
+            operations.list_events,
+            page=1,
+            page_size=5,
+        )
+        return {
+            "runtime_counts": runtime_counts,
+            "total_runtimes": sum(runtime_counts.values()),
+            "total_users": await run_in_threadpool(hub_auth.user_count),
+            "runtime_available": runtime_service.runtime_available(),
+            "host": host,
+            "recent_events": recent_events,
+        }
+
+    @app.get("/api/hub/admin/audit")
+    async def list_audit_events(
+        _: HubUser = Depends(require_admin),
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=20, ge=1, le=100),
+        query: str | None = Query(default=None, alias="q", max_length=128),
+        action: str | None = Query(default=None, max_length=128),
+        outcome: str | None = Query(default=None, max_length=32),
+    ) -> dict[str, object]:
+        events, total = await run_in_threadpool(
+            operations.list_events,
+            page=page,
+            page_size=page_size,
+            query=query,
+            action=action,
+            outcome=outcome,
+        )
+        return _page_payload(events, page, page_size, total)
 
     @app.get(
         "/api/hub/oauth/callback/{relay_token}",
@@ -830,6 +1009,22 @@ def _runtime_payload(
     payload["endpoint"] = f"http://{record.host}:{record.port}"
     payload["security_level"] = service.security_level(record.provisioner)
     return payload
+
+
+def _page_payload(
+    items: list[Any],
+    page: int,
+    page_size: int,
+    total: int,
+) -> dict[str, object]:
+    """Return the shared Hub pagination envelope."""
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "pages": max(1, (total + page_size - 1) // page_size),
+    }
 
 
 def run_hub_app(

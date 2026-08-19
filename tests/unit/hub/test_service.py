@@ -24,6 +24,7 @@ class _FakeProvisioner(RuntimeProvisioner):
 
     def __init__(self, available: bool = True) -> None:
         self.available = available
+        self.status_calls = 0
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         del root_dir
@@ -44,6 +45,7 @@ class _FakeProvisioner(RuntimeProvisioner):
         return replace(record, state=RuntimeState.STOPPED, pid=None)
 
     def status(self, record: RuntimeRecord) -> RuntimeRecord:
+        self.status_calls += 1
         return record
 
     def close(self) -> None:
@@ -135,3 +137,22 @@ def test_provisioner_policy_fails_closed_at_startup(tmp_path: Path) -> None:
         match="Unknown default runtime provisioner",
     ):
         _service(tmp_path, config)
+
+
+def test_runtime_page_refreshes_only_returned_records(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
+    for index in range(5):
+        service.create(_spec(f"runtime-{index}"))
+
+    records, total = service.list_page(
+        page=2,
+        page_size=2,
+        query="runtime",
+        state=RuntimeState.CREATED,
+    )
+
+    assert total == 5
+    assert len(records) == 2
+    provisioner = service.provisioners["local"]
+    assert isinstance(provisioner, _FakeProvisioner)
+    assert provisioner.status_calls == 2

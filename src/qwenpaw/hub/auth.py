@@ -101,6 +101,10 @@ class HubAuthService:
                 """,
             )
             connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hub_users_role_disabled "
+                "ON hub_users(role, disabled)",
+            )
+            connection.execute(
                 "INSERT OR IGNORE INTO hub_settings(key, value) "
                 "VALUES ('registration_enabled', 'false')",
             )
@@ -301,6 +305,47 @@ class HubAuthService:
                 "SELECT * FROM hub_users ORDER BY created_at, username",
             ).fetchall()
         return [self._user_from_row(row) for row in rows]
+
+    def list_users_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        query: str | None = None,
+        role: str | None = None,
+        disabled: bool | None = None,
+    ) -> tuple[list[HubUser], int]:
+        """Return one filtered account page and the matching total."""
+        clauses: list[str] = []
+        parameters: list[object] = []
+        if query:
+            clauses.append("(username LIKE ? OR user_id LIKE ?)")
+            pattern = f"%{query}%"
+            parameters.extend([pattern, pattern])
+        if role:
+            if role not in {"admin", "user"}:
+                raise ValueError(f"Invalid role: {role}")
+            clauses.append("role = ?")
+            parameters.append(role)
+        if disabled is not None:
+            clauses.append("disabled = ?")
+            parameters.append(int(disabled))
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as connection:
+            total_row = connection.execute(
+                f"SELECT COUNT(*) AS count FROM hub_users{where}",
+                parameters,
+            ).fetchone()
+            rows = connection.execute(
+                f"SELECT * FROM hub_users{where} "
+                "ORDER BY created_at DESC, username "
+                "LIMIT ? OFFSET ?",
+                (*parameters, page_size, (page - 1) * page_size),
+            ).fetchall()
+        return (
+            [self._user_from_row(row) for row in rows],
+            int(total_row["count"]),
+        )
 
     def get_user(self, user_id: str) -> HubUser | None:
         with self._connect() as connection:

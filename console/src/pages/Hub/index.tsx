@@ -1,20 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { App, Button, Form, Input, Modal, Select, Switch, Tag } from "antd";
+import {
+  App,
+  Button,
+  Form,
+  Input,
+  Modal,
+  Pagination,
+  Progress,
+  Select,
+  Skeleton,
+  Switch,
+  Tag,
+} from "antd";
 import {
   Activity,
-  CircleAlert,
+  BellRing,
+  Box,
+  Boxes,
+  ChartNoAxesCombined,
   CircleStop,
+  Gauge,
+  HardDrive,
   House,
   KeyRound,
+  ListFilter,
   LogOut,
+  MemoryStick,
   Moon,
   Play,
   Plus,
-  Server,
-  ShieldCheck,
+  RefreshCw,
+  ScrollText,
+  Search,
   Sun,
   Trash2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { clearAuthToken } from "../../api/config";
@@ -22,14 +43,25 @@ import LanguageSwitcher from "../../components/LanguageSwitcher";
 import { useTheme } from "../../contexts/ThemeContext";
 import {
   hubApi,
+  type HubAuditEvent,
   type HubCredential,
   type HubHealth,
+  type HubOverview,
   type HubRuntime,
   type HubUser,
 } from "../../api/modules/hub";
 import styles from "./index.module.less";
 
-type Section = "runtimes" | "users" | "credentials";
+type Section = "overview" | "runtimes" | "users" | "credentials" | "audit";
+
+interface PageData<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+const PAGE_SIZE = 20;
 
 const STATE_COLORS: Record<HubRuntime["state"], string> = {
   created: "default",
@@ -39,19 +71,37 @@ const STATE_COLORS: Record<HubRuntime["state"], string> = {
   failed: "error",
 };
 
+function emptyPage<T>(): PageData<T> {
+  return { items: [], page: 1, pageSize: PAGE_SIZE, total: 0 };
+}
+
 export default function HubPage() {
   const { message, modal } = App.useApp();
   const { t, i18n } = useTranslation();
   const { isDark, toggleTheme } = useTheme();
   const [me, setMe] = useState<HubUser | null>(null);
-  const [section, setSection] = useState<Section>("runtimes");
-  const [runtimes, setRuntimes] = useState<HubRuntime[]>([]);
-  const [users, setUsers] = useState<HubUser[]>([]);
-  const [credentials, setCredentials] = useState<HubCredential[]>([]);
   const [health, setHealth] = useState<HubHealth | null>(null);
-  const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [overview, setOverview] = useState<HubOverview | null>(null);
+  const [section, setSection] = useState<Section>("overview");
+  const [runtimes, setRuntimes] = useState<PageData<HubRuntime>>(emptyPage);
+  const [users, setUsers] = useState<PageData<HubUser>>(emptyPage);
+  const [credentials, setCredentials] =
+    useState<PageData<HubCredential>>(emptyPage);
+  const [audit, setAudit] = useState<PageData<HubAuditEvent>>(emptyPage);
+  const [runtimeQuery, setRuntimeQuery] = useState("");
+  const [runtimeState, setRuntimeState] = useState<string>();
+  const [runtimeOwner, setRuntimeOwner] = useState("");
+  const [runtimeExecution, setRuntimeExecution] = useState<string>();
+  const [userQuery, setUserQuery] = useState("");
+  const [userRole, setUserRole] = useState<string>();
+  const [userDisabled, setUserDisabled] = useState<string>();
+  const [credentialQuery, setCredentialQuery] = useState("");
+  const [credentialScope, setCredentialScope] = useState<string>();
+  const [auditQuery, setAuditQuery] = useState("");
+  const [auditAction, setAuditAction] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [credentialModalOpen, setCredentialModalOpen] = useState(false);
@@ -59,31 +109,102 @@ export default function HubPage() {
   const [userForm] = Form.useForm();
   const [credentialForm] = Form.useForm();
 
-  const loadRuntimes = useCallback(async () => {
-    setRuntimes(await hubApi.listRuntimes());
+  const loadOverview = useCallback(async () => {
+    setOverview(await hubApi.getOverview());
   }, []);
 
-  const loadUsers = useCallback(async () => {
-    const [nextUsers, registration] = await Promise.all([
-      hubApi.listUsers(),
-      hubApi.getRegistration(),
-    ]);
-    setUsers(nextUsers);
-    setRegistrationEnabled(registration.enabled);
-  }, []);
+  const loadRuntimes = useCallback(
+    async (page = 1) => {
+      const result = await hubApi.listRuntimes({
+        page,
+        pageSize: PAGE_SIZE,
+        query: runtimeQuery,
+        state: runtimeState as HubRuntime["state"] | undefined,
+        owner: runtimeOwner,
+        provisioner: runtimeExecution,
+      });
+      setRuntimes({
+        items: result.items,
+        page: result.page,
+        pageSize: result.page_size,
+        total: result.total,
+      });
+    },
+    [runtimeExecution, runtimeOwner, runtimeQuery, runtimeState],
+  );
 
-  const loadCredentials = useCallback(async () => {
-    setCredentials(await hubApi.listCredentials());
-  }, []);
+  const loadUsers = useCallback(
+    async (page = 1) => {
+      const [result, registration] = await Promise.all([
+        hubApi.listUsers({
+          page,
+          pageSize: PAGE_SIZE,
+          query: userQuery,
+          role: userRole as HubUser["role"] | undefined,
+          disabled:
+            userDisabled === undefined
+              ? undefined
+              : userDisabled === "disabled",
+        }),
+        hubApi.getRegistration(),
+      ]);
+      setUsers({
+        items: result.items,
+        page: result.page,
+        pageSize: result.page_size,
+        total: result.total,
+      });
+      setRegistrationEnabled(registration.enabled);
+    },
+    [userDisabled, userQuery, userRole],
+  );
+
+  const loadCredentials = useCallback(
+    async (page = 1) => {
+      const result = await hubApi.listCredentials({
+        page,
+        pageSize: PAGE_SIZE,
+        query: credentialQuery,
+        scope: credentialScope,
+      });
+      setCredentials({
+        items: result.items,
+        page: result.page,
+        pageSize: result.page_size,
+        total: result.total,
+      });
+    },
+    [credentialQuery, credentialScope],
+  );
+
+  const loadAudit = useCallback(
+    async (page = 1) => {
+      const result = await hubApi.listAuditEvents({
+        page,
+        pageSize: PAGE_SIZE,
+        query: auditQuery,
+        action: auditAction,
+      });
+      setAudit({
+        items: result.items,
+        page: result.page,
+        pageSize: result.page_size,
+        total: result.total,
+      });
+    },
+    [auditAction, auditQuery],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([hubApi.me(), hubApi.listRuntimes(), hubApi.getHealth()])
-      .then(([identity, runtimeList, runtimeHealth]) => {
+    Promise.all([hubApi.me(), hubApi.getHealth()])
+      .then(async ([identity, runtimeHealth]) => {
         if (cancelled) return;
         setMe(identity);
-        setRuntimes(runtimeList);
         setHealth(runtimeHealth);
+        if (identity.role !== "admin") {
+          setSection("runtimes");
+        }
       })
       .catch((error) => message.error(error.message))
       .finally(() => {
@@ -95,22 +216,58 @@ export default function HubPage() {
   }, [message]);
 
   useEffect(() => {
-    if (section === "users" && me?.role === "admin") {
-      loadUsers().catch((error) => message.error(error.message));
-    }
-    if (section === "credentials") {
-      loadCredentials().catch((error) => message.error(error.message));
-    }
-  }, [loadCredentials, loadUsers, me?.role, message, section]);
+    const timer = window.setTimeout(() => {
+      const request =
+        section === "overview" && me?.role === "admin"
+          ? loadOverview()
+          : section === "runtimes"
+          ? loadRuntimes(1)
+          : section === "users" && me?.role === "admin"
+          ? loadUsers(1)
+          : section === "credentials"
+          ? loadCredentials(1)
+          : section === "audit" && me?.role === "admin"
+          ? loadAudit(1)
+          : Promise.resolve();
+      request.catch((error) => message.error(error.message));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    credentialQuery,
+    credentialScope,
+    auditAction,
+    loadAudit,
+    loadCredentials,
+    loadRuntimes,
+    loadUsers,
+    me?.role,
+    message,
+    runtimeQuery,
+    runtimeOwner,
+    runtimeExecution,
+    runtimeState,
+    section,
+    userQuery,
+    userDisabled,
+    userRole,
+  ]);
 
   const runtimeOptions = useMemo(
     () =>
-      runtimes.map((runtime) => ({
+      runtimes.items.map((runtime) => ({
         label: runtime.runtime_id,
         value: `runtime:${runtime.runtime_id}`,
       })),
-    [runtimes],
+    [runtimes.items],
   );
+
+  const refreshSection = async () => {
+    if (section === "overview") await loadOverview();
+    if (section === "runtimes") await loadRuntimes(runtimes.page);
+    if (section === "users") await loadUsers(users.page);
+    if (section === "credentials") await loadCredentials(credentials.page);
+    if (section === "audit") await loadAudit(audit.page);
+  };
 
   const runRuntimeAction = async (
     runtimeId: string,
@@ -121,7 +278,7 @@ export default function HubPage() {
       if (action === "start") await hubApi.startRuntime(runtimeId);
       if (action === "stop") await hubApi.stopRuntime(runtimeId);
       if (action === "delete") await hubApi.deleteRuntime(runtimeId);
-      await loadRuntimes();
+      await loadRuntimes(runtimes.page);
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : t("hub.errors.actionFailed"),
@@ -139,7 +296,7 @@ export default function HubPage() {
       await hubApi.createRuntime(values.runtimeId, values.autoStart);
       setRuntimeModalOpen(false);
       runtimeForm.resetFields();
-      await loadRuntimes();
+      await loadRuntimes(1);
       message.success(t("hub.messages.runtimeCreated"));
     } catch (error) {
       message.error(
@@ -157,7 +314,7 @@ export default function HubPage() {
       await hubApi.createUser(values.username, values.password, values.role);
       setUserModalOpen(false);
       userForm.resetFields();
-      await loadUsers();
+      await loadUsers(1);
       message.success(t("hub.messages.accountCreated"));
     } catch (error) {
       message.error(
@@ -173,7 +330,7 @@ export default function HubPage() {
     setBusyId(user.user_id);
     try {
       await hubApi.updateUser(user.user_id, patch);
-      await loadUsers();
+      await loadUsers(users.page);
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : t("hub.errors.updateFailed"),
@@ -192,7 +349,7 @@ export default function HubPage() {
       await hubApi.putCredential(values.scope, values.name, values.value);
       setCredentialModalOpen(false);
       credentialForm.resetFields();
-      await loadCredentials();
+      await loadCredentials(1);
       message.success(t("hub.messages.credentialStored"));
     } catch (error) {
       message.error(
@@ -201,16 +358,20 @@ export default function HubPage() {
     }
   };
 
-  const logout = () => {
-    clearAuthToken();
-    window.location.assign("/login");
-  };
-
   const navigation = [
+    ...(me?.role === "admin"
+      ? [
+          {
+            id: "overview" as const,
+            label: t("hub.navigation.overview"),
+            icon: Gauge,
+          },
+        ]
+      : []),
     {
       id: "runtimes" as const,
       label: t("hub.navigation.runtimes"),
-      icon: Server,
+      icon: Boxes,
     },
     ...(me?.role === "admin"
       ? [
@@ -226,31 +387,36 @@ export default function HubPage() {
       label: t("hub.navigation.credentials"),
       icon: KeyRound,
     },
+    ...(me?.role === "admin"
+      ? [
+          {
+            id: "audit" as const,
+            label: t("hub.navigation.audit"),
+            icon: ScrollText,
+          },
+        ]
+      : []),
   ];
-  const runningCount = runtimes.filter(
-    (runtime) => runtime.state === "running",
-  ).length;
-  const failedCount = runtimes.filter(
-    (runtime) => runtime.state === "failed",
-  ).length;
+
   const runtimeAvailable = health?.runtime_available === true;
-  const runtimeAvailabilityKnown = health !== null;
-  const defaultProvisionerStatus =
-    health?.provisioner_statuses[health.default_provisioner];
+  const logout = () => {
+    clearAuthToken();
+    window.location.assign("/login");
+  };
 
   return (
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <img
-            src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
-            alt="QwenPaw"
-          />
+          <div className={styles.brandMark}>
+            <ChartNoAxesCombined size={20} />
+          </div>
           <div>
-            <strong>{t("hub.brand.title")}</strong>
-            <span>{t("hub.brand.subtitle")}</span>
+            <strong>QwenPaw Hub</strong>
+            <span>{t("hub.brand.controlPlane")}</span>
           </div>
         </div>
+        <span className={styles.navLabel}>{t("hub.navigation.workspace")}</span>
         <nav className={styles.navigation}>
           {navigation.map((item) => {
             const Icon = item.icon;
@@ -261,381 +427,562 @@ export default function HubPage() {
                 onClick={() => setSection(item.id)}
                 type="button"
               >
-                <Icon size={18} strokeWidth={1.8} />
-                {item.label}
+                <Icon size={17} />
+                <span>{item.label}</span>
+                {item.id === "runtimes" && overview && (
+                  <small>{overview.total_runtimes}</small>
+                )}
               </button>
             );
           })}
         </nav>
         <div className={styles.sidebarFooter}>
+          <div className={styles.healthCompact}>
+            <span className={runtimeAvailable ? styles.dot : styles.dotError} />
+            <div>
+              <strong>
+                {runtimeAvailable
+                  ? t("hub.overview.systemHealthy")
+                  : t("hub.overview.systemDegraded")}
+              </strong>
+              <span>{t("hub.overview.localIsolation")}</span>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => window.location.assign("/")}
             className={styles.backButton}
           >
-            <House size={17} />
+            <House size={16} />
             <span>{t("hub.actions.backToQwenPaw")}</span>
           </button>
           <div className={styles.account}>
-            <div className={styles.avatarSmall}>
-              {(me?.username || "Q").slice(0, 1).toUpperCase()}
+            <div className={styles.avatar}>
+              {(me?.username || "Q").slice(0, 2).toUpperCase()}
             </div>
             <div>
               <strong>{me?.username || t("common.loading")}</strong>
               <span>{me?.role ? t(`hub.roles.${me.role}`) : ""}</span>
             </div>
-            <div className={styles.languageControl}>
-              <LanguageSwitcher persistRemotely={false} />
-            </div>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              aria-label={
-                isDark
-                  ? t("hub.actions.useLightTheme")
-                  : t("hub.actions.useDarkTheme")
-              }
-            >
-              {isDark ? <Sun size={16} /> : <Moon size={16} />}
+            <LanguageSwitcher persistRemotely={false} />
+            <button type="button" onClick={toggleTheme}>
+              {isDark ? <Sun size={15} /> : <Moon size={15} />}
             </button>
-            <button
-              type="button"
-              onClick={logout}
-              aria-label={t("hub.actions.signOut")}
-            >
-              <LogOut size={16} />
+            <button type="button" onClick={logout}>
+              <LogOut size={15} />
             </button>
           </div>
         </div>
       </aside>
 
       <main className={styles.main}>
-        {section === "runtimes" && (
-          <section>
-            <PageHeader
-              eyebrow={t("hub.runtimes.eyebrow")}
-              title={t("hub.runtimes.title")}
-              description={t("hub.runtimes.description")}
-              action={
-                <Button
-                  type="primary"
-                  icon={<Plus size={16} />}
-                  disabled={!runtimeAvailable}
-                  onClick={() => setRuntimeModalOpen(true)}
-                >
-                  {t("hub.runtimes.newRuntime")}
-                </Button>
-              }
-            />
-            <div className={styles.metrics}>
-              <Metric
-                icon={<Server size={18} />}
-                label={t("hub.runtimes.managed")}
-                value={String(runtimes.length)}
-                detail={t("hub.runtimes.localBoundaries")}
-              />
-              <Metric
-                icon={<Activity size={18} />}
-                label={t("hub.runtimes.runningNow")}
-                value={String(runningCount)}
-                detail={
-                  failedCount > 0
-                    ? t("hub.runtimes.needsAttention", {
-                        count: failedCount,
-                      })
-                    : t("hub.runtimes.healthy")
-                }
-                warning={failedCount > 0}
-              />
-              <Metric
-                icon={<ShieldCheck size={18} />}
-                label={t("hub.runtimes.isolationPolicy")}
-                value={
-                  !runtimeAvailabilityKnown
-                    ? t("common.loading")
-                    : runtimeAvailable
-                    ? t("hub.runtimes.available")
-                    : t("hub.runtimes.unavailable")
-                }
-                detail={
-                  !runtimeAvailabilityKnown
-                    ? t("common.loading")
-                    : runtimeAvailable
-                    ? t("hub.runtimes.noFallback")
-                    : t("hub.runtimes.executionBlocked")
-                }
-                warning={runtimeAvailabilityKnown && !runtimeAvailable}
-              />
-            </div>
-            {runtimeAvailabilityKnown && (
-              <div
-                className={
-                  runtimeAvailable ? styles.notice : styles.noticeError
-                }
-              >
-                {runtimeAvailable ? (
-                  <ShieldCheck size={18} />
-                ) : (
-                  <CircleAlert size={18} />
-                )}
-                <div>
-                  <strong>
-                    {runtimeAvailable
-                      ? t("hub.runtimes.isolationTitle")
-                      : t("hub.runtimes.unavailableTitle")}
-                  </strong>
-                  <span>
-                    {runtimeAvailable
-                      ? t("hub.runtimes.isolationDescription")
-                      : t("hub.runtimes.unavailableDescription", {
-                          provisioner: health?.default_provisioner || "local",
-                          reason:
-                            defaultProvisionerStatus?.reason ||
-                            t("hub.runtimes.preflightFailed"),
-                        })}
-                  </span>
-                </div>
-              </div>
-            )}
-            <div className={styles.grid} aria-busy={loading}>
-              {runtimes.map((runtime) => (
-                <article className={styles.card} key={runtime.runtime_id}>
-                  <div className={styles.cardHeader}>
-                    <div className={styles.iconBox}>
-                      <Server size={20} />
-                    </div>
-                    <div className={styles.cardTitle}>
-                      <strong>{runtime.runtime_id}</strong>
-                      <span>
-                        {t("hub.runtimes.localEndpoint", {
-                          endpoint: runtime.endpoint,
-                        })}
-                      </span>
-                    </div>
-                    <Tag color={STATE_COLORS[runtime.state]}>
-                      {t(`hub.runtimeStates.${runtime.state}`)}
-                    </Tag>
-                  </div>
-                  <dl className={styles.details}>
-                    <div>
-                      <dt>{t("hub.runtimes.provisioner")}</dt>
-                      <dd>{runtime.provisioner}</dd>
-                    </div>
-                    <div>
-                      <dt>{t("hub.runtimes.security")}</dt>
-                      <dd>{runtime.security_level}</dd>
-                    </div>
-                    <div>
-                      <dt>{t("hub.runtimes.tenant")}</dt>
-                      <dd>{runtime.tenant_id}</dd>
-                    </div>
-                  </dl>
-                  {runtime.last_error && (
-                    <p className={styles.error}>{runtime.last_error}</p>
-                  )}
-                  <div className={styles.actions}>
-                    {runtime.state === "running" ? (
-                      <Button
-                        icon={<CircleStop size={15} />}
-                        loading={busyId === runtime.runtime_id}
-                        onClick={() =>
-                          runRuntimeAction(runtime.runtime_id, "stop")
-                        }
-                      >
-                        {t("hub.actions.stop")}
-                      </Button>
-                    ) : (
-                      <Button
-                        icon={<Play size={15} />}
-                        disabled={!runtimeAvailable}
-                        loading={busyId === runtime.runtime_id}
-                        onClick={() =>
-                          runRuntimeAction(runtime.runtime_id, "start")
-                        }
-                      >
-                        {t("hub.actions.start")}
-                      </Button>
-                    )}
-                    <Button
-                      danger
-                      disabled={runtime.state === "running"}
-                      icon={<Trash2 size={15} />}
-                      aria-label={t("common.delete")}
-                      onClick={() =>
-                        modal.confirm({
-                          title: t("hub.runtimes.removeTitle", {
-                            id: runtime.runtime_id,
-                          }),
-                          content: t("hub.runtimes.removeDescription"),
-                          okButtonProps: { danger: true },
-                          onOk: () =>
-                            runRuntimeAction(runtime.runtime_id, "delete"),
-                        })
-                      }
-                    />
-                  </div>
-                </article>
-              ))}
-              {!loading && runtimes.length === 0 && (
-                <EmptyState
-                  icon={<Server size={26} />}
-                  title={t("hub.runtimes.emptyTitle")}
-                  description={t("hub.runtimes.emptyDescription")}
-                />
+        <header className={styles.topbar}>
+          <span>
+            Hub / <strong>{t(`hub.navigation.${section}`)}</strong>
+          </span>
+          <div>
+            <Tag color={runtimeAvailable ? "success" : "error"}>
+              {runtimeAvailable
+                ? t("hub.overview.systemHealthy")
+                : t("hub.overview.systemDegraded")}
+            </Tag>
+            <button type="button" onClick={() => refreshSection()}>
+              <RefreshCw size={15} />
+            </button>
+          </div>
+        </header>
+        <div className={styles.content}>
+          {loading ? (
+            <Skeleton active />
+          ) : (
+            <>
+              {section === "overview" && overview && (
+                <OverviewPanel overview={overview} t={t} />
               )}
-            </div>
-          </section>
-        )}
-
-        {section === "users" && me?.role === "admin" && (
-          <section>
-            <PageHeader
-              eyebrow={t("hub.users.eyebrow")}
-              title={t("hub.users.title")}
-              description={t("hub.users.description")}
-              action={
-                <Button
-                  type="primary"
-                  icon={<Plus size={16} />}
-                  onClick={() => setUserModalOpen(true)}
-                >
-                  {t("hub.users.addAccount")}
-                </Button>
-              }
-            />
-            <div className={styles.settingRow}>
-              <div>
-                <strong>{t("hub.users.publicRegistration")}</strong>
-                <span>{t("hub.users.publicRegistrationDescription")}</span>
-              </div>
-              <Switch
-                checked={registrationEnabled}
-                onChange={async (enabled) => {
-                  try {
-                    await hubApi.setRegistration(enabled);
-                    setRegistrationEnabled(enabled);
-                  } catch (error) {
-                    message.error(
-                      error instanceof Error
-                        ? error.message
-                        : t("hub.errors.updateFailed"),
-                    );
-                  }
-                }}
-              />
-            </div>
-            <div className={styles.list}>
-              {users.map((user) => (
-                <div className={styles.userRow} key={user.user_id}>
-                  <div className={styles.avatar}>
-                    {user.username.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className={styles.userIdentity}>
-                    <strong>{user.username}</strong>
-                    <span>{user.user_id}</span>
-                  </div>
-                  <Select
-                    value={user.role}
-                    className={styles.roleSelect}
-                    disabled={busyId === user.user_id}
-                    options={[
-                      {
-                        label: t("hub.roles.admin"),
-                        value: "admin",
-                      },
-                      { label: t("hub.roles.user"), value: "user" },
-                    ]}
-                    onChange={(role) => updateUser(user, { role })}
-                  />
-                  <div className={styles.userStatus}>
-                    <span>
-                      {user.disabled
-                        ? t("hub.userStates.disabled")
-                        : t("hub.userStates.active")}
-                    </span>
-                    <Switch
-                      checked={!user.disabled}
-                      loading={busyId === user.user_id}
-                      onChange={(active) =>
-                        updateUser(user, { disabled: !active })
-                      }
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {section === "credentials" && (
-          <section>
-            <PageHeader
-              eyebrow={t("hub.credentials.eyebrow")}
-              title={t("hub.credentials.title")}
-              description={t("hub.credentials.description")}
-              action={
-                <Button
-                  type="primary"
-                  icon={<Plus size={16} />}
-                  onClick={() => setCredentialModalOpen(true)}
-                >
-                  {t("hub.credentials.storeCredential")}
-                </Button>
-              }
-            />
-            <div className={styles.list}>
-              {credentials.map((credential) => (
-                <div
-                  className={styles.credentialRow}
-                  key={`${credential.scope}:${credential.name}`}
-                >
-                  <div className={styles.iconBox}>
-                    <KeyRound size={19} />
-                  </div>
-                  <div className={styles.userIdentity}>
-                    <strong>{credential.name}</strong>
-                    <span>{credential.scope}</span>
-                  </div>
-                  <span className={styles.updatedAt}>
-                    {t("hub.credentials.updated", {
-                      date: new Date(credential.updated_at).toLocaleString(
-                        i18n.resolvedLanguage || i18n.language,
-                      ),
-                    })}
-                  </span>
-                  <Button
-                    danger
-                    icon={<Trash2 size={15} />}
-                    aria-label={t("common.delete")}
-                    onClick={() =>
-                      modal.confirm({
-                        title: t("hub.credentials.deleteTitle", {
-                          name: credential.name,
-                        }),
-                        content: t("hub.credentials.deleteDescription"),
-                        okButtonProps: { danger: true },
-                        onOk: async () => {
-                          await hubApi.deleteCredential(
-                            credential.scope,
-                            credential.name,
-                          );
-                          await loadCredentials();
-                        },
-                      })
+              {section === "runtimes" && (
+                <section>
+                  <PageHeader
+                    eyebrow={t("hub.runtimes.eyebrow")}
+                    title={t("hub.runtimes.title")}
+                    description={t("hub.runtimes.description")}
+                    action={
+                      <Button
+                        type="primary"
+                        icon={<Plus size={15} />}
+                        disabled={!runtimeAvailable}
+                        onClick={() => setRuntimeModalOpen(true)}
+                      >
+                        {t("hub.runtimes.newRuntime")}
+                      </Button>
                     }
                   />
-                </div>
-              ))}
-              {credentials.length === 0 && (
-                <EmptyState
-                  icon={<KeyRound size={26} />}
-                  title={t("hub.credentials.emptyTitle")}
-                  description={t("hub.credentials.emptyDescription")}
-                />
+                  <DataPanel
+                    search={runtimeQuery}
+                    onSearch={setRuntimeQuery}
+                    searchPlaceholder={t("hub.table.searchRuntimes")}
+                    filter={
+                      <>
+                        {me?.role === "admin" && (
+                          <Input
+                            allowClear
+                            value={runtimeOwner}
+                            placeholder={t("hub.table.allOwners")}
+                            className={styles.filterInput}
+                            onChange={(event) =>
+                              setRuntimeOwner(event.target.value)
+                            }
+                          />
+                        )}
+                        <Select
+                          allowClear
+                          value={runtimeState}
+                          placeholder={t("hub.table.allStates")}
+                          className={styles.filterSelect}
+                          onChange={setRuntimeState}
+                          options={Object.keys(STATE_COLORS).map((state) => ({
+                            value: state,
+                            label: t(`hub.runtimeStates.${state}`),
+                          }))}
+                        />
+                        <Select
+                          allowClear
+                          value={runtimeExecution}
+                          placeholder={t("hub.table.allExecutions")}
+                          className={styles.filterSelect}
+                          onChange={setRuntimeExecution}
+                          options={[
+                            {
+                              value: "local",
+                              label: t("hub.runtimes.localExecution"),
+                            },
+                          ]}
+                        />
+                      </>
+                    }
+                  >
+                    <div className={styles.tableWrap}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t("hub.table.runtime")}</th>
+                            <th>{t("hub.table.status")}</th>
+                            <th>{t("hub.table.owner")}</th>
+                            <th>{t("hub.table.endpoint")}</th>
+                            <th>{t("hub.table.execution")}</th>
+                            <th>{t("hub.table.updated")}</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {runtimes.items.map((runtime) => (
+                            <tr key={runtime.runtime_id}>
+                              <td>
+                                <EntityCell
+                                  icon={<Box size={16} />}
+                                  title={runtime.runtime_id}
+                                  detail={runtime.tenant_id}
+                                />
+                              </td>
+                              <td>
+                                <Tag color={STATE_COLORS[runtime.state]}>
+                                  {t(`hub.runtimeStates.${runtime.state}`)}
+                                </Tag>
+                              </td>
+                              <td className={styles.mono}>
+                                {runtime.owner_user_id.slice(0, 12)}
+                              </td>
+                              <td className={styles.mono}>
+                                {runtime.endpoint}
+                              </td>
+                              <td>
+                                <strong>
+                                  {t("hub.runtimes.localExecution")}
+                                </strong>
+                                <small>{runtime.security_level}</small>
+                              </td>
+                              <td>
+                                {formatDate(runtime.updated_at, i18n.language)}
+                              </td>
+                              <td>
+                                <div className={styles.rowActions}>
+                                  {runtime.state === "running" ? (
+                                    <Button
+                                      size="small"
+                                      icon={<CircleStop size={14} />}
+                                      loading={busyId === runtime.runtime_id}
+                                      onClick={() =>
+                                        runRuntimeAction(
+                                          runtime.runtime_id,
+                                          "stop",
+                                        )
+                                      }
+                                    >
+                                      {t("hub.actions.stop")}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="small"
+                                      icon={<Play size={14} />}
+                                      disabled={!runtimeAvailable}
+                                      loading={busyId === runtime.runtime_id}
+                                      onClick={() =>
+                                        runRuntimeAction(
+                                          runtime.runtime_id,
+                                          "start",
+                                        )
+                                      }
+                                    >
+                                      {t("hub.actions.start")}
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="small"
+                                    danger
+                                    disabled={runtime.state === "running"}
+                                    icon={<Trash2 size={14} />}
+                                    onClick={() =>
+                                      modal.confirm({
+                                        title: t("hub.runtimes.removeTitle", {
+                                          id: runtime.runtime_id,
+                                        }),
+                                        content: t(
+                                          "hub.runtimes.removeDescription",
+                                        ),
+                                        okButtonProps: { danger: true },
+                                        onOk: () =>
+                                          runRuntimeAction(
+                                            runtime.runtime_id,
+                                            "delete",
+                                          ),
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          {runtimes.items.length === 0 && (
+                            <EmptyRow
+                              colSpan={7}
+                              message={t("hub.runtimes.emptyTitle")}
+                            />
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <PageFooter
+                      page={runtimes}
+                      onChange={(page) => loadRuntimes(page)}
+                    />
+                  </DataPanel>
+                </section>
               )}
-            </div>
-          </section>
-        )}
+              {section === "users" && me?.role === "admin" && (
+                <section>
+                  <PageHeader
+                    eyebrow={t("hub.users.eyebrow")}
+                    title={t("hub.users.title")}
+                    description={t("hub.users.description")}
+                    action={
+                      <Button
+                        type="primary"
+                        icon={<UserPlus size={15} />}
+                        onClick={() => setUserModalOpen(true)}
+                      >
+                        {t("hub.users.addAccount")}
+                      </Button>
+                    }
+                  />
+                  <div className={styles.settingStrip}>
+                    <div>
+                      <strong>{t("hub.users.publicRegistration")}</strong>
+                      <span>
+                        {t("hub.users.publicRegistrationDescription")}
+                      </span>
+                    </div>
+                    <Switch
+                      checked={registrationEnabled}
+                      onChange={async (enabled) => {
+                        await hubApi.setRegistration(enabled);
+                        setRegistrationEnabled(enabled);
+                      }}
+                    />
+                  </div>
+                  <DataPanel
+                    search={userQuery}
+                    onSearch={setUserQuery}
+                    searchPlaceholder={t("hub.table.searchUsers")}
+                    filter={
+                      <>
+                        <Select
+                          allowClear
+                          value={userRole}
+                          placeholder={t("hub.table.allRoles")}
+                          className={styles.filterSelect}
+                          onChange={setUserRole}
+                          options={[
+                            { value: "admin", label: t("hub.roles.admin") },
+                            { value: "user", label: t("hub.roles.user") },
+                          ]}
+                        />
+                        <Select
+                          allowClear
+                          value={userDisabled}
+                          placeholder={t("hub.table.allUserStates")}
+                          className={styles.filterSelect}
+                          onChange={setUserDisabled}
+                          options={[
+                            {
+                              value: "active",
+                              label: t("hub.userStates.active"),
+                            },
+                            {
+                              value: "disabled",
+                              label: t("hub.userStates.disabled"),
+                            },
+                          ]}
+                        />
+                      </>
+                    }
+                  >
+                    <div className={styles.tableWrap}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t("hub.table.user")}</th>
+                            <th>{t("hub.table.role")}</th>
+                            <th>{t("hub.table.status")}</th>
+                            <th>{t("hub.table.created")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {users.items.map((user) => (
+                            <tr key={user.user_id}>
+                              <td>
+                                <EntityCell
+                                  icon={<Users size={16} />}
+                                  title={user.username}
+                                  detail={user.user_id}
+                                />
+                              </td>
+                              <td>
+                                <Select
+                                  size="small"
+                                  value={user.role}
+                                  disabled={busyId === user.user_id}
+                                  className={styles.roleSelect}
+                                  options={[
+                                    {
+                                      value: "admin",
+                                      label: t("hub.roles.admin"),
+                                    },
+                                    {
+                                      value: "user",
+                                      label: t("hub.roles.user"),
+                                    },
+                                  ]}
+                                  onChange={(role) =>
+                                    updateUser(user, { role })
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <div className={styles.switchCell}>
+                                  <Switch
+                                    size="small"
+                                    checked={!user.disabled}
+                                    loading={busyId === user.user_id}
+                                    onChange={(active) =>
+                                      updateUser(user, { disabled: !active })
+                                    }
+                                  />
+                                  <span>
+                                    {t(
+                                      `hub.userStates.${
+                                        user.disabled ? "disabled" : "active"
+                                      }`,
+                                    )}
+                                  </span>
+                                </div>
+                              </td>
+                              <td>
+                                {formatDate(user.created_at, i18n.language)}
+                              </td>
+                            </tr>
+                          ))}
+                          {users.items.length === 0 && (
+                            <EmptyRow
+                              colSpan={4}
+                              message={t("hub.users.empty")}
+                            />
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <PageFooter page={users} onChange={loadUsers} />
+                  </DataPanel>
+                </section>
+              )}
+              {section === "credentials" && (
+                <section>
+                  <PageHeader
+                    eyebrow={t("hub.credentials.eyebrow")}
+                    title={t("hub.credentials.title")}
+                    description={t("hub.credentials.description")}
+                    action={
+                      <Button
+                        type="primary"
+                        icon={<Plus size={15} />}
+                        onClick={() => setCredentialModalOpen(true)}
+                      >
+                        {t("hub.credentials.storeCredential")}
+                      </Button>
+                    }
+                  />
+                  <DataPanel
+                    search={credentialQuery}
+                    onSearch={setCredentialQuery}
+                    searchPlaceholder={t("hub.table.searchCredentials")}
+                    filter={
+                      <Select
+                        allowClear
+                        value={credentialScope}
+                        placeholder={t("hub.table.allScopes")}
+                        className={styles.filterSelect}
+                        onChange={setCredentialScope}
+                        options={[
+                          {
+                            value: "tenant",
+                            label: t("hub.credentialForm.allRuntimes"),
+                          },
+                          ...runtimeOptions,
+                        ]}
+                      />
+                    }
+                  >
+                    <div className={styles.tableWrap}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{t("hub.table.credential")}</th>
+                            <th>{t("hub.table.scope")}</th>
+                            <th>{t("hub.table.updated")}</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {credentials.items.map((credential) => (
+                            <tr key={`${credential.scope}:${credential.name}`}>
+                              <td>
+                                <EntityCell
+                                  icon={<KeyRound size={16} />}
+                                  title={credential.name}
+                                  detail={t("hub.credentials.encrypted")}
+                                />
+                              </td>
+                              <td className={styles.mono}>
+                                {credential.scope}
+                              </td>
+                              <td>
+                                {formatDate(
+                                  credential.updated_at,
+                                  i18n.language,
+                                )}
+                              </td>
+                              <td>
+                                <div className={styles.rowActions}>
+                                  <Button
+                                    size="small"
+                                    danger
+                                    icon={<Trash2 size={14} />}
+                                    onClick={() =>
+                                      modal.confirm({
+                                        title: t(
+                                          "hub.credentials.deleteTitle",
+                                          {
+                                            name: credential.name,
+                                          },
+                                        ),
+                                        content: t(
+                                          "hub.credentials.deleteDescription",
+                                        ),
+                                        okButtonProps: { danger: true },
+                                        onOk: async () => {
+                                          await hubApi.deleteCredential(
+                                            credential.scope,
+                                            credential.name,
+                                          );
+                                          await loadCredentials(
+                                            credentials.page,
+                                          );
+                                        },
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          {credentials.items.length === 0 && (
+                            <EmptyRow
+                              colSpan={4}
+                              message={t("hub.credentials.emptyTitle")}
+                            />
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <PageFooter page={credentials} onChange={loadCredentials} />
+                  </DataPanel>
+                </section>
+              )}
+              {section === "audit" && me?.role === "admin" && (
+                <section>
+                  <PageHeader
+                    eyebrow={t("hub.audit.eyebrow")}
+                    title={t("hub.audit.title")}
+                    description={t("hub.audit.description")}
+                  />
+                  <DataPanel
+                    search={auditQuery}
+                    onSearch={setAuditQuery}
+                    searchPlaceholder={t("hub.table.searchAudit")}
+                    filter={
+                      <Select
+                        allowClear
+                        value={auditAction}
+                        placeholder={t("hub.table.allActions")}
+                        className={styles.filterSelect}
+                        onChange={setAuditAction}
+                        options={[
+                          "runtime.create",
+                          "runtime.start",
+                          "runtime.stop",
+                          "runtime.delete",
+                          "user.create",
+                          "user.update",
+                          "credential.store",
+                          "credential.delete",
+                          "auth.register",
+                        ].map((action) => ({
+                          value: action,
+                          label: t(`hub.auditActions.${action}`),
+                        }))}
+                      />
+                    }
+                  >
+                    <AuditTable
+                      events={audit.items}
+                      language={i18n.language}
+                      t={t}
+                    />
+                    <PageFooter page={audit} onChange={loadAudit} />
+                  </DataPanel>
+                </section>
+              )}
+            </>
+          )}
+        </div>
       </main>
 
       <Modal
@@ -643,7 +990,7 @@ export default function HubPage() {
         open={runtimeModalOpen}
         onCancel={() => setRuntimeModalOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={runtimeForm}
@@ -656,10 +1003,7 @@ export default function HubPage() {
             label={t("hub.runtimeForm.runtimeId")}
             name="runtimeId"
             rules={[
-              {
-                required: true,
-                message: t("hub.validation.required"),
-              },
+              { required: true, message: t("hub.validation.required") },
               {
                 pattern: /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/,
                 message: t("hub.validation.runtimeIdInvalid"),
@@ -686,7 +1030,7 @@ export default function HubPage() {
         open={userModalOpen}
         onCancel={() => setUserModalOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={userForm}
@@ -698,12 +1042,7 @@ export default function HubPage() {
           <Form.Item
             label={t("hub.userForm.username")}
             name="username"
-            rules={[
-              {
-                required: true,
-                message: t("hub.validation.required"),
-              },
-            ]}
+            rules={[{ required: true, message: t("hub.validation.required") }]}
           >
             <Input autoFocus />
           </Form.Item>
@@ -711,14 +1050,8 @@ export default function HubPage() {
             label={t("hub.userForm.temporaryPassword")}
             name="password"
             rules={[
-              {
-                required: true,
-                message: t("hub.validation.required"),
-              },
-              {
-                min: 8,
-                message: t("hub.validation.passwordMin"),
-              },
+              { required: true, message: t("hub.validation.required") },
+              { min: 8, message: t("hub.validation.passwordMin") },
             ]}
           >
             <Input.Password />
@@ -726,8 +1059,8 @@ export default function HubPage() {
           <Form.Item label={t("hub.userForm.role")} name="role">
             <Select
               options={[
-                { label: t("hub.roles.user"), value: "user" },
-                { label: t("hub.roles.admin"), value: "admin" },
+                { value: "user", label: t("hub.roles.user") },
+                { value: "admin", label: t("hub.roles.admin") },
               ]}
             />
           </Form.Item>
@@ -742,7 +1075,7 @@ export default function HubPage() {
         open={credentialModalOpen}
         onCancel={() => setCredentialModalOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={credentialForm}
@@ -751,21 +1084,12 @@ export default function HubPage() {
           onFinish={saveCredential}
         >
           <p className={styles.formHint}>{t("hub.credentialForm.hint")}</p>
-          <Form.Item
-            label={t("hub.credentialForm.scope")}
-            name="scope"
-            rules={[
-              {
-                required: true,
-                message: t("hub.validation.required"),
-              },
-            ]}
-          >
+          <Form.Item label={t("hub.credentialForm.scope")} name="scope">
             <Select
               options={[
                 {
-                  label: t("hub.credentialForm.allRuntimes"),
                   value: "tenant",
+                  label: t("hub.credentialForm.allRuntimes"),
                 },
                 ...runtimeOptions,
               ]}
@@ -775,10 +1099,7 @@ export default function HubPage() {
             label={t("hub.credentialForm.environmentName")}
             name="name"
             rules={[
-              {
-                required: true,
-                message: t("hub.validation.required"),
-              },
+              { required: true, message: t("hub.validation.required") },
               {
                 pattern: /^[A-Z][A-Z0-9_]{0,127}$/,
                 message: t("hub.validation.credentialNameInvalid"),
@@ -790,14 +1111,9 @@ export default function HubPage() {
           <Form.Item
             label={t("hub.credentialForm.secretValue")}
             name="value"
-            rules={[
-              {
-                required: true,
-                message: t("hub.validation.required"),
-              },
-            ]}
+            rules={[{ required: true, message: t("hub.validation.required") }]}
           >
-            <Input.Password autoComplete="new-password" />
+            <Input.Password />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
             {t("hub.credentialForm.submit")}
@@ -808,7 +1124,115 @@ export default function HubPage() {
   );
 }
 
-function Metric({
+function OverviewPanel({
+  overview,
+  t,
+}: {
+  overview: HubOverview;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  const running = overview.runtime_counts.running || 0;
+  const failed = overview.runtime_counts.failed || 0;
+  const availability = overview.total_runtimes
+    ? Math.round((running / overview.total_runtimes) * 1000) / 10
+    : 100;
+  return (
+    <section>
+      <PageHeader
+        eyebrow={t("hub.overview.eyebrow")}
+        title={t("hub.overview.title")}
+        description={t("hub.overview.description")}
+      />
+      <div className={styles.cockpit}>
+        <article className={styles.heroMetric}>
+          <span>{t("hub.overview.availability")}</span>
+          <strong>{availability}%</strong>
+          <p>
+            {t("hub.overview.availabilityDetail", {
+              running,
+              total: overview.total_runtimes,
+            })}
+          </p>
+          <Activity size={120} />
+        </article>
+        <MetricCard
+          icon={<Boxes size={18} />}
+          label={t("hub.overview.totalRuntimes")}
+          value={overview.total_runtimes}
+          detail={t("hub.overview.failedCount", { count: failed })}
+          warning={failed > 0}
+        />
+        <MetricCard
+          icon={<Users size={18} />}
+          label={t("hub.overview.totalUsers")}
+          value={overview.total_users}
+          detail={t("hub.overview.managedLocally")}
+        />
+      </div>
+      <div className={styles.overviewGrid}>
+        <article className={styles.surfacePanel}>
+          <div className={styles.surfaceHeader}>
+            <div>
+              <strong>{t("hub.overview.hostResources")}</strong>
+              <span>{t("hub.overview.liveSnapshot")}</span>
+            </div>
+            <Gauge size={18} />
+          </div>
+          <ResourceMeter
+            icon={<ChartNoAxesCombined size={15} />}
+            label="CPU"
+            value={overview.host.cpu_percent}
+          />
+          <ResourceMeter
+            icon={<MemoryStick size={15} />}
+            label={t("hub.overview.memory")}
+            value={overview.host.memory_percent}
+          />
+          <ResourceMeter
+            icon={<HardDrive size={15} />}
+            label={t("hub.overview.dataDisk")}
+            value={overview.host.disk_percent}
+          />
+        </article>
+        <article className={styles.surfacePanel}>
+          <div className={styles.surfaceHeader}>
+            <div>
+              <strong>{t("hub.overview.recentActivity")}</strong>
+              <span>{t("hub.overview.auditBacked")}</span>
+            </div>
+            <BellRing size={18} />
+          </div>
+          <div className={styles.activityList}>
+            {overview.recent_events.map((event) => (
+              <div className={styles.activityItem} key={event.event_id}>
+                <span>
+                  {event.action.includes("user") ||
+                  event.action.includes("auth") ? (
+                    <UserPlus size={15} />
+                  ) : event.action.includes("credential") ? (
+                    <KeyRound size={15} />
+                  ) : (
+                    <Box size={15} />
+                  )}
+                </span>
+                <div>
+                  <strong>{t(`hub.auditActions.${event.action}`)}</strong>
+                  <small>{event.resource_id}</small>
+                </div>
+                <time>{formatDate(event.created_at)}</time>
+              </div>
+            ))}
+            {overview.recent_events.length === 0 && (
+              <div className={styles.emptyCompact}>{t("hub.audit.empty")}</div>
+            )}
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({
   icon,
   label,
   value,
@@ -817,19 +1241,46 @@ function Metric({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  value: number;
   detail: string;
   warning?: boolean;
 }) {
   return (
-    <article className={warning ? styles.metricWarning : styles.metric}>
-      <div className={styles.metricIcon}>{icon}</div>
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-      </div>
+    <article className={styles.metricCard}>
+      <div>{icon}</div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small className={warning ? styles.warningText : undefined}>
+        {detail}
+      </small>
     </article>
+  );
+}
+
+function ResourceMeter({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className={styles.resourceMeter}>
+      <div>
+        <span>{icon}</span>
+        <strong>{label}</strong>
+        <small>{value.toFixed(1)}%</small>
+      </div>
+      <Progress
+        percent={value}
+        showInfo={false}
+        strokeColor="#ff7a1a"
+        trailColor="rgba(120, 90, 68, 0.1)"
+        size="small"
+      />
+    </div>
   );
 }
 
@@ -842,12 +1293,12 @@ function PageHeader({
   eyebrow: string;
   title: string;
   description: string;
-  action: React.ReactNode;
+  action?: React.ReactNode;
 }) {
   return (
     <header className={styles.pageHeader}>
       <div>
-        <span className={styles.eyebrow}>{eyebrow}</span>
+        <span>{eyebrow}</span>
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
@@ -856,20 +1307,156 @@ function PageHeader({
   );
 }
 
-function EmptyState({
+function DataPanel({
+  search,
+  onSearch,
+  searchPlaceholder,
+  filter,
+  children,
+}: {
+  search: string;
+  onSearch: (value: string) => void;
+  searchPlaceholder: string;
+  filter?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={styles.dataPanel}>
+      <div className={styles.dataToolbar}>
+        <div className={styles.searchBox}>
+          <Search size={15} />
+          <Input
+            variant="borderless"
+            value={search}
+            placeholder={searchPlaceholder}
+            onChange={(event) => onSearch(event.target.value)}
+            allowClear
+          />
+        </div>
+        {filter && (
+          <div className={styles.filterControl}>
+            <ListFilter size={14} />
+            {filter}
+          </div>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EntityCell({
   icon,
   title,
-  description,
+  detail,
 }: {
   icon: React.ReactNode;
   title: string;
-  description: string;
+  detail: string;
 }) {
   return (
-    <div className={styles.empty}>
-      {icon}
-      <strong>{title}</strong>
-      <span>{description}</span>
+    <div className={styles.entityCell}>
+      <span>{icon}</span>
+      <div>
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </div>
     </div>
   );
+}
+
+function PageFooter<T>({
+  page,
+  onChange,
+}: {
+  page: PageData<T>;
+  onChange: (page: number) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <footer className={styles.pagination}>
+      <span>{t("hub.table.total", { total: page.total })}</span>
+      <Pagination
+        current={page.page}
+        pageSize={page.pageSize}
+        total={page.total}
+        showSizeChanger={false}
+        size="small"
+        onChange={onChange}
+      />
+    </footer>
+  );
+}
+
+function AuditTable({
+  events,
+  language,
+  t,
+}: {
+  events: HubAuditEvent[];
+  language: string;
+  t: (key: string) => string;
+}) {
+  return (
+    <div className={styles.tableWrap}>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("hub.table.event")}</th>
+            <th>{t("hub.table.actor")}</th>
+            <th>{t("hub.table.resource")}</th>
+            <th>{t("hub.table.result")}</th>
+            <th>{t("hub.table.time")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((event) => (
+            <tr key={event.event_id}>
+              <td>
+                <EntityCell
+                  icon={<ScrollText size={16} />}
+                  title={t(`hub.auditActions.${event.action}`)}
+                  detail={event.action}
+                />
+              </td>
+              <td>{event.actor_username}</td>
+              <td>
+                <strong>{event.resource_id}</strong>
+                <small>{event.resource_type}</small>
+              </td>
+              <td>
+                <Tag color={event.outcome === "success" ? "success" : "error"}>
+                  {t(`hub.auditOutcomes.${event.outcome}`)}
+                </Tag>
+              </td>
+              <td>{formatDate(event.created_at, language)}</td>
+            </tr>
+          ))}
+          {events.length === 0 && (
+            <EmptyRow colSpan={5} message={t("hub.audit.empty")} />
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
+  return (
+    <tr className={styles.emptyRow}>
+      <td colSpan={colSpan}>
+        <Search size={20} />
+        <span>{message}</span>
+      </td>
+    </tr>
+  );
+}
+
+function formatDate(value: string, language?: string): string {
+  return new Date(value).toLocaleString(language, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
