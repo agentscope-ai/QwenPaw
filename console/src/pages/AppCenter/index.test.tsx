@@ -338,6 +338,40 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
   });
 
+  it("returns to the previous non-OS history entry when closing an app", async () => {
+    const AppPage = () => <div>Loaded PawApp</div>;
+    hoisted.loadPawApp.mockImplementationOnce(async () => {
+      hoisted.routeSnapshot.mockReturnValue([
+        {
+          id: "alpha.page",
+          path: "/apps/alpha-app",
+          source: "alpha-app",
+          Component: AppPage,
+        },
+      ]);
+    });
+    window.history.replaceState({}, "", "/chat");
+    window.history.pushState({}, "", "/market");
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(screen.getByText("alpha-app"));
+
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/apps/alpha-app");
+    expect(window.history.state).toEqual({ pawappInline: true });
+
+    fireEvent.click(screen.getByTitle("appCenter.backToListHint"));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/market"));
+    expect(await screen.findByText("alpha-app")).toBeInTheDocument();
+    expect(window.history.state).toEqual({});
+
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe("/chat"));
+    expect(screen.queryByText("Loaded PawApp")).not.toBeInTheDocument();
+  });
+
   it("cleans the loaded PawApp runtime after uninstall", async () => {
     hoisted.uninstall.mockResolvedValue(undefined);
     hoisted.listApps

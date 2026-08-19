@@ -230,6 +230,10 @@ export default function AppCenterPage() {
       setActiveApp(null);
       return;
     }
+    if (window.history.state?.pawappInline === true) {
+      window.history.back();
+      return;
+    }
     window.history.pushState(
       {},
       "",
