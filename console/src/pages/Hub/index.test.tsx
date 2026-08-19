@@ -337,4 +337,98 @@ describe("HubPage", () => {
       );
     });
   });
+
+  it("shows Docker policy only when the Docker backend is selected", async () => {
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+
+    fireEvent.click(await screen.findByText("hub.navigation.settings"));
+    fireEvent.click(await screen.findByText("hub.settings.tabs.runtime"));
+    expect(
+      screen.queryByText("hub.settings.docker.title"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("hub.settings.runtime.dockerBackend"));
+    expect(
+      await screen.findByText("hub.settings.docker.title"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("hub.settings.docker.dockerHub"),
+    ).not.toHaveLength(0);
+    expect(screen.getByText("docker.io")).toBeInTheDocument();
+  });
+
+  it("uses a tagged local image and preserves protected registries", async () => {
+    vi.mocked(hubApi.getDockerImages).mockResolvedValue({
+      available: true,
+      sources: {
+        docker_hub: "docker.io/agentscope/qwenpaw",
+        aliyun_acr:
+          "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw",
+      },
+      official_images: [],
+      local_images: [
+        {
+          reference: "qwenpaw-hub-e2e:test",
+          image_id: "sha256:1234567890",
+          short_id: "sha256:123456",
+          digests: [],
+          size: 1024 * 1024 * 900,
+          downloaded: true,
+        },
+      ],
+      policy: {
+        source: "docker_hub",
+        image: "docker.io/agentscope/qwenpaw:latest",
+        pull_policy: "if_not_present",
+        allowed_registries: ["docker.io"],
+        cpu_limit: 2,
+        memory_limit_mb: 4096,
+        pids_limit: 1024,
+        shm_size_mb: 512,
+      },
+    });
+    vi.mocked(hubApi.updateSettings).mockImplementation(
+      async (revision, config) => ({
+        config,
+        revision: revision + 1,
+        updated_at: "2026-01-02T00:00:00Z",
+        available_provisioners: ["local", "docker"],
+      }),
+    );
+
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+    fireEvent.click(await screen.findByText("hub.navigation.settings"));
+    fireEvent.click(await screen.findByText("hub.settings.tabs.runtime"));
+    fireEvent.click(screen.getByText("hub.settings.runtime.dockerBackend"));
+    fireEvent.click(await screen.findByText("hub.settings.docker.localHost"));
+    fireEvent.click(screen.getByText("hub.settings.save"));
+
+    await waitFor(() => {
+      expect(hubApi.updateSettings).toHaveBeenCalledWith(
+        3,
+        expect.objectContaining({
+          runtime: expect.objectContaining({
+            provisioner: "docker",
+            docker: expect.objectContaining({
+              source: "custom",
+              image: "qwenpaw-hub-e2e:test",
+              pull_policy: "never",
+              allowed_registries: [
+                "docker.io",
+                "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+  });
 });

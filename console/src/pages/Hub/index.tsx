@@ -28,6 +28,7 @@ import {
   House,
   KeyRound,
   ListFilter,
+  LockKeyhole,
   LogOut,
   MemoryStick,
   Moon,
@@ -73,7 +74,7 @@ interface SettingsFormValues {
   publicBaseUrl?: string;
   registrationEnabled: boolean;
   runtimeProvisioner: "local" | "docker";
-  dockerSource: "docker_hub" | "aliyun_acr" | "custom";
+  dockerSource: "docker_hub" | "aliyun_acr" | "local" | "custom";
   dockerImage: string;
   dockerPullPolicy: "always" | "if_not_present" | "never";
   dockerAllowedRegistries: string[];
@@ -102,6 +103,10 @@ interface PageData<T> {
 }
 
 const PAGE_SIZE = 20;
+const BUILT_IN_DOCKER_REGISTRIES = [
+  "docker.io",
+  "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
+] as const;
 
 const STATE_COLORS: Record<HubRuntime["state"], string> = {
   created: "default",
@@ -113,6 +118,40 @@ const STATE_COLORS: Record<HubRuntime["state"], string> = {
 
 function emptyPage<T>(): PageData<T> {
   return { items: [], page: 1, pageSize: PAGE_SIZE, total: 0 };
+}
+
+function customDockerRegistries(registries: string[]) {
+  return registries.filter(
+    (registry) =>
+      !BUILT_IN_DOCKER_REGISTRIES.includes(
+        registry as (typeof BUILT_IN_DOCKER_REGISTRIES)[number],
+      ),
+  );
+}
+
+function dockerReferenceParts(reference: string) {
+  const digestIndex = reference.indexOf("@");
+  const withoutDigest =
+    digestIndex >= 0 ? reference.slice(0, digestIndex) : reference;
+  const lastSlash = withoutDigest.lastIndexOf("/");
+  const tagIndex = withoutDigest.lastIndexOf(":");
+  return {
+    repository:
+      tagIndex > lastSlash ? withoutDigest.slice(0, tagIndex) : withoutDigest,
+    tag: tagIndex > lastSlash ? withoutDigest.slice(tagIndex + 1) : "latest",
+  };
+}
+
+function formatImageSize(size: number) {
+  if (!size) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
 }
 
 export default function HubPage() {
@@ -212,10 +251,18 @@ export default function HubPage() {
       publicBaseUrl: result.config.control_plane.public_base_url || undefined,
       registrationEnabled: result.config.control_plane.registration.enabled,
       runtimeProvisioner: result.config.runtime.provisioner,
-      dockerSource: result.config.runtime.docker.source,
+      dockerSource:
+        result.config.runtime.docker.source === "custom" &&
+        imageResult.local_images.some(
+          (image) => image.reference === result.config.runtime.docker.image,
+        )
+          ? "local"
+          : result.config.runtime.docker.source,
       dockerImage: result.config.runtime.docker.image,
       dockerPullPolicy: result.config.runtime.docker.pull_policy,
-      dockerAllowedRegistries: result.config.runtime.docker.allowed_registries,
+      dockerAllowedRegistries: customDockerRegistries(
+        result.config.runtime.docker.allowed_registries,
+      ),
       dockerCpuLimit: result.config.runtime.docker.cpu_limit ?? undefined,
       dockerMemoryLimitMb:
         result.config.runtime.docker.memory_limit_mb ?? undefined,
@@ -393,10 +440,14 @@ export default function HubPage() {
         runtime: {
           provisioner: values.runtimeProvisioner,
           docker: {
-            source: values.dockerSource,
+            source:
+              values.dockerSource === "local" ? "custom" : values.dockerSource,
             image: values.dockerImage.trim(),
             pull_policy: values.dockerPullPolicy,
-            allowed_registries: values.dockerAllowedRegistries,
+            allowed_registries: [
+              ...BUILT_IN_DOCKER_REGISTRIES,
+              ...customDockerRegistries(values.dockerAllowedRegistries),
+            ],
             cpu_limit: values.dockerCpuLimit ?? null,
             memory_limit_mb: values.dockerMemoryLimitMb ?? null,
             pids_limit: values.dockerPidsLimit ?? null,
@@ -1423,10 +1474,7 @@ function SettingsPanel({
   onSave: (values: SettingsFormValues) => Promise<void>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
-  const provisionerOptions = settings.available_provisioners.map((name) => ({
-    label: name,
-    value: name,
-  }));
+  const runtimeProvisioner = Form.useWatch("runtimeProvisioner", form);
   const dockerSource = Form.useWatch("dockerSource", form);
   const dockerImage = Form.useWatch("dockerImage", form);
   const officialOptions = (dockerImages?.official_images || [])
@@ -1439,6 +1487,26 @@ function SettingsPanel({
           : "hub.settings.docker.notDownloaded",
       )}`,
     }));
+  const localImageOptions = (dockerImages?.local_images || [])
+    .filter((image) => !image.reference.endsWith("@untagged"))
+    .map((image) => ({
+      value: image.reference,
+      label: `${image.reference} · ${image.short_id} · ${formatImageSize(
+        image.size,
+      )}`,
+    }));
+  const selectedLocalImage = dockerImages?.local_images.find(
+    (image) => image.reference === dockerImage,
+  );
+  const imageParts = dockerReferenceParts(dockerImage || "");
+  const imageOrigin =
+    dockerSource === "docker_hub"
+      ? t("hub.settings.docker.dockerHub")
+      : dockerSource === "aliyun_acr"
+      ? t("hub.settings.docker.aliyunAcr")
+      : dockerSource === "local"
+      ? t("hub.settings.docker.localHost")
+      : t("hub.settings.docker.customRegistry");
   const currentPull = dockerPulls.find(
     (pull) =>
       pull.reference === dockerImage &&
@@ -1465,7 +1533,7 @@ function SettingsPanel({
         form={form}
         layout="vertical"
         requiredMark={false}
-        onFinish={onSave}
+        onFinish={() => onSave(form.getFieldsValue(true))}
       >
         <Tabs
           className={styles.settingsTabs}
@@ -1514,7 +1582,7 @@ function SettingsPanel({
                   </article>
 
                   <article
-                    className={`${styles.settingsCard} ${styles.dockerCard}`}
+                    className={`${styles.settingsCard} ${styles.wideSettingsCard}`}
                   >
                     <div className={styles.settingsCardHeader}>
                       <div>
@@ -1523,7 +1591,7 @@ function SettingsPanel({
                       </div>
                       <ShieldBan size={18} />
                     </div>
-                    <div className={styles.dockerFields}>
+                    <div className={styles.securityNetworkGrid}>
                       <Form.Item
                         name="ipBlacklist"
                         label={t("hub.settings.security.ipBlacklist")}
@@ -1539,18 +1607,26 @@ function SettingsPanel({
                         <Select mode="tags" tokenSeparators={[","]} />
                       </Form.Item>
                     </div>
-                    <RateLimitFields
-                      prefix="login"
-                      title={t("hub.settings.security.loginRateLimit")}
-                      form={form}
-                      t={t}
-                    />
-                    <RateLimitFields
-                      prefix="registration"
-                      title={t("hub.settings.security.registrationRateLimit")}
-                      form={form}
-                      t={t}
-                    />
+                    <div className={styles.rateLimitGrid}>
+                      <RateLimitFields
+                        prefix="login"
+                        title={t("hub.settings.security.loginRateLimit")}
+                        description={t(
+                          "hub.settings.security.loginRateLimitHint",
+                        )}
+                        form={form}
+                        t={t}
+                      />
+                      <RateLimitFields
+                        prefix="registration"
+                        title={t("hub.settings.security.registrationRateLimit")}
+                        description={t(
+                          "hub.settings.security.registrationRateLimitHint",
+                        )}
+                        form={form}
+                        t={t}
+                      />
+                    </div>
                   </article>
                 </div>
               ),
@@ -1579,156 +1655,271 @@ function SettingsPanel({
                         },
                       ]}
                     >
-                      <Select options={provisionerOptions} />
+                      <BackendSelector
+                        available={settings.available_provisioners}
+                        t={t}
+                      />
                     </Form.Item>
-                  </article>
-
-                  <article
-                    className={`${styles.settingsCard} ${styles.dockerCard}`}
-                  >
-                    <div className={styles.settingsCardHeader}>
-                      <div>
-                        <strong>{t("hub.settings.docker.title")}</strong>
-                        <span>{t("hub.settings.docker.description")}</span>
-                      </div>
-                      <Box size={18} />
-                    </div>
-                    {!dockerImages?.available && (
-                      <div className={styles.dockerWarning}>
-                        {dockerImages?.reason ||
-                          t("hub.settings.docker.unavailable")}
-                      </div>
-                    )}
-                    <div className={styles.dockerFields}>
-                      <Form.Item
-                        name="dockerSource"
-                        label={t("hub.settings.docker.source")}
-                        rules={[{ required: true }]}
-                      >
-                        <Select
-                          options={[
-                            {
-                              value: "docker_hub",
-                              label: t("hub.settings.docker.dockerHub"),
-                            },
-                            {
-                              value: "aliyun_acr",
-                              label: t("hub.settings.docker.aliyunAcr"),
-                            },
-                            {
-                              value: "custom",
-                              label: t("hub.settings.docker.custom"),
-                            },
-                          ]}
-                          onChange={(
-                            source: "docker_hub" | "aliyun_acr" | "custom",
-                          ) => {
-                            if (source !== "custom") {
-                              const repository = dockerImages?.sources[source];
-                              if (repository) {
-                                form.setFieldValue(
-                                  "dockerImage",
-                                  `${repository}:latest`,
-                                );
-                              }
-                            }
-                          }}
-                        />
-                      </Form.Item>
-                      <Form.Item
-                        name="dockerImage"
-                        label={t("hub.settings.docker.image")}
-                        rules={[{ required: true }]}
-                      >
-                        {dockerSource === "custom" ? (
-                          <Input placeholder="registry.example.com/qwenpaw:v1" />
-                        ) : (
-                          <Select options={officialOptions} />
-                        )}
-                      </Form.Item>
-                      <Form.Item
-                        name="dockerPullPolicy"
-                        label={t("hub.settings.docker.pullPolicy")}
-                        rules={[{ required: true }]}
-                      >
-                        <Select
-                          options={[
-                            {
-                              value: "if_not_present",
-                              label: t("hub.settings.docker.ifNotPresent"),
-                            },
-                            {
-                              value: "always",
-                              label: t("hub.settings.docker.always"),
-                            },
-                            {
-                              value: "never",
-                              label: t("hub.settings.docker.never"),
-                            },
-                          ]}
-                        />
-                      </Form.Item>
-                      <Form.Item
-                        name="dockerAllowedRegistries"
-                        label={t("hub.settings.docker.allowedRegistries")}
-                        rules={[{ required: true }]}
-                      >
-                        <Select mode="tags" tokenSeparators={[","]} />
-                      </Form.Item>
-                    </div>
-                    <div className={styles.imagePullRow}>
-                      <Button
-                        icon={<RefreshCw size={14} />}
-                        loading={dockerPulling}
-                        disabled={!dockerImages?.available || !dockerImage}
-                        onClick={() => onPullImage(dockerImage)}
-                      >
-                        {t("hub.settings.docker.pullImage")}
-                      </Button>
+                    <div className={styles.backendNotice}>
+                      <ShieldBan size={15} />
                       <span>
-                        {t("hub.settings.docker.localImages", {
-                          count: dockerImages?.local_images.length || 0,
-                        })}
+                        {t(
+                          runtimeProvisioner === "docker"
+                            ? "hub.settings.runtime.dockerIsolationHint"
+                            : "hub.settings.runtime.localIsolationHint",
+                        )}
                       </span>
                     </div>
-                    {currentPull && (
-                      <Progress
-                        percent={currentPull.progress}
-                        status="active"
-                        size="small"
-                      />
-                    )}
-                    <div className={styles.resourceTitle}>
-                      {t("hub.settings.docker.resources")}
-                    </div>
-                    <div className={styles.resourceFields}>
-                      <Form.Item
-                        name="dockerCpuLimit"
-                        label={t("hub.settings.docker.cpuLimit")}
-                      >
-                        <InputNumber min={0.1} max={128} step={0.1} />
-                      </Form.Item>
-                      <Form.Item
-                        name="dockerMemoryLimitMb"
-                        label={t("hub.settings.docker.memoryLimit")}
-                      >
-                        <InputNumber min={256} precision={0} />
-                      </Form.Item>
-                      <Form.Item
-                        name="dockerPidsLimit"
-                        label={t("hub.settings.docker.pidsLimit")}
-                      >
-                        <InputNumber min={64} precision={0} />
-                      </Form.Item>
-                      <Form.Item
-                        name="dockerShmSizeMb"
-                        label={t("hub.settings.docker.shmSize")}
-                        rules={[{ required: true }]}
-                      >
-                        <InputNumber min={64} precision={0} />
-                      </Form.Item>
-                    </div>
                   </article>
+
+                  {runtimeProvisioner === "docker" && (
+                    <article
+                      className={`${styles.settingsCard} ${styles.wideSettingsCard}`}
+                    >
+                      <div className={styles.settingsCardHeader}>
+                        <div>
+                          <strong>{t("hub.settings.docker.title")}</strong>
+                          <span>{t("hub.settings.docker.description")}</span>
+                        </div>
+                        <Box size={18} />
+                      </div>
+                      {!dockerImages?.available && (
+                        <div className={styles.dockerWarning}>
+                          {dockerImages?.reason ||
+                            t("hub.settings.docker.unavailable")}
+                        </div>
+                      )}
+                      <div className={styles.imagePolicySection}>
+                        <Form.Item
+                          name="dockerSource"
+                          label={t("hub.settings.docker.source")}
+                          rules={[{ required: true }]}
+                        >
+                          <ImageSourceSelector
+                            hasLocalImages={localImageOptions.length > 0}
+                            onSourceChange={(source) => {
+                              if (
+                                source === "docker_hub" ||
+                                source === "aliyun_acr"
+                              ) {
+                                const repository =
+                                  dockerImages?.sources[source];
+                                if (repository) {
+                                  form.setFieldValue(
+                                    "dockerImage",
+                                    `${repository}:latest`,
+                                  );
+                                }
+                              }
+                              if (source === "local" && localImageOptions[0]) {
+                                form.setFieldValue(
+                                  "dockerImage",
+                                  localImageOptions[0].value,
+                                );
+                                form.setFieldValue("dockerPullPolicy", "never");
+                              }
+                            }}
+                            t={t}
+                          />
+                        </Form.Item>
+                        <div className={styles.imageSelectionGrid}>
+                          <Form.Item
+                            name="dockerImage"
+                            label={t("hub.settings.docker.image")}
+                            rules={[{ required: true }]}
+                          >
+                            {dockerSource === "custom" ? (
+                              <Input placeholder="registry.example.com/qwenpaw:v1" />
+                            ) : dockerSource === "local" ? (
+                              <Select
+                                options={localImageOptions}
+                                placeholder={t(
+                                  "hub.settings.docker.selectLocalImage",
+                                )}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            ) : (
+                              <Select
+                                options={officialOptions}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            )}
+                          </Form.Item>
+                          <Form.Item
+                            name="dockerPullPolicy"
+                            label={t("hub.settings.docker.pullPolicy")}
+                            rules={[{ required: true }]}
+                          >
+                            <Select
+                              options={[
+                                {
+                                  value: "if_not_present",
+                                  label: t("hub.settings.docker.ifNotPresent"),
+                                },
+                                {
+                                  value: "always",
+                                  label: t("hub.settings.docker.always"),
+                                },
+                                {
+                                  value: "never",
+                                  label: t("hub.settings.docker.never"),
+                                },
+                              ]}
+                            />
+                          </Form.Item>
+                        </div>
+                        <div className={styles.imageIdentityCard}>
+                          <div className={styles.imageIdentityIcon}>
+                            <Box size={18} />
+                          </div>
+                          <div className={styles.imageIdentityMain}>
+                            <span>
+                              {t("hub.settings.docker.selectedImage")}
+                            </span>
+                            <strong>{dockerImage || "—"}</strong>
+                            <small>{imageOrigin}</small>
+                          </div>
+                          <dl>
+                            <div>
+                              <dt>{t("hub.settings.docker.repository")}</dt>
+                              <dd>{imageParts.repository || "—"}</dd>
+                            </div>
+                            <div>
+                              <dt>Tag</dt>
+                              <dd>{imageParts.tag}</dd>
+                            </div>
+                            <div>
+                              <dt>{t("hub.settings.docker.localStatus")}</dt>
+                              <dd>
+                                {selectedLocalImage
+                                  ? t("hub.settings.docker.downloaded")
+                                  : t("hub.settings.docker.notDownloaded")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Digest / ID</dt>
+                              <dd>
+                                {selectedLocalImage?.digests[0] ||
+                                  selectedLocalImage?.short_id ||
+                                  "—"}
+                              </dd>
+                            </div>
+                          </dl>
+                        </div>
+                      </div>
+                      <div className={styles.registrySection}>
+                        <div className={styles.registryHeader}>
+                          <div>
+                            <strong>
+                              {t("hub.settings.docker.allowedRegistries")}
+                            </strong>
+                            <span>
+                              {t("hub.settings.docker.allowedRegistriesHint")}
+                            </span>
+                          </div>
+                          <LockKeyhole size={16} />
+                        </div>
+                        <div className={styles.builtInRegistries}>
+                          {BUILT_IN_DOCKER_REGISTRIES.map((registry) => (
+                            <Tag
+                              key={registry}
+                              icon={<LockKeyhole size={11} />}
+                            >
+                              {registry}
+                            </Tag>
+                          ))}
+                        </div>
+                        <Form.Item
+                          name="dockerAllowedRegistries"
+                          label={t("hub.settings.docker.customRegistries")}
+                          extra={t("hub.settings.docker.customRegistriesHint")}
+                          rules={[
+                            {
+                              validator: (_, registries: string[] = []) => {
+                                const invalid = registries.find(
+                                  (registry) =>
+                                    !/^[a-zA-Z0-9.-]+(?::[0-9]+)?$/.test(
+                                      registry,
+                                    ),
+                                );
+                                return invalid
+                                  ? Promise.reject(
+                                      new Error(
+                                        t(
+                                          "hub.settings.docker.invalidRegistry",
+                                        ),
+                                      ),
+                                    )
+                                  : Promise.resolve();
+                              },
+                            },
+                          ]}
+                        >
+                          <Select
+                            mode="tags"
+                            tokenSeparators={[","]}
+                            placeholder="registry.example.com"
+                          />
+                        </Form.Item>
+                      </div>
+                      <div className={styles.imagePullRow}>
+                        {dockerSource !== "local" && (
+                          <Button
+                            icon={<RefreshCw size={14} />}
+                            loading={dockerPulling}
+                            disabled={!dockerImages?.available || !dockerImage}
+                            onClick={() => onPullImage(dockerImage)}
+                          >
+                            {t("hub.settings.docker.pullImage")}
+                          </Button>
+                        )}
+                        <span>
+                          {t("hub.settings.docker.localImages", {
+                            count: dockerImages?.local_images.length || 0,
+                          })}
+                        </span>
+                      </div>
+                      {currentPull && (
+                        <Progress
+                          percent={currentPull.progress}
+                          status="active"
+                          size="small"
+                        />
+                      )}
+                      <div className={styles.resourceTitle}>
+                        {t("hub.settings.docker.resources")}
+                      </div>
+                      <div className={styles.resourceFields}>
+                        <Form.Item
+                          name="dockerCpuLimit"
+                          label={t("hub.settings.docker.cpuLimit")}
+                        >
+                          <InputNumber min={0.1} max={128} step={0.1} />
+                        </Form.Item>
+                        <Form.Item
+                          name="dockerMemoryLimitMb"
+                          label={t("hub.settings.docker.memoryLimit")}
+                        >
+                          <InputNumber min={256} precision={0} />
+                        </Form.Item>
+                        <Form.Item
+                          name="dockerPidsLimit"
+                          label={t("hub.settings.docker.pidsLimit")}
+                        >
+                          <InputNumber min={64} precision={0} />
+                        </Form.Item>
+                        <Form.Item
+                          name="dockerShmSizeMb"
+                          label={t("hub.settings.docker.shmSize")}
+                          rules={[{ required: true }]}
+                        >
+                          <InputNumber min={64} precision={0} />
+                        </Form.Item>
+                      </div>
+                    </article>
+                  )}
 
                   <article className={styles.settingsCard}>
                     <div className={styles.settingsCardHeader}>
@@ -1767,11 +1958,13 @@ function SettingsPanel({
 function RateLimitFields({
   prefix,
   title,
+  description,
   form,
   t,
 }: {
   prefix: "login" | "registration";
   title: string;
+  description: string;
   form: FormInstance<SettingsFormValues>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -1779,13 +1972,16 @@ function RateLimitFields({
   const enabled = Form.useWatch(enabledName, form);
   return (
     <div className={styles.rateLimitGroup}>
-      <div className={styles.settingRow}>
-        <strong>{title}</strong>
+      <div className={styles.rateLimitHeader}>
+        <div>
+          <strong>{title}</strong>
+          <span>{description}</span>
+        </div>
         <Form.Item name={enabledName} valuePropName="checked" noStyle>
           <Switch />
         </Form.Item>
       </div>
-      <div className={styles.resourceFields}>
+      <div className={styles.rateLimitFields}>
         <Form.Item
           name={`${prefix}MaxAttempts`}
           label={t("hub.settings.security.maxAttempts")}
@@ -1808,6 +2004,141 @@ function RateLimitFields({
           <InputNumber min={1} max={604800} disabled={!enabled} />
         </Form.Item>
       </div>
+    </div>
+  );
+}
+
+function BackendSelector({
+  value,
+  onChange,
+  available,
+  t,
+}: {
+  value?: "local" | "docker";
+  onChange?: (value: "local" | "docker") => void;
+  available: string[];
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  const options = [
+    {
+      value: "local" as const,
+      icon: HardDrive,
+      title: t("hub.settings.runtime.localBackend"),
+      description: t("hub.settings.runtime.localBackendHint"),
+    },
+    {
+      value: "docker" as const,
+      icon: Box,
+      title: t("hub.settings.runtime.dockerBackend"),
+      description: t("hub.settings.runtime.dockerBackendHint"),
+    },
+  ];
+  return (
+    <div className={styles.choiceCards}>
+      {options.map((option) => {
+        const Icon = option.icon;
+        const disabled = !available.includes(option.value);
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={
+              value === option.value
+                ? styles.choiceCardActive
+                : styles.choiceCard
+            }
+            disabled={disabled}
+            aria-pressed={value === option.value}
+            onClick={() => onChange?.(option.value)}
+          >
+            <Icon size={18} />
+            <span>
+              <strong>{option.title}</strong>
+              <small>
+                {disabled
+                  ? t("hub.settings.runtime.backendUnavailable")
+                  : option.description}
+              </small>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ImageSourceSelector({
+  value,
+  onChange,
+  onSourceChange,
+  hasLocalImages,
+  t,
+}: {
+  value?: SettingsFormValues["dockerSource"];
+  onChange?: (value: SettingsFormValues["dockerSource"]) => void;
+  onSourceChange: (value: SettingsFormValues["dockerSource"]) => void;
+  hasLocalImages: boolean;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  const options = [
+    {
+      value: "docker_hub" as const,
+      icon: Box,
+      title: t("hub.settings.docker.dockerHub"),
+      description: "docker.io/agentscope/qwenpaw",
+    },
+    {
+      value: "aliyun_acr" as const,
+      icon: Boxes,
+      title: t("hub.settings.docker.aliyunAcr"),
+      description: "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
+    },
+    {
+      value: "local" as const,
+      icon: HardDrive,
+      title: t("hub.settings.docker.localHost"),
+      description: t("hub.settings.docker.localHostHint"),
+    },
+    {
+      value: "custom" as const,
+      icon: Settings2,
+      title: t("hub.settings.docker.custom"),
+      description: t("hub.settings.docker.customHint"),
+    },
+  ];
+  return (
+    <div className={styles.imageSourceCards}>
+      {options.map((option) => {
+        const Icon = option.icon;
+        const disabled = option.value === "local" && !hasLocalImages;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={
+              value === option.value
+                ? styles.sourceCardActive
+                : styles.sourceCard
+            }
+            disabled={disabled}
+            aria-pressed={value === option.value}
+            onClick={() => {
+              onChange?.(option.value);
+              onSourceChange(option.value);
+            }}
+          >
+            <Icon size={16} />
+            <span>
+              <strong>{option.title}</strong>
+              <small>
+                {disabled
+                  ? t("hub.settings.docker.noLocalImages")
+                  : option.description}
+              </small>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
