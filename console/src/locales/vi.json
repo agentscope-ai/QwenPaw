@@ -1158,7 +1158,9 @@
     "mentionInChat": "Đề cập trong Chat",
     "expandWorkspace": "Mở rộng workspace",
     "openWorkspace": "Mở workspace",
-    "closeWorkspace": "Đóng workspace"
+    "closeWorkspace": "Đóng workspace",
+    "artifacts": "Sản phẩm phiên",
+    "artifactsEmpty": "Phiên này chưa có sản phẩm. Tệp do agent tạo hoặc gửi sẽ xuất hiện tại đây."
   },
   "projectDirectory": {
     "agentTitle": "Thư mục dự án của tác nhân",

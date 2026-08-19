@@ -2307,7 +2307,9 @@
     "mentionInChat": "Sebutkan di Chat",
     "expandWorkspace": "Perluas workspace",
     "openWorkspace": "Buka workspace",
-    "closeWorkspace": "Tutup workspace"
+    "closeWorkspace": "Tutup workspace",
+    "artifacts": "Artefak sesi",
+    "artifactsEmpty": "Belum ada artefak di sesi ini. File yang dibuat atau dikirim agen akan muncul di sini."
   },
   "projectDirectory": {
     "agentTitle": "Direktori proyek Agen",

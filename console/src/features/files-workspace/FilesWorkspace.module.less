@@ -400,6 +400,11 @@
 }
 
 .sourceTab {
+  &[data-source="artifacts"] {
+    --source-color: #43845f;
+    --source-soft: #e9f5ed;
+  }
+
   &[data-source="workspace"] {
     --source-color: var(--files-accent);
     --source-soft: var(--files-accent-soft);
@@ -419,6 +424,86 @@
     --source-color: #557766;
     --source-soft: #eaf2ed;
   }
+}
+
+.artifactRow {
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  color: inherit;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: color-mix(in srgb, #43845f 7%, transparent);
+  }
+}
+
+.artifactGlyph {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #43845f;
+  border-radius: 8px;
+  background: #e4f2e9;
+
+  &[data-kind="image"] {
+    color: #7661a7;
+    background: #eee9f8;
+  }
+
+  &[data-kind="audio"],
+  &[data-kind="video"] {
+    color: #497493;
+    background: #e6f0f6;
+  }
+}
+
+.artifactBody {
+  min-width: 0;
+  display: grid;
+  flex: 1;
+  gap: 2px;
+
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  small {
+    color: var(--files-muted);
+    font-size: 10px;
+  }
+}
+
+.artifactEmpty {
+  min-height: 120px;
+  padding: 20px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--files-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .profileRow {

@@ -26,6 +26,7 @@ import {
   GripVertical,
   LoaderCircle,
   Network,
+  PackageOpen,
   Plus,
   Settings2,
   RefreshCw,
@@ -54,6 +55,7 @@ import type {
   DirectoryEntry,
   FileTarget,
   MemoryGraphRoot,
+  SessionArtifact,
   WorkspaceRoot,
 } from "./types";
 import styles from "./FilesWorkspace.module.less";
@@ -76,7 +78,12 @@ interface ProfileFileRowProps {
   onToggle: () => void;
 }
 
-type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
+type NavigatorSource =
+  | "artifacts"
+  | "workspace"
+  | "profile"
+  | "daily"
+  | "digest";
 
 function FileGlyph({ name }: { name: string }) {
   const extension = name.split(".").pop()?.toLowerCase();
@@ -367,6 +374,7 @@ interface FilesNavigatorProps {
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
   scope: FilesWorkspaceScope;
+  artifacts?: SessionArtifact[];
 }
 
 export default function FilesNavigator({
@@ -376,6 +384,7 @@ export default function FilesNavigator({
   onShowMemoryGraph,
   onShowFiles,
   scope,
+  artifacts = [],
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
@@ -402,7 +411,9 @@ export default function FilesNavigator({
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
   const [profilePickerOpen, setProfilePickerOpen] = useState(false);
   const [profileSearch, setProfileSearch] = useState("");
-  const [source, setSource] = useState<NavigatorSource>("workspace");
+  const [source, setSource] = useState<NavigatorSource>(
+    scope.kind === "session" ? "artifacts" : "workspace",
+  );
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
@@ -628,6 +639,7 @@ export default function FilesNavigator({
   };
 
   const displayEntries = useMemo(() => {
+    if (source === "artifacts") return [];
     if (source === "daily") return dailyFiles;
     if (source === "digest") return digestFiles;
     if (source === "profile") return profileFiles;
@@ -730,26 +742,32 @@ export default function FilesNavigator({
         />
       </header>
       <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
-          (item) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === item}
-              key={item}
-              className={`${styles.sourceTab} ${
-                source === item ? styles.sourceTabActive : ""
-              }`}
-              data-source={item}
-              onClick={() => {
-                setSource(item);
-                onShowFiles();
-              }}
-            >
-              {t(`files.${item}`)}
-            </button>
-          ),
-        )}
+        {(
+          [
+            ...(scope.kind === "session" ? (["artifacts"] as const) : []),
+            "workspace",
+            "profile",
+            "daily",
+            "digest",
+          ] as NavigatorSource[]
+        ).map((item) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === item}
+            key={item}
+            className={`${styles.sourceTab} ${
+              source === item ? styles.sourceTabActive : ""
+            }`}
+            data-source={item}
+            onClick={() => {
+              setSource(item);
+              onShowFiles();
+            }}
+          >
+            {t(`files.${item}`)}
+          </button>
+        ))}
       </div>
       <DndContext
         sensors={sensors}
@@ -761,6 +779,31 @@ export default function FilesNavigator({
           strategy={verticalListSortingStrategy}
         >
           <div className={styles.tree} role="tree" aria-busy={loading}>
+            {source === "artifacts" &&
+              artifacts.map((artifact) => (
+                <button
+                  type="button"
+                  key={artifact.id}
+                  className={`${styles.artifactRow} ${
+                    artifact.target.path === selectedPath
+                      ? styles.treeRowSelected
+                      : ""
+                  }`}
+                  onClick={() => onSelect(artifact.target)}
+                  title={artifact.path}
+                >
+                  <span
+                    className={styles.artifactGlyph}
+                    data-kind={artifact.kind}
+                  >
+                    <FileGlyph name={artifact.name} />
+                  </span>
+                  <span className={styles.artifactBody}>
+                    <strong>{artifact.name}</strong>
+                    <small>{artifact.path}</small>
+                  </span>
+                </button>
+              ))}
             {source === "profile" && (
               <button
                 type="button"
@@ -771,7 +814,9 @@ export default function FilesNavigator({
                 <span>{t("files.addSystemPrompt")}</span>
               </button>
             )}
-            {loading && displayEntries.length === 0 ? (
+            {source !== "artifacts" &&
+            loading &&
+            displayEntries.length === 0 ? (
               <div className={styles.empty}>
                 <LoaderCircle className={styles.spin} size={16} />
                 {t("common.loading")}
@@ -831,7 +876,7 @@ export default function FilesNavigator({
                     }`}
                     onClick={() =>
                       onSelect({
-                        source,
+                        source: source === "artifacts" ? "workspace" : source,
                         path: entry.path,
                         root:
                           source === "workspace" ? workspaceRoot : undefined,
@@ -844,8 +889,20 @@ export default function FilesNavigator({
                 );
               })
             )}
-            {!loading && displayEntries.length === 0 && (
-              <div className={styles.empty}>{t("files.sourceEmpty")}</div>
+            {((source === "artifacts" && artifacts.length === 0) ||
+              (source !== "artifacts" &&
+                !loading &&
+                displayEntries.length === 0)) && (
+              <div className={styles.artifactEmpty}>
+                {source === "artifacts" && <PackageOpen size={22} />}
+                <span>
+                  {t(
+                    source === "artifacts"
+                      ? "files.artifactsEmpty"
+                      : "files.sourceEmpty",
+                  )}
+                </span>
+              </div>
             )}
             {source === "workspace" && hasMore && (
               <button

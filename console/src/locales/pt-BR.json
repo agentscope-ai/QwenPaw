@@ -2088,7 +2088,9 @@
     "mentionInChat": "Mencionar no Chat",
     "expandWorkspace": "Expandir workspace",
     "openWorkspace": "Abrir workspace",
-    "closeWorkspace": "Fechar workspace"
+    "closeWorkspace": "Fechar workspace",
+    "artifacts": "Artefatos da sessão",
+    "artifactsEmpty": "Ainda não há artefatos nesta sessão. Arquivos criados ou enviados pelo agente aparecerão aqui."
   },
   "projectDirectory": {
     "agentTitle": "Diretório de projeto do agente",

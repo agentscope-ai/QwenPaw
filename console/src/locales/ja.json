@@ -1850,7 +1850,9 @@
     "mentionInChat": "チャットで参照",
     "expandWorkspace": "ワークスペースを展開",
     "openWorkspace": "ワークスペースを開く",
-    "closeWorkspace": "ワークスペースを閉じる"
+    "closeWorkspace": "ワークスペースを閉じる",
+    "artifacts": "セッション成果物",
+    "artifactsEmpty": "このセッションにはまだ成果物がありません。エージェントが作成または送信したファイルがここに表示されます。"
   },
   "projectDirectory": {
     "agentTitle": "エージェントのプロジェクトディレクトリ",

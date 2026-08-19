@@ -2346,7 +2346,9 @@
     "mentionInChat": "Mention in Chat",
     "expandWorkspace": "Expand workspace",
     "openWorkspace": "Open workspace",
-    "closeWorkspace": "Close workspace"
+    "closeWorkspace": "Close workspace",
+    "artifacts": "Session artifacts",
+    "artifactsEmpty": "No artifacts in this Session yet. Files created or delivered by the agent appear here."
   },
   "projectDirectory": {
     "agentTitle": "Agent project directory",

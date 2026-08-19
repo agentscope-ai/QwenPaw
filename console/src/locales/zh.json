@@ -2204,7 +2204,9 @@
     "mentionInChat": "在聊天中引用",
     "expandWorkspace": "展开工作区",
     "openWorkspace": "打开工作区",
-    "closeWorkspace": "关闭工作区"
+    "closeWorkspace": "关闭工作区",
+    "artifacts": "会话产物",
+    "artifactsEmpty": "当前会话暂无产物。智能体创建或发送的文件会显示在这里。"
   },
   "projectDirectory": {
     "agentTitle": "Agent 项目目录",

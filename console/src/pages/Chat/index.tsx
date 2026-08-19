@@ -102,7 +102,14 @@ import {
 import type {
   FilesDrawerEvent,
   FileTarget,
+  SessionArtifact,
 } from "../../features/files-workspace/types";
+import {
+  extractSessionArtifacts,
+  mergeSessionArtifacts,
+  SessionArtifactSseCollector,
+  sessionArtifactsEqual,
+} from "../../features/files-workspace/sessionArtifacts";
 import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
@@ -1201,6 +1208,9 @@ export default function ChatPage() {
     queueSessionId,
   );
   const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
+  const [sessionArtifacts, setSessionArtifacts] = useState<SessionArtifact[]>(
+    [],
+  );
   const dispatchFilesDrawer = useCallback(
     (event: FilesDrawerEvent) => {
       useFilesSurfaceStore
@@ -1864,6 +1874,55 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const historyArtifactsRef = useRef<SessionArtifact[]>([]);
+  const streamedArtifactsRef = useRef<SessionArtifact[]>([]);
+  const artifactSseCollectorRef = useRef(new SessionArtifactSseCollector());
+
+  const publishSessionArtifacts = useCallback(() => {
+    const next = mergeSessionArtifacts(
+      historyArtifactsRef.current,
+      streamedArtifactsRef.current,
+    );
+    setSessionArtifacts((current) =>
+      sessionArtifactsEqual(current, next) ? current : next,
+    );
+  }, []);
+
+  useEffect(() => {
+    historyArtifactsRef.current = [];
+    streamedArtifactsRef.current = [];
+    artifactSseCollectorRef.current.reset();
+    setSessionArtifacts([]);
+  }, [currentSessionFilesScopeKey]);
+
+  useEffect(() => {
+    if (filesDrawerState.kind === "closed") return;
+    const controller = new AbortController();
+
+    if (backendChatId) {
+      void chatApi
+        .getChat(backendChatId, { signal: controller.signal })
+        .then((history) => {
+          if (controller.signal.aborted) return;
+          historyArtifactsRef.current = extractSessionArtifacts(
+            history.messages,
+          );
+          publishSessionArtifacts();
+        })
+        .catch(() => undefined);
+    } else {
+      const renderedMessages = chatRef.current?.messages?.getMessages?.() ?? [];
+      historyArtifactsRef.current = extractSessionArtifacts(renderedMessages);
+      publishSessionArtifacts();
+    }
+
+    return () => controller.abort();
+  }, [
+    backendChatId,
+    currentSessionFilesScopeKey,
+    filesDrawerState.kind,
+    publishSessionArtifacts,
+  ]);
   const pendingSenderClearRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -3319,6 +3378,18 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          const streamedArtifacts =
+            artifactSseCollectorRef.current.ingest(payload);
+          if (
+            !sessionArtifactsEqual(
+              streamedArtifactsRef.current,
+              streamedArtifacts,
+            )
+          ) {
+            streamedArtifactsRef.current = streamedArtifacts;
+            publishSessionArtifacts();
+          }
+
           for (const event of parseModelFallbackEvents(payload)) {
             const key = modelFallbackEventKey(event);
             if (pendingFallbackEventKeysRef.current.has(key)) continue;
@@ -3522,6 +3593,7 @@ export default function ChatPage() {
   }, [
     customFetch,
     copyResponse,
+    publishSessionArtifacts,
     handleFileUpload,
     t,
     i18n.language,
@@ -3593,6 +3665,7 @@ export default function ChatPage() {
             state={filesDrawerState}
             dispatch={dispatchFilesDrawer}
             scope={sessionScope}
+            artifacts={sessionArtifacts}
           />
         ) : null}
       </AnimatePresence>
