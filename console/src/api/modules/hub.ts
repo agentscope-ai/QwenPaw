@@ -30,6 +30,7 @@ export interface HubRuntime {
       image_id?: string;
       image_digests?: string[];
       container_id?: string;
+      boundary_mode?: "token" | "loopback_only";
     };
     [key: string]: unknown;
   };
@@ -122,9 +123,15 @@ export interface HubHealth {
   provisioner_statuses: Record<string, HubProvisionerStatus>;
 }
 
-export interface HubTenantQuota {
-  max_runtimes: number | null;
+export interface HubRuntimeCapacity {
   max_running_runtimes: number | null;
+}
+
+export interface HubRateLimitConfig {
+  enabled: boolean;
+  max_attempts: number;
+  window_seconds: number;
+  block_seconds: number;
 }
 
 export interface HubConfig {
@@ -135,13 +142,18 @@ export interface HubConfig {
       enabled: boolean;
       default_role: "user";
     };
+    security: {
+      ip_blacklist: string[];
+      trusted_proxy_ips: string[];
+      login_rate_limit: HubRateLimitConfig;
+      registration_rate_limit: HubRateLimitConfig;
+    };
   };
   runtime: {
     provisioner: "local" | "docker";
     docker: HubDockerConfig;
   };
-  tenant_defaults: HubTenantQuota;
-  tenants: Record<string, HubTenantQuota>;
+  capacity: HubRuntimeCapacity;
 }
 
 export interface HubDockerConfig {

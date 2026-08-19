@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import sqlite3
@@ -58,6 +59,53 @@ class RegistrationConfig(BaseModel):
         return self
 
 
+class RateLimitConfig(BaseModel):
+    """One fixed-window abuse protection policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    max_attempts: int = Field(default=10, ge=1, le=10000)
+    window_seconds: int = Field(default=300, ge=1, le=86400)
+    block_seconds: int = Field(default=900, ge=1, le=604800)
+
+
+class AccessSecurityConfig(BaseModel):
+    """Network-level protection for public authentication endpoints."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ip_blacklist: list[str] = Field(default_factory=list)
+    trusted_proxy_ips: list[str] = Field(default_factory=list)
+    login_rate_limit: RateLimitConfig = Field(
+        default_factory=RateLimitConfig,
+    )
+    registration_rate_limit: RateLimitConfig = Field(
+        default_factory=lambda: RateLimitConfig(
+            max_attempts=5,
+            window_seconds=3600,
+            block_seconds=3600,
+        ),
+    )
+
+    @field_validator("ip_blacklist", "trusted_proxy_ips")
+    @classmethod
+    def validate_networks(cls, values: list[str]) -> list[str]:
+        """Normalize unique IPv4 and IPv6 addresses or CIDR networks."""
+        normalized: list[str] = []
+        for value in values:
+            try:
+                network = ipaddress.ip_network(value.strip(), strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid IP address or CIDR: {value}",
+                ) from exc
+            text = str(network)
+            if text not in normalized:
+                normalized.append(text)
+        return normalized
+
+
 class ControlPlaneConfig(BaseModel):
     """Configuration-managed control-plane settings."""
 
@@ -66,6 +114,9 @@ class ControlPlaneConfig(BaseModel):
     public_base_url: str | None = None
     registration: RegistrationConfig = Field(
         default_factory=RegistrationConfig,
+    )
+    security: AccessSecurityConfig = Field(
+        default_factory=AccessSecurityConfig,
     )
 
     @field_validator("public_base_url")
@@ -146,10 +197,11 @@ class DockerRuntimeConfig(BaseModel):
     @model_validator(mode="after")
     def validate_source_and_registry(self) -> DockerRuntimeConfig:
         """Keep the selected source, image, and registry policy aligned."""
-        first = self.image.split("/", 1)[0]
+        first, separator, _ = self.image.partition("/")
         registry = (
             first
-            if "." in first or ":" in first or first == "localhost"
+            if separator
+            and ("." in first or ":" in first or first == "localhost")
             else "docker.io"
         )
         if registry not in self.allowed_registries:
@@ -176,43 +228,12 @@ class RuntimeConfig(BaseModel):
     docker: DockerRuntimeConfig = Field(default_factory=DockerRuntimeConfig)
 
 
-class TenantQuota(BaseModel):
-    """Runtime admission limits enforced for one tenant."""
+class RuntimeCapacityConfig(BaseModel):
+    """Global admission limit for concurrently active runtimes."""
 
     model_config = ConfigDict(extra="forbid")
 
-    max_runtimes: int | None = Field(default=None, ge=0)
     max_running_runtimes: int | None = Field(default=None, ge=0)
-
-    @model_validator(mode="after")
-    def validate_running_limit(self) -> TenantQuota:
-        """Ensure the running subset cannot exceed total runtimes."""
-        if (
-            self.max_runtimes is not None
-            and self.max_running_runtimes is not None
-            and self.max_running_runtimes > self.max_runtimes
-        ):
-            raise ValueError(
-                "max_running_runtimes must not exceed max_runtimes",
-            )
-        return self
-
-    def merge(self, override: TenantQuota | None) -> TenantQuota:
-        """Apply field-level tenant values over global defaults."""
-        if override is None:
-            return self
-        return TenantQuota(
-            max_runtimes=(
-                override.max_runtimes
-                if override.max_runtimes is not None
-                else self.max_runtimes
-            ),
-            max_running_runtimes=(
-                override.max_running_runtimes
-                if override.max_running_runtimes is not None
-                else self.max_running_runtimes
-            ),
-        )
 
 
 class HubConfig(BaseModel):
@@ -225,24 +246,14 @@ class HubConfig(BaseModel):
         default_factory=ControlPlaneConfig,
     )
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
-    tenant_defaults: TenantQuota = Field(default_factory=TenantQuota)
-    tenants: dict[str, TenantQuota] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_tenant_overrides(self) -> HubConfig:
-        """Validate every merged quota before the server starts."""
-        for tenant_id in self.tenants:
-            self.quota_for(tenant_id)
-        return self
+    capacity: RuntimeCapacityConfig = Field(
+        default_factory=RuntimeCapacityConfig,
+    )
 
     @property
     def default_provisioner(self) -> str:
         """Return the administrator-selected runtime provisioner."""
         return self.runtime.provisioner
-
-    def quota_for(self, tenant_id: str) -> TenantQuota:
-        """Resolve field-level tenant quota overrides."""
-        return self.tenant_defaults.merge(self.tenants.get(tenant_id))
 
 
 class HubConfigStore:

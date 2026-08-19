@@ -14,7 +14,12 @@ from fastapi.testclient import TestClient
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.hub.auth import HubAuthService
-from qwenpaw.hub.config import ControlPlaneConfig, HubConfig
+from qwenpaw.hub.config import (
+    AccessSecurityConfig,
+    ControlPlaneConfig,
+    HubConfig,
+    RateLimitConfig,
+)
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
 from qwenpaw.hub.provisioner import (
@@ -127,6 +132,36 @@ def _register(client: TestClient, username: str) -> str:
     )
     assert response.status_code == 200
     return str(response.json()["token"])
+
+
+def test_login_rate_limit_returns_retry_after(tmp_path: Path) -> None:
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            security=AccessSecurityConfig(
+                login_rate_limit=RateLimitConfig(
+                    max_attempts=2,
+                    window_seconds=60,
+                    block_seconds=30,
+                ),
+            ),
+        ),
+    )
+    with _client(tmp_path, hub_config=config) as client:
+        _register(client, "owner")
+        for _ in range(2):
+            response = client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "wrong-pass"},
+            )
+            assert response.status_code == 401
+
+        blocked = client.post(
+            "/api/auth/login",
+            json={"username": "owner", "password": "wrong-pass"},
+        )
+
+        assert blocked.status_code == 429
+        assert blocked.headers["Retry-After"] == "30"
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -416,8 +451,7 @@ def test_settings_apply_immediately_and_reject_stale_revision(
         )
         assert current.status_code == 200
         payload = current.json()
-        payload["config"]["tenant_defaults"] = {
-            "max_runtimes": 0,
+        payload["config"]["capacity"] = {
             "max_running_runtimes": 0,
         }
 
@@ -431,7 +465,7 @@ def test_settings_apply_immediately_and_reject_stale_revision(
         )
         blocked = client.post(
             "/api/hub/runtimes",
-            json={"runtime_id": "over-quota"},
+            json={"runtime_id": "over-quota", "auto_start": True},
             headers=_headers(admin_token),
         )
         stale = client.put(
@@ -673,11 +707,23 @@ def test_hub_lists_use_server_side_pagination_and_filters(
 ) -> None:
     with _client(tmp_path) as client:
         token = _register(client, "owner")
+        auth = client.app.state.auth_service
         for index in range(4):
+            runtime_token = token
+            if index:
+                username = f"member-{index}"
+                auth.create_user(
+                    username=username,
+                    password="safe-password",
+                )
+                _, runtime_token = auth.authenticate(
+                    username,
+                    "safe-password",
+                )
             created = client.post(
                 "/api/hub/runtimes",
                 json={"runtime_id": f"runtime-{index}"},
-                headers=_headers(token),
+                headers=_headers(runtime_token),
             )
             assert created.status_code == 201
         client.post(
@@ -700,7 +746,7 @@ def test_hub_lists_use_server_side_pagination_and_filters(
         assert len(page.json()["items"]) == 2
         assert filtered.json()["total"] == 1
         assert filtered.json()["items"][0]["runtime_id"] == "runtime-3"
-        assert filtered.json()["items"][0]["owner_username"] == "owner"
+        assert filtered.json()["items"][0]["owner_username"] == "member-3"
 
         username_search = client.get(
             "/api/hub/runtimes?q=owner",
@@ -712,9 +758,9 @@ def test_hub_lists_use_server_side_pagination_and_filters(
         )
 
         assert username_search.status_code == 200
-        assert username_search.json()["total"] == 4
+        assert username_search.json()["total"] == 1
         assert username_filter.status_code == 200
-        assert username_filter.json()["total"] == 4
+        assert username_filter.json()["total"] == 1
 
 
 def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
@@ -813,7 +859,7 @@ def test_operations_overview_and_audit_are_real_and_sanitized(
         ),
     ],
 )
-def test_oauth_callback_relay_is_scoped_and_one_time(
+def test_oauth_callback_route_is_stable_and_runtime_scoped(
     tmp_path: Path,
     start_path: str,
     callback_path: str,
@@ -863,6 +909,7 @@ def test_oauth_callback_relay_is_scoped_and_one_time(
 
         relay_url = urlsplit(callback_urls[0])
         relay_path = relay_url.path.removeprefix("/base")
+        assert "personal-" in relay_path
         callback = client.get(
             f"{relay_path}?code=code-value&state=state-value",
         )
@@ -872,7 +919,7 @@ def test_oauth_callback_relay_is_scoped_and_one_time(
 
         assert callback.status_code == 200
         assert callback.text == "callback complete"
-        assert repeated.status_code == 404
+        assert repeated.status_code == 200
 
 
 def test_regular_runtime_callback_still_requires_login(

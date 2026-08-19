@@ -3527,6 +3527,10 @@
       "provisioner": "Execution type",
       "localExecution": "Local isolation",
       "dockerExecution": "Docker container",
+      "boundary": {
+        "token": "Internal token boundary",
+        "loopback_only": "Loopback-only port boundary"
+      },
       "security": "Security",
       "tenant": "Tenant",
       "removeTitle": "Remove {{id}}?",
@@ -3621,6 +3625,10 @@
       "description": "Manage the complete Hub configuration from one audited source of truth. Changes take effect immediately and persist across restarts.",
       "save": "Save settings",
       "meta": "Revision {{revision}} · Updated {{date}}",
+      "tabs": {
+        "access": "Access security",
+        "runtime": "Runtimes"
+      },
       "access": {
         "title": "Access and registration",
         "description": "Configure the browser-reachable Hub address and public account policy.",
@@ -3630,6 +3638,19 @@
         "registrationHint": "When disabled, only administrators can create accounts.",
         "defaultRole": "Default registration role",
         "defaultRoleHint": "Self-registered accounts are always ordinary users for security."
+      },
+      "security": {
+        "title": "Authentication protection",
+        "description": "Limit login and registration abuse and block addresses or networks.",
+        "ipBlacklist": "IP blacklist",
+        "ipBlacklistHint": "Supports IPv4, IPv6 and CIDR; press Enter after each value.",
+        "trustedProxyIps": "Trusted reverse proxies",
+        "trustedProxyIpsHint": "X-Forwarded-For is trusted only when sent by these addresses.",
+        "loginRateLimit": "Failed login rate limit",
+        "registrationRateLimit": "Registration rate limit",
+        "maxAttempts": "Maximum attempts",
+        "windowSeconds": "Window (seconds)",
+        "blockSeconds": "Block duration (seconds)"
       },
       "runtime": {
         "title": "Runtime policy",
@@ -3661,20 +3682,10 @@
         "shmSize": "Shared memory (MB)"
       },
       "quotas": {
-        "title": "Default capacity quotas",
-        "description": "Set global limits inherited by tenants without an override.",
-        "maxRuntimes": "Maximum runtimes",
+        "title": "Global runtime capacity",
+        "description": "Each tenant owns exactly one runtime; this limits concurrent runtimes across the Hub.",
         "maxRunningRuntimes": "Maximum running runtimes",
-        "unlimitedHint": "Empty means unlimited.",
-        "runningExceedsTotal": "Running runtimes cannot exceed the total runtime limit."
-      },
-      "tenants": {
-        "title": "Tenant overrides",
-        "description": "Override either capacity limit for a specific tenant while inheriting empty values from the defaults.",
-        "tenantId": "Tenant ID",
-        "add": "Add tenant override",
-        "remove": "Remove tenant override",
-        "duplicate": "Tenant IDs must be unique."
+        "unlimitedHint": "Empty means unlimited."
       }
     },
     "auditActions": {

@@ -524,6 +524,12 @@
   gap: 14px;
 }
 
+.settingsTabs {
+  :global(.qwenpaw-tabs-nav) {
+    margin-bottom: 18px;
+  }
+}
+
 .settingsCard {
   padding: 20px;
   border: 1px solid var(--hub-border);
@@ -645,28 +651,13 @@
   text-transform: uppercase;
 }
 
-.tenantCard {
-  grid-column: 1 / -1;
-}
+.rateLimitGroup {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hub-border);
 
-.tenantRows {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.tenantRow {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px 180px 34px;
-  align-items: end;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--hub-border);
-  border-radius: 10px;
-  background: var(--hub-surface-subtle);
-
-  :global(.qwenpaw-form-item) {
-    margin-bottom: 0;
+  .settingRow {
+    margin-bottom: 12px;
   }
 }
 
@@ -914,18 +905,6 @@
     grid-template-columns: 1fr;
   }
 
-  .tenantCard {
-    grid-column: auto;
-  }
-
-  .tenantRow {
-    grid-template-columns: 1fr 1fr;
-
-    > :first-child {
-      grid-column: 1 / -1;
-    }
-  }
-
   .dockerFields,
   .resourceFields {
     grid-template-columns: 1fr;
@@ -1009,14 +988,6 @@
   .filterControl {
     width: 100%;
     margin-left: 0;
-  }
-
-  .tenantRow {
-    grid-template-columns: 1fr;
-
-    > :first-child {
-      grid-column: auto;
-    }
   }
 }
 

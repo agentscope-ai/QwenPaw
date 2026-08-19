@@ -12,14 +12,14 @@ from qwenpaw.hub.config import (
     DockerRuntimeConfig,
     HubConfig,
     HubConfigStore,
+    RuntimeCapacityConfig,
     RuntimeConfig,
-    TenantQuota,
     load_hub_config,
 )
 from qwenpaw.hub.credentials import TenantCredentialVault
 
 
-def test_load_partial_config_and_resolve_tenant_override(
+def test_load_partial_config_and_security_policy(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "hub.yaml"
@@ -30,14 +30,12 @@ control_plane:
   public_base_url: https://qwenpaw.example.com/root/
   registration:
     enabled: false
+  security:
+    ip_blacklist: [192.0.2.4, 2001:db8::/64]
 runtime:
   provisioner: local
-tenant_defaults:
-  max_runtimes: 3
+capacity:
   max_running_runtimes: 2
-tenants:
-  personal-user-a:
-    max_running_runtimes: 1
 """.strip(),
         encoding="utf-8",
     )
@@ -50,10 +48,11 @@ tenants:
         == "https://qwenpaw.example.com/root"
     )
     assert config.default_provisioner == "local"
-    assert config.quota_for("personal-user-a") == TenantQuota(
-        max_runtimes=3,
-        max_running_runtimes=1,
-    )
+    assert config.capacity.max_running_runtimes == 2
+    assert config.control_plane.security.ip_blacklist == [
+        "192.0.2.4/32",
+        "2001:db8::/64",
+    ]
 
 
 def test_no_config_uses_built_in_defaults() -> None:
@@ -61,7 +60,7 @@ def test_no_config_uses_built_in_defaults() -> None:
 
     assert config == HubConfig()
     assert config.control_plane.registration.enabled is None
-    assert config.quota_for("tenant").max_runtimes is None
+    assert config.capacity.max_running_runtimes is None
 
 
 def test_docker_yaml_fields_round_trip_without_panel_only_values(
@@ -111,6 +110,16 @@ runtime:
     }
 
 
+def test_tagged_unqualified_docker_image_uses_docker_hub_registry() -> None:
+    config = DockerRuntimeConfig(
+        source="custom",
+        image="qwenpaw-hub-e2e:test",
+        allowed_registries=["docker.io"],
+    )
+
+    assert config.image == "qwenpaw-hub-e2e:test"
+
+
 @pytest.mark.parametrize(
     "content, match",
     [
@@ -118,7 +127,7 @@ runtime:
         ("runtime: {}", "missing version"),
         ("version: 1\nunknown: true", "Extra inputs are not permitted"),
         (
-            "version: 1\ntenant_defaults:\n  max_runtimes: -1",
+            "version: 1\ncapacity:\n  max_running_runtimes: -1",
             "greater than or equal to 0",
         ),
         (
@@ -161,8 +170,7 @@ control_plane:
     enabled: true
 runtime:
   provisioner: local
-tenant_defaults:
-  max_runtimes: 3
+capacity:
   max_running_runtimes: 2
 """.strip(),
         encoding="utf-8",
@@ -174,7 +182,7 @@ tenant_defaults:
 
     assert imported == loaded_from_disk
     assert loaded_from_disk.runtime.provisioner == "local"
-    assert loaded_from_disk.tenant_defaults.max_runtimes == 3
+    assert loaded_from_disk.capacity.max_running_runtimes == 2
     with sqlite3.connect(database) as connection:
         registration = connection.execute(
             "SELECT value_json FROM hub_settings WHERE key = ?",
@@ -188,13 +196,12 @@ tenant_defaults:
     assert auth.registration_enabled() is True
 
     config_path.write_text(
-        "version: 1\ntenant_defaults:\n  max_running_runtimes: 1",
+        "version: 1\ncapacity:\n  max_running_runtimes: 1",
         encoding="utf-8",
     )
     unchanged = store.resolve(config_path)
 
-    assert unchanged.tenant_defaults.max_runtimes == 3
-    assert unchanged.tenant_defaults.max_running_runtimes == 2
+    assert unchanged.capacity.max_running_runtimes == 2
 
 
 def test_config_store_updates_with_revision_and_rejects_stale_writes(
@@ -207,8 +214,7 @@ def test_config_store_updates_with_revision_and_rejects_stale_writes(
         runtime=RuntimeConfig(
             provisioner="local",
         ),
-        tenant_defaults=TenantQuota(
-            max_runtimes=4,
+        capacity=RuntimeCapacityConfig(
             max_running_runtimes=2,
         ),
     )
@@ -220,7 +226,7 @@ def test_config_store_updates_with_revision_and_rejects_stale_writes(
         updated_by_user_id="admin-a",
     )
 
-    assert saved.tenant_defaults == updated.tenant_defaults
+    assert saved.capacity == updated.capacity
     assert saved.control_plane.registration.enabled is False
     assert saved.control_plane.registration.default_role == "user"
     assert next_revision == revision + 1

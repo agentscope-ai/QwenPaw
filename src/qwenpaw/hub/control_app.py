@@ -31,6 +31,7 @@ from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
+from .access_security import HubAccessSecurity
 from .auth import HubAuthService, HubUser
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
@@ -48,7 +49,6 @@ from .models import (
     RuntimeStartPolicy,
     RuntimeState,
 )
-from .oauth_relay import OAuthRelayStore
 from .operations import HubOperationsStore
 from .registry import RuntimeRegistry
 from .service import RuntimeService
@@ -181,16 +181,28 @@ _MCP_OAUTH_START = re.compile(
 )
 
 
-def _oauth_callback_path(method: str, path: str) -> str | None:
-    """Map a managed OAuth start request to its fixed callback path."""
+def _oauth_callback_route(method: str, path: str) -> str | None:
+    """Map a managed OAuth start request to its stable Hub route."""
     if method != "POST":
         return None
     provider_match = _PROVIDER_OAUTH_START.fullmatch(path)
     if provider_match:
         provider_id = provider_match.group("provider_id")
-        return f"/api/providers/{provider_id}/oauth/callback"
+        return f"providers/{provider_id}"
     if _MCP_OAUTH_START.fullmatch(path):
+        return "mcp"
+    return None
+
+
+def _runtime_oauth_callback_path(callback_route: str) -> str | None:
+    """Resolve an allowlisted Hub callback route inside one runtime."""
+    if callback_route == "mcp":
         return "/api/mcp/oauth/callback"
+    provider_prefix = "providers/"
+    if callback_route.startswith(provider_prefix):
+        provider_id = callback_route[len(provider_prefix) :]
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", provider_id):
+            return f"/api/providers/{provider_id}/oauth/callback"
     return None
 
 
@@ -273,6 +285,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         runtime_service.root_dir,
     )
+    access_security = HubAccessSecurity(
+        effective_config.control_plane.security,
+    )
     docker_provisioner = runtime_service.provisioners.get("docker")
     docker_pulls = (
         DockerImagePullStore(docker_provisioner)
@@ -320,9 +335,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
     app.state.hub_config = effective_config
     app.state.config_store = config_store
     app.state.operations = operations
+    app.state.access_security = access_security
     app.state.docker_pulls = docker_pulls
-    oauth_relays = OAuthRelayStore()
-    app.state.oauth_relays = oauth_relays
 
     def require_user(
         authorization: str | None = Header(default=None),
@@ -345,6 +359,22 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 detail="Administrator permission required",
             )
         return user
+
+    def require_auth_access(request: Request, action: str) -> str:
+        client_ip = access_security.client_ip(request)
+        if access_security.is_blacklisted(client_ip):
+            raise HTTPException(
+                status_code=403,
+                detail="This IP address is blocked by the Hub administrator.",
+            )
+        retry_after = access_security.retry_after(action, client_ip)
+        if retry_after is not None:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many authentication attempts. Try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        return client_ip
 
     def require_runtime_access(runtime_id: str, user: HubUser) -> None:
         try:
@@ -500,7 +530,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
         return hub_auth.status()
 
     @app.post("/api/auth/register")
-    async def register(body: CredentialsBody) -> dict[str, object]:
+    async def register(
+        body: CredentialsBody,
+        request: Request,
+    ) -> dict[str, object]:
+        client_ip = require_auth_access(request, "registration")
+        access_security.record_attempt("registration", client_ip)
         try:
             user, token = await run_in_threadpool(
                 hub_auth.register,
@@ -525,7 +560,11 @@ def create_hub_app(  # pylint: disable=too-many-statements
         }
 
     @app.post("/api/auth/login")
-    async def login(body: CredentialsBody) -> dict[str, object]:
+    async def login(
+        body: CredentialsBody,
+        request: Request,
+    ) -> dict[str, object]:
+        client_ip = require_auth_access(request, "login")
         try:
             user, token = await run_in_threadpool(
                 hub_auth.authenticate,
@@ -533,7 +572,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 body.password,
             )
         except PermissionError as exc:
+            access_security.record_attempt("login", client_ip)
             raise HTTPException(status_code=401, detail=str(exc)) from exc
+        access_security.clear("login", client_ip)
         return {
             "token": token,
             "username": user.username,
@@ -720,6 +761,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 updated_by_user_id=admin.user_id,
             )
             await run_in_threadpool(runtime_service.apply_config, config)
+            access_security.configure(config.control_plane.security)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1181,23 +1223,24 @@ def create_hub_app(  # pylint: disable=too-many-statements
         return _page_payload(events, page, page_size, total)
 
     @app.get(
-        "/api/hub/oauth/callback/{relay_token}",
+        "/api/hub/oauth/callback/{runtime_id}/{callback_route:path}",
         include_in_schema=False,
     )
     async def oauth_callback_relay(
-        relay_token: str,
+        runtime_id: str,
+        callback_route: str,
         request: Request,
     ) -> Response:
-        relay = oauth_relays.take(relay_token)
-        if relay is None:
+        callback_path = _runtime_oauth_callback_path(callback_route)
+        if callback_path is None:
             raise HTTPException(
                 status_code=404,
-                detail="OAuth callback relay is invalid or expired",
+                detail="OAuth callback route is invalid",
             )
         try:
             record = await run_in_threadpool(
                 runtime_service.status,
-                relay.runtime_id,
+                runtime_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -1221,7 +1264,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 detail="Personal runtime boundary token is unavailable",
             )
         target = httpx.URL(
-            f"http://{record.host}:{record.port}{relay.callback_path}",
+            f"http://{record.host}:{record.port}{callback_path}",
             query=request.url.query.encode("utf-8"),
         )
         try:
@@ -1295,19 +1338,16 @@ def create_hub_app(  # pylint: disable=too-many-statements
             if name.lower() not in excluded_request_headers
         }
         headers["X-QwenPaw-Runtime-Token"] = internal_token
-        callback_path = _oauth_callback_path(request.method, path)
-        if callback_path:
-            relay_token = oauth_relays.create(
-                record.runtime_id,
-                callback_path,
-            )
+        callback_route = _oauth_callback_route(request.method, path)
+        if callback_route:
             public_base_url = (
                 app.state.hub_config.control_plane.public_base_url
                 or str(request.base_url).rstrip("/")
             )
-            headers[
-                HUB_OAUTH_CALLBACK_URL_HEADER
-            ] = f"{public_base_url}/api/hub/oauth/callback/{relay_token}"
+            headers[HUB_OAUTH_CALLBACK_URL_HEADER] = (
+                f"{public_base_url}/api/hub/oauth/callback/"
+                f"{record.runtime_id}/{callback_route}"
+            )
         client = httpx.AsyncClient(
             timeout=None,
             transport=proxy_transport,

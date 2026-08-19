@@ -34,7 +34,11 @@ class _FakeContainer:
     attrs = {
         "Image": "sha256:resolved-image",
         "NetworkSettings": {
-            "Ports": {"8088/tcp": [{"HostPort": "32123"}]},
+            "Ports": {
+                "8088/tcp": [
+                    {"HostIp": "127.0.0.1", "HostPort": "32123"},
+                ],
+            },
         },
         "State": {"ExitCode": 0},
     }
@@ -130,7 +134,11 @@ def test_container_launch_applies_persistence_security_and_limits(
     client = _FakeClient()
     provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
     _configure(provisioner)
-    monkeypatch.setattr(provisioner, "_wait_until_ready", lambda *_: None)
+    monkeypatch.setattr(
+        provisioner,
+        "_wait_until_ready",
+        lambda *_: "token",
+    )
 
     running = provisioner.start(
         _record(tmp_path),
@@ -152,6 +160,7 @@ def test_container_launch_applies_persistence_security_and_limits(
         str(running.backup_dir),
     }
     assert running.metadata["docker"]["image_id"] == ("sha256:resolved-image")
+    assert running.metadata["docker"]["boundary_mode"] == "token"
 
 
 def test_pinned_runtime_uses_saved_image_id_after_policy_change(
@@ -161,7 +170,11 @@ def test_pinned_runtime_uses_saved_image_id_after_policy_change(
     client = _FakeClient()
     provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
     _configure(provisioner)
-    monkeypatch.setattr(provisioner, "_wait_until_ready", lambda *_: None)
+    monkeypatch.setattr(
+        provisioner,
+        "_wait_until_ready",
+        lambda *_: "token",
+    )
     record = _record(
         tmp_path,
         {
@@ -206,6 +219,22 @@ def test_official_source_and_registry_validation_fail_closed(
         )
 
 
+def test_unqualified_tagged_image_uses_docker_hub_registry(
+    tmp_path: Path,
+) -> None:
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=_FakeClient())
+
+    provisioner.configure(
+        {
+            "source": "custom",
+            "image": "qwenpaw-hub-e2e:test",
+            "allowed_registries": ["docker.io"],
+        },
+    )
+
+    assert provisioner.registry_for("qwenpaw-hub-e2e:test") == "docker.io"
+
+
 def test_readiness_requires_anonymous_rejection_and_token_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -244,17 +273,70 @@ def test_readiness_requires_anonymous_rejection_and_token_success(
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
 
-    provisioner._wait_until_ready(  # pylint: disable=protected-access
+    result = provisioner._wait_until_ready(  # pylint: disable=protected-access
         _record(tmp_path),
         "runtime-token",
     )
 
+    assert result == "token"
     assert len(calls) == 2
     token_request = calls[1]
     assert isinstance(token_request, urllib.request.Request)
     assert token_request.get_header("X-qwenpaw-runtime-token") == (
         "runtime-token"
     )
+
+
+def test_readiness_accepts_loopback_only_legacy_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provisioner = DockerRuntimeProvisioner(
+        tmp_path,
+        start_timeout=0.1,
+        client=_FakeClient(),
+    )
+
+    class _Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *_args, **_kwargs: _Response(),
+    )
+
+    result = provisioner._wait_until_ready(  # pylint: disable=protected-access
+        _record(tmp_path),
+        "runtime-token",
+    )
+
+    assert result == "loopback_only"
+
+
+def test_published_port_rejects_non_loopback_binding() -> None:
+    container = _FakeContainer()
+    container.attrs = {
+        **container.attrs,
+        "NetworkSettings": {
+            "Ports": {
+                "8088/tcp": [
+                    {"HostIp": "0.0.0.0", "HostPort": "32123"},
+                ],
+            },
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="outside loopback"):
+        # pylint: disable-next=protected-access
+        DockerRuntimeProvisioner._published_port(
+            container,
+        )
 
 
 def test_pull_store_deduplicates_concurrent_reference(

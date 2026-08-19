@@ -98,17 +98,12 @@ class RuntimeService:
             metadata[provisioner_name] = normalized_config
         if self.registry.get(spec.runtime_id) is not None:
             raise ValueError(f"Runtime already exists: {spec.runtime_id}")
-        quota = self.hub_config.quota_for(spec.tenant_id)
-        tenant_runtime_count = sum(
+        if any(
             record.tenant_id == spec.tenant_id
             for record in self.registry.list()
-        )
-        if (
-            quota.max_runtimes is not None
-            and tenant_runtime_count >= quota.max_runtimes
         ):
             raise ValueError(
-                f"Tenant runtime limit reached: {quota.max_runtimes}",
+                f"Tenant already has a runtime: {spec.tenant_id}",
             )
 
         runtime_root = self._runtime_root(spec.runtime_id)
@@ -185,10 +180,9 @@ class RuntimeService:
         """Start a runtime while the lifecycle lock is held."""
         record = self.get(runtime_id)
         self.require_provisioner_available(record.provisioner)
-        quota = self.hub_config.quota_for(record.tenant_id)
+        capacity = self.hub_config.capacity
         running_count = sum(
-            item.tenant_id == record.tenant_id
-            and item.runtime_id != record.runtime_id
+            item.runtime_id != record.runtime_id
             and item.state
             in {
                 RuntimeState.STARTING,
@@ -197,12 +191,12 @@ class RuntimeService:
             for item in self.registry.list()
         )
         if (
-            quota.max_running_runtimes is not None
-            and running_count >= quota.max_running_runtimes
+            capacity.max_running_runtimes is not None
+            and running_count >= capacity.max_running_runtimes
         ):
             raise ValueError(
-                "Tenant running runtime limit reached: "
-                f"{quota.max_running_runtimes}",
+                "Hub running runtime limit reached: "
+                f"{capacity.max_running_runtimes}",
             )
         provisioner = self._provisioner(record)
         starting = self.registry.save(

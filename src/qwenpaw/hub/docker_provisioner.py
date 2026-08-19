@@ -169,12 +169,16 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 last_error=None,
                 metadata=self._runtime_metadata(record, container),
             )
-            self._wait_until_ready(starting, runtime_token)
+            boundary_mode = self._wait_until_ready(starting, runtime_token)
             container.reload()
             return replace(
                 starting,
                 state=RuntimeState.RUNNING,
-                metadata=self._runtime_metadata(starting, container),
+                metadata=self._runtime_metadata(
+                    starting,
+                    container,
+                    boundary_mode=boundary_mode,
+                ),
             )
         except Exception:
             self._write_container_logs(record, container)
@@ -290,8 +294,10 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
     @staticmethod
     def registry_for(reference: str) -> str:
         """Resolve the registry host using Docker reference rules."""
-        first = reference.split("/", 1)[0]
-        if "." in first or ":" in first or first == "localhost":
+        first, separator, _ = reference.partition("/")
+        if separator and (
+            "." in first or ":" in first or first == "localhost"
+        ):
             return first
         return "docker.io"
 
@@ -466,6 +472,12 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 .get("8088/tcp")
             )
             if bindings:
+                host_ip = str(bindings[0].get("HostIp") or "")
+                if host_ip not in {"127.0.0.1", "::1"}:
+                    raise RuntimeError(
+                        "Docker published the runtime outside loopback: "
+                        f"{host_ip or 'unknown'}",
+                    )
                 return int(bindings[0]["HostPort"])
             time.sleep(0.1)
         raise RuntimeError("Docker did not publish the runtime port.")
@@ -474,6 +486,8 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
     def _runtime_metadata(
         record: RuntimeRecord,
         container: Any,
+        *,
+        boundary_mode: str | None = None,
     ) -> dict[str, Any]:
         image = container.attrs.get("Image", "")
         metadata = dict(record.metadata)
@@ -487,6 +501,8 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 ),
             },
         )
+        if boundary_mode is not None:
+            docker_config["boundary_mode"] = boundary_mode
         metadata["docker"] = docker_config
         return metadata
 
@@ -494,15 +510,16 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         self,
         record: RuntimeRecord,
         runtime_token: str,
-    ) -> None:
+    ) -> str:
         deadline = time.monotonic() + self._start_timeout
         url = f"http://{record.host}:{record.port}/api/healthz"
         last_error = "health endpoint was not reachable"
         while time.monotonic() < deadline:
             try:
-                with urllib.request.urlopen(url, timeout=1):
-                    last_error = "runtime accepted a request without its token"
-                    break
+                with urllib.request.urlopen(url, timeout=1) as response:
+                    if 200 <= response.status < 300:
+                        return "loopback_only"
+                    last_error = f"health endpoint returned {response.status}"
             except urllib.error.HTTPError as exc:
                 if exc.code != 401:
                     last_error = f"unexpected anonymous status {exc.code}"
@@ -519,7 +536,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                             timeout=2,
                         ) as response:
                             if 200 <= response.status < 300:
-                                return
+                                return "token"
                             last_error = (
                                 f"health endpoint returned {response.status}"
                             )

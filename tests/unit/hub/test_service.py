@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.hub.config import HubConfig, RuntimeConfig, TenantQuota
+from qwenpaw.hub.config import (
+    HubConfig,
+    RuntimeCapacityConfig,
+    RuntimeConfig,
+)
 from qwenpaw.hub.provisioner import (
     RuntimeProvisioner,
     RuntimeProvisionerAvailability,
@@ -102,15 +106,12 @@ def test_unavailable_provisioner_rejects_runtime_registration(
     assert service.registry.list() == []
 
 
-def test_runtime_total_limit_is_tenant_scoped(tmp_path: Path) -> None:
-    service = _service(
-        tmp_path,
-        HubConfig(tenant_defaults=TenantQuota(max_runtimes=1)),
-    )
+def test_one_runtime_is_allowed_per_tenant(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
     first = service.create(_spec("first"))
 
     assert first.provisioner == "local"
-    with pytest.raises(ValueError, match="runtime limit reached: 1"):
+    with pytest.raises(ValueError, match="already has a runtime"):
         service.create(_spec("second"))
     assert service.create(_spec("other", "tenant-b")).tenant_id == "tenant-b"
 
@@ -125,18 +126,17 @@ def test_runtime_cannot_override_administrator_backend(tmp_path: Path) -> None:
     assert service.registry.list() == []
 
 
-def test_running_runtime_limit_is_tenant_scoped(tmp_path: Path) -> None:
+def test_running_runtime_limit_is_global(tmp_path: Path) -> None:
     service = _service(
         tmp_path,
         HubConfig(
-            tenant_defaults=TenantQuota(
-                max_runtimes=2,
+            capacity=RuntimeCapacityConfig(
                 max_running_runtimes=1,
             ),
         ),
     )
     service.create(_spec("first"))
-    service.create(_spec("second"))
+    service.create(_spec("second", "tenant-b"))
 
     assert service.start("first").state is RuntimeState.RUNNING
     with pytest.raises(ValueError, match="running runtime limit reached: 1"):
@@ -212,7 +212,7 @@ def test_owner_cannot_restart_admin_disabled_runtime(tmp_path: Path) -> None:
 def test_close_preserves_runtime_control_intent(tmp_path: Path) -> None:
     service = _service(tmp_path, HubConfig())
     service.create(_spec("running"))
-    service.create(_spec("disabled"))
+    service.create(_spec("disabled", "tenant-b"))
     service.start("running")
     service.stop(
         "disabled",
@@ -246,7 +246,7 @@ def test_provisioner_policy_fails_closed_at_startup(tmp_path: Path) -> None:
 def test_runtime_page_refreshes_only_returned_records(tmp_path: Path) -> None:
     service = _service(tmp_path, HubConfig())
     for index in range(5):
-        service.create(_spec(f"runtime-{index}"))
+        service.create(_spec(f"runtime-{index}", f"tenant-{index}"))
 
     records, total = service.list_page(
         page=2,

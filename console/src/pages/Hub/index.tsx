@@ -13,6 +13,7 @@ import {
   Skeleton,
   Switch,
   Tag,
+  Tabs,
 } from "antd";
 import type { FormInstance } from "antd";
 import {
@@ -80,13 +81,17 @@ interface SettingsFormValues {
   dockerMemoryLimitMb?: number;
   dockerPidsLimit?: number;
   dockerShmSizeMb: number;
-  maxRuntimes?: number;
   maxRunningRuntimes?: number;
-  tenants: Array<{
-    tenantId: string;
-    maxRuntimes?: number;
-    maxRunningRuntimes?: number;
-  }>;
+  ipBlacklist: string[];
+  trustedProxyIps: string[];
+  loginRateEnabled: boolean;
+  loginMaxAttempts: number;
+  loginWindowSeconds: number;
+  loginBlockSeconds: number;
+  registrationRateEnabled: boolean;
+  registrationMaxAttempts: number;
+  registrationWindowSeconds: number;
+  registrationBlockSeconds: number;
 }
 
 interface PageData<T> {
@@ -216,16 +221,29 @@ export default function HubPage() {
         result.config.runtime.docker.memory_limit_mb ?? undefined,
       dockerPidsLimit: result.config.runtime.docker.pids_limit ?? undefined,
       dockerShmSizeMb: result.config.runtime.docker.shm_size_mb,
-      maxRuntimes: result.config.tenant_defaults.max_runtimes ?? undefined,
       maxRunningRuntimes:
-        result.config.tenant_defaults.max_running_runtimes ?? undefined,
-      tenants: Object.entries(result.config.tenants).map(
-        ([tenantId, quota]) => ({
-          tenantId,
-          maxRuntimes: quota.max_runtimes ?? undefined,
-          maxRunningRuntimes: quota.max_running_runtimes ?? undefined,
-        }),
-      ),
+        result.config.capacity.max_running_runtimes ?? undefined,
+      ipBlacklist: result.config.control_plane.security.ip_blacklist,
+      trustedProxyIps: result.config.control_plane.security.trusted_proxy_ips,
+      loginRateEnabled:
+        result.config.control_plane.security.login_rate_limit.enabled,
+      loginMaxAttempts:
+        result.config.control_plane.security.login_rate_limit.max_attempts,
+      loginWindowSeconds:
+        result.config.control_plane.security.login_rate_limit.window_seconds,
+      loginBlockSeconds:
+        result.config.control_plane.security.login_rate_limit.block_seconds,
+      registrationRateEnabled:
+        result.config.control_plane.security.registration_rate_limit.enabled,
+      registrationMaxAttempts:
+        result.config.control_plane.security.registration_rate_limit
+          .max_attempts,
+      registrationWindowSeconds:
+        result.config.control_plane.security.registration_rate_limit
+          .window_seconds,
+      registrationBlockSeconds:
+        result.config.control_plane.security.registration_rate_limit
+          .block_seconds,
     });
   }, [settingsForm]);
 
@@ -347,15 +365,6 @@ export default function HubPage() {
     if (!settings) return;
     setSettingsSaving(true);
     try {
-      const tenants = Object.fromEntries(
-        (values.tenants || []).map((tenant) => [
-          tenant.tenantId.trim(),
-          {
-            max_runtimes: tenant.maxRuntimes ?? null,
-            max_running_runtimes: tenant.maxRunningRuntimes ?? null,
-          },
-        ]),
-      );
       const updated = await hubApi.updateSettings(settings.revision, {
         ...settings.config,
         control_plane: {
@@ -363,6 +372,22 @@ export default function HubPage() {
           registration: {
             enabled: values.registrationEnabled,
             default_role: "user",
+          },
+          security: {
+            ip_blacklist: values.ipBlacklist,
+            trusted_proxy_ips: values.trustedProxyIps,
+            login_rate_limit: {
+              enabled: values.loginRateEnabled,
+              max_attempts: values.loginMaxAttempts,
+              window_seconds: values.loginWindowSeconds,
+              block_seconds: values.loginBlockSeconds,
+            },
+            registration_rate_limit: {
+              enabled: values.registrationRateEnabled,
+              max_attempts: values.registrationMaxAttempts,
+              window_seconds: values.registrationWindowSeconds,
+              block_seconds: values.registrationBlockSeconds,
+            },
           },
         },
         runtime: {
@@ -378,11 +403,9 @@ export default function HubPage() {
             shm_size_mb: values.dockerShmSizeMb,
           },
         },
-        tenant_defaults: {
-          max_runtimes: values.maxRuntimes ?? null,
+        capacity: {
           max_running_runtimes: values.maxRunningRuntimes ?? null,
         },
-        tenants,
       });
       setSettings(updated);
       message.success(t("hub.messages.settingsSaved"));
@@ -789,6 +812,13 @@ export default function HubPage() {
                                   {runtime.metadata?.docker?.image ||
                                     runtime.security_level}
                                 </small>
+                                {runtime.metadata?.docker?.boundary_mode && (
+                                  <Tag>
+                                    {t(
+                                      `hub.runtimes.boundary.${runtime.metadata.docker.boundary_mode}`,
+                                    )}
+                                  </Tag>
+                                )}
                               </td>
                               <td>
                                 {formatDate(runtime.updated_at, i18n.language)}
@@ -1437,326 +1467,292 @@ function SettingsPanel({
         requiredMark={false}
         onFinish={onSave}
       >
-        <div className={styles.settingsGrid}>
-          <article className={styles.settingsCard}>
-            <div className={styles.settingsCardHeader}>
-              <div>
-                <strong>{t("hub.settings.access.title")}</strong>
-                <span>{t("hub.settings.access.description")}</span>
-              </div>
-              <Settings2 size={18} />
-            </div>
-            <Form.Item
-              name="publicBaseUrl"
-              label={t("hub.settings.access.publicBaseUrl")}
-              extra={t("hub.settings.access.publicBaseUrlHint")}
-              rules={[{ type: "url" }]}
-            >
-              <Input placeholder="https://hub.example.com" />
-            </Form.Item>
-            <div className={styles.settingRow}>
-              <div>
-                <strong>{t("hub.settings.access.registration")}</strong>
-                <span>{t("hub.settings.access.registrationHint")}</span>
-              </div>
-              <Form.Item
-                name="registrationEnabled"
-                valuePropName="checked"
-                noStyle
-              >
-                <Switch />
-              </Form.Item>
-            </div>
-            <Form.Item
-              label={t("hub.settings.access.defaultRole")}
-              extra={t("hub.settings.access.defaultRoleHint")}
-            >
-              <Input value={t("hub.roles.user")} disabled />
-            </Form.Item>
-          </article>
+        <Tabs
+          className={styles.settingsTabs}
+          items={[
+            {
+              key: "access",
+              label: t("hub.settings.tabs.access"),
+              forceRender: true,
+              children: (
+                <div className={styles.settingsGrid}>
+                  <article className={styles.settingsCard}>
+                    <div className={styles.settingsCardHeader}>
+                      <div>
+                        <strong>{t("hub.settings.access.title")}</strong>
+                        <span>{t("hub.settings.access.description")}</span>
+                      </div>
+                      <Settings2 size={18} />
+                    </div>
+                    <Form.Item
+                      name="publicBaseUrl"
+                      label={t("hub.settings.access.publicBaseUrl")}
+                      extra={t("hub.settings.access.publicBaseUrlHint")}
+                      rules={[{ type: "url" }]}
+                    >
+                      <Input placeholder="https://hub.example.com" />
+                    </Form.Item>
+                    <div className={styles.settingRow}>
+                      <div>
+                        <strong>{t("hub.settings.access.registration")}</strong>
+                        <span>{t("hub.settings.access.registrationHint")}</span>
+                      </div>
+                      <Form.Item
+                        name="registrationEnabled"
+                        valuePropName="checked"
+                        noStyle
+                      >
+                        <Switch />
+                      </Form.Item>
+                    </div>
+                    <Form.Item
+                      label={t("hub.settings.access.defaultRole")}
+                      extra={t("hub.settings.access.defaultRoleHint")}
+                    >
+                      <Input value={t("hub.roles.user")} disabled />
+                    </Form.Item>
+                  </article>
 
-          <article className={styles.settingsCard}>
-            <div className={styles.settingsCardHeader}>
-              <div>
-                <strong>{t("hub.settings.runtime.title")}</strong>
-                <span>{t("hub.settings.runtime.description")}</span>
-              </div>
-              <Boxes size={18} />
-            </div>
-            <Form.Item
-              name="runtimeProvisioner"
-              label={t("hub.settings.runtime.provisioner")}
-              rules={[
-                { required: true, message: t("hub.validation.required") },
-              ]}
-            >
-              <Select options={provisionerOptions} />
-            </Form.Item>
-          </article>
+                  <article
+                    className={`${styles.settingsCard} ${styles.dockerCard}`}
+                  >
+                    <div className={styles.settingsCardHeader}>
+                      <div>
+                        <strong>{t("hub.settings.security.title")}</strong>
+                        <span>{t("hub.settings.security.description")}</span>
+                      </div>
+                      <ShieldBan size={18} />
+                    </div>
+                    <div className={styles.dockerFields}>
+                      <Form.Item
+                        name="ipBlacklist"
+                        label={t("hub.settings.security.ipBlacklist")}
+                        extra={t("hub.settings.security.ipBlacklistHint")}
+                      >
+                        <Select mode="tags" tokenSeparators={[","]} />
+                      </Form.Item>
+                      <Form.Item
+                        name="trustedProxyIps"
+                        label={t("hub.settings.security.trustedProxyIps")}
+                        extra={t("hub.settings.security.trustedProxyIpsHint")}
+                      >
+                        <Select mode="tags" tokenSeparators={[","]} />
+                      </Form.Item>
+                    </div>
+                    <RateLimitFields
+                      prefix="login"
+                      title={t("hub.settings.security.loginRateLimit")}
+                      form={form}
+                      t={t}
+                    />
+                    <RateLimitFields
+                      prefix="registration"
+                      title={t("hub.settings.security.registrationRateLimit")}
+                      form={form}
+                      t={t}
+                    />
+                  </article>
+                </div>
+              ),
+            },
+            {
+              key: "runtime",
+              label: t("hub.settings.tabs.runtime"),
+              forceRender: true,
+              children: (
+                <div className={styles.settingsGrid}>
+                  <article className={styles.settingsCard}>
+                    <div className={styles.settingsCardHeader}>
+                      <div>
+                        <strong>{t("hub.settings.runtime.title")}</strong>
+                        <span>{t("hub.settings.runtime.description")}</span>
+                      </div>
+                      <Boxes size={18} />
+                    </div>
+                    <Form.Item
+                      name="runtimeProvisioner"
+                      label={t("hub.settings.runtime.provisioner")}
+                      rules={[
+                        {
+                          required: true,
+                          message: t("hub.validation.required"),
+                        },
+                      ]}
+                    >
+                      <Select options={provisionerOptions} />
+                    </Form.Item>
+                  </article>
 
-          <article className={`${styles.settingsCard} ${styles.dockerCard}`}>
-            <div className={styles.settingsCardHeader}>
-              <div>
-                <strong>{t("hub.settings.docker.title")}</strong>
-                <span>{t("hub.settings.docker.description")}</span>
-              </div>
-              <Box size={18} />
-            </div>
-            {!dockerImages?.available && (
-              <div className={styles.dockerWarning}>
-                {dockerImages?.reason || t("hub.settings.docker.unavailable")}
-              </div>
-            )}
-            <div className={styles.dockerFields}>
-              <Form.Item
-                name="dockerSource"
-                label={t("hub.settings.docker.source")}
-                rules={[{ required: true }]}
-              >
-                <Select
-                  options={[
-                    {
-                      value: "docker_hub",
-                      label: t("hub.settings.docker.dockerHub"),
-                    },
-                    {
-                      value: "aliyun_acr",
-                      label: t("hub.settings.docker.aliyunAcr"),
-                    },
-                    {
-                      value: "custom",
-                      label: t("hub.settings.docker.custom"),
-                    },
-                  ]}
-                  onChange={(
-                    source: "docker_hub" | "aliyun_acr" | "custom",
-                  ) => {
-                    if (source !== "custom") {
-                      const repository = dockerImages?.sources[source];
-                      if (repository) {
-                        form.setFieldValue(
-                          "dockerImage",
-                          `${repository}:latest`,
-                        );
-                      }
-                    }
-                  }}
-                />
-              </Form.Item>
-              <Form.Item
-                name="dockerImage"
-                label={t("hub.settings.docker.image")}
-                rules={[{ required: true }]}
-              >
-                {dockerSource === "custom" ? (
-                  <Input placeholder="registry.example.com/qwenpaw:v1" />
-                ) : (
-                  <Select options={officialOptions} />
-                )}
-              </Form.Item>
-              <Form.Item
-                name="dockerPullPolicy"
-                label={t("hub.settings.docker.pullPolicy")}
-                rules={[{ required: true }]}
-              >
-                <Select
-                  options={[
-                    {
-                      value: "if_not_present",
-                      label: t("hub.settings.docker.ifNotPresent"),
-                    },
-                    {
-                      value: "always",
-                      label: t("hub.settings.docker.always"),
-                    },
-                    {
-                      value: "never",
-                      label: t("hub.settings.docker.never"),
-                    },
-                  ]}
-                />
-              </Form.Item>
-              <Form.Item
-                name="dockerAllowedRegistries"
-                label={t("hub.settings.docker.allowedRegistries")}
-                rules={[{ required: true }]}
-              >
-                <Select mode="tags" tokenSeparators={[","]} />
-              </Form.Item>
-            </div>
-            <div className={styles.imagePullRow}>
-              <Button
-                icon={<RefreshCw size={14} />}
-                loading={dockerPulling}
-                disabled={!dockerImages?.available || !dockerImage}
-                onClick={() => onPullImage(dockerImage)}
-              >
-                {t("hub.settings.docker.pullImage")}
-              </Button>
-              <span>
-                {t("hub.settings.docker.localImages", {
-                  count: dockerImages?.local_images.length || 0,
-                })}
-              </span>
-            </div>
-            {currentPull && (
-              <Progress
-                percent={currentPull.progress}
-                status="active"
-                size="small"
-              />
-            )}
-            <div className={styles.resourceTitle}>
-              {t("hub.settings.docker.resources")}
-            </div>
-            <div className={styles.resourceFields}>
-              <Form.Item
-                name="dockerCpuLimit"
-                label={t("hub.settings.docker.cpuLimit")}
-              >
-                <InputNumber min={0.1} max={128} step={0.1} />
-              </Form.Item>
-              <Form.Item
-                name="dockerMemoryLimitMb"
-                label={t("hub.settings.docker.memoryLimit")}
-              >
-                <InputNumber min={256} precision={0} />
-              </Form.Item>
-              <Form.Item
-                name="dockerPidsLimit"
-                label={t("hub.settings.docker.pidsLimit")}
-              >
-                <InputNumber min={64} precision={0} />
-              </Form.Item>
-              <Form.Item
-                name="dockerShmSizeMb"
-                label={t("hub.settings.docker.shmSize")}
-                rules={[{ required: true }]}
-              >
-                <InputNumber min={64} precision={0} />
-              </Form.Item>
-            </div>
-          </article>
-
-          <article className={styles.settingsCard}>
-            <div className={styles.settingsCardHeader}>
-              <div>
-                <strong>{t("hub.settings.quotas.title")}</strong>
-                <span>{t("hub.settings.quotas.description")}</span>
-              </div>
-              <Gauge size={18} />
-            </div>
-            <div className={styles.quotaFields}>
-              <Form.Item
-                name="maxRuntimes"
-                label={t("hub.settings.quotas.maxRuntimes")}
-                extra={t("hub.settings.quotas.unlimitedHint")}
-              >
-                <InputNumber min={0} precision={0} />
-              </Form.Item>
-              <Form.Item
-                name="maxRunningRuntimes"
-                label={t("hub.settings.quotas.maxRunningRuntimes")}
-                extra={t("hub.settings.quotas.unlimitedHint")}
-                dependencies={["maxRuntimes"]}
-                rules={[
-                  ({ getFieldValue }) => ({
-                    validator: async (_, value?: number) => {
-                      const total = getFieldValue("maxRuntimes");
-                      if (
-                        value === undefined ||
-                        total === undefined ||
-                        value <= total
-                      ) {
-                        return;
-                      }
-                      throw new Error(
-                        t("hub.settings.quotas.runningExceedsTotal"),
-                      );
-                    },
-                  }),
-                ]}
-              >
-                <InputNumber min={0} precision={0} />
-              </Form.Item>
-            </div>
-          </article>
-
-          <article className={`${styles.settingsCard} ${styles.tenantCard}`}>
-            <div className={styles.settingsCardHeader}>
-              <div>
-                <strong>{t("hub.settings.tenants.title")}</strong>
-                <span>{t("hub.settings.tenants.description")}</span>
-              </div>
-              <Users size={18} />
-            </div>
-            <Form.List
-              name="tenants"
-              rules={[
-                {
-                  validator: async (_, rows) => {
-                    const ids = (rows || [])
-                      .map((row: { tenantId?: string }) => row.tenantId?.trim())
-                      .filter(Boolean);
-                    if (new Set(ids).size !== ids.length) {
-                      throw new Error(t("hub.settings.tenants.duplicate"));
-                    }
-                  },
-                },
-              ]}
-            >
-              {(fields, { add, remove }, { errors }) => (
-                <>
-                  <div className={styles.tenantRows}>
-                    {fields.map((field) => (
-                      <div className={styles.tenantRow} key={field.key}>
-                        <Form.Item
-                          name={[field.name, "tenantId"]}
-                          label={t("hub.settings.tenants.tenantId")}
-                          rules={[
+                  <article
+                    className={`${styles.settingsCard} ${styles.dockerCard}`}
+                  >
+                    <div className={styles.settingsCardHeader}>
+                      <div>
+                        <strong>{t("hub.settings.docker.title")}</strong>
+                        <span>{t("hub.settings.docker.description")}</span>
+                      </div>
+                      <Box size={18} />
+                    </div>
+                    {!dockerImages?.available && (
+                      <div className={styles.dockerWarning}>
+                        {dockerImages?.reason ||
+                          t("hub.settings.docker.unavailable")}
+                      </div>
+                    )}
+                    <div className={styles.dockerFields}>
+                      <Form.Item
+                        name="dockerSource"
+                        label={t("hub.settings.docker.source")}
+                        rules={[{ required: true }]}
+                      >
+                        <Select
+                          options={[
                             {
-                              required: true,
-                              message: t("hub.validation.required"),
+                              value: "docker_hub",
+                              label: t("hub.settings.docker.dockerHub"),
+                            },
+                            {
+                              value: "aliyun_acr",
+                              label: t("hub.settings.docker.aliyunAcr"),
+                            },
+                            {
+                              value: "custom",
+                              label: t("hub.settings.docker.custom"),
                             },
                           ]}
-                        >
-                          <Input placeholder="personal-user-id" />
-                        </Form.Item>
-                        <Form.Item
-                          name={[field.name, "maxRuntimes"]}
-                          label={t("hub.settings.quotas.maxRuntimes")}
-                        >
-                          <InputNumber min={0} precision={0} />
-                        </Form.Item>
-                        <Form.Item
-                          name={[field.name, "maxRunningRuntimes"]}
-                          label={t("hub.settings.quotas.maxRunningRuntimes")}
-                        >
-                          <InputNumber min={0} precision={0} />
-                        </Form.Item>
-                        <Button
-                          danger
-                          type="text"
-                          icon={<Trash2 size={15} />}
-                          aria-label={t("hub.settings.tenants.remove")}
-                          onClick={() => remove(field.name)}
+                          onChange={(
+                            source: "docker_hub" | "aliyun_acr" | "custom",
+                          ) => {
+                            if (source !== "custom") {
+                              const repository = dockerImages?.sources[source];
+                              if (repository) {
+                                form.setFieldValue(
+                                  "dockerImage",
+                                  `${repository}:latest`,
+                                );
+                              }
+                            }
+                          }}
                         />
+                      </Form.Item>
+                      <Form.Item
+                        name="dockerImage"
+                        label={t("hub.settings.docker.image")}
+                        rules={[{ required: true }]}
+                      >
+                        {dockerSource === "custom" ? (
+                          <Input placeholder="registry.example.com/qwenpaw:v1" />
+                        ) : (
+                          <Select options={officialOptions} />
+                        )}
+                      </Form.Item>
+                      <Form.Item
+                        name="dockerPullPolicy"
+                        label={t("hub.settings.docker.pullPolicy")}
+                        rules={[{ required: true }]}
+                      >
+                        <Select
+                          options={[
+                            {
+                              value: "if_not_present",
+                              label: t("hub.settings.docker.ifNotPresent"),
+                            },
+                            {
+                              value: "always",
+                              label: t("hub.settings.docker.always"),
+                            },
+                            {
+                              value: "never",
+                              label: t("hub.settings.docker.never"),
+                            },
+                          ]}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="dockerAllowedRegistries"
+                        label={t("hub.settings.docker.allowedRegistries")}
+                        rules={[{ required: true }]}
+                      >
+                        <Select mode="tags" tokenSeparators={[","]} />
+                      </Form.Item>
+                    </div>
+                    <div className={styles.imagePullRow}>
+                      <Button
+                        icon={<RefreshCw size={14} />}
+                        loading={dockerPulling}
+                        disabled={!dockerImages?.available || !dockerImage}
+                        onClick={() => onPullImage(dockerImage)}
+                      >
+                        {t("hub.settings.docker.pullImage")}
+                      </Button>
+                      <span>
+                        {t("hub.settings.docker.localImages", {
+                          count: dockerImages?.local_images.length || 0,
+                        })}
+                      </span>
+                    </div>
+                    {currentPull && (
+                      <Progress
+                        percent={currentPull.progress}
+                        status="active"
+                        size="small"
+                      />
+                    )}
+                    <div className={styles.resourceTitle}>
+                      {t("hub.settings.docker.resources")}
+                    </div>
+                    <div className={styles.resourceFields}>
+                      <Form.Item
+                        name="dockerCpuLimit"
+                        label={t("hub.settings.docker.cpuLimit")}
+                      >
+                        <InputNumber min={0.1} max={128} step={0.1} />
+                      </Form.Item>
+                      <Form.Item
+                        name="dockerMemoryLimitMb"
+                        label={t("hub.settings.docker.memoryLimit")}
+                      >
+                        <InputNumber min={256} precision={0} />
+                      </Form.Item>
+                      <Form.Item
+                        name="dockerPidsLimit"
+                        label={t("hub.settings.docker.pidsLimit")}
+                      >
+                        <InputNumber min={64} precision={0} />
+                      </Form.Item>
+                      <Form.Item
+                        name="dockerShmSizeMb"
+                        label={t("hub.settings.docker.shmSize")}
+                        rules={[{ required: true }]}
+                      >
+                        <InputNumber min={64} precision={0} />
+                      </Form.Item>
+                    </div>
+                  </article>
+
+                  <article className={styles.settingsCard}>
+                    <div className={styles.settingsCardHeader}>
+                      <div>
+                        <strong>{t("hub.settings.quotas.title")}</strong>
+                        <span>{t("hub.settings.quotas.description")}</span>
                       </div>
-                    ))}
-                  </div>
-                  <Form.ErrorList errors={errors} />
-                  <Button
-                    type="dashed"
-                    icon={<Plus size={15} />}
-                    onClick={() => add({})}
-                  >
-                    {t("hub.settings.tenants.add")}
-                  </Button>
-                </>
-              )}
-            </Form.List>
-          </article>
-        </div>
+                      <Gauge size={18} />
+                    </div>
+                    <div className={styles.quotaFields}>
+                      <Form.Item
+                        name="maxRunningRuntimes"
+                        label={t("hub.settings.quotas.maxRunningRuntimes")}
+                        extra={t("hub.settings.quotas.unlimitedHint")}
+                      >
+                        <InputNumber min={0} precision={0} />
+                      </Form.Item>
+                    </div>
+                  </article>
+                </div>
+              ),
+            },
+          ]}
+        />
       </Form>
       <p className={styles.settingsMeta}>
         {t("hub.settings.meta", {
@@ -1765,6 +1761,54 @@ function SettingsPanel({
         })}
       </p>
     </section>
+  );
+}
+
+function RateLimitFields({
+  prefix,
+  title,
+  form,
+  t,
+}: {
+  prefix: "login" | "registration";
+  title: string;
+  form: FormInstance<SettingsFormValues>;
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  const enabledName = `${prefix}RateEnabled` as keyof SettingsFormValues;
+  const enabled = Form.useWatch(enabledName, form);
+  return (
+    <div className={styles.rateLimitGroup}>
+      <div className={styles.settingRow}>
+        <strong>{title}</strong>
+        <Form.Item name={enabledName} valuePropName="checked" noStyle>
+          <Switch />
+        </Form.Item>
+      </div>
+      <div className={styles.resourceFields}>
+        <Form.Item
+          name={`${prefix}MaxAttempts`}
+          label={t("hub.settings.security.maxAttempts")}
+          rules={[{ required: true }]}
+        >
+          <InputNumber min={1} max={10000} disabled={!enabled} />
+        </Form.Item>
+        <Form.Item
+          name={`${prefix}WindowSeconds`}
+          label={t("hub.settings.security.windowSeconds")}
+          rules={[{ required: true }]}
+        >
+          <InputNumber min={1} max={86400} disabled={!enabled} />
+        </Form.Item>
+        <Form.Item
+          name={`${prefix}BlockSeconds`}
+          label={t("hub.settings.security.blockSeconds")}
+          rules={[{ required: true }]}
+        >
+          <InputNumber min={1} max={604800} disabled={!enabled} />
+        </Form.Item>
+      </div>
+    </div>
   );
 }
 

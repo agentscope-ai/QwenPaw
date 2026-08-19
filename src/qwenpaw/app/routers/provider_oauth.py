@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -112,7 +113,22 @@ async def start_oauth(
 ) -> OAuthStartResponse:
     """Start OAuth flow. Returns authorize_url for browser popup."""
     flow = _get_flow(provider_id)
+    managed_callback = managed_oauth_callback_url(request)
     callback_url = _build_callback_url(request, provider_id)
+    parsed_callback = urlsplit(callback_url)
+    if (
+        provider_id == "openrouter"
+        and managed_callback is not None
+        and parsed_callback.scheme != "https"
+        and parsed_callback.hostname not in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "OpenRouter requires HTTPS callbacks for non-localhost "
+                "deployments. Configure the Hub public_base_url with HTTPS."
+            ),
+        )
     result = flow.start(callback_url)
 
     _session_store.create(

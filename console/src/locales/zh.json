@@ -3384,6 +3384,10 @@
       "provisioner": "运行方式",
       "localExecution": "本机隔离",
       "dockerExecution": "Docker 容器",
+      "boundary": {
+        "token": "内部令牌边界",
+        "loopback_only": "仅回环端口边界"
+      },
       "security": "安全级别",
       "tenant": "租户",
       "removeTitle": "移除 {{id}}？",
@@ -3478,6 +3482,10 @@
       "description": "在一个带审计的权威入口中管理完整 Hub 配置。修改会立即生效，并在服务重启后保留。",
       "save": "保存设置",
       "meta": "配置版本 {{revision}} · 更新于 {{date}}",
+      "tabs": {
+        "access": "访问安全",
+        "runtime": "运行环境"
+      },
       "access": {
         "title": "访问与注册",
         "description": "配置浏览器可访问的 Hub 地址和公开账号策略。",
@@ -3487,6 +3495,19 @@
         "registrationHint": "关闭后，仅管理员可以创建账号。",
         "defaultRole": "默认注册角色",
         "defaultRoleHint": "出于安全考虑，自助注册账号固定为普通用户。"
+      },
+      "security": {
+        "title": "登录防护",
+        "description": "限制登录和注册滥用，并按 IP 地址或网段阻止访问。",
+        "ipBlacklist": "IP 黑名单",
+        "ipBlacklistHint": "支持 IPv4、IPv6 和 CIDR；输入后按回车确认。",
+        "trustedProxyIps": "可信反向代理",
+        "trustedProxyIpsHint": "只有来自这些地址的 X-Forwarded-For 才会被信任。",
+        "loginRateLimit": "登录失败速率限制",
+        "registrationRateLimit": "注册速率限制",
+        "maxAttempts": "最大尝试次数",
+        "windowSeconds": "统计窗口（秒）",
+        "blockSeconds": "封禁时长（秒）"
       },
       "runtime": {
         "title": "运行环境策略",
@@ -3518,20 +3539,10 @@
         "shmSize": "共享内存（MB）"
       },
       "quotas": {
-        "title": "默认容量配额",
-        "description": "为没有单独覆盖配置的租户设置全局继承限制。",
-        "maxRuntimes": "最多运行环境数",
+        "title": "全局运行容量",
+        "description": "每个租户固定拥有一个运行环境；这里只限制整个 Hub 同时运行的数量。",
         "maxRunningRuntimes": "最多同时运行数",
-        "unlimitedHint": "留空表示不限制。",
-        "runningExceedsTotal": "同时运行数量不能超过运行环境总数限制。"
-      },
-      "tenants": {
-        "title": "租户覆盖配置",
-        "description": "为指定租户覆盖部分容量限制；留空字段继续继承默认值。",
-        "tenantId": "租户 ID",
-        "add": "添加租户覆盖",
-        "remove": "移除租户覆盖",
-        "duplicate": "租户 ID 不可重复。"
+        "unlimitedHint": "留空表示不限制。"
       }
     },
     "auditActions": {

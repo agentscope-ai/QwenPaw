@@ -74,3 +74,24 @@ def test_openrouter_ignores_managed_callback_header_in_standalone() -> None:
     assert _callback_url(response.json()["authorize_url"]) == (
         "http://testserver/api/providers/openrouter/oauth/callback"
     )
+
+
+def test_openrouter_rejects_public_http_managed_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "runtime-token")
+    app = FastAPI()
+    app.include_router(api_router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/providers/openrouter/oauth/start",
+        headers={
+            "X-QwenPaw-Hub-OAuth-Callback-Url": (
+                "http://192.0.2.4/api/hub/oauth/callback/runtime/openrouter"
+            ),
+        },
+    )
+
+    assert response.status_code == 422
+    assert "requires HTTPS" in response.json()["detail"]

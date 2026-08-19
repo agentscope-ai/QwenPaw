@@ -101,6 +101,22 @@ describe("HubPage", () => {
         control_plane: {
           public_base_url: "https://hub.example.com",
           registration: { enabled: false, default_role: "user" },
+          security: {
+            ip_blacklist: [],
+            trusted_proxy_ips: [],
+            login_rate_limit: {
+              enabled: true,
+              max_attempts: 10,
+              window_seconds: 300,
+              block_seconds: 900,
+            },
+            registration_rate_limit: {
+              enabled: true,
+              max_attempts: 5,
+              window_seconds: 3600,
+              block_seconds: 3600,
+            },
+          },
         },
         runtime: {
           provisioner: "local",
@@ -118,11 +134,9 @@ describe("HubPage", () => {
             shm_size_mb: 512,
           },
         },
-        tenant_defaults: {
-          max_runtimes: null,
+        capacity: {
           max_running_runtimes: null,
         },
-        tenants: {},
       },
       revision: 3,
       updated_at: "2026-01-01T00:00:00Z",

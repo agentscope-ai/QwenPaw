@@ -110,6 +110,22 @@ describe("hubApi pagination", () => {
       control_plane: {
         public_base_url: "https://hub.example.com",
         registration: { enabled: false, default_role: "user" as const },
+        security: {
+          ip_blacklist: [],
+          trusted_proxy_ips: [],
+          login_rate_limit: {
+            enabled: true,
+            max_attempts: 10,
+            window_seconds: 300,
+            block_seconds: 900,
+          },
+          registration_rate_limit: {
+            enabled: true,
+            max_attempts: 5,
+            window_seconds: 3600,
+            block_seconds: 3600,
+          },
+        },
       },
       runtime: {
         provisioner: "local" as const,
@@ -124,11 +140,9 @@ describe("hubApi pagination", () => {
           shm_size_mb: 512,
         },
       },
-      tenant_defaults: {
-        max_runtimes: 3,
+      capacity: {
         max_running_runtimes: 2,
       },
-      tenants: {},
     };
 
     await hubApi.updateSettings(4, config);
