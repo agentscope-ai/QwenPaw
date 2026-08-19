@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
 from ..__version__ import __version__
@@ -83,10 +84,12 @@ class CompressedStaticFiles(StaticFiles):
                     f"{path}{suffix}",
                     scope,
                 )
-            except HTTPException as exc:
+            except StarletteHTTPException as exc:
                 if exc.status_code == 404:
                     continue
                 raise
+            if response.status_code == 404:
+                continue
             media_type, _ = mimetypes.guess_type(path)
             if media_type:
                 response.headers["Content-Type"] = media_type
@@ -235,6 +238,31 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         runtime_service.root_dir,
     )
+
+    async def runtime_payload(record: Any) -> dict[str, Any]:
+        owner = await run_in_threadpool(
+            hub_auth.get_user,
+            record.owner_user_id,
+        )
+        return _runtime_payload(
+            runtime_service,
+            record,
+            owner_username=owner.username if owner else None,
+        )
+
+    async def runtime_payloads(records: list[Any]) -> list[dict[str, Any]]:
+        owner_usernames = await run_in_threadpool(
+            hub_auth.get_usernames,
+            {record.owner_user_id for record in records},
+        )
+        return [
+            _runtime_payload(
+                runtime_service,
+                record,
+                owner_username=owner_usernames.get(record.owner_user_id),
+            )
+            for record in records
+        ]
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -661,9 +689,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             provisioner=provisioner,
             owner=owner if user.is_admin else None,
         )
-        items = [
-            _runtime_payload(runtime_service, record) for record in records
-        ]
+        items = await runtime_payloads(records)
         return _page_payload(items, page, page_size, total)
 
     @app.post("/api/hub/runtimes", status_code=201)
@@ -699,7 +725,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     "provisioner": record.provisioner,
                 },
             )
-            return _runtime_payload(runtime_service, record)
+            return await runtime_payload(record)
         except RuntimeProvisionerUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
@@ -723,7 +749,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=404,
                 detail="Runtime not found",
             ) from exc
-        return _runtime_payload(runtime_service, record)
+        return await runtime_payload(record)
 
     @app.post("/api/hub/runtimes/{runtime_id}/start")
     async def start_runtime(
@@ -753,7 +779,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             "runtime",
             runtime_id,
         )
-        return _runtime_payload(runtime_service, record)
+        return await runtime_payload(record)
 
     @app.post("/api/hub/runtimes/{runtime_id}/stop")
     async def stop_runtime(
@@ -777,7 +803,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             "runtime",
             runtime_id,
         )
-        return _runtime_payload(runtime_service, record)
+        return await runtime_payload(record)
 
     @app.delete("/api/hub/runtimes/{runtime_id}", status_code=204)
     async def delete_runtime(
@@ -1068,8 +1094,11 @@ def _resolve_console_static_dir() -> Path:
 def _runtime_payload(
     service: RuntimeService,
     record: Any,
+    *,
+    owner_username: str | None,
 ) -> dict[str, Any]:
     payload = record.to_dict()
+    payload["owner_username"] = owner_username
     payload["endpoint"] = f"http://{record.host}:{record.port}"
     payload["security_level"] = service.security_level(record.provisioner)
     return payload

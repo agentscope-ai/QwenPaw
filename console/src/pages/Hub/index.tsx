@@ -588,8 +588,15 @@ export default function HubPage() {
                                   {t(`hub.runtimeStates.${runtime.state}`)}
                                 </Tag>
                               </td>
-                              <td className={styles.mono}>
-                                {runtime.owner_user_id.slice(0, 12)}
+                              <td>
+                                <EntityCell
+                                  icon={<Users size={16} />}
+                                  title={
+                                    runtime.owner_username ||
+                                    runtime.owner_user_id
+                                  }
+                                  detail={runtime.owner_user_id}
+                                />
                               </td>
                               <td className={styles.mono}>
                                 {runtime.endpoint}

@@ -144,10 +144,16 @@ class RuntimeRegistry:
             clauses.append(
                 "(runtime_id LIKE ? OR tenant_id LIKE ? "
                 "OR owner_user_id LIKE ? OR "
-                "json_extract(endpoint_json, '$.host') LIKE ?)",
+                "json_extract(endpoint_json, '$.host') LIKE ? OR "
+                "EXISTS (SELECT 1 FROM hub_users "
+                "WHERE hub_users.user_id = runtimes.owner_user_id "
+                "AND hub_users.deleted_at IS NULL "
+                "AND hub_users.username LIKE ?))",
             )
             pattern = f"%{query}%"
-            parameters.extend([pattern, pattern, pattern, pattern])
+            parameters.extend(
+                [pattern, pattern, pattern, pattern, pattern],
+            )
         if state is not None:
             clauses.append("observed_state = ?")
             parameters.append(state.value)
@@ -155,8 +161,15 @@ class RuntimeRegistry:
             clauses.append("provisioner = ?")
             parameters.append(provisioner)
         if owner:
-            clauses.append("owner_user_id LIKE ?")
-            parameters.append(f"%{owner}%")
+            clauses.append(
+                "(owner_user_id LIKE ? OR "
+                "EXISTS (SELECT 1 FROM hub_users "
+                "WHERE hub_users.user_id = runtimes.owner_user_id "
+                "AND hub_users.deleted_at IS NULL "
+                "AND hub_users.username LIKE ?))",
+            )
+            pattern = f"%{owner}%"
+            parameters.extend([pattern, pattern])
         where = f" WHERE {' AND '.join(clauses)}"
         with self._connect() as connection:
             total_row = connection.execute(

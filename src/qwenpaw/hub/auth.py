@@ -358,6 +358,21 @@ class HubAuthService:
             ).fetchone()
         return self._user_from_row(row) if row is not None else None
 
+    def get_usernames(self, user_ids: set[str]) -> dict[str, str]:
+        """Return active usernames for a batch of user identifiers."""
+        if not user_ids:
+            return {}
+        ordered_ids = sorted(user_ids)
+        placeholders = ", ".join("?" for _ in ordered_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT user_id, username FROM hub_users "
+                f"WHERE user_id IN ({placeholders}) "
+                f"AND deleted_at IS NULL",
+                ordered_ids,
+            ).fetchall()
+        return {str(row["user_id"]): str(row["username"]) for row in rows}
+
     def update_user(
         self,
         user_id: str,

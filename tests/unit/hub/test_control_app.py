@@ -4,6 +4,7 @@
 from collections.abc import AsyncIterator, Mapping
 import gzip
 from pathlib import Path
+import sqlite3
 from urllib.parse import urlsplit
 from unittest.mock import patch
 
@@ -150,7 +151,10 @@ def test_console_assets_use_precompression_and_immutable_cache(
     assets_dir.mkdir(parents=True)
     source = b"const product = 'QwenPaw';" * 100
     asset = assets_dir / "index-contenthash.js"
+    small_source = b"export const ready = true;"
+    small_asset = assets_dir / "small-contenthash.js"
     asset.write_bytes(source)
+    small_asset.write_bytes(small_source)
     asset.with_suffix(".js.br").write_bytes(b"brotli-placeholder")
     asset.with_suffix(".js.gz").write_bytes(gzip.compress(source))
     (static_dir / "index.html").write_text(
@@ -168,6 +172,10 @@ def test_console_assets_use_precompression_and_immutable_cache(
             "/assets/index-contenthash.js",
             headers={"Accept-Encoding": "identity"},
         )
+        small_fallback = client.get(
+            "/assets/small-contenthash.js",
+            headers={"Accept-Encoding": "br, gzip"},
+        )
 
     assert compressed.status_code == 200
     assert compressed.content == source
@@ -177,6 +185,9 @@ def test_console_assets_use_precompression_and_immutable_cache(
     assert identity.status_code == 200
     assert identity.content == source
     assert "content-encoding" not in identity.headers
+    assert small_fallback.status_code == 200
+    assert small_fallback.content == small_source
+    assert "content-encoding" not in small_fallback.headers
 
 
 def test_public_bind_requires_initialized_admin(
@@ -425,6 +436,54 @@ def test_hub_lists_use_server_side_pagination_and_filters(
         assert len(page.json()["items"]) == 2
         assert filtered.json()["total"] == 1
         assert filtered.json()["items"][0]["runtime_id"] == "runtime-3"
+        assert filtered.json()["items"][0]["owner_username"] == "owner"
+
+        username_search = client.get(
+            "/api/hub/runtimes?q=owner",
+            headers=_headers(token),
+        )
+        username_filter = client.get(
+            "/api/hub/runtimes?owner=owner",
+            headers=_headers(token),
+        )
+
+        assert username_search.status_code == 200
+        assert username_search.json()["total"] == 4
+        assert username_filter.status_code == 200
+        assert username_filter.json()["total"] == 4
+
+
+def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        admin_token = _register(client, "owner")
+        auth = client.app.state.auth_service
+        member = auth.create_user(
+            username="former-member",
+            password="safe-password",
+        )
+        _, member_token = auth.authenticate(
+            "former-member",
+            "safe-password",
+        )
+        created = client.post(
+            "/api/hub/runtimes",
+            json={"runtime_id": "orphaned-runtime"},
+            headers=_headers(member_token),
+        )
+        with sqlite3.connect(auth.database_path) as connection:
+            connection.execute(
+                "UPDATE hub_users SET deleted_at = ? WHERE user_id = ?",
+                ("2026-01-01T00:00:00Z", member.user_id),
+            )
+        runtimes = client.get(
+            "/api/hub/runtimes?q=orphaned-runtime",
+            headers=_headers(admin_token),
+        )
+
+    assert created.status_code == 201
+    assert created.json()["owner_username"] == "former-member"
+    assert runtimes.status_code == 200
+    assert runtimes.json()["items"][0]["owner_username"] is None
 
 
 def test_operations_overview_and_audit_are_real_and_sanitized(

@@ -125,4 +125,39 @@ describe("HubPage", () => {
       { timeout: 1500 },
     );
   });
+
+  it("shows the owner username with the full user id", async () => {
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue({
+      items: [
+        {
+          runtime_id: "personal-a4715bbaa57446b7b3b15b54",
+          tenant_id: "personal-a4715bbaa57446b7b3b15b54",
+          owner_user_id: "a4715bbaa57446b7b3b15b54",
+          owner_username: "ray",
+          provisioner: "local",
+          host: "127.0.0.1",
+          port: 35583,
+          state: "running",
+          endpoint: "http://127.0.0.1:35583",
+          security_level: "isolated-local",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      page: 1,
+      page_size: 20,
+      total: 1,
+      pages: 1,
+    });
+
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+    fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
+
+    expect(await screen.findByText("ray")).toBeInTheDocument();
+    expect(screen.getByText("a4715bbaa57446b7b3b15b54")).toBeInTheDocument();
+  });
 });
