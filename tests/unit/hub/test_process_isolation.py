@@ -288,6 +288,7 @@ def test_runtime_parent_thread_survives_request_worker(
     monkeypatch.setattr(
         "qwenpaw.hub.local_provisioner.os.killpg",
         lambda *_: None,
+        raising=False,
     )
     monkeypatch.setattr(provisioner, "_wait_until_ready", lambda *_: None)
 

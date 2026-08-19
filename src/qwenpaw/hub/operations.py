@@ -121,7 +121,7 @@ class HubOperationsStore:
                 1,
             ),
             "disk_percent": round(
-                float(psutil.disk_usage(self.data_root).percent),
+                float(psutil.disk_usage(str(self.data_root)).percent),
                 1,
             ),
         }
