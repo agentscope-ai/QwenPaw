@@ -142,17 +142,13 @@ def _sync_environ(
 # ------------------------------------------------------------------
 
 
-class EnvsStoreError(RuntimeError):
-    """Raised when persisted environment variables cannot be preserved."""
-
-
 def _resolve_envs_path(path: Optional[Path]) -> tuple[Path, bool]:
     if path is None:
         return get_envs_json_path(), True
     return path, False
 
 
-def _quarantine_corrupt_envs(path: Path, exc: Exception) -> Path:
+def _quarantine_corrupt_envs(path: Path, exc: Exception) -> None:
     source = path.resolve(strict=False) if path.is_symlink() else path
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     quarantined = source.with_name(
@@ -167,9 +163,7 @@ def _quarantine_corrupt_envs(path: Path, exc: Exception) -> Path:
             path,
             quarantine_exc,
         )
-        raise EnvsStoreError(
-            f"envs.json at {path} is corrupt and could not be preserved",
-        ) from quarantine_exc
+        raise
 
     logger.warning(
         "Failed to load envs.json from %s; quarantined it to %s: %s",
@@ -177,7 +171,6 @@ def _quarantine_corrupt_envs(path: Path, exc: Exception) -> Path:
         quarantined,
         exc,
     )
-    return quarantined
 
 
 def _load_envs_unlocked(
@@ -213,9 +206,7 @@ def _load_envs_unlocked(
             exc,
         )
         if fail_on_os_error:
-            raise EnvsStoreError(
-                f"envs.json at {path} could not be read safely",
-            ) from exc
+            raise
     return {}
 
 
@@ -243,7 +234,6 @@ def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
         _prepare_secret_parent(path)
         _chmod_best_effort(path, 0o600)
         write_json_atomic(path, encrypted)
-        _chmod_best_effort(path, 0o600)
     except Exception as exc:
         logger.warning("Failed to re-encrypt envs.json: %s", exc)
 
@@ -252,14 +242,12 @@ def _save_envs_unlocked(
     envs: dict[str, str],
     path: Path,
     *,
-    old: Optional[dict[str, str]] = None,
+    old: dict[str, str],
 ) -> None:
     if path.exists() and not path.is_file():
         raise IsADirectoryError(
             f"envs.json path exists but is not a regular file: {path}",
         )
-    if old is None:
-        old = _load_envs_unlocked(path, fail_on_os_error=True)
     _prepare_secret_parent(path)
     encrypted = {
         k: encrypt(v) if v and not is_encrypted(v) else v
@@ -267,7 +255,6 @@ def _save_envs_unlocked(
     }
     _chmod_best_effort(path, 0o600)
     write_json_atomic(path, encrypted)
-    _chmod_best_effort(path, 0o600)
     _sync_environ(old, envs)
 
 
@@ -280,7 +267,8 @@ def save_envs(
     with get_sync_path_lock(path):
         if migrate_legacy:
             _migrate_legacy_envs_json(path)
-        _save_envs_unlocked(envs, path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        _save_envs_unlocked(envs, path, old=old)
 
 
 def set_env_var(
