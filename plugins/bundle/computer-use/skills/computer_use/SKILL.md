@@ -104,15 +104,21 @@ Interpret result fields conservatively:
   it does not rule out a visual-only change.
 - `effect: observed` verifies the edited buffer; `effect: unverified` requires
   confirmation from replacement state or a fresh observation.
-- Follow an explicit `next_action` before choosing another action; treat it as
-  bound to the returned state.
-- `requires_observe` invalidates the old target. Use its returned window or
-  rediscover the replacement window before more input.
+- Follow an explicit `next_action` before choosing another action. Use a
+  returned replacement observation or window when present.
+- `requires_observe` invalidates the current observation, not necessarily the
+  window. Reobserve the current or returned window for `observe_window`; use
+  `list_windows` to rediscover a target only when instructed.
 - `confirmation_required` or `pending_action` means the edit is not complete.
 
-When a visual result appears before its accessibility element, wait and observe
-again until it becomes actionable or the operation times out or stops making
-progress. Do not click or type into a screenshot-only control.
+When a visual transition is expected to expose an accessibility element, wait
+and observe again until it becomes actionable or the operation times out or
+stops making progress. For a stable control with no accessibility
+representation, use current screenshot coordinates as described below and
+observe again after acting.
+
+`wait` only delays execution; it does not observe or verify application state.
+Call `observe_window` afterward when current state is needed.
 
 ## Choose an Action
 
@@ -198,13 +204,15 @@ include `ENTER`, `TAB`, `ESC`, `SPACE`, `BACKSPACE`, `DELETE`, `HOME`, `END`,
 
 - Express Command as `WIN` and Option as `ALT`; for example,
   `WIN+SHIFT+N` is Command-Shift-N.
-- Use `begin_text_edit` only for an observed menu command whose semantics
-  require immediate text input; otherwise use `invoke`.
+- `begin_text_edit` is macOS-only. Use it only for an observed menu command
+  whose semantics require immediate text input; otherwise use `invoke`.
 
 ## Recover From Changes
 
-When an action opens another application, window, sheet, or dialog, follow the
-returned handoff instead of continuing against the old observation.
+When an action returns a window handoff, observe the returned window before
+continuing. Without a handoff, follow any `next_action` or inspect the
+replacement observation of the current target; menus, sheets, and dialogs may
+remain related or transient surfaces rather than new targets.
 
 `user_intervention` cancels only the current action and invalidates its
 observation. Never replay that action. Observe or rediscover, then decide from
