@@ -140,6 +140,9 @@ class WindowsConPtyBackend:
             raise RuntimeError("terminal is closed")
         await run_sync_io(self.process.write, data.decode("utf-8"))
 
+    async def interrupt(self) -> None:
+        await self.supervisor.interrupt()
+
     async def close(self) -> None:
         if self._closed:
             return

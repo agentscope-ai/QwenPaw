@@ -174,24 +174,51 @@ class TerminalSession:
             ).encode()
         return (f"\nprintf '\\036{marker}:{exit_code}\\037\\n'\n").encode()
 
+    async def _wait_for_interrupt_marker(self, timeout: float) -> bool:
+        """Wait asynchronously for an interrupt to finish the command."""
+        deadline = time.monotonic() + max(0.0, timeout)
+        observed = self.backend.capture.end_cursor
+        while self.state in {
+            SessionState.RUNNING,
+            SessionState.INTERRUPTING,
+        }:
+            self._refresh_state()
+            if self.state not in {
+                SessionState.RUNNING,
+                SessionState.INTERRUPTING,
+            }:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            await self.backend.capture.wait_for_change(observed, remaining)
+            observed = self.backend.capture.end_cursor
+        return True
+
     async def _send_interrupt_probe(self) -> None:
         try:
             if self.backend.tty and sys.platform != "win32":
                 await self.backend.write(b"\x03")
+                if await self._wait_for_interrupt_marker(0.1):
+                    return
+                # A PTY fd can be inherited without becoming the controlling
+                # foreground terminal of the new session.  Linux then accepts
+                # ETX but does not turn it into SIGINT.  Signal the managed
+                # terminal foreground group as a deterministic fallback.
+                await self.backend.interrupt()
             else:
-                await self.backend.supervisor.interrupt()
-            # Give the shell-owned completion marker a chance to arrive.  The
-            # fallback probe is only needed when line discipline or process
-            # termination prevented that marker from being emitted.
-            await asyncio.sleep(0.1)
-            self._refresh_state()
+                await self.backend.interrupt()
+            # Give the shell-owned completion marker a chance to arrive before
+            # asking an idle shell to emit the protocol marker directly.
+            if await self._wait_for_interrupt_marker(0.25):
+                return
             if (
                 self.state in {SessionState.RUNNING, SessionState.INTERRUPTING}
                 and self.backend.supervisor.returncode is None
             ):
                 await self.backend.write(self._completion_probe())
         except Exception:  # noqa: BLE001
-            await self.backend.supervisor.interrupt()
+            await self.backend.interrupt()
 
     async def _wait_and_poll(
         self,

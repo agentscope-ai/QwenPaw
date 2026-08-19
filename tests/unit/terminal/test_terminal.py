@@ -305,6 +305,66 @@ async def test_ctrl_c_recovers_persistent_shell_to_idle(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
+async def test_ctrl_c_falls_back_when_pty_etx_is_ignored(
+    tmp_path,
+    monkeypatch,
+):
+    manager = TerminalSessionManager(tmp_path)
+    first = await manager.execute(
+        "sleep 30",
+        session_id=None,
+        shell="/bin/sh",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        tty=True,
+        persistent=True,
+        timeout=60,
+        yield_time=0.05,
+        max_output_bytes=1024,
+    )
+    # Reproduce Linux runners where the PTY accepts ETX but has no foreground
+    # process group to receive the terminal-generated SIGINT.
+    # pylint: disable=protected-access
+    session = manager._sessions[first.session_id]
+    original_write = session.backend.write
+
+    async def ignore_etx(data: bytes) -> None:
+        if data != b"\x03":
+            await original_write(data)
+
+    monkeypatch.setattr(session.backend, "write", ignore_etx)
+    # pylint: enable=protected-access
+    try:
+        interrupted = await manager.interact(
+            first.session_id,
+            "\x03",
+            yield_time=2,
+            max_output_bytes=1024,
+            terminate=False,
+        )
+        assert interrupted.running is False
+        assert interrupted.exit_code == 130
+
+        follow_up = await manager.execute(
+            "printf alive",
+            session_id=first.session_id,
+            shell="/bin/sh",
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            tty=True,
+            persistent=True,
+            timeout=5,
+            yield_time=2,
+            max_output_bytes=1024,
+        )
+        assert follow_up.output == "alive"
+        assert follow_up.exit_code == 0
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
 async def test_idle_janitor_reclaims_persistent_session(tmp_path):
     manager = TerminalSessionManager(tmp_path, idle_ttl_seconds=0.05)
     result = await manager.execute(

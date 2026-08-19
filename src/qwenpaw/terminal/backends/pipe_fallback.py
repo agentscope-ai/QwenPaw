@@ -76,6 +76,9 @@ class PipeTerminalBackend:
         self.process.stdin.write(data)
         await self.process.stdin.drain()
 
+    async def interrupt(self) -> None:
+        await self.supervisor.interrupt()
+
     async def close(self) -> None:
         if (
             self.process.stdin is not None

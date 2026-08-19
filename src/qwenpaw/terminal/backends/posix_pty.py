@@ -9,6 +9,7 @@ import os
 import pty
 import secrets
 import select
+import signal
 import termios
 from pathlib import Path
 
@@ -41,6 +42,28 @@ def _write_all(fd: int, data: bytes) -> None:
             view = view[written:]
         except BlockingIOError:
             select.select([], [fd], [], 0.5)
+
+
+def _interrupt_foreground(fd: int, session_id: int) -> None:
+    """Signal the managed terminal's foreground process group."""
+    foreground_pgid = 0
+    try:
+        candidate = os.tcgetpgrp(fd)
+        if candidate > 0 and os.getsid(candidate) == session_id:
+            foreground_pgid = candidate
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+    target_pgid = foreground_pgid or session_id
+    try:
+        os.killpg(target_pgid, signal.SIGINT)
+    except (ProcessLookupError, PermissionError, OSError):
+        if target_pgid == session_id:
+            return
+        try:
+            os.killpg(session_id, signal.SIGINT)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 def _shell_name(shell: str) -> str:
@@ -198,6 +221,13 @@ class PosixPtyBackend:
         if self._closed:
             raise RuntimeError("terminal is closed")
         await run_sync_io(_write_all, self.master_fd, data)
+
+    async def interrupt(self) -> None:
+        await run_sync_io(
+            _interrupt_foreground,
+            self.master_fd,
+            self.supervisor.pid,
+        )
 
     async def close(self) -> None:
         if self._closed:
