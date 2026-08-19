@@ -251,19 +251,28 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         allowed.write_text("allowed", encoding="utf-8")
         forbidden.write_text("forbidden", encoding="utf-8")
         script = (
-            "from pathlib import Path; "
-            f"allowed=Path({str(allowed)!r}); "
-            f"forbidden=Path({str(forbidden)!r}); "
-            f"written=Path({str(written)!r}); "
-            "assert allowed.read_text(encoding='utf-8') == 'allowed'; "
-            "written.write_text('ok', encoding='utf-8'); "
-            "assert not forbidden.exists()"
+            "from pathlib import Path\n"
+            f"allowed = Path({str(allowed)!r})\n"
+            f"forbidden = Path({str(forbidden)!r})\n"
+            f"written = Path({str(written)!r})\n"
+            "assert allowed.read_text(encoding='utf-8') == 'allowed'\n"
+            "written.write_text('ok', encoding='utf-8')\n"
+            "try:\n"
+            "    forbidden.read_bytes()\n"
+            "except (FileNotFoundError, PermissionError):\n"
+            "    pass\n"
+            "else:\n"
+            "    raise AssertionError('forbidden path is readable')\n"
         )
         try:
             self._run_probe(sandbox, record, script)
             if written.read_text(encoding="utf-8") != "ok":
                 raise ProcessIsolationError(
                     "Windows AppContainer write probe failed.",
+                )
+            if not forbidden.is_file():
+                raise ProcessIsolationError(
+                    "Windows AppContainer modified the forbidden marker.",
                 )
         finally:
             allowed.unlink(missing_ok=True)

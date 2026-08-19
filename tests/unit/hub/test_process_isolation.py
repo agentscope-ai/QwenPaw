@@ -276,6 +276,10 @@ def test_runtime_parent_thread_survives_request_worker(
             del timeout
             return 0
 
+        @staticmethod
+        def terminate() -> None:
+            pass
+
     def popen(*args, **kwargs):
         del args, kwargs
         launcher_threads.append(threading.current_thread())
