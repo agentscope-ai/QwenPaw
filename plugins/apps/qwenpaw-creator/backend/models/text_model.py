@@ -76,8 +76,10 @@ async def chat_completion(
     except ModelError:
         raise
     except Exception as exc:
+        # ``str(exc)`` is empty for httpx timeout classes; keep the type
+        # name so operators can tell a timeout from a broken endpoint.
         raise ModelError(
-            f"Text model request failed: {exc}",
+            f"Text model request failed: {type(exc).__name__}: {exc}",
             model_name=model_name,
         ) from exc
 

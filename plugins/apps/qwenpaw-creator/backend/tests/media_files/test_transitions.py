@@ -336,3 +336,68 @@ def test_runner_maps_transitions_to_segment_tail_trim_and_joins():
     assert len(joins) == 1
     assert joins[0].kind == "fade"
     assert joins[0].effective_blend() == pytest.approx(0.3)
+
+
+# ── beat-sync snapping (WT-B5) ───────────────────────────────────────────────
+
+
+def _beat_spec(*, audio_tracks=()):
+    def _input(ref: str, duration: float):
+        return type(
+            "Item",
+            (),
+            {
+                "source_ref": ref,
+                "start_seconds": 0.0,
+                "end_seconds": duration,
+                "duration_seconds": duration,
+            },
+        )()
+
+    return type(
+        "Spec",
+        (),
+        {
+            "transitions": (
+                {
+                    "fromElementId": "a",
+                    "toElementId": "b",
+                    "kind": "fade",
+                    "duration_ms": 400,
+                    "tail_trim_ms": 300,
+                },
+            ),
+            "inputs": (_input("element:a", 5.0), _input("element:b", 5.0)),
+            "audio_tracks": audio_tracks,
+        },
+    )()
+
+
+def test_beat_snap_moves_the_xfade_end_onto_a_beat(monkeypatch) -> None:
+    from services.media_files import local_execution as le
+    from services.media_files.beat_grid import BeatGrid
+
+    # Chain math: d0 = 5.0 - 0.3 = 4.7s, so the xfade resolves at 4.7s.
+    # The nearest beat is 4.8s → δ=+0.1s comes out of the tail trim.
+    monkeypatch.setattr(
+        le,
+        "extract_beat_grid",
+        lambda path: BeatGrid(beats_ms=(4_800,), tempo_bpm=120.0),
+    )
+    spec = _beat_spec(
+        audio_tracks=(
+            {
+                "path": "/tmp/bgm.mp3",
+                "offset_seconds": 0.0,
+                "max_duration_seconds": 10.0,
+            },
+        ),
+    )
+    tail_trims, joins = FfmpegLocalMediaRunner._transition_directives(spec)
+    FfmpegLocalMediaRunner._snap_transitions_to_beats(spec, tail_trims, joins)
+    join = joins[("element:a", "element:b")]
+    assert join.effective_blend() == pytest.approx(0.5)
+    assert tail_trims["element:a"] == pytest.approx(0.2)
+    # Total chain duration is invariant: the overlap split changed, not
+    # the committed cut layout.
+    assert (5.0 - 0.2) + 5.0 - 0.5 == pytest.approx(9.3)

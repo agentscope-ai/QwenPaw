@@ -1120,6 +1120,35 @@ class TestXiaoYiChannelPartsExtraction:
         assert result[0]["kind"] == "text"
         assert "\n\nHello World" in result[0]["text"]
 
+    @pytest.mark.parametrize(
+        "headline",
+        [
+            "⟦ 当前格式的内部检索标题 ⟧",
+            "<!-- ⟦ 旧格式的内部检索标题 ⟧ -->",
+        ],
+    )
+    def test_extract_xiaoyi_parts_hides_scroll_headline(
+        self,
+        xiaoyi_channel,
+        headline,
+    ):
+        """XiaoYi must not expose Scroll's display-only headline."""
+        from qwenpaw.schemas import ContentType, TextContent
+
+        mock_message = MagicMock()
+        mock_message.type = "message"
+        mock_message.content = [
+            TextContent(
+                type=ContentType.TEXT,
+                text=f"正常答复\n{headline}",
+            ),
+        ]
+
+        result, media = xiaoyi_channel._extract_xiaoyi_parts(mock_message)
+
+        assert media == []
+        assert result == [{"kind": "text", "text": "\n\n正常答复"}]
+
     def test_extract_xiaoyi_parts_empty_content(self, xiaoyi_channel):
         """_extract_xiaoyi_parts should handle empty content."""
         mock_message = MagicMock()

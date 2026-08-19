@@ -12,6 +12,8 @@ import asyncio
 
 import pytest
 
+from domain.errors import ConflictError
+
 from services.media_files.image_execution import FileImageExecutionService
 from services.media_files.r2v_execution import FileR2VExecutionService
 from services.project_files.facade import CreatorFileServices
@@ -143,10 +145,20 @@ def test_second_dispatch_attaches_to_in_flight_duplicate(
     assert len(r2v_tasks) == 1
 
 
-def test_different_command_still_gets_its_own_task(
+def test_different_command_conflicts_while_target_is_in_flight(
     tmp_path,
     monkeypatch,
 ) -> None:
+    """One Element, one in-flight render — different content fails closed.
+
+    The old contract let a different command hash open a second task for
+    the same Element; field run 2026-08-11 double-billed exactly that
+    way (scheduler rendered the committed video_prompt while a
+    specialist re-submitted its own inline rewrite 39s later). The
+    Element owns a single video slot, so the loser of the race would be
+    silently discarded anyway.
+    """
+
     services = _services_with_storyboard(tmp_path, monkeypatch)
 
     async def scenario():
@@ -158,19 +170,27 @@ def test_different_command_still_gets_its_own_task(
             idempotency_key="video-plain",
             start=False,
         )
-        # Different arguments produce a different command hash: this is a
-        # genuinely new request and must not attach.
-        second = await worker.dispatch(
-            project_id=PROJECT_ID,
-            target_ref=f"element:{ELEMENT_ID}",
-            arguments={"prompt": "另一版：慢动作追逐"},
-            idempotency_key="video-slowmo",
-            start=False,
+        try:
+            with pytest.raises(ConflictError, match="不同内容的视频任务"):
+                await worker.dispatch(
+                    project_id=PROJECT_ID,
+                    target_ref=f"element:{ELEMENT_ID}",
+                    arguments={"prompt": "另一版：慢动作追逐"},
+                    idempotency_key="video-slowmo",
+                    start=False,
+                )
+        finally:
+            await worker.shutdown()
+        return first
+
+    first = asyncio.run(scenario())
+
+    assert first.replayed is False
+    r2v_tasks = [
+        task
+        for task in ProjectExecutionStore(services.root).list_tasks(
+            PROJECT_ID,
         )
-        await worker.shutdown()
-        return first, second
-
-    first, second = asyncio.run(scenario())
-
-    assert second.replayed is False
-    assert second.task_id != first.task_id
+        if task.kind.value == "r2v_generation"
+    ]
+    assert len(r2v_tasks) == 1

@@ -17,6 +17,7 @@ import type {
 import {
   fetchMotionDocument,
   getMotionDocumentPosterUrl,
+  getMotionDocumentPreviewUrl,
 } from "@/api/creator/media";
 import type { ElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import {
@@ -135,7 +136,7 @@ function mediaTargetSeconds(
  */
 function reachableTargetSeconds(
   target: number,
-  node: HTMLVideoElement,
+  node: HTMLMediaElement,
 ): number {
   if (!Number.isFinite(node.duration)) return target;
   return Math.min(target, Math.max(0, node.duration - 0.033));
@@ -358,7 +359,10 @@ function MotionOverlayLayer({
   const { t } = useTranslation();
   const { element } = layer;
   const motion =
-    element.creation.type === "overlay" ? element.creation.motion : null;
+    element.creation.type === "overlay" ||
+    element.creation.type === "motion_clip"
+      ? element.creation.motion
+      : null;
   // js-timeline documents never execute in the preview (the iframe
   // sandbox forbids scripts and vendored runtimes cannot resolve from
   // srcDoc); a backend-rendered settled poster stands in instead, and
@@ -368,6 +372,7 @@ function MotionOverlayLayer({
   const isJsTimeline = motion?.format === "html_js";
   const posterFileId = isJsTimeline ? motion?.html_file_id ?? null : null;
   const [posterFailed, setPosterFailed] = useState(false);
+  const [playerBooted, setPlayerBooted] = useState(false);
   const { html, failed: htmlFailed } = useMotionDocumentHtml(
     isJsTimeline ? null : motion ?? null,
   );
@@ -399,6 +404,16 @@ function MotionOverlayLayer({
   };
 
   useEffect(syncAnimations, [playing, pausedSeekTimeMs]);
+  // Same-source playable copy: drive the sandboxed document's paused
+  // timeline over the postMessage bridge, one seek per playhead change
+  // (the render worker drives the very same __hf.seek protocol).
+  useEffect(() => {
+    if (!isJsTimeline || !playerBooted) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "qwenpaw-motion-seek", seconds: localTimeMs / 1000 },
+      "*",
+    );
+  }, [isJsTimeline, playerBooted, localTimeMs]);
   useEffect(() => {
     return () => onVisualReadyChange(visualKey, false);
   }, [onVisualReadyChange, visualKey]);
@@ -430,28 +445,47 @@ function MotionOverlayLayer({
     if (!posterFileId || posterFailed) return null;
     const motif = motionMotif(motion, null);
     if (motif && RETIRED_MOTION_MOTIFS.has(motif)) return null;
+    const layerStyle = {
+      ...boxStyle,
+      opacity:
+        exitStyle === "none" ? baseOpacity : baseOpacity * (1 - exitProgress),
+      transform: `${boxStyle.transform ?? ""} scale(${exitScale})`.trim(),
+    };
     return (
-      <img
-        data-live-motion-overlay={element.element_id}
-        data-live-motion-poster="true"
-        src={getMotionDocumentPosterUrl(
-          posterFileId,
-          Math.round(1280 * (element.location?.width ?? 1)),
-          Math.round(720 * (element.location?.height ?? 1)),
-        )}
-        alt={element.label || "动态动效"}
-        onLoad={() => onVisualReadyChange(visualKey, true)}
-        onError={() => setPosterFailed(true)}
-        className="pointer-events-none absolute border-0 bg-transparent"
-        style={{
-          ...boxStyle,
-          opacity:
-            exitStyle === "none"
-              ? baseOpacity
-              : baseOpacity * (1 - exitProgress),
-          transform: `${boxStyle.transform ?? ""} scale(${exitScale})`.trim(),
-        }}
-      />
+      <>
+        {/* Poster underlay: paints immediately and survives an iframe
+            that fails to boot, so readiness never hangs on scriptableness. */}
+        <img
+          data-live-motion-overlay={element.element_id}
+          data-live-motion-poster="true"
+          src={getMotionDocumentPosterUrl(
+            posterFileId,
+            Math.round(1280 * (element.location?.width ?? 1)),
+            Math.round(720 * (element.location?.height ?? 1)),
+          )}
+          alt={element.label || "动态动效"}
+          onLoad={() => onVisualReadyChange(visualKey, true)}
+          onError={() => setPosterFailed(true)}
+          className="pointer-events-none absolute border-0 bg-transparent"
+          style={layerStyle}
+        />
+        {/* Same-source playable copy (hyperframes-style): the document
+            the renderer captures also runs here, in an opaque-origin
+            sandbox, driven frame-by-frame over the postMessage bridge. */}
+        <iframe
+          ref={iframeRef}
+          data-live-motion-player={element.element_id}
+          src={getMotionDocumentPreviewUrl(posterFileId)}
+          title={element.label || t("livePreview.motionEffect")}
+          sandbox="allow-scripts"
+          onLoad={() => setPlayerBooted(true)}
+          className="pointer-events-none absolute border-0 bg-transparent"
+          style={{
+            ...layerStyle,
+            visibility: playerBooted ? undefined : "hidden",
+          }}
+        />
+      </>
     );
   }
   if (!html) return null;
@@ -504,10 +538,10 @@ export default function TimelineLivePreview({
 }: TimelineLivePreviewProps) {
   const { t } = useTranslation();
   const ticksPerSecond = timeline.ticks_per_second || 1;
-  const mediaRefs = useRef(new Map<string, HTMLVideoElement>());
+  const mediaRefs = useRef(new Map<string, HTMLMediaElement>());
   const imageRefs = useRef(new Map<string, HTMLImageElement>());
   const mediaRefCallbacks = useRef(
-    new Map<string, (node: HTMLVideoElement | null) => void>(),
+    new Map<string, (node: HTMLMediaElement | null) => void>(),
   );
   const imageRefCallbacks = useRef(
     new Map<string, (node: HTMLImageElement | null) => void>(),
@@ -553,14 +587,11 @@ export default function TimelineLivePreview({
     return () => observer.disconnect();
   }, []);
 
-  // Same convention as final composition: audio elements don't participate
-  // (only the main track's original sound is kept), so the live preview
-  // neither renders nor plays them.
+  // Audio elements (narration/BGM) are mixed into the final cut by the
+  // backend; the live preview plays them through hidden <audio> nodes
+  // driven by the same playhead-following logic as video layers.
   const layers = useMemo(
-    () =>
-      playbackLayersInWindow(project, timeline, playheadTick, tasks).filter(
-        (layer) => layer.element.creation.type !== "audio",
-      ),
+    () => playbackLayersInWindow(project, timeline, playheadTick, tasks),
     [playheadTick, project, tasks, timeline],
   );
   const visibleLayers = useMemo(
@@ -701,7 +732,7 @@ export default function TimelineLivePreview({
     (elementId: string) => {
       let callback = mediaRefCallbacks.current.get(elementId);
       if (!callback) {
-        callback = (node: HTMLVideoElement | null) => {
+        callback = (node: HTMLMediaElement | null) => {
           if (node) mediaRefs.current.set(elementId, node);
           else mediaRefs.current.delete(elementId);
           refreshVisualReadiness();
@@ -741,6 +772,11 @@ export default function TimelineLivePreview({
       visibleLayers.filter((layer) => {
         if (layer.status !== "ready") return false;
         const { element, media } = layer;
+        // Audio never blocks the visual frame: semantic readiness already
+        // covers a narration still being synthesized.
+        if (element.creation.type === "audio" || media?.mediaKind === "audio") {
+          return false;
+        }
         if (media?.mediaKind === "video") {
           const node = mediaRefs.current.get(element.element_id);
           if (!node || node.error || node.readyState < 2 || node.seeking)
@@ -762,7 +798,8 @@ export default function TimelineLivePreview({
         }
         if (media) return true;
         if (
-          element.creation.type === "overlay" &&
+          (element.creation.type === "overlay" ||
+            element.creation.type === "motion_clip") &&
           hasMotionDocument(element.creation.motion)
         ) {
           const overlayMotion = element.creation.motion;
@@ -852,7 +889,11 @@ export default function TimelineLivePreview({
             element,
             playheadTick,
           );
-          if (media && media.mediaKind === "video") {
+          if (
+            media &&
+            media.mediaKind === "video" &&
+            element.creation.type !== "audio"
+          ) {
             // Audio policy identical to the final render: only main-track video
             // keeps its original sound, overlay media is muted.
             const silent = muted || element.creation.type === "overlay";
@@ -888,6 +929,27 @@ export default function TimelineLivePreview({
               />
             );
           }
+          if (
+            media &&
+            (media.mediaKind === "audio" || element.creation.type === "audio")
+          ) {
+            // Narration rides the same playhead-following machinery as
+            // video (registerMedia + the layers effect), just without a
+            // visual surface. Audio elements always take this branch even
+            // when their source container is a video file.
+            return (
+              <audio
+                key={`${elementId}:${media.versionId}`}
+                ref={registerMedia(elementId)}
+                data-live-layer={elementId}
+                data-live-layer-state={status}
+                src={media.url}
+                muted={muted}
+                loop={media.loop}
+                preload="auto"
+              />
+            );
+          }
           if (!visible) return null;
           if (media && media.mediaKind === "image") {
             const boxStyle = locationBoxStyle(element.location);
@@ -913,7 +975,8 @@ export default function TimelineLivePreview({
           }
           if (status === "ready") {
             if (
-              element.creation.type === "overlay" &&
+              (element.creation.type === "overlay" ||
+                element.creation.type === "motion_clip") &&
               hasMotionDocument(element.creation.motion)
             ) {
               return (

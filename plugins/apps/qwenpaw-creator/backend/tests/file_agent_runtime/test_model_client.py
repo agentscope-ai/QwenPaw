@@ -20,6 +20,7 @@ from agentscope.model._model_usage import ChatUsage
 import pytest
 
 from services.file_agent_runtime.model_client import (
+    MAX_RATE_LIMIT_RETRIES,
     AgentModelError,
     AgentStreamCallbackError,
     AgentStreamCallbackPassthrough,
@@ -28,6 +29,8 @@ from services.file_agent_runtime.model_client import (
     AgentScopeVlmChatClient,
     AgentToolCall,
     CallbackAgentChatClient,
+    RateLimitExhaustedError,
+    RateLimitRetryNotice,
     records_to_agentscope_messages,
 )
 from services.file_agent_runtime import model_client
@@ -602,8 +605,8 @@ def test_agentscope_client_rejects_textual_tool_markup_before_text_callback(
 
     provider = asyncio.run(scenario())
     # Markup degradation is stochastic, so the turn is retried before the
-    # run is failed: original attempt plus two retries.
-    assert provider.calls == 3
+    # run is failed: original attempt plus four retries.
+    assert provider.calls == 5
     assert text_deltas == []
 
 
@@ -781,3 +784,99 @@ def test_callback_client_keeps_stream_callback_failures_outside_model_errors() -
         assert str(raised.value.cause) == "runtime lock timeout"
 
     asyncio.run(scenario())
+
+
+def test_agentscope_client_retries_rate_limited_turns_until_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        model_client,
+        "_rate_limit_retry_delay",
+        lambda _attempt: 0.0,
+    )
+
+    class ThrottledModel:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, messages, *, tools=None):
+            del messages, tools
+            self.calls += 1
+            raise RuntimeError(
+                "<429> Throttling.RateQuota: Requests rate limit exceeded",
+            )
+
+    notices: list[RateLimitRetryNotice] = []
+
+    async def on_retry(notice: RateLimitRetryNotice) -> None:
+        notices.append(notice)
+
+    async def scenario():
+        provider = ThrottledModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
+        with pytest.raises(RateLimitExhaustedError) as raised:
+            await client.complete(
+                messages=[{"role": "user", "content": "开始"}],
+                tools=_tools(),
+                on_rate_limit_retry=on_retry,
+            )
+        return provider, raised.value
+
+    provider, error = asyncio.run(scenario())
+
+    # One original attempt plus every retry, then the run is given up on.
+    assert provider.calls == MAX_RATE_LIMIT_RETRIES + 1
+    assert error.retries == MAX_RATE_LIMIT_RETRIES
+    assert [(notice.attempt, notice.max_attempts) for notice in notices] == [
+        (attempt, MAX_RATE_LIMIT_RETRIES) for attempt in range(1, 6)
+    ]
+
+
+def test_agentscope_client_recovers_after_rate_limited_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        model_client,
+        "_rate_limit_retry_delay",
+        lambda _attempt: 0.0,
+    )
+
+    class ThrottledThenHealthyModel:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, messages, *, tools=None):
+            del messages, tools
+            self.calls += 1
+            if self.calls <= 2:
+                raise RuntimeError("429 Too Many Requests")
+            return ChatResponse(
+                id="response-rate-limit-recover",
+                content=[TextBlock(text="恢复完成")],
+                is_last=True,
+            )
+
+    notices: list[RateLimitRetryNotice] = []
+
+    async def on_retry(notice: RateLimitRetryNotice) -> None:
+        notices.append(notice)
+
+    async def scenario():
+        provider = ThrottledThenHealthyModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
+        turn = await client.complete(
+            messages=[{"role": "user", "content": "开始"}],
+            tools=_tools(),
+            on_rate_limit_retry=on_retry,
+        )
+        return provider, turn
+
+    provider, turn = asyncio.run(scenario())
+
+    assert provider.calls == 3
+    assert turn.content == "恢复完成"
+    assert [notice.attempt for notice in notices] == [1, 2]

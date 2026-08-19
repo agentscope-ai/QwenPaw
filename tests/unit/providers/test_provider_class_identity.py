@@ -58,13 +58,13 @@ def _make_foreign_model_info(model_id: str, name: str):
 
 
 class _StubProvider(Provider):
-    async def check_connection(self, timeout=5):
+    async def check_connection(self, _timeout=5):
         return True, "ok"
 
-    async def fetch_models(self, timeout=5):
+    async def fetch_models(self, _timeout=5):
         return []
 
-    async def check_model_connection(self, model_id, timeout=5):
+    async def check_model_connection(self, _model_id, _timeout=5):
         return True, "ok"
 
     def get_chat_model_instance(self, model_id):

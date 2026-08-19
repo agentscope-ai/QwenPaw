@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import type {
   WorkGraphNode,
@@ -27,14 +28,18 @@ const STATUS_COLOR: Record<WorkNodeStatus, string> = {
   stale: "var(--color-warning, #f59e0b)",
 };
 
-const LANE_LABEL: Record<string, string> = {
-  visual: "视觉资产",
-  lineup: "阵容图",
-  compose: "最终合成",
+const LANE_LABEL_KEYS: Record<string, string> = {
+  visual: "workGraph.laneVisual",
+  lineup: "workGraph.laneLineup",
+  compose: "workGraph.laneCompose",
 };
 
-function laneTitle(lane: string, nodes: WorkGraphNode[]): string {
-  if (LANE_LABEL[lane]) return LANE_LABEL[lane];
+function laneTitle(
+  lane: string,
+  nodes: WorkGraphNode[],
+  t: (key: string) => string,
+): string {
+  if (LANE_LABEL_KEYS[lane]) return t(LANE_LABEL_KEYS[lane]);
   // Element lanes carry the element label through their storyboard node.
   const labelled = nodes.find((node) => node.label.includes(" · "));
   return labelled ? labelled.label.split(" · ")[0] : lane;
@@ -53,6 +58,7 @@ function NodeRow({
   const dispatching = useWorkGraphStore((state) =>
     Boolean(state.dispatching[node.id]),
   );
+  const { t } = useTranslation();
   const showAction =
     node.dispatchable &&
     (node.status === "failed" ||
@@ -85,7 +91,11 @@ function NodeRow({
         type="button"
         className="min-w-0 flex-1 truncate text-left text-[var(--color-text-secondary)] hover:underline"
         onClick={() => navigateToLocator(projectId, node.locator ?? {})}
-        title={node.error || node.missing.join("、") || node.label}
+        title={
+          node.error ||
+          node.missing.join(t("workGraph.listSeparator")) ||
+          node.label
+        }
       >
         {node.label}
         {node.status === "running" && node.progress != null && (
@@ -100,7 +110,7 @@ function NodeRow({
         )}
         {node.status === "gated" && node.missing.length > 0 && (
           <span className="ml-1 text-[var(--color-text-tertiary)]">
-            等待 {node.missing.length} 项依赖
+            {t("workGraph.waitingDeps", { count: node.missing.length })}
           </span>
         )}
       </button>
@@ -111,7 +121,11 @@ function NodeRow({
           className="shrink-0 rounded border border-[var(--color-border)] px-1 text-[10px] text-[var(--color-text-secondary)] disabled:opacity-50"
           onClick={() => void dispatchNode(projectId, node.id)}
         >
-          {dispatching ? "…" : node.status === "failed" ? "重试" : "生成"}
+          {dispatching
+            ? "…"
+            : node.status === "failed"
+            ? t("workGraph.retry")
+            : t("workGraph.generate")}
         </button>
       )}
     </li>
@@ -119,6 +133,7 @@ function NodeRow({
 }
 
 export default function WorkGraphPanel({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
   const graph = useWorkGraphStore((state) => state.graph);
   const refresh = useWorkGraphStore((state) => state.refresh);
 
@@ -156,10 +171,10 @@ export default function WorkGraphPanel({ projectId }: { projectId: string }) {
   return (
     <div data-testid="work-graph-panel">
       <p className="flex items-center gap-2 font-semibold text-[var(--color-text-secondary)]">
-        制作进度 {done}/{total}
+        {t("workGraph.productionProgress", { done, total })}
         {running > 0 && (
           <span className="text-[10px] font-normal text-[var(--color-primary,#3b82f6)]">
-            并行 {running}
+            {t("workGraph.parallel", { count: running })}
           </span>
         )}
         <span
@@ -168,16 +183,19 @@ export default function WorkGraphPanel({ projectId }: { projectId: string }) {
               ? "text-[10px] font-normal text-[var(--color-danger,#ef4444)]"
               : "text-[10px] font-normal text-[var(--color-text-tertiary)]"
           }
-          title="已发起的付费媒体生成调用次数 / 项目上限（可在配置 agent_runtime.media_call_budget 调整）"
+          title={t("workGraph.mediaCallBudgetTitle")}
         >
-          媒体调用 {graph.mediaCalls}/{graph.mediaCallBudget}
+          {t("workGraph.mediaCalls", {
+            used: graph.mediaCalls,
+            budget: graph.mediaCallBudget,
+          })}
         </span>
       </p>
       <div className="mt-0.5 space-y-1">
         {lanes.map(([lane, nodes]) => (
           <div key={lane}>
             <p className="text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
-              {laneTitle(lane, nodes)}
+              {laneTitle(lane, nodes, t)}
             </p>
             <ul>
               {nodes.map((node) => (

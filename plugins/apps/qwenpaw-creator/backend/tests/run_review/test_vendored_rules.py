@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from vendor.mm_plugins import frame_stats, review_gates
-from vendor.mm_plugins.review_rubrics import (
+from vendor.media_toolkit import frame_stats, review_gates
+from vendor.media_toolkit.review_rubrics import (
     APPEAL_RUBRIC_ROWS,
     COMMON_FAILURES,
     SCENE_REVIEW_CHECKS,

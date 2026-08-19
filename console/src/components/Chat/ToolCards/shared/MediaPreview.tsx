@@ -13,6 +13,7 @@ import type { Locale } from "antd/es/locale";
 import { useTranslation } from "react-i18next";
 import type { MediaInfo } from "./utils";
 import { filePathFromPreviewUrl } from "../../../../features/files-workspace/internalFileLinks";
+import { AudioDownload } from "../../MediaDownload";
 import styles from "./toolCards.module.less";
 
 export interface MediaPreviewProps {
@@ -115,9 +116,11 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
         </div>
       )}
       {media.type === "audio" && (
-        <div className={styles.bubbleAudio}>
-          <Audio src={media.url} onError={handleMediaError} />
-        </div>
+        <AudioDownload url={media.url} filename={media.name}>
+          <div className={styles.bubbleAudio}>
+            <Audio src={media.url} onError={handleMediaError} />
+          </div>
+        </AudioDownload>
       )}
       {media.type === "file" && (
         <div

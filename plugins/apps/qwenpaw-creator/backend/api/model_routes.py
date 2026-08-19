@@ -29,6 +29,7 @@ from schemas.models import (
     ExecutionAuthorizationConfig,
     GroundingConfig,
     ImageConfig,
+    VideoConfig,
     LlmConfig,
     ModelConfigData,
     ModelConfigItem,
@@ -251,7 +252,7 @@ def _defaults() -> ModelConfigData:
         ),
         image=ImageConfig(
             enabled=False,
-            protocol="OpenAI 协议",
+            protocol="DashScope（百炼）",
         ),
         embedding=EmbeddingConfig(
             enabled=False,
@@ -260,9 +261,9 @@ def _defaults() -> ModelConfigData:
             protocol="DashScope（百炼）",
             reuse_vlm_key=True,
         ),
-        video=ModelConfigItem(
+        video=VideoConfig(
             enabled=False,
-            protocol="Volcano Engine（火山引擎）",
+            protocol="DashScope（百炼）",
         ),
         oss=OssConfig(),
         execution_authorization=ExecutionAuthorizationConfig(mode="required"),
@@ -325,6 +326,32 @@ def _read_raw_config(config_path: Path) -> dict[str, Any]:
     return configs
 
 
+def _merge_known_fields(
+    base_section: dict[str, Any],
+    incoming: dict[str, Any],
+    section: str,
+) -> dict[str, Any]:
+    """Merge only fields the current schema knows into ``base_section``.
+
+    ``model_config.json`` outlives plugin upgrades and downgrades, so it can
+    carry fields this build has never heard of. The schema forbids extras,
+    and letting them through turns every model-config route into an
+    unhandled 500. Drop them (with a log) instead of failing the request.
+    """
+
+    recognized = {
+        key: value for key, value in incoming.items() if key in base_section
+    }
+    dropped = set(incoming) - set(recognized)
+    if dropped:
+        logger.warning(
+            f"Ignoring unknown fields in model config section "
+            f"'{_log_safe(section)}': {_log_safe(sorted(dropped))}",
+        )
+    base_section.update(recognized)
+    return recognized
+
+
 def _assemble_model_config(
     configs: dict[str, Any],
     *,
@@ -335,10 +362,14 @@ def _assemble_model_config(
         config_section = configs.get(section)
         explicit: set[str] = set()
         if isinstance(config_section, dict):
-            base[section].update(config_section)
+            recognized = _merge_known_fields(
+                base[section],
+                config_section,
+                section,
+            )
             explicit.update(
                 key
-                for key, value in config_section.items()
+                for key, value in recognized.items()
                 if value not in {None, ""}
             )
         if include_environment and section in _ENV_MAPPING:
@@ -396,24 +427,42 @@ def _assemble_model_config(
                     legacy_field,
                     "",
                 )
-    authorization = configs.get("execution_authorization")
-    if isinstance(authorization, dict):
-        base["execution_authorization"].update(authorization)
-    checkpoints = configs.get("creation_checkpoints")
-    if isinstance(checkpoints, dict):
-        base["creation_checkpoints"].update(checkpoints)
-    media_review = configs.get("media_review")
-    if isinstance(media_review, dict):
-        base["media_review"].update(media_review)
+    for extra_section in (
+        "execution_authorization",
+        "creation_checkpoints",
+        "media_review",
+        "self_review",
+    ):
+        incoming = configs.get(extra_section)
+        if isinstance(incoming, dict):
+            _merge_known_fields(base[extra_section], incoming, extra_section)
     if base["vlm"].get("use_llm"):
+        # Full reuse: stale explicit VLM values (left over from a previous
+        # standalone configuration) must be overridden, not just filled when
+        # empty, or requests hit a mismatched endpoint/key pair. Keep the
+        # stored value only when the text section has none (env-backed LLM).
         for field in ("base_url", "api_key", "model_name"):
-            if not base["vlm"].get(field):
-                base["vlm"][field] = base["llm"].get(field, "")
+            base["vlm"][field] = base["llm"].get(field, "") or base["vlm"].get(
+                field,
+                "",
+            )
 
     # Decrypt secret fields when the QwenPaw secret store is available.
     _decrypt_secret_fields(base)
 
-    return ModelConfigData.model_validate(base)
+    try:
+        return ModelConfigData.model_validate(base)
+    except PydanticValidationError as exc:
+        # A raw pydantic error would escape as an opaque 500 on every
+        # model-config route; surface the offending field as a structured
+        # 422 the UI can actually display.
+        first_error = exc.errors()[0] if exc.errors() else {}
+        loc = first_error.get("loc")
+        field = ".".join(str(part) for part in loc) if loc else "unknown field"
+        message = first_error.get("msg", str(exc))
+        raise ValidationError(
+            f"模型配置文件不可用: {field} {message}；" "请修正 model_config.json 或重新保存模型配置",
+        ) from exc
 
 
 def load_model_config(*, include_environment: bool = True) -> ModelConfigData:
@@ -590,7 +639,11 @@ def mutate_model_config(
         updated = mutator(persisted)
 
         # Encrypt secret fields when the QwenPaw secret store is available.
-        updated_dict = updated.model_dump()
+        # The self-review env-override report is response-only state and
+        # must never land in the persisted file.
+        updated_dict = updated.model_dump(
+            exclude={"self_review": {"env_overrides"}},
+        )
         _encrypt_secret_fields(updated_dict)
 
         atomic_replace_bytes(
@@ -871,7 +924,11 @@ async def _validate_section_connectivity(
         return
 
     api_key = item.get("api_key", "")
-    if section in ("asr", "tts") and item.get("reuse_llm_key") and not api_key:
+    if (
+        section in ("asr", "tts", "s2v", "image", "video")
+        and item.get("reuse_llm_key")
+        and not api_key
+    ):
         api_key = config.get("llm", {}).get("api_key", "")
     if section == "embedding" and item.get("reuse_vlm_key") and not api_key:
         api_key = config.get("vlm", {}).get("api_key", "") or config.get(
@@ -937,6 +994,22 @@ async def get_model_config() -> ModelConfigData:
         load_model_config,
         include_environment=False,
     )
+    # Read-only override report: tiers whose settings-center toggles are
+    # currently shadowed by explicit CREATOR_*_REVIEW_ENABLED env vars.
+    # The UI badges them so the precedence is visible instead of a ghost
+    # (field incident: review ran with the UI toggled off).
+    from models.config import forced_review_env_overrides
+
+    env_to_tier = {
+        "CREATOR_SYNC_REVIEW_ENABLED": "sync_enabled",
+        "CREATOR_MEDIA_REVIEW_ENABLED": "media_enabled",
+        "CREATOR_SELF_REVIEW_ENABLED": "render_enabled",
+    }
+    loaded.self_review.env_overrides = {
+        env_to_tier[name]: value
+        for name, value in forced_review_env_overrides().items()
+        if name in env_to_tier
+    }
     return _mask_secrets(loaded)
 
 
@@ -1069,10 +1142,18 @@ async def patch_creation_checkpoints(
     mode = data.get("mode")
     if mode not in ("required", "skip"):
         raise ValidationError("mode 必须是 'required' 或 'skip'")
+    execution_mode = data.get("execution_mode", "co_creation")
+    if execution_mode not in ("delegated", "co_creation", "fine_tuning"):
+        raise ValidationError(
+            "execution_mode 必须是 'delegated'、'co_creation' 或 'fine_tuning'",
+        )
 
     def mutate(current: ModelConfigData) -> ModelConfigData:
         merged = current.model_dump()
-        merged["creation_checkpoints"] = {"mode": mode}
+        merged["creation_checkpoints"] = {
+            "mode": mode,
+            "execution_mode": execution_mode,
+        }
         try:
             return ModelConfigData.model_validate(merged)
         except PydanticValidationError as exc:
@@ -1120,7 +1201,16 @@ async def patch_permission_mode(
     def mutate(current: ModelConfigData) -> ModelConfigData:
         merged = current.model_dump()
         merged["execution_authorization"] = {"mode": execution}
-        merged["creation_checkpoints"] = {"mode": checkpoints}
+        # The permission ladder owns only the gate on/off; the governance
+        # execution_mode survives the write (skip already forces
+        # delegated at read time).
+        merged["creation_checkpoints"] = {
+            "mode": checkpoints,
+            "execution_mode": merged.get("creation_checkpoints", {}).get(
+                "execution_mode",
+                "co_creation",
+            ),
+        }
         merged["media_review"] = {"mode": media_review}
         try:
             return ModelConfigData.model_validate(merged)
@@ -1176,6 +1266,60 @@ async def patch_execution_authorization(
     def mutate(current: ModelConfigData) -> ModelConfigData:
         merged = current.model_dump()
         merged["execution_authorization"] = {"mode": mode}
+        try:
+            return ModelConfigData.model_validate(merged)
+        except PydanticValidationError as exc:
+            first_error = exc.errors()[0] if exc.errors() else {}
+            field = ".".join(str(loc) for loc in first_error.get("loc", []))
+            message = first_error.get("msg", str(exc))
+            raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
+
+    def transaction() -> None:
+        mutate_model_config(mutate)
+        _notify_agent_model_config_changed()
+
+    await asyncio.to_thread(transaction)
+    return {"ok": True}
+
+
+@router.patch("/config/self-review")
+async def patch_self_review(
+    data: dict[str, Any] = Body(...),
+) -> dict[str, bool]:
+    """Persist the advisory self-review tiers in one write.
+
+    Accepts any subset of ``sync_enabled`` / ``media_enabled`` /
+    ``render_enabled`` booleans and merges them into the ``self_review``
+    section, so toggling one tier never clobbers the others. Explicitly
+    set ``CREATOR_*_REVIEW_ENABLED`` environment switches still override
+    the persisted values at runtime (see ``models.config``).
+    """
+
+    tier_keys = ("sync_enabled", "media_enabled", "render_enabled")
+    updates: dict[str, bool] = {}
+    for tier in tier_keys:
+        if tier not in data:
+            continue
+        value = data[tier]
+        if not isinstance(value, bool):
+            raise ValidationError(f"{tier} 必须是布尔值")
+        updates[tier] = value
+    unknown = set(data) - set(tier_keys)
+    if unknown:
+        raise ValidationError(f"不支持的字段: {', '.join(sorted(unknown))}")
+    if not updates:
+        raise ValidationError(
+            "至少提供 sync_enabled / media_enabled / render_enabled 之一",
+        )
+
+    def mutate(current: ModelConfigData) -> ModelConfigData:
+        merged = current.model_dump()
+        section = dict(merged.get("self_review") or {})
+        section.update(updates)
+        # Response-only state: the env-override report must never land in
+        # the persisted config file.
+        section.pop("env_overrides", None)
+        merged["self_review"] = section
         try:
             return ModelConfigData.model_validate(merged)
         except PydanticValidationError as exc:
@@ -1421,7 +1565,7 @@ async def test_model_connection(
     item = getattr(loaded, body.type)
     fallback_api_key = item.api_key
     if (
-        body.type in ("asr", "tts", "s2v")
+        body.type in ("asr", "tts", "s2v", "image", "video")
         and getattr(item, "reuse_llm_key", False)
         and not fallback_api_key
     ):

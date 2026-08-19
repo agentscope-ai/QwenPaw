@@ -34,6 +34,8 @@ from ...utils.io_utils import run_sync_io
 
 _SHELL_OUTPUT_MAX_BYTES = 1024 * 1024
 _SHELL_OUTPUT_DRAIN_GRACE_SECS = 10.0
+_WINDOWS_PROCESS_REAP_SECS = 0.5
+_WINDOWS_PROCESS_KILL_REAP_SECS = 5.0
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -480,11 +482,18 @@ def _execute_subprocess_sync(
         if timed_out or stopped:
             _kill_process_tree_win32(proc.pid)
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=_WINDOWS_PROCESS_REAP_SECS)
             except subprocess.TimeoutExpired:
                 try:
                     proc.kill()
                 except OSError:
+                    pass
+                try:
+                    # Bounded: a child stuck in uninterruptible kernel
+                    # I/O must cost a leaked handle, not a worker thread
+                    # parked forever.
+                    proc.wait(timeout=_WINDOWS_PROCESS_KILL_REAP_SECS)
+                except (OSError, subprocess.TimeoutExpired):
                     pass
 
         if stdout_reader is not None and stderr_reader is not None:

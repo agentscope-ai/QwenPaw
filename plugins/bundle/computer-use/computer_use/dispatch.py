@@ -28,6 +28,7 @@ _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
+_MAX_ACCESSIBILITY_DEPTH = 40
 
 ComputerUseAction = Literal[
     "list_apps",
@@ -42,14 +43,16 @@ ComputerUseAction = Literal[
     "drag",
     "type",
     "press_key",
+    "sequence",
     "invoke",
+    "begin_text_edit",
     "set_value",
     "wait",
     "stop",
 ]
 
 
-def _check_rate_limit() -> None:
+def _check_rate_limit(cost: int = 1) -> None:
     # The tool can be entered from more than one event loop -- the host runs
     # per-workspace loops on their own threads -- so the guard is a threading
     # lock rather than an asyncio one, which serialises only within a single
@@ -62,24 +65,79 @@ def _check_rate_limit() -> None:
         _action_times[:] = [
             value for value in _action_times if now - value < 60
         ]
-        if len(_action_times) >= _MAX_ACTIONS_PER_MINUTE:
+        if len(_action_times) + cost > _MAX_ACTIONS_PER_MINUTE:
             raise ComputerUseProtocolError(
                 "rate_limited",
                 "Computer Use rate limit exceeded; wait before continuing.",
             )
-        _action_times.append(now)
+        _action_times.extend([now] * cost)
 
 
-def _without_screenshot_urls(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Replace inline screenshot data with a placeholder for text output.
+def _sequence_steps(steps: Any) -> list[dict[str, str]]:
+    """Validate the bounded keyboard-only sequence contract."""
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                "sequence steps must be a JSON array.",
+            ) from error
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 20:
+        raise ValueError("sequence requires 1 to 20 steps.")
+    normalized = []
+    text_length = 0
+    for index, step in enumerate(steps):
+        if not isinstance(step, Mapping):
+            raise ValueError(f"sequence step {index} must be an object.")
+        action = str(step.get("action") or "").strip().lower()
+        if action not in {"type", "press_key"}:
+            raise ValueError(
+                f"sequence step {index} must use type or press_key.",
+            )
+        field = "text" if action == "type" else "key"
+        value = step.get(field)
+        if (
+            not isinstance(value, str)
+            or not value
+            or (action == "press_key" and not value.strip())
+        ):
+            raise ValueError(
+                f"sequence step {index} requires non-empty {field}.",
+            )
+        if set(step) != {"action", field}:
+            raise ValueError(
+                f"sequence step {index} accepts only action and {field}.",
+            )
+        if action == "type":
+            text_length += len(value)
+            if text_length > 512:
+                raise ValueError("sequence text is limited to 512 characters.")
+        normalized.append({"action": action, field: value})
+    return normalized
+
+
+def _without_screenshot_urls(
+    payload: Mapping[str, Any],
+    *,
+    attached: bool,
+) -> Mapping[str, Any]:
+    """Remove image data from text output, retaining metadata when attached.
 
     Screenshots are attached as image blocks; repeating the base64 data
     URL inside the JSON text block would double a multi-megabyte payload
-    and pollute the model's text context.
+    and pollute the model's text context. Post-action observations remain
+    available natively but omit their image metadata until an explicit visual
+    observation requests the attachment.
     """
     screenshots = payload.get("screenshots")
     if not isinstance(screenshots, list):
         return payload
+    if not attached:
+        return {
+            key: value
+            for key, value in payload.items()
+            if key != "screenshots"
+        }
     sanitized: list[Any] = []
     for screenshot in screenshots:
         if isinstance(screenshot, Mapping) and "url" in screenshot:
@@ -95,26 +153,20 @@ def _element_line(element: Mapping[str, Any]) -> str:
     """Render one accessibility element as a single compact line.
 
     Only the model reads these elements, so the JSON scaffolding around
-    them is pure overhead. Windows reports pixel ``bounds`` and macOS
-    reports a control ``value`` instead, so the locator part is chosen from
-    whichever the platform actually provided rather than assumed.
+    them is pure overhead. Coordinates come from the current screenshot;
+    accessibility lines expose only semantic element metadata.
     """
     parts = [
         str(element.get("id") or "?"),
         str(element.get("control_type_name") or element.get("role") or "?"),
         f'"{element.get("name") or ""}"',
     ]
-    bounds = element.get("bounds")
     value = element.get("value")
-    if isinstance(bounds, (list, tuple)) and len(bounds) == 4:
-        try:
-            left, top, right, bottom = (int(edge) for edge in bounds)
-        except (TypeError, ValueError):
-            pass
-        else:
-            parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
-    elif isinstance(value, str) and value:
+    if isinstance(value, str) and value:
         parts.append(f"={value}")
+    identifier = element.get("identifier") or element.get("automation_id")
+    if isinstance(identifier, str) and identifier:
+        parts.append(f"[identifier={identifier}]")
     # Both states stay visible: an offscreen entry may become reachable
     # after scrolling, and a disabled control tells the model not to try.
     if element.get("enabled") is False:
@@ -132,7 +184,13 @@ def _element_line(element: Mapping[str, Any]) -> str:
         names = [str(action) for action in actions if str(action)]
         if names:
             parts.append(f"[actions={','.join(names)}]")
-    return " ".join(parts)
+    depth = element.get("depth")
+    indent = (
+        "  " * min(depth, _MAX_ACCESSIBILITY_DEPTH)
+        if isinstance(depth, int) and not isinstance(depth, bool) and depth > 0
+        else ""
+    )
+    return indent + " ".join(parts)
 
 
 def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -180,7 +238,9 @@ def _response(
         TextBlock(
             type="text",
             text=json.dumps(
-                _with_compact_elements(_without_screenshot_urls(payload)),
+                _with_compact_elements(
+                    _without_screenshot_urls(payload, attached=include_images),
+                ),
                 ensure_ascii=False,
                 separators=(",", ":"),
             ),
@@ -190,11 +250,26 @@ def _response(
 
 
 def _error(code: str, message: str) -> ToolChunk:
+    payload = {
+        "ok": False,
+        "error": {"code": code, "message": message},
+    }
+    if code in {
+        "desktop_busy",
+        "focus_failed",
+        "input_failed",
+        "observation_required",
+        "stale_observation",
+        "target_not_at_point",
+        "user_intervention",
+    }:
+        payload["requires_observe"] = True
+        payload["next_action"] = "observe_window"
+    elif code in {"stale_window", "window_not_found"}:
+        payload["requires_observe"] = True
+        payload["next_action"] = "list_windows"
     return _response(
-        {
-            "ok": False,
-            "error": {"code": code, "message": message},
-        },
+        payload,
         state=ToolResultState.ERROR,
     )
 
@@ -229,6 +304,7 @@ async def computer_use(
     text: str = "",
     value: str = "",
     key: str = "",
+    steps: list[dict[str, Any]] | str | None = None,
     wait_ms: int = 500,
     timeout_ms: int = 10000,
 ) -> ToolChunk:
@@ -239,12 +315,14 @@ async def computer_use(
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     platform-native application path.
+    Inspect the replacement observation after an action changes selection,
+    focus, menus, editors, dialogs, or windows. Confirm editable focus before
+    typing, and observe again after committing an edit.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.
     # pylint: disable=too-many-return-statements
     try:
-        _check_rate_limit()
         action = str(action or "").strip().lower()
         if not action:
             raise ValueError("action is required.")
@@ -255,6 +333,7 @@ async def computer_use(
                 "panel to allow desktop automation.",
             )
         if action == "wait":
+            _check_rate_limit()
             await asyncio.sleep(max(0, min(wait_ms, 30_000)) / 1000)
             return _response(
                 {"ok": True, "action": action, "waited_ms": wait_ms},
@@ -262,6 +341,7 @@ async def computer_use(
 
         client = get_computer_use_client()
         if action == "stop":
+            _check_rate_limit()
             await client.stop_turn()
             return _response({"ok": True, "action": action})
 
@@ -284,16 +364,26 @@ async def computer_use(
             text=text,
             value=value,
             key=key,
+            steps=steps,
         )
+        if method == "sequence":
+            _check_rate_limit(len(params["steps"]))
+        else:
+            _check_rate_limit()
         result = await client.execute(
             method,
             params,
             deadline_ms=max(100, min(timeout_ms, 30_000)),
         )
-        payload = {"ok": True, "action": action, **result}
+        failed = action == "sequence" and isinstance(
+            result.get("error"),
+            Mapping,
+        )
+        payload = {"ok": not failed, "action": action, **result}
         return _response(
             payload,
-            include_images=include_images or bool(result.get("screenshots")),
+            include_images=include_images,
+            state=ToolResultState.ERROR if failed else ToolResultState.SUCCESS,
         )
     except ComputerUseProtocolError as error:
         return _error(error.code, str(error))
@@ -393,17 +483,23 @@ def _native_request(
             {"text": text},
             False,
         )
-    if action in {"invoke", "set_value"}:
+    if action in {"invoke", "begin_text_edit", "set_value"}:
         element_id = str(values["element_id"] or "").strip()
         if not element_id:
             raise ValueError(
                 f"{action} requires element_id from observe_window.",
             )
         params = {"element_id": element_id}
+        if action == "begin_text_edit":
+            params["expects_text_input"] = True
         if action == "set_value":
             params["value"] = str(values["value"] or "")
         return (
-            f"{action}_element" if action == "invoke" else action,
+            (
+                "invoke_element"
+                if action in {"invoke", "begin_text_edit"}
+                else action
+            ),
             params,
             False,
         )
@@ -412,9 +508,11 @@ def _native_request(
         if not key:
             raise ValueError("press_key requires key.")
         return action, {"key": key}, False
+    if action == "sequence":
+        return action, {"steps": _sequence_steps(values.get("steps"))}, False
     raise ValueError(
         "Unknown action. Valid actions: list_apps, list_windows, "
         "observe_window, launch_app, close_window, click, "
         "double_click, right_click, scroll, drag, type, press_key, invoke, "
-        "set_value, wait, stop.",
+        "begin_text_edit, set_value, sequence, wait, stop.",
     )

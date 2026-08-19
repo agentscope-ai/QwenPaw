@@ -13,9 +13,12 @@ from services.media_files import motion_engine
 from services.media_files.motion_blueprints import (
     CAPTION_BLUEPRINT_ORDER,
     DECORATION_BLUEPRINTS,
+    FRAME_BLUEPRINTS,
     blueprint_catalog_text,
     render_caption_blueprint,
     render_decoration_blueprint,
+    render_frame_blueprint,
+    validated_frame_window,
     validated_palette,
 )
 from services.media_files.motion_design import _validated_design
@@ -107,6 +110,44 @@ class TestBlueprintRendering:
         for name in DECORATION_BLUEPRINTS:
             assert name in decoration
 
+    def test_every_frame_blueprint_registers_hf_and_vendor(self) -> None:
+        for name in FRAME_BLUEPRINTS:
+            html, period = render_frame_blueprint(name)
+            assert "window.__hf" in html
+            assert 'src="vendor/gsap.min.js"' in html
+            assert period > 0
+            # Full-bleed border document: the root floods the viewport
+            # and the four strips tile everything outside the window.
+            assert "#root{position:absolute;inset:0;}" in html
+
+    def test_frame_window_mirrors_edit_placement_box(self) -> None:
+        # A centered 0.84 x 0.80 edit placement produces matching strip
+        # geometry: top strip 10%, left strip 8%.
+        html, _ = render_frame_blueprint(
+            "pop_variety",
+            window={"left": 0.08, "top": 0.10, "width": 0.84, "height": 0.80},
+        )
+        assert ".st{left:0;right:0;top:0;height:10.00%}" in html
+        assert ".sl{left:0;top:10.00%;bottom:10.00%;width:8.00%}" in html
+
+    def test_frame_window_clamps_to_keep_real_borders(self) -> None:
+        window = validated_frame_window(
+            {"left": -0.5, "top": 0.0, "width": 2.0, "height": 0.01},
+        )
+        assert 0.02 <= window["left"]
+        assert window["left"] + window["width"] <= 0.98
+        assert 0.02 <= window["top"]
+        assert window["top"] + window["height"] <= 0.98
+        assert window["width"] >= 0.40 - 1e-9
+        # Garbage input falls back to the default centered window.
+        default = validated_frame_window(None)
+        assert default["width"] == pytest.approx(0.86)
+        assert default["left"] == pytest.approx(0.07)
+
+    def test_unknown_frame_blueprint_rejected(self) -> None:
+        with pytest.raises(ValueError, match="unknown frame blueprint"):
+            render_frame_blueprint("nope")
+
 
 class TestBlueprintDesignValidation:
     _LOCATION = {
@@ -193,3 +234,59 @@ class TestBlueprintDesignValidation:
             canvas_size=(1280, 720),
         )
         assert not isinstance(design, str)
+
+
+class TestSceneBlueprints:
+    """edu_step_card: deterministic skeleton, Chinese-only copy slots."""
+
+    _CONTENT = {
+        "badge": "步骤一",
+        "title": "去括号",
+        "previous": "6(x-1)=24",
+        "operation": "两边展开括号",
+        "lines": ["6×x=6x", "6×(-1)=-6"],
+        "result": "6x-6=24",
+    }
+
+    def test_renders_deterministically_with_fixed_chinese_labels(self):
+        from services.media_files.motion_blueprints import (
+            render_scene_blueprint,
+        )
+
+        first, duration = render_scene_blueprint(
+            "edu_step_card",
+            self._CONTENT,
+        )
+        again, _ = render_scene_blueprint("edu_step_card", self._CONTENT)
+        assert first == again
+        assert duration > 0
+        # Fixed labels live in the template, never in model output.
+        assert "上一步" in first
+        assert "得到" in first
+        # Full-bleed stage: the coverage gate needs an edge-to-edge root.
+        assert "inset:0" in first
+        assert 'data-motion-exit="none"' in first
+
+    def test_rejects_english_copy_in_any_slot(self):
+        from services.media_files.motion_blueprints import (
+            render_scene_blueprint,
+        )
+
+        for slot, poisoned in (
+            ("title", "PREVIOUS STEP"),
+            ("lines", ["Move -6 to right"]),
+            ("result", "Verification Process"),
+        ):
+            content = {**self._CONTENT, slot: poisoned}
+            with pytest.raises(ValueError, match="中文"):
+                render_scene_blueprint("edu_step_card", content)
+
+    def test_math_tokens_and_variables_pass(self):
+        from services.media_files.motion_blueprints import (
+            require_chinese_copy,
+        )
+
+        assert require_chinese_copy("sin(x)+cos(y)=1", "line")
+        assert require_chinese_copy("6(x-1)=24", "line")
+        with pytest.raises(ValueError, match="Step"):
+            require_chinese_copy("Step 2 移项", "line")

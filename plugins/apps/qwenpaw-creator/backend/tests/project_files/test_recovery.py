@@ -1090,7 +1090,7 @@ def test_legacy_schema_replaced_transaction_is_finalized_not_fail_closed(
         if item.transaction_id == "legacy-replaced"
     )
     assert outcome.action is RecoveryAction.ALREADY_FINALIZED
-    assert "legacy-schema" in (outcome.detail or "")
+    assert "frozen-model" in (outcome.detail or "")
     assert (
         _journal(store, "legacy-replaced").state
         is CommitJournalState.RUNTIME_FINALIZED
@@ -1146,7 +1146,7 @@ def test_legacy_schema_aborted_transaction_is_skipped(tmp_path, monkeypatch):
         if item.transaction_id == "legacy-aborted"
     )
     assert outcome.action is RecoveryAction.SKIPPED_ABORTED
-    assert "legacy-schema" in (outcome.detail or "")
+    assert "frozen-model" in (outcome.detail or "")
     assert (
         _journal(store, "legacy-aborted").state is CommitJournalState.ABORTED
     )

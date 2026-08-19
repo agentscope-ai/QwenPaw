@@ -68,11 +68,13 @@ export default function TopNav() {
         />
         <div className="min-w-0">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <span className="block max-w-[180px] shrink-0 truncate text-[13px] font-semibold leading-tight text-[var(--color-text-primary)] md:max-w-[240px]">
+            <span className="block max-w-[180px] shrink-0 truncate text-[13px] font-semibold leading-tight text-[var(--color-text-primary)] max-[899px]:max-w-[120px] md:max-w-[240px]">
               {project.name}
             </span>
+            {/* Secondary context: the script preview yields first when the
+                window narrows; the full text stays in the tooltip. */}
             <Tooltip title={masterScript} placement="right">
-              <span className="block min-w-0 max-w-[180px] truncate text-[11px] font-normal leading-tight text-[var(--color-text-secondary)] md:max-w-[240px]">
+              <span className="block min-w-0 max-w-[180px] truncate text-[11px] font-normal leading-tight text-[var(--color-text-secondary)] max-[899px]:hidden md:max-w-[240px]">
                 {t("nav.originalScript")}
                 {masterScriptPreview}
               </span>
@@ -90,6 +92,8 @@ export default function TopNav() {
             <Link
               key={tab.key}
               href={`/project/${id}/${tab.key}`}
+              aria-label={t(tab.labelKey)}
+              title={t(tab.labelKey)}
               data-onboarding-id={
                 tab.key === "assets" ? "assets-tab" : undefined
               }
@@ -100,7 +104,7 @@ export default function TopNav() {
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
-              {t(tab.labelKey)}
+              <span className="hidden md:inline">{t(tab.labelKey)}</span>
             </Link>
           );
         })}

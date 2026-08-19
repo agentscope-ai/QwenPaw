@@ -160,6 +160,21 @@ describe("deriveAgentLiveStatus", () => {
     expect(result.progressPercent).toBeNull();
   });
 
+  it("shows the rate-limit retry notice above any other working label", () => {
+    const result = deriveAgentLiveStatus(
+      baseInput({
+        rateLimitRetry: { attempt: 2, maxAttempts: 5 },
+        subagentActivities: {
+          "action-1": subagentActivity("image_generation", {
+            targetRef: "element:e1",
+          }),
+        },
+      }),
+    );
+    expect(result.state).toBe("working");
+    expect(result.label).toBe("遇到限流，正在重试（2/5）…");
+  });
+
   it("labels storyboard image generation with the resolved element name", () => {
     const result = deriveAgentLiveStatus(
       baseInput({

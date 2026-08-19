@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 """Tests for the SiliconFlow built-in providers."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -28,7 +29,7 @@ def test_siliconflow_provider_configs() -> None:
     assert PROVIDER_SILICONFLOW_CN.name == "SiliconFlow (China)"
     assert PROVIDER_SILICONFLOW_CN.base_url == "https://api.siliconflow.cn/v1"
     assert PROVIDER_SILICONFLOW_CN.freeze_url is True
-    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is False
+    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is True
 
     assert PROVIDER_SILICONFLOW_INTL.id == "siliconflow-intl"
     assert PROVIDER_SILICONFLOW_INTL.name == "SiliconFlow (International)"
@@ -36,7 +37,7 @@ def test_siliconflow_provider_configs() -> None:
         PROVIDER_SILICONFLOW_INTL.base_url == "https://api.siliconflow.com/v1"
     )
     assert PROVIDER_SILICONFLOW_INTL.freeze_url is True
-    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is False
+    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is True
 
 
 def test_siliconflow_models_list() -> None:

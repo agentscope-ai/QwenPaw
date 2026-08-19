@@ -41,6 +41,8 @@ class _FakeHandler(DriverHandler):
         request_context: dict[str, str] | None = None,
     ) -> list[DriverCapability]:
         del request_context
+        if self.card.endpoint.get("fail_list"):
+            raise RuntimeError(f"Failed to list capabilities for {self.name}")
         capability_id = format_capability_id(
             "fake",
             self.name,
@@ -80,12 +82,13 @@ def _card(
     name: str,
     *,
     fail: bool = False,
+    fail_list: bool = False,
     enabled: bool = True,
 ) -> DriverCard:
     return DriverCard(
         name=name,
         protocol="fake",
-        endpoint={"fail": fail},
+        endpoint={"fail": fail, "fail_list": fail_list},
         enabled=enabled,
     )
 
@@ -141,6 +144,31 @@ async def test_transient_drivers_are_additive_and_scope_isolated(
     assert names_without_scope == {"persistent"}
     assert names_in_a == {"persistent", "transient-a"}
     assert names_in_b == {"persistent", "transient-b"}
+
+
+async def test_list_capabilities_isolates_one_failing_driver(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path)
+    await manager.register_driver(_card("healthy"))
+    await manager.register_driver(_card("broken", fail_list=True))
+
+    capabilities = await manager.list_capabilities()
+
+    assert [item.driver_name for item in capabilities] == ["healthy"]
+
+
+async def test_single_driver_capability_query_still_reports_failure(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path)
+    await manager.register_driver(_card("broken", fail_list=True))
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to list capabilities for broken",
+    ):
+        await manager.list_driver_capabilities("broken")
 
 
 async def test_transient_invocation_rejects_another_scope(

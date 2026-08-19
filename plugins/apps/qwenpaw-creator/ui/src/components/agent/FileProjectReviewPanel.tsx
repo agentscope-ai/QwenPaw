@@ -117,16 +117,21 @@ function previewText(value: unknown, limit = 26): string {
 
 /** One-line change preview so users know what changed without navigating;
  * the full diff is shown in place at the original content. */
-const CREATION_TYPE_LABELS: Record<string, string> = {
-  r2v: "R2V 画面",
-  t2v: "文本生视频",
-  i2v: "首帧生视频",
-  s2v: "数字人口播",
-  edit: "剪辑片段",
-  overlay: "文字/装饰",
-  transition: "转场",
-  audio: "音频",
+const CREATION_TYPE_LABEL_KEYS: Record<string, string> = {
+  r2v: "fileReview.creationTypeR2v",
+  t2v: "fileReview.creationTypeT2v",
+  i2v: "fileReview.creationTypeI2v",
+  s2v: "fileReview.creationTypeS2v",
+  edit: "fileReview.creationTypeEdit",
+  overlay: "fileReview.creationTypeOverlay",
+  transition: "fileReview.creationTypeTransition",
+  audio: "fileReview.creationTypeAudio",
 };
+
+function creationTypeLabel(type: string): string {
+  const key = CREATION_TYPE_LABEL_KEYS[type];
+  return key ? i18n.t(key) : type;
+}
 
 /** Structured summary for a whole Timeline Element value; null when the value
  * is not an element (falls back to the raw-text preview). */
@@ -138,9 +143,7 @@ function describeElementValue(
   const el = value as Record<string, any>;
   const creation = el.creation;
   if (!creation || typeof creation !== "object" || !creation.type) return null;
-  const parts: string[] = [
-    CREATION_TYPE_LABELS[creation.type] ?? String(creation.type),
-  ];
+  const parts: string[] = [creationTypeLabel(String(creation.type))];
   if (el.label) parts.push(`「${el.label}」`);
   const span = el.span;
   if (
@@ -154,8 +157,9 @@ function describeElementValue(
     parts.push(`${start.toFixed(0)}s–${end.toFixed(0)}s`);
   }
   if (creation.type === "audio") {
-    parts.push(`音量 ${creation.gain_db ?? 0}dB`);
-    if (creation.pan) parts.push(`声像 ${creation.pan}`);
+    parts.push(i18n.t("fileReview.audioGain", { gain: creation.gain_db ?? 0 }));
+    if (creation.pan)
+      parts.push(i18n.t("fileReview.audioPan", { pan: creation.pan }));
   }
   return parts.join(" · ");
 }
@@ -421,8 +425,11 @@ export default function FileProjectReviewPanel({
                 data-file-review-operation={operation.operation_id}
                 className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] p-2"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                {/* flex bases keep the summary readable on a very narrow
+                    dock: the action cluster wraps below instead of squeezing
+                    the break-all title into a one-character column. */}
+                <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                  <div className="min-w-0 flex-[1_1_150px]">
                     <p
                       className="break-all text-[11px] font-semibold text-[var(--color-text-primary)]"
                       title={location}
@@ -441,7 +448,7 @@ export default function FileProjectReviewPanel({
                       {operationPreview(operation, ticksPerSecond)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="ml-auto flex shrink-0 gap-1">
                     {canJump && (
                       <button
                         type="button"

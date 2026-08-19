@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import unquote
 
 from agentscope.message import (
     Base64Source,
@@ -31,6 +33,36 @@ _MODALITY_DEFAULT_MIME = {
     "audio": "audio/*",
     "video": "video/*",
 }
+
+
+def _ensure_url_scheme(url: str) -> str:
+    """Prepend ``file://`` when *url* is an absolute local path.
+
+    Handles Unix paths (``/``, ``~``), Windows drive paths
+    (e.g. ``C:\\`` or ``C:/``) and Windows UNC paths
+    (e.g. ``\\\\server\\share\\x.png`` → ``file://server/share/x.png``).
+
+    Always ``unquote()`` first so percent-encoded non-ASCII characters
+    (e.g. ``%E6%B5%8B%E8%AF%95`` → ``测试``) resolve to the real
+    filename on disk.  Then uses ``file://`` + raw path (not
+    ``Path.as_uri()``) to avoid re-encoding.
+    """
+    if url.startswith(("/", "~")):
+        resolved = str(Path(unquote(url)).expanduser().resolve())
+    elif len(url) >= 3 and url[1] == ":" and url[2] in ("/", "\\"):
+        resolved = str(Path(unquote(url)).resolve())
+    elif url.startswith("\\\\"):
+        resolved = unquote(url)
+    else:
+        return url
+
+    resolved = resolved.replace("\\", "/")
+    if resolved.startswith("//"):
+        # UNC path: \\server\share\... -> file://server/share/...
+        return "file://" + resolved.lstrip("/")
+    if not resolved.startswith("/"):
+        resolved = "/" + resolved
+    return "file://" + resolved
 
 
 def _coerce_source(
@@ -53,7 +85,12 @@ def _coerce_source(
 
     src_type = source.get("type")
     if src_type == "url":
-        url = source["url"]
+        # Legacy sessions (pre-2.0) sometimes stored local filesystem
+        # paths in ``url`` (e.g. WeCom images under the working dir).
+        # ``URLSource`` requires an absolute RFC 3986 URI, so normalize
+        # local paths to ``file://`` URIs here; the provider layer
+        # resolves those back to on-disk files when building requests.
+        url = _ensure_url_scheme(str(source["url"]))
         media_type = source.get("media_type")
         if not media_type:
             guessed, _ = mimetypes.guess_type(str(url))

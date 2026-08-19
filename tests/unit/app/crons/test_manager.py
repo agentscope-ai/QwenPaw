@@ -18,8 +18,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.crons.contracts import ServiceCronJob
 from qwenpaw.app.crons.manager import CronManager
-from qwenpaw.app.crons.models import CronJobState, ScheduleSpec
+from qwenpaw.app.crons.models import (
+    CronJobState,
+    ScheduleSpec,
+)
 from tests.unit.app.conftest import (
     InMemoryJobRepository,
     make_cron_job_spec,
@@ -72,11 +76,18 @@ async def test_keepalive_task_lifecycle(manager: CronManager):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_dream_waits_for_random_delay(
+async def test_service_job_uses_scheduler_jitter(
     repo: InMemoryJobRepository,
 ):
+    callback = AsyncMock()
+    declaration = ServiceCronJob(
+        key="maintenance",
+        cron="0 23 * * *",
+        callback=callback,
+        jitter_seconds=60,
+    )
     workspace = MagicMock()
-    workspace.memory_manager.dream = AsyncMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [declaration]
     mgr = CronManager(
         repo=repo,
         workspace=workspace,
@@ -84,21 +95,39 @@ async def test_scheduled_dream_waits_for_random_delay(
         agent_id="test-agent",
     )
 
-    with (
-        patch(
-            "qwenpaw.app.crons.manager.random.randint",
-            return_value=42,
-        ) as randint_mock,
-        patch(
-            "qwenpaw.app.crons.manager.asyncio.sleep",
-            new_callable=AsyncMock,
-        ) as sleep_mock,
-    ):
-        await mgr._dream_callback()
+    await mgr.start()
 
-    randint_mock.assert_called_once_with(0, 60)
-    sleep_mock.assert_awaited_once_with(42)
-    workspace.memory_manager.dream.assert_awaited_once_with()
+    job = mgr._scheduler.get_job("_service:memory:maintenance")
+    assert job is not None
+    assert job.trigger.jitter == 60
+    callback.assert_not_awaited()
+    await mgr.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_registers_jobs_declared_by_memory_manager(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    callback = AsyncMock()
+    workspace.memory_manager.list_cron_jobs.return_value = [
+        ServiceCronJob(
+            key="maintenance",
+            cron="0 8 * * *",
+            callback=callback,
+        ),
+    ]
+    mgr = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+        agent_id="test-agent",
+    )
+
+    await mgr.start()
+
+    assert mgr._scheduler.get_job("_service:memory:maintenance") is not None
+    await mgr.stop()
 
 
 @pytest.mark.asyncio

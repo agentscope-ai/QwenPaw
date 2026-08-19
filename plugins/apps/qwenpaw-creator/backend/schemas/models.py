@@ -3,12 +3,22 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .common import StrictModel
 
 
-class ModelConfigItem(StrictModel):
+class _ConfigBase(BaseModel):
+    """Config models tolerate schema drift (extra fields from newer/older
+    front-ends or persisted files) by ignoring unknown keys instead of
+    rejecting them.  ``populate_by_name`` keeps alias + field-name parity
+    with ``StrictModel``.
+    """
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+
+class ModelConfigItem(_ConfigBase):
     enabled: bool = False
     model_name: str = ""
     api_key: str = ""
@@ -55,6 +65,15 @@ class ImageConfig(ModelConfigItem):
     """
 
     translate_model: str = ""
+    # Bailian image generation runs on the same DashScope credential as the
+    # text model; reuse it by default like tts/s2v instead of asking twice.
+    reuse_llm_key: bool = True
+
+
+class VideoConfig(ModelConfigItem):
+    """Video generation configuration (family model, per-mode derivation)."""
+
+    reuse_llm_key: bool = True
 
 
 class S2vConfig(ModelConfigItem):
@@ -142,21 +161,34 @@ class GroundingConfig(ModelConfigItem):
         return migrated
 
 
-class ExecutionAuthorizationConfig(StrictModel):
+class ExecutionAuthorizationConfig(_ConfigBase):
     mode: Literal["required", "allow_all"] = "required"
 
 
-class CreationCheckpointConfig(StrictModel):
+class CreationCheckpointConfig(_ConfigBase):
     """Pit-stop gates the user must clear before costly generation.
 
     ``required`` blocks visual generation until the plan (and later the
     character/scene designs) are confirmed; ``skip`` runs unattended.
+
+    ``execution_mode`` scales the mid-flight governance (upstream
+    video-edit three modes): ``co_creation`` (default) keeps every gate
+    and asks for a creative direction before editing starts;
+    ``delegated`` drops the plan/design/direction gates (billing
+    authorizations stay); ``fine_tuning`` keeps one scope confirmation
+    for iterations on a delivered cut. ``mode=skip`` (the YOLO ladder)
+    forces ``delegated`` so the ladder never contradicts itself.
     """
 
     mode: Literal["required", "skip"] = "required"
+    execution_mode: Literal[
+        "delegated",
+        "co_creation",
+        "fine_tuning",
+    ] = Field(default="co_creation", alias="executionMode")
 
 
-class MediaReviewConfig(StrictModel):
+class MediaReviewConfig(_ConfigBase):
     """Quality gate for generated media (images/videos).
 
     ``required`` parks every generated artifact behind a pending Review;
@@ -168,7 +200,33 @@ class MediaReviewConfig(StrictModel):
     mode: Literal["required", "auto_approve"] = "required"
 
 
-class OssConfig(StrictModel):
+class SelfReviewConfig(_ConfigBase):
+    """Advisory model-driven review tiers along the creation pipeline.
+
+    Mirrors the three independent review modules: ``sync_enabled`` reviews
+    low-cost text artifacts before costly generation (run_review sync),
+    ``media_enabled`` reviews each generated image/video artifact
+    (run_review media), and ``render_enabled`` runs the final-cut
+    six-dimension review (render_review). An explicitly set
+    ``CREATOR_*_REVIEW_ENABLED`` environment switch still overrides the
+    persisted value so existing deployments keep their behaviour.
+
+    ``env_overrides`` is read-only response state populated by the
+    settings API (tier key -> raw env value) so the UI can badge tiers
+    whose toggles are currently shadowed by the environment; it is never
+    persisted (field incident: review ran with the UI toggled off).
+    """
+
+    sync_enabled: bool = False
+    media_enabled: bool = False
+    render_enabled: bool = False
+    env_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        alias="envOverrides",
+    )
+
+
+class OssConfig(_ConfigBase):
     """QwenPaw Creator media OSS configuration stored in model_config.json."""
 
     enabled: bool = False
@@ -180,7 +238,7 @@ class OssConfig(StrictModel):
     policy_api_key: str = ""
 
 
-class ModelConfigData(StrictModel):
+class ModelConfigData(_ConfigBase):
     llm: LlmConfig
     vlm: VlmConfig
     grounding: GroundingConfig = Field(default_factory=GroundingConfig)
@@ -189,7 +247,7 @@ class ModelConfigData(StrictModel):
     s2v: S2vConfig = Field(default_factory=S2vConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     image: ImageConfig
-    video: ModelConfigItem
+    video: VideoConfig
     oss: OssConfig = Field(default_factory=OssConfig)
     execution_authorization: ExecutionAuthorizationConfig = Field(
         default_factory=ExecutionAuthorizationConfig,
@@ -202,6 +260,10 @@ class ModelConfigData(StrictModel):
     media_review: MediaReviewConfig = Field(
         default_factory=MediaReviewConfig,
         alias="mediaReview",
+    )
+    self_review: SelfReviewConfig = Field(
+        default_factory=SelfReviewConfig,
+        alias="selfReview",
     )
 
 

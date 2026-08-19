@@ -25,6 +25,7 @@ from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from ...config.config import load_agent_config
 from ...exceptions import ConfigurationException as ConfigurationError
+from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     async def start(self) -> None:
         """Initialize ADBPGMemoryClient from agent config."""
-        agent_config = load_agent_config(self.agent_id)
+        agent_config = await run_sync_io(load_agent_config, self.agent_id)
         self._adbpg_config = getattr(
             agent_config.running,
             "adbpg_memory_config",
@@ -186,7 +187,9 @@ class ADBPGMemoryManager(BaseMemoryManager):
         if self._client is None:
             return None
 
-        memory_cfg = self.get_memory_config()
+        memory_cfg, estimate_divisor = await run_sync_io(
+            self._load_auto_search_config,
+        )
         search_cfg = getattr(memory_cfg, "auto_memory_search_config", None)
         if not getattr(search_cfg, "enabled", False):
             return None
@@ -209,12 +212,21 @@ class ADBPGMemoryManager(BaseMemoryManager):
             query=query,
             max_results=max_results,
             text=text,
+            estimate_divisor=estimate_divisor,
         )
         return {
             "query": query,
             "text": text,
             "msg": msgs + [assistant_msg],
         }
+
+    def _load_auto_search_config(self) -> tuple[Any, float]:
+        """Load ADBPG search settings and token estimate configuration."""
+        agent_config = load_agent_config(self.agent_id)
+        return (
+            agent_config.running.adbpg_memory_config,
+            self._resolve_token_estimate_divisor(agent_config),
+        )
 
     async def auto_memory(
         self,

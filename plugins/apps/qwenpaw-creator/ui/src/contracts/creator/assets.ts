@@ -71,3 +71,29 @@ export interface AssetUnderstandingView {
   memoryRef?: SourceMemoryRef | null;
   [key: string]: unknown;
 }
+
+/** Local cache state of one URL-backed source version (original footage). */
+export type SourceCacheState = "cached" | "downloading" | "failed" | "idle";
+
+export interface SourceCacheVersionView {
+  assetVersionId: string;
+  name: string;
+  sourceUrl: string;
+  cached: boolean;
+  state: SourceCacheState;
+  expectedSizeBytes?: number | null;
+  receivedBytes?: number;
+  error?: string | null;
+}
+
+export interface SourceCacheResponse {
+  projectId: string;
+  versions: SourceCacheVersionView[];
+}
+
+export interface SourceCacheDownloadAccepted {
+  assetVersionId: string;
+  state: SourceCacheState;
+  receivedBytes?: number;
+  totalBytes?: number | null;
+}

@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from domain.errors import ValidationError
-from vendor.mm_plugins.image_budget import (
+from vendor.media_toolkit.image_budget import (
     IMAGE_BUDGET_TOKENS,
     IMAGE_MIN_PIXELS,
     budget_to_pixels,
     smart_resize,
 )
-from vendor.mm_plugins.renderers import (
+from vendor.media_toolkit.renderers import (
     DEFAULT_MAX_PAGES,
     SUPPORTED_EXTENSIONS,
     get_renderer,

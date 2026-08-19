@@ -37,6 +37,7 @@ from qwenpaw.schemas import (
 )
 
 from ....config.config import OneBotConfig as OneBotChannelConfig
+from ....constant import DEFAULT_MEDIA_DIR
 from ....utils.http import is_loopback_host, probe_host_for_bind_host
 from ..renderer import ChannelDisplayConfig
 from ..base import (
@@ -46,11 +47,18 @@ from ..base import (
     ProcessHandler,
 )
 from ..utils import file_url_to_local_path, split_text
+from .media import (
+    DEFAULT_MEDIA_DOWNLOAD_MAX_MB as _DEFAULT_MEDIA_DOWNLOAD_MAX_MB,
+    OneBotInboundMedia,
+)
 
 logger = logging.getLogger(__name__)
 
 # Hard cap on concurrently-tracked event handlers (flood protection).
 _EVENT_TASK_HARD_CAP = 500
+# Hard cap on queued-but-unprocessed events per session (flood protection
+# for a single conversation, independent of the global event task cap).
+_SESSION_QUEUE_HARD_CAP = 50
 _DEFAULT_MEDIA_BASE64_MAX_MB = 10
 _DEFAULT_WS_HOST = "127.0.0.1"
 # OneBot v11 defines the "Bearer" scheme; "Token" is an ecosystem
@@ -305,6 +313,9 @@ class OneBotChannel(BaseChannel):
         access_control_group: bool = False,
         media_base64: bool = False,
         media_base64_max_mb: int = _DEFAULT_MEDIA_BASE64_MAX_MB,
+        media_download_max_mb: int = _DEFAULT_MEDIA_DOWNLOAD_MAX_MB,
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
     ):
         super().__init__(
             process,
@@ -341,6 +352,23 @@ class OneBotChannel(BaseChannel):
             else _DEFAULT_MEDIA_BASE64_MAX_MB
         )
         self._media_base64_max_bytes = max_mb * 1_000_000
+        download_max_mb = (
+            media_download_max_mb
+            if media_download_max_mb > 0
+            else _DEFAULT_MEDIA_DOWNLOAD_MAX_MB
+        )
+        if media_dir:
+            base_media_dir = Path(media_dir).expanduser()
+        elif workspace_dir:
+            base_media_dir = Path(workspace_dir).expanduser() / "media"
+        else:
+            base_media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir = base_media_dir
+        self._inbound_media = OneBotInboundMedia(
+            media_dir=base_media_dir,
+            max_download_bytes=download_max_mb * 1_000_000,
+            call_api=self._call_api,
+        )
 
         # WebSocket server state
         self._app: Optional[web.Application] = None
@@ -353,6 +381,13 @@ class OneBotChannel(BaseChannel):
 
         # Fire-and-forget event handlers, tracked so stop() can cancel them.
         self._event_tasks: Set[asyncio.Task] = set()
+        # Per-session ordering: one queue + one consumer task per session
+        # key, so messages within a conversation are processed in arrival
+        # order while different conversations still run concurrently and
+        # the WS read loop is never blocked by media downloads or API
+        # calls.
+        self._session_queues: Dict[str, asyncio.Queue] = {}
+        self._session_workers: Dict[str, asyncio.Task] = {}
 
         # Bot self ID (populated on first meta_event/lifecycle)
         self._self_id: Optional[int] = None
@@ -399,6 +434,13 @@ class OneBotChannel(BaseChannel):
                     str(_DEFAULT_MEDIA_BASE64_MAX_MB),
                 ),
             ),
+            media_download_max_mb=int(
+                os.getenv(
+                    "ONEBOT_MEDIA_DOWNLOAD_MAX_MB",
+                    str(_DEFAULT_MEDIA_DOWNLOAD_MAX_MB),
+                ),
+            ),
+            media_dir=os.getenv("ONEBOT_MEDIA_DIR", ""),
         )
 
     @classmethod
@@ -409,6 +451,7 @@ class OneBotChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
+        workspace_dir: Path | None = None,
     ) -> "OneBotChannel":
         return cls(
             process=process,
@@ -439,6 +482,13 @@ class OneBotChannel(BaseChannel):
             ),
             media_base64=config.media_base64,
             media_base64_max_mb=config.media_base64_max_mb,
+            media_download_max_mb=getattr(
+                config,
+                "media_download_max_mb",
+                _DEFAULT_MEDIA_DOWNLOAD_MAX_MB,
+            ),
+            media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
         )
 
     # ------------------------------------------------------------------
@@ -485,6 +535,7 @@ class OneBotChannel(BaseChannel):
             logger.debug("onebot channel disabled")
             return
         self._stopping = False
+        await self._inbound_media.start()
         await self._start_ws_server()
         self._watchdog_task = asyncio.create_task(self._watchdog_loop())
 
@@ -506,6 +557,17 @@ class OneBotChannel(BaseChannel):
         if self._event_tasks:
             await asyncio.gather(*self._event_tasks, return_exceptions=True)
             self._event_tasks.clear()
+        # Cancel per-session ordering workers and drop their queues.
+        for task in list(self._session_workers.values()):
+            task.cancel()
+        if self._session_workers:
+            await asyncio.gather(
+                *self._session_workers.values(),
+                return_exceptions=True,
+            )
+            self._session_workers.clear()
+        self._session_queues.clear()
+        await self._inbound_media.close()
 
     async def _start_ws_server(self) -> None:
         """Create and start the aiohttp WebSocket server.
@@ -702,6 +764,13 @@ class OneBotChannel(BaseChannel):
                         continue
                     if "echo" in data:
                         self._handle_api_response(data)
+                    elif data.get("post_type") == "message":
+                        # Enqueue onto the session's ordering queue.
+                        # put_nowait() never awaits, so the WS read loop
+                        # stays unblocked and keeps receiving the API echo
+                        # responses that in-flight handlers await while
+                        # resolving media/quoted messages.
+                        self._dispatch_message_event(data)
                     else:
                         # Dispatch as background task so the WS read
                         # loop stays unblocked — handlers can freely
@@ -749,8 +818,96 @@ class OneBotChannel(BaseChannel):
         self._event_tasks.add(task)
         task.add_done_callback(self._event_tasks.discard)
 
+    def _session_queue_key(self, data: Dict[str, Any]) -> str:
+        """Return the ordering key for one conversation's message events.
+
+        Mirrors :meth:`resolve_session_id` (without requiring the parsed
+        content) so that one queue maps 1:1 to one downstream session —
+        shared-group sessions share a queue, otherwise ordering is kept
+        per sender.  Computed synchronously from the raw event, with no
+        network I/O.
+        """
+        message_type = str(data.get("message_type") or "private")
+        user_id = str(data.get("user_id", ""))
+        group_id = str(data.get("group_id", ""))
+        is_group = message_type == "group"
+        return self.resolve_session_id(
+            user_id,
+            {"is_group": is_group, "group_id": group_id},
+        )
+
+    def _dispatch_message_event(self, data: Dict[str, Any]) -> None:
+        """Enqueue a message event onto its session's ordering queue.
+
+        Every WebSocket event previously ran in its own independent task,
+        so a later text message could overtake an earlier one still
+        downloading media from the same conversation.  Routing through a
+        per-session queue with a single consumer preserves arrival order
+        within one conversation while different conversations still run
+        concurrently.  This method never awaits, so the WS read loop is
+        never blocked by it.
+        """
+        if self._stopping:
+            return
+        key = self._session_queue_key(data)
+        queue = self._session_queues.get(key)
+        if queue is None:
+            if len(self._session_queues) >= _EVENT_TASK_HARD_CAP:
+                logger.warning(
+                    "onebot: session queue cap (%d) reached — dropping "
+                    "event for session=%s",
+                    _EVENT_TASK_HARD_CAP,
+                    key,
+                )
+                return
+            queue = asyncio.Queue(maxsize=_SESSION_QUEUE_HARD_CAP)
+            self._session_queues[key] = queue
+            worker = asyncio.create_task(
+                self._session_worker_loop(key, queue),
+            )
+            self._session_workers[key] = worker
+        try:
+            queue.put_nowait(data)
+        except asyncio.QueueFull:
+            logger.warning(
+                "onebot: session %s event queue full (%d) — dropping event",
+                key,
+                _SESSION_QUEUE_HARD_CAP,
+            )
+
+    async def _session_worker_loop(
+        self,
+        key: str,
+        queue: asyncio.Queue,
+    ) -> None:
+        """Process one session's message events strictly in arrival order."""
+        try:
+            while True:
+                data = await queue.get()
+                try:
+                    await self._handle_message_event(data)
+                except Exception:
+                    logger.exception(
+                        "onebot: unhandled error processing session %s "
+                        "event",
+                        key,
+                    )
+                if queue.empty():
+                    break
+        finally:
+            current_task = asyncio.current_task()
+            if self._session_workers.get(key) is current_task:
+                self._session_workers.pop(key, None)
+                self._session_queues.pop(key, None)
+
     async def _handle_event(self, data: Dict[str, Any]) -> None:
-        """Dispatch an OneBot v11 event."""
+        """Dispatch an OneBot v11 event.
+
+        Message events are routed through :meth:`_dispatch_message_event`
+        directly from the WS read loop and never reach this method in
+        production; it is kept as a small entry point for meta events and
+        for direct/test invocation.
+        """
         post_type = data.get("post_type")
         if post_type == "meta_event":
             self._handle_meta_event(data)
@@ -784,7 +941,11 @@ class OneBotChannel(BaseChannel):
         segments = self._normalize_onebot_segments(data.get("message", []))
 
         # Track bot mention and quoted message before any remote I/O.
-        content_parts, bot_mentioned = self._parse_message_segments(segments)
+        (
+            content_parts,
+            bot_mentioned,
+            media_segments,
+        ) = self._parse_message_segments(segments)
         reply_message_id = self._reply_message_id(segments)
         if not content_parts and not reply_message_id:
             return
@@ -812,14 +973,20 @@ class OneBotChannel(BaseChannel):
             quoted_segments = await self._get_quoted_message_segments(
                 reply_message_id,
             )
-            quoted_parts, _ = self._parse_message_segments(quoted_segments)
-            quoted_parts = await self._resolve_file_urls(
+            (
                 quoted_parts,
+                _,
+                quoted_media_segments,
+            ) = self._parse_message_segments(quoted_segments)
+            quoted_parts = await self._inbound_media.resolve(
+                quoted_parts,
+                quoted_media_segments,
                 message_type,
                 self._event_with_segments(data, quoted_segments),
             )
-            content_parts = await self._resolve_file_urls(
+            content_parts = await self._inbound_media.resolve(
                 content_parts,
+                media_segments,
                 message_type,
                 self._event_with_segments(data, segments),
             )
@@ -835,8 +1002,9 @@ class OneBotChannel(BaseChannel):
                 self._content_part_preview(quoted_parts),
             )
         else:
-            content_parts = await self._resolve_file_urls(
+            content_parts = await self._inbound_media.resolve(
                 content_parts,
+                media_segments,
                 message_type,
                 self._event_with_segments(data, segments),
             )
@@ -846,13 +1014,12 @@ class OneBotChannel(BaseChannel):
         native = {
             "channel_id": self.channel,
             "sender_id": user_id,
+            "acl_sender_id": user_id,
+            "user_id": user_id,
+            "session_id": self.resolve_session_id(user_id, meta),
             "content_parts": content_parts,
             "meta": meta,
         }
-
-        request = self.build_agent_request_from_native(native)
-        request.channel_meta = meta
-        request.acl_sender_id = user_id
 
         logger.info(
             "onebot recv %s from=%s%s text=%r",
@@ -863,7 +1030,7 @@ class OneBotChannel(BaseChannel):
         )
 
         if self._enqueue is not None:
-            self._enqueue(request)
+            self._enqueue(native)
 
     # ------------------------------------------------------------------
     # Message segment parsing
@@ -872,18 +1039,21 @@ class OneBotChannel(BaseChannel):
     def _parse_message_segments(
         self,
         segments: List[Dict[str, Any]],
-    ) -> tuple[list, bool]:
+    ) -> tuple[list, bool, list[dict]]:
         """Parse OneBot v11 message segments to content_parts.
 
         Returns:
-            (content_parts, bot_mentioned)
+            Content parts, mention state, and aligned media segments.
         """
         parts: list = []
         bot_mentioned = False
+        media_segments: list[dict] = []
 
         for seg in segments:
             seg_type = seg.get("type", "")
             seg_data = seg.get("data", {})
+            if not isinstance(seg_data, dict):
+                seg_data = {}
 
             if seg_type == "text":
                 text = (seg_data.get("text") or "").strip()
@@ -901,6 +1071,7 @@ class OneBotChannel(BaseChannel):
                             image_url=url,
                         ),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "record":
                 url = seg_data.get("url") or seg_data.get("file", "")
@@ -908,6 +1079,7 @@ class OneBotChannel(BaseChannel):
                     parts.append(
                         AudioContent(type=ContentType.AUDIO, data=url),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "video":
                 url = seg_data.get("url") or seg_data.get("file", "")
@@ -918,6 +1090,7 @@ class OneBotChannel(BaseChannel):
                             video_url=url,
                         ),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "file":
                 url = seg_data.get("url") or seg_data.get("file", "")
@@ -930,6 +1103,7 @@ class OneBotChannel(BaseChannel):
                             filename=name,
                         ),
                     )
+                    media_segments.append(seg)
 
             elif seg_type == "at":
                 qq = str(seg_data.get("qq", ""))
@@ -938,7 +1112,7 @@ class OneBotChannel(BaseChannel):
 
             # reply, face, forward, etc. — ignored for now
 
-        return parts, bot_mentioned
+        return parts, bot_mentioned, media_segments
 
     @staticmethod
     def _normalize_onebot_segments(raw_message: Any) -> list[dict]:
@@ -1161,89 +1335,6 @@ class OneBotChannel(BaseChannel):
             return []
         return segments
 
-    async def _resolve_file_urls(
-        self,
-        content_parts: list,
-        message_type: str,
-        event_data: Dict[str, Any],
-    ) -> list:
-        """Resolve real download URLs for file content parts.
-
-        NapCat's file segments only contain the filename in the ``file``
-        field, not a download URL.  We call ``get_group_file_url`` or
-        ``get_private_file_url`` to obtain the real URL.
-        """
-        resolved = []
-        file_segments = [
-            segment
-            for segment in event_data.get("message", [])
-            if isinstance(segment, dict) and segment.get("type") == "file"
-        ]
-        file_segment_index = 0
-        for part in content_parts:
-            if getattr(part, "type", None) != ContentType.FILE:
-                resolved.append(part)
-                continue
-
-            source_segment = (
-                file_segments[file_segment_index]
-                if file_segment_index < len(file_segments)
-                else {}
-            )
-            file_segment_index += 1
-            source_data = source_segment.get("data", {})
-            file_id = (
-                source_data.get("file_id", "")
-                if isinstance(source_data, dict)
-                else ""
-            )
-            file_url = getattr(part, "file_url", "") or ""
-            # Already a valid URL — keep as-is
-            if file_url.startswith(("http://", "https://", "file://")):
-                resolved.append(part)
-                continue
-
-            if not file_id:
-                # No file_id available — keep original (will likely fail
-                # downstream but at least the filename is preserved)
-                resolved.append(part)
-                continue
-
-            # Call OneBot API to resolve the real download URL
-            if message_type == "group":
-                group_id = event_data.get("group_id", "")
-                result = await self._call_api(
-                    "get_group_file_url",
-                    {"group_id": int(group_id), "file_id": file_id},
-                )
-            else:
-                result = await self._call_api(
-                    "get_private_file_url",
-                    {"file_id": file_id},
-                )
-
-            real_url = (result.get("data") or {}).get("url", "")
-            if real_url:
-                resolved.append(
-                    FileContent(
-                        type=ContentType.FILE,
-                        file_url=real_url,
-                        filename=getattr(part, "filename", "file"),
-                    ),
-                )
-                logger.info(
-                    "onebot: resolved file URL for %s",
-                    getattr(part, "filename", "file"),
-                )
-            else:
-                logger.warning(
-                    "onebot: failed to resolve file URL for file_id=%s",
-                    file_id,
-                )
-                resolved.append(part)
-
-        return resolved
-
     # ------------------------------------------------------------------
     # Build AgentRequest
     # ------------------------------------------------------------------
@@ -1254,14 +1345,20 @@ class OneBotChannel(BaseChannel):
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
-        session_id = self.resolve_session_id(sender_id, meta)
-        return self.build_agent_request_from_user_content(
+        session_id = payload.get("session_id") or self.resolve_session_id(
+            sender_id,
+            meta,
+        )
+        request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
             sender_id=sender_id,
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,
         )
+        request.channel_meta = meta
+        request.acl_sender_id = payload.get("acl_sender_id") or sender_id
+        return request
 
     # ------------------------------------------------------------------
     # Session / routing

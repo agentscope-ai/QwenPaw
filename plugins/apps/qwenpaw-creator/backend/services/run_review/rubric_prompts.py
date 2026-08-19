@@ -4,7 +4,7 @@
 """Prompt builders derived from the vendored upstream review rules.
 
 Every run-review prompt (and the taste principles rendered into the agent
-prompts) is generated from ``vendor.mm_plugins.review_rubrics`` so the
+prompts) is generated from ``vendor.media_toolkit.review_rubrics`` so the
 wording stays aligned with the upstream video-edit skill. The upstream
 concept veto is deliberately downgraded: a weak concept yields a
 major-severity suggestion, never a delivery gate.
@@ -12,7 +12,7 @@ major-severity suggestion, never a delivery gate.
 
 from __future__ import annotations
 
-from vendor.mm_plugins.review_rubrics import (
+from vendor.media_toolkit.review_rubrics import (
     APPEAL_RUBRIC_ROWS,
     COMMON_FAILURES,
     CONCEPT_VETO_QUOTE,
@@ -142,10 +142,21 @@ def render_taste_principles(role: str) -> str:
     concept = APPEAL_RUBRIC_ROWS[0]
     rhythm = APPEAL_RUBRIC_ROWS[2]
     restraint = APPEAL_RUBRIC_ROWS[3]
-    lines: list[str] = [
-        "以下创作品味准则源自 vendored review_rubrics（Qwen-MM-Plugins "
-        "video-edit skill），应当遵循（建议性准则，不是门禁）：",
-    ]
+    if role == "ai_editing_director":
+        # The editing director carries the edit_plan taste contract (WT-B1):
+        # the principles land in that object and the plan advisory nudges
+        # the model when it skips the contract.
+        lines: list[str] = [
+            "以下创作品味准则源自 vendored review_rubrics（Qwen-MM-Plugins "
+            "video-edit skill）。`edit_plan` 是它们的落地载体：先写契约是"
+            "标准流程，跳过会在提交结果收到 `planAdvisory` 提示（不阻断），"
+            "成片审查也会以契约为对照物评分：",
+        ]
+    else:
+        lines = [
+            "以下创作品味准则源自 vendored review_rubrics（Qwen-MM-Plugins "
+            "video-edit skill），应当遵循（建议性准则，不是门禁）：",
+        ]
     if role in {"creator_agent", "ai_editing_director"}:
         lines += [
             f"- 概念先行：{concept.anchor_questions}（素材流水账不是概念）。",

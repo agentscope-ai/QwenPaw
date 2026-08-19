@@ -543,3 +543,79 @@ def test_skip_mode_runs_unattended(tmp_path, monkeypatch) -> None:
 
     assert invocations == ["image_generation"]
     assert authorizations == []
+
+
+def test_execution_mode_scales_the_checkpoint_ladder(monkeypatch) -> None:
+    """Upstream three governance modes (WT-B3).
+
+    ``delegated`` drops the pit stops entirely; ``fine_tuning`` keeps a
+    single plan-phase scope confirmation; ``co_creation`` is the default
+    full ladder (covered by the test above).
+    """
+    from models import config as model_config
+
+    monkeypatch.setattr(
+        model_config,
+        "get_execution_mode",
+        lambda: "delegated",
+    )
+    assert not required_checkpoint_phases(
+        "image_generation",
+        SpecialistRole.R2V_GENERATION_DIRECTOR,
+    )
+    assert not required_checkpoint_phases(
+        "r2v_generation",
+        SpecialistRole.R2V_GENERATION_DIRECTOR,
+    )
+
+    monkeypatch.setattr(
+        model_config,
+        "get_execution_mode",
+        lambda: "fine_tuning",
+    )
+    assert required_checkpoint_phases(
+        "image_generation",
+        SpecialistRole.R2V_GENERATION_DIRECTOR,
+    ) == (CHECKPOINT_PLAN,)
+    assert required_checkpoint_phases(
+        "r2v_generation",
+        SpecialistRole.R2V_GENERATION_DIRECTOR,
+    ) == (CHECKPOINT_PLAN,)
+
+
+def test_yolo_skip_forces_delegated_execution_mode(monkeypatch) -> None:
+    """Ladder consistency: creation_checkpoints.mode=skip means no
+    mid-flight gates, so the stored execution_mode is overridden."""
+    from models import config as model_config
+
+    monkeypatch.setattr(
+        model_config,
+        "_get_user_config",
+        lambda: {
+            "creation_checkpoints": {
+                "mode": "skip",
+                "execution_mode": "co_creation",
+            },
+        },
+    )
+    assert model_config.get_execution_mode() == "delegated"
+
+    monkeypatch.setattr(
+        model_config,
+        "_get_user_config",
+        lambda: {
+            "creation_checkpoints": {
+                "mode": "required",
+                "execution_mode": "fine_tuning",
+            },
+        },
+    )
+    assert model_config.get_execution_mode() == "fine_tuning"
+
+    # Unknown/absent values fall back to the co-creation default.
+    monkeypatch.setattr(
+        model_config,
+        "_get_user_config",
+        lambda: {"creation_checkpoints": {"mode": "required"}},
+    )
+    assert model_config.get_execution_mode() == "co_creation"

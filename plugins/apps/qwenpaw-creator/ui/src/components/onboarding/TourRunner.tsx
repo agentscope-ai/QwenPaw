@@ -68,7 +68,13 @@ export default function TourRunner({
       .filter((step) => resolveTarget(step.selectors))
       .map((step) => ({
         title: step.title,
-        description: step.description,
+        // Long guides (e.g. the English model-setup step) must scroll inside
+        // the panel instead of growing taller than the viewport.
+        description: (
+          <div className="max-h-[min(56vh,480px)] overflow-y-auto overscroll-contain pr-1">
+            {step.description}
+          </div>
+        ),
         target: () => resolveTarget(step.selectors) as HTMLElement,
       }));
   }, [open, steps]);

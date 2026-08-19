@@ -48,9 +48,6 @@ class MemoryPage(BasePage):
     DREAM_CRON_INPUT = (
         'input[id$="reme_light_memory_config_dream_cron"]'
     )
-    SUMMARIZE_SWITCH = (
-        'button[role="switch"][id$="reme_light_memory_config_summarize_when_compact"]'
-    )
     # --- Long-term Memory card fields (ReMeLightMemoryCard.tsx) ---
     AUTO_MEMORY_INTERVAL_INPUT = (
         'input[id$="reme_light_memory_config_auto_memory_interval"]'

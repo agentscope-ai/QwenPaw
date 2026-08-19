@@ -12,11 +12,12 @@ as constructor parameters and does not build them internally.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
-from agentscope.agent import Agent, ReActConfig
+from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.event import (
     ModelCallEndEvent,
     TextBlockDeltaEvent,
@@ -30,6 +31,7 @@ from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
 from .skill_system import get_workspace_skills_dir
+from .utils.image_freezing import freeze_local_images_async
 from ..modes.coding import CodingModeMixin
 from ..utils.io_utils import run_sync_io
 from ..constant import (
@@ -40,6 +42,7 @@ from ..constant import (
 )
 from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
+from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
@@ -47,10 +50,92 @@ from ..utils.tool_call_extra import (
 )
 
 if TYPE_CHECKING:
-    from ..agents.memory import BaseMemoryManager
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
+
+
+_GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
+    re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
+        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
+        r"\b(?:media|multimodal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bmultimodal\s+(?:input|capability)?\s*"
+        r"(?:is\s+)?not\s+enabled\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# A global capability rejection must also trigger the one-request fallback.
+# Keep the global patterns as an explicit subset so the two classifiers
+# cannot silently drift apart.
+_EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
+    *_GLOBAL_MEDIA_CAPABILITY_PATTERNS,
+    re.compile(
+        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
+        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
+        r"\b(?:images?|audios?|videos?|vision|media|multimodal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:image|audio|video|media)\s+(?:input|modality)\b"
+        r".{0,40}\b(?:is|are)\s+not supported\b.{0,40}"
+        r"\b(?:by|for)\b.{0,30}\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:image|audio|video|media)\b.{0,60}"
+        r"\b(?:is|are)\s+not supported\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bvision\s+is\s+not\s+enabled\s+for\s+"
+        r"(?:this\s+)?(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bunsupported\s+modality\s*:?\s*(?:image|audio|video)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# These messages reject only the current media shape, not the model's
+# overall multimodal capability. They may justify a media-free retry, but
+# must never poison the model-wide ``rejects_media`` cache.
+_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS = (
+    "multiple image",
+    "multiple video",
+    "multiple audio",
+    "more than one image",
+    "more than 1 image",
+    "single image",
+    "image count",
+    "too many image",
+    "animated image",
+    "animated gif",
+    "animation",
+    "dimensions",
+    "dimension",
+    "resolution",
+    "image width",
+    "image height",
+    "pixel",
+    "megapixel",
+    "frame rate",
+    "sample rate",
+    "video duration",
+    "audio duration",
+    "larger than",
+    "smaller than",
+    "per image",
+    "file size",
+)
 
 
 def _effective_artifact_retention_days(light_context_config: Any) -> int:
@@ -84,7 +169,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         agent_config: "AgentProfileConfig",
         workspace_dir: Path | None = None,
         request_context: Optional[dict[str, str]] = None,
-        memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
         context_manager: ContextManager | None = None,
@@ -112,36 +196,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._governor = governor
         self._gate_pending_stop = None
 
-        self.memory_manager = memory_manager
-
-        # Register memory tools, then apply a final whitelist pass so
-        # subagent_allowed_tools=[] truly denies every tool (including
-        # memory / future post-toolkit injections).
-        if self.memory_manager is not None:
-            memory_tools = self.memory_manager.list_memory_tools()
-            basic_group = toolkit.tool_groups[0]
-            for tool_fn in memory_tools:
-                from ..governance import PolicyGuardedTool
-
-                basic_group.tools.append(
-                    PolicyGuardedTool(
-                        tool_fn,
-                        governor=self._governor,
-                        request_context=self._request_context,
-                    ),
-                )
-            logger.debug(
-                "Registered memory tools: %s",
-                [fn.__name__ for fn in memory_tools],
-            )
-        self._apply_subagent_tool_whitelist(toolkit)
-
         init_kwargs: dict[str, Any] = {
             "name": name,
             "model": model,
             "system_prompt": system_prompt,
             "toolkit": toolkit,
             "react_config": react_config,
+            "injection_config": InjectionConfig(
+                inject_runtime_state=False,
+            ),
             "middlewares": middlewares,
             "offloader": offloader,
         }
@@ -155,24 +218,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self.state.permission_context.mode = PermissionMode.BYPASS
 
-        # Tombstone for legacy ``getattr(agent, "memory", None)`` callers
-        self.memory = None  # type: ignore[assignment]
-
         self._register_tool_call_hooks()
-
-    def _apply_subagent_tool_whitelist(self, toolkit: Any) -> None:
-        """Filter every toolkit group by ``subagent_allowed_tools``."""
-        from ..runtime.builder import AgentBuilder
-
-        groups = getattr(toolkit, "tool_groups", None) or []
-        for group in groups:
-            tools = getattr(group, "tools", None)
-            if not isinstance(tools, list):
-                continue
-            group.tools = AgentBuilder.apply_subagent_tool_whitelist(
-                tools,
-                self._request_context,
-            )
 
     async def compress_context(
         self,
@@ -462,6 +508,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         return get_capability_cache().get(key, "rejects_media", False)
 
+    def _model_rejects_audio(self) -> bool:
+        """Check the capability cache for a learned audio rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_audio", False)
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -472,14 +525,92 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     def _uses_request_time_media_normalization(self) -> bool:
         """Return True when request-time normalization can handle media."""
-        return getattr(self, "formatter", None) is not None
+        return self._get_active_formatter() is not None
+
+    def _get_active_formatter(self) -> Any | None:
+        """Resolve the formatter through current and legacy model layouts."""
+        formatter = getattr(self, "formatter", None)
+        if formatter is not None:
+            return formatter
+
+        current = getattr(self, "model", None)
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            formatter = getattr(current, "formatter", None)
+            if formatter is not None:
+                return formatter
+            current = getattr(current, "_inner", None) or getattr(
+                current,
+                "_model",
+                None,
+            )
+        return None
 
     def _set_formatter_media_strip(self, enabled: bool) -> None:
         """Toggle request-time media stripping on the active formatter."""
-        formatter = getattr(self, "formatter", None)
+        formatter = self._get_active_formatter()
         if formatter is None:
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
+
+    def _set_formatter_audio_strip(self, enabled: bool) -> None:
+        """Toggle request-time audio stripping on the active formatter."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
+
+    def _last_wire_request_had_media(self) -> bool:
+        """Return whether the last completed formatting emitted media."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_media_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    def _last_wire_request_had_audio(self) -> bool:
+        """Return whether the last completed formatting emitted audio."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_audio_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    @staticmethod
+    def _is_audio_fallback_error(exc: Exception) -> bool:
+        """Return whether DashScope rejected the current audio payload."""
+        error_str = " ".join(str(exc).lower().split())
+        status = extract_status_code(exc)
+        has_bad_request_status = status == 400 or "<400>" in error_str
+        invalid_modal = all(
+            marker in error_str
+            for marker in (
+                "incorrect modal",
+                "audio",
+                "was entered",
+                "may not be supported by the model",
+                "wrong position",
+            )
+        )
+        return (
+            has_bad_request_status
+            and "internalerror.algo.invalidparameter" in error_str
+            and invalid_modal
+        )
+
+    async def _prepare_model_input(self) -> dict[str, Any]:
+        """Freeze local images before they enter a provider request."""
+        await freeze_local_images_async(self.state.context)
+        return await super()._prepare_model_input()
 
     @staticmethod
     def _is_context_overflow_error(exc: Exception) -> bool:
@@ -597,6 +728,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
 
+        # agentscope drops ChatResponse.metadata during event conversion;
+        # collect model-fallback transparency data out-of-band instead.
+        fallback_sink = install_fallback_notice_sink()
+
         # ── Inject background-tool results before each reasoning step ──
         await self._inject_pending_hints()
 
@@ -632,11 +767,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
 
-        should_strip = (
+        should_strip_media = (
             not _supports_multimodal_for_current_model()
             or self._model_rejects_media()
         )
-        if should_strip:
+        should_strip_audio = (
+            not should_strip_media and self._model_rejects_audio()
+        )
+        if should_strip_media:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
             else:
@@ -647,6 +785,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         "_reasoning (model lacks multimodal support).",
                         n,
                     )
+        elif (
+            should_strip_audio
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_audio_strip(True)
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
@@ -681,27 +824,48 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
+                    self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
+            audio_fallback_retry = (
+                self._last_wire_request_had_audio()
+                and self._is_audio_fallback_error(e)
+            )
+            media_capability_retry = (
+                self._last_wire_request_had_media()
+                and self._is_explicit_media_capability_error(e)
+            )
+            if not (audio_fallback_retry or media_capability_retry):
+                if self._uses_request_time_media_normalization():
+                    if should_strip_media:
+                        self._set_formatter_media_strip(False)
+                    if should_strip_audio:
+                        self._set_formatter_audio_strip(False)
                 raise
 
             model_key = self._get_model_key()
-            if model_key:
-                get_capability_cache().learn(
-                    model_key,
-                    "rejects_media",
-                    True,
-                )
-            logger.warning(
-                "_reasoning failed with media error (%s); "
-                "stripping media and retrying.",
-                e,
+            learn_global_rejection = (
+                media_capability_retry
+                and self._is_global_media_capability_error(e)
             )
-            if self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(True)
+            if audio_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected an "
+                    "audio payload (%s); stripping audio and retrying.",
+                    e,
+                )
+                self._set_formatter_audio_strip(True)
             else:
-                self._strip_media_blocks_from_memory()
+                logger.warning(
+                    "_reasoning failed because the provider explicitly "
+                    "rejected the model's media capability (%s); stripping "
+                    "media and retrying.",
+                    e,
+                )
+                if self._uses_request_time_media_normalization():
+                    self._set_formatter_media_strip(True)
+                else:
+                    self._strip_media_blocks_from_memory()
 
             try:
                 async for evt in super()._reasoning(
@@ -711,13 +875,30 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
+                        self._attach_fallback_notices(evt, fallback_sink)
                         yield evt
+                if model_key and learn_global_rejection:
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_media",
+                        True,
+                    )
+                if model_key and audio_fallback_retry:
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_audio",
+                        True,
+                    )
             finally:
                 if self._uses_request_time_media_normalization():
+                    self._set_formatter_audio_strip(False)
                     self._set_formatter_media_strip(False)
         else:
-            if should_strip and self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(False)
+            if self._uses_request_time_media_normalization():
+                if should_strip_media:
+                    self._set_formatter_media_strip(False)
+                if should_strip_audio:
+                    self._set_formatter_audio_strip(False)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
@@ -760,7 +941,37 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return  # outer loop continues
 
-        yield stop_result.final_message or final_msg
+        outgoing_msg = stop_result.final_message or final_msg
+        self._attach_fallback_notices(outgoing_msg, fallback_sink)
+        yield outgoing_msg
+
+    @staticmethod
+    def _attach_fallback_notices(
+        evt: Any,
+        sink: dict[str, Any],
+    ) -> None:
+        """Copy pending model-fallback notices onto an outgoing event.
+
+        Consumers (Console SSE parsing and channel notifiers) read
+        ``qwenpaw_model_fallbacks``/``qwenpaw_actual_model`` from event
+        or message metadata; this is the only point where QwenPaw still
+        owns the stream after agentscope's conversion dropped the
+        model response metadata.
+        """
+        if evt is None or not sink["events"]:
+            return
+        metadata = getattr(evt, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            try:
+                evt.metadata = metadata
+            except (AttributeError, TypeError, ValueError):
+                return
+        metadata["qwenpaw_model_fallbacks"] = [
+            dict(event) for event in sink["events"]
+        ]
+        if sink.get("actual_model"):
+            metadata["qwenpaw_actual_model"] = dict(sink["actual_model"])
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
@@ -769,6 +980,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         safety_markers = (
             "new_sensitive",
             "image is sensitive",
+            "sensitive content",
+            "content sensitivity",
             "content policy",
             "content_policy",
             "moderation",
@@ -779,15 +992,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return any(marker in error_str for marker in safety_markers)
 
     @staticmethod
-    def _is_bad_request_or_media_error(exc: Exception) -> bool:
-        """Return True only for errors that genuinely look media-related.
-
-        A bare 400 is no longer sufficient — provider gateways return
-        400 for many unrelated reasons (request too large, malformed
-        block fields, exceeded context length) and treating them all as
-        "media rejected" poisons the capability cache, causing
-        subsequent requests to silently drop user-uploaded images.
-        """
+    def _is_explicit_media_capability_error(exc: Exception) -> bool:
+        """Return whether an explicit media rejection permits fallback."""
         error_str = str(exc).lower()
 
         # Veto: content safety/moderation rejections are about a
@@ -812,16 +1018,35 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if any(sig in error_str for sig in size_signals):
             return False
 
-        # Match only when the error message itself names a media modality.
-        media_keywords = (
-            "image",
-            "audio",
-            "video",
-            "vision",
-            "multimodal",
-            "image_url",
+        invalid_asset_signals = (
+            "corrupt",
+            "decode",
+            "invalid image",
+            "invalid media",
+            "mime",
+            "unsupported image format",
         )
-        return any(kw in error_str for kw in media_keywords)
+        if any(signal in error_str for signal in invalid_asset_signals):
+            return False
+
+        return any(
+            pattern.search(error_str) is not None
+            for pattern in _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS
+        )
+
+    @staticmethod
+    def _is_global_media_capability_error(exc: Exception) -> bool:
+        """Return whether an error proves model-wide media rejection."""
+        error_str = str(exc).lower()
+        if any(
+            signal in error_str
+            for signal in _REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS
+        ):
+            return False
+        return any(
+            pattern.search(error_str) is not None
+            for pattern in _GLOBAL_MEDIA_CAPABILITY_PATTERNS
+        )
 
     def _is_media_block(self, block: Any) -> bool:
         """Return True if *block* carries image/audio/video data."""

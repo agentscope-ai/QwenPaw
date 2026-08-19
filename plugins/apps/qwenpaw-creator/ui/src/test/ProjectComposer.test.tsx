@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectComposer } from "@/components/creator/ProjectComposer";
 import type { ModelConfigData } from "@/contracts/creator/models";
 import { installMockFetch } from "@/test/mockFetch";
+import { useModelConfigStore } from "@/store/modelConfigStore";
 
 const configuredModelConfig: ModelConfigData = {
   llm: {
@@ -93,6 +94,7 @@ const configuredModelConfig: ModelConfigData = {
     protocol: "DashScope（百炼）",
     custom_protocol: "",
     translate_model: "",
+    reuse_llm_key: true,
   },
   video: {
     enabled: true,
@@ -101,6 +103,7 @@ const configuredModelConfig: ModelConfigData = {
     base_url: "https://example.test/video",
     protocol: "DashScope（百炼）",
     custom_protocol: "",
+    reuse_llm_key: true,
   },
   oss: {
     enabled: false,
@@ -114,6 +117,11 @@ const configuredModelConfig: ModelConfigData = {
   executionAuthorization: { mode: "allow_all" },
   creationCheckpoints: { mode: "skip" },
   mediaReview: { mode: "required" },
+  selfReview: {
+    sync_enabled: false,
+    media_enabled: false,
+    render_enabled: false,
+  },
 };
 
 function installComposerMockFetch(
@@ -129,6 +137,12 @@ function installComposerMockFetch(
 }
 
 describe("ProjectComposer ingest boundary", () => {
+  // The model-config snapshot is a module-level singleton; a previous test's
+  // fetch must not leak into the next render's synchronous assertions.
+  beforeEach(() => {
+    useModelConfigStore.setState({ config: null });
+  });
+
   it("keeps only Agent and disabled Loop modes, and hides video format controls for editing", () => {
     render(
       <MemoryRouter>
@@ -253,7 +267,7 @@ describe("ProjectComposer ingest boundary", () => {
     ).toBe(false);
   });
 
-  it("waits to navigate until the first asset-backed message is durably accepted", async () => {
+  it("navigates immediately and keeps ingest + first message in the background", async () => {
     let acceptMessage: (() => void) | undefined;
     const messageAccepted = new Promise<void>((resolve) => {
       acceptMessage = resolve;
@@ -315,18 +329,29 @@ describe("ProjectComposer ingest boundary", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /启动 Agent/ }));
 
+    // The composer closes right after the Project exists — the user lands
+    // on the project page while attachments upload in the background.
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(
+      calls.find((call) => call.url.endsWith("/projects"))?.body,
+    ).not.toHaveProperty("initialGoal");
+
+    // The background continuation still sends the durable first message
+    // (with the ingested asset refs) after navigation.
     await waitFor(() =>
       expect(
         calls.some((call) => call.url.endsWith("/projects/p-delayed/messages")),
       ).toBe(true),
     );
-    expect(onClose).not.toHaveBeenCalled();
-    expect(
-      calls.find((call) => call.url.endsWith("/projects"))?.body,
-    ).not.toHaveProperty("initialGoal");
-
     acceptMessage?.();
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      const messageCall = calls.find((call) =>
+        call.url.endsWith("/projects/p-delayed/messages"),
+      );
+      expect(messageCall?.body).toHaveProperty("assetVersionRefs", [
+        "asset-version:av1",
+      ]);
+    });
   });
 
   it("removes the obsolete end-to-end confirmation copy", () => {

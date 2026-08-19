@@ -126,14 +126,21 @@ class TokenManager:
     async def _do_fetch(self) -> SignTokenResult:
         """Execute the sign-token API call with retry logic."""
         domain = self.api_domain
-        # Strip scheme if user accidentally included it
+        # Honor an explicit scheme (private gateways / mocks may be
+        # plain http); bare domains keep the https default.
+        scheme = "https"
         if domain.startswith("https://"):
             domain = domain.removeprefix("https://")
         elif domain.startswith("http://"):
+            scheme = "http"
             domain = domain.removeprefix("http://")
+            logger.warning(
+                "yuanbao: api_domain uses plain http; the sign-token "
+                "request (app_key + signature) will NOT be encrypted",
+            )
         # Strip trailing slash
         domain = domain.rstrip("/")
-        url = f"https://{domain}{SIGN_TOKEN_PATH}"
+        url = f"{scheme}://{domain}{SIGN_TOKEN_PATH}"
         session = await self._get_session()
 
         for attempt in range(SIGN_MAX_RETRIES + 1):

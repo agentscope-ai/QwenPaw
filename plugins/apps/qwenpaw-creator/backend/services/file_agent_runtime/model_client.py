@@ -51,6 +51,61 @@ class AgentModelConfigurationError(AgentModelError):
     pass
 
 
+class RateLimitExhaustedError(AgentModelError):
+    """The provider kept rate-limiting the model after every retry.
+
+    Carries the number of retry attempts so the Runtime can surface a
+    user-facing notice (and a manual resume control) in AgentDock.
+    """
+
+    def __init__(self, message: str, *, retries: int) -> None:
+        self.retries = retries
+        super().__init__(message)
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitRetryNotice:
+    """One upcoming rate-limit retry, reported before the backoff sleep."""
+
+    attempt: int
+    max_attempts: int
+    delay_seconds: float
+
+
+AgentRateLimitRetryCallback = Callable[
+    [RateLimitRetryNotice],
+    Awaitable[None],
+]
+
+# Provider-side throttling surfaces through several transports (DashScope
+# SDK status codes, OpenAI-compatible HTTP 429 bodies, upstream 503
+# overload pages). Match all of them so a throttled turn is retried
+# instead of killing the run.
+RATE_LIMIT_ERROR_SIGNATURES = (
+    "<503>",
+    "429",
+    "throttl",
+    "too many requests",
+    "rate limit",
+    "ratelimit",
+    "serviceunavailable",
+)
+
+MAX_RATE_LIMIT_RETRIES = 5
+
+
+def is_rate_limit_error_text(exc_text: str) -> bool:
+    lowered = exc_text.lower()
+    return any(
+        signature in lowered for signature in RATE_LIMIT_ERROR_SIGNATURES
+    )
+
+
+def _rate_limit_retry_delay(attempt: int) -> float:
+    # 2s, 4s, 8s, 16s, 30s for attempts 0..4.
+    return float(min(2 * (2**attempt), 30))
+
+
 class AgentStreamCallbackError(RuntimeError):
     """A consumer callback failed while the provider stream was healthy."""
 
@@ -273,6 +328,7 @@ class AgentChatClient(Protocol):
         on_text_delta: AgentTextDeltaCallback | None = None,
         on_thinking_delta: AgentTextDeltaCallback | None = None,
         on_tool_call_delta: AgentToolDeltaCallback | None = None,
+        on_rate_limit_retry: AgentRateLimitRetryCallback | None = None,
     ) -> AgentModelTurn:
         ...
 
@@ -297,7 +353,9 @@ class CallbackAgentChatClient:
         on_text_delta: AgentTextDeltaCallback | None = None,
         on_thinking_delta: AgentTextDeltaCallback | None = None,
         on_tool_call_delta: AgentToolDeltaCallback | None = None,
+        on_rate_limit_retry: AgentRateLimitRetryCallback | None = None,
     ) -> AgentModelTurn:
+        del on_rate_limit_retry
         turn = await self.callback(messages, tools)
         await _replay_complete_turn(
             turn,
@@ -497,7 +555,9 @@ class AgentScopeAgentChatClient:
         self,
         model: DashScopeChatModel | None = None,
         *,
-        timeout_seconds: float = 180.0,
+        # Keep in sync with driver.DEFAULT_MODEL_TURN_TIMEOUT_SECONDS so
+        # the transport timeout never undercuts the turn budget.
+        timeout_seconds: float = 300.0,
         # ``None`` omits the parameter entirely so the provider/model keeps
         # control over its own output budget.
         max_tokens: int | None = None,
@@ -561,10 +621,11 @@ class AgentScopeAgentChatClient:
         on_text_delta: AgentTextDeltaCallback | None = None,
         on_thinking_delta: AgentTextDeltaCallback | None = None,
         on_tool_call_delta: AgentToolDeltaCallback | None = None,
+        on_rate_limit_retry: AgentRateLimitRetryCallback | None = None,
         _empty_retries_remaining: int = 2,
-        _rate_limit_retries_remaining: int = 3,
+        _rate_limit_retries_remaining: int = MAX_RATE_LIMIT_RETRIES,
         _transient_retries_remaining: int = 2,
-        _markup_retries_remaining: int = 2,
+        _markup_retries_remaining: int = 4,
     ) -> AgentModelTurn:
         native_messages = records_to_agentscope_messages(messages)
         allowed_names = {
@@ -685,6 +746,7 @@ class AgentScopeAgentChatClient:
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_rate_limit_retry=on_rate_limit_retry,
                     _empty_retries_remaining=_empty_retries_remaining,
                     _rate_limit_retries_remaining=(
                         _rate_limit_retries_remaining
@@ -712,25 +774,33 @@ class AgentScopeAgentChatClient:
             raise
         except Exception as exc:
             exc_text = str(exc)
-            is_rate_limit = (
-                "<503>" in exc_text
-                or "ServiceUnavailable" in exc_text
-                or "Too many requests" in exc_text
-            )
+            is_rate_limit = is_rate_limit_error_text(exc_text)
             if is_rate_limit and _rate_limit_retries_remaining > 0:
-                delay = 2 ** (3 - _rate_limit_retries_remaining)
+                attempt = (
+                    MAX_RATE_LIMIT_RETRIES - _rate_limit_retries_remaining
+                )
+                delay = _rate_limit_retry_delay(attempt)
                 model_name = (
                     getattr(self.model, "model", "")
                     or model_config.get_text_model_name()
                 )
                 logger.warning(
-                    "Model request rate-limited (503) [model=%s], retrying in %ds "
-                    "(%d retries remaining): %s",
+                    "Model request rate-limited [model=%s], retrying in %gs "
+                    "(attempt %d/%d): %s",
                     model_name,
                     delay,
-                    _rate_limit_retries_remaining,
+                    attempt + 1,
+                    MAX_RATE_LIMIT_RETRIES,
                     exc_text,
                 )
+                if on_rate_limit_retry is not None:
+                    await on_rate_limit_retry(
+                        RateLimitRetryNotice(
+                            attempt=attempt + 1,
+                            max_attempts=MAX_RATE_LIMIT_RETRIES,
+                            delay_seconds=delay,
+                        ),
+                    )
                 await asyncio.sleep(delay)
                 return await self.complete(
                     messages=messages,
@@ -738,11 +808,29 @@ class AgentScopeAgentChatClient:
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_rate_limit_retry=on_rate_limit_retry,
                     _empty_retries_remaining=_empty_retries_remaining,
                     _rate_limit_retries_remaining=(
                         _rate_limit_retries_remaining - 1
                     ),
                 )
+            if is_rate_limit:
+                model_name = (
+                    getattr(self.model, "model", "")
+                    or model_config.get_text_model_name()
+                )
+                logger.error(
+                    "Model request still rate-limited after %d retries "
+                    "[model=%s]: %s",
+                    MAX_RATE_LIMIT_RETRIES,
+                    model_name,
+                    exc_text,
+                )
+                raise RateLimitExhaustedError(
+                    f"Creator model still rate-limited after "
+                    f"{MAX_RATE_LIMIT_RETRIES} retries: {exc_text}",
+                    retries=MAX_RATE_LIMIT_RETRIES,
+                ) from exc
             is_transient = (
                 "Download multimodal file timed out" in exc_text
                 or "ReadTimeout" in exc_text
@@ -771,6 +859,7 @@ class AgentScopeAgentChatClient:
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_rate_limit_retry=on_rate_limit_retry,
                     _empty_retries_remaining=_empty_retries_remaining,
                     _rate_limit_retries_remaining=_rate_limit_retries_remaining,
                     _transient_retries_remaining=(
@@ -853,6 +942,7 @@ class AgentScopeAgentChatClient:
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_rate_limit_retry=on_rate_limit_retry,
                     _empty_retries_remaining=_empty_retries_remaining,
                     _rate_limit_retries_remaining=(
                         _rate_limit_retries_remaining
@@ -874,6 +964,7 @@ class AgentScopeAgentChatClient:
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_rate_limit_retry=on_rate_limit_retry,
                     _empty_retries_remaining=_empty_retries_remaining - 1,
                 )
             raise AgentModelError(
@@ -1008,6 +1099,7 @@ __all__ = [
     "AgentChatClient",
     "AgentModelConfigurationError",
     "AgentModelError",
+    "AgentRateLimitRetryCallback",
     "AgentStreamCallbackError",
     "AgentStreamCallbackPassthrough",
     "AgentModelTurn",
@@ -1015,5 +1107,8 @@ __all__ = [
     "AgentScopeVlmChatClient",
     "AgentToolCall",
     "CallbackAgentChatClient",
+    "MAX_RATE_LIMIT_RETRIES",
+    "RateLimitExhaustedError",
+    "RateLimitRetryNotice",
     "records_to_agentscope_messages",
 ]

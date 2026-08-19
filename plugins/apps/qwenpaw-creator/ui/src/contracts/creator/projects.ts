@@ -82,3 +82,10 @@ export interface InspirationExampleOpenResponse {
   projectId: string;
   installed: boolean;
 }
+
+/** Polled download progress while an example archive streams in from OSS. */
+export interface InspirationExampleOpenProgress {
+  state: "installed" | "downloading" | "idle";
+  receivedBytes?: number;
+  totalBytes?: number | null;
+}

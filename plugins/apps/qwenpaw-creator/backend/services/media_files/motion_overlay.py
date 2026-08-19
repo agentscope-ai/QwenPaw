@@ -21,13 +21,14 @@ and a subprocess gives every capture a hard kill-switch timeout.
 from __future__ import annotations
 
 import json
+import atexit
 import hashlib
 import math
 import os
 import re
 import signal
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
@@ -35,6 +36,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from typing import Any
 
 from domain.errors import ValidationError
@@ -62,6 +64,14 @@ _PROBE_KEYFRAME_FRACTIONS = (0.05, 0.15, 0.3, 0.5, 0.7, 0.9, 1.0)
 # Loop seam gate: a seamless loop must paint (nearly) identical pixels at
 # t=0 and t=duration.  Rejection thresholds over premultiplied RGBA.
 _LOOP_SEAM_MAX_MEAN_DIFF = 4.0
+# Ring-frame documents declare themselves on their root element; the
+# capture truth gate then requires a transparent center window instead
+# of the edge-contact rule (an opaque border touches every edge by
+# design).
+_FRAME_RING_MARK = re.compile(
+    r"""data-motion-frame\s*=\s*["']ring["']""",
+    re.IGNORECASE,
+)
 _LOOP_SEAM_MAX_CHANGED_FRACTION = 0.05
 # Static detection compares every probe frame against t=0 and must stay far
 # below any real motion: a genuinely frozen document measures ~0.0002 mean
@@ -75,7 +85,10 @@ _PROBE_TIMEOUT_SECONDS = 90
 _CAPTURE_BASE_TIMEOUT_SECONDS = 120
 _CAPTURE_PER_FRAME_SECONDS = 3.0
 _PROBE_CACHE_MAX_ITEMS = 128
-_FRAME_CACHE_MAX_ITEMS = 32
+_FRAME_CACHE_MAX_ITEMS = 128
+# Entries younger than this are never pruned even beyond the budget:
+# they belong to a composite that is still burning its layers.
+_FRAME_CACHE_PRUNE_MIN_AGE_SECONDS = 3600.0
 _probe_cache: OrderedDict[
     tuple[str, int, int, str],
     MotionDocumentProbe,
@@ -170,6 +183,7 @@ TEXT_OCCLUSION = '''
   );
   let covered = 0;
   let sampled = 0;
+  const culprits = new Set();
   while (walker.nextNode()) {
     const node = walker.currentNode;
     if (!node.textContent || !node.textContent.trim()) continue;
@@ -200,25 +214,41 @@ TEXT_OCCLUSION = '''
           continue;
         }
         const top = document.elementFromPoint(x, y);
-        // elementFromPoint returns the text node's parent when the glyph is
-        // actually painted.  Returning an ancestor means this sample was
-        // clipped by an overflow container or covered by another layer.
-        const textIsTopmost = top === parent;
-        if (!textIsTopmost) covered += 1;
+        // A glyph sample is only "covered" when an unrelated sibling
+        // layer paints on top of it. Hitting the text's own parent, a
+        // descendant decoration nested inside it, or an ancestor (the
+        // card background showing through inter-glyph gaps — routine
+        // for CJK runs with letter-spacing) is normal rendering, not
+        // occlusion.
+        const related =
+          top === parent ||
+          (top && parent.contains(top)) ||
+          (top && top.contains(parent));
+        if (!related) {
+          covered += 1;
+          if (top) {
+            const tag = top.tagName ? top.tagName.toLowerCase() : '?';
+            const cls = top.className && top.className.toString
+              ? top.className.toString().split(/\s+/).slice(0, 2).join('.')
+              : '';
+            culprits.add(cls ? tag + '.' + cls : tag);
+          }
+        }
         sampled += 1;
       }
     }
   }
-  return sampled > 0 ? covered / sampled : 0;
+  return {
+    ratio: sampled > 0 ? covered / sampled : 0,
+    culprits: Array.from(culprits).slice(0, 4),
+  };
 }
 '''
 
 
-def main():
-    job = json.loads(sys.stdin.read())
+def handle(job):
     import pathlib
     import tempfile
-    from playwright.sync_api import sync_playwright
 
     with tempfile.TemporaryDirectory(prefix="motion-doc-") as doc_dir:
         doc_path = pathlib.Path(doc_dir) / "motion.html"
@@ -232,15 +262,28 @@ def main():
                 target = vendor_dir / filename
                 target.write_bytes(pathlib.Path(source).read_bytes())
                 allowed.add(target.as_uri())
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+        with _keep_browser() as browser:
+            context = browser.new_context(
+                viewport={
+                    "width": job["box_width"],
+                    "height": job["box_height"],
+                },
+                device_scale_factor=1,
+            )
+            # A crashed renderer leaves evaluate() waiting forever by
+            # default; bound every page call so the host timeout can
+            # surface a proper error instead of a stuck worker.
+            context.set_default_timeout(15000)
             try:
-                page = browser.new_page(
-                    viewport={
-                        "width": job["box_width"],
-                        "height": job["box_height"],
-                    },
-                    device_scale_factor=1,
+                page = context.new_page()
+                # Uncaught JS errors are the top reason a document never
+                # registers window.__hf; capture them so the design
+                # feedback loop can name the actual bug instead of a
+                # generic "protocol missing".
+                page_errors = []
+                page.on(
+                    "pageerror",
+                    lambda exc: page_errors.append(str(exc)[:300]),
                 )
                 if job.get("prelude"):
                     page.add_init_script(job["prelude"])
@@ -274,12 +317,20 @@ def main():
                 hf_ms = float(info.get("hfMs") or 0.0)
                 managed_exit = bool(info.get("managedExit"))
                 text_occlusion = 0.0
+                occlusion_culprits = []
                 if job.get("format") == "html_js":
                     if hf_ms <= 0:
-                        print(json.dumps({
-                            "error": "html_js 文档未注册 window.__hf 协议或 duration 无效",
-                        }))
-                        return
+                        detail = (
+                            "；页面 JS 错误: " + " | ".join(page_errors[:3])
+                            if page_errors
+                            else ""
+                        )
+                        return {
+                            "error": (
+                                "html_js 文档未注册 window.__hf 协议或 "
+                                "duration 无效" + detail
+                            ),
+                        }
                     # The registered timeline owns the document clock; CSS
                     # animations, if any, follow the same seek below.
                     total_ms = hf_ms
@@ -306,12 +357,16 @@ def main():
                             },
                         )
                         if seek_error:
-                            print(json.dumps({"error": seek_error}))
-                            return
-                        text_occlusion = max(
-                            text_occlusion,
-                            float(page.evaluate(TEXT_OCCLUSION) or 0.0),
-                        )
+                            return {"error": seek_error}
+                        occ = page.evaluate(TEXT_OCCLUSION) or {}
+                        if isinstance(occ, dict):
+                            ratio = float(occ.get("ratio") or 0.0)
+                            for name in occ.get("culprits") or []:
+                                if name not in occlusion_culprits:
+                                    occlusion_culprits.append(str(name))
+                        else:
+                            ratio = float(occ or 0.0)
+                        text_occlusion = max(text_occlusion, ratio)
                         page.screenshot(
                             path="%s/%05d.png" % (job["frames_dir"], index),
                             omit_background=True,
@@ -350,27 +405,71 @@ def main():
                             },
                         )
                         if seek_error:
-                            print(json.dumps({"error": seek_error}))
-                            return
+                            return {"error": seek_error}
                         page.screenshot(
                             path="%s/%05d.png" % (frames_dir, index),
                             omit_background=True,
                             timeout=15000,
                         )
             finally:
-                browser.close()
-    print(json.dumps({
+                context.close()
+    return {
         "count": count,
         "totalMs": total_ms,
         "managedExit": managed_exit,
         "textOcclusion": text_occlusion,
-    }))
+        "textOcclusionCulprits": occlusion_culprits,
+    }
+
+
+BROWSER = None
+
+
+class _keep_browser:
+    # Context-manager shim: hands out the shared browser without closing
+    # it, so `handle` keeps a with-style body while the browser lives for
+    # the whole serve loop.
+    def __enter__(self):
+        return BROWSER
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def serve():
+    global BROWSER
+    import os
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        # The bundled Playwright Chromium can be broken on the host (e.g.
+        # macOS builds whose renderer crashes on color-emoji glyphs);
+        # QWENPAW_CREATOR_MOTION_BROWSER points at a known-good browser.
+        BROWSER = playwright.chromium.launch(
+            headless=True,
+            executable_path=(
+                os.environ.get("QWENPAW_CREATOR_MOTION_BROWSER") or None
+            ),
+        )
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                result = handle(json.loads(line))
+            except Exception as exc:  # noqa: BLE001
+                result = {"error": "%s: %s" % (type(exc).__name__, exc)}
+            sys.stdout.write(json.dumps(result) + "\n")
+            sys.stdout.flush()
 
 
 try:
-    main()
+    serve()
 except Exception as exc:  # noqa: BLE001
-    print(json.dumps({"error": "%s: %s" % (type(exc).__name__, exc)}))
+    sys.stdout.write(
+        json.dumps({"error": "%s: %s" % (type(exc).__name__, exc)}) + "\n",
+    )
+    sys.stdout.flush()
 """
 
 
@@ -383,6 +482,7 @@ class MotionDocumentProbe:
     visible_coverage: float = -1.0
     edge_contact: float = -1.0
     text_occlusion: float = -1.0
+    text_occlusion_culprits: tuple[str, ...] = ()
 
 
 def _normalized_box(
@@ -508,12 +608,132 @@ def _kill_worker_session(process: subprocess.Popen) -> None:
         pass
 
 
+def _read_worker_line(
+    process: subprocess.Popen,
+    timeout_seconds: float,
+) -> str | None:
+    """Read one reply line; ``None`` on timeout, ``""`` on EOF/crash."""
+
+    box: list[str] = []
+
+    def _read() -> None:
+        try:
+            box.append(process.stdout.readline())
+        except Exception:  # noqa: BLE001 - pipe already torn down
+            box.append("")
+
+    thread = threading.Thread(target=_read, daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        return None
+    return box[0].strip() if box else ""
+
+
+class _CaptureWorkerHost:
+    """One long-lived capture worker shared by every render job.
+
+    The one-shot model paid a Python + Chromium cold start (~3s) per
+    document; the persistent worker pays it once and isolates jobs in a
+    fresh browser context instead.  Any crash, timeout or malformed
+    reply kills the whole worker session (headless Chromium descendants
+    included) and the next job transparently starts a fresh worker, so
+    the failure story stays as strict as the one-shot model.
+    """
+
+    # Recycle the process periodically to bound Chromium memory growth.
+    _JOBS_PER_PROCESS = 64
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+        self._jobs_served = 0
+
+    def _spawn(self) -> subprocess.Popen:
+        return subprocess.Popen(  # noqa: S603 - fixed interpreter argv
+            [sys.executable, "-c", _WORKER_SOURCE],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            start_new_session=True,
+        )
+
+    def close(self) -> None:
+        if self._process is not None:
+            _kill_worker_session(self._process)
+            self._process = None
+            self._jobs_served = 0
+
+    def run(
+        self,
+        job: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        with self._lock:
+            # One transparent respawn covers a worker that died between
+            # jobs; a second consecutive failure surfaces as an error.
+            for _attempt in range(2):
+                if self._process is None or self._process.poll() is not None:
+                    self.close()
+                    try:
+                        self._process = self._spawn()
+                    except Exception as exc:  # noqa: BLE001
+                        return {"error": f"动效渲染子进程启动失败: {exc}"}
+                process = self._process
+                try:
+                    process.stdin.write(json.dumps(job) + "\n")
+                    process.stdin.flush()
+                except Exception:  # noqa: BLE001 - stale pipe, respawn
+                    self.close()
+                    continue
+                line = _read_worker_line(process, timeout_seconds)
+                if line is None:
+                    # Kill the whole session so headless Chromium
+                    # descendants cannot survive their parent worker.
+                    self.close()
+                    return {
+                        "error": f"动效渲染超时（{timeout_seconds:.0f} 秒）",
+                    }
+                if not line:
+                    self.close()
+                    continue
+                try:
+                    result = json.loads(line)
+                except json.JSONDecodeError:
+                    self.close()
+                    return {"error": "动效渲染子进程返回了无法解析的结果"}
+                if not isinstance(result, dict) or (
+                    "error" not in result and "count" not in result
+                ):
+                    return {"error": "动效渲染子进程返回了无法解析的结果"}
+                self._jobs_served += 1
+                if self._jobs_served >= self._JOBS_PER_PROCESS:
+                    self.close()
+                return result
+            return {"error": "动效渲染子进程异常退出"}
+
+
+_worker_host_instance: _CaptureWorkerHost | None = None
+_worker_host_guard = threading.Lock()
+
+
+def _worker_host() -> _CaptureWorkerHost:
+    global _worker_host_instance  # noqa: PLW0603 - process-wide singleton
+    with _worker_host_guard:
+        if _worker_host_instance is None:
+            _worker_host_instance = _CaptureWorkerHost()
+            atexit.register(_worker_host_instance.close)
+        return _worker_host_instance
+
+
 def _run_capture_worker(
     job: Mapping[str, Any],
     *,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    """Run one Playwright capture job in an isolated subprocess.
+    """Run one Playwright capture job on the persistent worker.
 
     Returns the worker's JSON result; a crash, timeout or malformed reply
     surfaces as ``{"error": ...}`` so both callers share one failure shape.
@@ -523,61 +743,29 @@ def _run_capture_worker(
         import playwright  # noqa: F401  # pylint: disable=unused-import
     except ImportError:
         return {"error": "playwright 未安装，无法渲染动效"}
-    try:
-        process = subprocess.Popen(
-            [sys.executable, "-c", _WORKER_SOURCE],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return {"error": f"动效渲染子进程启动失败: {exc}"}
-    try:
-        stdout, stderr = process.communicate(
-            input=json.dumps(job),
-            timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired:
-        # Kill the whole session so headless Chromium descendants cannot
-        # survive their parent worker as orphans.
-        _kill_worker_session(process)
-        return {"error": f"动效渲染超时（{timeout_seconds:.0f} 秒）"}
-    except Exception as exc:  # noqa: BLE001
-        _kill_worker_session(process)
-        return {"error": f"动效渲染子进程通信失败: {exc}"}
-    if process.returncode != 0:
-        detail = (stderr or stdout or "").strip()[-300:]
-        return {"error": f"动效渲染子进程异常退出: {detail}"}
-    last_line = (stdout or "").strip().splitlines()
-    try:
-        result = json.loads(last_line[-1]) if last_line else {}
-    except json.JSONDecodeError:
-        result = {}
-    if not isinstance(result, dict) or (
-        "error" not in result and "count" not in result
-    ):
-        return {"error": "动效渲染子进程返回了无法解析的结果"}
-    return result
+    return _worker_host().run(job, timeout_seconds=timeout_seconds)
 
 
 def _alpha_plane_stats(
     plane: bytes,
     width: int,
     height: int,
-) -> tuple[float, float]:
-    """Return (visible fraction, strongest edge-contact fraction) of one plane.
+) -> tuple[float, float, float, float]:
+    """Return (visible, max/min edge-contact, center-visible) fractions.
 
     Edge contact measures how much visible content sits on the outermost
-    pixel rows/columns; a high value means the content overflows the
-    viewport and is being clipped. ``(-1.0, -1.0)`` when the buffer does
-    not match the expected geometry.
+    pixel rows/columns; a high max means content overflows the viewport
+    and is being clipped, while a high MIN means every edge carries
+    content — the signature of an intentional border. Center visibility
+    samples the middle 44% window — ring-frame documents must keep it
+    transparent so the wrapped footage shows through.
+    ``(-1.0, -1.0, -1.0, -1.0)`` when the buffer does not match the
+    expected geometry.
     """
 
     total = width * height
     if width <= 0 or height <= 0 or len(plane) < total:
-        return -1.0, -1.0
+        return -1.0, -1.0, -1.0, -1.0
     visible = sum(1 for byte in plane[:total] if byte > 16)
     edges = (
         plane[0:width],
@@ -585,10 +773,33 @@ def _alpha_plane_stats(
         plane[0:total:width],
         plane[width - 1 : total : width],
     )
-    edge_contact = max(
+    contacts = [
         sum(1 for byte in edge if byte > 16) / len(edge) for edge in edges
+    ]
+    edge_contact = max(contacts)
+    edge_floor = min(contacts)
+    center_left = round(width * 0.28)
+    center_right = round(width * 0.72)
+    center_top = round(height * 0.28)
+    center_bottom = round(height * 0.72)
+    center_total = max(
+        1,
+        (center_right - center_left) * (center_bottom - center_top),
     )
-    return visible / total, edge_contact
+    center_visible = sum(
+        1
+        for row in range(center_top, center_bottom)
+        for byte in plane[
+            row * width + center_left : row * width + center_right
+        ]
+        if byte > 16
+    )
+    return (
+        visible / total,
+        edge_contact,
+        center_visible / center_total,
+        edge_floor,
+    )
 
 
 def _frame_alpha_stats(
@@ -596,9 +807,9 @@ def _frame_alpha_stats(
     ffmpeg_path: str,
     width: int,
     height: int,
-) -> tuple[float, float]:
-    """Return (coverage, edge contact) for one frame, ``(-1.0, -1.0)`` when
-    the alpha plane cannot be inspected."""
+) -> tuple[float, float, float, float]:
+    """Return (coverage, max/min edge contact, center coverage) for one
+    frame, all ``-1.0`` when the alpha plane cannot be inspected."""
 
     try:
         result = subprocess.run(
@@ -620,7 +831,7 @@ def _frame_alpha_stats(
             check=False,
         )
     except Exception:  # noqa: BLE001 - inspection is best-effort
-        return -1.0, -1.0
+        return -1.0, -1.0, -1.0, -1.0
     if result.returncode != 0 or not result.stdout:
         # Fully opaque frames are written as RGB PNGs without an alpha
         # plane, which makes ``alphaextract`` fail exactly for the
@@ -629,14 +840,20 @@ def _frame_alpha_stats(
         # such frames the benefit of the doubt.
         rgba = _frame_rgba_bytes(frame, ffmpeg_path)
         if rgba is None:
-            return -1.0, -1.0
+            return -1.0, -1.0, -1.0, -1.0
         return _alpha_plane_stats(bytes(rgba[3::4]), width, height)
-    coverage, edge = _alpha_plane_stats(result.stdout, width, height)
+    coverage, edge, center, edge_floor = _alpha_plane_stats(
+        result.stdout,
+        width,
+        height,
+    )
     if coverage < 0.0:
         visible = sum(1 for byte in result.stdout if byte > 16)
         coverage = visible / len(result.stdout)
         edge = -1.0
-    return coverage, edge
+        center = -1.0
+        edge_floor = -1.0
+    return coverage, edge, center, edge_floor
 
 
 def _frames_visible_stats(
@@ -660,7 +877,7 @@ def _frames_visible_stats(
     edge_contact = 0.0
     coverages: list[float] = []
     for frame in frames:
-        frame_coverage, frame_edge = _frame_alpha_stats(
+        frame_coverage, frame_edge, _center, _floor = _frame_alpha_stats(
             frame,
             ffmpeg_path,
             width,
@@ -813,6 +1030,8 @@ def _verify_captured_frames(
     box_height: int,
     ffmpeg_path: str,
     full_canvas: bool = False,
+    frame_ring: bool = False,
+    max_edge_contact: float | None = None,
 ) -> str | None:
     """Post-render truth gate over the captured output frames.
 
@@ -823,20 +1042,33 @@ def _verify_captured_frames(
     ``_CAPTURE_MAX_EDGE_CONTACT``, is rejected so bad frames never enter
     the frame cache or the composited segment.  Inspection failures pass:
     the gate must never turn tooling problems into lost overlays.
+
+    ``frame_ring`` documents (declared ``data-motion-frame="ring"``) are
+    opaque borders around a transparent window: touching the box edge is
+    their normal state, so the edge rule is replaced by an honest center
+    gate — the middle 44% window must stay (almost) fully transparent or
+    the "frame" would cover the wrapped footage.
     """
 
     if frame_count <= 0:
         return None
-    indices = sorted(
-        {
-            0,
-            (frame_count - 1) // 2,
-            max(0, math.floor(0.8 * (frame_count - 1))),
-        },
-    )
+    if frame_count <= 3:
+        # Tiny captures (cross-boundary slivers, ultra-short overlays):
+        # the canonical first/middle/80% indices all collapse onto the
+        # entrance frames, which an entrance animation legitimately keeps
+        # transparent. Inspect every frame instead.
+        indices = list(range(frame_count))
+    else:
+        indices = sorted(
+            {
+                0,
+                (frame_count - 1) // 2,
+                max(0, math.floor(0.8 * (frame_count - 1))),
+            },
+        )
     coverages: list[float] = []
     for index in indices:
-        coverage, edge = _frame_alpha_stats(
+        coverage, edge, center, edge_floor = _frame_alpha_stats(
             frames_dir / f"{index:05d}.png",
             ffmpeg_path,
             box_width,
@@ -845,11 +1077,30 @@ def _verify_captured_frames(
         if coverage < 0.0:
             return None
         # A full-canvas motion clip IS the picture: touching the box edge
-        # is its normal state, so only the empty-frame rule applies.
-        if not full_canvas and edge > _CAPTURE_MAX_EDGE_CONTACT:
+        # is its normal state, so only the empty-frame rule applies. Ring
+        # forms — opaque border with content on EVERY edge around a
+        # transparent center — are recognised geometrically as well as by
+        # declaration: the edge rule exists to catch clipped content, and
+        # a border wrapping the footage on all four sides is not clipping.
+        # A one-sided overflow keeps at least one empty edge and stays
+        # rejected.
+        is_ring_form = frame_ring or (
+            0.0 <= center <= 0.05 and edge_floor > 0.5
+        )
+        edge_budget = (
+            _CAPTURE_MAX_EDGE_CONTACT
+            if max_edge_contact is None
+            else max_edge_contact
+        )
+        if not full_canvas and not is_ring_form and edge > edge_budget:
             return (
                 f"动效渲染真值自查失败: 第 {index} 帧可见内容越出透明盒边缘"
                 f"（边缘接触率 {edge:.0%}），拒绝入库"
+            )
+        if frame_ring and center > 0.05:
+            return (
+                f"动效渲染真值自查失败: ring 框文档的中心窗口必须保持透明"
+                f"（第 {index} 帧中心可见率 {center:.0%}），拒绝入库"
             )
         coverages.append(coverage)
     if all(coverage <= 0.0 for coverage in coverages):
@@ -955,6 +1206,9 @@ def probe_motion_document(
         count = int(result.get("count") or 0)
         total_ms = float(result.get("totalMs") or 0.0)
         text_occlusion = float(result.get("textOcclusion", -1.0))
+        occlusion_culprits = tuple(
+            str(item) for item in (result.get("textOcclusionCulprits") or ())
+        )
         if count <= 0:
             return MotionDocumentProbe(
                 False,
@@ -1038,6 +1292,7 @@ def probe_motion_document(
             visible_coverage=coverage,
             edge_contact=edge_contact,
             text_occlusion=text_occlusion,
+            text_occlusion_culprits=occlusion_culprits,
         )
         with _probe_cache_lock:
             _probe_cache[cache_key] = probe
@@ -1138,12 +1393,30 @@ def _complete_frame_cache(frames_dir: Path, frame_count: int) -> bool:
 
 
 def _prune_frame_cache(cache_root: Path) -> None:
+    """Evict old frame sequences beyond the cache budget.
+
+    Only entries older than the protection window are removed: one
+    composite run prepares dozens of sequences (every segment carries a
+    frame + captions + decorations) and burns them afterwards, so an
+    age-blind LRU deleted sequences that were still queued for ffmpeg
+    (field run 2026-08-09: compose aborted on a vanished %05d.png dir).
+    Fresh entries are always part of a live composite; stale ones are
+    yesterday's cache and safe to drop.
+    """
+
+    now = time.time()
     entries = sorted(
         (entry for entry in cache_root.iterdir() if entry.is_dir()),
         key=lambda entry: entry.stat().st_mtime,
         reverse=True,
     )
     for stale in entries[_FRAME_CACHE_MAX_ITEMS:]:
+        try:
+            age = now - stale.stat().st_mtime
+        except OSError:
+            continue
+        if age < _FRAME_CACHE_PRUNE_MIN_AGE_SECONDS:
+            continue
         shutil.rmtree(stale, ignore_errors=True)
 
 
@@ -1282,15 +1555,100 @@ def render_motion_overlay(
     doc_format: str = "html_css",
     full_canvas: bool = False,
 ) -> OverlayRenderResult:
-    """Render one motion document and composite it over a prepared segment."""
+    """Render one motion document and composite it over a prepared segment.
+
+    Single-layer convenience wrapper over ``prepare_motion_layer`` +
+    ``composite_motion_layers`` so callers with exactly one document keep
+    the historical one-call shape.
+    """
+
+    prep = prepare_motion_layer(
+        ffmpeg_path=ffmpeg_path,
+        html=html,
+        fps=fps,
+        loop=loop,
+        video_size=video_size,
+        appear_at=appear_at,
+        duration=duration,
+        location=location,
+        viewport_inset=viewport_inset,
+        doc_format=doc_format,
+        full_canvas=full_canvas,
+    )
+    if prep.error is not None or prep.layer is None:
+        return OverlayRenderResult(False, prep.error or "动效帧准备失败")
+    return composite_motion_layers(
+        ffmpeg_path=ffmpeg_path,
+        input_path=input_path,
+        output_path=output_path,
+        layers=[prep.layer],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedMotionLayer:
+    """One verified frame sequence ready to be composited onto a segment.
+
+    Splitting preparation from compositing lets the segment pipeline burn
+    many layers in a single ffmpeg pass (one encode generation instead of
+    one re-encode per layer) while each layer keeps its own validation
+    and fallback decision.
+    """
+
+    frames_dir: Path
+    frame_count: int
+    effective_fps: float
+    appear_at: float
+    duration: float
+    left: int
+    top: int
+    opacity: float
+    period_mode: bool
+    managed_exit: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MotionLayerPrep:
+    """Outcome of ``prepare_motion_layer``: a layer or a soft error."""
+
+    layer: PreparedMotionLayer | None = None
+    error: str | None = None
+
+
+def prepare_motion_layer(
+    *,
+    ffmpeg_path: str,
+    html: str,
+    fps: int,
+    loop: bool,
+    video_size: tuple[int, int],
+    appear_at: float,
+    duration: float,
+    location: Mapping[str, Any] | None = None,
+    viewport_inset: float = 0.0,
+    doc_format: str = "html_css",
+    full_canvas: bool = False,
+    max_edge_contact: float | None = None,
+) -> MotionLayerPrep:
+    """Probe, capture and verify one motion document's frame sequence.
+
+    ``max_edge_contact`` overrides the capture edge budget: caption
+    cards may bleed background blocks off their box on purpose (their
+    readability is guarded by the layout/occlusion/copy gates), while
+    text-free decorations keep the strict default.
+    """
 
     if duration <= 0 or not math.isfinite(duration):
-        return OverlayRenderResult(False, "动效持续时间必须为正数")
+        return MotionLayerPrep(error="动效持续时间必须为正数")
+    # Ring-frame declaration is data-driven: blueprint documents mark
+    # their root with data-motion-frame="ring" and the capture truth gate
+    # swaps the edge rule for the transparent-center rule.
+    frame_ring = bool(_FRAME_RING_MARK.search(html))
     try:
         engine_fields = _engine_job_fields(html, doc_format)
         engine_salt = _engine_salt(html, doc_format)
     except Exception as exc:  # noqa: BLE001 - render must fail soft
-        return OverlayRenderResult(False, str(exc))
+        return MotionLayerPrep(error=str(exc))
     box_width, box_height, left, top, opacity = _normalized_box(
         location,
         video_size,
@@ -1312,9 +1670,8 @@ def render_motion_overlay(
             loop=loop,
         )
         if not gate.ok:
-            return OverlayRenderResult(
-                False,
-                f"渲染前真值自查未通过: {gate.error}",
+            return MotionLayerPrep(
+                error=f"渲染前真值自查未通过: {gate.error}",
             )
     effective_fps = float(min(max(int(fps), _MIN_EFFECTIVE_FPS), 60))
     frame_count = math.ceil(duration * effective_fps)
@@ -1413,7 +1770,16 @@ def render_motion_overlay(
         period_mode=period_mode,
     )
     cache_key = hashlib.sha256(
-        (frame_identity + ("|full_canvas" if full_canvas else "")).encode(
+        (
+            frame_identity
+            + ("|full_canvas" if full_canvas else "")
+            + ("|ring" if frame_ring else "")
+            + (
+                ""
+                if max_edge_contact is None
+                else f"|edge{max_edge_contact:.2f}"
+            )
+        ).encode(
             "utf-8",
         ),
     ).hexdigest()
@@ -1464,10 +1830,24 @@ def render_motion_overlay(
                 box_height=box_height,
                 ffmpeg_path=ffmpeg_path,
                 full_canvas=full_canvas,
+                frame_ring=frame_ring,
+                max_edge_contact=max_edge_contact,
             )
         if error is not None:
-            shutil.rmtree(staged_dir, ignore_errors=True)
-            return OverlayRenderResult(False, error)
+            # Keep the rejected frames for offline diagnosis instead of
+            # destroying the only evidence of why the truth gate failed.
+            rejected_dir = cache_root / f"rejected-{cache_key[:16]}"
+            shutil.rmtree(rejected_dir, ignore_errors=True)
+            try:
+                staged_dir.replace(rejected_dir)
+                logger.warning(
+                    "motion truth gate rejected frames kept at %s: %s",
+                    rejected_dir,
+                    error,
+                )
+            except OSError:
+                shutil.rmtree(staged_dir, ignore_errors=True)
+            return MotionLayerPrep(error=error)
         if not _complete_frame_cache(frames_dir, frame_count):
             shutil.rmtree(frames_dir, ignore_errors=True)
             try:
@@ -1478,86 +1858,135 @@ def render_motion_overlay(
         else:
             shutil.rmtree(staged_dir, ignore_errors=True)
         _prune_frame_cache(cache_root)
-    try:
-        alpha_filter = (
-            f"format=rgba,colorchannelmixer=aa={opacity:.6f},"
-            if opacity < 1.0
-            else "format=rgba,"
-        )
-        end_at = appear_at + duration
+    return MotionLayerPrep(
+        layer=PreparedMotionLayer(
+            frames_dir=frames_dir,
+            frame_count=frame_count,
+            effective_fps=effective_fps,
+            appear_at=appear_at,
+            duration=duration,
+            left=left,
+            top=top,
+            opacity=opacity,
+            period_mode=period_mode,
+            managed_exit=managed_exit,
+        ),
+    )
+
+
+def composite_motion_layers(
+    *,
+    ffmpeg_path: str,
+    input_path: Path,
+    output_path: Path,
+    layers: Sequence[PreparedMotionLayer],
+) -> OverlayRenderResult:
+    """Burn prepared motion layers onto one segment in a single encode.
+
+    Layers are stacked in list order (callers pass them sorted by
+    z_index), so N captions cost one x264 generation instead of N
+    sequential re-encodes of the same segment.
+    """
+
+    if not layers:
+        return OverlayRenderResult(False, "没有可合成的动效层")
+    inputs: list[str] = ["-i", os.fspath(input_path)]
+    filters: list[str] = []
+    for index, layer in enumerate(layers):
         # Period mode: the one-period sequence is repeated by ffmpeg just
         # enough times to cover the window (an unbounded -stream_loop -1
         # never reaches EOF and stalls the encode), and a renderer-managed
         # exit becomes an alpha fade over the last 15% (shrink degrades to
         # the same fade here).
-        exit_filter = (
-            (
-                f"fade=t=out:st={0.85 * duration:.6f}:"
-                f"d={0.15 * duration:.6f}:alpha=1,"
-            )
-            if period_mode and managed_exit
-            else ""
-        )
-        loop_args: list[str] = []
-        if period_mode:
+        if layer.period_mode:
             extra_loops = max(
                 0,
-                math.ceil(duration * effective_fps / frame_count) - 1,
+                math.ceil(
+                    layer.duration * layer.effective_fps / layer.frame_count,
+                )
+                - 1,
             )
-            loop_args = ["-stream_loop", str(extra_loops)]
-        command = [
-            ffmpeg_path,
-            "-y",
-            "-i",
-            os.fspath(input_path),
-            *loop_args,
-            "-framerate",
-            f"{effective_fps:.6f}",
-            "-i",
-            os.fspath(frames_dir / "%05d.png"),
-            "-filter_complex",
+            inputs.extend(["-stream_loop", str(extra_loops)])
+        inputs.extend(
+            [
+                "-framerate",
+                f"{layer.effective_fps:.6f}",
+                "-i",
+                os.fspath(layer.frames_dir / "%05d.png"),
+            ],
+        )
+        alpha_filter = (
+            f"format=rgba,colorchannelmixer=aa={layer.opacity:.6f},"
+            if layer.opacity < 1.0
+            else "format=rgba,"
+        )
+        exit_filter = (
             (
-                f"[1:v]{alpha_filter}{exit_filter}"
-                f"setpts=PTS-STARTPTS+{appear_at:.6f}/TB[motion];"
-                f"[0:v][motion]overlay={left}:{top}:"
-                f"enable='between(t,{appear_at:.6f},{end_at:.6f})',"
-                "scale=trunc(iw/2)*2:trunc(ih/2)*2"
-            ),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "copy",
-            os.fspath(output_path),
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=_FFMPEG_TIMEOUT_SECONDS,
-                check=False,
+                f"fade=t=out:st={0.85 * layer.duration:.6f}:"
+                f"d={0.15 * layer.duration:.6f}:alpha=1,"
             )
-        except Exception as exc:
-            return OverlayRenderResult(False, str(exc))
-        if result.returncode != 0 or not output_path.exists():
-            return OverlayRenderResult(False, (result.stderr or "")[-300:])
-        return OverlayRenderResult(True)
-    finally:
-        # Frames are content-addressed and reused across preview/export runs.
-        # The cache is bounded by _FRAME_CACHE_MAX_ITEMS above.
-        pass
+            if layer.period_mode and layer.managed_exit
+            else ""
+        )
+        filters.append(
+            f"[{index + 1}:v]{alpha_filter}{exit_filter}"
+            f"setpts=PTS-STARTPTS+{layer.appear_at:.6f}/TB[m{index}]",
+        )
+    stage = "[0:v]"
+    for index, layer in enumerate(layers):
+        end_at = layer.appear_at + layer.duration
+        overlay_filter = (
+            f"{stage}[m{index}]overlay={layer.left}:{layer.top}:"
+            f"enable='between(t,{layer.appear_at:.6f},{end_at:.6f})'"
+        )
+        if index < len(layers) - 1:
+            filters.append(f"{overlay_filter}[v{index}]")
+            stage = f"[v{index}]"
+        else:
+            filters.append(
+                f"{overlay_filter},scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            )
+    command = [
+        ffmpeg_path,
+        "-y",
+        *inputs,
+        "-filter_complex",
+        ";".join(filters),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "copy",
+        os.fspath(output_path),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=_FFMPEG_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - render must fail soft
+        return OverlayRenderResult(False, str(exc))
+    if result.returncode != 0 or not output_path.exists():
+        return OverlayRenderResult(False, (result.stderr or "")[-300:])
+    return OverlayRenderResult(True)
 
 
 __all__ = [
     "caption_layout_error",
     "MotionDocumentProbe",
+    "MotionLayerPrep",
+    "PreparedMotionLayer",
+    "composite_motion_layers",
     "frame_cache_identity",
     "frame_timestamp_ms",
+    "prepare_motion_layer",
     "probe_motion_document",
     "render_motion_overlay",
     "render_motion_poster",

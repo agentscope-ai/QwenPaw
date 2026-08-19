@@ -92,7 +92,6 @@ async function finalizeFromOutput(
   store.updateTask(toolCallId, {
     status,
     result: resultText || null,
-    hintVisible: true,
   });
 
   if (alreadyTerminal) return;
@@ -335,7 +334,6 @@ export async function cancelBackgroundTask(
   useBackgroundTasksStore.getState().updateTask(toolCallId, {
     status: "cancelled",
     result: live || null,
-    hintVisible: true,
   });
 }
 

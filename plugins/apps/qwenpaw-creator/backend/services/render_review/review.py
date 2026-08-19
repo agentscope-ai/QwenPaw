@@ -447,6 +447,14 @@ def derive_plan_context(project: Any, target_ref: str) -> dict[str, Any]:
     expects_voiceover = False
     expects_subtitles = False
     if timeline is not None:
+        edit_plan = getattr(timeline, "edit_plan", None)
+        if edit_plan is not None:
+            # The contract row grades against the taste contract; ship it
+            # verbatim (scene_ledger is assembly state, not contract).
+            context["edit_plan"] = edit_plan.model_dump(
+                mode="json",
+                exclude={"scene_ledger"},
+            )
         for element in timeline.elements_by_id.values():
             if not getattr(element, "enabled", True):
                 continue

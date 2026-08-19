@@ -203,7 +203,9 @@ describe("ProjectLayout visible shell", () => {
     const dock = document.querySelector("[data-agent-dock]")!;
     expect(useAgentDockUiStore.getState().open).toBe(true);
     expect(dock).toHaveAttribute("data-agent-dock-width", "440");
-    expect(dock).toHaveClass("relative", "h-full", "border-l");
+    // Sidebar dock lives in the right rail flex column now: it stretches via
+    // flex-1 instead of h-full so the detail rail can claim the bottom half.
+    expect(dock).toHaveClass("relative", "flex-1", "border-l");
     expect(dock).not.toHaveClass("fixed", "rounded-2xl");
 
     fireEvent.click(screen.getByRole("link", { name: "资产库" }));

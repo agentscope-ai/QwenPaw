@@ -37,8 +37,22 @@ pub(crate) fn observe_window(
     let (capture_width, capture_height) = point_bounds
         .map(|bounds| bounded_capture_dimensions(bounds[2], bounds[3]))
         .unwrap_or((SCREENSHOT_MAX_EDGE as usize, SCREENSHOT_MAX_EDGE as usize));
-    let capture = capture_window_image(window_id, capture_width, capture_height);
     let accessibility = collect_accessibility(window);
+    // Menus and similar transient surfaces are separate Window Server objects.
+    // A desktop-independent capture of the content window would show a
+    // different interface from the AX tree below, so expose the authoritative
+    // accessibility state without a misleading screenshot.
+    let has_transient_surface = accessibility
+        .as_ref()
+        .is_ok_and(|(_, _, transient)| *transient);
+    let capture = if has_transient_surface {
+        Err(
+            "The active transient surface is available through accessibility but is not part of the selected window capture."
+                .to_string(),
+        )
+    } else {
+        capture_window_image(window_id, capture_width, capture_height)
+    };
     if let (Err(capture_error), Err(accessibility_error)) = (&capture, &accessibility) {
         return Err((
             "capture_failed",
@@ -47,7 +61,7 @@ pub(crate) fn observe_window(
     }
 
     let (accessibility, elements) = match accessibility {
-        Ok(result) => result,
+        Ok((accessibility, elements, _)) => (accessibility, elements),
         Err(reason) => (
             json!({"available": false, "reason": reason, "elements": []}),
             Default::default(),
@@ -119,6 +133,7 @@ pub(crate) fn observe_window(
             display_width,
             display_height,
             accessibility_revision,
+            transient_text_ready: false,
             elements,
         },
     );

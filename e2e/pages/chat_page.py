@@ -43,7 +43,10 @@ class ChatPage(BasePage):
     SESSION_LIST_BTN = 'button:has(.spark-icon-spark-history-line), button:has(.anticon-history), button:has([class*="history"])'
 
     # Input area
-    CHAT_INPUT = '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
+    CHAT_INPUT = (
+        '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible, '
+        "textarea.qwenpaw-sender-input:visible"
+    )
     SEND_BTN = 'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary'
     FILE_INPUT = 'input[type="file"]'
     UPLOAD_WRAPPER = 'span.qwenpaw-upload-wrapper'

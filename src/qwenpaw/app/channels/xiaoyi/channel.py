@@ -362,6 +362,7 @@ class XiaoYiChannel(BaseChannel):
         ak: str,
         sk: str,
         agent_id: str,
+        ws_url: str = "",
         task_timeout_ms: int = DEFAULT_TASK_TIMEOUT_MS,
         on_reply_sent: OnReplySent = None,
         display_config: ChannelDisplayConfig | None = None,
@@ -385,6 +386,7 @@ class XiaoYiChannel(BaseChannel):
         self.ak = ak
         self.sk = sk
         self.agent_id = agent_id
+        self.ws_url = (ws_url or "").strip()
         self.task_timeout_ms = task_timeout_ms
         self.bot_prefix = bot_prefix
 
@@ -452,6 +454,7 @@ class XiaoYiChannel(BaseChannel):
                 ak=config.get("ak", ""),
                 sk=config.get("sk", ""),
                 agent_id=config.get("agent_id", ""),
+                ws_url=config.get("ws_url", ""),
                 task_timeout_ms=config.get(
                     "task_timeout_ms",
                     DEFAULT_TASK_TIMEOUT_MS,
@@ -477,6 +480,7 @@ class XiaoYiChannel(BaseChannel):
             ak=config.ak,
             sk=config.sk,
             agent_id=config.agent_id,
+            ws_url=getattr(config, "ws_url", "") or "",
             task_timeout_ms=config.task_timeout_ms,
             on_reply_sent=on_reply_sent,
             display_config=display_config
@@ -589,8 +593,8 @@ class XiaoYiChannel(BaseChannel):
 
         logger.info(
             "XiaoYi: Connecting to %s + %s...",
-            DEFAULT_WS_URL,
-            DEFAULT_WS_URL_BACKUP,
+            self.ws_url or DEFAULT_WS_URL,
+            "" if self.ws_url else DEFAULT_WS_URL_BACKUP,
         )
 
         await self._start_connections()
@@ -610,7 +614,7 @@ class XiaoYiChannel(BaseChannel):
 
         self._conn_primary = XiaoYiConnection(
             server_name="primary",
-            ws_url=DEFAULT_WS_URL,
+            ws_url=self.ws_url or DEFAULT_WS_URL,
             ak=self.ak,
             sk=self.sk,
             agent_id=self.agent_id,
@@ -620,7 +624,7 @@ class XiaoYiChannel(BaseChannel):
 
         tasks = [self._conn_primary.connect()]
 
-        if DEFAULT_WS_URL_BACKUP:
+        if DEFAULT_WS_URL_BACKUP and not self.ws_url:
             self._conn_backup = XiaoYiConnection(
                 server_name="backup",
                 ws_url=DEFAULT_WS_URL_BACKUP,
@@ -1369,9 +1373,8 @@ class XiaoYiChannel(BaseChannel):
         - kind="reasoningText": For thinking/reasoning content
         - kind="text": For regular text content
         """
-        from ....schemas import (
-            MessageType,
-        )
+        from ....agents.context.scroll.serialize import strip_headline
+        from ....schemas import MessageType
 
         msg_type = getattr(message, "type", None)
         content = getattr(message, "content", None) or []
@@ -1383,7 +1386,7 @@ class XiaoYiChannel(BaseChannel):
             if not self._display_config.show_thinking:
                 return [], []
             for c in content:
-                text = getattr(c, "text", None)
+                text = strip_headline(getattr(c, "text", None))
                 if text:
                     # Add newline separator for each thinking content
                     parts.append(
@@ -1439,7 +1442,9 @@ class XiaoYiChannel(BaseChannel):
                                 isinstance(block, dict)
                                 and block.get("type") == "thinking"
                             ):
-                                thinking_text = block.get("thinking", "")
+                                thinking_text = strip_headline(
+                                    block.get("thinking", ""),
+                                )
                                 if thinking_text:
                                     # Add newline separator
                                     parts.append(
@@ -1453,7 +1458,13 @@ class XiaoYiChannel(BaseChannel):
             # Handle TEXT type (regular message content)
             # Add leading newline to separate from previous content
             if ctype == ContentType.TEXT and getattr(c, "text", None):
-                text = c.text
+                # XiaoYi formats normal text itself instead of going through
+                # MessageRenderer, so clean Scroll's display-only retrieval
+                # headline here as well. The original event remains intact for
+                # durable history and indexing.
+                text = strip_headline(c.text)
+                if not text:
+                    continue
                 # Add leading newlines if not already present
                 if not text.startswith("\n"):
                     text = "\n\n" + text

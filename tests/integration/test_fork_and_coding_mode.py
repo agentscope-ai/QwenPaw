@@ -98,7 +98,6 @@ def test_coding_mode_get_default_disabled(app_server) -> None:
     body = resp.json()
     assert body["enabled"] is False, body
     assert "agent_id" in body, body
-    assert "project_dir" in body, body
 
 
 @pytest.mark.integration

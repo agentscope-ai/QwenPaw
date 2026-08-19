@@ -27,6 +27,10 @@ import stat
 from typing import BinaryIO, Final
 from uuid import uuid4
 
+from services.runtime_files.atomic_store import (
+    fsync_directory as runtime_fsync_directory,
+)
+
 from .models import AssetIndex, IndexedFile
 
 logger = logging.getLogger("qwenpaw.creator.project_files.assets")
@@ -35,6 +39,22 @@ logger = logging.getLogger("qwenpaw.creator.project_files.assets")
 DEFAULT_CHUNK_SIZE: Final = 4 * 1024 * 1024
 DEFAULT_ORPHAN_GRACE_PERIOD: Final = timedelta(hours=24)
 _SAFE_STAGING_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _supports_dir_fd_publication() -> bool:
+    return (
+        not _is_windows()
+        and hasattr(os, "O_NOFOLLOW")
+        and os.link in os.supports_dir_fd
+        and os.open in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.unlink in os.supports_dir_fd
+    )
 
 
 class AssetFileError(RuntimeError):
@@ -297,6 +317,24 @@ class AssetFileStore:
             raise AssetAlreadyExists(
                 f"Immutable Asset already exists: {relative_uri}",
             )
+        if not _supports_dir_fd_publication():
+            self._publish_staged_path_fallback(
+                staged,
+                target,
+                relative_uri,
+                verified_fingerprint,
+            )
+            logger.info(
+                "asset published: uri=%s size=%d sha256=%s",
+                PurePosixPath(*parts).as_posix(),
+                actual_size,
+                actual_sha256[:16],
+            )
+            return PublishedAsset(
+                relative_uri=PurePosixPath(*parts).as_posix(),
+                sha256=actual_sha256,
+                size_bytes=actual_size,
+            )
 
         source_dir_fd = _open_directory(self.staging_root)
         target_dir_fd = _open_directory(parent)
@@ -384,6 +422,91 @@ class AssetFileStore:
             sha256=actual_sha256,
             size_bytes=actual_size,
         )
+
+    def _publish_staged_path_fallback(
+        self,
+        staged: StagedAsset,
+        target: Path,
+        relative_uri: str,
+        verified_fingerprint: _FileFingerprint,
+    ) -> None:
+        source = staged.path
+        linked = False
+        source_moved = False
+        target_durable = False
+        try:
+            source_stat = source.lstat()
+            if (
+                stat.S_ISLNK(source_stat.st_mode)
+                or not stat.S_ISREG(source_stat.st_mode)
+                or not _matches_published_file(
+                    source_stat,
+                    verified_fingerprint,
+                )
+            ):
+                raise StagedAssetError(
+                    "Staged Asset changed during publication",
+                )
+            try:
+                os.link(source, target)
+                linked = True
+            except FileExistsError as exc:
+                raise AssetAlreadyExists(
+                    f"Immutable Asset already exists: {relative_uri}",
+                ) from exc
+            except OSError as exc:
+                if not _is_windows():
+                    raise AssetFileError(
+                        f"Cannot publish Asset: {relative_uri}",
+                    ) from exc
+                try:
+                    os.rename(source, target)
+                    source_moved = True
+                except FileExistsError as exists:
+                    raise AssetAlreadyExists(
+                        f"Immutable Asset already exists: {relative_uri}",
+                    ) from exists
+                except OSError as rename_error:
+                    raise AssetFileError(
+                        f"Cannot publish Asset: {relative_uri}",
+                    ) from rename_error
+
+            target_stat = target.lstat()
+            if (
+                stat.S_ISLNK(target_stat.st_mode)
+                or not stat.S_ISREG(target_stat.st_mode)
+                or not _matches_published_file(
+                    target_stat,
+                    verified_fingerprint,
+                )
+            ):
+                raise StagedAssetError(
+                    "Staged Asset changed during publication",
+                )
+            _fsync_directory(target.parent)
+            target_durable = True
+            if not source_moved:
+                try:
+                    source.unlink()
+                except OSError as exc:
+                    raise AssetFileError(
+                        f"Asset published but staging cleanup failed: {relative_uri}",
+                    ) from exc
+            _fsync_directory(self.staging_root)
+        except Exception:
+            if linked and not target_durable:
+                try:
+                    target.unlink()
+                    _fsync_directory(target.parent)
+                except OSError:
+                    pass
+            if source_moved and not target_durable:
+                try:
+                    os.rename(target, source)
+                    _fsync_directory(self.staging_root)
+                except OSError:
+                    pass
+            raise
 
     def abandon(self, staged: StagedAsset) -> None:
         """Remove an unpublished staging file owned by this store."""
@@ -870,11 +993,7 @@ def _utc_datetime(value: datetime, *, label: str) -> datetime:
 
 
 def _fsync_directory(directory: Path) -> None:
-    descriptor = _open_directory(directory)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    runtime_fsync_directory(directory)
 
 
 __all__ = [

@@ -133,12 +133,13 @@ export function patchExecutionAuthorization(
 
 export function patchCreationCheckpoints(
   mode: "required" | "skip",
+  executionMode: "delegated" | "co_creation" | "fine_tuning" = "co_creation",
 ): Promise<{ ok: boolean }> {
   const id = newClientId("creation-checkpoints");
   return creatorRequest("/models/config/creation-checkpoints", {
     method: "PATCH",
     headers: { "Idempotency-Key": id },
-    body: jsonBody({ mode }),
+    body: jsonBody({ mode, execution_mode: executionMode }),
   });
 }
 
@@ -167,6 +168,21 @@ export function patchPermissionMode(mode: {
       creation_checkpoints: mode.checkpoints,
       media_review: mode.mediaReview,
     }),
+  });
+}
+
+export function patchSelfReview(
+  tiers: Partial<{
+    sync_enabled: boolean;
+    media_enabled: boolean;
+    render_enabled: boolean;
+  }>,
+): Promise<{ ok: boolean }> {
+  const id = newClientId("self-review");
+  return creatorRequest("/models/config/self-review", {
+    method: "PATCH",
+    headers: { "Idempotency-Key": id },
+    body: jsonBody(tiers),
   });
 }
 

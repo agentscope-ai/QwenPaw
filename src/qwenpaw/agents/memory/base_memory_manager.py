@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """Abstract base class for memory managers."""
+
 import asyncio
 import json
 import logging
-import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
@@ -23,13 +23,16 @@ from ...constant import (
     AUTO_MEMORY_SEARCH_TEXT,
     AUTO_MEMORY_SEARCH_THINKING_PREFIX,
 )
+from ...app.crons.contracts import ServiceCronJob
 from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
-AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
 MAX_QUERY_CHARS = 50
 SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
 MAX_SUMMARY_TASK_HISTORY = 100
+MAX_RUNTIME_TASK_HISTORY = 20
+MAX_RUNTIME_RESULT_CHARS = 4000
+MAX_RUNTIME_ERROR_CHARS = 240
 SUMMARY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
@@ -53,7 +56,6 @@ class BaseMemoryManager(ABC):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
         self._summary_task_info: dict[str, dict[str, Any]] = {}
-        self._auto_memory_turn_states: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
         self._task_queue: asyncio.Queue[
             tuple[str, list[Msg], dict]
@@ -112,6 +114,15 @@ class BaseMemoryManager(ABC):
         """
         return None
 
+    def list_cron_jobs(self) -> list[ServiceCronJob]:
+        """Return background jobs contributed by this memory backend.
+
+        Cron jobs are an optional backend capability. The cron manager owns
+        their scheduling lifecycle and does not need to understand their
+        domain-specific purpose or configuration.
+        """
+        return []
+
     def get_auto_memory_interval(self) -> int:
         """Return the lifecycle auto-memory interval for this backend.
 
@@ -121,33 +132,13 @@ class BaseMemoryManager(ABC):
         """
         return 0
 
-    def get_auto_memory_turn_state(self, session_id: str) -> dict[str, Any]:
-        """Return persistent auto-memory turn tracking state for a session."""
-        now = time.monotonic()
-        expired_before = now - AUTO_MEMORY_TURN_STATE_TTL_SECONDS
-        for state_key, state in list(self._auto_memory_turn_states.items()):
-            touched_at = float(state.get("touched_at") or 0)
-            if touched_at < expired_before:
-                self._auto_memory_turn_states.pop(state_key, None)
-
-        key = session_id or "__default__"
-        state = self._auto_memory_turn_states.setdefault(
-            key,
-            {
-                "pending": [],
-                "seen": {},
-                "touched_at": now,
-            },
-        )
-        state["touched_at"] = now
-        return state
-
     def _build_auto_memory_search_msg(
         self,
         *,
         query: str,
         max_results: int,
         text: str,
+        estimate_divisor: float | None = None,
     ) -> Msg:
         """Build the simulated assistant tool interaction for memory search."""
         tool_call_id = uuid.uuid4().hex
@@ -175,7 +166,8 @@ class BaseMemoryManager(ABC):
             output=[TextBlock(text=text)],
             state=ToolResultState.SUCCESS,
         )
-        estimate_divisor = self._get_token_estimate_divisor()
+        if estimate_divisor is None:
+            estimate_divisor = self._get_token_estimate_divisor()
         estimated_input_tokens = sum(
             self._estimate_message_text_tokens(part, estimate_divisor)
             for part in (
@@ -220,17 +212,25 @@ class BaseMemoryManager(ABC):
             from ...config.config import load_agent_config
 
             agent_config = load_agent_config(self.agent_id)
-            lcc = agent_config.running.light_context_config
-            divisor = lcc.token_count_estimate_divisor
-            divisor = float(divisor)
-            if divisor > 0:
-                return divisor
+            return self._resolve_token_estimate_divisor(agent_config)
         except Exception:
             logger.debug(
                 "Failed to load token_count_estimate_divisor for %s",
                 self.agent_id,
                 exc_info=True,
             )
+        return 4
+
+    @staticmethod
+    def _resolve_token_estimate_divisor(agent_config: Any) -> float:
+        """Resolve a positive token estimate divisor from agent config."""
+        try:
+            light_context_config = agent_config.running.light_context_config
+            divisor = float(light_context_config.token_count_estimate_divisor)
+            if divisor > 0:
+                return divisor
+        except (AttributeError, TypeError, ValueError):
+            pass
         return 4
 
     @staticmethod
@@ -402,6 +402,7 @@ class BaseMemoryManager(ABC):
                 info["error"] = str(e)
                 logger.error(f"Summary task {task_id} failed: {e}")
             finally:
+                info["finished_at"] = datetime.now(timezone.utc)
                 self._prune_summary_task_info()
 
     async def _shutdown_summarize_worker(
@@ -459,10 +460,12 @@ class BaseMemoryManager(ABC):
 
         self._summary_task_info[task_id] = {
             "task_id": task_id,
-            "start_time": datetime.now(),
+            "start_time": datetime.now(timezone.utc),
             "status": "pending",
+            "message_count": len(messages),
             "result": None,
             "error": None,
+            "finished_at": None,
         }
 
         # Enqueue for serial execution
@@ -490,6 +493,7 @@ class BaseMemoryManager(ABC):
             if info["status"] == "running":
                 if self._worker_task.cancelled():
                     info["status"] = "cancelled"
+                    info["finished_at"] = datetime.now(timezone.utc)
                     logger.info(
                         f"Summary task {task_id} cancelled (worker stopped)",
                     )
@@ -498,6 +502,7 @@ class BaseMemoryManager(ABC):
                     if exc is not None:
                         info["status"] = "failed"
                         info["error"] = str(exc)
+                        info["finished_at"] = datetime.now(timezone.utc)
                         logger.error(f"Summary task {task_id} failed: {exc}")
         self._prune_summary_task_info()
 
@@ -529,6 +534,129 @@ class BaseMemoryManager(ABC):
                 },
             )
         return result
+
+    def get_runtime_status(
+        self,
+        *,
+        auto_memory_interval: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a sanitized operational snapshot for status UIs.
+
+        Memory-capture history includes the same bounded result text used for
+        inbox notifications. The shared summarize queue contains periodic
+        auto-memory work as well as user-triggered ``/new`` and ``/compact``
+        captures, so callers must not present every record as auto-memory.
+        It deliberately excludes messages, session identifiers, and task
+        kwargs.
+        """
+        self._update_task_statuses()
+
+        task_infos = list(self._summary_task_info.values())
+        pending_tasks = sum(
+            info.get("status") == "pending" for info in task_infos
+        )
+        running_tasks = sum(
+            info.get("status") == "running" for info in task_infos
+        )
+
+        worker = self._worker_task
+        if self._worker_stopping:
+            worker_status = "stopping"
+        elif running_tasks:
+            worker_status = "busy"
+        elif worker is None:
+            worker_status = "error" if pending_tasks else "idle"
+        elif not worker.done():
+            worker_status = "idle"
+        elif worker.cancelled():
+            worker_status = "error" if pending_tasks else "idle"
+        else:
+            worker_status = (
+                "error"
+                if worker.exception() is not None or pending_tasks
+                else "idle"
+            )
+
+        last_failed = next(
+            (
+                info
+                for info in reversed(task_infos)
+                if info.get("status") == "failed"
+            ),
+            None,
+        )
+
+        interval = max(
+            0,
+            int(
+                self.get_auto_memory_interval()
+                if auto_memory_interval is None
+                else auto_memory_interval,
+            ),
+        )
+
+        def _iso_time(info: dict[str, Any] | None, key: str) -> str | None:
+            if info is None:
+                return None
+            value = info.get(key)
+            return value.isoformat() if isinstance(value, datetime) else None
+
+        def _bounded_text(
+            value: Any,
+            limit: int,
+            *,
+            single_line: bool = False,
+        ) -> str | None:
+            text = str(value or "").strip()
+            if not text:
+                return None
+            if single_line:
+                text = " ".join(text.split())
+            return text[:limit]
+
+        tasks = []
+        for info in reversed(task_infos[-MAX_RUNTIME_TASK_HISTORY:]):
+            tasks.append(
+                {
+                    "task_id": str(info.get("task_id") or ""),
+                    "status": str(info.get("status") or "pending"),
+                    "queued_at": _iso_time(info, "start_time"),
+                    "finished_at": _iso_time(info, "finished_at"),
+                    "message_count": max(
+                        0,
+                        int(info.get("message_count") or 0),
+                    ),
+                    "result": _bounded_text(
+                        info.get("result"),
+                        MAX_RUNTIME_RESULT_CHARS,
+                    ),
+                    "error": _bounded_text(
+                        info.get("error"),
+                        MAX_RUNTIME_ERROR_CHARS,
+                    ),
+                },
+            )
+
+        return {
+            "worker": {
+                "status": worker_status,
+                "queue_pending": self._task_queue.qsize(),
+                "tasks_running": running_tasks,
+            },
+            "auto_memory": {
+                "enabled": interval > 0,
+                "interval": interval,
+            },
+            "tasks": tasks,
+            "recent": {
+                "last_error": _bounded_text(
+                    last_failed.get("error") if last_failed else None,
+                    MAX_RUNTIME_ERROR_CHARS,
+                    single_line=True,
+                ),
+            },
+            "reindexing": bool(getattr(self, "is_reindexing", False)),
+        }
 
 
 # ---------------------------------------------------------------------------

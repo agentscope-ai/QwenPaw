@@ -18,6 +18,7 @@ from services.project_files.assets import (
     AssetPathError,
     StagedAssetError,
 )
+from services.project_files import assets as assets_module
 from services.project_files.models import AssetIndex, IndexedFile
 
 
@@ -101,6 +102,62 @@ def test_publish_never_overwrites_an_existing_immutable_path(tmp_path):
     assert second.path.exists()
     store.abandon(second)
     assert not second.path.exists()
+
+
+def test_publish_uses_path_fallback_without_descriptor_rooted_io(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        assets_module,
+        "_supports_dir_fd_publication",
+        lambda: False,
+    )
+    store = _store(tmp_path)
+    staged = store.stage_bytes(b"windows asset")
+
+    published = store.publish(
+        staged,
+        "assets/sources/source-1/version-1/original.bin",
+        expected_sha256=staged.sha256,
+        expected_size_bytes=staged.size_bytes,
+    )
+
+    assert (store.project_root / published.relative_uri).read_bytes() == (
+        b"windows asset"
+    )
+    assert not staged.path.exists()
+
+
+def test_publish_path_fallback_uses_windows_rename_when_link_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    store = _store(tmp_path)
+    staged = store.stage_bytes(b"windows rename asset")
+
+    def fail_link(*_args, **_kwargs):
+        raise OSError("hard links unavailable")
+
+    monkeypatch.setattr(
+        assets_module,
+        "_supports_dir_fd_publication",
+        lambda: False,
+    )
+    monkeypatch.setattr(assets_module, "_is_windows", lambda: True)
+    monkeypatch.setattr(assets_module.os, "link", fail_link)
+
+    published = store.publish(
+        staged,
+        "assets/sources/source-1/version-1/original.bin",
+        expected_sha256=staged.sha256,
+        expected_size_bytes=staged.size_bytes,
+    )
+
+    assert (store.project_root / published.relative_uri).read_bytes() == (
+        b"windows rename asset"
+    )
+    assert not staged.path.exists()
 
 
 def test_publish_rechecks_staged_content_before_moving_it(tmp_path):

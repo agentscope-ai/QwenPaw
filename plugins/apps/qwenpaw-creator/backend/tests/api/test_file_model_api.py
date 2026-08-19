@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -238,6 +240,58 @@ def test_tts_section_survives_unrelated_config_mutations(
     assert reloaded.tts.api_key == "sk-tts"
 
 
+def test_load_drops_unknown_persisted_fields_instead_of_500(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """model_config.json written by another plugin version must still load.
+
+    The schema forbids extra fields, so an unknown key persisted by a newer
+    (or older) build used to escape as a raw pydantic error — an opaque 500
+    on every model-config route, locking users out of the config modal.
+    """
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    payload = _config()
+    payload["llm"]["field_from_the_future"] = "surprise"
+    payload["tts"] = {"model_name": "qwen3-tts-flash", "speed": 1.2}
+    payload["self_review"] = {"sync_enabled": True, "retired_tier": False}
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = model_routes.load_model_config(include_environment=False)
+    assert loaded.llm.model_name == "qwen-plus"
+    assert loaded.tts.model_name == "qwen3-tts-flash"
+    assert loaded.self_review.sync_enabled is True
+
+    # A read-modify-write transaction must also survive (saves go through
+    # the same assembly) and rewrite the file without the unknown fields.
+    model_routes.mutate_model_config(lambda config: config)
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "field_from_the_future" not in persisted["llm"]
+    assert "speed" not in persisted["tts"]
+
+
+def test_load_surfaces_invalid_persisted_value_as_validation_error(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A wrong-typed persisted value must raise the structured 422 error."""
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    payload = _config()
+    payload["llm"]["enabled"] = "definitely-not-a-bool"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="llm.enabled"):
+        model_routes.load_model_config(include_environment=False)
+
+
 def test_real_api_key_supports_every_speech_section(
     tmp_path,
     monkeypatch,
@@ -322,6 +376,136 @@ def test_permission_mode_patch_is_atomic(tmp_path, monkeypatch) -> None:
     unchanged = model_routes.load_model_config(include_environment=False)
     assert unchanged.execution_authorization.mode == "allow_all"
     assert unchanged.media_review.mode == "auto_approve"
+
+
+def test_self_review_patch_merges_tiers(tmp_path, monkeypatch) -> None:
+    """Each PATCH merges into the section so tiers never clobber each other,
+    and the runtime switches follow the persisted values when the
+    corresponding environment variables are not explicitly set."""
+
+    from models import config as model_config
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    for env in (
+        "CREATOR_SELF_REVIEW_ENABLED",
+        "CREATOR_SYNC_REVIEW_ENABLED",
+        "CREATOR_MEDIA_REVIEW_ENABLED",
+    ):
+        monkeypatch.delenv(env, raising=False)
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+
+    asyncio.run(model_routes.patch_self_review({"render_enabled": True}))
+    asyncio.run(model_routes.patch_self_review({"sync_enabled": True}))
+
+    loaded = model_routes.load_model_config(include_environment=False)
+    assert loaded.self_review.render_enabled is True
+    assert loaded.self_review.sync_enabled is True
+    assert loaded.self_review.media_enabled is False
+
+    # Runtime switches follow the persisted tiers without env overrides.
+    assert model_config.is_self_review_enabled() is True
+    assert model_config.is_sync_review_enabled() is True
+    assert model_config.is_media_review_enabled() is False
+
+    # An explicitly set env var wins in both directions.
+    monkeypatch.setenv("CREATOR_SELF_REVIEW_ENABLED", "0")
+    assert model_config.is_self_review_enabled() is False
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
+    assert model_config.is_media_review_enabled() is True
+
+    # Invalid payloads reject before mutation.
+    with pytest.raises(ValidationError, match="布尔值"):
+        asyncio.run(model_routes.patch_self_review({"sync_enabled": "yes"}))
+    with pytest.raises(ValidationError, match="不支持的字段"):
+        asyncio.run(model_routes.patch_self_review({"bogus": True}))
+    with pytest.raises(ValidationError, match="至少提供"):
+        asyncio.run(model_routes.patch_self_review({}))
+    unchanged = model_routes.load_model_config(include_environment=False)
+    assert unchanged.self_review.render_enabled is True
+    assert unchanged.self_review.sync_enabled is True
+
+
+def test_self_review_env_overrides_reported_never_persisted(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """GET badges env-shadowed tiers; PATCH never writes the report to disk.
+
+    Field incident: review ran with the settings-center toggles off
+    because stale env vars stayed injected — the UI needs the override
+    to be visible, and the persisted file must stay clean.
+    """
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    for env in (
+        "CREATOR_SELF_REVIEW_ENABLED",
+        "CREATOR_SYNC_REVIEW_ENABLED",
+        "CREATOR_MEDIA_REVIEW_ENABLED",
+    ):
+        monkeypatch.delenv(env, raising=False)
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+
+    silent = asyncio.run(model_routes.get_model_config())
+    assert silent.self_review.env_overrides == {}
+
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
+    monkeypatch.setenv("CREATOR_SELF_REVIEW_ENABLED", "0")
+    loaded = asyncio.run(model_routes.get_model_config())
+    assert loaded.self_review.env_overrides == {
+        "media_enabled": "1",
+        "render_enabled": "0",
+    }
+
+    # A tier PATCH while overrides are active must not persist the report.
+    asyncio.run(model_routes.patch_self_review({"sync_enabled": True}))
+    on_disk = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "env_overrides" not in (on_disk.get("self_review") or {})
+
+
+def test_video_api_key_reuses_llm_for_dashscope(tmp_path, monkeypatch) -> None:
+    """Without a video key the DashScope (wan/happyhorse) backend reuses the
+    text credential by default; opting out or running on Volcano never
+    borrows the Bailian key."""
+
+    from models import config as model_config
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    config_path = (tmp_path / "config" / "model_config.json").resolve()
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    for env in ("VIDEO_API_KEY", "TEXT_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    payload = _config()
+    payload["video"] = {
+        "enabled": True,
+        "model_name": "wan2.7",
+        "base_url": "https://dashscope.aliyuncs.com/api/v1",
+        "protocol": "DashScope（百炼）",
+    }
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    model_config._clear_user_config_cache()
+    assert model_config.get_video_api_key() == "secret"
+
+    payload["video"]["reuse_llm_key"] = False
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    model_config._clear_user_config_cache()
+    assert model_config.get_video_api_key() == ""
+
+    payload["video"] = {
+        "enabled": True,
+        "model_name": "doubao-seedance-2.0-pro",
+        "base_url": "https://ark.cn-beijing.volces.com",
+        "protocol": "Volcano Engine（火山引擎）",
+    }
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    model_config._clear_user_config_cache()
+    assert model_config.get_video_api_key() == ""
 
 
 def test_load_migrates_legacy_grounding_model_to_search_and_validation(
@@ -554,6 +738,53 @@ def test_model_config_is_single_file_native_and_idempotent(
         path.suffix.casefold() in {".db", ".sqlite", ".sqlite3"}
         for path in tmp_path.rglob("*")
     )
+
+
+def test_model_config_save_tolerates_windows_like_private_file_surface(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    monkeypatch.setenv(
+        "CREATOR_MODEL_CONFIG_PATH",
+        str((tmp_path / "config" / "model_config.json").resolve()),
+    )
+    real_open = os.open
+
+    def windows_like_open(target, flags, mode=0o600, *args, **kwargs):
+        if Path(target).is_dir():
+            raise PermissionError(errno.EACCES, "Permission denied", target)
+        return real_open(target, flags, mode, *args, **kwargs)
+
+    monkeypatch.delattr(model_routes.os, "fchmod", raising=False)
+    monkeypatch.setattr(model_routes.os, "open", windows_like_open)
+
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            return await client.post(
+                "/models/config",
+                headers={"Idempotency-Key": "config-windows-like"},
+                json=_config(),
+            )
+
+    response = asyncio.run(scenario())
+
+    assert response.status_code == 200
+    persisted = json.loads(
+        (tmp_path / "config" / "model_config.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    model_routes._decrypt_secret_fields(persisted)
+    assert persisted["llm"]["api_key"] == "secret"
 
 
 def test_concurrent_single_file_save_is_atomic_and_last_writer_wins(

@@ -588,8 +588,13 @@ async def interrupt(
     resolve_idempotency_key(idempotency_key)
     store = _store(services)
     try:
+        # Snapshot read (shared lock): the full get_project_session recovery
+        # replays the whole event stream under the exclusive Runtime lock and
+        # loses the lock race against steady UI polling on large sessions, so
+        # the stop request itself stalled while the dock showed 「正在停止」
+        # forever.  Only the status + head pointers are needed here.
         session = await asyncio.to_thread(
-            store.get_project_session,
+            store.get_project_session_snapshot,
             project_id,
         )
         if session.status.value not in {"INTERRUPT_REQUESTED", "CANCELLED"}:
@@ -622,7 +627,7 @@ async def interrupt(
                 reason="user_interrupt",
             )
             session = await asyncio.to_thread(
-                store.get_project_session,
+                store.get_project_session_snapshot,
                 project_id,
             )
     except BaseException as error:

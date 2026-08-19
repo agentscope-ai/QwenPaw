@@ -1,7 +1,19 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentRequest,
+  AgentsRunningConfig,
+  EmbeddingModelConfig,
+} from "../types";
+
+export interface EmbeddingTestResponse {
+  success: boolean;
+  configured_dimensions: number;
+  actual_dimensions: number | null;
+  latency_ms: number;
+  message: string;
+}
 
 export type TranscriptionErrorCode =
   | "TRANSCRIPTION_DISABLED"
@@ -50,6 +62,14 @@ export const agentApi = {
     request<AgentsRunningConfig>("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
+      timeout: 10 * 60 * 1000,
+    }),
+
+  testEmbedding: (config: EmbeddingModelConfig) =>
+    request<EmbeddingTestResponse>("/workspace/embedding/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: 30 * 1000,
     }),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),

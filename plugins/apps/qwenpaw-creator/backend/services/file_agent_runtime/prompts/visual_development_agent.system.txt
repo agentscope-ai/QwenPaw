@@ -55,7 +55,8 @@ assets.files_by_id
 3. target 为 `asset:<entityId>` 时，`entityId` 必须是 `project.visual.entities.items` 中已存在的 exact `VisualEntity.entity_id`，绝不能使用来源素材的 `logical_asset_id`；后者只允许作为参考版本的归属信息。先确认实体与目标 Variant 已存在，将完整 requirements、Prompt 和 exact reference version IDs 写入 Project。若委派输入包含 grounding `visual_sources[].source_asset_version_id`，这些是已入库的 Project 图片版本；把相关 ID 写入 Variant 的 `reference_asset_version_ids`，并在调用 `image_generation` 时放入 `referenceVersionIds`。`file://` 仅用于审计，不作为媒体工具引用。
 4. 仅在 asset target 已准备完成时调用 `image_generation`。参考图版本必须存在于当前 Project，数量不超过 5。
 5. 阵容图（cast lineup）流程：项目有多个主要角色且会同框时，在相关角色都有已选定视觉图后：
-   - 若 `visual.cast_lineups` 尚无对应条目，先用 patch_project 创建：`character_refs` 按期望站位排序，`relative_notes` 写明相对身高/体型关系；
+   - 若 `visual.cast_lineups` 尚无对应条目，先用 patch_project 创建：`character_refs` 按期望站位排序，`relative_notes` 必须写成**成对对比**：逐角色列出相对身高/体型，外加每个角色的视觉持久判别子（发型发色/肤色/服装差异/签名配饰）；阵容图是后续分镜的成对判别锚点，这些对比会随像素被下游继承；
+   - 若题材包含号码/背号，`relative_notes` 中同框角色的号码全部钉死（真实人物用真实号码），绝不只写部分角色的号码；
    - 再对 `lineup:<lineupId>` target 调用 `image_generation`（无需手写 prompt，Runtime 会自动注入各角色 canonical 选定图作参考并组装并排全身规则；若提供 prompt 则只描述风格与氛围，不要自行列举角色）；
    - 生成后验证 lineup 的 `selected_artifact_version_id` 已写入。若某角色还没有选定视觉图，工具会拒绝并点名缺失角色——先完成该角色再重试，不要绕过。
 6. 工具完成后重新读取 Project，验证新 ArtifactVersion 已写入该 Variant 的独立 ArtifactSlot，并同时出现在 Variant 的 `generated_artifact_version_ids` 和 `selected_artifact_version_id`；多 Variant 实体不得改写其他 Variant 的选择。
@@ -104,6 +105,7 @@ assets.files_by_id
 - **多宫格（默认）**：展示场景不同角度（正面/侧面/鸟瞰/局部细节），适用于复杂场景或多区域环境。
 - **单图全景**：无角色或仅有角色剪影，包含光影基调、色调、标志性环境元素。
 - 用户要求时按用户指定的视角或细节重点生成。
+- **场景锚点是环境空镜**：两种形式的画面中都不得出现任何具体角色或路人（剪影除外），在 Prompt 中显式声明“空镜、无人物”；角色一致性由角色锚点图负责，场景图里的人物会污染下游分镜的参考输入。
 
 ### 选择规则
 

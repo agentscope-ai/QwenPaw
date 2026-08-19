@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
@@ -104,6 +105,15 @@ from services.media_files.call_budget import (
     MediaCallBudgetExhausted,
     ensure_media_call_budget,
 )
+from services.external_skills import (
+    EXTERNAL_SKILL_TOOL_NAMES,
+    VIEW_SKILL_TOOL_NAME,
+    LoadedSkill,
+    external_skill_tool_manifests,
+    load_skills as load_external_skills,
+    render_external_skills_context,
+    view_skill as view_external_skill,
+)
 from services.observability import trace_event, traced_async
 from services.source_analysis import SourceAgentToolContext
 from services.specialist_tools import (
@@ -140,6 +150,8 @@ from .model_client import (
     AgentStreamCallbackError,
     AgentStreamCallbackPassthrough,
     AgentModelTurn,
+    RateLimitExhaustedError,
+    RateLimitRetryNotice,
     AgentScopeAgentChatClient,
     AgentScopeVlmChatClient,
     AgentToolCall,
@@ -151,6 +163,7 @@ from .models import (
 )
 from .native_media import (
     document_page_content_parts,
+    video_frame_content_parts,
     source_intelligence_content_parts,
 )
 from .prompts import render_creator_system_prompt
@@ -175,7 +188,22 @@ OBJECT_GROUNDING_TOOL_NAME = "ground_image_objects"
 GROUNDING_VISUAL_MAX_BYTES = 16 * 1024 * 1024
 MAX_MALFORMED_JQ_PROJECT_RETRIES = 2
 MAX_REPEATED_DETERMINISTIC_TOOL_FAILURES = 2
-DEFAULT_MODEL_TURN_TIMEOUT_SECONDS = 180.0
+DEFAULT_MODEL_TURN_TIMEOUT_SECONDS = 300.0
+
+# Tool results that may carry video-frame refs to inject as native
+# images: the synchronous reader and the background-task harvester.
+_VIDEO_FRAME_TOOL_NAMES = frozenset(
+    {"read_source_video", "check_observation_tasks"},
+)
+
+
+def _nested_tool_payload(arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Model-owned specialist tool flags (background/wait) live in the
+    nested ``arguments.arguments`` payload, not on the envelope."""
+    payload = arguments.get("arguments")
+    return payload if isinstance(payload, Mapping) else {}
+
+
 # The workspace schema prompt instructs the model to keep each jq_project
 # argument JSON under 4KB; the advisory fires at 2x that guidance so the
 # diagnosis surfaces payloads that ignored the instruction.
@@ -303,6 +331,26 @@ def _specialist_waiting_review_summary(
             "这不算重新生成已通过产物。"
         )
     return f"{target} 的产物已生成，后续步骤尚未开始。请先完成审阅；" "审阅通过后，主线需重新委派同一目标以继续后续步骤。"
+
+
+def _timelines_have_plan(project: Any, target_refs: list[str]) -> bool:
+    """True when every delegated Timeline already carries an edit_plan.
+
+    Used by the co-creation direction gate: a Timeline with a written
+    contract has already passed (or explicitly skipped) direction picking.
+    """
+    timelines = project.timelines.items
+    for target_ref in target_refs:
+        if not str(target_ref).startswith("timeline:"):
+            continue
+        stripped = str(target_ref).partition(":")[2]
+        timeline = timelines.get(stripped) or timelines.get(str(target_ref))
+        if timeline is None:
+            continue
+        plan = getattr(timeline, "edit_plan", None)
+        if plan is None or not plan.concept.strip():
+            return False
+    return True
 
 
 def _agent_waiting_review_summary(
@@ -556,11 +604,15 @@ def _object_grounding_tool_manifest() -> dict[str, Any]:
     }
 
 
-def _creator_agent_tool_manifest() -> list[dict[str, Any]]:
+def _creator_agent_tool_manifest(
+    external_skills: list[LoadedSkill] | None = None,
+) -> list[dict[str, Any]]:
     manifest = [*agent_project_tool_manifest()]
     if get_web_grounding_enabled():
         manifest.append(_ground_prompt_context_tool_manifest())
     manifest.append(_object_grounding_tool_manifest())
+    if external_skills:
+        manifest.extend(external_skill_tool_manifests(external_skills))
     manifest.append(delegate_tool_manifest())
     return manifest
 
@@ -1000,6 +1052,24 @@ class FileCreatorAgentRuntime:
         # Event-driven media fan-out: the model plans, the Runtime executes
         # READY work-graph nodes in parallel (unattended ladder only).
         self.work_scheduler = WorkGraphScheduler(services)
+        # Media workers commit from thread-pool threads; route their
+        # post-commit signal onto the loop so a finished r2v/compose task
+        # re-evaluates the work graph without waiting for a model turn.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        self._commit_wake_listener: Callable[[str], None] | None = None
+        if loop is not None:
+
+            def _wake_from_commit(project_id: str, _loop=loop) -> None:
+                _loop.call_soon_threadsafe(
+                    self.work_scheduler.wake,
+                    project_id,
+                )
+
+            services.poller.add_commit_listener(_wake_from_commit)
+            self._commit_wake_listener = _wake_from_commit
 
     async def _complete_model_turn(
         self,
@@ -1011,6 +1081,7 @@ class FileCreatorAgentRuntime:
         on_text_delta: Any,
         on_thinking_delta: Any,
         on_tool_call_delta: Any,
+        on_rate_limit_retry: Any = None,
     ) -> AgentModelTurn:
         """Bound one provider turn; max_model_turns cannot stop a hung turn."""
 
@@ -1022,6 +1093,7 @@ class FileCreatorAgentRuntime:
                     on_text_delta=on_text_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_rate_limit_retry=on_rate_limit_retry,
                 ),
                 timeout=self.model_turn_timeout_seconds,
             )
@@ -1045,8 +1117,80 @@ class FileCreatorAgentRuntime:
             name="creator-file-agent-dispatcher",
         )
         self._wake.set()
+        # Startup sweep: the media scheduler is commit-driven, so READY
+        # work-graph nodes that became dispatchable right before a
+        # restart (field run 2026-08-09: all scenes locked, compose
+        # READY, process bounced) would otherwise wait for the next
+        # commit that may never come. One wake per Project re-evaluates
+        # every graph; projects with nothing READY are a cheap no-op.
+        # An unattended run the shutdown cancelled mid-turn additionally
+        # gets one YOLO continuation — nobody is attending to retype
+        # “继续”, and the existing fuses still bound runaway loops.
+        try:
+            summaries = await asyncio.to_thread(self.services.projects.list)
+        except Exception:  # noqa: BLE001 - sweep must never block startup
+            summaries = []
+        for summary in summaries:
+            self.work_scheduler.wake(summary.project_id)
+            try:
+                await self._resume_interrupted_run(summary.project_id)
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "startup interrupted-run resume failed for %s",
+                    summary.project_id,
+                )
+
+    async def _resume_interrupted_run(self, project_id: str) -> None:
+        """Queue one YOLO continuation for a stalled unattended project.
+
+        Two startup dead-ends are recovered here. A shutdown-cancelled
+        run: the dispatcher only launches runs for pending user messages
+        and graceful shutdown consumes the head message first, so the
+        project would sit idle forever. A succeeded run whose work graph
+        still carries model-required gaps: the end-of-run YOLO check can
+        race automation that invalidates state right after it passed
+        (field run 2026-08-09: the pre-compose design pass expired scene
+        locks minutes after the run's clean exit). Both continuations go
+        through the standard YOLO gate (auto-approve mode only, resume
+        caps, no-progress fuse), so an actually-finished project is a
+        no-op.
+        """
+
+        records = await asyncio.to_thread(self.runs.list, project_id)
+        if not records:
+            return
+        last = records[-1]
+        if last.status is AgentRunStatus.CANCELLED:
+            code = str((last.error or {}).get("code") or "")
+            if code != "SHUTDOWN":
+                # SUPERSEDED/INTERRUPTED carry human intent (a replacement
+                # request or an explicit stop); restarting must not
+                # overrule them.
+                return
+            await self._queue_yolo_completion_resume(
+                project_id=project_id,
+                session_id=last.session_id,
+                conversation_id=last.conversation_id,
+                run_id=last.run_id,
+                after_failure=True,
+            )
+            self._wake.set()
+            return
+        if last.status is AgentRunStatus.SUCCEEDED:
+            await self._queue_yolo_completion_resume(
+                project_id=project_id,
+                session_id=last.session_id,
+                conversation_id=last.conversation_id,
+                run_id=last.run_id,
+            )
+            self._wake.set()
 
     async def stop(self) -> None:
+        if self._commit_wake_listener is not None:
+            self.services.poller.remove_commit_listener(
+                self._commit_wake_listener,
+            )
+            self._commit_wake_listener = None
         self._stopping = True
         dispatcher = self._dispatcher
         self._dispatcher = None
@@ -1239,6 +1383,15 @@ class FileCreatorAgentRuntime:
             if not await self._cancel_queued_orphan(project_id, run):
                 return None
         elif run.status not in TERMINAL_AGENT_RUN_STATUSES:
+            return None
+        elif (
+            datetime.now(UTC) - run.updated_at
+        ).total_seconds() < self._ORPHAN_RUN_GRACE_SECONDS:
+            # A run that just reached its terminal status is almost always
+            # a live owner between its final transition and its own
+            # clear_active_run — stealing the lease in that window fails
+            # the owner's cleanup for nothing. True crash leftovers stay
+            # stuck far longer than the grace period.
             return None
         try:
             return await asyncio.to_thread(
@@ -1497,7 +1650,7 @@ class FileCreatorAgentRuntime:
             self.sessions.get_project_session_snapshot,
             project_id,
         )
-        goal = await self._goal_for_message(session, message)
+        goal, goal_created = await self._goal_for_message(session, message)
         snapshot = await asyncio.to_thread(
             self.services.projects.read,
             project_id,
@@ -1521,14 +1674,56 @@ class FileCreatorAgentRuntime:
             input_etag=snapshot.etag,
         )
         await asyncio.to_thread(self.runs.create, record)
-        await asyncio.to_thread(
-            self.sessions.activate_run,
-            project_id,
-            session.session_id,
-            goal_id=goal.goal_id,
-            run_id=run_id,
-            status=CreatorSessionStatus.RUNNING,
-        )
+        try:
+            await asyncio.to_thread(
+                self.sessions.activate_run,
+                project_id,
+                session.session_id,
+                goal_id=goal.goal_id,
+                run_id=run_id,
+                status=CreatorSessionStatus.RUNNING,
+            )
+        except SessionStateConflict as exc:
+            # A concurrent dispatcher (another process sharing this runtime
+            # root, or a stale coordinator surviving a hot reinstall) won
+            # the durable lease first. Without compensation the loser
+            # leaks a QUEUED run forever and, when it also minted a fresh
+            # Goal, leaves that Goal ACTIVE with no run that could ever
+            # settle it — the Session then looks busy indefinitely.
+            logger.warning(
+                "duplicate admission lost the session lease: project=%s "
+                "run=%s goal=%s: %s",
+                project_id,
+                run_id,
+                goal.goal_id,
+                exc,
+            )
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(
+                    self.runs.transition,
+                    project_id,
+                    run_id,
+                    expected_status=AgentRunStatus.QUEUED,
+                    status=AgentRunStatus.CANCELLED,
+                    updates={
+                        "error": {
+                            "code": "DUPLICATE_ADMISSION",
+                            "message": (
+                                "a concurrent dispatcher already owns this "
+                                "Session; duplicate run cancelled"
+                            ),
+                        },
+                    },
+                )
+            if goal_created:
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(
+                        self.sessions.set_goal_status,
+                        project_id,
+                        goal.goal_id,
+                        CreatorGoalStatus.CANCELLED,
+                    )
+            return
         await asyncio.to_thread(
             self.sessions.set_goal_status,
             project_id,
@@ -1609,17 +1804,32 @@ class FileCreatorAgentRuntime:
                     else CreatorGoalStatus.COMPLETED
                 ),
             )
-            await asyncio.to_thread(
-                self.sessions.clear_active_run,
-                project_id,
-                session.session_id,
-                expected_run_id=run_id,
-                status=(
-                    CreatorSessionStatus.PENDING_REVIEW
-                    if needs_review
-                    else CreatorSessionStatus.IDLE
-                ),
-            )
+            try:
+                await asyncio.to_thread(
+                    self.sessions.clear_active_run,
+                    project_id,
+                    session.session_id,
+                    expected_run_id=run_id,
+                    status=(
+                        CreatorSessionStatus.PENDING_REVIEW
+                        if needs_review
+                        else CreatorSessionStatus.IDLE
+                    ),
+                )
+            except SessionStateConflict as exc:
+                # A sibling reconciler (another process on this runtime
+                # root) already observed the terminal run record and
+                # released the session first. The outcome is equivalent —
+                # the run succeeded and the lease is free — so failing the
+                # whole run here would flip a finished Goal to FAILED over
+                # a no-op.
+                logger.warning(
+                    "session lease already released after success: "
+                    "project=%s run=%s: %s",
+                    project_id,
+                    run_id,
+                    exc,
+                )
             await self._event(
                 project_id,
                 session.session_id,
@@ -1709,6 +1919,28 @@ class FileCreatorAgentRuntime:
                 retryable=False,
             )
             self._blocked_heads[project_id] = message.message_seq
+        except RateLimitExhaustedError as exc:
+            logger.error(
+                "Agent run %s failed — model rate limit exhausted after "
+                "%d retries: %s",
+                run_id,
+                exc.retries,
+                exc,
+            )
+            await self._fail_run(
+                project_id,
+                session.session_id,
+                goal.goal_id,
+                run_id,
+                message,
+                code="MODEL_RATE_LIMITED",
+                # Neutral technical text: AgentDock renders the localized
+                # notice from locales via the MODEL_RATE_LIMITED code.
+                message_text=str(exc),
+                retryable=True,
+                extra_details={"retryCount": exc.retries},
+            )
+            self._blocked_heads[project_id] = message.message_seq
         except AgentModelError as exc:
             logger.error(
                 "Agent run %s failed — model request error: %s",
@@ -1775,7 +2007,12 @@ class FileCreatorAgentRuntime:
         request: CreatorMessageRecord,
         tools: AgentProjectTools,
     ) -> _LoopResult:
-        tool_manifest = _creator_agent_tool_manifest()
+        # External skills never break the run: loading is isolated and a
+        # broken configuration only yields an empty toolset/context block.
+        # Loading scans the skills directories and may probe `node --version`
+        # (up to 10s), so it must not run on the event loop.
+        external_skills = await asyncio.to_thread(load_external_skills)
+        tool_manifest = _creator_agent_tool_manifest(external_skills)
         conversation_records = await asyncio.to_thread(
             self.sessions.list_messages,
             project_id,
@@ -1795,6 +2032,9 @@ class FileCreatorAgentRuntime:
                 "content": render_creator_system_prompt(
                     project_id=project_id,
                     workspace_schema=tools.schema_prompt.text,
+                    external_skills=render_external_skills_context(
+                        external_skills,
+                    ),
                 ),
             },
             {
@@ -1827,7 +2067,13 @@ class FileCreatorAgentRuntime:
             self.max_model_turns,
             element_count,
         )
-        for _turn_number in range(1, turn_budget + 1):
+        # The element-scaled budget is used as-is: skills provide domain
+        # knowledge through the viewer and deliverables flow through the
+        # native pipeline, so no per-tool budget extension exists anymore.
+        effective_max_turns = turn_budget
+        turn_number = 0
+        while turn_number < effective_max_turns:
+            turn_number += 1
             self._assert_epoch(project_id, run_id, epoch)
             _compact_wire_project_snapshots(messages)
             assistant_message_id = f"message-{uuid4().hex}"
@@ -1905,6 +2151,25 @@ class FileCreatorAgentRuntime:
             tool_progress = _ToolArgumentProgressReporter(
                 persist_tool_progress,
             )
+
+            async def report_rate_limit_retry(
+                notice: RateLimitRetryNotice,
+            ) -> None:
+                self._assert_epoch(project_id, run_id, epoch)
+                await self._event(
+                    project_id,
+                    session_id,
+                    "agent.model.rate_limit_retry",
+                    run_id,
+                    request,
+                    {
+                        "runId": run_id,
+                        "attempt": notice.attempt,
+                        "maxAttempts": notice.max_attempts,
+                        "delaySeconds": notice.delay_seconds,
+                    },
+                )
+
             turn = await self._complete_model_turn(
                 self.model_client,
                 label="Creator Agent",
@@ -1913,6 +2178,7 @@ class FileCreatorAgentRuntime:
                 on_text_delta=persist_text_delta,
                 on_thinking_delta=persist_thinking_delta,
                 on_tool_call_delta=tool_progress.feed,
+                on_rate_limit_retry=report_rate_limit_retry,
             )
             await tool_progress.finish(turn.tool_calls)
             self._assert_epoch(project_id, run_id, epoch)
@@ -2042,8 +2308,12 @@ class FileCreatorAgentRuntime:
                         # retain their existing recovery behavior.
                         malformed_jq_attempts = 0
                         malformed_jq_fingerprints.clear()
+                    # External skill tools take their Project identity from
+                    # the runtime, never from the model, so a stray projectId
+                    # echo from the model must not kill the whole run.
                     if (
                         call.name != DELEGATE_TOOL_NAME
+                        and call.name not in EXTERNAL_SKILL_TOOL_NAMES
                         and call.arguments.get("projectId") != project_id
                     ):
                         raise FileAgentRuntimeError(
@@ -2068,6 +2338,11 @@ class FileCreatorAgentRuntime:
                     elif call.name == OBJECT_GROUNDING_TOOL_NAME:
                         result = await self._run_object_grounding(
                             request=request,
+                            arguments=call.arguments,
+                        )
+                    elif call.name in EXTERNAL_SKILL_TOOL_NAMES:
+                        result = await self._run_external_skill_tool(
+                            name=call.name,
                             arguments=call.arguments,
                         )
                     else:
@@ -2181,7 +2456,7 @@ class FileCreatorAgentRuntime:
                         "another model turn",
                     )
         raise AgentModelError(
-            f"Creator Agent exceeded {turn_budget} model turns",
+            f"Creator Agent exceeded {effective_max_turns} model turns",
         )
 
     async def _run_ground_prompt_context(
@@ -2724,6 +2999,30 @@ class FileCreatorAgentRuntime:
             "issues": issues,
         }
 
+    async def _run_external_skill_tool(
+        self,
+        *,
+        name: str,
+        arguments: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Serve one skill viewer call from the main Agent.
+
+        Skill failures surface as regular tool errors through the generic
+        handler; they never abort the run or the session.
+        """
+
+        skill_name = str(arguments.get("skill") or "").strip()
+        if not skill_name:
+            raise FileAgentRuntimeError(f"{name} requires skill")
+        if name != VIEW_SKILL_TOOL_NAME:
+            raise FileAgentRuntimeError(
+                f"unhandled external skill tool: {name}",
+            )
+        return await asyncio.to_thread(
+            view_external_skill,
+            skill_name=skill_name,
+        )
+
     async def _run_subagent(
         self,
         *,
@@ -2837,9 +3136,10 @@ class FileCreatorAgentRuntime:
                 self.services,
                 project_id=project_id,
                 request=request,
+                target_refs=delegated.target_refs,
             )
             user_text += (
-                "\n\n本消息附有本轮用户输入的全部原生图片/视频，"
+                "\n\n本消息附有本次委派需要观察的全部原生图片/视频，"
                 f"共 {len(native_media_parts)} 份。必须基于这些原生媒体进行观察，"
                 "不能把消息中的 URL 文本当作已经完成素材理解。"
             )
@@ -2865,6 +3165,32 @@ class FileCreatorAgentRuntime:
                         ensure_ascii=False,
                         separators=(",", ":"),
                     )
+                )
+        if role is SpecialistRole.AI_EDITING_DIRECTOR:
+            from models.config import get_execution_mode
+
+            execution_mode = get_execution_mode()
+            user_text += f"\n\n当前执行模式：{execution_mode}。"
+            if execution_mode == "co_creation" and not _timelines_have_plan(
+                snapshot.project,
+                delegated.target_refs,
+            ):
+                user_text += (
+                    "共创模式且目标 Timeline 尚无 edit_plan：进入方向门——"
+                    "先产出 3 个候选创作方向（每个含一句话 concept、三旋钮 "
+                    "dials、signature_device 与一句 pitch），首行用 "
+                    "[BLOCKED] 列出三卡等待用户选择；用户选定后再把该方向"
+                    "作为 edit_plan 底稿继续。用户已在本次消息中明确选择方向"
+                    "或要求直接开剪时不重复询问。"
+                )
+            elif execution_mode == "delegated":
+                user_text += (
+                    "委派模式：不要中途询问方向或确认，自主完成 edit_plan " "与剪辑，决策写进 edit_plan 即可。"
+                )
+            elif execution_mode == "fine_tuning":
+                user_text += (
+                    "微调模式：用户在迭代已交付成片。只确认本次改动范围，"
+                    "不重新提方向；修改波及的场景需重新 review_scene。"
                 )
         user_content: list[dict[str, Any]] = [
             {"type": "text", "text": user_text},
@@ -3428,6 +3754,72 @@ class FileCreatorAgentRuntime:
                         "failed": failed,
                     },
                 )
+                if (
+                    call.name in _VIDEO_FRAME_TOOL_NAMES
+                    and not failed
+                    and not result.get("background")
+                ):
+                    # Extracted source frames enter the specialist context
+                    # as native images interleaved with timestamps, via the
+                    # same mechanism as read_document page images. Frames
+                    # arrive either directly (synchronous read) or nested
+                    # in the per-task entries of a harvest result.
+                    frame_content: list[dict[str, Any]] = []
+                    frame_sources: list[dict[str, Any]] = [result]
+                    frame_sources.extend(
+                        entry
+                        for entry in result.get("tasks") or []
+                        if isinstance(entry, dict)
+                    )
+                    try:
+                        frame_parts = []
+                        for frame_source in frame_sources:
+                            frame_parts.extend(
+                                await video_frame_content_parts(
+                                    self.services,
+                                    project_id=project_id,
+                                    task_result=frame_source,
+                                ),
+                            )
+                    except (asyncio.CancelledError, StaleAgentRun):
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        frame_parts = []
+                        frame_content = [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "视频帧图注入失败，请基于工具返回的" f"摘要继续或缩小窗口重试：{exc}"
+                                ),
+                            },
+                        ]
+                    if frame_parts:
+                        frame_note = (
+                            "以下是 read_source_video 抽取的帧序列，每帧前"
+                            "一行是它在源素材中的时间戳；请直接观察帧内容，"
+                            "需看连续动态细节时对命中时段改用 "
+                            "observe_source_clip。"
+                        )
+                        frame_content = [
+                            {"type": "text", "text": frame_note},
+                            *frame_parts,
+                        ]
+                    if frame_content:
+                        await asyncio.to_thread(
+                            self.executions.append_specialist_message,
+                            project_id,
+                            specialist_run_id,
+                            message_id=f"specialist-message-{uuid4().hex}",
+                            role="user",
+                            content_parts=frame_content,
+                            metadata={
+                                "parentActionId": parent_action_id,
+                                "videoFramesForToolCallId": call.call_id,
+                            },
+                        )
+                        messages.append(
+                            {"role": "user", "content": frame_content},
+                        )
                 if call.name == "read_document" and not failed:
                     # Rendered pages enter the VLM context as native images
                     # via the existing multimodal user-message mechanism.
@@ -3813,7 +4205,21 @@ class FileCreatorAgentRuntime:
                 ),
             )
             result = dict(invoked.payload)
-            if spec is not None and spec.wait is SpecialistToolWait.TASK:
+            tool_payload = _nested_tool_payload(arguments)
+            background_requested = bool(
+                spec is not None
+                and spec.background_capable
+                and tool_payload.get("background"),
+            )
+            if (
+                spec is not None
+                and spec.wait is SpecialistToolWait.TASK
+                and background_requested
+            ):
+                # Host-style async submit: hand the task id back now and
+                # let the model harvest via check_observation_tasks.
+                result["background"] = True
+            elif spec is not None and spec.wait is SpecialistToolWait.TASK:
                 if not invoked.task_id:
                     raise FileAgentRuntimeError(
                         f"{name} declared Task wait without a task id",
@@ -3831,6 +4237,18 @@ class FileCreatorAgentRuntime:
                         "outputRefs": list(task.output_refs),
                         "result": task.result,
                     },
+                )
+            elif (
+                spec is not None
+                and spec.wait is SpecialistToolWait.TASK_LIST
+                and invoked.task_ids
+                and tool_payload.get("wait", True)
+            ):
+                result["tasks"] = await self._await_specialist_tasks(
+                    project_id=project_id,
+                    parent_run_id=parent_run_id,
+                    epoch=epoch,
+                    task_ids=invoked.task_ids,
                 )
             if authorization_id is not None:
                 result["executionAuthorizationId"] = authorization_id
@@ -4203,73 +4621,139 @@ class FileCreatorAgentRuntime:
             spec.name,
             arguments,
         )
-        authorization_id = (
-            "authorization-"
-            + uuid5(
-                NAMESPACE_URL,
-                f"qwenpaw-creator:file-tool-authorization:{project_id}:{execution_request_id}",
-            ).hex
-        )
+        # The approval identity is target-scoped (tool name + arguments),
+        # not run-scoped: a re-delegated Specialist retrying the same
+        # generation (e.g. its predecessor was interrupted by a review
+        # decision while parked on this very approval) must reuse the
+        # pending/approved record instead of asking the user to confirm the
+        # same call again. Rejected/expired attempts stay behind as terminal
+        # audit records and the next call opens a fresh attempt, mirroring
+        # creation checkpoints.
+        request_digest = hashlib.sha256(
+            "\0".join(
+                (
+                    spec.name,
+                    json.dumps(
+                        dict(arguments),
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                ),
+            ).encode("utf-8"),
+        ).hexdigest()
+        attempt = 0
+        existing: ExecutionAuthorizationRecord | None = None
+        while True:
+            authorization_id = (
+                "authorization-"
+                + uuid5(
+                    NAMESPACE_URL,
+                    "qwenpaw-creator:file-tool-authorization:"
+                    f"{project_id}:{request_digest}:{attempt}",
+                ).hex
+            )
+            try:
+                record = await asyncio.to_thread(
+                    self.executions.get_execution_authorization,
+                    project_id,
+                    authorization_id,
+                )
+            except RecordNotFoundError:
+                break
+            if record.status in (
+                ExecutionAuthorizationStatus.REJECTED,
+                ExecutionAuthorizationStatus.EXPIRED,
+            ):
+                attempt += 1
+                continue
+            existing = record
+            break
+        if (
+            existing is not None
+            and existing.status is ExecutionAuthorizationStatus.APPROVED
+        ):
+            logger.info(
+                "approval reused: project=%s run=%s role=%s tool=%s "
+                "call_id=%s authorization=%s",
+                project_id,
+                specialist_run_id,
+                common.get("role"),
+                spec.name,
+                call_id,
+                existing.authorization_id,
+            )
+            return existing.authorization_id
         target_ref = str(arguments.get("targetRef") or "project:unknown")
         tool_arguments = dict(arguments.get("arguments") or {})
         provider, model = _execution_provider_model(spec, tool_arguments)
-        # What the provider will actually bill: video_edit follows its input
-        # video, not the requested durationSeconds. The user must approve
-        # those effective terms, so summary and scope both read them
-        # (upstream dropped the local price estimate entirely).
-        billing_arguments = await self._billing_arguments(
-            spec,
-            project_id=project_id,
-            tool_arguments=tool_arguments,
-        )
-        adjusted_parameters = {
-            key: value
-            for key, value in billing_arguments.items()
-            if tool_arguments.get(key) != value
-        }
-        record = ExecutionAuthorizationRecord(
-            authorization_id=authorization_id,
-            project_id=project_id,
-            round_id=round_id,
-            run_id=specialist_run_id,
-            execution_request_id=execution_request_id,
-            operation=spec.name,
-            target_scope=[target_ref],
-            authorization_token=secrets.token_urlsafe(32),
-            summary=_authorization_summary(
+        if existing is not None:
+            # A pending approval for the same call already exists (created by
+            # an interrupted predecessor run): park on it instead of opening
+            # a duplicate decision card.
+            authorization = existing
+        else:
+            # What the provider will actually bill: video_edit follows its
+            # input video, not the requested durationSeconds. The user must
+            # approve those effective terms, so summary and scope both read
+            # them (upstream dropped the local price estimate entirely).
+            billing_arguments = await self._billing_arguments(
                 spec,
-                target_ref=target_ref,
-                provider=provider,
-                model=model,
-                tool_arguments=billing_arguments,
-            ),
-            scope={
-                "operation": spec.name,
-                "targetRefs": [target_ref],
-                "parameters": billing_arguments,
-                # Keep the literal tool request when it differs, so the
-                # approval record shows both what was asked and what is
-                # billed.
-                **(
-                    {"requestedParameters": tool_arguments}
-                    if adjusted_parameters
-                    else {}
+                project_id=project_id,
+                tool_arguments=tool_arguments,
+            )
+            adjusted_parameters = {
+                key: value
+                for key, value in billing_arguments.items()
+                if tool_arguments.get(key) != value
+            }
+            record = ExecutionAuthorizationRecord(
+                authorization_id=authorization_id,
+                project_id=project_id,
+                round_id=round_id,
+                run_id=specialist_run_id,
+                execution_request_id=execution_request_id,
+                operation=spec.name,
+                target_scope=[target_ref],
+                authorization_token=secrets.token_urlsafe(32),
+                summary=_authorization_summary(
+                    spec,
+                    target_ref=target_ref,
+                    provider=provider,
+                    model=model,
+                    tool_arguments=billing_arguments,
                 ),
-                "promptPreview": _prompt_preview(tool_arguments, limit=200),
-            },
-            requested_provider=provider,
-            requested_model=model,
-            requested_candidates=1,
-            caused_by_request_id=tools.context.caused_by_request_id,
-            caused_by_message_id=request.message_id,
-            caused_by_message_seq=request.message_seq,
-            review_policy=tools.context.review_policy,
-            metadata={"toolCallId": call_id, "parentRunId": parent_run_id},
-        )
-        authorization = await asyncio.to_thread(
-            self.executions.create_execution_authorization,
-            record,
-        )
+                scope={
+                    "operation": spec.name,
+                    "targetRefs": [target_ref],
+                    "parameters": billing_arguments,
+                    # Keep the literal tool request when it differs, so the
+                    # approval record shows both what was asked and what is
+                    # billed.
+                    **(
+                        {"requestedParameters": tool_arguments}
+                        if adjusted_parameters
+                        else {}
+                    ),
+                    "promptPreview": _prompt_preview(
+                        tool_arguments,
+                        limit=200,
+                    ),
+                },
+                requested_provider=provider,
+                requested_model=model,
+                requested_candidates=1,
+                caused_by_request_id=tools.context.caused_by_request_id,
+                caused_by_message_id=request.message_id,
+                caused_by_message_seq=request.message_seq,
+                review_policy=tools.context.review_policy,
+                metadata={"toolCallId": call_id, "parentRunId": parent_run_id},
+            )
+            authorization = await asyncio.to_thread(
+                self.executions.create_execution_authorization,
+                record,
+            )
         await self._event(
             project_id,
             session_id,
@@ -4357,6 +4841,48 @@ class FileCreatorAgentRuntime:
                 )
             await asyncio.sleep(min(self.poll_interval_seconds, 0.5))
 
+    async def _await_specialist_tasks(
+        self,
+        *,
+        project_id: str,
+        parent_run_id: str,
+        epoch: int,
+        task_ids: Sequence[str],
+    ) -> list[dict[str, Any]]:
+        """Await a batch of tasks in parallel, tolerating per-task failure.
+
+        Unlike the single-task awaiter this never raises for a FAILED
+        task: the harvest must report every task's own outcome so one
+        bad observation cannot mask the results of its batch peers.
+        """
+
+        async def _one(task_id: str) -> dict[str, Any]:
+            try:
+                task = await self._await_specialist_task(
+                    project_id=project_id,
+                    parent_run_id=parent_run_id,
+                    epoch=epoch,
+                    task_id=task_id,
+                )
+            except (asyncio.CancelledError, StaleAgentRun):
+                raise
+            except FileAgentRuntimeError as exc:
+                return {
+                    "taskId": task_id,
+                    "status": "FAILED",
+                    "error": str(exc),
+                }
+            return {
+                "taskId": task.task_id,
+                "status": task.status.value,
+                "outputRefs": list(task.output_refs),
+                "result": task.result,
+            }
+
+        return list(
+            await asyncio.gather(*(_one(task_id) for task_id in task_ids)),
+        )
+
     async def _workspace_changed(
         self,
         project_id: str,
@@ -4371,6 +4897,15 @@ class FileCreatorAgentRuntime:
         changed = result.get("changedPointers")
         if not isinstance(changed, list) or not changed:
             return
+        # Every committed structure write may have turned media nodes READY
+        # (prompt-first planning writes complete variant prompts long before
+        # the run ends). Waking the scheduler here lets anchors render in
+        # parallel with the remaining planning turns instead of idling until
+        # run completion — measured at ~9 wasted minutes on a five-act
+        # project. Cheap when nothing is ready: one derived-graph tick, and
+        # the fingerprint ledger already dedupes; a later prompt edit marks
+        # the early render stale through the normal staleness path.
+        self.work_scheduler.wake(project_id)
         await self._event(
             project_id,
             session_id,
@@ -4531,6 +5066,8 @@ class FileCreatorAgentRuntime:
         session: Any,
         message: CreatorMessageRecord,
     ):
+        """Resolve the Goal owning this message; returns (goal, created)."""
+
         if session.active_goal_id is not None:
             try:
                 goal = await asyncio.to_thread(
@@ -4552,8 +5089,8 @@ class FileCreatorAgentRuntime:
                 goal is not None
                 and goal.status is not CreatorGoalStatus.COMPLETED
             ):
-                return goal
-        return await asyncio.to_thread(
+                return goal, False
+        created = await asyncio.to_thread(
             self.sessions.create_goal,
             message.project_id,
             session.session_id,
@@ -4563,6 +5100,7 @@ class FileCreatorAgentRuntime:
             goal_id=f"goal-{uuid4().hex}",
             metadata={"source": "file_agent_runtime"},
         )
+        return created, True
 
     MAINLINE_RESUME_SOURCE = "mainline_resume"
     YOLO_RESUME_SOURCE = "yolo_auto_resume"
@@ -4941,11 +5479,25 @@ class FileCreatorAgentRuntime:
                 status=AgentRunStatus.CANCELLED,
                 updates={
                     "error": {
-                        "code": "SUPERSEDED" if superseded else "INTERRUPTED",
+                        # SHUTDOWN marks a process-lifecycle cancellation
+                        # (restart/deploy): the startup sweep may resume
+                        # it. INTERRUPTED stays a human stop and is never
+                        # auto-resumed.
+                        "code": (
+                            "SUPERSEDED"
+                            if superseded
+                            else (
+                                "SHUTDOWN" if self._stopping else "INTERRUPTED"
+                            )
+                        ),
                         "message": (
                             "Run superseded by an AgentDock request"
                             if superseded
-                            else "Run interrupted by the user"
+                            else (
+                                "Run cancelled by process shutdown"
+                                if self._stopping
+                                else "Run interrupted by the user"
+                            )
                         ),
                     },
                 },
@@ -4969,16 +5521,34 @@ class FileCreatorAgentRuntime:
             # reached this point before releasing active_run_id.  Other
             # QwenPaw processes can then observe the same stop and cannot
             # immediately relaunch the cancelled request.
+            #
+            # Snapshot read (shared lock): the full get_project_session
+            # recovery replays the whole event stream under the exclusive
+            # Runtime lock and loses that race against steady polling on
+            # large sessions.  An error escaping this block would abort the
+            # terminal writes below, leaving the Session INTERRUPT_REQUESTED
+            # while reconcile reclaimed the pointer and relaunched the
+            # unconsumed request — the dock showed 「正在停止」 forever.
             try:
                 current_session = await asyncio.to_thread(
-                    self.sessions.get_project_session,
+                    self.sessions.get_project_session_snapshot,
                     project_id,
                 )
+                consume_through_seq = current_session.last_message_seq
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "interrupt cleanup could not read the session head; "
+                    "consuming the stopped request only: project=%s run=%s",
+                    project_id,
+                    run_id,
+                )
+                consume_through_seq = message.message_seq
+            try:
                 await asyncio.to_thread(
                     self.sessions.mark_messages_consumed,
                     project_id,
                     session_id,
-                    through_seq=current_session.last_message_seq,
+                    through_seq=consume_through_seq,
                     goal_id=goal_id,
                 )
             except SessionStateConflict:
@@ -5027,7 +5597,14 @@ class FileCreatorAgentRuntime:
         code: str,
         message_text: str,
         retryable: bool,
+        extra_details: Mapping[str, Any] | None = None,
     ) -> None:
+        details: dict[str, Any] = {
+            "runId": run_id,
+            "messageSeq": request.message_seq,
+        }
+        if extra_details:
+            details.update(extra_details)
         try:
             await asyncio.to_thread(
                 self.runs.transition,
@@ -5086,7 +5663,7 @@ class FileCreatorAgentRuntime:
             code=code,
             message=message_text,
             retryable=retryable,
-            details={"runId": run_id, "messageSeq": request.message_seq},
+            details=details,
         )
         # Unattended (YOLO) projects must not stay parked on a transient
         # model fault at 3am: a retryable failure gets the same completion
@@ -5114,6 +5691,7 @@ class FileCreatorAgentRuntime:
                     "code": code,
                     "message": message_text,
                     "retryable": retryable,
+                    "details": dict(extra_details or {}),
                 },
             },
         )

@@ -13,6 +13,7 @@ but no main video") generalizes here to the whole pipeline.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Iterable, Mapping, Sequence
@@ -33,7 +34,9 @@ class WorkNodeStatus(StrEnum):
 
 # Node kinds the scheduler may dispatch without a model turn: their
 # generation parameters are deterministically assembled from project.json.
-DISPATCHABLE_KINDS = frozenset({"visual", "lineup", "storyboard", "video"})
+DISPATCHABLE_KINDS = frozenset(
+    {"visual", "lineup", "storyboard", "video", "compose"},
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +164,34 @@ def _task_error_summary(task: Any) -> str | None:
     return None
 
 
+def _failure_inputs_changed(
+    failure: Any,
+    node_id: str,
+    fingerprint: str,
+) -> bool:
+    """True when the parked failure was rendered from different inputs.
+
+    The contract says a FAILED node stays parked *until a prompt or
+    upstream selection actually changes* — but the parking check only
+    looked at the latest task's status, so a deterministic failure
+    (safety rejection) kept the node FAILED forever even after the
+    agent rewrote the prompt (field run 2026-08-11: three sanitized
+    character anchors were never retried and the project stalled).
+
+    The scheduler dispatches with ``dag-{node_id}-{fingerprint}`` and
+    transient retry slots only append a ``:transient-retry-N`` suffix,
+    so a parked dag task whose key no longer starts with the node's
+    current identity was built from older inputs — the node re-derives
+    READY. Agent-dispatched tasks carry no graph identity in their key
+    and stay parked.
+    """
+
+    key = str(getattr(failure, "idempotency_key", "") or "")
+    if not key.startswith("dag-"):
+        return False
+    return not key.startswith(f"dag-{node_id}-{fingerprint}")
+
+
 def _variant_status(
     *,
     entity: Any,
@@ -251,13 +282,25 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
         entity = project.visual.entities.items[entity_id]
         for variant_id in entity.variants.order:
             variant = entity.variants.items[variant_id]
+            node_id = f"visual:{entity_id}:{variant_id}"
+            fingerprint = _fingerprint(
+                node_id,
+                variant.prompt,
+                sorted(variant.reference_asset_version_ids),
+                sorted(variant.reference_artifact_version_ids),
+            )
             status, task = _variant_status(
                 entity=entity,
                 variant=variant,
                 active=active,
                 failed=failed,
             )
-            node_id = f"visual:{entity_id}:{variant_id}"
+            if status is WorkNodeStatus.FAILED and _failure_inputs_changed(
+                task,
+                node_id,
+                fingerprint,
+            ):
+                status, task = WorkNodeStatus.READY, None
             add(
                 WorkNode(
                     node_id=node_id,
@@ -276,12 +319,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     command="GENERATE_ASSET",
                     target_ref=f"asset:{entity_id}",
                     dispatch_arguments={"variantId": variant_id},
-                    dispatch_fingerprint=_fingerprint(
-                        node_id,
-                        variant.prompt,
-                        sorted(variant.reference_asset_version_ids),
-                        sorted(variant.reference_artifact_version_ids),
-                    ),
+                    dispatch_fingerprint=fingerprint,
                 ),
             )
 
@@ -315,13 +353,32 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
         task = active.get(key)
         failure = failed.get(key)
         missing = tuple(missing_anchors)
+        fingerprint = _fingerprint(
+            node_id,
+            lineup.description,
+            lineup.relative_notes,
+            sorted(
+                selected
+                for selected in (
+                    _entity_selected_any(
+                        project.visual.entities.items.get(ref),
+                    )
+                    for ref in lineup.character_refs
+                )
+                if selected
+            ),
+        )
         if task is not None:
             status = WorkNodeStatus.RUNNING
         elif lineup.selected_artifact_version_id:
             status = WorkNodeStatus.DONE
         elif missing:
             status = WorkNodeStatus.GATED
-        elif failure is not None:
+        elif failure is not None and not _failure_inputs_changed(
+            failure,
+            node_id,
+            fingerprint,
+        ):
             status = WorkNodeStatus.FAILED
         else:
             status = WorkNodeStatus.READY
@@ -344,21 +401,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 locator={"page": "assets"},
                 command="GENERATE_CAST_LINEUP_IMAGE",
                 target_ref=f"lineup:{lineup_id}",
-                dispatch_fingerprint=_fingerprint(
-                    node_id,
-                    lineup.description,
-                    lineup.relative_notes,
-                    sorted(
-                        selected
-                        for selected in (
-                            _entity_selected_any(
-                                project.visual.entities.items.get(ref),
-                            )
-                            for ref in lineup.character_refs
-                        )
-                        if selected
-                    ),
-                ),
+                dispatch_fingerprint=fingerprint,
             ),
         )
 
@@ -402,6 +445,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             failure = failed.get(key)
             missing = (*_upstream_missing(deps, statuses), *gate_missing)
             upstream_selected = _element_upstream_selected(project, creation)
+            fingerprint = _fingerprint(
+                storyboard_id,
+                creation.storyboard_prompt,
+                sorted(selected for selected in upstream_selected if selected),
+            )
             if task is not None:
                 status = WorkNodeStatus.RUNNING
             elif storyboard_slot:
@@ -416,7 +464,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 )
             elif missing:
                 status = WorkNodeStatus.GATED
-            elif failure is not None:
+            elif failure is not None and not _failure_inputs_changed(
+                failure,
+                storyboard_id,
+                fingerprint,
+            ):
                 status = WorkNodeStatus.FAILED
             elif not (creation.storyboard_prompt or "").strip():
                 # No prompt yet: needs model work, surfaced as GATED with
@@ -444,15 +496,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     locator={"page": "plan", "elementId": element_id},
                     command="GENERATE_STORYBOARD_IMAGE",
                     target_ref=f"element:{element_id}",
-                    dispatch_fingerprint=_fingerprint(
-                        storyboard_id,
-                        creation.storyboard_prompt,
-                        sorted(
-                            selected
-                            for selected in upstream_selected
-                            if selected
-                        ),
-                    ),
+                    dispatch_fingerprint=fingerprint,
                 ),
             )
 
@@ -464,6 +508,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             storyboard_done = statuses[storyboard_id] in (
                 WorkNodeStatus.DONE,
                 WorkNodeStatus.STALE,
+            )
+            fingerprint = _fingerprint(
+                video_id,
+                creation.video_prompt,
+                storyboard_slot,
             )
             if task is not None:
                 status = WorkNodeStatus.RUNNING
@@ -479,7 +528,11 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 )
             elif not storyboard_done:
                 status = WorkNodeStatus.GATED
-            elif failure is not None:
+            elif failure is not None and not _failure_inputs_changed(
+                failure,
+                video_id,
+                fingerprint,
+            ):
                 status = WorkNodeStatus.FAILED
             else:
                 status = WorkNodeStatus.READY
@@ -502,18 +555,60 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     locator={"page": "plan", "elementId": element_id},
                     command="GENERATE_R2V_VIDEO",
                     target_ref=f"element:{element_id}",
-                    dispatch_fingerprint=_fingerprint(
-                        video_id,
-                        creation.video_prompt,
-                        storyboard_slot,
-                    ),
+                    dispatch_fingerprint=fingerprint,
                 ),
             )
             video_node_ids.append(video_id)
 
     # ---- Final compose ------------------------------------------------
-    if video_node_ids:
+    # Any timeline whose main track carries enabled content (R2V, Edit or
+    # motion-clip Elements) ends in one deterministic master render. The
+    # node is machine-dispatchable so an unattended (delegated) project
+    # reaches its final cut without a user pressing "render"; the scene
+    # ledger gate mirrors validate_scene_ledger_locked so dispatch never
+    # burns a compose the backend door would reject.
+    from services.project_files.models import (
+        EditCreation,
+        MotionClipCreation,
+    )
+
+    compose_timeline_id: str | None = None
+    for timeline_id in project.timelines.order:
+        timeline = project.timelines.items[timeline_id]
+        has_content = any(
+            element.enabled
+            and isinstance(
+                element.creation,
+                (R2VCreation, EditCreation, MotionClipCreation),
+            )
+            for element in timeline.elements_by_id.values()
+        )
+        if has_content:
+            compose_timeline_id = timeline_id
+            break
+    if compose_timeline_id is not None:
+        timeline = project.timelines.items[compose_timeline_id]
         missing = _upstream_missing(video_node_ids, statuses)
+        scene_gaps: list[str] = []
+        plan = getattr(timeline, "edit_plan", None)
+        if (
+            plan is not None
+            and not plan.mechanical_exemption
+            and plan.scene_ledger
+        ):
+            from services.render_review.scene_review import (
+                scene_content_fingerprint,
+            )
+
+            for row in plan.scene_ledger:
+                if row.status != "locked":
+                    scene_gaps.append(f"场景未锁定: {row.scene_id}")
+                elif row.locked_fingerprint != scene_content_fingerprint(
+                    timeline,
+                    row,
+                ):
+                    scene_gaps.append(f"场景锁已过期: {row.scene_id}")
+        missing = (*missing, *scene_gaps)
         task = next(
             (
                 item
@@ -530,6 +625,13 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             ),
             None,
         )
+        if final_slot is not None:
+            # A stale master render (edit impact marked it after content
+            # changes) must not read as DONE, or the unattended pipeline
+            # would stop one compose short of the corrected final cut.
+            version = project.assets.artifact_versions_by_id.get(final_slot)
+            if version is not None and getattr(version, "stale", False):
+                final_slot = None
         if task is not None:
             status = WorkNodeStatus.RUNNING
         elif final_slot:
@@ -550,9 +652,39 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 progress=getattr(task, "progress", None),
                 missing=missing,
                 locator={"page": "plan"},
-                # Compose stays model/user-driven for now: not dispatchable.
-                command=None,
-                target_ref=None,
+                command="COMPOSE_FINAL_VIDEO",
+                target_ref=f"timeline:{compose_timeline_id}",
+                # The fingerprint must change whenever the rendered output
+                # would: spans alone miss re-picked source ranges
+                # (render_source), edited overlays/motion documents and
+                # regenerated media versions, which previously replayed a
+                # stale compose as an idempotent no-op.
+                dispatch_fingerprint=_fingerprint(
+                    "compose:final",
+                    timeline.color_grade,
+                    sorted(
+                        (
+                            element_id,
+                            json.dumps(
+                                element.model_dump(mode="json"),
+                                sort_keys=True,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ),
+                        )
+                        for element_id, element in (
+                            timeline.elements_by_id.items()
+                        )
+                        if element.enabled
+                    ),
+                    sorted(
+                        (slot_id, slot.selected_version_id or "")
+                        for slot_id, slot in (
+                            project.assets.artifact_slots_by_id.items()
+                        )
+                        if slot.kind != "final_video"
+                    ),
+                ),
             ),
         )
 
@@ -572,6 +704,13 @@ def _storyboard_gate_dependencies(
     with no variants at all — schema invariant: declared variants always
     live in required_variant_ids) come back as plain-text reasons that
     route to the completion resume.
+
+    A multi-character storyboard additionally waits for any *planned*
+    lineup covering ≥2 of its characters: the lineup image is the
+    pairwise-contrast anchor (relative height/build, kit discriminators),
+    and field runs showed identity drift — duplicated jersey numbers —
+    exactly when storyboards rendered while the lineup was still absent.
+    Projects that plan no lineup are unaffected.
     """
 
     gate_missing: list[str] = []
@@ -602,7 +741,36 @@ def _storyboard_gate_dependencies(
             creation.visual_variant_refs.get(ref)
         ):
             gate_missing.append(f"{ref} 缺少 variant 绑定")
+    for lineup_node in _covering_lineup_nodes(project, creation):
+        if lineup_node not in deps:
+            deps.append(lineup_node)
     return tuple(gate_missing)
+
+
+def _covering_lineup_nodes(
+    project: Project,
+    creation: R2VCreation,
+) -> list[str]:
+    """Planned-but-unselected lineups this storyboard should wait for.
+
+    Explicit ``cast_lineup_refs`` always count; otherwise any planned
+    lineup sharing ≥2 characters with the element covers it. Selected
+    lineups resolve to DONE nodes and never block.
+    """
+
+    if len(creation.character_refs) < 2:
+        return []
+    element_cast = set(creation.character_refs)
+    explicit = set(creation.cast_lineup_refs)
+    nodes: list[str] = []
+    for lineup_id in project.visual.cast_lineups.order:
+        lineup = project.visual.cast_lineups.items[lineup_id]
+        covering = lineup_id in explicit or (
+            len(element_cast & set(lineup.character_refs)) >= 2
+        )
+        if covering:
+            nodes.append(f"lineup:{lineup_id}")
+    return nodes
 
 
 def _entity_has_artwork(entity: Any) -> bool:

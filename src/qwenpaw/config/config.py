@@ -1,23 +1,38 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import logging
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseModel,
     Field,
     ConfigDict,
+    PrivateAttr,
     field_validator,
     model_validator,
 )
 import shortuuid
 from qwenpaw.exceptions import (
+    AgentConfigConflictError,
     ConfigurationException,
 )
 
@@ -47,6 +62,74 @@ logger = logging.getLogger(__name__)
 # lifetime.  The migration reminder is useful once, but repeating it for
 # every request obscures real warnings.
 _legacy_scroll_tool_cap_warned = False
+
+
+@dataclass(frozen=True)
+class _AgentConfigFingerprint:
+    """Metadata used to invalidate one cached agent configuration."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+
+
+@dataclass(frozen=True)
+class _AgentConfigCacheEntry:
+    """Cached agent configuration and its persisted file version."""
+
+    config: Any
+    fingerprint: _AgentConfigFingerprint
+
+
+def _agent_config_fingerprint(path: Path) -> _AgentConfigFingerprint:
+    """Return a cross-platform fingerprint for an agent config file."""
+    stat_result = path.stat()
+    return _AgentConfigFingerprint(
+        device=stat_result.st_dev,
+        inode=stat_result.st_ino,
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+    )
+
+
+def _read_agent_config_snapshot(
+    path: Path,
+    retries: int = 3,
+) -> tuple[bytes, _AgentConfigFingerprint]:
+    """Read one stable snapshot across concurrent atomic replacements."""
+    for _attempt in range(retries):
+        before = _agent_config_fingerprint(path)
+        content = path.read_bytes()
+        after = _agent_config_fingerprint(path)
+        if before == after:
+            return content, after
+    raise OSError(f"Agent config changed repeatedly while reading {path}")
+
+
+def _json_payload_digest(payload: Any) -> bytes:
+    """Return the digest produced by the default atomic JSON serializer."""
+    content = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=False,
+    ).encode("utf-8")
+    return hashlib.sha256(content).digest()
+
+
+def _assert_agent_config_unchanged(
+    path: Path,
+    expected_digest: bytes,
+    agent_id: str,
+) -> None:
+    """Reject a write when its source snapshot is no longer current."""
+    try:
+        current_content, _fingerprint = _read_agent_config_snapshot(path)
+    except FileNotFoundError as exc:
+        raise AgentConfigConflictError(agent_id) from exc
+    if hashlib.sha256(current_content).digest() != expected_digest:
+        raise AgentConfigConflictError(agent_id)
 
 
 # ============================================================================
@@ -279,7 +362,18 @@ class FeishuConfig(BaseChannelConfig):
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
-    domain: Literal["feishu", "lark"] = "feishu"
+    # "feishu" / "lark", or a full http(s) base URL for custom gateways.
+    domain: str = "feishu"
+
+    @field_validator("domain")
+    @classmethod
+    def _check_domain(cls, v: str) -> str:
+        if v in ("feishu", "lark") or v.startswith(("http://", "https://")):
+            return v
+        raise ValueError(
+            "domain must be 'feishu', 'lark', or an http(s) base URL",
+        )
+
     streaming_enabled: bool = False
     share_session_in_group: bool = False
 
@@ -304,8 +398,10 @@ class OneBotConfig(BaseChannelConfig):
     ws_port: int = 6199
     access_token: str = ""
     share_session_in_group: bool = False
+    media_dir: Optional[str] = None
     media_base64: bool = False
     media_base64_max_mb: int = Field(default=10, gt=0)
+    media_download_max_mb: int = Field(default=50, gt=0)
 
 
 class TelegramConfig(BaseChannelConfig):
@@ -349,12 +445,21 @@ class ConsoleConfig(BaseChannelConfig):
     enabled: bool = True
     media_dir: Optional[str] = None
 
+    @field_validator("enabled")
+    @classmethod
+    def keep_console_enabled(cls, value: bool) -> bool:
+        """Keep the required console channel enabled."""
+        if not value:
+            return True
+        return value
+
 
 class WecomConfig(BaseChannelConfig):
     """WeCom (Enterprise WeChat) AI Bot channel config."""
 
     bot_id: str = ""
     secret: str = ""
+    ws_url: str = ""
     media_dir: Optional[str] = None
     welcome_text: str = ""
     # If True (default), all group members share one chat; set to
@@ -444,6 +549,8 @@ class XiaoYiConfig(BaseChannelConfig):
     ak: str = ""  # Access Key
     sk: str = ""  # Secret Key
     agent_id: str = ""  # Agent ID from XiaoYi platform
+    # Custom WS gateway (empty = official endpoints); disables backup.
+    ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
@@ -457,6 +564,8 @@ class YuanbaoConfig(BaseChannelConfig):
     app_id: str = ""
     app_secret: str = ""
     api_domain: str = "bot.yuanbao.tencent.com"
+    # Custom WebSocket gateway (empty = official wss endpoint).
+    ws_url: str = ""
     media_dir: Optional[str] = None
     accept_bot_messages: bool = False
 
@@ -613,12 +722,21 @@ class AutoMemorySearchConfig(BaseModel):
     )
 
 
+EmbeddingBackend = Literal[
+    "openai",
+    "dashscope",
+    "dashscope_multimodal",
+    "gemini",
+    "ollama",
+]
+
+
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
 
     model_config = ConfigDict(extra="ignore")
 
-    backend: str = Field(
+    backend: EmbeddingBackend = Field(
         default="openai",
         description="Embedding backend (openai, etc.)",
     )
@@ -628,7 +746,11 @@ class EmbeddingModelConfig(BaseModel):
     )
     base_url: str = Field(default="", description="Base URL for embedding API")
     model_name: str = Field(default="", description="Embedding model name")
-    dimensions: int = Field(default=1024, description="Embedding dimensions")
+    dimensions: int = Field(
+        default=1024,
+        ge=1,
+        description="Embedding dimensions",
+    )
     enable_cache: bool = Field(
         default=True,
         description="Whether to enable embedding cache",
@@ -639,15 +761,59 @@ class EmbeddingModelConfig(BaseModel):
     )
     max_cache_size: int = Field(
         default=10000,
+        ge=1,
         description="Maximum cache size",
     )
     max_input_length: int = Field(
         default=8192,
+        ge=1,
         description="Maximum input length for embedding",
     )
     max_batch_size: int = Field(
         default=10,
+        ge=1,
         description="Maximum batch size for embedding",
+    )
+
+
+class RerankerConfig(BaseModel):
+    """Reranker model configuration for post-search reordering."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable reranker for memory search reordering"
+        ),
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for reranker provider",
+    )
+    base_url: str = Field(
+        default="",
+        description=(
+            "Base URL for reranker API (SiliconFlow: "
+            "https://api.siliconflow.cn/v1)"
+        ),
+    )
+    model_name: str = Field(
+        default="",
+        description="Reranker model name (e.g. BAAI/bge-reranker-v2-m3)",
+    )
+    candidate_multiplier: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Over-fetch multiplier: search N x multiplier candidates, "
+            "rerank, then return top-N"
+        ),
+    )
+    timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        description="Reranker API timeout in seconds",
     )
 
 
@@ -705,17 +871,22 @@ class ReMeLightMemoryConfig(BaseModel):
         default="digest",
         description="Subdirectory for digest memory",
     )
-    summarize_when_compact: bool = Field(
-        default=True,
-        description="Whether to enable memory summarization during compaction",
+    inbox_push_enabled: bool | None = Field(
+        default=None,
+        exclude=True,
+        description="Deprecated shared inbox notification switch",
     )
-
-    inbox_push_enabled: bool = Field(
+    auto_memory_inbox_push_enabled: bool = Field(
         default=True,
-        description=(
-            "Whether to push ReMe auto-memory, auto-dream, and "
-            "auto-resource job results to the inbox"
-        ),
+        description="Whether to push auto-memory results to the inbox",
+    )
+    auto_dream_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push auto-dream results to the inbox",
+    )
+    daily_paper_inbox_push_enabled: bool = Field(
+        default=True,
+        description="Whether to push Daily Paper results to the inbox",
     )
 
     auto_memory_interval: int | None = Field(
@@ -743,6 +914,29 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    daily_paper_cron_enabled: bool = Field(
+        default=False,
+        description="Whether to enable the scheduled Daily Paper job",
+    )
+
+    daily_paper_cron: str = Field(
+        default="0 9 * * *",
+        description=(
+            "Cron expression for Daily Paper generation "
+            "(use daily_paper_cron_enabled to enable/disable)"
+        ),
+    )
+
+    daily_paper_use_hf_mirror: bool = Field(
+        default=False,
+        description="Whether Daily Paper uses the Hugging Face mirror",
+    )
+
+    daily_paper_topics: str = Field(
+        default="",
+        description="Topics to prioritize when selecting Daily Paper papers",
+    )
+
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
     )
@@ -750,6 +944,53 @@ class ReMeLightMemoryConfig(BaseModel):
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
     )
+
+    reranker_config: RerankerConfig = Field(
+        default_factory=RerankerConfig,
+    )
+
+    needs_reindex: bool = Field(
+        default=False,
+        description=(
+            "Whether the memory index must be rebuilt after an embedding "
+            "vector-space change"
+        ),
+    )
+
+    memory_search_enabled: bool = Field(
+        default=True,
+        description="Whether to expose the memory_search tool to the agent",
+    )
+
+    @field_validator("dream_cron", "daily_paper_cron")
+    @classmethod
+    def validate_service_cron(cls, value: str) -> str:
+        """Reject expressions that the runtime scheduler cannot install."""
+        if not value.strip():
+            # Preserve compatibility with legacy configs that used an empty
+            # dream cron to disable scheduling before the explicit switches.
+            return value
+        try:
+            CronTrigger.from_crontab(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid cron expression: {value!r}") from exc
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_shared_inbox_switch(cls, values: Any) -> Any:
+        """Use the legacy shared switch for notification fields not yet set."""
+        if not isinstance(values, dict) or "inbox_push_enabled" not in values:
+            return values
+        migrated = dict(values)
+        legacy_value = bool(values["inbox_push_enabled"])
+        for field_name in (
+            "auto_memory_inbox_push_enabled",
+            "auto_dream_inbox_push_enabled",
+            "daily_paper_inbox_push_enabled",
+        ):
+            migrated.setdefault(field_name, legacy_value)
+        return migrated
 
 
 class ContextCompactConfig(BaseModel):
@@ -1666,11 +1907,30 @@ class CodingModeConfig(BaseModel):
     )
 
 
+class FallbackPolicyConfig(BaseModel):
+    """Policy controlling cross-model fallback targets."""
+
+    enabled: bool = Field(default=True)
+    target_scope: Literal["configured", "free_only"] = Field(
+        default="configured",
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
     Each agent has its own configuration file with all settings.
     """
+
+    _source_digest: bytes | None = PrivateAttr(default=None)
+
+    def source_digest(self) -> bytes | None:
+        """Return the content version captured when this model was loaded."""
+        return self._source_digest
+
+    def record_source_digest(self, digest: bytes) -> None:
+        """Record the content version represented by this model."""
+        self._source_digest = digest
 
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Human-readable agent name")
@@ -1727,6 +1987,28 @@ class AgentProfileConfig(BaseModel):
     active_model: Optional["ModelSlotConfig"] = Field(
         default=None,
         description="Active model for this agent (provider_id + model)",
+    )
+    fallback_models: List["ModelSlotConfig"] = Field(
+        default_factory=list,
+        description="Ordered model fallback chain for transient failures",
+    )
+    fallback_policy: FallbackPolicyConfig = Field(
+        default_factory=FallbackPolicyConfig,
+        description="Cross-model fallback policy",
+    )
+    subagent_model: Optional["ModelSlotConfig"] = Field(
+        default=None,
+        description="Optional cheaper model used by spawned subagents",
+    )
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ] = Field(
+        default="inherit",
+        description="Provider-independent agent reasoning level",
     )
     language: str = Field(
         default="zh",
@@ -2564,7 +2846,9 @@ ChannelConfigUnion = Union[
     SlackConfig,
     WecomConfig,
     XiaoYiConfig,
+    YuanbaoConfig,
     WeChatConfig,
+    OneBotConfig,
 ]
 
 
@@ -2661,22 +2945,30 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
             migrated = True
         # allow_from → access_control.json whitelist
         allow_from = ch_cfg.get("allow_from")
-        if allow_from and isinstance(allow_from, list):
-            try:
-                from ..app.channels.access_control import (
-                    get_access_control_store,
-                )
+        if isinstance(allow_from, list):
+            migration_succeeded = True
+            if allow_from:
+                try:
+                    from ..app.channels.access_control import (
+                        get_access_control_store,
+                    )
 
-                store = get_access_control_store(workspace_dir)
-                store.import_allow_from(ch_key, set(allow_from))
-            except Exception:
-                pass
-            del ch_cfg["allow_from"]
-            migrated = True
+                    store = get_access_control_store(workspace_dir)
+                    store.import_allow_from(ch_key, set(allow_from))
+                except Exception:
+                    migration_succeeded = False
+                    logger.exception(
+                        f"Failed to migrate access control for channel "
+                        f"{ch_key}",
+                    )
+            if migration_succeeded:
+                del ch_cfg["allow_from"]
+                migrated = True
         # group_allow_from (matrix legacy) → whitelist
         grp_allow = ch_cfg.get("group_allow_from")
-        if grp_allow is not None:
-            if isinstance(grp_allow, list) and grp_allow:
+        if isinstance(grp_allow, list):
+            migration_succeeded = True
+            if grp_allow:
                 try:
                     from ..app.channels.access_control import (
                         get_access_control_store,
@@ -2685,9 +2977,14 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
                     store = get_access_control_store(workspace_dir)
                     store.import_allow_from(ch_key, set(grp_allow))
                 except Exception:
-                    pass
-            del ch_cfg["group_allow_from"]
-            migrated = True
+                    migration_succeeded = False
+                    logger.exception(
+                        f"Failed to migrate group access control for channel "
+                        f"{ch_key}",
+                    )
+            if migration_succeeded:
+                del ch_cfg["group_allow_from"]
+                migrated = True
     return migrated
 
 
@@ -2737,10 +3034,10 @@ def migrate_project_directory_config(data: object) -> bool:
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
-    """Load agent's complete configuration from workspace/agent.json with
-    mtime-based caching.
+    """Load an agent configuration with fingerprint-based caching.
 
-    Uses file modification time to avoid unnecessary disk reads.
+    The fingerprint detects same-mtime atomic replacements. Each loaded model
+    also records a content digest used to reject stale saves.
 
     Args:
         agent_id: Agent ID to load
@@ -2753,6 +3050,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     """
     from .utils import (
         load_config,
+        _migrate_last_dispatch_state,
         _agent_config_cache,
         _agent_config_lock,
     )
@@ -2775,25 +3073,73 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    # Check mtime to see if we can use cached config
     try:
-        current_mtime = agent_config_path.stat().st_mtime
-    except OSError:
-        fallback_config = build_fallback_agent_profile_config(agent_id, config)
-        save_agent_config(agent_id, fallback_config)
-        return fallback_config
+        current_fingerprint = _agent_config_fingerprint(agent_config_path)
+    except OSError as exc:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' config is temporarily unavailable",
+        ) from exc
 
     with _agent_config_lock:
-        # Return cached config if mtime hasn't changed
-        if agent_id in _agent_config_cache:
-            cached_config, cached_mtime = _agent_config_cache[agent_id]
-            if cached_mtime == current_mtime:
-                return cached_config
+        cached_entry = _agent_config_cache.get(agent_id)
+        if (
+            isinstance(cached_entry, _AgentConfigCacheEntry)
+            and cached_entry.fingerprint == current_fingerprint
+        ):
+            return cached_entry.config.model_copy(deep=True)
 
-        # Need to reload config from disk
-        with open(agent_config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            raw_content, current_fingerprint = _read_agent_config_snapshot(
+                agent_config_path,
+            )
+            content_digest = hashlib.sha256(raw_content).digest()
+            data = json.loads(raw_content)
+        except UnicodeDecodeError as exc:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file is corrupted "
+                    f"(invalid UTF-8 encoding). Path: {agent_config_path}. "
+                    f"Please repair or delete it. Error: {exc}"
+                ),
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent '{agent_id}' configuration file contains "
+                    f"invalid JSON. Path: {agent_config_path}. Error: {exc}"
+                ),
+            ) from exc
 
+        try:
+            _assert_agent_config_unchanged(
+                agent_config_path,
+                content_digest,
+                agent_id,
+            )
+        except AgentConfigConflictError:
+            _agent_config_cache.pop(agent_id, None)
+            raise
+        last_dispatch_migrated = False
+        last_dispatch_migration_failed = False
+        migration_write_failed = False
+        if "last_dispatch" in data:
+            try:
+                _migrate_last_dispatch_state(
+                    workspace_dir,
+                    data["last_dispatch"],
+                )
+            except Exception:
+                last_dispatch_migration_failed = True
+                logger.exception(
+                    f"Failed to migrate last dispatch state for agent "
+                    f"{agent_id}",
+                )
+            else:
+                data.pop("last_dispatch")
+                last_dispatch_migrated = True
         project_dir_migrated = migrate_project_directory_config(data)
 
         # Match the existing migration behavior: migrate this workspace only
@@ -2820,8 +3166,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             or weixin_migrated
             or display_migrated
             or access_control_migrated
+            or last_dispatch_migrated
         ):
             try:
+                _assert_agent_config_unchanged(
+                    agent_config_path,
+                    content_digest,
+                    agent_id,
+                )
                 if project_dir_migrated or weixin_migrated or display_migrated:
                     import uuid as _uuid
                     import shutil as _shutil
@@ -2837,18 +3189,23 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                         f"{migration_name}-migrate.bak",
                     )
                     _shutil.copy2(agent_config_path, backup_path)
-                with open(
-                    agent_config_path,
-                    "w",
-                    encoding="utf-8",
-                ) as file:
-                    json.dump(data, file, ensure_ascii=False, indent=2)
+                write_json_atomic(agent_config_path, data)
+                content_digest = _json_payload_digest(data)
                 try:
-                    current_mtime = agent_config_path.stat().st_mtime
+                    current_fingerprint = _agent_config_fingerprint(
+                        agent_config_path,
+                    )
                 except OSError:
                     pass
+            except AgentConfigConflictError:
+                _agent_config_cache.pop(agent_id, None)
+                raise
             except OSError:
-                pass
+                migration_write_failed = True
+                logger.exception(
+                    f"Failed to persist agent config migration for "
+                    f"{agent_id}",
+                )
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
@@ -2871,11 +3228,17 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         _sanitize_loop_config(data, agent_id)
 
         agent_config = AgentProfileConfig(**data)
+        agent_config.record_source_digest(content_digest)
 
-        # Cache the config with its mtime
-        _agent_config_cache[agent_id] = (agent_config, current_mtime)
+        if migration_write_failed or last_dispatch_migration_failed:
+            _agent_config_cache.pop(agent_id, None)
+        else:
+            _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+                config=agent_config.model_copy(deep=True),
+                fingerprint=current_fingerprint,
+            )
 
-        return agent_config
+        return agent_config.model_copy(deep=True)
 
 
 def save_agent_config(
@@ -2908,12 +3271,73 @@ def save_agent_config(
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
     agent_config_path = workspace_dir / "agent.json"
+    candidate = agent_config.model_copy(deep=True)
     with _agent_config_lock:
-        write_json_atomic(
-            agent_config_path,
-            agent_config.model_dump(exclude_none=True),
-        )
-        _agent_config_cache.pop(agent_id, None)
+        try:
+            source_digest = candidate.source_digest()
+            if source_digest is not None:
+                _assert_agent_config_unchanged(
+                    agent_config_path,
+                    source_digest,
+                    agent_id,
+                )
+
+            payload = candidate.model_dump(exclude_none=True)
+            saved_digest = _json_payload_digest(payload)
+            write_json_atomic(agent_config_path, payload)
+            candidate.record_source_digest(saved_digest)
+            agent_config.record_source_digest(saved_digest)
+            try:
+                saved_fingerprint = _agent_config_fingerprint(
+                    agent_config_path,
+                )
+            except OSError:
+                _agent_config_cache.pop(agent_id, None)
+            else:
+                _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+                    config=candidate.model_copy(deep=True),
+                    fingerprint=saved_fingerprint,
+                )
+        except Exception:
+            _agent_config_cache.pop(agent_id, None)
+            raise
+
+
+def mutate_agent_config(
+    agent_id: str,
+    mutator: Callable[[AgentProfileConfig], None],
+) -> AgentProfileConfig:
+    """Apply one agent-profile mutation as an atomic transaction."""
+    from .utils import _agent_config_lock
+
+    with _agent_config_lock:
+        candidate = load_agent_config(agent_id)
+        mutator(candidate)
+        save_agent_config(agent_id, candidate)
+        return candidate.model_copy(deep=True)
+
+
+async def load_agent_config_async(agent_id: str) -> AgentProfileConfig:
+    """Load an agent configuration without blocking the event loop."""
+    from ..utils.io_utils import run_sync_io
+
+    return await run_sync_io(load_agent_config, agent_id)
+
+
+async def update_agent_config_async(
+    agent_id: str,
+    updater: Callable[[AgentProfileConfig], Any],
+) -> AgentProfileConfig:
+    """Atomically read, mutate, and durably save one agent configuration.
+
+    The complete transaction runs in a worker thread while holding the
+    same re-entrant lock used by synchronous readers and writers. This
+    avoids blocking the event loop without introducing an await boundary
+    between the read and write phases.
+    """
+    from ..utils.io_utils import run_sync_io
+
+    return await run_sync_io(mutate_agent_config, agent_id, updater)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

@@ -89,6 +89,7 @@ const baseConfig: ModelConfigData = {
     protocol: "OpenAI 协议",
     custom_protocol: "",
     translate_model: "",
+    reuse_llm_key: true,
   },
   video: {
     enabled: false,
@@ -97,6 +98,7 @@ const baseConfig: ModelConfigData = {
     base_url: "https://dashscope.aliyuncs.com/api/v1",
     protocol: "DashScope（百炼）",
     custom_protocol: "",
+    reuse_llm_key: true,
   },
   oss: {
     enabled: false,
@@ -119,6 +121,11 @@ const baseConfig: ModelConfigData = {
   executionAuthorization: { mode: "allow_all" },
   creationCheckpoints: { mode: "skip" },
   mediaReview: { mode: "required" },
+  selfReview: {
+    sync_enabled: false,
+    media_enabled: false,
+    render_enabled: false,
+  },
 };
 
 function mount(config: ModelConfigData = baseConfig) {
@@ -139,10 +146,9 @@ function mount(config: ModelConfigData = baseConfig) {
 }
 
 async function openVideoCard() {
-  // The section switcher is a segmented tab bar; activate the video tab.
-  const tabs = await screen.findAllByRole("button", { name: /视频生成/ });
-  const tab = tabs.find((node) => node.className.includes("segmented-tab"));
-  fireEvent.click((tab ?? tabs[0]) as HTMLElement);
+  // Navigate to the media pane, then expand the collapsed video card.
+  fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
+  fireEvent.click(await screen.findByText("视频生成模型"));
 }
 
 describe("ModelConfigModal model presets", () => {

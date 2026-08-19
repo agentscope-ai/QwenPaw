@@ -1,6 +1,6 @@
 {
   "name": "qwenpaw-creator-plugin-ui",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "scripts": {

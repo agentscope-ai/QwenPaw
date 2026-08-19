@@ -7,6 +7,7 @@ import io
 import json
 import math
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
@@ -285,7 +286,102 @@ def render_object_grounding_annotation(
     return output.getvalue()
 
 
+# crop-zoom re-observation (WT-A4): the practical replacement for the
+# upstream SAM3 segmentation server — expand a grounded bbox, crop, scale
+# up and look again for fine detail. Distilled from the upstream
+# producers/crop.py normalized-box semantics (0-1000).
+CROP_EXPAND_RATIO = 0.10
+CROP_MIN_SHORT_SIDE = 512
+
+
+def crop_region_bytes(
+    content: bytes,
+    bbox_2d: Sequence[int],
+) -> bytes:
+    """Crop one normalized (0-1000) region, expanded and upscaled.
+
+    The box grows by ``CROP_EXPAND_RATIO`` on every side (clamped to the
+    frame) so context survives the crop, and the result is upscaled until
+    its short side reaches ``CROP_MIN_SHORT_SIDE`` so the second VLM pass
+    actually sees more pixels per detail than the first.
+    """
+    if len(bbox_2d) != 4:
+        raise ValueError("bbox_2d must be [x1, y1, x2, y2] (0-1000)")
+    nx1, ny1, nx2, ny2 = (int(value) for value in bbox_2d)
+    if not (0 <= nx1 < nx2 <= 1000 and 0 <= ny1 < ny2 <= 1000):
+        raise ValueError(
+            "bbox_2d values must satisfy 0 <= x1 < x2 <= 1000 and "
+            "0 <= y1 < y2 <= 1000",
+        )
+    image = Image.open(io.BytesIO(content))
+    width, height = image.size
+    expand_x = (nx2 - nx1) * CROP_EXPAND_RATIO
+    expand_y = (ny2 - ny1) * CROP_EXPAND_RATIO
+    px1 = max(0, round((nx1 - expand_x) / 1000 * width))
+    py1 = max(0, round((ny1 - expand_y) / 1000 * height))
+    px2 = min(width, round((nx2 + expand_x) / 1000 * width))
+    py2 = min(height, round((ny2 + expand_y) / 1000 * height))
+    if px2 - px1 < 2 or py2 - py1 < 2:
+        raise ValueError("crop region is too small to observe")
+    cropped = image.crop((px1, py1, px2, py2))
+    short_side = min(cropped.size)
+    if short_side < CROP_MIN_SHORT_SIDE:
+        scale = CROP_MIN_SHORT_SIDE / short_side
+        cropped = cropped.resize(
+            (
+                max(1, round(cropped.size[0] * scale)),
+                max(1, round(cropped.size[1] * scale)),
+            ),
+            Image.LANCZOS,
+        )
+    output = io.BytesIO()
+    cropped.convert("RGB").save(output, format="JPEG", quality=92)
+    return output.getvalue()
+
+
+async def crop_region_and_observe(
+    content: bytes,
+    bbox_2d: Sequence[int],
+    question: str,
+    *,
+    upload_url_for: Any,
+) -> dict[str, Any]:
+    """Zoom into one grounded region and ask the VLM about the detail.
+
+    ``upload_url_for`` turns the cropped JPEG bytes into a
+    provider-resolvable URL (the caller owns transport/temp-storage
+    policy). Returns the answer plus the pixel crop rectangle.
+    """
+    clean_question = str(question or "").strip()
+    if not clean_question:
+        raise ValueError("crop observation question is required")
+    cropped = crop_region_bytes(content, bbox_2d)
+    crop_url = await upload_url_for(cropped)
+    answer = await vlm_model.chat_completion(
+        [
+            vlm_model.multimodal_media_part(crop_url, "image"),
+            {
+                "type": "text",
+                "text": (
+                    "这是原图中一个定位区域的放大裁剪（已外扩 10% 保留上下文）。"
+                    f"请仅基于可见内容回答：{clean_question}"
+                ),
+            },
+        ],
+        temperature=0.2,
+        max_tokens=2048,
+        timeout=float(model_config.get_vlm_timeout_seconds()),
+    )
+    return {
+        "answer": str(answer or "").strip(),
+        "bbox2d": [int(value) for value in bbox_2d],
+        "model": model_config.get_vlm_model_name(),
+    }
+
+
 __all__ = [
+    "crop_region_and_observe",
+    "crop_region_bytes",
     "ground_image_objects",
     "object_grounding_image_suffix",
     "parse_object_grounding",

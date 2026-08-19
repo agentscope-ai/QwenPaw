@@ -16,7 +16,7 @@ from services.document_reader import (
     is_supported_document,
     read_document,
 )
-from vendor.mm_plugins.image_budget import (
+from vendor.media_toolkit.image_budget import (
     IMAGE_BUDGET_TOKENS,
     IMAGE_MIN_PIXELS,
     TOKEN_SIZE,
@@ -187,7 +187,7 @@ def test_csv_row_cap_reports_incomplete_extraction(
     # The true row total is unknowable under the capped read, so the
     # fraction is honestly unknown.
     monkeypatch.setattr(
-        "vendor.mm_plugins.renderers.data.FULL_TEXT_ROW_CAP",
+        "vendor.media_toolkit.renderers.data.FULL_TEXT_ROW_CAP",
         50,
     )
     source = tmp_path / "big.csv"
@@ -210,7 +210,7 @@ def test_pdf_text_page_cap_reports_extraction_fraction(
     # With a known page total the extraction share is exact and feeds the
     # conservative coverage merge.
     monkeypatch.setattr(
-        "vendor.mm_plugins.renderers.pdf.DEFAULT_MAX_TEXT_PAGES",
+        "vendor.media_toolkit.renderers.pdf.DEFAULT_MAX_TEXT_PAGES",
         2,
     )
     source = tmp_path / "script.pdf"

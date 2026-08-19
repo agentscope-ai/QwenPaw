@@ -138,6 +138,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: plugins/apps/qwenpaw-creator/ui/package-lock.json
 
       - name: Build Creator plugin frontend
         run: |
@@ -152,6 +154,37 @@ jobs:
             --metadata-out dist/plugins/index.json \
             --cdn-prefix /files/plugins \
             --only "${PLUGIN_ID}"
+
+      - name: Verify packaged zip is runtime-only
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          # Fail closed before OSS upload: entry files must be present and
+          # pack_exclude'd dev-only trees must not leak into the zip.
+          zip_path="dist/plugins/apps/${PLUGIN_ID}/${PLUGIN_ID}-${VERSION}.zip"
+          if [[ ! -f "$zip_path" ]]; then
+            echo "ERROR: expected zip not found: $zip_path" >&2
+            exit 1
+          fi
+          names=$(unzip -Z1 "$zip_path")
+          for required in \
+            "${PLUGIN_ID}/plugin.json" \
+            "${PLUGIN_ID}/requirements.txt" \
+            "${PLUGIN_ID}/backend/main.py" \
+            "${PLUGIN_ID}/ui/dist/index.js"; do
+            if ! grep -qxF "$required" <<< "$names"; then
+              echo "ERROR: required file missing from zip: $required" >&2
+              exit 1
+            fi
+          done
+          if forbidden=$(grep -E \
+            "^${PLUGIN_ID}/(backend/(tests|scripts)/|e2e/|scripts/|ui/(src|node_modules)/)" \
+            <<< "$names"); then
+            echo "ERROR: dev-only files leaked into the zip:" >&2
+            echo "$forbidden" | head -20 >&2
+            exit 1
+          fi
+          echo "Zip verified: $(wc -l <<< "$names") files, runtime-only."
 
       - name: Install ossutil
         run: |

@@ -13,6 +13,8 @@ import copy
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
+from utils.logger import setup_logger
+
 from .models import CURRENT_PROJECT_SCHEMA_VERSION
 
 
@@ -24,6 +26,8 @@ ProjectMigration = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 # A migration registered under N must return exactly schema_version N + 1.
+logger = setup_logger("creator.project_files.migrations")
+
 PROJECT_MIGRATIONS: dict[int, ProjectMigration] = {}
 
 
@@ -437,6 +441,65 @@ def _migrate_v5_to_v6(document: dict[str, Any]) -> dict[str, Any]:
 
 
 PROJECT_MIGRATIONS[5] = _migrate_v5_to_v6
+
+
+def _migrate_v6_to_v7(document: dict[str, Any]) -> dict[str, Any]:
+    """Introduce the Timeline taste contract (``edit_plan``).
+
+    Existing timelines carry no recorded creative contract, so the
+    migration sets an explicit ``null`` instead of inventing one; the
+    first editing delegation after the upgrade receives the plan
+    advisory and fills it in.
+    """
+
+    timelines = document.get("timelines")
+    items = timelines.get("items") if isinstance(timelines, dict) else None
+    if isinstance(items, dict):
+        for timeline in items.values():
+            if isinstance(timeline, dict):
+                timeline.setdefault("edit_plan", None)
+    document["schema_version"] = 7
+    return document
+
+
+PROJECT_MIGRATIONS[6] = _migrate_v6_to_v7
+
+
+def _migrate_v7_to_v8(document: dict[str, Any]) -> dict[str, Any]:
+    """Constrain ``color_grade`` to the named preset vocabulary.
+
+    Earlier schemas accepted any string and the renderer silently skipped
+    unknown names, so a free-form colour description meant "no grading".
+    The migration makes that outcome explicit by clearing values outside
+    the preset list; grading intent must be re-expressed as a preset.
+    """
+
+    from .models import COLOR_GRADE_PRESETS
+
+    migrated = dict(document)
+    timelines = dict(migrated.get("timelines") or {})
+    items = dict(timelines.get("items") or {})
+    for timeline_id, timeline in list(items.items()):
+        if not isinstance(timeline, Mapping):
+            continue
+        grade = timeline.get("color_grade")
+        if grade and grade not in COLOR_GRADE_PRESETS:
+            logger.warning(
+                "v7->v8: timeline %s color_grade %r is not a named preset; "
+                "cleared (was silently skipped by the renderer anyway)",
+                timeline_id,
+                str(grade)[:80],
+            )
+            updated = dict(timeline)
+            updated["color_grade"] = ""
+            items[timeline_id] = updated
+    timelines["items"] = items
+    migrated["timelines"] = timelines
+    migrated["schema_version"] = 8
+    return migrated
+
+
+PROJECT_MIGRATIONS[7] = _migrate_v7_to_v8
 
 
 def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:

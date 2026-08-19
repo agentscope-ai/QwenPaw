@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from agentscope.model import ChatModelBase
 from pydantic import Field
@@ -50,6 +50,31 @@ class DashScopeProvider(OpenAIProvider):
         ),
     )
 
+    @staticmethod
+    def _is_non_chat_model(model_id: str) -> bool:
+        """Exclude DashScope products that cannot use chat completions."""
+        normalized = model_id.lower()
+        non_chat_markers = (
+            "image",
+            "speech",
+            "asr",
+            "audio",
+            "embedding",
+            "rerank",
+            "translation",
+            "realtime",
+            "live",
+            "gpu-auto-handle",
+        )
+        return any(marker in normalized for marker in non_chat_markers)
+
+    async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
+        """Fetch only catalog entries compatible with chat completions."""
+        models = await super().fetch_models(timeout)
+        return [
+            model for model in models if not self._is_non_chat_model(model.id)
+        ]
+
     def _is_builtin_model(self, model_id: str) -> bool:
         return any(m.id == model_id for m in self.models)
 
@@ -59,6 +84,42 @@ class DashScopeProvider(OpenAIProvider):
         if model_info is not None:
             return model_info.relay_reasoning
         return False
+
+    def _map_agent_thinking_level(
+        self,
+        effective: dict,
+        model_id: str,
+        level: str,
+        budget: int,
+    ) -> None:
+        """Map agent thinking levels to the model-specific DashScope API."""
+        model_info = self.get_model_info(model_id)
+        param_style = (
+            model_info.thinking_param_style
+            if model_info and model_info.thinking_param_style
+            else self.thinking_param_style
+        )
+        if param_style == "effort":
+            extra_body = effective.get("extra_body")
+            if not isinstance(extra_body, dict):
+                extra_body = {}
+            extra_body["thinking"] = {
+                "type": "disabled" if level == "off" else "enabled",
+            }
+            if level == "off":
+                extra_body.pop("reasoning_effort", None)
+            else:
+                extra_body["reasoning_effort"] = level
+            effective.pop("thinking_enable", None)
+            effective.pop("thinking_budget", None)
+            effective["extra_body"] = extra_body
+            return
+
+        if level == "off":
+            effective["thinking_enable"] = False
+            return
+        effective["thinking_enable"] = True
+        effective["thinking_budget"] = budget
 
     async def add_model(
         self,

@@ -153,14 +153,14 @@ def test_findings_feedback_payload_contains_only_failures() -> None:
         verdict="revise",
         findings=[
             ReviewFinding(
-                dimension=ReviewDimension.VOICEOVER,
+                dimension=ReviewDimension.SOUND,
                 passed=False,
                 severity="major",
                 evidence_timestamp_ms=2000,
                 suggestion="补齐 2s 起缺失的配音轨",
             ),
             ReviewFinding(
-                dimension=ReviewDimension.VISUAL_QUALITY,
+                dimension=ReviewDimension.CRAFT,
                 passed=True,
             ),
         ],
@@ -170,7 +170,7 @@ def test_findings_feedback_payload_contains_only_failures() -> None:
     assert payload["round"] == 2
     assert payload["max_rounds"] == MAX_REVIEW_ROUNDS
     assert len(payload["findings"]) == 1
-    assert payload["findings"][0]["dimension"] == "voiceover"
+    assert payload["findings"][0]["dimension"] == "sound"
 
 
 def test_build_review_user_text_lists_all_evidence() -> None:
@@ -205,3 +205,99 @@ def test_build_review_user_text_lists_all_evidence() -> None:
     system_prompt = review_system_prompt()
     assert "verdict" in system_prompt
     assert "evidence_timestamp_ms" in system_prompt
+
+
+# ── eight-row rubric alignment (WT-B2) ───────────────────────────────────────
+
+
+def test_dimensions_match_the_vendored_appeal_rubric() -> None:
+    from vendor.media_toolkit.review_rubrics import APPEAL_RUBRIC_ROWS
+
+    rubric_keys = [row.key for row in APPEAL_RUBRIC_ROWS]
+    dimension_keys = [item.value for item in ReviewDimension]
+    # Seven verbatim Appeal rows plus the Creator engineering row.
+    assert dimension_keys == rubric_keys + ["engineering"]
+
+
+def test_concept_score_at_threshold_forces_revise() -> None:
+    payload = _findings_payload(
+        concept={"passed": True, "score": 5},
+    )
+    report = parse_review_report(
+        json.dumps(payload, ensure_ascii=False),
+        video_ref="artifact-version:v1",
+        round_number=1,
+    )
+    assert report.verdict == "revise"
+    concept = next(
+        item
+        for item in report.findings
+        if item.dimension is ReviewDimension.CONCEPT
+    )
+    assert not concept.passed
+    assert concept.severity == "major"
+    assert "execution polish cannot rescue an empty concept" in (
+        concept.suggestion
+    )
+
+
+def test_concept_score_above_threshold_passes() -> None:
+    payload = _findings_payload(
+        concept={"passed": True, "score": 8},
+    )
+    report = parse_review_report(
+        json.dumps(payload, ensure_ascii=False),
+        video_ref="artifact-version:v1",
+        round_number=1,
+    )
+    assert report.verdict == "pass"
+
+
+def test_concept_failure_needs_no_timestamp() -> None:
+    # The concept row is score-driven: a failing concept without a frame
+    # timestamp must stand (other rows get normalized back to pass).
+    payload = _findings_payload(
+        concept={
+            "passed": False,
+            "severity": "major",
+            "score": 3,
+            "suggestion": "概念空洞，重立意后重剪",
+        },
+        rhythm={"passed": False, "severity": "major"},
+    )
+    report = parse_review_report(
+        json.dumps(payload, ensure_ascii=False),
+        video_ref="artifact-version:v1",
+        round_number=1,
+    )
+    concept = next(
+        item
+        for item in report.findings
+        if item.dimension is ReviewDimension.CONCEPT
+    )
+    rhythm = next(
+        item
+        for item in report.findings
+        if item.dimension is ReviewDimension.RHYTHM
+    )
+    assert not concept.passed
+    assert rhythm.passed, "timestamp-less non-concept failure is normalized"
+    assert report.verdict == "revise"
+
+
+def test_user_text_carries_the_edit_plan_contract() -> None:
+    frames = [ReviewFrame(timestamp_ms=0, image_path="/tmp/f0.jpg")]
+    profile = AudioProfile(has_audio=False)
+    text = build_review_user_text(
+        frames=frames,
+        audio_profile=profile,
+        video_duration_seconds=5.0,
+        plan_context={
+            "target_duration_seconds": 5,
+            "edit_plan": {"concept": "猫的越狱日记"},
+        },
+    )
+    assert "【剪辑契约" in text
+    assert "猫的越狱日记" in text
+    # The plan context section itself no longer duplicates the plan.
+    assert text.count("猫的越狱日记") == 1

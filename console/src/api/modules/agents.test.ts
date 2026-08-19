@@ -55,6 +55,22 @@ describe("agentsApi", () => {
     expect(result).toEqual(agent);
   });
 
+  it("updateModelSettings sends a narrow PATCH request", async () => {
+    const settings = {
+      fallback_models: [{ provider_id: "openai", model: "fallback" }],
+      subagent_model: null,
+    };
+    vi.mocked(request).mockResolvedValue(settings);
+
+    const result = await agentsApi.updateModelSettings("a1", settings);
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/model-settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+    expect(result).toEqual(settings);
+  });
+
   it("updates third-party model settings from Chat", async () => {
     await agentsApi.updateBackendSettings("a1", {
       model: "gpt-test-codex",
@@ -78,6 +94,46 @@ describe("agentsApi", () => {
       timeout: 10 * 60 * 1000,
     });
     expect(result).toEqual(resp);
+  });
+
+  it("getMemoryStatus fetches structured ReMe status", async () => {
+    const status = {
+      components: {},
+      components_total: "0 B",
+      process_rss: "1.00 KiB",
+    };
+    vi.mocked(request).mockResolvedValue(status);
+
+    const result = await agentsApi.getMemoryStatus("a1");
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/status");
+    expect(result).toEqual(status);
+  });
+
+  it("getMemoryStatus forwards a cancellation signal", async () => {
+    const controller = new AbortController();
+
+    await agentsApi.getMemoryStatus("a1", controller.signal);
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/status", {
+      signal: controller.signal,
+    });
+  });
+
+  it("getMemoryRuntimeStatus fetches lightweight runtime state", async () => {
+    const runtime = { reindexing: true } as any;
+    const controller = new AbortController();
+    vi.mocked(request).mockResolvedValue(runtime);
+
+    const result = await agentsApi.getMemoryRuntimeStatus(
+      "a1",
+      controller.signal,
+    );
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/runtime-status", {
+      signal: controller.signal,
+    });
+    expect(result).toEqual(runtime);
   });
 
   it("getMemoryGraph loads the indexed wikilink graph", async () => {

@@ -17,6 +17,14 @@ reference image blocks first and the text instruction last); in-image text
 translation is a separate async task on
 ``/services/aigc/image2image/image-synthesis`` served by ``qwen-mt-image``
 and polled through the generic ``/tasks/{task_id}`` API.
+
+Generate/edit calls also run in async task mode when the account allows
+it: the same generation endpoint with ``X-DashScope-Async: enable``
+returns a ``task_id`` immediately and the result is fetched from
+``{api_root}/tasks/{task_id}``, so no HTTP exchange ever spans a render
+and slow models cannot die as client-side read timeouts. Accounts whose
+API rejects the header (403) fall back to the synchronous transport
+transparently and the discovery is cached for the process lifetime.
 """
 
 import asyncio
@@ -38,6 +46,7 @@ from models.image.base import (
     BaseImageModel,
     _configured_int,
     _configured_value,
+    _image_api_key,
     download_remote_image,
     format_http_error_detail,
 )
@@ -65,12 +74,27 @@ _TRANSLATE_SUBMIT_SUFFIX = "/services/aigc/image2image/image-synthesis"
 _TRANSLATE_POLL_INTERVAL_SECONDS = 3.0
 _TRANSLATE_RETRY_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
+# Generate/edit async-task cadence: cheap GETs against the task endpoint.
+# The overall deadline stays the provider timeout, so the knob semantics
+# are unchanged.
+POLL_INTERVAL_SECONDS = 5
+POLL_REQUEST_TIMEOUT = 30
+SUBMIT_REQUEST_TIMEOUT = 60
+
+_TASK_TERMINAL_FAILED = ("FAILED", "CANCELED", "UNKNOWN")
+
 
 class DashScopeImageModel(BaseImageModel):
     """DashScope multimodal-generation format, used by qwen-image-2.0-pro."""
 
     backend_name = "dashscope-multimodal"
     supported_modes = frozenset({"generate", "edit", "translate"})
+
+    # Discovery cache: once the account/endpoint rejects the async header
+    # (403 "does not support asynchronous calls"), stop paying a probe
+    # round-trip per image and go straight to the sync transport. Process
+    # restarts naturally re-probe.
+    _async_unsupported = False
 
     def __init__(
         self,
@@ -104,8 +128,9 @@ class DashScopeImageModel(BaseImageModel):
                     os.environ.get("IMAGE_MODEL_NAME", DEFAULT_MODEL_NAME),
                 ),
             ),
-            api_key=_configured_value(
-                "api_key",
+            # Explicit key first; else reuse the DashScope text-model key
+            # when image.reuse_llm_key (default on) allows it.
+            api_key=_image_api_key(
                 "DASHSCOPE_IMAGE_API_KEY",
                 os.environ.get(
                     "DASHSCOPE_IMAGE_API_KEY",
@@ -137,10 +162,15 @@ class DashScopeImageModel(BaseImageModel):
                 int(
                     os.environ.get(
                         "DASHSCOPE_IMAGE_CONCURRENCY",
-                        os.environ.get("IMAGE_CONCURRENCY", "1"),
+                        os.environ.get("IMAGE_CONCURRENCY", "0"),
                     )
-                    or 1,
-                ),
+                    or 0,
+                )
+                # The provider semaphore must not default below the
+                # scheduler's dispatch cap: a mismatch silently
+                # serializes renders behind model_slot("image") while
+                # the graph shows parallel RUNNING nodes.
+                or model_config.get_media_parallelism(),
             ),
         )
 
@@ -203,22 +233,169 @@ class DashScopeImageModel(BaseImageModel):
         clean_reference_urls: list[str],
         mode: str = "generate",
     ) -> httpx.Response:
+        """Async-task transport: submit, poll to terminal, return the result.
+
+        The returned response carries the finished task payload, so the
+        base-class ``resp.json()`` → ``_decode`` contract is unchanged.
+        Accounts whose API rejects the async header fall back to the
+        synchronous transport (bounded by ``self.timeout`` as before).
+        """
         body = await self._build_body(
             prompt,
             aspect_ratio,
             clean_reference_urls,
             mode,
         )
+        base_headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            # Resolve oss:// temp-upload references server-side.
+            "X-DashScope-OssResourceResolve": "enable",
+        }
+        if not type(self)._async_unsupported:
+            submit = await client.post(
+                self.generation_url,
+                headers={
+                    **base_headers,
+                    # Async task mode: the submit returns a task_id in
+                    # seconds; the render never holds an HTTP connection.
+                    "X-DashScope-Async": "enable",
+                },
+                json=body,
+                timeout=SUBMIT_REQUEST_TIMEOUT,
+            )
+            if self._async_rejected(submit):
+                type(self)._async_unsupported = True
+                logger.warning(
+                    "DashScope endpoint rejects async mode; falling back "
+                    "to the synchronous image transport",
+                )
+            else:
+                task_id = self._submitted_task_id(submit)
+                if task_id is None:
+                    # Sync response (endpoint ignored the async header), an
+                    # HTTP error, or 429 — hand it to the base-class
+                    # envelope untouched.
+                    return submit
+                # Billed on acceptance: record the id in the paying Task's
+                # durable ledger so an interrupted poll stays retrievable.
+                # The append is a small durable write; keep it off the loop.
+                await asyncio.to_thread(
+                    note_provider_task,
+                    provider_task_id=task_id,
+                    model=self.model_name,
+                    kind="image_generation",
+                )
+                return await self._poll_task(client, task_id)
+        # Synchronous fallback: one connection spans the render, so it
+        # gets the full render deadline rather than the submit timeout.
         return await client.post(
             self.generation_url,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-                # Resolve oss:// temp-upload references server-side.
-                "X-DashScope-OssResourceResolve": "enable",
-            },
+            headers=base_headers,
             json=body,
+            timeout=self.timeout,
         )
+
+    @staticmethod
+    def _async_rejected(response: httpx.Response) -> bool:
+        """True when the endpoint explicitly refuses the async header."""
+        if response.status_code not in (400, 403):
+            return False
+        return "asynchronous" in response.text.lower()
+
+    @staticmethod
+    def _submitted_task_id(response: httpx.Response) -> str | None:
+        """Extract the task id from an async-submit acknowledgement."""
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        output = payload.get("output") if isinstance(payload, dict) else None
+        if not isinstance(output, dict):
+            return None
+        task_id = output.get("task_id")
+        # A completed payload (choices present) means the endpoint answered
+        # synchronously despite the header; use it directly.
+        if not task_id or output.get("choices"):
+            return None
+        return str(task_id)
+
+    async def _poll_task(
+        self,
+        client: httpx.AsyncClient,
+        task_id: str,
+    ) -> httpx.Response:
+        """Poll the task endpoint until terminal or the render deadline."""
+        deadline = asyncio.get_running_loop().time() + self.timeout
+        poll_url = f"{self.api_root}/tasks/{task_id}"
+        logger.info(
+            "Image task submitted | model=%s, task_id=%s",
+            self.model_name,
+            task_id,
+        )
+        while True:
+            try:
+                response = await client.get(
+                    poll_url,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=POLL_REQUEST_TIMEOUT,
+                )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                # The render continues server-side; a flaky poll must not
+                # fail the task. The deadline below still bounds the wait.
+                logger.warning(
+                    "Image task poll transport error, retrying | "
+                    "task_id=%s: %s",
+                    task_id,
+                    type(exc).__name__,
+                )
+                response = None
+            if response is not None and response.status_code == 200:
+                payload = response.json()
+                output = (
+                    payload.get("output")
+                    if isinstance(payload, dict)
+                    else None
+                )
+                status = (
+                    str(output.get("task_status", "")).upper()
+                    if isinstance(output, dict)
+                    else ""
+                )
+                if status == "SUCCEEDED":
+                    return response
+                if status in _TASK_TERMINAL_FAILED:
+                    message = ""
+                    if isinstance(output, dict):
+                        message = str(
+                            output.get("message") or output.get("code") or "",
+                        )
+                    raise ModelError(
+                        f"Image task {task_id} ended {status}"
+                        + (f": {message}" if message else ""),
+                        model_name=self.model_name,
+                    )
+            elif response is not None and (
+                response.status_code == 429 or response.status_code >= 500
+            ):
+                # Transient poll hiccup: the render continues server-side,
+                # so keep polling instead of failing the task.
+                logger.warning(
+                    "Image task poll got %s, retrying | task_id=%s",
+                    response.status_code,
+                    task_id,
+                )
+            elif response is not None:
+                response.raise_for_status()
+            if asyncio.get_running_loop().time() >= deadline:
+                raise ModelError(
+                    f"Image generation timed out after {self.timeout}s "
+                    f"(task {task_id} still running server-side)",
+                    model_name=self.model_name,
+                )
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     async def _build_body(
         self,
@@ -276,6 +453,13 @@ class DashScopeImageModel(BaseImageModel):
                 f"No output in DashScope response: {data}",
                 model_name=self.model_name,
             )
+        # Async task results nest the generation payload one level deeper.
+        results = output.get("results")
+        if isinstance(results, dict) and isinstance(
+            results.get("choices"),
+            list,
+        ):
+            output = results
         for choice in output.get("choices") or []:
             message = (
                 choice.get("message") if isinstance(choice, dict) else None
@@ -363,7 +547,8 @@ class DashScopeImageModel(BaseImageModel):
                 f"Image translate returned no task_id: {submitted}",
                 model_name=translate_model,
             )
-        note_provider_task(
+        await asyncio.to_thread(
+            note_provider_task,
             provider_task_id=task_id,
             model=translate_model,
             kind="image_translate",

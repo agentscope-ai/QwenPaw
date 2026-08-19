@@ -1271,7 +1271,12 @@ class SourceMediaAnalysisService:
         job = SourceAnalysisJob(
             project_id=project_id,
             command_id=command_id,
-            round_id=context.specialist_run_id,
+            # One Round per commit, matching the background-analysis path:
+            # a batch delegation commits several assets from one specialist
+            # run, and Round provenance (caused_by_request_id) is immutable
+            # per Round — sharing the run id across commits would reject
+            # every asset after the first.
+            round_id=_stable_id("source-agent-round", project_id, command_id),
             run_id=context.specialist_run_id,
             task_id=_stable_id("source-agent-commit", project_id, command_id),
             attempt_id=_stable_id(
