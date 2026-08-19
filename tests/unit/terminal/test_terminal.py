@@ -345,9 +345,16 @@ async def test_reusing_idle_session_cancels_due_expiry_task(tmp_path):
         yield_time=2,
         max_output_bytes=1024,
     )
+    # Exercise the expiry callback race directly; no public API exposes this
+    # scheduler boundary.
+    # pylint: disable=protected-access
     session = manager._sessions[first.session_id]
     manager._cancel_expiry(first.session_id)
-    manager._expiry_due(first.session_id, session.last_activity)
+    manager._expiry_due(
+        first.session_id,
+        session.last_activity,
+    )
+    # pylint: enable=protected-access
 
     second = await manager.execute(
         "printf reused",

@@ -59,13 +59,13 @@ class TerminalSessionManager:
         if self._closing or session.state is not SessionState.IDLE:
             return
         observed_activity = session.last_activity
-        self._expiry_handles[session.session_id] = (
-            asyncio.get_running_loop().call_later(
-                max(0.01, self.idle_ttl_seconds),
-                self._expiry_due,
-                session.session_id,
-                observed_activity,
-            )
+        self._expiry_handles[
+            session.session_id
+        ] = asyncio.get_running_loop().call_later(
+            max(0.01, self.idle_ttl_seconds),
+            self._expiry_due,
+            session.session_id,
+            observed_activity,
         )
 
     def _expiry_due(
@@ -81,9 +81,11 @@ class TerminalSessionManager:
             name=f"qwenpaw-terminal-expiry-{session_id}",
         )
         self._expiry_tasks[session_id] = task
-        task.add_done_callback(
-            lambda finished, sid=session_id: self._expiry_finished(sid, finished)
-        )
+
+        def expiry_finished(finished: asyncio.Task[None]) -> None:
+            self._expiry_finished(session_id, finished)
+
+        task.add_done_callback(expiry_finished)
 
     def _expiry_finished(
         self,
@@ -155,7 +157,9 @@ class TerminalSessionManager:
                 *(session.close() for session in expired),
                 return_exceptions=True,
             )
-        executable = shell or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
+        executable = shell or (
+            "cmd.exe" if sys.platform == "win32" else "/bin/sh"
+        )
         try:
             backend = await spawn_terminal_backend(
                 executable,
@@ -257,7 +261,11 @@ class TerminalSessionManager:
             yield_time=yield_time,
             max_output_bytes=max_output_bytes,
         )
-        if not result.running and not session.persistent and result.output_drained:
+        if (
+            not result.running
+            and not session.persistent
+            and result.output_drained
+        ):
             await self.remove(session_id)
             return replace(result, session_id=None)
         if not result.running:

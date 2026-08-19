@@ -14,7 +14,9 @@ import time
 from .backends.base import TerminalBackend
 from .models import SessionResult, SessionState
 
-_ANSI_RE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+_ANSI_RE = re.compile(
+    rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
+)
 
 
 def _decode(data: bytes) -> str:
@@ -22,12 +24,18 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-8")
     except UnicodeDecodeError:
         return data.decode(
-            locale.getpreferredencoding(False) or "utf-8", errors="replace"
+            locale.getpreferredencoding(False) or "utf-8",
+            errors="replace",
         )
 
 
 class TerminalSession:
-    def __init__(self, session_id: str, backend: TerminalBackend, shell: str) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        backend: TerminalBackend,
+        shell: str,
+    ) -> None:
         self.session_id = session_id
         self.backend = backend
         self.shell = shell
@@ -70,7 +78,8 @@ class TerminalSession:
             script = (
                 f"& {{ {command} }}; $__qwenpaw_ec=$LASTEXITCODE; "
                 f"if ($null -eq $__qwenpaw_ec) {{$__qwenpaw_ec=0}}; "
-                f'[Console]::Out.WriteLine("`u001e{marker}:$__qwenpaw_ec`u001f")\r\n'
+                f'[Console]::Out.WriteLine("`u001e{marker}:'
+                '$__qwenpaw_ec`u001f")\r\n'
             )
         else:
             # Keep the command and completion protocol in one parsed shell
@@ -160,7 +169,8 @@ class TerminalSession:
             return f"\r\necho \x1e{marker}:{exit_code}\x1f\r\n".encode()
         if kind == "powershell":
             return (
-                f'\r\n[Console]::Out.WriteLine("`u001e{marker}:{exit_code}`u001f")\r\n'
+                f'\r\n[Console]::Out.WriteLine("`u001e{marker}:'
+                f'{exit_code}`u001f")\r\n'
             ).encode()
         return (f"\nprintf '\\036{marker}:{exit_code}\\037\\n'\n").encode()
 
@@ -192,7 +202,10 @@ class TerminalSession:
         observed = self.backend.capture.end_cursor
         while self.state in {SessionState.RUNNING, SessionState.INTERRUPTING}:
             self._refresh_state()
-            if self.state not in {SessionState.RUNNING, SessionState.INTERRUPTING}:
+            if self.state not in {
+                SessionState.RUNNING,
+                SessionState.INTERRUPTING,
+            }:
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -202,7 +215,10 @@ class TerminalSession:
         return self._make_result(max_output_bytes)
 
     def _make_result(self, max_output_bytes: int) -> SessionResult:
-        chunk = self.backend.capture.poll(self._public_cursor, max_output_bytes)
+        chunk = self.backend.capture.poll(
+            self._public_cursor,
+            max_output_bytes,
+        )
         chunk_start = chunk.cursor - len(chunk.data)
         next_cursor = chunk.cursor
         data = chunk.data
@@ -228,7 +244,10 @@ class TerminalSession:
         self._public_cursor = next_cursor
         data = _ANSI_RE.sub(b"", data)
         output = _decode(data).strip("\r\n")
-        running = self.state in {SessionState.RUNNING, SessionState.INTERRUPTING}
+        running = self.state in {
+            SessionState.RUNNING,
+            SessionState.INTERRUPTING,
+        }
         marker_bytes = 0
         if self._marker_span is not None:
             marker_bytes = self._marker_span[1] - self._marker_span[0]
@@ -297,7 +316,10 @@ class TerminalSession:
             return
         self.state = SessionState.TERMINATING
         current = asyncio.current_task()
-        if self._timeout_task is not None and self._timeout_task is not current:
+        if (
+            self._timeout_task is not None
+            and self._timeout_task is not current
+        ):
             self._timeout_task.cancel()
         self._timeout_task = None
         await self.backend.close()

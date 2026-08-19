@@ -20,7 +20,10 @@ from .models import (
 _MAX_FILE_BYTES = 200 * 1024 * 1024
 
 
-def resolve_patch_paths(root: Path, document: PatchDocument) -> dict[str, Path]:
+def resolve_patch_paths(
+    root: Path,
+    document: PatchDocument,
+) -> dict[str, Path]:
     try:
         return {
             raw: resolve_workspace_path(root, raw, portable=True)
@@ -31,7 +34,6 @@ def resolve_patch_paths(root: Path, document: PatchDocument) -> dict[str, Path]:
 
 
 def build_plan(
-    root: Path,
     document: PatchDocument,
     resolved: dict[str, Path],
 ) -> PatchPlan:
@@ -42,16 +44,20 @@ def build_plan(
 
     for operation in document.operations:
         source = resolved[operation.path]
-        destination = resolved[operation.new_path] if operation.new_path else source
+        destination = (
+            resolved[operation.new_path] if operation.new_path else source
+        )
         files.extend(
-            [operation.path] + ([operation.new_path] if operation.new_path else [])
+            [operation.path]
+            + ([operation.new_path] if operation.new_path else []),
         )
         involved = {source, destination}
         if any(path in mutations for path in involved):
             conflicts.append(
                 PatchConflict(
                     "duplicate_operation",
-                    f"Patch contains overlapping operations for {operation.path!r}",
+                    "Patch contains overlapping operations for "
+                    f"{operation.path!r}",
                     file=operation.path,
                 ),
             )
@@ -136,7 +142,11 @@ def build_plan(
         hunk_count += len(operation.hunks)
         if destination != source:
             mutations[source] = PlannedMutation(source, None, snapshot.mode)
-        mutations[destination] = PlannedMutation(destination, content, snapshot.mode)
+        mutations[destination] = PlannedMutation(
+            destination,
+            content,
+            snapshot.mode,
+        )
 
     if conflicts:
         raise PatchError(
@@ -145,7 +155,7 @@ def build_plan(
             conflicts=tuple(conflicts),
         )
     return PatchPlan(
-        tuple(mutations[path] for path in sorted(mutations, key=lambda p: str(p))),
+        tuple(mutations[path] for path in sorted(mutations, key=str)),
         tuple(dict.fromkeys(path for path in files if path)),
         hunk_count,
     )

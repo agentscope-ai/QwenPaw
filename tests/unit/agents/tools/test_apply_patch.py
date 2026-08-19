@@ -19,7 +19,9 @@ from qwenpaw.terminal import TerminalSessionManager
 
 
 def test_managed_terminal_schema_accepts_provider_numeric_strings():
-    execute_properties = FunctionTool(execute_shell_command).input_schema["properties"]
+    execute_properties = FunctionTool(execute_shell_command).input_schema[
+        "properties"
+    ]
     stdin_properties = FunctionTool(write_stdin).input_schema["properties"]
 
     for properties, name in (
@@ -174,7 +176,11 @@ async def test_shell_tools_drive_interactive_program(tmp_path):
         ("", True),
     ],
 )
-async def test_shell_tools_interrupt_and_reuse_session(tmp_path, ctrl_c, interrupt):
+async def test_shell_tools_interrupt_and_reuse_session(
+    tmp_path,
+    ctrl_c,
+    interrupt,
+):
     manager = TerminalSessionManager(tmp_path)
     manager_token = current_terminal_manager.set(manager)
     project_token = current_project_dir.set(tmp_path)

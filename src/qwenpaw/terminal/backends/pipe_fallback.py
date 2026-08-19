@@ -7,6 +7,7 @@ import asyncio
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from ..capture import BackgroundCapture
 from ..process_tree import ProcessSupervisor
@@ -49,7 +50,7 @@ class PipeTerminalBackend:
         env: dict[str, str],
         capture_bytes: int,
     ) -> "PipeTerminalBackend":
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = getattr(
                 subprocess,
@@ -76,7 +77,10 @@ class PipeTerminalBackend:
         await self.process.stdin.drain()
 
     async def close(self) -> None:
-        if self.process.stdin is not None and not self.process.stdin.is_closing():
+        if (
+            self.process.stdin is not None
+            and not self.process.stdin.is_closing()
+        ):
             self.process.stdin.close()
         await self.supervisor.terminate()
         await self.capture.close()

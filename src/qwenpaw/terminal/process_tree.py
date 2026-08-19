@@ -74,7 +74,10 @@ class ProcessSupervisor:
                         except (ProcessLookupError, PermissionError):
                             pass
                     try:
-                        await asyncio.wait_for(self.process.wait(), timeout=2.0)
+                        await asyncio.wait_for(
+                            self.process.wait(),
+                            timeout=2.0,
+                        )
                     except asyncio.TimeoutError:
                         pass
             self._closed = True

@@ -46,7 +46,8 @@ def _parse_hunks(lines: list[str], path: str) -> tuple[PatchHunk, ...]:
         if not raw or raw[0] not in {" ", "+", "-"}:
             raise PatchError(
                 "invalid_hunk_line",
-                f"Every update line for {path!r} must start with space, +, or -",
+                f"Every update line for {path!r} must start with "
+                "space, +, or -",
             )
         current.append(HunkLine(raw[0], raw[1:]))
     finish()
@@ -55,7 +56,9 @@ def _parse_hunks(lines: list[str], path: str) -> tuple[PatchHunk, ...]:
     return tuple(hunks)
 
 
-def parse_patch(source: str) -> PatchDocument:
+def parse_patch(  # pylint: disable=too-many-branches,too-many-statements
+    source: str,
+) -> PatchDocument:
     """Parse one complete patch without touching the filesystem."""
     if not isinstance(source, str):
         raise PatchError("invalid_patch", "Patch must be a string")
@@ -80,7 +83,10 @@ def parse_patch(source: str) -> PatchDocument:
             kind = FileOperationKind.UPDATE
             path = header[len(_UPDATE) :]
         else:
-            raise PatchError("unknown_header", f"Unknown patch header: {header!r}")
+            raise PatchError(
+                "unknown_header",
+                f"Unknown patch header: {header!r}",
+            )
         if not path:
             raise PatchError("empty_path", "Patch file path cannot be empty")
 
@@ -90,7 +96,10 @@ def parse_patch(source: str) -> PatchDocument:
                 new_path = lines[index][len(_MOVE) :]
                 index += 1
                 if not new_path:
-                    raise PatchError("empty_move_path", "Move destination is empty")
+                    raise PatchError(
+                        "empty_move_path",
+                        "Move destination is empty",
+                    )
 
         body: list[str] = []
         while index < len(lines) - 1 and not lines[index].startswith("*** "):
@@ -102,12 +111,16 @@ def parse_patch(source: str) -> PatchDocument:
                 if new_path is not None:
                     raise PatchError(
                         "duplicate_move",
-                        f"Update for {path!r} has more than one move destination",
+                        f"Update for {path!r} has more than one "
+                        "move destination",
                     )
                 new_path = lines[index][len(_MOVE) :]
                 index += 1
                 if not new_path:
-                    raise PatchError("empty_move_path", "Move destination is empty")
+                    raise PatchError(
+                        "empty_move_path",
+                        "Move destination is empty",
+                    )
 
         if kind is FileOperationKind.ADD:
             if any(not line.startswith("+") for line in body):
@@ -116,7 +129,11 @@ def parse_patch(source: str) -> PatchDocument:
                     f"Every added-file line for {path!r} must start with +",
                 )
             operations.append(
-                FileOperation(kind, path, add_lines=tuple(line[1:] for line in body)),
+                FileOperation(
+                    kind,
+                    path,
+                    add_lines=tuple(line[1:] for line in body),
+                ),
             )
         elif kind is FileOperationKind.DELETE:
             if body:

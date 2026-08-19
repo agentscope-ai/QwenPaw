@@ -38,7 +38,7 @@ def _write_stage(path: Path, content: bytes, mode: int) -> Path:
         raise
 
 
-def _commit(plan: PatchPlan) -> None:
+def _commit(plan: PatchPlan) -> None:  # pylint: disable=too-many-branches
     stages: dict[Path, Path] = {}
     backups: dict[Path, Path | None] = {}
     committed: list[Path] = []
@@ -93,7 +93,10 @@ def _commit(plan: PatchPlan) -> None:
             rollback_errors=tuple(rollback_errors),
         ) from exc
     finally:
-        for temporary in (*stages.values(), *(p for p in backups.values() if p)):
+        for temporary in (
+            *stages.values(),
+            *(p for p in backups.values() if p),
+        ):
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
@@ -110,16 +113,19 @@ def _commit(plan: PatchPlan) -> None:
                     pass
 
 
-async def apply_patch_document(root: Path, document: PatchDocument) -> PatchResult:
+async def apply_patch_document(
+    root: Path,
+    document: PatchDocument,
+) -> PatchResult:
     """Validate and apply a document while holding every target path lock."""
     resolved = await run_sync_io(resolve_patch_paths, root, document)
-    lock_paths = sorted(set(resolved.values()), key=lambda path: str(path))
+    lock_paths = sorted(set(resolved.values()), key=str)
     async with AsyncExitStack() as stack:
         for path in lock_paths:
             await stack.enter_async_context(get_path_lock(path))
 
         def plan_and_commit() -> PatchPlan:
-            plan = build_plan(root, document, resolved)
+            plan = build_plan(document, resolved)
             _commit(plan)
             return plan
 

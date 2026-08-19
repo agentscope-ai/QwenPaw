@@ -12,7 +12,9 @@ from qwenpaw.patching.models import PatchPlan, PlannedMutation
 
 
 @pytest.mark.asyncio
-async def test_multi_file_multi_hunk_add_delete_move_preserves_format(tmp_path):
+async def test_multi_file_multi_hunk_add_delete_move_preserves_format(
+    tmp_path,
+):
     original = b"\xef\xbb\xbffirst\r\none\r\nmiddle\r\ntwo\r\nlast\r\n"
     (tmp_path / "source.txt").write_bytes(original)
     (tmp_path / "delete.txt").write_text("obsolete\n", encoding="utf-8")

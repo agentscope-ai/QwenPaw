@@ -58,9 +58,14 @@ def apply_hunks(
             if hinted:
                 candidates = hinted
         if len(candidates) != 1:
-            code = "ambiguous_context" if len(candidates) > 1 else "context_mismatch"
+            code = (
+                "ambiguous_context"
+                if len(candidates) > 1
+                else "context_mismatch"
+            )
             message = (
-                f"Hunk {hunk_number} for {file!r} matches {len(candidates)} locations"
+                f"Hunk {hunk_number} for {file!r} matches "
+                f"{len(candidates)} locations"
                 if candidates
                 else f"Hunk {hunk_number} context was not found in {file!r}"
             )

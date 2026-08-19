@@ -7,6 +7,7 @@ import threading
 
 import pytest
 
+from qwenpaw.terminal import backends
 from qwenpaw.terminal.capture import BackgroundCapture
 from qwenpaw.terminal.backends.windows_conpty import WindowsConPtyBackend
 
@@ -58,8 +59,6 @@ async def test_windows_backend_failure_uses_explicit_degraded_fallback(
     monkeypatch,
     tmp_path,
 ):
-    import qwenpaw.terminal.backends as backends
-
     degraded = object()
 
     async def fail_conpty(*_args, **_kwargs):

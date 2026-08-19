@@ -26,7 +26,9 @@ def decode_snapshot(path: Path, raw: bytes) -> TextSnapshot:
     without_crlf = decoded.replace("\r\n", "")
     cr = without_crlf.count("\r")
     lf = without_crlf.count("\n")
-    newline = "\r\n" if crlf >= max(cr, lf) and crlf else ("\r" if cr > lf else "\n")
+    newline = (
+        "\r\n" if crlf >= max(cr, lf) and crlf else ("\r" if cr > lf else "\n")
+    )
     normalized = decoded.replace("\r\n", "\n").replace("\r", "\n")
     trailing = normalized.endswith("\n")
     if trailing:

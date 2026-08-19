@@ -54,7 +54,7 @@ class _WinPtySupervisor:
             return
         await run_sync_io(self.process.write, "\x03")
 
-    async def terminate(self, grace: float = 2.0) -> None:  # noqa: ARG002
+    async def terminate(self, _grace: float = 2.0) -> None:
         async with self._lock:
             if self._closed:
                 return
@@ -120,7 +120,11 @@ class WindowsConPtyBackend:
                     break
                 if not value:
                     break
-                data = value if isinstance(value, bytes) else value.encode("utf-8")
+                data = (
+                    value
+                    if isinstance(value, bytes)
+                    else value.encode("utf-8")
+                )
                 self._loop.call_soon_threadsafe(self.capture.append, data)
         except BaseException as exc:  # noqa: BLE001
             error = exc

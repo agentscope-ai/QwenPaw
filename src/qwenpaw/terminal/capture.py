@@ -90,7 +90,7 @@ class BackgroundCapture:
         )
 
     def retained_since(self, cursor: int) -> tuple[bytes, int, int]:
-        """Return all currently retained bytes since cursor for protocol scans."""
+        """Return retained bytes since cursor for internal protocol scans."""
         actual = max(cursor, self._start_cursor)
         offset = actual - self._start_cursor
         return bytes(self._buffer[offset:]), actual, self._end_cursor
@@ -107,7 +107,10 @@ class BackgroundCapture:
         if self._end_cursor > cursor or self._eof:
             return True
         try:
-            await asyncio.wait_for(self._changed.wait(), timeout=max(0.0, timeout))
+            await asyncio.wait_for(
+                self._changed.wait(),
+                timeout=max(0.0, timeout),
+            )
             return True
         except asyncio.TimeoutError:
             return False
