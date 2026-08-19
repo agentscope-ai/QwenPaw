@@ -117,6 +117,7 @@ jobs:
           QWENPAW_WINDOWS_APPCONTAINER_E2E: '1'
         run: |
           pytest tests/unit/hub/test_windows_process_isolation.py::test_windows_appcontainer_real_preflight -v
+          pytest tests/e2e/test_windows_hub_local_runtime.py -v
 
       - name: Run unit tests
         shell: bash

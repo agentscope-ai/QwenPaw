@@ -93,7 +93,7 @@ Hub 管理中心围绕日常运维重新组织，而不是把底层数据库直�
 
 Local 后端复用宿主机的 QwenPaw 与 Python 环境，但不会在隔离能力缺失时直接启动普通进程：Linux 使用 Bubblewrap，macOS 使用 Seatbelt，Windows 使用 AppContainer 和 Job Object，并在启动前验证运行环境只能看到允许的路径。
 
-Windows Local 要求 Windows 10 1507 或更高版本，并要求 Hub 以管理员权限运行。Hub 使用系统 inbound loopback broker 让管理入口可以代理 AppContainer 中的 QwenPaw，同时验证运行环境不能访问宿主机上的其他 loopback 服务。管理员权限、文件 ACL、进程树约束或网络探测任一失败，运行环境都会拒绝启动。
+Windows Local 要求 Windows 10 1507 或更高版本，并要求 Hub 以管理员权限运行。Hub 在运行环境存续期间为其 AppContainer SID 启用 Windows loopback exemption，让管理入口可以代理其中的 QwenPaw，并在停止时撤销规则。该规则同时意味着 Windows Local 可以访问宿主机 loopback，因此它不提供独立网络边界。管理员权限、文件 ACL、进程树约束、规则配置或入站探测任一失败，运行环境都会拒绝启动。
 
 如果平台不支持所需边界，探测会失败，运行环境也会拒绝启动。这里限制的是进程和文件系统访问范围，所有 Local 运行环境仍使用宿主机内核，不能当作虚拟机或独立内核沙箱。
 

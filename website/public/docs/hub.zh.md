@@ -173,7 +173,7 @@ Local 后端在宿主机上启动 QwenPaw 进程，但不会在隔离能力缺�
 
 三个平台都采用默认拒绝的文件系统边界，只开放运行所需的只读系统路径和当前运行环境的数据目录。Windows 还使用 Job Object 管理完整进程树，确保停止运行环境时一并终止子进程。
 
-Windows AppContainer 默认不允许宿主机通过 loopback 访问其中的服务。Hub 会为每个运行环境启动系统提供的 inbound loopback broker，使 Hub 能代理该运行环境的 Console，同时验证运行环境不能反向连接宿主机上的其他 loopback 端口。这个 broker 需要管理员权限；ACL、AppContainer、Job Object 或网络探测任一失败，Local 后端都会拒绝启动，而不会退化成未隔离进程。
+Windows AppContainer 默认不允许宿主机通过 loopback 访问其中的服务。Hub 会在运行环境存续期间为对应 AppContainer SID 启用 Windows loopback exemption，使 Hub 能代理其中的 QwenPaw，并在停止运行环境时撤销该规则。这项规则也允许 Windows Local 运行环境访问宿主机上的 loopback 服务，因此 Windows Local 提供的是文件系统和进程边界，不提供独立网络边界。管理员权限、ACL、AppContainer、Job Object、规则配置或入站连通性探测任一失败，Local 后端都会拒绝启动，而不会退化成未隔离进程。
 
 这属于**进程和文件系统访问控制**，不是内核隔离。所有 Local 运行环境仍使用宿主机内核，不能视为虚拟机、MicroVM 或针对恶意租户的强安全边界。
 

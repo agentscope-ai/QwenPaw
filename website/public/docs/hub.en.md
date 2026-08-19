@@ -137,7 +137,7 @@ Local starts QwenPaw on the host but never falls back to an ordinary unsandboxed
 
 All platforms use a deny-by-default filesystem boundary and expose only required read-only runtime dependencies plus the current tenant's data. Windows uses a kill-on-close Job Object for the complete process tree.
 
-AppContainer normally blocks host access to services on its loopback interface. Hub keeps a system inbound-loopback broker for each runtime so the control plane can proxy the Console, while a preflight probe verifies that the runtime cannot connect back to unrelated host loopback services. Missing privileges, ACL support, AppContainer APIs, Job Object support, or either network probe causes Local to fail closed.
+AppContainer normally blocks host access to services on its loopback interface. While a runtime is active, Hub enables the Windows loopback exemption for that AppContainer SID so the control plane can proxy QwenPaw, then removes the rule when the runtime stops. The same rule allows Windows Local runtimes to reach host loopback services, so Windows Local provides filesystem and process boundaries but not a separate network boundary. Missing privileges, ACL support, AppContainer APIs, Job Object support, rule configuration, or inbound connectivity causes Local to fail closed.
 
 This is process and filesystem access control, not kernel isolation. Local runtimes share the host kernel and must not be treated as virtual machines, microVMs, or a sufficient boundary for hostile tenants.
 

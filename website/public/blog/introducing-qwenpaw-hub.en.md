@@ -57,7 +57,7 @@ Failed runtimes expose a self-service restart action. Runtimes disabled by an ad
 
 Local reuses the host QwenPaw and Python installation without silently falling back to an ordinary process. Linux uses Bubblewrap, macOS uses Seatbelt, and Windows uses AppContainer with a kill-on-close Job Object.
 
-Windows Local supports Windows 10 1507 or newer and requires Hub to run as Administrator. A system inbound-loopback broker lets Hub proxy the QwenPaw service inside AppContainer, while preflight verifies that the tenant process cannot connect to unrelated host loopback services. Missing privileges, filesystem ACL enforcement, process-tree control, or network isolation makes startup fail closed.
+Windows Local supports Windows 10 1507 or newer and requires Hub to run as Administrator. Hub enables a Windows loopback exemption for the runtime's AppContainer SID while it is active, allowing the control plane to proxy QwenPaw, and removes the rule on stop. This also lets Windows Local reach host loopback services, so it is not a separate network boundary. Missing privileges, filesystem ACL enforcement, process-tree control, rule configuration, or inbound connectivity makes startup fail closed.
 
 These are process and filesystem controls, not separate kernels. Higher-risk deployments still need virtual machines, microVMs, dedicated nodes, or another infrastructure boundary.
 

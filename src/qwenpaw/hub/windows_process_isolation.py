@@ -32,14 +32,13 @@ from .process_isolation import (
     _runtime_root,
 )
 
-_BROKER_START_TIMEOUT_SECONDS = 5.0
 _PROBE_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass
 class _WindowsRuntimeBoundary:
     sandbox: WindowsAppContainerSandbox
-    loopback_broker: subprocess.Popen[bytes]
+    loopback_sid: str
 
 
 class WindowsAppContainerIsolator(ProcessIsolator):
@@ -89,17 +88,25 @@ class WindowsAppContainerIsolator(ProcessIsolator):
                 timeout_seconds=int(_PROBE_TIMEOUT_SECONDS),
             ),
         )
-        broker: subprocess.Popen[bytes] | None = None
+        loopback_enabled = False
         try:
             asyncio.run(sandbox.__aenter__())
-            broker = self._start_loopback_broker(sandbox.container_sid)
-            boundary = _WindowsRuntimeBoundary(sandbox, broker)
+            self._set_loopback_exemption(sandbox.container_sid, enabled=True)
+            loopback_enabled = True
+            boundary = _WindowsRuntimeBoundary(
+                sandbox,
+                sandbox.container_sid,
+            )
             with self._lock:
                 self._boundaries[record.runtime_id] = boundary
             self._probe(record, runtime_root, sandbox)
         except Exception as exc:
-            if broker is not None:
-                self._stop_broker(broker)
+            if loopback_enabled:
+                self._set_loopback_exemption(
+                    sandbox.container_sid,
+                    enabled=False,
+                    check=False,
+                )
             asyncio.run(sandbox.stop())
             with self._lock:
                 self._boundaries.pop(record.runtime_id, None)
@@ -123,10 +130,6 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             raise ProcessIsolationError(
                 f"Windows boundary is not prepared: {record.runtime_id}",
             )
-        if boundary.loopback_broker.poll() is not None:
-            raise ProcessIsolationError(
-                "Windows inbound loopback broker exited before launch.",
-            )
         return boundary.sandbox.spawn_process(
             launch.command,
             cwd=str(record.working_dir),
@@ -135,13 +138,17 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         )
 
     def release(self, runtime_id: str) -> None:
-        """Stop the loopback broker and release retained process handles."""
+        """Release retained process handles and the loopback exemption."""
         with self._lock:
             boundary = self._boundaries.pop(runtime_id, None)
         if boundary is None:
             return
         asyncio.run(boundary.sandbox.stop())
-        self._stop_broker(boundary.loopback_broker)
+        self._set_loopback_exemption(
+            boundary.loopback_sid,
+            enabled=False,
+            check=False,
+        )
 
     @staticmethod
     def _checknetisolation_path() -> str:
@@ -159,40 +166,31 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             "CheckNetIsolation.exe is required for Windows Local runtimes.",
         )
 
-    def _start_loopback_broker(
+    def _set_loopback_exemption(
         self,
         container_sid: str,
-    ) -> subprocess.Popen[bytes]:
+        *,
+        enabled: bool,
+        check: bool = True,
+    ) -> None:
         command = [
             self._checknetisolation_path(),
             "LoopbackExempt",
-            "-is",
+            "-a" if enabled else "-d",
             f"-p={container_sid}",
         ]
-        # pylint: disable-next=consider-using-with
-        broker = subprocess.Popen(
+        result = subprocess.run(
             command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            check=False,
+            capture_output=True,
+            text=True,
         )
-        time.sleep(min(0.25, _BROKER_START_TIMEOUT_SECONDS))
-        if broker.poll() is not None:
+        if check and result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
             raise ProcessIsolationError(
-                "Windows inbound loopback broker exited with code "
-                f"{broker.returncode}.",
+                "Windows loopback exemption failed with code "
+                f"{result.returncode}: {detail}",
             )
-        return broker
-
-    @staticmethod
-    def _stop_broker(broker: subprocess.Popen[bytes]) -> None:
-        if broker.poll() is not None:
-            return
-        broker.terminate()
-        try:
-            broker.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            broker.kill()
-            broker.wait(timeout=5)
 
     def _probe(
         self,
@@ -201,7 +199,6 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         sandbox: WindowsAppContainerSandbox,
     ) -> None:
         self._probe_filesystem(record, runtime_root, sandbox)
-        self._probe_outbound_loopback(record, sandbox)
         self._probe_inbound_loopback(record, sandbox)
 
     @staticmethod
@@ -275,23 +272,6 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             allowed.unlink(missing_ok=True)
             forbidden.unlink(missing_ok=True)
             written.unlink(missing_ok=True)
-
-    def _probe_outbound_loopback(
-        self,
-        record: RuntimeRecord,
-        sandbox: WindowsAppContainerSandbox,
-    ) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-            listener.bind(("127.0.0.1", 0))
-            listener.listen(1)
-            port = int(listener.getsockname()[1])
-            script = (
-                "import socket; "
-                "client=socket.socket(); client.settimeout(1); "
-                f"code=client.connect_ex(('127.0.0.1',{port})); "
-                "client.close(); raise SystemExit(41 if code == 0 else 0)"
-            )
-            self._run_probe(sandbox, record, script)
 
     def _probe_inbound_loopback(
         self,
