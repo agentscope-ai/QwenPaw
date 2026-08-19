@@ -1,8 +1,19 @@
+import {
+  normalizePathForCompare,
+  samePath,
+} from "../project-directory/pathEquivalence";
 import type { WorkspaceRoot } from "./types";
 
+/**
+ * Canonical form of a directory path for comparison.
+ *
+ * Delegates to the shared rule rather than folding drive letters here: the
+ * old local version lower-cased `C:/…` only, so a Windows UNC path compared
+ * case-sensitively and one share showed up as two roots, and it disagreed
+ * with the picker's own comparison on every other platform.
+ */
 export function normalizeDirectoryPath(path: string): string {
-  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+  return normalizePathForCompare(path);
 }
 
 export function directoriesMatch(
@@ -10,9 +21,7 @@ export function directoriesMatch(
   workspaceDirectory: string,
 ): boolean {
   return (
-    Boolean(projectDirectory) &&
-    normalizeDirectoryPath(projectDirectory) ===
-      normalizeDirectoryPath(workspaceDirectory)
+    Boolean(projectDirectory) && samePath(projectDirectory, workspaceDirectory)
   );
 }
 

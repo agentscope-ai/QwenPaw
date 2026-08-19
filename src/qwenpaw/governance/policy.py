@@ -1741,6 +1741,28 @@ def _parse_detection_rules(
 EXTRA_PROJECT_DIR_RULE_REASON = "Extra project dir"
 
 
+def _project_dir_allow_match(path: str) -> str:
+    """Return the ``match`` granting *path* and everything beneath it.
+
+    The directory name is **escaped**, not interpolated. ``*?[]{}!`` are
+    all legal characters in a directory name but glob syntax to the
+    matcher, so a raw f-string produces a rule that grants the wrong
+    tree: ``/tmp/project[1]`` reads ``[1]`` as a character class, stops
+    matching its own files, and starts matching ``/tmp/project1`` — a
+    directory the user never bound. ``{a,b}`` behaves the same way via
+    brace expansion.
+
+    :func:`wcmatch.glob.escape` is used rather than a hand-rolled escape
+    because it is the same library :meth:`GovernanceRule._globmatch`
+    matches with, and it handles the separator differences between POSIX
+    and Windows paths (which a character-class escape cannot, since
+    brace expansion runs before the pattern is parsed).
+    """
+    from wcmatch import glob
+
+    return f"*({glob.escape(path)}/**)"
+
+
 def _sync_extra_project_dir_rules(
     user_rules: List[GovernanceRule],
     workspace_dir: str,
@@ -1752,6 +1774,11 @@ def _sync_extra_project_dir_rules(
     Adds ``*(<path>/**)`` ALLOW rules for directories that lack one and
     drops rules whose directory is no longer bound (or has been promoted
     to primary / overlaps the workspace, both already covered).
+
+    A rule written before the path was escaped no longer matches the
+    pattern this function would generate, so it is treated as stale and
+    replaced — which is the intended repair, since the unescaped rule
+    described the wrong tree.
     """
 
     from ..services.project_directory import dir_key as _dedupe_key
@@ -1778,14 +1805,15 @@ def _sync_extra_project_dir_rules(
         if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON
     }
 
+    desired_matches = {_project_dir_allow_match(path) for path in desired}
     kept = [
         rule
         for rule in user_rules
         if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
-        or rule.match in {f"*({path}/**)" for path in desired}
+        or rule.match in desired_matches
     ]
     for path in desired:
-        match = f"*({path}/**)"
+        match = _project_dir_allow_match(path)
         if match in existing_matches:
             continue
         kept.append(

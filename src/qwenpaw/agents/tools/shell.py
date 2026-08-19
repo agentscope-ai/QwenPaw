@@ -1053,7 +1053,11 @@ async def execute_shell_command(
         candidate = Path(str(cwd)).expanduser()
         if not candidate.is_absolute():
             candidate = roots[0] / candidate
-        working_dir = candidate.resolve()
+        # ``resolve()`` walks the filesystem, and the subprocess it feeds is
+        # already spawned in a worker thread — leaving this one call on the
+        # event loop would make an unresponsive mount stall every other
+        # connection while nothing else about this path does.
+        working_dir = await run_sync_io(candidate.resolve)
     else:
         working_dir = get_tool_base_dir()
 

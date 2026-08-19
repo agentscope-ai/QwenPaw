@@ -121,6 +121,24 @@ def dir_key(raw: Any) -> str:
     return text.casefold() if _FS_IS_CASE_INSENSITIVE else text
 
 
+def path_case_insensitive() -> bool:
+    """Whether directory comparisons fold case on this server's platform.
+
+    Published to clients so the console applies the **server's** rule
+    rather than guessing from the browser it happens to run in. Folding
+    unconditionally would report ``/srv/Repo`` as already bound when
+    ``/srv/repo`` is, and a Linux user could never bind both.
+
+    Platform-wide, which the filesystem does not actually guarantee: a
+    case-sensitive APFS volume on macOS, or a directory with the
+    per-directory case-sensitivity flag set on Windows, still compares as
+    folded here. Answering that correctly needs a per-path probe; until
+    then this is one answer both sides agree on instead of three that
+    disagree.
+    """
+    return _FS_IS_CASE_INSENSITIVE
+
+
 def same_dir(a: PathLike, b: PathLike) -> bool:
     """Compare two directories, ignoring case and trailing separators.
 
@@ -137,9 +155,21 @@ def same_dir(a: PathLike, b: PathLike) -> bool:
     right = _normalize_optional(b)
     if left is None or right is None:
         return False
+    return same_dir_normalized(left, right)
+
+
+def same_dir_normalized(a: Path, b: Path) -> bool:
+    """:func:`same_dir` for paths that are already normalized.
+
+    Skips the ``resolve()`` on both sides. Dedupe loops need this: they
+    compare each candidate against every entry already kept, all of which
+    they normalized on the way in, so the naive version turns an n-entry
+    list into O(n²) filesystem walks — 101 of them for ten directories,
+    every turn.
+    """
     if _FS_IS_CASE_INSENSITIVE:
-        return str(left).casefold() == str(right).casefold()
-    return str(left) == str(right)
+        return str(a).casefold() == str(b).casefold()
+    return str(a) == str(b)
 
 
 def is_within(path: PathLike, root: PathLike) -> bool:
@@ -158,6 +188,17 @@ def is_within(path: PathLike, root: PathLike) -> bool:
     base = _normalize_optional(root)
     if target is None or base is None:
         return False
+    return is_within_normalized(target, base)
+
+
+def is_within_normalized(target: Path, base: Path) -> bool:
+    """:func:`is_within` for paths that are already normalized.
+
+    Skips the ``resolve()`` both sides would otherwise get. Only for
+    callers holding paths that came out of :func:`normalize_project_dir`
+    (a :class:`ResolvedProjectDirs` list, say) — passing a raw path here
+    compares it unresolved, which is a different question.
+    """
     try:
         target.relative_to(base)
         return True
@@ -219,7 +260,9 @@ def normalize_project_dir_list(
 
     Order is preserved — index 0 is the primary project directory.
     Dedupe keeps the first occurrence (and its label) and is
-    case-insensitive via :func:`same_dir`. Entries beyond
+    case-insensitive via :func:`same_dir_normalized` — both sides have
+    already been normalized by this point, so re-normalizing them would
+    make an n-entry list cost O(n²) filesystem walks. Entries beyond
     ``MAX_PROJECT_DIRS`` are dropped with a warning (the API layer
     rejects oversized lists with 422; truncation here is defense in
     depth only).
@@ -240,7 +283,7 @@ def normalize_project_dir_list(
         if coerced is None:
             continue
         path, label = coerced
-        if any(same_dir(path, existing) for existing, _ in entries):
+        if any(same_dir_normalized(path, existing) for existing, _ in entries):
             continue
         entries.append((path, label))
         if len(entries) >= MAX_PROJECT_DIRS:
@@ -257,32 +300,33 @@ def normalize_project_dir_list(
     return entries
 
 
-def detect_nested_roots(entries: Any) -> list[tuple[int, int]]:
+def nested_root_pairs(paths: Sequence[Path]) -> list[tuple[int, int]]:
     """Detect nested directories inside a project-dir list.
 
     Returns ``(child_index, ancestor_index)`` pairs — every case where
-    the entry at ``child_index`` lives underneath the entry at
+    the path at ``child_index`` lives underneath the path at
     ``ancestor_index``. Nested roots are **reported, not rejected**: the
     entry stays in the list and keeps working, and the UI surfaces a
     "covered by X" hint. Governance grants the outer root, which already
     covers the inner one, so the extra grant is redundant rather than
     wrong.
 
-    Indices refer to this function's own **normalized** view of
-    *entries* (blank/duplicate entries dropped). Pass an already
-    normalized list — as :mod:`qwenpaw.app.chats.api` does — when the
-    indices need to line up with the caller's own list.
+    Nesting is a physical relationship independent of order and of which
+    entry is primary.
 
-    Nesting is a physical relationship independent of order and of
-    which entry is primary.
+    Takes **already-normalized** paths and compares them as given — no
+    coercion, no dedupe, no ``resolve()``. Callers hold a resolved list
+    already (the chats API builds one from :class:`ResolvedProjectDirs`),
+    so normalizing here would walk the filesystem a second time, once per
+    pair, to learn the nesting of paths it had just resolved. Indices
+    refer to *paths*, and therefore line up with the caller's own list.
     """
-    normalized = normalize_project_dir_list(entries)
     pairs: list[tuple[int, int]] = []
-    for child_idx, (child_path, _) in enumerate(normalized):
-        for anc_idx, (anc_path, _) in enumerate(normalized):
+    for child_idx, child_path in enumerate(paths):
+        for anc_idx, anc_path in enumerate(paths):
             if child_idx == anc_idx:
                 continue
-            if is_within(child_path, anc_path):
+            if is_within_normalized(child_path, anc_path):
                 pairs.append((child_idx, anc_idx))
     return pairs
 
@@ -308,6 +352,10 @@ class ResolvedProjectDirs:
     dirs: tuple[ResolvedProjectDir, ...]
     source: ProjectDirSource
     workspace_dir: Path
+    # Snapshot taken once during resolution. A property that probed the
+    # filesystem instead would issue a syscall on every ``primary`` /
+    # ``primary_path`` access, and those are read repeatedly per turn.
+    workspace_exists: bool = True
 
     @property
     def is_workspace_fallback(self) -> bool:
@@ -321,7 +369,7 @@ class ResolvedProjectDirs:
         return ResolvedProjectDir(
             path=self.workspace_dir,
             label=None,
-            exists=self.workspace_dir.is_dir(),
+            exists=self.workspace_exists,
         )
 
     @property
@@ -377,10 +425,14 @@ def resolve_effective_project_dirs(
     if request_override is not None:
         override = coerce_project_dir_entry(request_override)
         if override is not None:
+            # Both sides are already normalized (``entries`` from
+            # ``normalize_project_dir_list``, ``override`` from
+            # ``coerce_project_dir_entry``), so compare without resolving
+            # every entry a second time.
             entries = [override] + [
                 entry
                 for entry in entries
-                if not same_dir(entry[0], override[0])
+                if not same_dir_normalized(entry[0], override[0])
             ]
             source = SOURCE_REQUEST
 
@@ -394,7 +446,9 @@ def resolve_effective_project_dirs(
         worktree = _normalize_optional(fork_project_dir)
         if worktree is not None:
             entries = [(worktree, None)] + [
-                entry for entry in entries if not same_dir(entry[0], worktree)
+                entry
+                for entry in entries
+                if not same_dir_normalized(entry[0], worktree)
             ]
             source = SOURCE_FORK
 
@@ -421,6 +475,11 @@ def resolve_effective_project_dirs(
         dirs=dirs,
         source=source,
         workspace_dir=normalized_workspace,
+        # Only the fallback primary reads this, so skip the syscall when
+        # the list already has one.
+        workspace_exists=(
+            True if dirs else normalized_workspace.is_dir()
+        ),
     )
 
 
@@ -458,68 +517,6 @@ def resolve_effective_project_dir(
 
 
 # ---------------------------------------------------------------------------
-# Project display name
-#
-# A name for the directory list *as a unit*, separate from the
-# per-directory labels. Purely descriptive — it never takes part in
-# resolving a path. Session-level only; derived when not typed.
-# ---------------------------------------------------------------------------
-
-MAX_PROJECT_NAME_LEN = 60
-
-
-def normalize_project_name(raw: Any) -> Optional[str]:
-    """Coerce a project display name; ``None`` when blank or unusable."""
-    if not isinstance(raw, str):
-        return None
-    name = raw.strip()
-    if not name:
-        return None
-    return name[:MAX_PROJECT_NAME_LEN]
-
-
-def session_project_name_from_meta(meta: Optional[dict]) -> Optional[str]:
-    """Read the per-chat project display name override, if any."""
-    if not isinstance(meta, dict):
-        return None
-    runtime_context = meta.get("runtime_context")
-    if not isinstance(runtime_context, dict):
-        return None
-    return normalize_project_name(runtime_context.get("project_name"))
-
-
-def default_project_name(entries: Any) -> Optional[str]:
-    """Derive a display name from the directory list.
-
-    The primary entry's label, else its basename, so the UI always has
-    something to show without persisting a name nobody typed.
-    """
-    normalized = normalize_project_dir_list(entries)
-    if not normalized:
-        return None
-    path, label = normalized[0]
-    if label:
-        return label
-    return path.name or str(path)
-
-
-def resolve_project_name(
-    *,
-    entries: Any,
-    session_name: Optional[str] = None,
-) -> Optional[str]:
-    """Pick the display name to show for a project.
-
-    A session-set name wins; otherwise a name is derived from the
-    primary entry so the UI is never blank.
-    """
-    normalized = normalize_project_name(session_name)
-    if normalized:
-        return normalized
-    return default_project_name(entries)
-
-
-# ---------------------------------------------------------------------------
 # Chat metadata readers
 # ---------------------------------------------------------------------------
 
@@ -537,14 +534,19 @@ def session_project_dir(meta: dict[str, Any] | None) -> str | None:
     return dirs[0]["path"]
 
 
-def session_project_dirs_from_meta(meta: Optional[dict]) -> Optional[list]:
-    """Read the per-chat project-directory override from chat metadata.
+def session_project_dirs_raw_from_meta(meta: Optional[dict]) -> Optional[list]:
+    """Read the per-chat override **without** normalizing the entries.
 
-    Returns the persisted list (possibly empty), or ``None`` when the
-    chat has no override and should inherit the agent default. Entries
-    are normalized on the way out so callers get clean data even if the
-    stored metadata predates the list format (a legacy singular
-    ``project_dir`` string is read as a single-entry list).
+    Returns the stored list (possibly empty), or ``None`` when the chat
+    has no override and should inherit the agent default. A legacy
+    singular ``project_dir`` string reads as a single-entry list. Only
+    the controlled ``runtime_context`` namespace is trusted.
+
+    For callers that only forward the value to
+    :func:`resolve_effective_project_dirs`, which normalizes everything
+    it is handed: normalizing here as well would ``resolve()`` every
+    directory twice per turn. Callers that hand the entries to the API or
+    the UI want :func:`session_project_dirs_from_meta` instead.
     """
     if not isinstance(meta, dict):
         return None
@@ -554,27 +556,34 @@ def session_project_dirs_from_meta(meta: Optional[dict]) -> Optional[list]:
 
     stored = runtime_context.get("project_dirs")
     if stored is not None:
-        if not isinstance(stored, list):
-            stored = [stored]
-        return [
-            {"path": str(path), "label": label}
-            for path, label in normalize_project_dir_list(stored)
-        ]
+        return stored if isinstance(stored, list) else [stored]
 
     legacy = runtime_context.get("project_dir")
     if isinstance(legacy, str) and legacy.strip():
-        entries = normalize_project_dir_list([legacy])
-        if entries:
-            return [
-                {"path": str(path), "label": label} for path, label in entries
-            ]
+        return [legacy]
     return None
+
+
+def session_project_dirs_from_meta(meta: Optional[dict]) -> Optional[list]:
+    """Read the per-chat project-directory override from chat metadata.
+
+    Returns the persisted list (possibly empty), or ``None`` when the
+    chat has no override and should inherit the agent default. Entries
+    are normalized on the way out so callers get clean data even if the
+    stored metadata predates the list format.
+    """
+    stored = session_project_dirs_raw_from_meta(meta)
+    if stored is None:
+        return None
+    return [
+        {"path": str(path), "label": label}
+        for path, label in normalize_project_dir_list(stored)
+    ]
 
 
 __all__ = [
     "MAX_PROJECT_DIRS",
     "MAX_PROJECT_DIR_LABEL_LENGTH",
-    "MAX_PROJECT_NAME_LEN",
     "ResolvedProjectDir",
     "ResolvedProjectDirs",
     "SOURCE_AGENT",
@@ -584,18 +593,18 @@ __all__ = [
     "SOURCE_REQUEST",
     "SOURCE_SESSION",
     "SOURCE_WORKSPACE_FALLBACK",
-    "default_project_name",
-    "detect_nested_roots",
     "dir_key",
     "is_within",
+    "is_within_normalized",
+    "nested_root_pairs",
     "normalize_project_dir",
     "normalize_project_dir_list",
-    "normalize_project_name",
+    "path_case_insensitive",
     "resolve_effective_project_dir",
     "resolve_effective_project_dirs",
-    "resolve_project_name",
     "same_dir",
+    "same_dir_normalized",
     "session_project_dir",
     "session_project_dirs_from_meta",
-    "session_project_name_from_meta",
+    "session_project_dirs_raw_from_meta",
 ]

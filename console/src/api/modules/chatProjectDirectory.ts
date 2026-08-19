@@ -40,8 +40,13 @@ export interface ChatProjectDirs {
   project_dirs: ProjectDirEntry[];
   source: ChatProjectDirSource;
   agent_project_dir: string | null;
-  project_name: string | null;
-  project_name_is_custom: boolean;
+  /**
+   * Whether the server's platform folds case when comparing paths. Feed it
+   * to `setPathCaseInsensitive` — the client must not reimplement the rule,
+   * since folding on a case-sensitive server hides one of two real
+   * directories from the user.
+   */
+  path_case_insensitive: boolean;
 }
 
 /** One entry as sent to the server when setting the list. */
@@ -63,19 +68,12 @@ export const chatProjectDirectoryApi = {
    * full ordered list (index 0 becomes primary); add/remove/make-primary
    * are all expressed as list transforms followed by one PUT.
    */
-  setProjectDirs: (
-    chatId: string,
-    entries: ProjectDirPayloadEntry[],
-    projectName?: string | null,
-  ) =>
+  setProjectDirs: (chatId: string, entries: ProjectDirPayloadEntry[]) =>
     request<ChatProjectDirs>(
       `/chats/${encodeURIComponent(chatId)}/project-dirs`,
       {
         method: "PUT",
-        body: JSON.stringify({
-          project_dirs: entries,
-          project_name: projectName ?? null,
-        }),
+        body: JSON.stringify({ project_dirs: entries }),
       },
     ),
 

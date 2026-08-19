@@ -128,14 +128,6 @@ class ProjectDirsRequest(BaseModel):
         max_length=10,
         description="Full ordered list, primary first",
     )
-    project_name: Optional[str] = Field(
-        default=None,
-        max_length=60,
-        description=(
-            "Display name for the list as a whole. Omit or send null to "
-            "let it be derived from the primary directory."
-        ),
-    )
 
 
 class ProjectDirEntryView(BaseModel):
@@ -186,20 +178,13 @@ class ProjectDirsResponse(BaseModel):
             "showing inheritance"
         ),
     )
-    project_name: Optional[str] = Field(
-        default=None,
+    path_case_insensitive: bool = Field(
         description=(
-            "Display name to show for the project. Already resolved "
-            "(session override → primary directory's name), so the UI "
-            "can render it directly."
-        ),
-    )
-    project_name_is_custom: bool = Field(
-        default=False,
-        description=(
-            "True when the name was explicitly set rather than derived. "
-            "Lets the UI show a derived name without making it look "
-            "like a stored value."
+            "Whether this server's platform folds case when comparing "
+            "directory paths. Clients must use this instead of guessing "
+            "from the browser they run in: folding unconditionally makes "
+            "a Linux server report /srv/Repo as already bound when "
+            "/srv/repo is, and the user can never bind both."
         ),
     )
 
@@ -232,11 +217,10 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
     """Build the effective Session project-directory list response."""
     from ...config.config import load_agent_config
     from ...services.project_directory import (
-        detect_nested_roots,
+        nested_root_pairs,
+        path_case_insensitive,
         resolve_effective_project_dirs,
-        resolve_project_name,
-        session_project_dirs_from_meta,
-        session_project_name_from_meta,
+        session_project_dirs_raw_from_meta,
     )
 
     def _build() -> dict:
@@ -249,26 +233,20 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
         resolved = resolve_effective_project_dirs(
             workspace.workspace_dir,
             agent_project_dir=agent_dir,
-            session_project_dirs=session_project_dirs_from_meta(chat.meta),
+            session_project_dirs=session_project_dirs_raw_from_meta(chat.meta),
         )
-        # Nearest covering ancestor per entry, for the UI hint.
+        # Nearest covering ancestor per entry, for the UI hint. Fed the
+        # already-resolved paths so the nesting check does not resolve()
+        # every entry a second time.
         nearest: dict[int, str] = {}
-        for child_idx, anc_idx in detect_nested_roots(
-            [
-                {"path": str(entry.path), "label": entry.label}
-                for entry in resolved.dirs
-            ],
+        for child_idx, anc_idx in nested_root_pairs(
+            [entry.path for entry in resolved.dirs],
         ):
             candidate = str(resolved.dirs[anc_idx].path)
             current = nearest.get(child_idx)
             if current is None or len(candidate) > len(current):
                 nearest[child_idx] = candidate
 
-        session_name = session_project_name_from_meta(chat.meta)
-        effective_entries = [
-            {"path": str(entry.path), "label": entry.label}
-            for entry in resolved.dirs
-        ]
         return {
             "project_dirs": [
                 {
@@ -281,11 +259,7 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
             ],
             "source": resolved.source,
             "agent_project_dir": agent_dir,
-            "project_name": resolve_project_name(
-                entries=effective_entries,
-                session_name=session_name,
-            ),
-            "project_name_is_custom": bool(session_name),
+            "path_case_insensitive": path_case_insensitive(),
         }
 
     return await asyncio.to_thread(_build)
@@ -647,38 +621,46 @@ async def set_chat_project_dirs(
     from ...services.project_directory import (
         MAX_PROJECT_DIRS,
         normalize_project_dir_list,
-        normalize_project_name,
     )
 
-    def _normalize():
-        return normalize_project_dir_list(
+    def _normalize() -> tuple[list[dict], Optional[str], int]:
+        """Normalize and existence-check in one worker thread.
+
+        The ``is_dir()`` calls belong in here with the ``resolve()`` that
+        ``normalize_project_dir_list`` does: leaving them on the event
+        loop meant up to ``MAX_PROJECT_DIRS`` blocking stats per request,
+        and one unresponsive mount stalled every other connection.
+        """
+        entries = normalize_project_dir_list(
             [entry.model_dump() for entry in payload.project_dirs],
         )
+        missing = next(
+            (str(path) for path, _label in entries if not path.is_dir()),
+            None,
+        )
+        stored = [
+            {"path": str(path), "label": label} for path, label in entries
+        ]
+        return stored, missing, len(entries)
 
-    entries = await asyncio.to_thread(_normalize)
-    if not entries:
+    stored, missing, count = await asyncio.to_thread(_normalize)
+    if not count:
         raise HTTPException(
             status_code=422,
             detail="project_dirs must contain at least one valid entry",
         )
-    if len(entries) > MAX_PROJECT_DIRS:
+    if count > MAX_PROJECT_DIRS:
         raise HTTPException(
             status_code=422,
             detail=f"Too many project dirs (max {MAX_PROJECT_DIRS})",
         )
-    for path, _label in entries:
-        if not path.is_dir():
-            raise HTTPException(
-                status_code=422,
-                detail=f"Not a directory: {path}",
-            )
+    if missing is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not a directory: {missing}",
+        )
 
-    stored = [{"path": str(path), "label": label} for path, label in entries]
-    updated = await mgr.set_session_project_dirs(
-        chat_id,
-        stored,
-        normalize_project_name(payload.project_name),
-    )
+    updated = await mgr.set_session_project_dirs(chat_id, stored)
     if updated is None:
         raise HTTPException(
             status_code=404,

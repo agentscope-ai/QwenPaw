@@ -8,6 +8,14 @@ export interface ProjectDirectoryInfo {
   is_workspace_default: boolean;
   workspace_dir?: string;
   exists?: boolean;
+  /**
+   * Whether the server's platform folds case when comparing paths. Feed it
+   * to `setPathCaseInsensitive`; never guess it from the browser, which may
+   * not be running on the same OS as the server.
+   *
+   * Optional because `PUT` does not report it — only `GET` does.
+   */
+  path_case_insensitive?: boolean;
 }
 
 export interface ProjectListItem {

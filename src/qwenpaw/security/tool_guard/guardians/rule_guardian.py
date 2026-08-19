@@ -149,6 +149,13 @@ def _is_outside_workspace(
     Pass ``path_is_resolved=True`` when *abs_path* already came from
     :func:`_normalize_path` (which ``resolve()``-s) to avoid a second
     filesystem walk on the synchronous ToolGuard hot path.
+
+    Only the workspace root is resolved here. The project roots come from
+    the per-turn ContextVar, which ``ContextVarsSetupHook`` filled from
+    :class:`~qwenpaw.services.project_directory.ResolvedProjectDirs` —
+    they are already canonical, so resolving each one again would add a
+    filesystem walk per bound directory to every path check this guard
+    makes.
     """
     try:
         if path_is_resolved:
@@ -158,21 +165,22 @@ def _is_outside_workspace(
                 resolved_path = abs_path.resolve()
             except OSError:
                 return True
-        roots: list[Path] = [_get_workspace_root()]
+        try:
+            boundaries: list[Path] = [_get_workspace_root().resolve()]
+        except OSError:
+            boundaries = []
         try:
             from ....config.context import get_all_project_dir_paths
 
-            roots.extend(Path(path) for path in get_all_project_dir_paths())
+            boundaries.extend(
+                Path(path) for path in get_all_project_dir_paths()
+            )
         except Exception:  # pylint: disable=broad-except
             logger.debug(
                 "Could not read project roots; checking workspace only",
                 exc_info=True,
             )
-        for root in roots:
-            try:
-                boundary = root.resolve()
-            except OSError:
-                continue
+        for boundary in boundaries:
             if not is_path_outside_boundary(
                 resolved_path,
                 boundary,

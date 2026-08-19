@@ -430,7 +430,6 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         self,
         chat_id: str,
         project_dirs: Optional[list[dict]],
-        project_name: Optional[str] = None,
     ) -> Optional[ChatSpec]:
         """Set or clear this chat's project-directory list override.
 
@@ -438,11 +437,6 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         ``{"path": str, "label": str | None}``); the stored value
         replaces whatever was there before. Passing ``None`` removes the
         override so the chat goes back to inheriting the agent default.
-
-        ``project_name`` is the display name for the list as a whole.
-        ``None`` clears it, so the name goes back to being derived from
-        the primary directory instead of pinning one that no longer
-        matches.
 
         The value lives in the controlled ``meta["runtime_context"]``
         namespace, and the read-modify-write happens under the manager
@@ -471,14 +465,12 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 runtime_context["project_dirs"] = project_dirs
             else:
                 runtime_context.pop("project_dirs", None)
-                # A name without directories would describe nothing.
-                project_name = None
-            if project_name:
-                runtime_context["project_name"] = project_name
-            else:
-                runtime_context.pop("project_name", None)
             # Legacy single-value chats: the list supersedes the scalar.
             runtime_context.pop("project_dir", None)
+            # Dropped feature: a chat written by an earlier build may still
+            # carry a display name nothing reads. Clear it rather than
+            # leaving a key that keeps the namespace alive forever.
+            runtime_context.pop("project_name", None)
 
             if runtime_context:
                 meta["runtime_context"] = runtime_context

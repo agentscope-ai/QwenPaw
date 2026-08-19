@@ -7,10 +7,9 @@
  * (as `session_project_dirs` in the request context); the console router
  * then persists it onto the chat.
  *
- * The stored value is an ordered list (index 0 is PRIMARY) plus an optional
- * project name. Legacy single-string entries — written before the list
- * existed — are read back as a one-entry list so existing sessionStorage
- * values keep working.
+ * The stored value is an ordered list, index 0 being PRIMARY. Legacy
+ * single-string entries — written before the list existed — are read back as
+ * a one-entry list so existing sessionStorage values keep working.
  */
 const KEY_PREFIX = "qwenpaw-session-project-dir:";
 
@@ -21,7 +20,6 @@ export interface PendingProjectDirEntry {
 
 export interface PendingProjectDirsValue {
   dirs: PendingProjectDirEntry[];
-  name: string | null;
 }
 
 function storageKey(agentId: string, sessionId: string): string {
@@ -57,25 +55,21 @@ function readValue(
         .map(toEntry)
         .filter((entry): entry is PendingProjectDirEntry => entry !== null);
       if (dirs.length === 0) return null;
-      const name = (parsed as { name?: unknown }).name;
-      return { dirs, name: typeof name === "string" ? name : null };
+      return { dirs };
     }
     // Valid JSON but not the structured shape (e.g. a JSON-encoded string):
     // fall through and treat it as a legacy path below.
     if (typeof parsed === "string" && parsed) {
-      return { dirs: [{ path: parsed, label: null }], name: null };
+      return { dirs: [{ path: parsed, label: null }] };
     }
     return null;
   } catch {
     // Legacy plain-string value: a single path written before the list.
-    return { dirs: [{ path: raw, label: null }], name: null };
+    return { dirs: [{ path: raw, label: null }] };
   }
 }
 
-/**
- * Structured getter: the whole pending list plus the project name, or null
- * when nothing is pending.
- */
+/** Structured getter: the whole pending list, or null when none is pending. */
 export function getPendingProjectDirs(
   agentId: string,
   sessionId: string,
@@ -97,15 +91,11 @@ export function getPendingProjectDirectory(
   return readValue(agentId, sessionId)?.dirs[0]?.path ?? null;
 }
 
-/**
- * Store the pending list (and optional project name). Passing null or an
- * empty list clears the entry.
- */
+/** Store the pending list. Passing null or an empty list clears the entry. */
 export function setPendingProjectDirectory(
   agentId: string,
   sessionId: string,
   dirs: PendingProjectDirEntry[] | null,
-  name: string | null = null,
 ): void {
   const key = storageKey(agentId, sessionId);
   if (!dirs || dirs.length === 0) {
@@ -117,7 +107,6 @@ export function setPendingProjectDirectory(
       path: entry.path,
       label: entry.label ?? null,
     })),
-    name: name ?? null,
   };
   sessionStorage.setItem(key, JSON.stringify(value));
 }
@@ -130,7 +119,7 @@ export function migratePendingProjectDirectory(
   if (fromSessionId === toSessionId) return;
   const value = readValue(agentId, fromSessionId);
   if (!value) return;
-  setPendingProjectDirectory(agentId, toSessionId, value.dirs, value.name);
+  setPendingProjectDirectory(agentId, toSessionId, value.dirs);
   setPendingProjectDirectory(agentId, fromSessionId, null);
 }
 
@@ -160,9 +149,6 @@ export function withPendingProjectDirectory(
     ...currentContext,
     session_project_dirs: sessionProjectDirs,
   };
-  if (value.name) {
-    nextContext.session_project_name = value.name;
-  }
   return {
     requestBody: {
       ...requestBody,

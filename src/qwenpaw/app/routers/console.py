@@ -157,7 +157,6 @@ async def _persist_pending_project_dirs(
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
-    raw_name = request_context.pop("session_project_name", None)
 
     def _leave_for_hook() -> None:
         """Restore the unconsumed keys for ContextVarsSetupHook."""
@@ -165,8 +164,6 @@ async def _persist_pending_project_dirs(
             request_context["session_project_dirs"] = raw_list
         if raw_single is not None:
             request_context["session_project_dir"] = raw_single
-        if raw_name is not None:
-            request_context["session_project_name"] = raw_name
 
     pending: list | None = None
     if isinstance(raw_list, list) and raw_list:
@@ -178,11 +175,10 @@ async def _persist_pending_project_dirs(
 
     from ...services.project_directory import (
         normalize_project_dir_list,
-        normalize_project_name,
-        session_project_dirs_from_meta,
+        session_project_dirs_raw_from_meta,
     )
 
-    if session_project_dirs_from_meta(getattr(chat, "meta", None)):
+    if session_project_dirs_raw_from_meta(getattr(chat, "meta", None)):
         return chat
 
     def _validate() -> list[dict]:
@@ -205,7 +201,6 @@ async def _persist_pending_project_dirs(
     updated = await workspace.chat_manager.set_session_project_dirs(
         chat.id,
         entries,
-        normalize_project_name(raw_name),
     )
     if updated is None:
         # The chat could not be updated, so nothing persisted the pick.

@@ -37,7 +37,6 @@ async def test_apply_session_project_dir_persists_before_dispatch(
     workspace.chat_manager.set_session_project_dirs.assert_awaited_once_with(
         "chat-1",
         [{"path": str(tmp_path.resolve()), "label": None}],
-        None,
     )
     assert payload["meta"]["request_context"] == {
         "approval_level": "confirm",

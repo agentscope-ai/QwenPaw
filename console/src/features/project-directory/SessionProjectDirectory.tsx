@@ -32,6 +32,7 @@ import type {
 import styles from "./SessionProjectDirectory.module.less";
 import { setPendingProjectDirectory } from "./pendingProjectDirectory";
 import { loadSessionProjectDirs } from "./loadSessionProjectDirs";
+import { samePath, setPathCaseInsensitive } from "./pathEquivalence";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
 import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
 
@@ -45,26 +46,16 @@ function basenameOf(path: string): string {
   return trimmed.split(/[\\/]/).pop() || trimmed || path;
 }
 
-/** Case-insensitive path compare, matching the server's dedupe rule.
- *  Trailing separators are stripped first: the server normalises them away,
- *  so treating "/a/b" and "/a/b/" as distinct would let a duplicate into
- *  the list and make the saved result differ from what the user built. */
-function samePath(a: string, b: string): boolean {
-  const norm = (value: string) =>
-    value
-      .trim()
-      .replace(/[\\/]+$/, "")
-      .toLowerCase();
-  return norm(a) === norm(b);
-}
-
-/** Exact path compare — only trailing separators are normalised.
+/** Exact path compare — only separators are normalised, never case.
  *
- *  Deliberately NOT case-folding, unlike {@link samePath}: the server treats
- *  paths case-sensitively on Linux, so `/srv/Repo` → `/srv/repo` is a real
- *  re-bind there and must not be mistaken for "unchanged". */
+ *  Deliberately not the shared {@link samePath}: that one folds case where
+ *  the *filesystem* does, which is the right question for "is this already
+ *  bound". Here the question is "did the user change the text", and on a
+ *  case-sensitive server `/srv/Repo` → `/srv/repo` is a real re-bind that
+ *  must not be mistaken for "unchanged". */
 function exactSamePath(a: string, b: string): boolean {
-  const norm = (value: string) => value.trim().replace(/[\\/]+$/, "");
+  const norm = (value: string) =>
+    value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
   return norm(a) === norm(b);
 }
 
@@ -142,7 +133,6 @@ export default function SessionProjectDirectory({
   // `draft`: navigating (double click, home, parent) must not queue anything.
   const [pendingPath, setPendingPath] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
-  const [customName, setCustomName] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const announceChanged = () => {
     notifyProjectDirectoryChanged(scope);
@@ -158,14 +148,11 @@ export default function SessionProjectDirectory({
   const applyList = useCallback(
     (
       next: ProjectDirEntry[],
-      snapshot: Omit<ChatProjectDirs, "project_dirs">,
+      snapshot: Pick<ChatProjectDirs, "source" | "agent_project_dir">,
     ) => {
       const primary = next[0];
       setDirs(next);
       setAppliedDirs(next);
-      setCustomName(
-        snapshot.project_name_is_custom ? snapshot.project_name : null,
-      );
       setInfo({
         project_dir: primary?.path ?? "",
         source: snapshot.source,
@@ -181,6 +168,7 @@ export default function SessionProjectDirectory({
   const refresh = useCallback(async () => {
     if (isAgentScope) {
       const next = await projectDirectoryApi.get();
+      setPathCaseInsensitive(next.path_case_insensitive);
       const fallback: EffectiveProjectDirectory = {
         project_dir: next.path,
         source: next.is_workspace_default ? "workspace_fallback" : "agent",
@@ -201,8 +189,6 @@ export default function SessionProjectDirectory({
     applyList(snapshot.dirs, {
       source: snapshot.source,
       agent_project_dir: snapshot.agentProjectDir,
-      project_name: snapshot.projectName,
-      project_name_is_custom: snapshot.projectNameIsCustom,
     });
   }, [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft]);
 
@@ -435,7 +421,6 @@ export default function SessionProjectDirectory({
           path: entry.path,
           label: entry.label ?? null,
         })),
-        customName,
       );
       setListError(null);
       setPendingPath("");
@@ -450,8 +435,8 @@ export default function SessionProjectDirectory({
       const saved = await chatProjectDirectoryApi.setProjectDirs(
         chatId,
         payload,
-        customName,
       );
+      setPathCaseInsensitive(saved.path_case_insensitive);
       applyList(saved.project_dirs, saved);
       setPendingPath("");
       setOpen(false);

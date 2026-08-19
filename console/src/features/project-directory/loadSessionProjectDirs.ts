@@ -12,14 +12,13 @@ import {
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { getPendingProjectDirs } from "./pendingProjectDirectory";
+import { setPathCaseInsensitive } from "./pathEquivalence";
 
 export interface SessionProjectDirsSnapshot {
   /** Effective list, primary first. Never empty. */
   dirs: ProjectDirEntry[];
   source: ChatProjectDirSource;
   agentProjectDir: string | null;
-  projectName: string | null;
-  projectNameIsCustom: boolean;
 }
 
 /** A directory the client picked but the server has not confirmed yet. */
@@ -46,13 +45,14 @@ export async function loadSessionProjectDirs(
 ): Promise<SessionProjectDirsSnapshot> {
   if (chatId) {
     const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
+    // Adopt the server's path-comparison rule before anyone compares paths:
+    // this is the earliest point both the picker and the navigator have it.
+    setPathCaseInsensitive(next.path_case_insensitive);
     if (next.project_dirs.length > 0) {
       return {
         dirs: next.project_dirs,
         source: next.source,
         agentProjectDir: next.agent_project_dir,
-        projectName: next.project_name,
-        projectNameIsCustom: next.project_name_is_custom,
       };
     }
     // Nothing bound (workspace fallback): the plural endpoint reports an empty
@@ -69,8 +69,6 @@ export async function loadSessionProjectDirs(
       ],
       source: next.source,
       agentProjectDir: next.agent_project_dir,
-      projectName: next.project_name,
-      projectNameIsCustom: next.project_name_is_custom,
     };
   }
 
@@ -81,13 +79,12 @@ export async function loadSessionProjectDirs(
       dirs: pending.dirs.map((entry) => pendingEntry(entry.path, entry.label)),
       source: "session",
       agentProjectDir: null,
-      projectName: pending.name,
-      projectNameIsCustom: Boolean(pending.name),
     };
   }
 
   // Nothing pending: the agent default is the starting point.
   const next = await projectDirectoryApi.get();
+  setPathCaseInsensitive(next.path_case_insensitive);
   return {
     dirs: [
       {
@@ -99,7 +96,5 @@ export async function loadSessionProjectDirs(
     ],
     source: next.is_workspace_default ? "workspace_fallback" : "agent",
     agentProjectDir: next.is_workspace_default ? null : next.path,
-    projectName: null,
-    projectNameIsCustom: false,
   };
 }
