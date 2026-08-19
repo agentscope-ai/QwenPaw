@@ -366,6 +366,7 @@ pub(super) fn dispatch_request(
             needs_user_idle,
         )
     }) {
+        state.note_action(active_after);
         return Ok(action_handoff(result, active_after));
     }
     // Keep the safety boundary -- the input observation has already been
