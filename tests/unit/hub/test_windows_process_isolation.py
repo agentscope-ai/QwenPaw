@@ -220,6 +220,7 @@ def test_windows_probe_timeout_terminates_job_tree(tmp_path: Path) -> None:
             sandbox,  # type: ignore[arg-type]
             record,
             "pass",
+            {},
         )
 
     assert sandbox.process.terminated is True

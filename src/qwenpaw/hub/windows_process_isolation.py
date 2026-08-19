@@ -94,7 +94,12 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             )
             with self._lock:
                 self._boundaries[record.runtime_id] = boundary
-            self._probe(record, runtime_root, sandbox)
+            self._probe(
+                record,
+                runtime_root,
+                sandbox,
+                environment,
+            )
         except Exception as exc:
             if loopback_enabled:
                 self._set_loopback_exemption(
@@ -192,21 +197,28 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         record: RuntimeRecord,
         runtime_root: Path,
         sandbox: WindowsAppContainerSandbox,
+        environment: Mapping[str, str],
     ) -> None:
-        self._probe_filesystem(record, runtime_root, sandbox)
+        self._probe_filesystem(
+            record,
+            runtime_root,
+            sandbox,
+            environment,
+        )
 
     @staticmethod
     def _run_probe(
         sandbox: WindowsAppContainerSandbox,
         record: RuntimeRecord,
         script: str,
+        environment: Mapping[str, str],
     ) -> None:
         probe_log = record.log_file.parent / ".windows-boundary-probe.log"
         with probe_log.open("a", encoding="utf-8") as log_handle:
             process = sandbox.spawn_process(
                 [sys.executable, "-B", "-c", script],
                 cwd=str(record.working_dir),
-                env=dict(os.environ),
+                env=dict(environment),
                 log_handle=log_handle,
             )
             try:
@@ -230,6 +242,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         record: RuntimeRecord,
         runtime_root: Path,
         sandbox: WindowsAppContainerSandbox,
+        environment: Mapping[str, str],
     ) -> None:
         allowed = record.working_dir / ".isolation-probe"
         forbidden = runtime_root.parent / (
@@ -253,7 +266,12 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             "    raise AssertionError('forbidden path is readable')\n"
         )
         try:
-            self._run_probe(sandbox, record, script)
+            self._run_probe(
+                sandbox,
+                record,
+                script,
+                environment,
+            )
             if written.read_text(encoding="utf-8") != "ok":
                 raise ProcessIsolationError(
                     "Windows AppContainer write probe failed.",

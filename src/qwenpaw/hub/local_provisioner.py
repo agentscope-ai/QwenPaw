@@ -98,10 +98,12 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                     record.log_file.parent,
                 ):
                     path.mkdir(parents=True, exist_ok=True)
-                environment = {
-                    "PATH": os.environ.get("PATH", ""),
-                    "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
-                }
+                environment = self.runtime_environment(
+                    record,
+                    {
+                        "QWENPAW_RUNTIME_INTERNAL_TOKEN": "preflight",
+                    },
+                )
                 try:
                     self._isolator.prepare(
                         record,
@@ -317,6 +319,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             "VIRTUAL_ENV",
             "CONDA_PREFIX",
             "SYSTEMROOT",
+            "SYSTEMDRIVE",
             "WINDIR",
             "COMSPEC",
             "PATHEXT",

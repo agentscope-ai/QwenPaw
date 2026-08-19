@@ -107,6 +107,33 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
     assert environment.get("PATH") == os.environ.get("PATH")
 
 
+def test_windows_runtime_keeps_required_system_drive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SYSTEMDRIVE", "C:")
+    record = RuntimeRecord(
+        runtime_id="runtime-a",
+        tenant_id="tenant-a",
+        owner_user_id="user-a",
+        provisioner="local",
+        host="127.0.0.1",
+        port=9001,
+        state=RuntimeState.CREATED,
+        working_dir=tmp_path / "working",
+        secret_dir=tmp_path / "secrets",
+        backup_dir=tmp_path / "backups",
+        log_file=tmp_path / "logs" / "app.log",
+    )
+
+    environment = LocalProcessRuntimeProvisioner.runtime_environment(
+        record,
+        {},
+    )
+
+    assert environment["SYSTEMDRIVE"] == "C:"
+
+
 @pytest.mark.parametrize(
     "name",
     [
