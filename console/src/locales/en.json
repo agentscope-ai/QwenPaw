@@ -3549,6 +3549,7 @@
       "addAccount": "Add account",
       "publicRegistration": "Public registration",
       "publicRegistrationDescription": "When disabled, only administrators can create accounts.",
+      "currentAccountProtected": "Current account protected",
       "empty": "No users match these filters"
     },
     "credentials": {

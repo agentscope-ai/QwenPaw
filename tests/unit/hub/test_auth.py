@@ -66,6 +66,39 @@ def test_last_active_admin_cannot_be_disabled_or_demoted(
         auth.update_user(admin.user_id, role="user")
 
 
+def test_administrator_cannot_change_own_authorization(
+    tmp_path: Path,
+) -> None:
+    auth = _auth_service(tmp_path)
+    owner, _ = auth.register("owner", "safe-password")
+    second = auth.create_user(
+        username="second-admin",
+        password="safe-password",
+        role="admin",
+    )
+
+    with pytest.raises(ValueError, match="cannot change their own"):
+        auth.update_user(
+            owner.user_id,
+            role="user",
+            actor_user_id=owner.user_id,
+        )
+    with pytest.raises(ValueError, match="cannot change their own"):
+        auth.update_user(
+            owner.user_id,
+            disabled=True,
+            actor_user_id=owner.user_id,
+        )
+
+    updated = auth.update_user(
+        second.user_id,
+        role="user",
+        actor_user_id=owner.user_id,
+    )
+    assert updated.role == "user"
+    assert auth.get_user(owner.user_id) == owner
+
+
 def test_user_pages_filter_without_loading_all_accounts(
     tmp_path: Path,
 ) -> None:

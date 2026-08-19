@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { App } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,6 +65,7 @@ const page = {
 
 describe("HubPage", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(hubApi.me).mockResolvedValue({
       user_id: "user-a",
       username: "owner",
@@ -289,6 +296,41 @@ describe("HubPage", () => {
     expect(screen.queryByText("hub.actions.disable")).not.toBeInTheDocument();
   });
 
+  it("locks the current administrator role and account status", async () => {
+    vi.mocked(hubApi.listUsers).mockResolvedValue({
+      items: [
+        {
+          user_id: "user-a",
+          username: "owner",
+          role: "admin",
+          disabled: false,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      page: 1,
+      page_size: 20,
+      total: 1,
+      pages: 1,
+    });
+
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+    fireEvent.click(await screen.findByText("hub.navigation.users"));
+    const protectedLabel = await screen.findByText(
+      "hub.users.currentAccountProtected",
+    );
+    const row = protectedLabel.closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(protectedLabel).toBeInTheDocument();
+    expect(within(row!).getByRole("combobox")).toBeDisabled();
+    expect(within(row!).getByRole("switch")).toBeDisabled();
+  });
+
   it("loads and saves the complete Hub settings document", async () => {
     vi.mocked(hubApi.updateSettings).mockImplementation(
       async (revision, config) => ({
@@ -347,6 +389,7 @@ describe("HubPage", () => {
 
     fireEvent.click(await screen.findByText("hub.navigation.settings"));
     fireEvent.click(await screen.findByText("hub.settings.tabs.runtime"));
+    expect(hubApi.getDockerImages).not.toHaveBeenCalled();
     expect(
       screen.queryByText("hub.settings.docker.title"),
     ).not.toBeInTheDocument();
@@ -355,10 +398,40 @@ describe("HubPage", () => {
     expect(
       await screen.findByText("hub.settings.docker.title"),
     ).toBeInTheDocument();
+    const runtimeCard = screen
+      .getByText("hub.settings.runtime.title")
+      .closest("article");
+    const quotaCard = screen
+      .getByText("hub.settings.quotas.title")
+      .closest("article");
+    const dockerCard = screen
+      .getByText("hub.settings.docker.title")
+      .closest("article");
+    expect(
+      Array.from(runtimeCard!.parentElement!.children).slice(0, 3),
+    ).toEqual([runtimeCard, quotaCard, dockerCard]);
     expect(
       screen.getAllByText("hub.settings.docker.dockerHub"),
     ).not.toHaveLength(0);
     expect(screen.getByText("docker.io")).toBeInTheDocument();
+    expect(hubApi.getDockerImages).toHaveBeenCalledOnce();
+  });
+
+  it("shows the settings shell before the base request completes", async () => {
+    vi.mocked(hubApi.getSettings).mockReturnValue(new Promise(() => {}));
+    render(
+      <App>
+        <HubPage />
+      </App>,
+    );
+
+    fireEvent.click(await screen.findByText("hub.navigation.settings"));
+
+    expect(await screen.findByText("hub.settings.title")).toBeInTheDocument();
+    expect(
+      screen.queryByDisplayValue("https://hub.example.com"),
+    ).not.toBeInTheDocument();
+    expect(hubApi.getDockerImages).not.toHaveBeenCalled();
   });
 
   it("uses a tagged local image and preserves protected registries", async () => {

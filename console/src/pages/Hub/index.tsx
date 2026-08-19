@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   App,
@@ -171,6 +171,7 @@ export default function HubPage() {
   const [dockerImages, setDockerImages] =
     useState<HubDockerImageCatalog | null>(null);
   const [dockerPulls, setDockerPulls] = useState<HubDockerImagePull[]>([]);
+  const [dockerImagesLoading, setDockerImagesLoading] = useState(false);
   const [dockerPulling, setDockerPulling] = useState(false);
   const [runtimeQuery, setRuntimeQuery] = useState("");
   const [runtimeState, setRuntimeState] = useState<string>();
@@ -193,6 +194,7 @@ export default function HubPage() {
   const [userForm] = Form.useForm();
   const [credentialForm] = Form.useForm();
   const [settingsForm] = Form.useForm<SettingsFormValues>();
+  const dockerDataRequest = useRef<Promise<void> | null>(null);
 
   const loadOverview = useCallback(async () => {
     setOverview(await hubApi.getOverview());
@@ -238,26 +240,48 @@ export default function HubPage() {
     [userDisabled, userQuery, userRole],
   );
 
-  const loadSettings = useCallback(async () => {
-    const [result, imageResult, pullResult] = await Promise.all([
-      hubApi.getSettings(),
+  const loadDockerData = useCallback(() => {
+    if (dockerDataRequest.current) return dockerDataRequest.current;
+    setDockerImagesLoading(true);
+    const request = Promise.all([
       hubApi.getDockerImages(),
       hubApi.listDockerImagePulls(),
-    ]);
+    ])
+      .then(([imageResult, pullResult]) => {
+        setDockerImages(imageResult);
+        setDockerPulls(pullResult);
+        const configuredImage = settingsForm.getFieldValue("dockerImage");
+        const configuredSource = settingsForm.getFieldValue("dockerSource");
+        if (
+          configuredSource === "custom" &&
+          imageResult.local_images.some(
+            (image) => image.reference === configuredImage,
+          )
+        ) {
+          settingsForm.setFieldValue("dockerSource", "local");
+        }
+      })
+      .catch((error) => {
+        message.error(
+          error instanceof Error ? error.message : t("hub.errors.loadFailed"),
+        );
+      })
+      .finally(() => {
+        setDockerImagesLoading(false);
+        dockerDataRequest.current = null;
+      });
+    dockerDataRequest.current = request;
+    return request;
+  }, [message, settingsForm, t]);
+
+  const loadSettings = useCallback(async () => {
+    const result = await hubApi.getSettings();
     setSettings(result);
-    setDockerImages(imageResult);
-    setDockerPulls(pullResult);
     settingsForm.setFieldsValue({
       publicBaseUrl: result.config.control_plane.public_base_url || undefined,
       registrationEnabled: result.config.control_plane.registration.enabled,
       runtimeProvisioner: result.config.runtime.provisioner,
-      dockerSource:
-        result.config.runtime.docker.source === "custom" &&
-        imageResult.local_images.some(
-          (image) => image.reference === result.config.runtime.docker.image,
-        )
-          ? "local"
-          : result.config.runtime.docker.source,
+      dockerSource: result.config.runtime.docker.source,
       dockerImage: result.config.runtime.docker.image,
       dockerPullPolicy: result.config.runtime.docker.pull_policy,
       dockerAllowedRegistries: customDockerRegistries(
@@ -292,7 +316,10 @@ export default function HubPage() {
         result.config.control_plane.security.registration_rate_limit
           .block_seconds,
     });
-  }, [settingsForm]);
+    if (result.config.runtime.provisioner === "docker") {
+      void loadDockerData();
+    }
+  }, [loadDockerData, settingsForm]);
 
   const loadCredentials = useCallback(
     async (page = 1) => {
@@ -1072,60 +1099,75 @@ export default function HubPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {users.items.map((user) => (
-                            <tr key={user.user_id}>
-                              <td>
-                                <EntityCell
-                                  icon={<Users size={16} />}
-                                  title={user.username}
-                                  detail={user.user_id}
-                                />
-                              </td>
-                              <td>
-                                <Select
-                                  size="small"
-                                  value={user.role}
-                                  disabled={busyId === user.user_id}
-                                  className={styles.roleSelect}
-                                  options={[
-                                    {
-                                      value: "admin",
-                                      label: t("hub.roles.admin"),
-                                    },
-                                    {
-                                      value: "user",
-                                      label: t("hub.roles.user"),
-                                    },
-                                  ]}
-                                  onChange={(role) =>
-                                    updateUser(user, { role })
-                                  }
-                                />
-                              </td>
-                              <td>
-                                <div className={styles.switchCell}>
-                                  <Switch
-                                    size="small"
-                                    checked={!user.disabled}
-                                    loading={busyId === user.user_id}
-                                    onChange={(active) =>
-                                      updateUser(user, { disabled: !active })
-                                    }
+                          {users.items.map((user) => {
+                            const currentAccount = user.user_id === me.user_id;
+                            return (
+                              <tr key={user.user_id}>
+                                <td>
+                                  <EntityCell
+                                    icon={<Users size={16} />}
+                                    title={user.username}
+                                    detail={user.user_id}
                                   />
-                                  <span>
-                                    {t(
-                                      `hub.userStates.${
-                                        user.disabled ? "disabled" : "active"
-                                      }`,
+                                </td>
+                                <td>
+                                  <div className={styles.protectedControl}>
+                                    <Select
+                                      size="small"
+                                      value={user.role}
+                                      disabled={
+                                        currentAccount ||
+                                        busyId === user.user_id
+                                      }
+                                      className={styles.roleSelect}
+                                      options={[
+                                        {
+                                          value: "admin",
+                                          label: t("hub.roles.admin"),
+                                        },
+                                        {
+                                          value: "user",
+                                          label: t("hub.roles.user"),
+                                        },
+                                      ]}
+                                      onChange={(role) =>
+                                        updateUser(user, { role })
+                                      }
+                                    />
+                                    {currentAccount && (
+                                      <span>
+                                        <LockKeyhole size={11} />
+                                        {t("hub.users.currentAccountProtected")}
+                                      </span>
                                     )}
-                                  </span>
-                                </div>
-                              </td>
-                              <td>
-                                {formatDate(user.created_at, i18n.language)}
-                              </td>
-                            </tr>
-                          ))}
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className={styles.switchCell}>
+                                    <Switch
+                                      size="small"
+                                      checked={!user.disabled}
+                                      disabled={currentAccount}
+                                      loading={busyId === user.user_id}
+                                      onChange={(active) =>
+                                        updateUser(user, { disabled: !active })
+                                      }
+                                    />
+                                    <span>
+                                      {t(
+                                        `hub.userStates.${
+                                          user.disabled ? "disabled" : "active"
+                                        }`,
+                                      )}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td>
+                                  {formatDate(user.created_at, i18n.language)}
+                                </td>
+                              </tr>
+                            );
+                          })}
                           {users.items.length === 0 && (
                             <EmptyRow
                               colSpan={4}
@@ -1296,19 +1338,25 @@ export default function HubPage() {
                   </DataPanel>
                 </section>
               )}
-              {section === "settings" && me?.role === "admin" && settings && (
-                <SettingsPanel
-                  form={settingsForm}
-                  settings={settings}
-                  dockerImages={dockerImages}
-                  dockerPulls={dockerPulls}
-                  dockerPulling={dockerPulling}
-                  saving={settingsSaving}
-                  onPullImage={pullDockerImage}
-                  onSave={saveSettings}
-                  t={t}
-                />
-              )}
+              {section === "settings" &&
+                me?.role === "admin" &&
+                (settings ? (
+                  <SettingsPanel
+                    form={settingsForm}
+                    settings={settings}
+                    dockerImages={dockerImages}
+                    dockerImagesLoading={dockerImagesLoading}
+                    dockerPulls={dockerPulls}
+                    dockerPulling={dockerPulling}
+                    saving={settingsSaving}
+                    onLoadDockerData={loadDockerData}
+                    onPullImage={pullDockerImage}
+                    onSave={saveSettings}
+                    t={t}
+                  />
+                ) : (
+                  <SettingsLoadingPanel t={t} />
+                ))}
             </>
           )}
         </div>
@@ -1453,13 +1501,34 @@ export default function HubPage() {
   );
 }
 
+function SettingsLoadingPanel({
+  t,
+}: {
+  t: (key: string, options?: Record<string, unknown>) => string;
+}) {
+  return (
+    <section>
+      <PageHeader
+        eyebrow={t("hub.settings.eyebrow")}
+        title={t("hub.settings.title")}
+        description={t("hub.settings.description")}
+      />
+      <div className={styles.settingsLoadingCard}>
+        <Skeleton active paragraph={{ rows: 5 }} />
+      </div>
+    </section>
+  );
+}
+
 function SettingsPanel({
   form,
   settings,
   dockerImages,
+  dockerImagesLoading,
   dockerPulls,
   dockerPulling,
   saving,
+  onLoadDockerData,
   onPullImage,
   onSave,
   t,
@@ -1467,9 +1536,11 @@ function SettingsPanel({
   form: FormInstance<SettingsFormValues>;
   settings: HubSettings;
   dockerImages: HubDockerImageCatalog | null;
+  dockerImagesLoading: boolean;
   dockerPulls: HubDockerImagePull[];
   dockerPulling: boolean;
   saving: boolean;
+  onLoadDockerData: () => Promise<void>;
   onPullImage: (reference: string) => Promise<void>;
   onSave: (values: SettingsFormValues) => Promise<void>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -1657,6 +1728,11 @@ function SettingsPanel({
                     >
                       <BackendSelector
                         available={settings.available_provisioners}
+                        onBackendChange={(backend) => {
+                          if (backend === "docker") {
+                            void onLoadDockerData();
+                          }
+                        }}
                         t={t}
                       />
                     </Form.Item>
@@ -1672,6 +1748,25 @@ function SettingsPanel({
                     </div>
                   </article>
 
+                  <article className={styles.settingsCard}>
+                    <div className={styles.settingsCardHeader}>
+                      <div>
+                        <strong>{t("hub.settings.quotas.title")}</strong>
+                        <span>{t("hub.settings.quotas.description")}</span>
+                      </div>
+                      <Gauge size={18} />
+                    </div>
+                    <div className={styles.quotaFields}>
+                      <Form.Item
+                        name="maxRunningRuntimes"
+                        label={t("hub.settings.quotas.maxRunningRuntimes")}
+                        extra={t("hub.settings.quotas.unlimitedHint")}
+                      >
+                        <InputNumber min={0} precision={0} />
+                      </Form.Item>
+                    </div>
+                  </article>
+
                   {runtimeProvisioner === "docker" && (
                     <article
                       className={`${styles.settingsCard} ${styles.wideSettingsCard}`}
@@ -1683,7 +1778,16 @@ function SettingsPanel({
                         </div>
                         <Box size={18} />
                       </div>
-                      {!dockerImages?.available && (
+                      {dockerImagesLoading && !dockerImages && (
+                        <div className={styles.dockerDataLoading}>
+                          <Skeleton
+                            active
+                            title={false}
+                            paragraph={{ rows: 2 }}
+                          />
+                        </div>
+                      )}
+                      {dockerImages && !dockerImages.available && (
                         <div className={styles.dockerWarning}>
                           {dockerImages?.reason ||
                             t("hub.settings.docker.unavailable")}
@@ -1920,25 +2024,6 @@ function SettingsPanel({
                       </div>
                     </article>
                   )}
-
-                  <article className={styles.settingsCard}>
-                    <div className={styles.settingsCardHeader}>
-                      <div>
-                        <strong>{t("hub.settings.quotas.title")}</strong>
-                        <span>{t("hub.settings.quotas.description")}</span>
-                      </div>
-                      <Gauge size={18} />
-                    </div>
-                    <div className={styles.quotaFields}>
-                      <Form.Item
-                        name="maxRunningRuntimes"
-                        label={t("hub.settings.quotas.maxRunningRuntimes")}
-                        extra={t("hub.settings.quotas.unlimitedHint")}
-                      >
-                        <InputNumber min={0} precision={0} />
-                      </Form.Item>
-                    </div>
-                  </article>
                 </div>
               ),
             },
@@ -2011,11 +2096,13 @@ function RateLimitFields({
 function BackendSelector({
   value,
   onChange,
+  onBackendChange,
   available,
   t,
 }: {
   value?: "local" | "docker";
   onChange?: (value: "local" | "docker") => void;
+  onBackendChange: (value: "local" | "docker") => void;
   available: string[];
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -2049,7 +2136,10 @@ function BackendSelector({
             }
             disabled={disabled}
             aria-pressed={value === option.value}
-            onClick={() => onChange?.(option.value)}
+            onClick={() => {
+              onChange?.(option.value);
+              onBackendChange(option.value);
+            }}
           >
             <Icon size={18} />
             <span>

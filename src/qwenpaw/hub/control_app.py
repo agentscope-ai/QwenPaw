@@ -709,6 +709,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 user_id,
                 role=body.role,
                 disabled=body.disabled,
+                actor_user_id=admin.user_id,
             )
         except KeyError as exc:
             raise HTTPException(

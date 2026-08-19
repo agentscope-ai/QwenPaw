@@ -357,22 +357,44 @@ class HubAuthService:
         *,
         role: str | None = None,
         disabled: bool | None = None,
+        actor_user_id: str | None = None,
     ) -> HubUser:
         """Update authorization state and invalidate all existing tokens."""
-        current = self.get_user(user_id)
-        if current is None:
-            raise KeyError(user_id)
-        next_role = role if role is not None else current.role
-        next_disabled = disabled if disabled is not None else current.disabled
-        if next_role not in {"admin", "user"}:
-            raise ValueError(f"Invalid role: {next_role}")
-        if current.is_admin and (next_role != "admin" or next_disabled):
-            if self._active_admin_count() <= 1:
-                raise ValueError(
-                    "The last active administrator cannot be disabled "
-                    "or demoted.",
-                )
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM hub_users WHERE user_id = ? "
+                "AND deleted_at IS NULL",
+                (user_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(user_id)
+            current = self._user_from_row(row)
+            next_role = role if role is not None else current.role
+            next_disabled = (
+                disabled if disabled is not None else current.disabled
+            )
+            if next_role not in {"admin", "user"}:
+                raise ValueError(f"Invalid role: {next_role}")
+            authorization_changed = (
+                next_role != current.role or next_disabled != current.disabled
+            )
+            if actor_user_id == user_id and authorization_changed:
+                raise ValueError(
+                    "Administrators cannot change their own role or "
+                    "account status.",
+                )
+            if current.is_admin and (next_role != "admin" or next_disabled):
+                count_row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM hub_users "
+                    "WHERE role = 'admin' AND disabled = 0 "
+                    "AND deleted_at IS NULL",
+                ).fetchone()
+                if int(count_row["count"]) <= 1:
+                    raise ValueError(
+                        "The last active administrator cannot be disabled "
+                        "or demoted.",
+                    )
             connection.execute(
                 """
                 UPDATE hub_users SET role = ?, disabled = ?,
@@ -382,10 +404,14 @@ class HubAuthService:
                 """,
                 (next_role, int(next_disabled), utc_now(), user_id),
             )
-        updated = self.get_user(user_id)
-        if updated is None:
-            raise KeyError(user_id)
-        return updated
+            updated_row = connection.execute(
+                "SELECT * FROM hub_users WHERE user_id = ? "
+                "AND deleted_at IS NULL",
+                (user_id,),
+            ).fetchone()
+            if updated_row is None:
+                raise KeyError(user_id)
+            return self._user_from_row(updated_row)
 
     def change_password(self, user_id: str, password: str) -> HubUser:
         """Replace a user's password and invalidate existing sessions."""
@@ -414,15 +440,6 @@ class HubAuthService:
         if updated is None:
             raise KeyError(user_id)
         return updated
-
-    def _active_admin_count(self) -> int:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) AS count FROM hub_users "
-                "WHERE role = 'admin' AND disabled = 0 "
-                "AND deleted_at IS NULL",
-            ).fetchone()
-        return int(row["count"])
 
     def _signing_secret(self) -> bytes:
         return self._token_secret

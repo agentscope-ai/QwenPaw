@@ -3406,6 +3406,7 @@
       "addAccount": "添加账号",
       "publicRegistration": "开放注册",
       "publicRegistrationDescription": "关闭后，仅管理员可以创建账号。",
+      "currentAccountProtected": "当前账户已保护",
       "empty": "没有符合条件的用户"
     },
     "credentials": {
