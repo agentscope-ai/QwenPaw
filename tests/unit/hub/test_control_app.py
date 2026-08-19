@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Authorization tests for QwenPaw Pro control-plane APIs."""
+"""Authorization tests for QwenPaw Hub control-plane APIs."""
 
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
@@ -11,14 +11,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from qwenpaw.__version__ import __version__
-from qwenpaw.pro.auth import ProAuthService
-from qwenpaw.pro.config import ControlPlaneConfig, ProConfig
-from qwenpaw.pro.control_app import create_pro_app, run_pro_app
-from qwenpaw.pro.credentials import TenantCredentialVault
-from qwenpaw.pro.driver import RuntimeDriver, RuntimeDriverAvailability
-from qwenpaw.pro.models import RuntimeRecord, RuntimeState
-from qwenpaw.pro.registry import RuntimeRegistry
-from qwenpaw.pro.service import RuntimeService
+from qwenpaw.hub.auth import HubAuthService
+from qwenpaw.hub.config import ControlPlaneConfig, HubConfig
+from qwenpaw.hub.control_app import create_hub_app, run_hub_app
+from qwenpaw.hub.credentials import TenantCredentialVault
+from qwenpaw.hub.driver import RuntimeDriver, RuntimeDriverAvailability
+from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.registry import RuntimeRegistry
+from qwenpaw.hub.service import RuntimeService
 
 
 class _FakeDriver(RuntimeDriver):
@@ -73,7 +73,7 @@ class _ProxyStream(httpx.AsyncByteStream):
 def _client(
     tmp_path: Path,
     proxy_transport: httpx.AsyncBaseTransport | None = None,
-    pro_config: ProConfig | None = None,
+    hub_config: HubConfig | None = None,
     driver_available: bool = True,
 ) -> TestClient:
     database = tmp_path / "control.db"
@@ -89,11 +89,11 @@ def _client(
             runtime_id=record.runtime_id,
         )
         environment[
-            "QWENPAW_PRO_INTERNAL_TOKEN"
+            "QWENPAW_RUNTIME_INTERNAL_TOKEN"
         ] = vault.get_or_create_runtime_secret(
             tenant_id=record.tenant_id,
             runtime_id=record.runtime_id,
-            name="QWENPAW_PRO_INTERNAL_TOKEN",
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         return environment
 
@@ -102,15 +102,15 @@ def _client(
         registry=registry,
         drivers={"local": _FakeDriver(driver_available)},
         credential_provider=runtime_environment,
-        pro_config=pro_config,
+        hub_config=hub_config,
     )
-    auth = ProAuthService(database, vault)
+    auth = HubAuthService(database, vault)
     return TestClient(
-        create_pro_app(
+        create_hub_app(
             service,
             auth,
             proxy_transport=proxy_transport,
-            pro_config=pro_config,
+            hub_config=hub_config,
         ),
     )
 
@@ -141,10 +141,10 @@ def test_public_bind_requires_initialized_admin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_PRO_DIR", str(tmp_path))
+    monkeypatch.setenv("QWENPAW_HUB_DIR", str(tmp_path))
 
     with pytest.raises(ValueError, match="initialized, enabled administrator"):
-        run_pro_app(
+        run_hub_app(
             host="0.0.0.0",
             port=8088,
             log_level="info",
@@ -156,14 +156,14 @@ def test_public_bind_starts_after_admin_initialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_PRO_DIR", str(tmp_path))
+    monkeypatch.setenv("QWENPAW_HUB_DIR", str(tmp_path))
     database = tmp_path / "control.db"
     vault = TenantCredentialVault(
         database,
         tmp_path / "secrets" / ".vault_key",
     )
-    ProAuthService(database, vault).register("owner", "safe-password")
-    config_path = tmp_path / "pro.yaml"
+    HubAuthService(database, vault).register("owner", "safe-password")
+    config_path = tmp_path / "hub.yaml"
     config_path.write_text(
         "version: 1\ncontrol_plane:\n"
         "  public_base_url: http://qwenpaw.example.com",
@@ -171,10 +171,10 @@ def test_public_bind_starts_after_admin_initialization(
     )
 
     with (
-        patch("qwenpaw.pro.control_app.create_pro_app") as create_app,
-        patch("qwenpaw.pro.control_app.uvicorn.run") as uvicorn_run,
+        patch("qwenpaw.hub.control_app.create_hub_app") as create_app,
+        patch("qwenpaw.hub.control_app.uvicorn.run") as uvicorn_run,
     ):
-        run_pro_app(
+        run_hub_app(
             host="::",
             port=8088,
             log_level="info",
@@ -191,16 +191,16 @@ def test_public_bind_requires_public_base_url(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_PRO_DIR", str(tmp_path))
+    monkeypatch.setenv("QWENPAW_HUB_DIR", str(tmp_path))
     database = tmp_path / "control.db"
     vault = TenantCredentialVault(
         database,
         tmp_path / "secrets" / ".vault_key",
     )
-    ProAuthService(database, vault).register("owner", "safe-password")
+    HubAuthService(database, vault).register("owner", "safe-password")
 
     with pytest.raises(ValueError, match="public_base_url"):
-        run_pro_app(
+        run_hub_app(
             host="0.0.0.0",
             port=8088,
             log_level="info",
@@ -212,14 +212,14 @@ def test_unavailable_driver_keeps_control_plane_in_safe_mode(
     tmp_path: Path,
 ) -> None:
     with _client(tmp_path, driver_available=False) as client:
-        anonymous_health = client.get("/api/pro/healthz")
+        anonymous_health = client.get("/api/hub/healthz")
         token = _register(client, "owner")
         health = client.get(
-            "/api/pro/healthz",
+            "/api/hub/healthz",
             headers=_headers(token),
         )
         created = client.post(
-            "/api/pro/runtimes",
+            "/api/hub/runtimes",
             json={"runtime_id": "blocked-runtime"},
             headers=_headers(token),
         )
@@ -246,7 +246,7 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         admin_token = _register(client, "owner")
         settings = client.put(
-            "/api/pro/admin/settings/registration",
+            "/api/hub/admin/settings/registration",
             json={"enabled": True},
             headers=_headers(admin_token),
         )
@@ -256,33 +256,33 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
         user_token = _register(client, "member")
 
         created = client.post(
-            "/api/pro/runtimes",
+            "/api/hub/runtimes",
             json={"runtime_id": "admin-runtime"},
             headers=_headers(admin_token),
         )
         assert created.status_code == 201
 
         forbidden = client.get(
-            "/api/pro/runtimes/admin-runtime",
+            "/api/hub/runtimes/admin-runtime",
             headers=_headers(user_token),
         )
         assert forbidden.status_code == 404
 
         own = client.post(
-            "/api/pro/runtimes",
+            "/api/hub/runtimes",
             json={"runtime_id": "member-runtime"},
             headers=_headers(user_token),
         )
         assert own.status_code == 201
         user_list = client.get(
-            "/api/pro/runtimes",
+            "/api/hub/runtimes",
             headers=_headers(user_token),
         )
         assert [item["runtime_id"] for item in user_list.json()] == [
             "member-runtime",
         ]
         admin_list = client.get(
-            "/api/pro/runtimes",
+            "/api/hub/runtimes",
             headers=_headers(admin_token),
         )
         assert {item["runtime_id"] for item in admin_list.json()} == {
@@ -291,7 +291,7 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
         }
 
         denied_users = client.get(
-            "/api/pro/admin/users",
+            "/api/hub/admin/users",
             headers=_headers(user_token),
         )
         assert denied_users.status_code == 403
@@ -301,7 +301,7 @@ def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         token = _register(client, "owner")
         response = client.put(
-            "/api/pro/credentials",
+            "/api/hub/credentials",
             json={
                 "scope": "tenant",
                 "name": "OPENAI_API_KEY",
@@ -312,7 +312,7 @@ def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:
         assert response.status_code == 204
 
         listed = client.get(
-            "/api/pro/credentials",
+            "/api/hub/credentials",
             headers=_headers(token),
         )
         assert listed.status_code == 200
@@ -323,7 +323,7 @@ def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:
 def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
     async def proxy_handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/runtime-probe"
-        assert request.headers["X-QwenPaw-Pro-Runtime-Token"]
+        assert request.headers["X-QwenPaw-Runtime-Token"]
         assert "authorization" not in request.headers
         return httpx.Response(
             200,
@@ -342,13 +342,13 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert response.status_code == 200
         assert response.json() == {"product": "QwenPaw"}
         runtimes = client.get(
-            "/api/pro/runtimes",
+            "/api/hub/runtimes",
             headers=_headers(token),
         ).json()
         assert len(runtimes) == 1
         assert runtimes[0]["state"] == "running"
         assert runtimes[0]["owner_user_id"]
-        assert runtimes[0]["metadata"]["pro_default"] is True
+        assert runtimes[0]["metadata"]["hub_default"] is True
 
 
 @pytest.mark.parametrize(
@@ -373,7 +373,7 @@ def test_oauth_callback_relay_is_scoped_and_one_time(
 
     async def proxy_handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
-            callback_url = request.headers["X-QwenPaw-Pro-OAuth-Callback-Url"]
+            callback_url = request.headers["X-QwenPaw-Hub-OAuth-Callback-Url"]
             callback_urls.append(callback_url)
             assert callback_url.startswith(
                 "https://qwenpaw.example.com/base/",
@@ -386,26 +386,26 @@ def test_oauth_callback_relay_is_scoped_and_one_time(
             )
         assert request.url.path == callback_path
         assert request.url.query == b"code=code-value&state=state-value"
-        assert request.headers["X-QwenPaw-Pro-Runtime-Token"]
+        assert request.headers["X-QwenPaw-Runtime-Token"]
         return httpx.Response(
             200,
             text="callback complete",
             headers={"Content-Type": "text/html"},
         )
 
-    config = ProConfig(
+    config = HubConfig(
         control_plane=ControlPlaneConfig(
             public_base_url="https://qwenpaw.example.com/base",
         ),
     )
     transport = httpx.MockTransport(proxy_handler)
-    with _client(tmp_path, transport, pro_config=config) as client:
+    with _client(tmp_path, transport, hub_config=config) as client:
         token = _register(client, "owner")
         started = client.post(
             start_path,
             headers={
                 **_headers(token),
-                "X-QwenPaw-Pro-OAuth-Callback-Url": (
+                "X-QwenPaw-Hub-OAuth-Callback-Url": (
                     "https://attacker.example/callback"
                 ),
             },

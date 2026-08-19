@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runtime admission policy tests for QwenPaw Pro."""
+"""Runtime admission policy tests for QwenPaw Hub."""
 
 from collections.abc import Mapping
 from dataclasses import replace
@@ -7,15 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.pro.config import ProConfig, RuntimeConfig, TenantQuota
-from qwenpaw.pro.driver import (
+from qwenpaw.hub.config import HubConfig, RuntimeConfig, TenantQuota
+from qwenpaw.hub.driver import (
     RuntimeDriver,
     RuntimeDriverAvailability,
     RuntimeDriverUnavailableError,
 )
-from qwenpaw.pro.models import RuntimeRecord, RuntimeSpec, RuntimeState
-from qwenpaw.pro.registry import RuntimeRegistry
-from qwenpaw.pro.service import RuntimeService
+from qwenpaw.hub.models import RuntimeRecord, RuntimeSpec, RuntimeState
+from qwenpaw.hub.registry import RuntimeRegistry
+from qwenpaw.hub.service import RuntimeService
 
 
 class _FakeDriver(RuntimeDriver):
@@ -52,7 +52,7 @@ class _FakeDriver(RuntimeDriver):
 
 def _service(
     tmp_path: Path,
-    config: ProConfig,
+    config: HubConfig,
     *,
     driver_available: bool = True,
 ) -> RuntimeService:
@@ -61,7 +61,7 @@ def _service(
         registry=RuntimeRegistry(tmp_path / "control.db"),
         drivers={"local": _FakeDriver(driver_available)},
         credential_provider=lambda _: {},
-        pro_config=config,
+        hub_config=config,
     )
 
 
@@ -78,7 +78,7 @@ def test_unavailable_driver_rejects_runtime_registration(
 ) -> None:
     service = _service(
         tmp_path,
-        ProConfig(),
+        HubConfig(),
         driver_available=False,
     )
 
@@ -94,7 +94,7 @@ def test_unavailable_driver_rejects_runtime_registration(
 def test_runtime_total_limit_is_tenant_scoped(tmp_path: Path) -> None:
     service = _service(
         tmp_path,
-        ProConfig(tenant_defaults=TenantQuota(max_runtimes=1)),
+        HubConfig(tenant_defaults=TenantQuota(max_runtimes=1)),
     )
     first = service.create(_spec("first"))
 
@@ -107,7 +107,7 @@ def test_runtime_total_limit_is_tenant_scoped(tmp_path: Path) -> None:
 def test_running_runtime_limit_is_tenant_scoped(tmp_path: Path) -> None:
     service = _service(
         tmp_path,
-        ProConfig(
+        HubConfig(
             tenant_defaults=TenantQuota(
                 max_runtimes=2,
                 max_running_runtimes=1,
@@ -123,7 +123,7 @@ def test_running_runtime_limit_is_tenant_scoped(tmp_path: Path) -> None:
 
 
 def test_driver_policy_fails_closed_at_startup(tmp_path: Path) -> None:
-    config = ProConfig(
+    config = HubConfig(
         runtime=RuntimeConfig(
             default_driver="docker",
             allowed_drivers=["docker"],

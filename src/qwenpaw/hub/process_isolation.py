@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Fail-closed OS process isolation for local Pro runtimes."""
+"""Fail-closed OS process isolation for local Hub runtimes."""
 
 from __future__ import annotations
 
@@ -150,7 +150,7 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
     ) -> None:
         probe_file = runtime_root / ".isolation-probe"
         probe_file.write_text("probe", encoding="utf-8")
-        marker = runtime_root.parent / (f"qwenpaw-pro-forbidden-{os.getpid()}")
+        marker = runtime_root.parent / (f"qwenpaw-hub-forbidden-{os.getpid()}")
         marker.write_text("forbidden", encoding="utf-8")
         separator = runtime_args.index("--", 1)
         probe_args = [
@@ -273,7 +273,7 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
     ) -> None:
         allowed = record.working_dir / ".isolation-probe"
         forbidden = _runtime_root(record).parent / (
-            f"qwenpaw-pro-forbidden-{os.getpid()}"
+            f"qwenpaw-hub-forbidden-{os.getpid()}"
         )
         forbidden.write_text("forbidden", encoding="utf-8")
         command = f'touch "{allowed}" && test ! -r "{forbidden}"'
@@ -382,9 +382,9 @@ def platform_process_isolator() -> ProcessIsolator:
         return LinuxBubblewrapIsolator()
     if sys.platform == "win32":
         return UnsupportedProcessIsolator(
-            "Local Pro runtimes require a Windows AppContainer adapter. "
+            "Local Hub runtimes require a Windows AppContainer adapter. "
             "Unsafe bare-process fallback is disabled.",
         )
     return UnsupportedProcessIsolator(
-        f"Local Pro process isolation is unsupported on {sys.platform}.",
+        f"Local Hub process isolation is unsupported on {sys.platform}.",
     )

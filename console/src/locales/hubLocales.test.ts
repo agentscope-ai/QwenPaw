@@ -32,9 +32,9 @@ function interpolationKeys(value: string): string[] {
   return Array.from(value.matchAll(/{{(\w+)}}/g), (match) => match[1]).sort();
 }
 
-describe("Pro locale coverage", () => {
-  const english = en.pro as LocaleSection;
-  const chinese = zh.pro as LocaleSection;
+describe("Hub locale coverage", () => {
+  const english = en.hub as LocaleSection;
+  const chinese = zh.hub as LocaleSection;
   const paths = leafPaths(english).sort();
 
   it("keeps English and Chinese translation keys aligned", () => {

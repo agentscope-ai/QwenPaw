@@ -15,13 +15,13 @@ describe("authentication gate", () => {
     vi.restoreAllMocks();
   });
 
-  it("detects Pro and standard backends explicitly", async () => {
+  it("detects Hub and standard backends explicitly", async () => {
     getStatus.mockResolvedValueOnce({
       enabled: true,
       has_users: true,
-      mode: "pro",
+      mode: "hub",
     });
-    await expect(resolveBackendMode()).resolves.toBe("pro");
+    await expect(resolveBackendMode()).resolves.toBe("hub");
 
     getStatus.mockResolvedValueOnce({ enabled: false, has_users: false });
     await expect(resolveBackendMode()).resolves.toBe("standard");

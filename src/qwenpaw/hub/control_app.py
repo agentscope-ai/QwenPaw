@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""FastAPI control plane and server entry point for QwenPaw Pro."""
+"""FastAPI control plane and server entry point for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ from starlette.concurrency import run_in_threadpool
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
-from ..utils.oauth_callback import PRO_OAUTH_CALLBACK_URL_HEADER
-from .auth import ProAuthService, ProUser
-from .config import ProConfig, ProConfigStore
+from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
+from .auth import HubAuthService, HubUser
+from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
 from .driver import RuntimeDriverUnavailableError
 from .local_driver import LocalProcessRuntimeDriver
@@ -105,20 +105,20 @@ def _oauth_callback_path(method: str, path: str) -> str | None:
     return None
 
 
-def get_pro_root() -> Path:
-    """Resolve the Pro data root without changing ordinary App paths."""
-    configured = os.environ.get("QWENPAW_PRO_DIR", "").strip()
+def get_hub_root() -> Path:
+    """Resolve the Hub data root without changing ordinary App paths."""
+    configured = os.environ.get("QWENPAW_HUB_DIR", "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return (WORKING_DIR / "pro").resolve()
+    return (WORKING_DIR / "hub").resolve()
 
 
 def build_runtime_service(
     root_dir: Path | None = None,
-    pro_config: ProConfig | None = None,
+    hub_config: HubConfig | None = None,
 ) -> RuntimeService:
     """Build the local service through deployment-neutral interfaces."""
-    resolved_root = (root_dir or get_pro_root()).resolve()
+    resolved_root = (root_dir or get_hub_root()).resolve()
     registry = RuntimeRegistry(resolved_root / "control.db")
     credential_vault = TenantCredentialVault(
         registry.database_path,
@@ -132,11 +132,11 @@ def build_runtime_service(
             runtime_id=record.runtime_id,
         )
         environment[
-            "QWENPAW_PRO_INTERNAL_TOKEN"
+            "QWENPAW_RUNTIME_INTERNAL_TOKEN"
         ] = credential_vault.get_or_create_runtime_secret(
             tenant_id=record.tenant_id,
             runtime_id=record.runtime_id,
-            name="QWENPAW_PRO_INTERNAL_TOKEN",
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         return environment
 
@@ -145,28 +145,28 @@ def build_runtime_service(
         registry=registry,
         drivers={local_driver.name: local_driver},
         credential_provider=runtime_environment,
-        pro_config=pro_config,
+        hub_config=hub_config,
     )
 
 
-def create_pro_app(  # pylint: disable=too-many-statements
+def create_hub_app(  # pylint: disable=too-many-statements
     service: RuntimeService | None = None,
-    auth_service: ProAuthService | None = None,
+    auth_service: HubAuthService | None = None,
     proxy_transport: httpx.AsyncBaseTransport | None = None,
-    pro_config: ProConfig | None = None,
+    hub_config: HubConfig | None = None,
     root_dir: Path | None = None,
 ) -> FastAPI:
-    """Create a Pro control-plane app with an injectable runtime service."""
+    """Create a Hub control-plane app with an injectable runtime service."""
     runtime_service = service or build_runtime_service(
         root_dir=root_dir,
-        pro_config=pro_config,
+        hub_config=hub_config,
     )
-    effective_config = pro_config or runtime_service.pro_config
+    effective_config = hub_config or runtime_service.hub_config
     credential_vault = TenantCredentialVault(
         runtime_service.registry.database_path,
         runtime_service.root_dir / "secrets" / ".vault_key",
     )
-    pro_auth = auth_service or ProAuthService(
+    hub_auth = auth_service or HubAuthService(
         runtime_service.registry.database_path,
         credential_vault,
     )
@@ -178,28 +178,28 @@ def create_pro_app(  # pylint: disable=too-many-statements
         finally:
             await run_in_threadpool(runtime_service.close)
 
-    app = FastAPI(title="QwenPaw Pro", lifespan=lifespan)
+    app = FastAPI(title="QwenPaw Hub", lifespan=lifespan)
     app.state.runtime_service = runtime_service
-    app.state.auth_service = pro_auth
-    app.state.pro_config = effective_config
+    app.state.auth_service = hub_auth
+    app.state.hub_config = effective_config
     oauth_relays = OAuthRelayStore()
     app.state.oauth_relays = oauth_relays
 
     def require_user(
         authorization: str | None = Header(default=None),
-    ) -> ProUser:
+    ) -> HubUser:
         prefix = "Bearer "
         token = (
             authorization[len(prefix) :]
             if authorization and authorization.startswith(prefix)
             else ""
         )
-        user = pro_auth.verify_token(token) if token else None
+        user = hub_auth.verify_token(token) if token else None
         if user is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
         return user
 
-    def require_admin(user: ProUser = Depends(require_user)) -> ProUser:
+    def require_admin(user: HubUser = Depends(require_user)) -> HubUser:
         if not user.is_admin:
             raise HTTPException(
                 status_code=403,
@@ -207,7 +207,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
             )
         return user
 
-    def require_runtime_access(runtime_id: str, user: ProUser) -> None:
+    def require_runtime_access(runtime_id: str, user: HubUser) -> None:
         try:
             record = runtime_service.get(runtime_id)
         except KeyError as exc:
@@ -218,10 +218,10 @@ def create_pro_app(  # pylint: disable=too-many-statements
         if not user.is_admin and record.owner_user_id != user.user_id:
             raise HTTPException(status_code=404, detail="Runtime not found")
 
-    def personal_tenant_id(user: ProUser) -> str:
+    def personal_tenant_id(user: HubUser) -> str:
         return f"personal-{user.user_id}"
 
-    async def ensure_personal_runtime(user: ProUser) -> RuntimeRecord:
+    async def ensure_personal_runtime(user: HubUser) -> RuntimeRecord:
         try:
             runtime_service.require_driver_available(
                 runtime_service.default_driver,
@@ -236,7 +236,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
             (
                 record
                 for record in records
-                if record.metadata.get("pro_default") is True
+                if record.metadata.get("hub_default") is True
             ),
             None,
         )
@@ -250,7 +250,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
                         runtime_id=runtime_id,
                         tenant_id=personal_tenant_id(user),
                         owner_user_id=user.user_id,
-                        metadata={"pro_default": True},
+                        metadata={"hub_default": True},
                     ),
                 )
             except ValueError as exc:
@@ -276,7 +276,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
                 ) from exc
         return record
 
-    def validate_credential_scope(scope: str, user: ProUser) -> None:
+    def validate_credential_scope(scope: str, user: HubUser) -> None:
         if scope == "tenant":
             return
         prefix = "runtime:"
@@ -296,9 +296,9 @@ def create_pro_app(  # pylint: disable=too-many-statements
         if record.owner_user_id != user.user_id:
             raise HTTPException(status_code=404, detail="Runtime not found")
 
-    @app.get("/api/pro/healthz")
+    @app.get("/api/hub/healthz")
     async def healthz(
-        _: ProUser = Depends(require_user),
+        _: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
         security_levels = {
             name: driver.security_level
@@ -308,7 +308,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
             "status": (
                 "ok" if runtime_service.runtime_available() else "degraded"
             ),
-            "mode": "pro",
+            "mode": "hub",
             "security_levels": security_levels,
             "drivers": sorted(runtime_service.drivers),
             "driver_statuses": runtime_service.driver_statuses(),
@@ -323,13 +323,13 @@ def create_pro_app(  # pylint: disable=too-many-statements
 
     @app.get("/api/auth/status")
     async def auth_status() -> dict[str, object]:
-        return pro_auth.status()
+        return hub_auth.status()
 
     @app.post("/api/auth/register")
     async def register(body: CredentialsBody) -> dict[str, object]:
         try:
             user, token = await run_in_threadpool(
-                pro_auth.register,
+                hub_auth.register,
                 body.username,
                 body.password,
             )
@@ -347,7 +347,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
     async def login(body: CredentialsBody) -> dict[str, object]:
         try:
             user, token = await run_in_threadpool(
-                pro_auth.authenticate,
+                hub_auth.authenticate,
                 body.username,
                 body.password,
             )
@@ -361,7 +361,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
 
     @app.get("/api/auth/verify")
     async def verify(
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, object]:
         return {
             "valid": True,
@@ -369,27 +369,27 @@ def create_pro_app(  # pylint: disable=too-many-statements
             "user": user.to_dict(),
         }
 
-    @app.get("/api/pro/me")
+    @app.get("/api/hub/me")
     async def current_identity(
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, object]:
         return user.to_dict()
 
-    @app.get("/api/pro/admin/users")
+    @app.get("/api/hub/admin/users")
     async def list_users(
-        _: ProUser = Depends(require_admin),
+        _: HubUser = Depends(require_admin),
     ) -> list[dict[str, object]]:
-        users = await run_in_threadpool(pro_auth.list_users)
+        users = await run_in_threadpool(hub_auth.list_users)
         return [user.to_dict() for user in users]
 
-    @app.post("/api/pro/admin/users", status_code=201)
+    @app.post("/api/hub/admin/users", status_code=201)
     async def create_user(
         body: AdminUserCreateBody,
-        _: ProUser = Depends(require_admin),
+        _: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
         try:
             user = await run_in_threadpool(
-                pro_auth.create_user,
+                hub_auth.create_user,
                 username=body.username,
                 password=body.password,
                 role=body.role,
@@ -398,15 +398,15 @@ def create_pro_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return user.to_dict()
 
-    @app.patch("/api/pro/admin/users/{user_id}")
+    @app.patch("/api/hub/admin/users/{user_id}")
     async def patch_user(
         user_id: str,
         body: AdminUserPatchBody,
-        _: ProUser = Depends(require_admin),
+        _: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
         try:
             user = await run_in_threadpool(
-                pro_auth.update_user,
+                hub_auth.update_user,
                 user_id,
                 role=body.role,
                 disabled=body.disabled,
@@ -420,36 +420,36 @@ def create_pro_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return user.to_dict()
 
-    @app.get("/api/pro/admin/settings/registration")
+    @app.get("/api/hub/admin/settings/registration")
     async def get_registration_settings(
-        _: ProUser = Depends(require_admin),
+        _: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
-        return await run_in_threadpool(pro_auth.registration_setting)
+        return await run_in_threadpool(hub_auth.registration_setting)
 
-    @app.put("/api/pro/admin/settings/registration")
+    @app.put("/api/hub/admin/settings/registration")
     async def update_registration_settings(
         body: RegistrationSettingsBody,
-        _: ProUser = Depends(require_admin),
+        _: HubUser = Depends(require_admin),
     ) -> dict[str, object]:
         await run_in_threadpool(
-            pro_auth.set_registration_enabled,
+            hub_auth.set_registration_enabled,
             body.enabled,
         )
-        return await run_in_threadpool(pro_auth.registration_setting)
+        return await run_in_threadpool(hub_auth.registration_setting)
 
-    @app.get("/api/pro/credentials")
+    @app.get("/api/hub/credentials")
     async def list_credentials(
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> list[dict[str, str]]:
         return await run_in_threadpool(
             credential_vault.list_metadata,
             tenant_id=personal_tenant_id(user),
         )
 
-    @app.put("/api/pro/credentials", status_code=204)
+    @app.put("/api/hub/credentials", status_code=204)
     async def put_credential(
         body: CredentialBody,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> None:
         validate_credential_scope(body.scope, user)
         try:
@@ -463,11 +463,11 @@ def create_pro_app(  # pylint: disable=too-many-statements
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.delete("/api/pro/credentials/{scope}/{name}", status_code=204)
+    @app.delete("/api/hub/credentials/{scope}/{name}", status_code=204)
     async def delete_credential(
         scope: str,
         name: str,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> None:
         validate_credential_scope(scope, user)
         try:
@@ -483,9 +483,9 @@ def create_pro_app(  # pylint: disable=too-many-statements
                 detail="Credential not found",
             ) from exc
 
-    @app.get("/api/pro/runtimes")
+    @app.get("/api/hub/runtimes")
     async def list_runtimes(
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> list[dict[str, Any]]:
         owner_user_id = None if user.is_admin else user.user_id
         records = await run_in_threadpool(
@@ -496,10 +496,10 @@ def create_pro_app(  # pylint: disable=too-many-statements
             _runtime_payload(runtime_service, record) for record in records
         ]
 
-    @app.post("/api/pro/runtimes", status_code=201)
+    @app.post("/api/hub/runtimes", status_code=201)
     async def create_runtime(
         body: RuntimeCreateBody,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
         try:
             record = await run_in_threadpool(
@@ -527,10 +527,10 @@ def create_pro_app(  # pylint: disable=too-many-statements
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    @app.get("/api/pro/runtimes/{runtime_id}")
+    @app.get("/api/hub/runtimes/{runtime_id}")
     async def get_runtime(
         runtime_id: str,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
         require_runtime_access(runtime_id, user)
         try:
@@ -545,10 +545,10 @@ def create_pro_app(  # pylint: disable=too-many-statements
             ) from exc
         return _runtime_payload(runtime_service, record)
 
-    @app.post("/api/pro/runtimes/{runtime_id}/start")
+    @app.post("/api/hub/runtimes/{runtime_id}/start")
     async def start_runtime(
         runtime_id: str,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
         require_runtime_access(runtime_id, user)
         try:
@@ -569,10 +569,10 @@ def create_pro_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return _runtime_payload(runtime_service, record)
 
-    @app.post("/api/pro/runtimes/{runtime_id}/stop")
+    @app.post("/api/hub/runtimes/{runtime_id}/stop")
     async def stop_runtime(
         runtime_id: str,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
         require_runtime_access(runtime_id, user)
         try:
@@ -587,10 +587,10 @@ def create_pro_app(  # pylint: disable=too-many-statements
             ) from exc
         return _runtime_payload(runtime_service, record)
 
-    @app.delete("/api/pro/runtimes/{runtime_id}", status_code=204)
+    @app.delete("/api/hub/runtimes/{runtime_id}", status_code=204)
     async def delete_runtime(
         runtime_id: str,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> None:
         require_runtime_access(runtime_id, user)
         try:
@@ -604,7 +604,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get(
-        "/api/pro/oauth/callback/{relay_token}",
+        "/api/hub/oauth/callback/{relay_token}",
         include_in_schema=False,
     )
     async def oauth_callback_relay(
@@ -636,7 +636,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
             credential_vault.get,
             tenant_id=record.tenant_id,
             scope=f"runtime:{record.runtime_id}",
-            name="QWENPAW_PRO_INTERNAL_TOKEN",
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         if internal_token is None:
             raise HTTPException(
@@ -654,7 +654,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
                 upstream = await client.get(
                     target,
                     headers={
-                        "X-QwenPaw-Pro-Runtime-Token": internal_token,
+                        "X-QwenPaw-Runtime-Token": internal_token,
                     },
                 )
         except httpx.HTTPError as exc:
@@ -686,14 +686,14 @@ def create_pro_app(  # pylint: disable=too-many-statements
     async def personal_runtime_proxy(
         path: str,
         request: Request,
-        user: ProUser = Depends(require_user),
+        user: HubUser = Depends(require_user),
     ) -> Response:
         record = await ensure_personal_runtime(user)
         internal_token = await run_in_threadpool(
             credential_vault.get,
             tenant_id=record.tenant_id,
             scope=f"runtime:{record.runtime_id}",
-            name="QWENPAW_PRO_INTERNAL_TOKEN",
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         if internal_token is None:
             raise HTTPException(
@@ -710,14 +710,14 @@ def create_pro_app(  # pylint: disable=too-many-statements
             "connection",
             "content-length",
             "host",
-            PRO_OAUTH_CALLBACK_URL_HEADER.lower(),
+            HUB_OAUTH_CALLBACK_URL_HEADER.lower(),
         }
         headers = {
             name: value
             for name, value in request.headers.items()
             if name.lower() not in excluded_request_headers
         }
-        headers["X-QwenPaw-Pro-Runtime-Token"] = internal_token
+        headers["X-QwenPaw-Runtime-Token"] = internal_token
         callback_path = _oauth_callback_path(request.method, path)
         if callback_path:
             relay_token = oauth_relays.create(
@@ -729,8 +729,8 @@ def create_pro_app(  # pylint: disable=too-many-statements
                 or str(request.base_url).rstrip("/")
             )
             headers[
-                PRO_OAUTH_CALLBACK_URL_HEADER
-            ] = f"{public_base_url}/api/pro/oauth/callback/{relay_token}"
+                HUB_OAUTH_CALLBACK_URL_HEADER
+            ] = f"{public_base_url}/api/hub/oauth/callback/{relay_token}"
         client = httpx.AsyncClient(
             timeout=None,
             transport=proxy_transport,
@@ -783,7 +783,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
-    async def pro_console(path: str) -> Response:
+    async def hub_console(path: str) -> Response:
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
         index_file = static_dir / "index.html"
@@ -800,7 +800,7 @@ def create_pro_app(  # pylint: disable=too-many-statements
         return JSONResponse(
             {
                 "message": (
-                    "QwenPaw Pro is running, but Console assets are "
+                    "QwenPaw Hub is running, but Console assets are "
                     "unavailable. "
                     "Run `npm ci && npm run build` in the console directory."
                 ),
@@ -832,7 +832,7 @@ def _runtime_payload(
     return payload
 
 
-def run_pro_app(
+def run_hub_app(
     *,
     host: str,
     port: int,
@@ -840,15 +840,15 @@ def run_pro_app(
     config_path: Path | None = None,
     force_public: bool = False,
 ) -> None:
-    """Run the QwenPaw Pro control plane with safe public-bind defaults."""
+    """Run the QwenPaw Hub control plane with safe public-bind defaults."""
     public_bind = not is_loopback_host(host)
     if public_bind and not force_public:
         raise ValueError(
-            "QwenPaw Pro refuses a non-loopback host by default. "
+            "QwenPaw Hub refuses a non-loopback host by default. "
             "Use --force-public after initializing an administrator.",
         )
-    root_dir = get_pro_root()
-    pro_config = ProConfigStore(
+    root_dir = get_hub_root()
+    hub_config = HubConfigStore(
         root_dir / "control.db",
     ).resolve(config_path, available_drivers={"local"})
     if public_bind:
@@ -857,26 +857,26 @@ def run_pro_app(
             database_path,
             root_dir / "secrets" / ".vault_key",
         )
-        pro_auth = ProAuthService(database_path, credential_vault)
-        if not pro_auth.has_enabled_admin():
+        hub_auth = HubAuthService(database_path, credential_vault)
+        if not hub_auth.has_enabled_admin():
             raise ValueError(
-                "Public Pro binding requires an initialized, enabled "
+                "Public Hub binding requires an initialized, enabled "
                 "administrator. Start on loopback first and create the "
                 "administrator account.",
             )
-        if not pro_config.control_plane.public_base_url:
+        if not hub_config.control_plane.public_base_url:
             raise ValueError(
-                "Public Pro binding requires "
-                "control_plane.public_base_url in the Pro config.",
+                "Public Hub binding requires "
+                "control_plane.public_base_url in the Hub config.",
             )
         warning = (
-            "QwenPaw Pro is accepting network connections at "
+            "QwenPaw Hub is accepting network connections at "
             f"{host}:{port}. --force-public does not provide TLS. "
             "Use a trusted network or a TLS reverse proxy."
         )
         logging.getLogger(__name__).warning("%s", warning)
     uvicorn.run(
-        create_pro_app(pro_config=pro_config, root_dir=root_dir),
+        create_hub_app(hub_config=hub_config, root_dir=root_dir),
         host=host,
         port=port,
         workers=1,

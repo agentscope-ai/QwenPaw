@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Strict startup configuration for QwenPaw Pro."""
+"""Strict startup configuration for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -145,8 +145,8 @@ class TenantQuota(BaseModel):
         )
 
 
-class ProConfig(BaseModel):
-    """Versioned QwenPaw Pro configuration with strict fields."""
+class HubConfig(BaseModel):
+    """Versioned QwenPaw Hub configuration with strict fields."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -159,7 +159,7 @@ class ProConfig(BaseModel):
     tenants: dict[str, TenantQuota] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_tenant_overrides(self) -> ProConfig:
+    def validate_tenant_overrides(self) -> HubConfig:
         """Validate every merged quota before the server starts."""
         for tenant_id in self.tenants:
             self.quota_for(tenant_id)
@@ -182,17 +182,17 @@ class ProConfig(BaseModel):
         return self.tenant_defaults.merge(self.tenants.get(tenant_id))
 
 
-class ProConfigStore:
+class HubConfigStore:
     """Merge startup YAML into persistent control-plane settings."""
 
-    _CONFIG_KEY = "pro_config"
+    _CONFIG_KEY = "hub_config"
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.execute(
-                "CREATE TABLE IF NOT EXISTS pro_settings ("
+                "CREATE TABLE IF NOT EXISTS hub_settings ("
                 "key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             )
 
@@ -206,20 +206,20 @@ class ProConfigStore:
         self,
         path: Path | None,
         available_drivers: set[str] | None = None,
-    ) -> ProConfig:
+    ) -> HubConfig:
         """Apply explicit YAML fields and return persisted effective values."""
-        overlay = load_pro_config(path) if path is not None else None
+        overlay = load_hub_config(path) if path is not None else None
         with self._connect() as connection:
             persisted = self._load_persisted(connection)
             if overlay is None:
-                return ProConfig.model_validate(persisted)
+                return HubConfig.model_validate(persisted)
             explicit = overlay.model_dump(exclude_unset=True)
             merged = _deep_merge(persisted, explicit)
-            effective = ProConfig.model_validate(merged)
+            effective = HubConfig.model_validate(merged)
             if available_drivers is not None:
                 _validate_drivers(effective, available_drivers)
             connection.execute(
-                "INSERT OR REPLACE INTO pro_settings(key, value) "
+                "INSERT OR REPLACE INTO hub_settings(key, value) "
                 "VALUES (?, ?)",
                 (
                     self._CONFIG_KEY,
@@ -249,7 +249,7 @@ class ProConfigStore:
         connection: sqlite3.Connection,
     ) -> dict[str, object]:
         row = connection.execute(
-            "SELECT value FROM pro_settings WHERE key = ?",
+            "SELECT value FROM hub_settings WHERE key = ?",
             (self._CONFIG_KEY,),
         ).fetchone()
         if row is None:
@@ -257,9 +257,9 @@ class ProConfigStore:
         try:
             value = json.loads(str(row["value"]))
         except json.JSONDecodeError as exc:
-            raise ValueError("Persisted Pro config is invalid") from exc
+            raise ValueError("Persisted Hub config is invalid") from exc
         if not isinstance(value, dict):
-            raise ValueError("Persisted Pro config must be an object")
+            raise ValueError("Persisted Hub config must be an object")
         return value
 
     @staticmethod
@@ -269,32 +269,32 @@ class ProConfigStore:
         value: str,
     ) -> None:
         connection.execute(
-            "INSERT OR REPLACE INTO pro_settings(key, value) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO hub_settings(key, value) VALUES (?, ?)",
             (key, value),
         )
 
 
-def load_pro_config(path: Path | None) -> ProConfig:
+def load_hub_config(path: Path | None) -> HubConfig:
     """Load one strict YAML file or return built-in defaults."""
     if path is None:
-        return ProConfig()
+        return HubConfig()
     resolved = path.expanduser().resolve()
     try:
         raw = yaml.safe_load(resolved.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ValueError(
-            f"Unable to load Pro config {resolved}: {exc}",
+            f"Unable to load Hub config {resolved}: {exc}",
         ) from exc
     if not isinstance(raw, dict):
         raise ValueError(
-            f"Pro config must contain a YAML mapping: {resolved}",
+            f"Hub config must contain a YAML mapping: {resolved}",
         )
     if "version" not in raw:
-        raise ValueError(f"Pro config is missing version: {resolved}")
+        raise ValueError(f"Hub config is missing version: {resolved}")
     try:
-        config = ProConfig.model_validate(raw)
+        config = HubConfig.model_validate(raw)
     except ValidationError as exc:
-        raise ValueError(f"Invalid Pro config {resolved}: {exc}") from exc
+        raise ValueError(f"Invalid Hub config {resolved}: {exc}") from exc
     return config
 
 
@@ -314,7 +314,7 @@ def _deep_merge(
 
 
 def _validate_drivers(
-    config: ProConfig,
+    config: HubConfig,
     available_drivers: set[str],
 ) -> None:
     """Reject unavailable or internally inconsistent driver policy."""

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Tests for short-lived Pro OAuth callback relay capabilities."""
+"""Tests for short-lived Hub OAuth callback relay capabilities."""
 
 import pytest
 
-from qwenpaw.pro.oauth_relay import OAuthRelayStore
+from qwenpaw.hub.oauth_relay import OAuthRelayStore
 
 
 def test_relay_tokens_are_runtime_scoped_and_one_time() -> None:
@@ -30,7 +30,7 @@ def test_expired_relay_is_rejected(
 ) -> None:
     current_time = 100.0
     monkeypatch.setattr(
-        "qwenpaw.pro.oauth_relay.time.monotonic",
+        "qwenpaw.hub.oauth_relay.time.monotonic",
         lambda: current_time,
     )
     store = OAuthRelayStore()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runtime orchestration service for QwenPaw Pro."""
+"""Runtime orchestration service for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from .config import ProConfig
+from .config import HubConfig
 from .driver import (
     RuntimeDriver,
     RuntimeDriverAvailability,
@@ -31,15 +31,15 @@ class RuntimeService:
         registry: RuntimeRegistry,
         drivers: dict[str, RuntimeDriver],
         credential_provider: Callable[[RuntimeRecord], Mapping[str, str]],
-        pro_config: ProConfig | None = None,
+        hub_config: HubConfig | None = None,
     ) -> None:
         self.root_dir = root_dir.resolve()
         self.registry = registry
         self.drivers = dict(drivers)
         self.credential_provider = credential_provider
-        self.pro_config = pro_config or ProConfig()
-        self.default_driver = self.pro_config.default_driver
-        self.allowed_drivers = self.pro_config.allowed_drivers
+        self.hub_config = hub_config or HubConfig()
+        self.default_driver = self.hub_config.default_driver
+        self.allowed_drivers = self.hub_config.allowed_drivers
         self._validate_driver_policy()
         self._lock_registry = threading.Lock()
         self._admission_lock = threading.Lock()
@@ -66,7 +66,7 @@ class RuntimeService:
         self.require_driver_available(driver_name)
         if self.registry.get(spec.runtime_id) is not None:
             raise ValueError(f"Runtime already exists: {spec.runtime_id}")
-        quota = self.pro_config.quota_for(spec.tenant_id)
+        quota = self.hub_config.quota_for(spec.tenant_id)
         tenant_runtime_count = sum(
             record.tenant_id == spec.tenant_id
             for record in self.registry.list()
@@ -127,7 +127,7 @@ class RuntimeService:
         """Start a runtime while the lifecycle lock is held."""
         record = self.get(runtime_id)
         self.require_driver_available(record.driver)
-        quota = self.pro_config.quota_for(record.tenant_id)
+        quota = self.hub_config.quota_for(record.tenant_id)
         running_count = sum(
             item.tenant_id == record.tenant_id
             and item.runtime_id != record.runtime_id
@@ -263,7 +263,7 @@ class RuntimeService:
         candidate = (self.root_dir / "runtimes" / runtime_id).resolve()
         expected_parent = (self.root_dir / "runtimes").resolve()
         if candidate.parent != expected_parent:
-            raise ValueError(f"Runtime path escapes Pro root: {runtime_id}")
+            raise ValueError(f"Runtime path escapes Hub root: {runtime_id}")
         return candidate
 
     def _runtime_lock(self, runtime_id: str) -> threading.RLock:

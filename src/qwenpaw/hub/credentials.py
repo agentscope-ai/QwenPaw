@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tenant-scoped encrypted credential vault for QwenPaw Pro."""
+"""Tenant-scoped encrypted credential vault for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 
 _CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
-_SYSTEM_TENANT_ID = "__qwenpaw_pro_system__"
+_SYSTEM_TENANT_ID = "__qwenpaw_hub_system__"
 _SYSTEM_SCOPE = "control"
 
 

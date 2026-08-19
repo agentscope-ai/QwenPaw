@@ -2,11 +2,11 @@ import { authApi } from "../api/modules/auth";
 import { clearAuthToken, getApiToken, getApiUrl } from "../api/config";
 
 export type AuthGateState = "ok" | "auth-required";
-export type BackendMode = "standard" | "pro";
+export type BackendMode = "standard" | "hub";
 
 export async function resolveBackendMode(): Promise<BackendMode> {
   const status = await authApi.getStatus();
-  return status.mode === "pro" ? "pro" : "standard";
+  return status.mode === "hub" ? "hub" : "standard";
 }
 
 export async function resolveAuthGate(): Promise<AuthGateState> {

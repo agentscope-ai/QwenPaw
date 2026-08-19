@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Authentication and account storage for QwenPaw Pro."""
+"""Authentication and account storage for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ def _now() -> str:
 
 
 @dataclass(frozen=True)
-class ProUser:
-    """Authenticated QwenPaw Pro identity."""
+class HubUser:
+    """Authenticated QwenPaw Hub identity."""
 
     user_id: str
     username: str
@@ -53,7 +53,7 @@ class ProUser:
         }
 
 
-class ProAuthService:
+class HubAuthService:
     """Persist users and issue versioned HMAC bearer tokens."""
 
     def __init__(
@@ -79,7 +79,7 @@ class ProAuthService:
         with self._connect() as connection:
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS pro_users (
+                CREATE TABLE IF NOT EXISTS hub_users (
                     user_id TEXT PRIMARY KEY,
                     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     password_hash TEXT NOT NULL,
@@ -94,18 +94,18 @@ class ProAuthService:
             )
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS pro_settings (
+                CREATE TABLE IF NOT EXISTS hub_settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 )
                 """,
             )
             connection.execute(
-                "INSERT OR IGNORE INTO pro_settings(key, value) "
+                "INSERT OR IGNORE INTO hub_settings(key, value) "
                 "VALUES ('registration_enabled', 'false')",
             )
             connection.execute(
-                "INSERT OR IGNORE INTO pro_settings(key, value) "
+                "INSERT OR IGNORE INTO hub_settings(key, value) "
                 "VALUES ('registration_default_role', 'user')",
             )
 
@@ -117,13 +117,13 @@ class ProAuthService:
             "has_users": has_users,
             "bootstrap_required": not has_users,
             "registration_enabled": self.registration_enabled(),
-            "mode": "pro",
+            "mode": "hub",
         }
 
     def user_count(self) -> int:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT COUNT(*) AS count FROM pro_users",
+                "SELECT COUNT(*) AS count FROM hub_users",
             ).fetchone()
         return int(row["count"])
 
@@ -131,7 +131,7 @@ class ProAuthService:
         """Return whether public startup has an initialized administrator."""
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT 1 FROM pro_users "
+                "SELECT 1 FROM hub_users "
                 "WHERE role = 'admin' AND disabled = 0 LIMIT 1",
             ).fetchone()
         return row is not None
@@ -139,7 +139,7 @@ class ProAuthService:
     def registration_enabled(self) -> bool:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT value FROM pro_settings WHERE key = ?",
+                "SELECT value FROM hub_settings WHERE key = ?",
                 ("registration_enabled",),
             ).fetchone()
         return row is not None and str(row["value"]).lower() == "true"
@@ -156,13 +156,13 @@ class ProAuthService:
     def set_registration_enabled(self, enabled: bool) -> bool:
         with self._connect() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO pro_settings(key, value) "
+                "INSERT OR REPLACE INTO hub_settings(key, value) "
                 "VALUES (?, ?)",
                 ("registration_enabled", "true" if enabled else "false"),
             )
         return enabled
 
-    def register(self, username: str, password: str) -> tuple[ProUser, str]:
+    def register(self, username: str, password: str) -> tuple[HubUser, str]:
         """Bootstrap the first admin or register a user when enabled."""
         with self._registration_lock:
             first_user = self.user_count() == 0
@@ -182,7 +182,7 @@ class ProAuthService:
     def _registration_default_role(self) -> str:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT value FROM pro_settings WHERE key = ?",
+                "SELECT value FROM hub_settings WHERE key = ?",
                 ("registration_default_role",),
             ).fetchone()
         return str(row["value"]) if row is not None else "user"
@@ -193,7 +193,7 @@ class ProAuthService:
         username: str,
         password: str,
         role: str = "user",
-    ) -> ProUser:
+    ) -> HubUser:
         """Create an account with a stable ID and PBKDF2 password hash."""
         normalized_username = username.strip()
         self._validate_credentials(normalized_username, password)
@@ -207,7 +207,7 @@ class ProAuthService:
             with self._connect() as connection:
                 connection.execute(
                     """
-                    INSERT INTO pro_users(
+                    INSERT INTO hub_users(
                         user_id, username, password_hash, password_salt,
                         role, disabled, token_version, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?)
@@ -235,11 +235,11 @@ class ProAuthService:
         self,
         username: str,
         password: str,
-    ) -> tuple[ProUser, str]:
+    ) -> tuple[HubUser, str]:
         """Verify credentials and return a fresh bearer token."""
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM pro_users WHERE username = ? COLLATE NOCASE",
+                "SELECT * FROM hub_users WHERE username = ? COLLATE NOCASE",
                 (username.strip(),),
             ).fetchone()
         if row is None or bool(row["disabled"]):
@@ -251,7 +251,7 @@ class ProAuthService:
         user = self._user_from_row(row)
         return user, self.create_token(user)
 
-    def create_token(self, user: ProUser) -> str:
+    def create_token(self, user: HubUser) -> str:
         """Issue a signed token tied to the user's current token version."""
         now = int(time.time())
         payload = {
@@ -270,7 +270,7 @@ class ProAuthService:
         ).hexdigest()
         return f"{encoded}.{signature}"
 
-    def verify_token(self, token: str) -> ProUser | None:
+    def verify_token(self, token: str) -> HubUser | None:
         """Verify signature, expiry, disabled state, and token version."""
         try:
             encoded, signature = token.split(".", 1)
@@ -295,17 +295,17 @@ class ProAuthService:
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             return None
 
-    def list_users(self) -> list[ProUser]:
+    def list_users(self) -> list[HubUser]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM pro_users ORDER BY created_at, username",
+                "SELECT * FROM hub_users ORDER BY created_at, username",
             ).fetchall()
         return [self._user_from_row(row) for row in rows]
 
-    def get_user(self, user_id: str) -> ProUser | None:
+    def get_user(self, user_id: str) -> HubUser | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM pro_users WHERE user_id = ?",
+                "SELECT * FROM hub_users WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
         return self._user_from_row(row) if row is not None else None
@@ -316,7 +316,7 @@ class ProAuthService:
         *,
         role: str | None = None,
         disabled: bool | None = None,
-    ) -> ProUser:
+    ) -> HubUser:
         """Update authorization state and invalidate all existing tokens."""
         current = self.get_user(user_id)
         if current is None:
@@ -334,7 +334,7 @@ class ProAuthService:
         with self._connect() as connection:
             connection.execute(
                 """
-                UPDATE pro_users SET role = ?, disabled = ?,
+                UPDATE hub_users SET role = ?, disabled = ?,
                     token_version = token_version + 1, updated_at = ?
                 WHERE user_id = ?
                 """,
@@ -348,7 +348,7 @@ class ProAuthService:
     def _active_admin_count(self) -> int:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT COUNT(*) AS count FROM pro_users "
+                "SELECT COUNT(*) AS count FROM hub_users "
                 "WHERE role = 'admin' AND disabled = 0",
             ).fetchone()
         return int(row["count"])
@@ -373,8 +373,8 @@ class ProAuthService:
             raise ValueError("Password must contain at least 8 characters.")
 
     @staticmethod
-    def _user_from_row(row: sqlite3.Row) -> ProUser:
-        return ProUser(
+    def _user_from_row(row: sqlite3.Row) -> HubUser:
+        return HubUser(
             user_id=str(row["user_id"]),
             username=str(row["username"]),
             role=str(row["role"]),

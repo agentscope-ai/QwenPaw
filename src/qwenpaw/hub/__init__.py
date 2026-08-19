@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""QwenPaw Pro runtime control plane."""
+"""QwenPaw Hub runtime control plane."""
 
 from .models import RuntimeRecord, RuntimeSpec, RuntimeState
 

@@ -21,17 +21,17 @@ import { clearAuthToken } from "../../api/config";
 import LanguageSwitcher from "../../components/LanguageSwitcher";
 import { useTheme } from "../../contexts/ThemeContext";
 import {
-  proApi,
-  type ProCredential,
-  type ProHealth,
-  type ProRuntime,
-  type ProUser,
-} from "../../api/modules/pro";
+  hubApi,
+  type HubCredential,
+  type HubHealth,
+  type HubRuntime,
+  type HubUser,
+} from "../../api/modules/hub";
 import styles from "./index.module.less";
 
 type Section = "runtimes" | "users" | "credentials";
 
-const STATE_COLORS: Record<ProRuntime["state"], string> = {
+const STATE_COLORS: Record<HubRuntime["state"], string> = {
   created: "default",
   starting: "processing",
   running: "success",
@@ -39,16 +39,16 @@ const STATE_COLORS: Record<ProRuntime["state"], string> = {
   failed: "error",
 };
 
-export default function ProPage() {
+export default function HubPage() {
   const { message, modal } = App.useApp();
   const { t, i18n } = useTranslation();
   const { isDark, toggleTheme } = useTheme();
-  const [me, setMe] = useState<ProUser | null>(null);
+  const [me, setMe] = useState<HubUser | null>(null);
   const [section, setSection] = useState<Section>("runtimes");
-  const [runtimes, setRuntimes] = useState<ProRuntime[]>([]);
-  const [users, setUsers] = useState<ProUser[]>([]);
-  const [credentials, setCredentials] = useState<ProCredential[]>([]);
-  const [health, setHealth] = useState<ProHealth | null>(null);
+  const [runtimes, setRuntimes] = useState<HubRuntime[]>([]);
+  const [users, setUsers] = useState<HubUser[]>([]);
+  const [credentials, setCredentials] = useState<HubCredential[]>([]);
+  const [health, setHealth] = useState<HubHealth | null>(null);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -60,25 +60,25 @@ export default function ProPage() {
   const [credentialForm] = Form.useForm();
 
   const loadRuntimes = useCallback(async () => {
-    setRuntimes(await proApi.listRuntimes());
+    setRuntimes(await hubApi.listRuntimes());
   }, []);
 
   const loadUsers = useCallback(async () => {
     const [nextUsers, registration] = await Promise.all([
-      proApi.listUsers(),
-      proApi.getRegistration(),
+      hubApi.listUsers(),
+      hubApi.getRegistration(),
     ]);
     setUsers(nextUsers);
     setRegistrationEnabled(registration.enabled);
   }, []);
 
   const loadCredentials = useCallback(async () => {
-    setCredentials(await proApi.listCredentials());
+    setCredentials(await hubApi.listCredentials());
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([proApi.me(), proApi.listRuntimes(), proApi.getHealth()])
+    Promise.all([hubApi.me(), hubApi.listRuntimes(), hubApi.getHealth()])
       .then(([identity, runtimeList, runtimeHealth]) => {
         if (cancelled) return;
         setMe(identity);
@@ -118,13 +118,13 @@ export default function ProPage() {
   ) => {
     setBusyId(runtimeId);
     try {
-      if (action === "start") await proApi.startRuntime(runtimeId);
-      if (action === "stop") await proApi.stopRuntime(runtimeId);
-      if (action === "delete") await proApi.deleteRuntime(runtimeId);
+      if (action === "start") await hubApi.startRuntime(runtimeId);
+      if (action === "stop") await hubApi.stopRuntime(runtimeId);
+      if (action === "delete") await hubApi.deleteRuntime(runtimeId);
       await loadRuntimes();
     } catch (error) {
       message.error(
-        error instanceof Error ? error.message : t("pro.errors.actionFailed"),
+        error instanceof Error ? error.message : t("hub.errors.actionFailed"),
       );
     } finally {
       setBusyId(null);
@@ -136,14 +136,14 @@ export default function ProPage() {
     autoStart: boolean;
   }) => {
     try {
-      await proApi.createRuntime(values.runtimeId, values.autoStart);
+      await hubApi.createRuntime(values.runtimeId, values.autoStart);
       setRuntimeModalOpen(false);
       runtimeForm.resetFields();
       await loadRuntimes();
-      message.success(t("pro.messages.runtimeCreated"));
+      message.success(t("hub.messages.runtimeCreated"));
     } catch (error) {
       message.error(
-        error instanceof Error ? error.message : t("pro.errors.createFailed"),
+        error instanceof Error ? error.message : t("hub.errors.createFailed"),
       );
     }
   };
@@ -151,32 +151,32 @@ export default function ProPage() {
   const createUser = async (values: {
     username: string;
     password: string;
-    role: ProUser["role"];
+    role: HubUser["role"];
   }) => {
     try {
-      await proApi.createUser(values.username, values.password, values.role);
+      await hubApi.createUser(values.username, values.password, values.role);
       setUserModalOpen(false);
       userForm.resetFields();
       await loadUsers();
-      message.success(t("pro.messages.accountCreated"));
+      message.success(t("hub.messages.accountCreated"));
     } catch (error) {
       message.error(
-        error instanceof Error ? error.message : t("pro.errors.createFailed"),
+        error instanceof Error ? error.message : t("hub.errors.createFailed"),
       );
     }
   };
 
   const updateUser = async (
-    user: ProUser,
-    patch: Partial<Pick<ProUser, "role" | "disabled">>,
+    user: HubUser,
+    patch: Partial<Pick<HubUser, "role" | "disabled">>,
   ) => {
     setBusyId(user.user_id);
     try {
-      await proApi.updateUser(user.user_id, patch);
+      await hubApi.updateUser(user.user_id, patch);
       await loadUsers();
     } catch (error) {
       message.error(
-        error instanceof Error ? error.message : t("pro.errors.updateFailed"),
+        error instanceof Error ? error.message : t("hub.errors.updateFailed"),
       );
     } finally {
       setBusyId(null);
@@ -189,14 +189,14 @@ export default function ProPage() {
     value: string;
   }) => {
     try {
-      await proApi.putCredential(values.scope, values.name, values.value);
+      await hubApi.putCredential(values.scope, values.name, values.value);
       setCredentialModalOpen(false);
       credentialForm.resetFields();
       await loadCredentials();
-      message.success(t("pro.messages.credentialStored"));
+      message.success(t("hub.messages.credentialStored"));
     } catch (error) {
       message.error(
-        error instanceof Error ? error.message : t("pro.errors.saveFailed"),
+        error instanceof Error ? error.message : t("hub.errors.saveFailed"),
       );
     }
   };
@@ -209,21 +209,21 @@ export default function ProPage() {
   const navigation = [
     {
       id: "runtimes" as const,
-      label: t("pro.navigation.runtimes"),
+      label: t("hub.navigation.runtimes"),
       icon: Server,
     },
     ...(me?.role === "admin"
       ? [
           {
             id: "users" as const,
-            label: t("pro.navigation.users"),
+            label: t("hub.navigation.users"),
             icon: Users,
           },
         ]
       : []),
     {
       id: "credentials" as const,
-      label: t("pro.navigation.credentials"),
+      label: t("hub.navigation.credentials"),
       icon: KeyRound,
     },
   ];
@@ -246,8 +246,8 @@ export default function ProPage() {
             alt="QwenPaw"
           />
           <div>
-            <strong>{t("pro.brand.title")}</strong>
-            <span>{t("pro.brand.subtitle")}</span>
+            <strong>{t("hub.brand.title")}</strong>
+            <span>{t("hub.brand.subtitle")}</span>
           </div>
         </div>
         <nav className={styles.navigation}>
@@ -273,7 +273,7 @@ export default function ProPage() {
             className={styles.backButton}
           >
             <House size={17} />
-            <span>{t("pro.actions.backToQwenPaw")}</span>
+            <span>{t("hub.actions.backToQwenPaw")}</span>
           </button>
           <div className={styles.account}>
             <div className={styles.avatarSmall}>
@@ -281,7 +281,7 @@ export default function ProPage() {
             </div>
             <div>
               <strong>{me?.username || t("common.loading")}</strong>
-              <span>{me?.role ? t(`pro.roles.${me.role}`) : ""}</span>
+              <span>{me?.role ? t(`hub.roles.${me.role}`) : ""}</span>
             </div>
             <div className={styles.languageControl}>
               <LanguageSwitcher persistRemotely={false} />
@@ -291,8 +291,8 @@ export default function ProPage() {
               onClick={toggleTheme}
               aria-label={
                 isDark
-                  ? t("pro.actions.useLightTheme")
-                  : t("pro.actions.useDarkTheme")
+                  ? t("hub.actions.useLightTheme")
+                  : t("hub.actions.useDarkTheme")
               }
             >
               {isDark ? <Sun size={16} /> : <Moon size={16} />}
@@ -300,7 +300,7 @@ export default function ProPage() {
             <button
               type="button"
               onClick={logout}
-              aria-label={t("pro.actions.signOut")}
+              aria-label={t("hub.actions.signOut")}
             >
               <LogOut size={16} />
             </button>
@@ -312,9 +312,9 @@ export default function ProPage() {
         {section === "runtimes" && (
           <section>
             <PageHeader
-              eyebrow={t("pro.runtimes.eyebrow")}
-              title={t("pro.runtimes.title")}
-              description={t("pro.runtimes.description")}
+              eyebrow={t("hub.runtimes.eyebrow")}
+              title={t("hub.runtimes.title")}
+              description={t("hub.runtimes.description")}
               action={
                 <Button
                   type="primary"
@@ -322,46 +322,46 @@ export default function ProPage() {
                   disabled={!runtimeAvailable}
                   onClick={() => setRuntimeModalOpen(true)}
                 >
-                  {t("pro.runtimes.newRuntime")}
+                  {t("hub.runtimes.newRuntime")}
                 </Button>
               }
             />
             <div className={styles.metrics}>
               <Metric
                 icon={<Server size={18} />}
-                label={t("pro.runtimes.managed")}
+                label={t("hub.runtimes.managed")}
                 value={String(runtimes.length)}
-                detail={t("pro.runtimes.localBoundaries")}
+                detail={t("hub.runtimes.localBoundaries")}
               />
               <Metric
                 icon={<Activity size={18} />}
-                label={t("pro.runtimes.runningNow")}
+                label={t("hub.runtimes.runningNow")}
                 value={String(runningCount)}
                 detail={
                   failedCount > 0
-                    ? t("pro.runtimes.needsAttention", {
+                    ? t("hub.runtimes.needsAttention", {
                         count: failedCount,
                       })
-                    : t("pro.runtimes.healthy")
+                    : t("hub.runtimes.healthy")
                 }
                 warning={failedCount > 0}
               />
               <Metric
                 icon={<ShieldCheck size={18} />}
-                label={t("pro.runtimes.isolationPolicy")}
+                label={t("hub.runtimes.isolationPolicy")}
                 value={
                   !runtimeAvailabilityKnown
                     ? t("common.loading")
                     : runtimeAvailable
-                    ? t("pro.runtimes.available")
-                    : t("pro.runtimes.unavailable")
+                    ? t("hub.runtimes.available")
+                    : t("hub.runtimes.unavailable")
                 }
                 detail={
                   !runtimeAvailabilityKnown
                     ? t("common.loading")
                     : runtimeAvailable
-                    ? t("pro.runtimes.noFallback")
-                    : t("pro.runtimes.executionBlocked")
+                    ? t("hub.runtimes.noFallback")
+                    : t("hub.runtimes.executionBlocked")
                 }
                 warning={runtimeAvailabilityKnown && !runtimeAvailable}
               />
@@ -380,17 +380,17 @@ export default function ProPage() {
                 <div>
                   <strong>
                     {runtimeAvailable
-                      ? t("pro.runtimes.isolationTitle")
-                      : t("pro.runtimes.unavailableTitle")}
+                      ? t("hub.runtimes.isolationTitle")
+                      : t("hub.runtimes.unavailableTitle")}
                   </strong>
                   <span>
                     {runtimeAvailable
-                      ? t("pro.runtimes.isolationDescription")
-                      : t("pro.runtimes.unavailableDescription", {
+                      ? t("hub.runtimes.isolationDescription")
+                      : t("hub.runtimes.unavailableDescription", {
                           driver: health?.default_driver || "local",
                           reason:
                             defaultDriverStatus?.reason ||
-                            t("pro.runtimes.preflightFailed"),
+                            t("hub.runtimes.preflightFailed"),
                         })}
                   </span>
                 </div>
@@ -406,26 +406,26 @@ export default function ProPage() {
                     <div className={styles.cardTitle}>
                       <strong>{runtime.runtime_id}</strong>
                       <span>
-                        {t("pro.runtimes.localEndpoint", {
+                        {t("hub.runtimes.localEndpoint", {
                           endpoint: runtime.endpoint,
                         })}
                       </span>
                     </div>
                     <Tag color={STATE_COLORS[runtime.state]}>
-                      {t(`pro.runtimeStates.${runtime.state}`)}
+                      {t(`hub.runtimeStates.${runtime.state}`)}
                     </Tag>
                   </div>
                   <dl className={styles.details}>
                     <div>
-                      <dt>{t("pro.runtimes.driver")}</dt>
+                      <dt>{t("hub.runtimes.driver")}</dt>
                       <dd>{runtime.driver}</dd>
                     </div>
                     <div>
-                      <dt>{t("pro.runtimes.security")}</dt>
+                      <dt>{t("hub.runtimes.security")}</dt>
                       <dd>{runtime.security_level}</dd>
                     </div>
                     <div>
-                      <dt>{t("pro.runtimes.tenant")}</dt>
+                      <dt>{t("hub.runtimes.tenant")}</dt>
                       <dd>{runtime.tenant_id}</dd>
                     </div>
                   </dl>
@@ -441,7 +441,7 @@ export default function ProPage() {
                           runRuntimeAction(runtime.runtime_id, "stop")
                         }
                       >
-                        {t("pro.actions.stop")}
+                        {t("hub.actions.stop")}
                       </Button>
                     ) : (
                       <Button
@@ -452,7 +452,7 @@ export default function ProPage() {
                           runRuntimeAction(runtime.runtime_id, "start")
                         }
                       >
-                        {t("pro.actions.start")}
+                        {t("hub.actions.start")}
                       </Button>
                     )}
                     <Button
@@ -462,10 +462,10 @@ export default function ProPage() {
                       aria-label={t("common.delete")}
                       onClick={() =>
                         modal.confirm({
-                          title: t("pro.runtimes.removeTitle", {
+                          title: t("hub.runtimes.removeTitle", {
                             id: runtime.runtime_id,
                           }),
-                          content: t("pro.runtimes.removeDescription"),
+                          content: t("hub.runtimes.removeDescription"),
                           okButtonProps: { danger: true },
                           onOk: () =>
                             runRuntimeAction(runtime.runtime_id, "delete"),
@@ -478,8 +478,8 @@ export default function ProPage() {
               {!loading && runtimes.length === 0 && (
                 <EmptyState
                   icon={<Server size={26} />}
-                  title={t("pro.runtimes.emptyTitle")}
-                  description={t("pro.runtimes.emptyDescription")}
+                  title={t("hub.runtimes.emptyTitle")}
+                  description={t("hub.runtimes.emptyDescription")}
                 />
               )}
             </div>
@@ -489,35 +489,35 @@ export default function ProPage() {
         {section === "users" && me?.role === "admin" && (
           <section>
             <PageHeader
-              eyebrow={t("pro.users.eyebrow")}
-              title={t("pro.users.title")}
-              description={t("pro.users.description")}
+              eyebrow={t("hub.users.eyebrow")}
+              title={t("hub.users.title")}
+              description={t("hub.users.description")}
               action={
                 <Button
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => setUserModalOpen(true)}
                 >
-                  {t("pro.users.addAccount")}
+                  {t("hub.users.addAccount")}
                 </Button>
               }
             />
             <div className={styles.settingRow}>
               <div>
-                <strong>{t("pro.users.publicRegistration")}</strong>
-                <span>{t("pro.users.publicRegistrationDescription")}</span>
+                <strong>{t("hub.users.publicRegistration")}</strong>
+                <span>{t("hub.users.publicRegistrationDescription")}</span>
               </div>
               <Switch
                 checked={registrationEnabled}
                 onChange={async (enabled) => {
                   try {
-                    await proApi.setRegistration(enabled);
+                    await hubApi.setRegistration(enabled);
                     setRegistrationEnabled(enabled);
                   } catch (error) {
                     message.error(
                       error instanceof Error
                         ? error.message
-                        : t("pro.errors.updateFailed"),
+                        : t("hub.errors.updateFailed"),
                     );
                   }
                 }}
@@ -539,18 +539,18 @@ export default function ProPage() {
                     disabled={busyId === user.user_id}
                     options={[
                       {
-                        label: t("pro.roles.admin"),
+                        label: t("hub.roles.admin"),
                         value: "admin",
                       },
-                      { label: t("pro.roles.user"), value: "user" },
+                      { label: t("hub.roles.user"), value: "user" },
                     ]}
                     onChange={(role) => updateUser(user, { role })}
                   />
                   <div className={styles.userStatus}>
                     <span>
                       {user.disabled
-                        ? t("pro.userStates.disabled")
-                        : t("pro.userStates.active")}
+                        ? t("hub.userStates.disabled")
+                        : t("hub.userStates.active")}
                     </span>
                     <Switch
                       checked={!user.disabled}
@@ -569,16 +569,16 @@ export default function ProPage() {
         {section === "credentials" && (
           <section>
             <PageHeader
-              eyebrow={t("pro.credentials.eyebrow")}
-              title={t("pro.credentials.title")}
-              description={t("pro.credentials.description")}
+              eyebrow={t("hub.credentials.eyebrow")}
+              title={t("hub.credentials.title")}
+              description={t("hub.credentials.description")}
               action={
                 <Button
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => setCredentialModalOpen(true)}
                 >
-                  {t("pro.credentials.storeCredential")}
+                  {t("hub.credentials.storeCredential")}
                 </Button>
               }
             />
@@ -596,7 +596,7 @@ export default function ProPage() {
                     <span>{credential.scope}</span>
                   </div>
                   <span className={styles.updatedAt}>
-                    {t("pro.credentials.updated", {
+                    {t("hub.credentials.updated", {
                       date: new Date(credential.updated_at).toLocaleString(
                         i18n.resolvedLanguage || i18n.language,
                       ),
@@ -608,13 +608,13 @@ export default function ProPage() {
                     aria-label={t("common.delete")}
                     onClick={() =>
                       modal.confirm({
-                        title: t("pro.credentials.deleteTitle", {
+                        title: t("hub.credentials.deleteTitle", {
                           name: credential.name,
                         }),
-                        content: t("pro.credentials.deleteDescription"),
+                        content: t("hub.credentials.deleteDescription"),
                         okButtonProps: { danger: true },
                         onOk: async () => {
-                          await proApi.deleteCredential(
+                          await hubApi.deleteCredential(
                             credential.scope,
                             credential.name,
                           );
@@ -628,8 +628,8 @@ export default function ProPage() {
               {credentials.length === 0 && (
                 <EmptyState
                   icon={<KeyRound size={26} />}
-                  title={t("pro.credentials.emptyTitle")}
-                  description={t("pro.credentials.emptyDescription")}
+                  title={t("hub.credentials.emptyTitle")}
+                  description={t("hub.credentials.emptyDescription")}
                 />
               )}
             </div>
@@ -638,7 +638,7 @@ export default function ProPage() {
       </main>
 
       <Modal
-        title={t("pro.runtimeForm.title")}
+        title={t("hub.runtimeForm.title")}
         open={runtimeModalOpen}
         onCancel={() => setRuntimeModalOpen(false)}
         footer={null}
@@ -650,38 +650,38 @@ export default function ProPage() {
           initialValues={{ autoStart: true }}
           onFinish={createRuntime}
         >
-          <p className={styles.formHint}>{t("pro.runtimeForm.hint")}</p>
+          <p className={styles.formHint}>{t("hub.runtimeForm.hint")}</p>
           <Form.Item
-            label={t("pro.runtimeForm.runtimeId")}
+            label={t("hub.runtimeForm.runtimeId")}
             name="runtimeId"
             rules={[
               {
                 required: true,
-                message: t("pro.validation.required"),
+                message: t("hub.validation.required"),
               },
               {
                 pattern: /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/,
-                message: t("pro.validation.runtimeIdInvalid"),
+                message: t("hub.validation.runtimeIdInvalid"),
               },
             ]}
           >
             <Input placeholder="research-runtime" autoFocus />
           </Form.Item>
           <Form.Item
-            label={t("pro.runtimeForm.startImmediately")}
+            label={t("hub.runtimeForm.startImmediately")}
             name="autoStart"
             valuePropName="checked"
           >
             <Switch />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            {t("pro.runtimeForm.submit")}
+            {t("hub.runtimeForm.submit")}
           </Button>
         </Form>
       </Modal>
 
       <Modal
-        title={t("pro.userForm.title")}
+        title={t("hub.userForm.title")}
         open={userModalOpen}
         onCancel={() => setUserModalOpen(false)}
         footer={null}
@@ -693,51 +693,51 @@ export default function ProPage() {
           initialValues={{ role: "user" }}
           onFinish={createUser}
         >
-          <p className={styles.formHint}>{t("pro.userForm.hint")}</p>
+          <p className={styles.formHint}>{t("hub.userForm.hint")}</p>
           <Form.Item
-            label={t("pro.userForm.username")}
+            label={t("hub.userForm.username")}
             name="username"
             rules={[
               {
                 required: true,
-                message: t("pro.validation.required"),
+                message: t("hub.validation.required"),
               },
             ]}
           >
             <Input autoFocus />
           </Form.Item>
           <Form.Item
-            label={t("pro.userForm.temporaryPassword")}
+            label={t("hub.userForm.temporaryPassword")}
             name="password"
             rules={[
               {
                 required: true,
-                message: t("pro.validation.required"),
+                message: t("hub.validation.required"),
               },
               {
                 min: 8,
-                message: t("pro.validation.passwordMin"),
+                message: t("hub.validation.passwordMin"),
               },
             ]}
           >
             <Input.Password />
           </Form.Item>
-          <Form.Item label={t("pro.userForm.role")} name="role">
+          <Form.Item label={t("hub.userForm.role")} name="role">
             <Select
               options={[
-                { label: t("pro.roles.user"), value: "user" },
-                { label: t("pro.roles.admin"), value: "admin" },
+                { label: t("hub.roles.user"), value: "user" },
+                { label: t("hub.roles.admin"), value: "admin" },
               ]}
             />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            {t("pro.userForm.submit")}
+            {t("hub.userForm.submit")}
           </Button>
         </Form>
       </Modal>
 
       <Modal
-        title={t("pro.credentialForm.title")}
+        title={t("hub.credentialForm.title")}
         open={credentialModalOpen}
         onCancel={() => setCredentialModalOpen(false)}
         footer={null}
@@ -749,21 +749,21 @@ export default function ProPage() {
           initialValues={{ scope: "tenant" }}
           onFinish={saveCredential}
         >
-          <p className={styles.formHint}>{t("pro.credentialForm.hint")}</p>
+          <p className={styles.formHint}>{t("hub.credentialForm.hint")}</p>
           <Form.Item
-            label={t("pro.credentialForm.scope")}
+            label={t("hub.credentialForm.scope")}
             name="scope"
             rules={[
               {
                 required: true,
-                message: t("pro.validation.required"),
+                message: t("hub.validation.required"),
               },
             ]}
           >
             <Select
               options={[
                 {
-                  label: t("pro.credentialForm.allRuntimes"),
+                  label: t("hub.credentialForm.allRuntimes"),
                   value: "tenant",
                 },
                 ...runtimeOptions,
@@ -771,35 +771,35 @@ export default function ProPage() {
             />
           </Form.Item>
           <Form.Item
-            label={t("pro.credentialForm.environmentName")}
+            label={t("hub.credentialForm.environmentName")}
             name="name"
             rules={[
               {
                 required: true,
-                message: t("pro.validation.required"),
+                message: t("hub.validation.required"),
               },
               {
                 pattern: /^[A-Z][A-Z0-9_]{0,127}$/,
-                message: t("pro.validation.credentialNameInvalid"),
+                message: t("hub.validation.credentialNameInvalid"),
               },
             ]}
           >
             <Input placeholder="OPENAI_API_KEY" />
           </Form.Item>
           <Form.Item
-            label={t("pro.credentialForm.secretValue")}
+            label={t("hub.credentialForm.secretValue")}
             name="value"
             rules={[
               {
                 required: true,
-                message: t("pro.validation.required"),
+                message: t("hub.validation.required"),
               },
             ]}
           >
             <Input.Password autoComplete="new-password" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            {t("pro.credentialForm.submit")}
+            {t("hub.credentialForm.submit")}
           </Button>
         </Form>
       </Modal>

@@ -7,12 +7,12 @@ import os
 
 from fastapi import Request
 
-PRO_OAUTH_CALLBACK_URL_HEADER = "X-QwenPaw-Pro-OAuth-Callback-Url"
+HUB_OAUTH_CALLBACK_URL_HEADER = "X-QwenPaw-Hub-OAuth-Callback-Url"
 
 
 def managed_oauth_callback_url(request: Request) -> str | None:
-    """Return the callback URL injected by a trusted Pro control plane."""
-    if not os.environ.get("QWENPAW_PRO_INTERNAL_TOKEN", ""):
+    """Return the callback URL injected by a trusted Hub control plane."""
+    if not os.environ.get("QWENPAW_RUNTIME_INTERNAL_TOKEN", ""):
         return None
-    value = request.headers.get(PRO_OAUTH_CALLBACK_URL_HEADER, "").strip()
+    value = request.headers.get(HUB_OAUTH_CALLBACK_URL_HEADER, "").strip()
     return value or None

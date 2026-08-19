@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SQLite registry for QwenPaw Pro runtime metadata."""
+"""SQLite registry for QwenPaw Hub runtime metadata."""
 
 from __future__ import annotations
 

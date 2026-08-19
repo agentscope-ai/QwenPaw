@@ -39,7 +39,7 @@ import {
 } from "./utils/navigationMode";
 
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
-const ProPage = lazyImportWithRetry("./pages/Pro/index");
+const HubPage = lazyImportWithRetry("./pages/Hub/index");
 // Desktop OS shell. Uses React.lazy (not lazyImportWithRetry, which only
 // resolves the ./pages/** glob) so it can load from ./os/.
 const DesktopOSPage = lazy(() => import("./os/DesktopOS"));
@@ -52,7 +52,7 @@ import {
   resolveBackendMode,
   type BackendMode,
 } from "./auth/gate";
-import { proApi, type ProHealth } from "./api/modules/pro";
+import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
@@ -146,7 +146,7 @@ function RuntimeAvailabilityGuard({
   children: React.ReactNode;
   enabled: boolean;
 }) {
-  const [health, setHealth] = useState<ProHealth | null>(null);
+  const [health, setHealth] = useState<HubHealth | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [retryKey, setRetryKey] = useState(0);
 
@@ -155,7 +155,7 @@ function RuntimeAvailabilityGuard({
     let cancelled = false;
     setHealth(null);
     setErrorMessage("");
-    proApi
+    hubApi
       .getHealth()
       .then((nextHealth) => {
         if (!cancelled) setHealth(nextHealth);
@@ -176,7 +176,7 @@ function RuntimeAvailabilityGuard({
   useEffect(() => {
     if (!enabled || !health || health.runtime_available) return;
     window.location.replace(
-      addRouterBasename(window.location.pathname, "/pro/admin"),
+      addRouterBasename(window.location.pathname, "/hub/admin"),
     );
   }, [enabled, health]);
 
@@ -197,7 +197,7 @@ function RuntimeAvailabilityGuard({
   );
 }
 
-function AppInner({ proMode = false }: { proMode?: boolean }) {
+function AppInner({ hubMode = false }: { hubMode?: boolean }) {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
@@ -271,7 +271,7 @@ function AppInner({ proMode = false }: { proMode?: boolean }) {
   // <Router> inside another. The classic browser layout keeps its BrowserRouter.
   const routedContent = osActive ? (
     <AuthGuard useHardRedirect>
-      <RuntimeAvailabilityGuard enabled={proMode}>
+      <RuntimeAvailabilityGuard enabled={hubMode}>
         <Suspense fallback={null}>
           <DesktopOSPage />
         </Suspense>
@@ -289,12 +289,12 @@ function AppInner({ proMode = false }: { proMode?: boolean }) {
           }
         />
         <Route
-          path="/pro/admin"
+          path="/hub/admin"
           element={
-            proMode ? (
+            hubMode ? (
               <AuthGuard>
                 <Suspense fallback={null}>
-                  <ProPage />
+                  <HubPage />
                 </Suspense>
               </AuthGuard>
             ) : (
@@ -306,7 +306,7 @@ function AppInner({ proMode = false }: { proMode?: boolean }) {
           path="/*"
           element={
             <AuthGuard>
-              <RuntimeAvailabilityGuard enabled={proMode}>
+              <RuntimeAvailabilityGuard enabled={hubMode}>
                 <MainLayout />
               </RuntimeAvailabilityGuard>
             </AuthGuard>
@@ -396,7 +396,7 @@ function BackendModeRouter() {
   }
   return (
     <PluginProvider>
-      <AppInner proMode={mode === "pro"} />
+      <AppInner hubMode={mode === "hub"} />
     </PluginProvider>
   );
 }

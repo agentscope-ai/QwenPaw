@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runtime driver contract used by the QwenPaw Pro control plane."""
+"""Runtime driver contract used by the QwenPaw Hub control plane."""
 
 from __future__ import annotations
 

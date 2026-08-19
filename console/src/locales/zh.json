@@ -3294,9 +3294,9 @@
       }
     }
   },
-  "pro": {
+  "hub": {
     "brand": {
-      "title": "Pro 管理中心",
+      "title": "Hub 管理中心",
       "subtitle": "本地工作空间"
     },
     "navigation": {
@@ -3345,7 +3345,7 @@
       "credentialNameInvalid": "请输入大写环境变量名称，例如 OPENAI_API_KEY"
     },
     "runtimes": {
-      "eyebrow": "Pro 管理中心",
+      "eyebrow": "Hub 管理中心",
       "title": "运行环境概览",
       "description": "在本地应用中管理彼此隔离的 QwenPaw 进程。每个运行环境均拥有独立的工作空间和凭据边界。",
       "newRuntime": "新建运行环境",
@@ -3363,7 +3363,7 @@
       "isolationTitle": "失败即关闭的本地隔离",
       "isolationDescription": "整个运行环境进程树均在沙箱中执行。如果原生隔离探测失败，QwenPaw 将拒绝启动。",
       "unavailableTitle": "安全运行后端不可用",
-      "unavailableDescription": "{{driver}} 无法安全启动：{{reason}}。请安装或配置受支持的沙箱，然后重启 QwenPaw Pro。",
+      "unavailableDescription": "{{driver}} 无法安全启动：{{reason}}。请安装或配置受支持的沙箱，然后重启 QwenPaw Hub。",
       "preflightFailed": "安全预检失败",
       "localEndpoint": "本地端点 · {{endpoint}}",
       "driver": "驱动",

@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Tests for QwenPaw Pro users, roles, and token invalidation."""
+"""Tests for QwenPaw Hub users, roles, and token invalidation."""
 
 from pathlib import Path
 
 import pytest
 
-from qwenpaw.pro.auth import ProAuthService
-from qwenpaw.pro.credentials import TenantCredentialVault
+from qwenpaw.hub.auth import HubAuthService
+from qwenpaw.hub.credentials import TenantCredentialVault
 
 
-def _auth_service(tmp_path: Path) -> ProAuthService:
+def _auth_service(tmp_path: Path) -> HubAuthService:
     database = tmp_path / "control.db"
     vault = TenantCredentialVault(database, tmp_path / ".vault_key")
-    return ProAuthService(database, vault)
+    return HubAuthService(database, vault)
 
 
 def test_first_registration_bootstraps_admin_and_closes_registration(

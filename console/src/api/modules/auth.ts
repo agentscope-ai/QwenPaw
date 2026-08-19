@@ -10,7 +10,7 @@ export interface LoginResponse {
 export interface AuthStatusResponse {
   enabled: boolean;
   has_users: boolean;
-  mode?: "pro";
+  mode?: "hub";
   bootstrap_required?: boolean;
   registration_enabled?: boolean;
 }

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Fail-closed isolated local process driver for QwenPaw Pro."""
+"""Fail-closed isolated local process driver for QwenPaw Hub."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
         credentials: Mapping[str, str],
     ) -> RuntimeRecord:
         """Start an isolated local QwenPaw process and wait for readiness."""
-        if not credentials.get("QWENPAW_PRO_INTERNAL_TOKEN"):
+        if not credentials.get("QWENPAW_RUNTIME_INTERNAL_TOKEN"):
             raise RuntimeError(
                 "Managed local runtime requires an internal boundary token.",
             )
@@ -191,7 +191,7 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
                 starting,
                 process,
                 isolated.environment.get(
-                    "QWENPAW_PRO_INTERNAL_TOKEN",
+                    "QWENPAW_RUNTIME_INTERNAL_TOKEN",
                     "",
                 ),
             )
@@ -306,9 +306,9 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
         environment["QWENPAW_BACKUP_DIR"] = str(record.backup_dir)
         environment[
             "QWENPAW_KEYRING_ACCOUNT"
-        ] = f"qwenpaw-pro-{record.runtime_id}"
-        environment["QWENPAW_PRO_RUNTIME_ID"] = record.runtime_id
-        environment["QWENPAW_PRO_TENANT_ID"] = record.tenant_id
+        ] = f"qwenpaw-hub-{record.runtime_id}"
+        environment["QWENPAW_RUNTIME_ID"] = record.runtime_id
+        environment["QWENPAW_TENANT_ID"] = record.tenant_id
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         return environment
@@ -332,7 +332,7 @@ class LocalProcessRuntimeDriver(RuntimeDriver):
                 request = urllib.request.Request(
                     url,
                     headers={
-                        "X-QwenPaw-Pro-Runtime-Token": runtime_token,
+                        "X-QwenPaw-Runtime-Token": runtime_token,
                     },
                 )
                 with urllib.request.urlopen(request, timeout=1) as response:

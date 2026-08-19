@@ -37,7 +37,7 @@ def test_openrouter_oauth_start_is_registered() -> None:
 def test_openrouter_uses_managed_callback_when_injected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_PRO_INTERNAL_TOKEN", "runtime-token")
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "runtime-token")
     app = FastAPI()
     app.include_router(api_router, prefix="/api")
     client = TestClient(app)
@@ -45,15 +45,15 @@ def test_openrouter_uses_managed_callback_when_injected(
     response = client.post(
         "/api/providers/openrouter/oauth/start",
         headers={
-            "X-QwenPaw-Pro-OAuth-Callback-Url": (
-                "https://qwenpaw.example.com/api/pro/oauth/callback/relay"
+            "X-QwenPaw-Hub-OAuth-Callback-Url": (
+                "https://qwenpaw.example.com/api/hub/oauth/callback/relay"
             ),
         },
     )
 
     assert response.status_code == 200
     assert _callback_url(response.json()["authorize_url"]) == (
-        "https://qwenpaw.example.com/api/pro/oauth/callback/relay"
+        "https://qwenpaw.example.com/api/hub/oauth/callback/relay"
     )
 
 
@@ -65,7 +65,7 @@ def test_openrouter_ignores_managed_callback_header_in_standalone() -> None:
     response = client.post(
         "/api/providers/openrouter/oauth/start",
         headers={
-            "X-QwenPaw-Pro-OAuth-Callback-Url": (
+            "X-QwenPaw-Hub-OAuth-Callback-Url": (
                 "https://attacker.example/callback"
             ),
         },

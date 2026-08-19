@@ -1,7 +1,7 @@
 import { clearAuthToken, getApiToken, getApiUrl } from "../config";
 import { responseErrorMessage } from "../error";
 
-export interface ProUser {
+export interface HubUser {
   user_id: string;
   username: string;
   role: "admin" | "user";
@@ -10,7 +10,7 @@ export interface ProUser {
   updated_at: string;
 }
 
-export interface ProRuntime {
+export interface HubRuntime {
   runtime_id: string;
   tenant_id: string;
   owner_user_id: string;
@@ -25,25 +25,25 @@ export interface ProRuntime {
   updated_at: string;
 }
 
-export interface ProCredential {
+export interface HubCredential {
   scope: string;
   name: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface ProDriverStatus {
+export interface HubDriverStatus {
   available: boolean;
   reason?: string | null;
   security_level: string;
 }
 
-export interface ProHealth {
+export interface HubHealth {
   status: "ok" | "degraded";
-  mode: "pro";
+  mode: "hub";
   default_driver: string;
   runtime_available: boolean;
-  driver_statuses: Record<string, ProDriverStatus>;
+  driver_statuses: Record<string, HubDriverStatus>;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -73,55 +73,55 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
-export const proApi = {
-  getHealth: () => request<ProHealth>("/pro/healthz"),
-  me: () => request<ProUser>("/pro/me"),
-  listRuntimes: () => request<ProRuntime[]>("/pro/runtimes"),
+export const hubApi = {
+  getHealth: () => request<HubHealth>("/hub/healthz"),
+  me: () => request<HubUser>("/hub/me"),
+  listRuntimes: () => request<HubRuntime[]>("/hub/runtimes"),
   createRuntime: (runtimeId: string, autoStart = false) =>
-    request<ProRuntime>("/pro/runtimes", {
+    request<HubRuntime>("/hub/runtimes", {
       method: "POST",
       body: JSON.stringify({ runtime_id: runtimeId, auto_start: autoStart }),
     }),
   startRuntime: (runtimeId: string) =>
-    request<ProRuntime>(`/pro/runtimes/${runtimeId}/start`, {
+    request<HubRuntime>(`/hub/runtimes/${runtimeId}/start`, {
       method: "POST",
     }),
   stopRuntime: (runtimeId: string) =>
-    request<ProRuntime>(`/pro/runtimes/${runtimeId}/stop`, {
+    request<HubRuntime>(`/hub/runtimes/${runtimeId}/stop`, {
       method: "POST",
     }),
   deleteRuntime: (runtimeId: string) =>
-    request<void>(`/pro/runtimes/${runtimeId}`, { method: "DELETE" }),
-  listUsers: () => request<ProUser[]>("/pro/admin/users"),
-  createUser: (username: string, password: string, role: ProUser["role"]) =>
-    request<ProUser>("/pro/admin/users", {
+    request<void>(`/hub/runtimes/${runtimeId}`, { method: "DELETE" }),
+  listUsers: () => request<HubUser[]>("/hub/admin/users"),
+  createUser: (username: string, password: string, role: HubUser["role"]) =>
+    request<HubUser>("/hub/admin/users", {
       method: "POST",
       body: JSON.stringify({ username, password, role }),
     }),
   updateUser: (
     userId: string,
-    patch: Partial<Pick<ProUser, "role" | "disabled">>,
+    patch: Partial<Pick<HubUser, "role" | "disabled">>,
   ) =>
-    request<ProUser>(`/pro/admin/users/${userId}`, {
+    request<HubUser>(`/hub/admin/users/${userId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
   getRegistration: () =>
-    request<{ enabled: boolean }>("/pro/admin/settings/registration"),
+    request<{ enabled: boolean }>("/hub/admin/settings/registration"),
   setRegistration: (enabled: boolean) =>
-    request<{ enabled: boolean }>("/pro/admin/settings/registration", {
+    request<{ enabled: boolean }>("/hub/admin/settings/registration", {
       method: "PUT",
       body: JSON.stringify({ enabled }),
     }),
-  listCredentials: () => request<ProCredential[]>("/pro/credentials"),
+  listCredentials: () => request<HubCredential[]>("/hub/credentials"),
   putCredential: (scope: string, name: string, value: string) =>
-    request<void>("/pro/credentials", {
+    request<void>("/hub/credentials", {
       method: "PUT",
       body: JSON.stringify({ scope, name, value }),
     }),
   deleteCredential: (scope: string, name: string) =>
     request<void>(
-      `/pro/credentials/${encodeURIComponent(scope)}/${encodeURIComponent(
+      `/hub/credentials/${encodeURIComponent(scope)}/${encodeURIComponent(
         name,
       )}`,
       { method: "DELETE" },

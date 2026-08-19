@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Tests for tenant-qualified QwenPaw Pro credential storage."""
+"""Tests for tenant-qualified QwenPaw Hub credential storage."""
 
 import os
 from pathlib import Path
 
-from qwenpaw.pro.credentials import TenantCredentialVault
-from qwenpaw.pro.local_driver import LocalProcessRuntimeDriver
-from qwenpaw.pro.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.credentials import TenantCredentialVault
+from qwenpaw.hub.local_driver import LocalProcessRuntimeDriver
+from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 
 
 def test_same_credential_name_never_crosses_tenant_boundary(
@@ -101,5 +101,5 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
     assert "OPENAI_API_KEY" not in environment
     assert "LANGFUSE_SECRET_KEY" not in environment
     assert environment["ANTHROPIC_API_KEY"] == "tenant-key"
-    assert environment["QWENPAW_PRO_TENANT_ID"] == "tenant-a"
+    assert environment["QWENPAW_TENANT_ID"] == "tenant-a"
     assert environment.get("PATH") == os.environ.get("PATH")

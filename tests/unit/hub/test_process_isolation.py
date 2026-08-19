@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for fail-closed Pro runtime process isolation."""
+"""Tests for fail-closed Hub runtime process isolation."""
 
 import sys
 from collections.abc import Mapping, Sequence
@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.pro.local_driver import LocalProcessRuntimeDriver
-from qwenpaw.pro.models import RuntimeRecord, RuntimeState
-from qwenpaw.pro.process_isolation import (
+from qwenpaw.hub.local_driver import LocalProcessRuntimeDriver
+from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
     LinuxBubblewrapIsolator,
     ProcessIsolationError,

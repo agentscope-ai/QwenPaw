@@ -10,7 +10,7 @@ from qwenpaw.app.routers.mcp_oauth import _redirect_uri
 def test_mcp_oauth_uses_managed_callback_when_injected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("QWENPAW_PRO_INTERNAL_TOKEN", "runtime-token")
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "runtime-token")
     request = Request(
         {
             "type": "http",
@@ -19,7 +19,7 @@ def test_mcp_oauth_uses_managed_callback_when_injected(
             "path": "/api/mcp/oauth/start/client",
             "headers": [
                 (
-                    b"x-qwenpaw-pro-oauth-callback-url",
+                    b"x-qwenpaw-hub-oauth-callback-url",
                     b"https://qwenpaw.example.com/callback/relay",
                 ),
             ],

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Deployment-neutral runtime models for QwenPaw Pro."""
+"""Deployment-neutral runtime models for QwenPaw Hub."""
 
 from __future__ import annotations
 

@@ -3437,9 +3437,9 @@
       }
     }
   },
-  "pro": {
+  "hub": {
     "brand": {
-      "title": "Pro administration",
+      "title": "Hub administration",
       "subtitle": "Local workspace"
     },
     "navigation": {
@@ -3488,7 +3488,7 @@
       "credentialNameInvalid": "Use an uppercase environment variable name, such as OPENAI_API_KEY"
     },
     "runtimes": {
-      "eyebrow": "Pro administration",
+      "eyebrow": "Hub administration",
       "title": "Runtime overview",
       "description": "Manage isolated QwenPaw processes without leaving the local app. Every runtime has its own workspace and credential boundary.",
       "newRuntime": "New runtime",
@@ -3506,7 +3506,7 @@
       "isolationTitle": "Fail-closed local isolation",
       "isolationDescription": "The entire runtime process tree is sandboxed. If the native isolation probe fails, QwenPaw refuses to start it.",
       "unavailableTitle": "Secure runtime backend unavailable",
-      "unavailableDescription": "{{driver}} cannot start safely: {{reason}} Install or configure a supported sandbox, then restart QwenPaw Pro.",
+      "unavailableDescription": "{{driver}} cannot start safely: {{reason}} Install or configure a supported sandbox, then restart QwenPaw Hub.",
       "preflightFailed": "Security preflight failed.",
       "localEndpoint": "Local endpoint · {{endpoint}}",
       "driver": "Driver",

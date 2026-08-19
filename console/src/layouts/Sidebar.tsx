@@ -58,7 +58,7 @@ import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
-import { proApi } from "../api/modules/pro";
+import { hubApi } from "../api/modules/hub";
 import {
   dismissDesktopModeHint,
   shouldShowDesktopModeHint,
@@ -130,7 +130,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const currentSessionId = getSessionIdFromPath(location.pathname);
   const chatPath = buildChatPath(currentSessionId);
   const [authEnabled, setAuthEnabled] = useState(false);
-  const [proAdmin, setProAdmin] = useState(false);
+  const [hubAdmin, setHubAdmin] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
@@ -214,9 +214,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .getStatus()
       .then(async (res) => {
         setAuthEnabled(res.enabled);
-        if (res.mode === "pro") {
-          const user = await proApi.me();
-          setProAdmin(user.role === "admin");
+        if (res.mode === "hub") {
+          const user = await hubApi.me();
+          setHubAdmin(user.role === "admin");
         }
       })
       .catch(() => {});
@@ -796,15 +796,15 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
       {authEnabled && !collapsed && (
         <div className={styles.authActions}>
-          {proAdmin && (
+          {hubAdmin && (
             <Button
               type="text"
               icon={<ShieldCheck size={16} />}
-              onClick={() => navigate("/pro/admin")}
+              onClick={() => navigate("/hub/admin")}
               block
               className={styles.authBtn}
             >
-              {t("pro.brand.title")}
+              {t("hub.brand.title")}
             </Button>
           )}
           <Button

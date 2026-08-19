@@ -42,8 +42,8 @@ from ..security.secret_store import (
 
 logger = logging.getLogger(__name__)
 
-_PRO_RUNTIME_TOKEN_ENV = "QWENPAW_PRO_INTERNAL_TOKEN"
-_PRO_RUNTIME_TOKEN_HEADER = "x-qwenpaw-pro-runtime-token"
+_RUNTIME_TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
+_RUNTIME_TOKEN_HEADER = "x-qwenpaw-runtime-token"
 
 AUTH_FILE = SECRET_DIR / "auth.json"
 
@@ -767,7 +767,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return request.query_params.get("token") or None
 
 
-class ProRuntimeBoundaryMiddleware:
+class RuntimeBoundaryMiddleware:
     """Protect every HTTP and WebSocket path of a managed runtime."""
 
     def __init__(self, app: ASGIApp) -> None:
@@ -779,7 +779,7 @@ class ProRuntimeBoundaryMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        runtime_token = os.environ.get(_PRO_RUNTIME_TOKEN_ENV, "")
+        runtime_token = os.environ.get(_RUNTIME_TOKEN_ENV, "")
         if not runtime_token or scope["type"] not in {"http", "websocket"}:
             await self.app(scope, receive, send)
             return
@@ -787,7 +787,7 @@ class ProRuntimeBoundaryMiddleware:
             key.decode("latin-1").lower(): value.decode("latin-1")
             for key, value in scope.get("headers", [])
         }
-        supplied = headers.get(_PRO_RUNTIME_TOKEN_HEADER, "")
+        supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
         if hmac.compare_digest(runtime_token, supplied):
             await self.app(scope, receive, send)
             return
