@@ -41,7 +41,7 @@ describe("LoginPage", () => {
     vi.clearAllMocks();
   });
 
-  it("requires accepting the disclaimer in Hub mode", async () => {
+  it("requires reading the terms before accepting in Hub mode", async () => {
     vi.mocked(authApi.getStatus).mockResolvedValue({
       enabled: true,
       has_users: true,
@@ -53,6 +53,9 @@ describe("LoginPage", () => {
     expect(
       await screen.findByText("login.hubDisclaimerTitle"),
     ).toBeInTheDocument();
+    expect(screen.getByText("login.hubDisclaimerPoint1")).toBeInTheDocument();
+    expect(screen.getByText("login.hubDisclaimerPoint2")).toBeInTheDocument();
+    expect(screen.getByText("login.hubDisclaimerPoint3")).toBeInTheDocument();
     const submit = screen.getByRole("button", { name: "login.submit" });
     expect(submit).toBeDisabled();
 
@@ -62,7 +65,28 @@ describe("LoginPage", () => {
       }),
     );
 
+    const agree = await screen.findByRole("button", {
+      name: "login.hubTermsAgree",
+    });
+    expect(agree).toBeDisabled();
+    const terms = screen.getByText("login.hubTermsLead").parentElement;
+    expect(terms).not.toBeNull();
+    Object.defineProperties(terms, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, value: 600 },
+    });
+    fireEvent.scroll(terms!);
+
+    expect(agree).toBeEnabled();
+    fireEvent.click(agree);
+
     expect(submit).toBeEnabled();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "login.hubDisclaimerAccept",
+      }),
+    ).toBeChecked();
     expect(screen.getByRole("link", { name: /GitHub/ })).toHaveAttribute(
       "href",
       "https://github.com/agentscope-ai/QwenPaw",

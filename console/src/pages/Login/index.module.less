@@ -6,22 +6,36 @@
   color: #5c4030;
   background: #fff9f4;
 
-  p {
-    margin: 8px 0 10px;
-    color: #72594a;
-    font-size: 12px;
-    line-height: 1.6;
-  }
-
-  :global(.ant-checkbox-wrapper) {
-    align-items: flex-start;
-    color: inherit;
-    font-size: 12px;
-    line-height: 1.55;
-  }
-
   :global(.ant-checkbox) {
     margin-top: 2px;
+  }
+}
+
+.disclaimerPoints {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  color: #72594a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.consentText {
+  margin-left: 8px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+
+  button {
+    padding: 0;
+    border: 0;
+    color: #9b4b13;
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 }
 
@@ -53,13 +67,98 @@
   border-color: rgba(255, 157, 86, 0.25);
   color: rgba(255, 255, 255, 0.78);
   background: rgba(255, 122, 26, 0.08);
+}
 
-  p {
-    color: rgba(255, 255, 255, 0.58);
-  }
+:global(html.dark-mode) .disclaimerPoints {
+  color: rgba(255, 255, 255, 0.58);
 }
 
 :global(html.dark-mode) .disclaimerHeading,
-:global(html.dark-mode) .disclaimerLinks a {
+:global(html.dark-mode) .disclaimerLinks a,
+:global(html.dark-mode) .consentText button {
   color: #ff9d56;
+}
+
+.termsModal {
+  :global(.ant-modal-content) {
+    padding: 24px;
+    border-radius: 12px;
+  }
+
+  :global(.ant-modal-title) {
+    font-size: 18px;
+  }
+}
+
+.termsScroll {
+  max-height: min(52vh, 430px);
+  margin-top: 18px;
+  padding: 0 16px 18px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: #4e443e;
+  scrollbar-gutter: stable;
+
+  section {
+    margin-top: 20px;
+  }
+
+  h3 {
+    margin: 0 0 7px;
+    color: #29180d;
+    font-size: 14px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.72;
+  }
+}
+
+.termsLead {
+  color: #72594a;
+}
+
+.termsEnd {
+  margin-top: 22px !important;
+  font-weight: 600;
+}
+
+.scrollHint {
+  margin: 12px 0 0;
+  color: #9b4b13;
+  font-size: 12px;
+  text-align: right;
+}
+
+:global(html.dark-mode) .termsScroll {
+  color: rgba(255, 255, 255, 0.66);
+
+  h3 {
+    color: rgba(255, 255, 255, 0.9);
+  }
+}
+
+:global(html.dark-mode) .termsLead {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+:global(html.dark-mode) .scrollHint {
+  color: #ff9d56;
+}
+
+@media (max-width: 520px) {
+  .termsModal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+
+    :global(.ant-modal-content) {
+      padding: 20px;
+    }
+  }
+
+  .termsScroll {
+    max-height: 55vh;
+  }
 }

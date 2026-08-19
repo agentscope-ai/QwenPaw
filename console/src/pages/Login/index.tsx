@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Checkbox, Form, Input } from "antd";
+import { Button, Checkbox, Form, Input, Modal } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import {
-  ExternalLink,
   Github,
   Globe2,
   LockKeyhole,
@@ -28,6 +27,8 @@ export default function LoginPage() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [isHub, setIsHub] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [termsRead, setTermsRead] = useState(false);
   const { message } = useAppMessage();
   const rawRedirect = searchParams.get("redirect") || "/chat";
   const redirect =
@@ -103,6 +104,19 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const openTerms = () => {
+    setTermsRead(false);
+    setTermsOpen(true);
+  };
+
+  const acceptTerms = () => {
+    if (!termsRead) {
+      return;
+    }
+    setDisclaimerAccepted(true);
+    setTermsOpen(false);
   };
 
   return (
@@ -200,15 +214,28 @@ export default function LoginPage() {
                 <ShieldAlert size={16} aria-hidden="true" />
                 <span>{t("login.hubDisclaimerTitle")}</span>
               </div>
-              <p>{t("login.hubDisclaimer")}</p>
+              <ul className={styles.disclaimerPoints}>
+                {[1, 2, 3].map((point) => (
+                  <li key={point}>{t(`login.hubDisclaimerPoint${point}`)}</li>
+                ))}
+              </ul>
               <Checkbox
                 checked={disclaimerAccepted}
-                onChange={(event) =>
-                  setDisclaimerAccepted(event.target.checked)
-                }
-              >
-                {t("login.hubDisclaimerAccept")}
-              </Checkbox>
+                aria-label={t("login.hubDisclaimerAccept")}
+                onChange={(event) => {
+                  if (event.target.checked) {
+                    openTerms();
+                    return;
+                  }
+                  setDisclaimerAccepted(false);
+                }}
+              />
+              <span className={styles.consentText}>
+                {t("login.hubDisclaimerAcceptPrefix")}
+                <button type="button" onClick={openTerms}>
+                  {t("login.hubTerms")}
+                </button>
+              </span>
               <div className={styles.disclaimerLinks}>
                 <a
                   href="https://github.com/agentscope-ai/QwenPaw"
@@ -225,14 +252,6 @@ export default function LoginPage() {
                 >
                   <Globe2 size={13} aria-hidden="true" />
                   {t("login.officialWebsite")}
-                </a>
-                <a
-                  href="https://github.com/agentscope-ai/QwenPaw/blob/main/SECURITY.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink size={13} aria-hidden="true" />
-                  {t("login.securityGuide")}
                 </a>
               </div>
             </div>
@@ -262,6 +281,46 @@ export default function LoginPage() {
           </Button>
         )}
       </div>
+      {isHub && (
+        <Modal
+          className={styles.termsModal}
+          open={termsOpen}
+          title={t("login.hubTermsTitle")}
+          onCancel={() => setTermsOpen(false)}
+          footer={
+            <Button type="primary" disabled={!termsRead} onClick={acceptTerms}>
+              {t("login.hubTermsAgree")}
+            </Button>
+          }
+          centered
+          width={620}
+          destroyOnHidden
+        >
+          <div
+            className={styles.termsScroll}
+            onScroll={(event) => {
+              const target = event.currentTarget;
+              const remaining =
+                target.scrollHeight - target.scrollTop - target.clientHeight;
+              if (remaining <= 4) {
+                setTermsRead(true);
+              }
+            }}
+          >
+            <p className={styles.termsLead}>{t("login.hubTermsLead")}</p>
+            {[1, 2, 3, 4, 5, 6].map((section) => (
+              <section key={section}>
+                <h3>{t(`login.hubTermsSection${section}Title`)}</h3>
+                <p>{t(`login.hubTermsSection${section}Body`)}</p>
+              </section>
+            ))}
+            <p className={styles.termsEnd}>{t("login.hubTermsEnd")}</p>
+          </div>
+          {!termsRead && (
+            <p className={styles.scrollHint}>{t("login.hubTermsScrollHint")}</p>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
