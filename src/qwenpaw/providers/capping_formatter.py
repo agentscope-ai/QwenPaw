@@ -22,11 +22,7 @@ model via the ``formatter=`` constructor kwarg.
 
 from __future__ import annotations
 
-import base64
-import os
 from typing import Any, ClassVar
-from urllib.parse import urlparse
-from urllib.request import url2pathname
 
 # The capping formatters below override agentscope's ``_format_*_source``
 # methods, which are ``@staticmethod`` on the base classes, with instance
@@ -48,48 +44,19 @@ from agentscope.formatter import OpenAIResponseFormatter
 from agentscope.message import Base64Source, URLSource
 from pydantic import Field
 
+from ..utils.media_paths import local_media_path
+
 # Maximum size (in bytes) of a local media file we are willing to inline as
 # base64 into the model request body.  See the module docstring for the
 # rationale.
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
-
-def _resolve_local_path(url: str) -> str | None:
-    """Resolve a URL or bare path to a local filesystem path.
-
-    Returns ``None`` for any non-local scheme (http, https, s3,
-    oss, ftp, data, etc.).  Handles ``file://`` URIs (including
-    UNC and localhost authority) and bare local paths produced
-    by ``_fixup_media_list`` normalization.
-    """
-    parsed = urlparse(url)
-    scheme = parsed.scheme
-
-    if scheme == "file":
-        nl = parsed.netloc
-        if not nl or nl.lower() == "localhost":
-            # file:///path or file://localhost/path -> local
-            full_path = parsed.path
-        elif len(nl) == 2 and nl[0].isalpha() and nl[1] == ":":
-            # Two-slash Windows: file://C:/path
-            full_path = f"{nl}{parsed.path}"
-        else:
-            # UNC: file://server/share/path
-            full_path = f"//{nl}{parsed.path}"
-        return url2pathname(full_path)
-
-    if scheme == "":
-        # Bare local path (e.g. /tmp/x.png, C:/Temp/x.png,
-        # //server/share/x.png).
-        return url
-
-    # Single-letter scheme on Windows is a drive letter,
-    # e.g. urlparse("C:/Temp/x.png") gives scheme="c".
-    if len(scheme) == 1 and scheme.isalpha():
-        return url
-
-    # Any other scheme (http, https, s3, oss, ftp, data, ...)
-    return None
+_DASHSCOPE_AUDIO_FORMAT_BY_MIME = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+}
 
 
 def inline_media_size(source: Any) -> int | None:
@@ -99,13 +66,7 @@ def inline_media_size(source: Any) -> int | None:
     unrecognised source types so the caller leaves them untouched.
     """
     if isinstance(source, URLSource):
-        path = _resolve_local_path(str(source.url))
-        if path is None:
-            return None
-        try:
-            return os.path.getsize(path)
-        except OSError:
-            return None
+        return None
     if isinstance(source, Base64Source):
         # base64 length -> approximate raw byte count.
         return len(source.data or "") * 3 // 4
@@ -123,14 +84,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
     relay_reasoning_content: bool = Field(default=True)
 
-    @staticmethod
-    def _inline_media_size(source: Any) -> int | None:
-        """Byte size of *source* if inlined locally, else ``None``.
-
-        Thin wrapper over :func:`inline_media_size` kept as a staticmethod
-        so callers (and tests) can invoke it on the class.
-        """
-        return inline_media_size(source)
+    _inline_media_size = staticmethod(inline_media_size)
 
     def _placeholder_text(self, kind: str, size: int) -> str:
         return (
@@ -160,23 +114,27 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             return None
         return self._placeholder(kind, size)
 
-    @staticmethod
-    def _local_source_to_base64(source: Any) -> Any:
-        """Convert a local URLSource to a Base64Source.
-
-        Handles both ``file://`` URIs and bare local paths
-        (produced by ``_fixup_media_list`` normalization).
-        Non-local sources (remote URLs, already-base64 sources,
-        anything else) are returned unchanged.
-        """
+    def _unprepared_local_placeholder(
+        self,
+        source: Any,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Reject a local URL that bypassed asynchronous preparation."""
         if not isinstance(source, URLSource):
-            return source
-        path = _resolve_local_path(str(source.url))
-        if path is None:
-            return source
-        with open(path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("utf-8")
-        return Base64Source(data=encoded, media_type=source.media_type)
+            return None
+        if local_media_path(str(source.url)) is None:
+            return None
+        return self._placeholder_unprepared(kind)
+
+    def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
+        """Return a provider-shaped placeholder for unprepared media."""
+        return {
+            "type": "text",
+            "text": (
+                f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
 
 
 class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
@@ -184,21 +142,29 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_image_source(source)
 
-    def _format_audio_source(self, source: Any) -> dict[str, Any]:
+    def _format_audio_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
-        return super()._format_audio_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "audio")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_audio_source(source)
 
 
 class _CappingAnthropicFormatter(
@@ -207,13 +173,17 @@ class _CappingAnthropicFormatter(
 ):
     """Anthropic formatter that caps oversized local image media."""
 
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_image_source(source)
 
 
 class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
@@ -228,13 +198,25 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
     def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
         return {"text": self._placeholder_text(kind, size)}
 
-    def _format_media_source(self, source: Any) -> dict[str, Any]:
+    def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
+        return {
+            "text": (
+                f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
+
+    def _format_media_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "media")
         if capped is not None:
             return capped
-        return super()._format_media_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "media")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_media_source(source)
 
 
 class _CappingDashScopeFormatter(
@@ -245,29 +227,60 @@ class _CappingDashScopeFormatter(
 
     _qwenpaw_supports_reasoning_content_fallback: ClassVar[bool] = True
 
-    def _format_video_source(self, source: Any) -> dict[str, Any]:
+    def _format_video_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "video")
         if capped is not None:
             return capped
-        return super()._format_video_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "video")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_video_source(source)
 
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_image_source(source)
 
-    def _format_audio_source(self, source: Any) -> dict[str, Any]:
+    def _format_audio_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
-        return super()._format_audio_source(
-            self._local_source_to_base64(source),
-        )
+        # Local files reach the formatter as Base64Source via the async
+        # media preparation; a still-local URLSource means prep did not
+        # run, and the sync formatter must not read disk to recover.
+        unprepared = self._unprepared_local_placeholder(source, "audio")
+        if unprepared is not None:
+            return unprepared
+        # TODO: Remove this workaround after AgentScope formats DashScope
+        # Base64Source audio data as a data URL.
+        if isinstance(source, Base64Source):
+            media_type = source.media_type
+            provider_format = _DASHSCOPE_AUDIO_FORMAT_BY_MIME.get(media_type)
+            if provider_format is None:
+                raise ValueError(
+                    f"Unsupported DashScope audio MIME type: {media_type}",
+                )
+            return {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": (f"data:{media_type};base64,{source.data}"),
+                    "format": provider_format,
+                },
+            }
+        return super()._format_audio_source(source)
 
 
 class _CappingOpenAIResponseFormatter(
@@ -286,10 +299,20 @@ class _CappingOpenAIResponseFormatter(
             "text": self._placeholder_text(kind, size),
         }
 
+    def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
+        return {
+            "type": "input_text",
+            "text": (
+                f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
+
     def _format_image_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(
-            self._local_source_to_base64(source),
-        )
+        unprepared = self._unprepared_local_placeholder(source, "image")
+        if unprepared is not None:
+            return unprepared
+        return super()._format_image_source(source)

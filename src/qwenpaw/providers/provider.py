@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from contextvars import ContextVar
+import re
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
 
 from agentscope.model import ChatModelBase
@@ -15,6 +19,64 @@ from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
+
+
+_AGENT_THINKING_LEVEL: ContextVar[str] = ContextVar(
+    "qwenpaw_agent_thinking_level",
+    default="inherit",
+)
+AGENT_THINKING_BUDGETS = {
+    "low": 2_048,
+    "medium": 8_192,
+    "high": 32_768,
+}
+_CUSTOM_PROVIDER_ID_PATTERN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*",
+)
+_WINDOWS_RESERVED_PROVIDER_IDS = (
+    {
+        "AUX",
+        "CON",
+        "NUL",
+        "PRN",
+    }
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
+
+
+def provider_identity_key(provider_id: str) -> str:
+    """Return the portable, case-insensitive identity for a provider ID."""
+    return provider_id.casefold()
+
+
+def validate_custom_provider_id(provider_id: str) -> str:
+    """Validate a custom provider ID as a portable file name stem."""
+    if not isinstance(provider_id, str) or not provider_id:
+        raise ValueError("Provider ID must be a non-empty string.")
+    if not _CUSTOM_PROVIDER_ID_PATTERN.fullmatch(provider_id):
+        raise ValueError(
+            "Provider ID must start with an ASCII letter or digit and only "
+            "contain ASCII letters, digits, dots, underscores, or hyphens.",
+        )
+    if provider_id in {".", ".."} or provider_id.endswith((".", " ")):
+        raise ValueError("Provider ID cannot end with a dot or space.")
+    device_name = provider_id.split(".", maxsplit=1)[0].upper()
+    if device_name in _WINDOWS_RESERVED_PROVIDER_IDS:
+        raise ValueError(
+            f"Provider ID '{provider_id}' is reserved on Windows.",
+        )
+    return provider_id
+
+
+@contextmanager
+def agent_thinking_level(level: str) -> Iterator[None]:
+    """Apply an agent-level thinking override while constructing a model."""
+    token = _AGENT_THINKING_LEVEL.set(level)
+    try:
+        yield
+    finally:
+        _AGENT_THINKING_LEVEL.reset(token)
 
 
 class ModelInfo(BaseModel):
@@ -46,6 +108,45 @@ class ModelInfo(BaseModel):
         default=False,
         description="Whether this model is free to use (e.g., no API cost)",
     )
+    is_recommended: bool = Field(
+        default=False,
+        description="Whether the maintained catalog recommends this model.",
+    )
+    source: Literal["builtin", "discovered", "user"] = Field(
+        default="builtin",
+        description="Where the model entry came from.",
+    )
+    discovered_at: str | None = Field(
+        default=None,
+        description="UTC timestamp of the latest successful discovery.",
+    )
+    discovery_origin: Literal["api", "catalog", "both"] | None = Field(
+        default=None,
+        description="Candidate source: provider API, catalog, or both.",
+    )
+    availability_status: Literal[
+        "available",
+        "permission_denied",
+        "model_not_found",
+        "incompatible_api",
+        "rate_limited",
+        "transient_error",
+        "unverified",
+    ] = Field(default="unverified")
+    availability_message: str | None = Field(default=None)
+    availability_http_status: int | None = Field(default=None)
+    availability_retryable: bool = Field(default=True)
+    availability_checked_at: str | None = Field(default=None)
+    availability_verification: Literal[
+        "live",
+        "provider_only",
+        "catalog",
+        "unverified",
+    ] = Field(default="unverified")
+    config_overrides: List[str] = Field(
+        default_factory=list,
+        description="Model fields explicitly changed by the user.",
+    )
     max_tokens: int = Field(
         default=8192,
         ge=1,
@@ -65,6 +166,11 @@ class ModelInfo(BaseModel):
             "an intentional 131072-token override distinct from the default."
         ),
     )
+    max_input_length_auto_detected: int | None = Field(
+        default=None,
+        ge=1000,
+        description="Context window reported by the provider API.",
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Per-model generation parameters that override "
@@ -80,9 +186,29 @@ class ModelInfo(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _compat_preserve_thinking(cls, data: Any) -> Any:
-        """Accept legacy ``preserve_thinking`` key as alias."""
-        if isinstance(data, dict) and "preserve_thinking" in data:
+        """Normalize legacy model fields and obsolete probe results."""
+        if not isinstance(data, dict):
+            return data
+        if "preserve_thinking" in data:
             data.setdefault("relay_reasoning", data.pop("preserve_thinking"))
+
+        message = str(data.get("availability_message") or "").lower()
+        obsolete_tool_probe = (
+            data.get("supports_tool_calling") is False
+            or "tool probe" in message
+            or "tool calling check failed" in message
+            or "tool_choice" in message
+        )
+        if (
+            data.get("availability_status") == "incompatible_api"
+            and obsolete_tool_probe
+        ):
+            data["availability_status"] = "unverified"
+            data["availability_message"] = None
+            data["availability_http_status"] = None
+            data["availability_retryable"] = True
+            data["availability_checked_at"] = None
+            data["availability_verification"] = "unverified"
         return data
 
     thinking_enabled: bool | None = Field(
@@ -91,6 +217,7 @@ class ModelInfo(BaseModel):
         "use model default), True=enable, False=disable. "
         "Provider-specific mapping applies.",
     )
+
     thinking_budget: int | None = Field(
         default=None,
         ge=1,
@@ -118,6 +245,13 @@ class ModelInfo(BaseModel):
         description="Override provider-level thinking_budget_range [min, max] "
         "for this model.",
     )
+    supports_agent_thinking: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the provider can apply an agent-level thinking override "
+            "to this model. Derived in ProviderInfo responses."
+        ),
+    )
 
 
 class ExtendedModelInfo(ModelInfo):
@@ -139,6 +273,26 @@ class ExtendedModelInfo(ModelInfo):
         default_factory=dict,
         description="Pricing info (prompt/completion)",
     )
+
+
+class ModelConnectionResult(BaseModel):
+    """Structured evidence from a basic model connection check."""
+
+    success: bool
+    message: str = ""
+    http_status: int | None = None
+    error_kind: str | None = None
+    verification: Literal[
+        "live",
+        "provider_only",
+        "catalog",
+        "unverified",
+    ] = "live"
+
+    def __iter__(self):
+        """Keep compatibility with providers/tests that unpack two values."""
+        yield self.success
+        yield self.message
 
 
 class ProviderInfo(BaseModel):
@@ -165,7 +319,54 @@ class ProviderInfo(BaseModel):
     )
     extra_models: List[ModelInfo] = Field(
         default_factory=list,
-        description="List of user-added models (not fetched from provider)",
+        description="List of models explicitly added by the user",
+    )
+    discovered_models: List[ModelInfo] = Field(
+        default_factory=list,
+        description="Last model list fetched from the provider API",
+    )
+    models_last_synced_at: str | None = Field(
+        default=None,
+        description="UTC timestamp of the latest successful model sync",
+    )
+    models_last_sync_error: str | None = Field(
+        default=None,
+        description="Most recent model discovery error, if any",
+    )
+    models_syncing: bool = Field(
+        default=False,
+        description="Whether an in-process model discovery task is running.",
+    )
+    hidden_model_ids: List[str] = Field(
+        default_factory=list,
+        description="Remote model IDs hidden by the user.",
+    )
+    removed_model_ids: List[str] = Field(
+        default_factory=list,
+        description="Model IDs explicitly removed by the user.",
+    )
+    discovery_strategy: Literal[
+        "openai_models",
+        "anthropic_models",
+        "gemini_models",
+        "provider_specific",
+        "catalog_only",
+        "unsupported",
+    ] = Field(
+        default="unsupported",
+        description="How this provider obtains its model catalog.",
+    )
+    discovery_support_reason: str = Field(
+        default="",
+        description="Why dynamic discovery is unavailable or specialized.",
+    )
+    discovery_requires_auth: bool = Field(
+        default=True,
+        description="Whether discovery requires configured credentials.",
+    )
+    model_sync_mode: Literal["startup", "manual", "disabled"] = Field(
+        default="manual",
+        description="When model discovery runs automatically.",
     )
 
     api_key_prefix: str = Field(
@@ -201,6 +402,13 @@ class ProviderInfo(BaseModel):
         description=(
             "Whether this provider supports fetching available models"
             " from the provider's API"
+        ),
+    )
+    merge_with_catalog: bool = Field(
+        default=False,
+        description=(
+            "Whether to merge the maintained catalog with API discovery "
+            "results, for providers whose /models returns only a subset"
         ),
     )
     support_connection_check: bool = Field(
@@ -277,8 +485,21 @@ class ProviderInfo(BaseModel):
         "(e.g., api_key_url, api_key_hint).",
     )
 
+    @model_validator(mode="after")
+    def _normalize_model_sources(self) -> "ProviderInfo":
+        """Assign sources to legacy entries that predate source tracking."""
+        for model in self.models:
+            if "source" not in model.model_fields_set:
+                model.source = "builtin"
+        for model in self.discovered_models:
+            model.source = "discovered"
+        for model in self.extra_models:
+            if "source" not in model.model_fields_set:
+                model.source = "user"
+        return self
 
-class Provider(ProviderInfo, ABC):
+
+class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     """Represents a provider instance with its configuration."""
 
     @abstractmethod
@@ -294,8 +515,40 @@ class Provider(ProviderInfo, ABC):
         self,
         model_id: str,
         timeout: float = 5,  # pylint: disable=unused-argument
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult | tuple[bool, str]:
         """Check if a specific model is reachable/usable."""
+
+    @staticmethod
+    def sanitize_connection_message(message: str) -> str:
+        """Remove likely credential values from provider error text."""
+        credential_patterns = (
+            r"(?i)(api[_ -]?key|x-api-key|access[_ -]?token|token)"
+            r"(\s*[=:]\s*)[^,;\s]+",
+            r"(?i)(authorization\s*[:=]\s*(?:bearer\s+)?)[^,;\s]+",
+        )
+        message = re.sub(
+            credential_patterns[0],
+            r"\1\2[redacted]",
+            message,
+        )
+        message = re.sub(
+            credential_patterns[1],
+            r"\1[redacted]",
+            message,
+        )
+        return message
+
+    @classmethod
+    def connection_error_message(cls, exc: Exception) -> str:
+        """Format an SDK exception while preserving its HTTP status."""
+        status = getattr(exc, "status_code", None)
+        if status is None:
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+        detail = cls.sanitize_connection_message(
+            str(exc) or exc.__class__.__name__,
+        )
+        return f"status={status}: {detail}" if status is not None else detail
 
     async def add_model(
         self,
@@ -305,15 +558,26 @@ class Provider(ProviderInfo, ABC):
     ) -> tuple[bool, str]:
         """Add a model to the provider's model list."""
         model_info.id = model_info.id.strip()
+        was_removed = model_info.id in self.removed_model_ids
+        self.removed_model_ids = [
+            model_id
+            for model_id in self.removed_model_ids
+            if model_id != model_info.id
+        ]
+        # A discovered entry is a catalog candidate, not a configured model.
+        # It may therefore be copied into extra_models when the user adds it.
         if any(
             model.id.strip() == model_info.id
-            for model in self.models + self.extra_models
+            for model in (*self.models, *self.extra_models)
         ):
+            if was_removed:
+                return True, ""
             return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
-            self.extra_models.append(model_info)
+            model_info.source = "user"
+            self.extra_models.append(model_info)  # pylint: disable=no-member
         elif target == "models":
-            self.models.append(model_info)
+            self.models.append(model_info)  # pylint: disable=no-member
         else:
             return False, f"Invalid target '{target}' for adding model"
         return True, ""
@@ -325,12 +589,35 @@ class Provider(ProviderInfo, ABC):
     ) -> tuple[bool, str]:
         """Delete a model from the provider's model list."""
         model_id = model_id.strip()
+        if not model_id:
+            return False, "Model ID cannot be empty"
+        removed_ids = set(self.removed_model_ids)
+        removed_ids.add(model_id)
+        self.removed_model_ids = sorted(removed_ids)
         self.extra_models = [
             model
             for model in self.extra_models
             if model.id.strip() != model_id
         ]
+        self.discovered_models = [
+            model
+            for model in self.discovered_models
+            if model.id.strip() != model_id
+        ]
         return True, ""
+
+    @staticmethod
+    def _normalize_model_id_list(value: Any, current: List[str]) -> List[str]:
+        """Normalize an optional persisted model ID list."""
+        if value is None:
+            return current
+        return list(
+            dict.fromkeys(
+                str(model_id).strip()
+                for model_id in value
+                if str(model_id).strip()
+            ),
+        )
 
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
@@ -383,12 +670,67 @@ class Provider(ProviderInfo, ABC):
             # avoid class-identity issues from dual module loading.
             self.extra_models = [
                 ModelInfo.model_validate(
-                    model.model_dump()
-                    if isinstance(model, BaseModel)
-                    else model,
+                    (
+                        model.model_dump()
+                        if isinstance(model, BaseModel)
+                        else model
+                    ),
                 )
                 for model in config["extra_models"]
             ]
+            for model in self.extra_models:
+                model.source = "user"
+        self.hidden_model_ids = self._normalize_model_id_list(
+            config.get("hidden_model_ids"),
+            self.hidden_model_ids,
+        )
+        self.removed_model_ids = self._normalize_model_id_list(
+            config.get("removed_model_ids"),
+            self.removed_model_ids,
+        )
+
+    def all_models(self) -> List[ModelInfo]:
+        """Return configured models only."""
+        return Provider.configured_models(self)
+
+    def configured_models(self) -> List[ModelInfo]:
+        """Return the effective configured model list."""
+        removed = set(getattr(self, "removed_model_ids", []))
+        ordered_ids: list[str] = []
+        by_id: dict[str, ModelInfo] = {}
+        for collection in (
+            getattr(self, "models", []),
+            getattr(self, "extra_models", []),
+        ):
+            for model in collection:
+                if model.id not in by_id:
+                    ordered_ids.append(model.id)
+                by_id[model.id] = model
+        return [
+            by_id[model_id]
+            for model_id in ordered_ids
+            if model_id not in removed
+        ]
+
+    def discovery_candidates(self) -> List[ModelInfo]:
+        """Return models visible to the add-model discovery flow."""
+        ordered_ids: list[str] = []
+        by_id: dict[str, ModelInfo] = {}
+        for collection in (
+            getattr(self, "models", []),
+            getattr(self, "discovered_models", []),
+        ):
+            for model in collection:
+                if model.id not in by_id:
+                    ordered_ids.append(model.id)
+                by_id[model.id] = model
+        hidden = set(getattr(self, "hidden_model_ids", []))
+        removed = set(getattr(self, "removed_model_ids", []))
+        return [
+            by_id[model_id]
+            for model_id in ordered_ids
+            if model_id not in hidden and model_id not in removed
+        ]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -433,7 +775,7 @@ class Provider(ProviderInfo, ABC):
 
         Always returns a new dict so callers never mutate provider state.
         """
-        for model in self.models + self.extra_models:
+        for model in Provider.all_models(self):
             if model.id == model_id:
                 result = (
                     self._deep_merge(
@@ -445,65 +787,255 @@ class Provider(ProviderInfo, ABC):
                 )
                 if "max_tokens" not in result:
                     result["max_tokens"] = model.max_tokens
+                self._apply_agent_thinking_level(result, model_id)
                 return result
-        return dict(self.generate_kwargs)
+        result = dict(self.generate_kwargs)
+        self._apply_agent_thinking_level(result, model_id)
+        return result
 
-    def update_model_config(
+    def supports_agent_thinking(self, model_id: str) -> bool:
+        """Return whether agent-level thinking maps to this model."""
+        if self.chat_model == "DashScopeChatModel":
+            return True
+        info = self.get_model_info(model_id)
+        if info is None:
+            return False
+        if (
+            getattr(info, "thinking_enabled", None) is not None
+            or getattr(info, "thinking_param_style", None) is not None
+        ):
+            return True
+        if self.chat_model in {"AnthropicChatModel", "GeminiChatModel"}:
+            return True
+        normalized = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+        return self.chat_model in {
+            "OpenAIChatModel",
+            "OpenAIResponseModel",
+        } and (
+            normalized.startswith("gpt-5")
+            or (
+                len(normalized) > 1
+                and normalized[0] == "o"
+                and normalized[1].isdigit()
+            )
+        )
+
+    def _apply_agent_thinking_level(
+        self,
+        effective: Dict[str, Any],
+        model_id: str,
+    ) -> None:
+        """Map the current agent thinking level to provider parameters."""
+        level = _AGENT_THINKING_LEVEL.get()
+        if level == "inherit" or not self.supports_agent_thinking(model_id):
+            return
+        for key in (
+            "thinking_enable",
+            "thinking_budget",
+            "reasoning_effort",
+            "thinking_config",
+            "reasoning",
+            "disable_thinking",
+        ):
+            effective.pop(key, None)
+        extra_body = effective.get("extra_body")
+        if isinstance(extra_body, dict):
+            for key in (
+                "enable_thinking",
+                "thinking_budget",
+                "reasoning_effort",
+                "thinking",
+            ):
+                extra_body.pop(key, None)
+        self._map_agent_thinking_level(
+            effective,
+            model_id,
+            level,
+            AGENT_THINKING_BUDGETS.get(level, 0),
+        )
+
+    def _uses_compat_thinking_controls(self, model_id: str) -> bool:
+        """Whether the model declares OpenAI-compatible thinking flags.
+
+        Custom providers and domestic compatibility endpoints (Qwen,
+        DeepSeek, ...) reuse ``OpenAIChatModel``; their thinking
+        controls are declared through model metadata rather than the
+        official OpenAI reasoning parameter set.
+        """
+        info = self.get_model_info(model_id)
+        return info is not None and (
+            getattr(info, "thinking_enabled", None) is not None
+            or getattr(info, "thinking_param_style", None) is not None
+        )
+
+    @staticmethod
+    def _openai_chat_off_effort(model_id: str) -> str:
+        """Lowest documented Chat Completions effort that turns Off.
+
+        Only the newest documented models accept
+        ``reasoning_effort="none"``; earlier gpt-5 families degrade to
+        ``minimal`` and o-series to ``low`` so an Off request means
+        "least reasoning the model accepts" instead of a 400.
+        """
+        # Lazy import: the response module imports this base module.
+        from .openai_response_provider import (
+            _supports_none_reasoning_effort,
+        )
+
+        if _supports_none_reasoning_effort(model_id):
+            return "none"
+        normalized = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+        if normalized.startswith("gpt-5"):
+            return "minimal"
+        return "low"
+
+    def _map_agent_thinking_level(
+        self,
+        effective: Dict[str, Any],
+        model_id: str,
+        level: str,
+        budget: int,
+    ) -> None:
+        """Map an agent level to the provider's wire parameters."""
+        if self.chat_model == "AnthropicChatModel":
+            if level == "off":
+                effective["thinking_enable"] = False
+            else:
+                effective["thinking_enable"] = True
+                effective["thinking_budget"] = budget
+            return
+        if self.chat_model == "GeminiChatModel":
+            effective["thinking_config"] = {
+                "thinking_budget": 0 if level == "off" else budget,
+            }
+            return
+        if self.chat_model == "OpenAIResponseModel":
+            if level == "off":
+                # The Responses call layer translates this neutral flag:
+                # it strips ``reasoning`` and applies
+                # ``reasoning.effort=none`` only where documented
+                # (_supports_none_reasoning_effort).
+                effective["disable_thinking"] = True
+            else:
+                # Responses takes ``reasoning.effort``; the Chat
+                # Completions top-level ``reasoning_effort`` is not a
+                # Responses parameter.
+                effective["reasoning"] = {"effort": level}
+            return
+        if self.chat_model == "OpenAIChatModel" and level == "off":
+            if self._uses_compat_thinking_controls(model_id):
+                # Compatibility endpoints: the chat compat layer turns
+                # this into extra_body flags (enable_thinking /
+                # thinking.type), not the official ``none`` value.
+                effective["disable_thinking"] = True
+            else:
+                effective["reasoning_effort"] = self._openai_chat_off_effort(
+                    model_id,
+                )
+            return
+        if level != "off":
+            effective["reasoning_effort"] = level
+
+    def update_model_config(  # pylint: disable=too-many-branches
         self,
         model_id: str,
         config: Dict,
     ) -> bool:
         """Update per-model configuration (e.g. generate_kwargs)."""
-        for model in self.models + self.extra_models:
+        for model in Provider.all_models(self):
             if model.id == model_id:
+                changed_fields: list[str] = []
                 if (
                     "generate_kwargs" in config
                     and config["generate_kwargs"] is not None
                     and isinstance(config["generate_kwargs"], dict)
                 ):
-                    model.generate_kwargs = config["generate_kwargs"]
+                    generate_kwargs = config["generate_kwargs"]
+                    if model.generate_kwargs != generate_kwargs:
+                        model.generate_kwargs = generate_kwargs
+                        changed_fields.append("generate_kwargs")
                 if "max_tokens" in config and config["max_tokens"] is not None:
-                    model.max_tokens = int(config["max_tokens"])
+                    max_tokens = int(config["max_tokens"])
+                    if model.max_tokens != max_tokens:
+                        model.max_tokens = max_tokens
+                        changed_fields.append("max_tokens")
                 if (
                     "max_input_length" in config
                     and config["max_input_length"] is not None
                 ):
-                    model.max_input_length = int(config["max_input_length"])
-                    model.max_input_length_configured = True
+                    max_input_length = int(config["max_input_length"])
+                    if (
+                        model.max_input_length != max_input_length
+                        or not model.max_input_length_configured
+                    ):
+                        model.max_input_length = max_input_length
+                        model.max_input_length_configured = True
+                        changed_fields.extend(
+                            [
+                                "max_input_length",
+                                "max_input_length_configured",
+                            ],
+                        )
                 if (
                     "relay_reasoning" in config
                     and config["relay_reasoning"] is not None
                 ):
-                    model.relay_reasoning = bool(config["relay_reasoning"])
+                    relay_reasoning = bool(config["relay_reasoning"])
+                    if model.relay_reasoning != relay_reasoning:
+                        model.relay_reasoning = relay_reasoning
+                        changed_fields.append("relay_reasoning")
                 if "thinking_enabled" in config:
-                    model.thinking_enabled = (
+                    thinking_enabled = (
                         bool(config["thinking_enabled"])
                         if config["thinking_enabled"] is not None
                         else None
                     )
+                    if model.thinking_enabled != thinking_enabled:
+                        model.thinking_enabled = thinking_enabled
+                        changed_fields.append("thinking_enabled")
                 if "thinking_budget" in config:
-                    model.thinking_budget = (
+                    thinking_budget = (
                         int(config["thinking_budget"])
                         if config["thinking_budget"] is not None
                         else None
                     )
+                    if model.thinking_budget != thinking_budget:
+                        model.thinking_budget = thinking_budget
+                        changed_fields.append("thinking_budget")
                 if "reasoning_effort" in config:
                     val = config["reasoning_effort"]
-                    model.reasoning_effort = (
-                        str(val) if val is not None else None
-                    )
+                    reasoning_effort = str(val) if val is not None else None
+                    if model.reasoning_effort != reasoning_effort:
+                        model.reasoning_effort = reasoning_effort
+                        changed_fields.append("reasoning_effort")
+                model.config_overrides = list(
+                    dict.fromkeys(model.config_overrides + changed_fields),
+                )
                 return True
         return False
 
     def has_model(self, model_id: str) -> bool:
         """Check if the provider has a model with the given ID."""
-        return any(
-            model.id == model_id for model in self.models + self.extra_models
-        )
+        return self.get_model_info(model_id) is not None
 
     def get_model_info(self, model_id: str) -> ModelInfo | None:
         """Return the ModelInfo for *model_id*, or None."""
-        for model in self.models + self.extra_models:
+        if model_id in set(getattr(self, "removed_model_ids", [])):
+            return None
+        for collection in (
+            getattr(self, "extra_models", []),
+            getattr(self, "models", []),
+        ):
+            for model in collection:
+                if model.id == model_id:
+                    return model
+        return None
+
+    def get_discovered_model_info(self, model_id: str) -> ModelInfo | None:
+        """Return a discovery candidate without treating it as configured."""
+        if model_id in set(getattr(self, "removed_model_ids", [])):
+            return None
+        for model in getattr(self, "discovered_models", []):
             if model.id == model_id:
                 return model
         return None
@@ -547,7 +1079,7 @@ class Provider(ProviderInfo, ABC):
 
         Local-serving providers (Ollama) override this to ``False``: a model
         family's cloud window says nothing about a local serve that
-        truncates at ``num_ctx`` — assuming 262k for a local
+        truncates at ``num_ctx`` -- assuming 262k for a local
         ``qwen3-coder:30b`` would disable compression while the server
         silently drops the prompt head.
         """
@@ -558,25 +1090,46 @@ class Provider(ProviderInfo, ABC):
 
         Feeds ``model.context_size`` (which drives automatic context
         compression) AND the display/usage path
-        (``config.get_model_max_input_length``) — both MUST go through this
+        (``config.get_model_max_input_length``) -- both MUST go through this
         method so the reported usage%% and the compaction trigger never
         diverge. Resolution lives in
         :func:`.context_windows.resolve_context_window`:
-        explicitly configured ``max_input_length`` > static catalog (unless
-        :meth:`_context_catalog_enabled` opts out) > 128k default.
+        explicitly configured ``max_input_length`` > API auto-detected value
+        > non-default provider/catalog value > static pattern catalog
+        (unless :meth:`_context_catalog_enabled` opts out) > 128k default.
         """
         model_info = self.get_model_info(model_id)
+        discovered_info = self.get_discovered_model_info(model_id)
+        configured_info = model_info or discovered_info
+        auto_detected = (
+            getattr(model_info, "max_input_length_auto_detected", None)
+            if model_info is not None
+            else None
+        )
+        if auto_detected is None and discovered_info is not None:
+            auto_detected = getattr(
+                discovered_info,
+                "max_input_length_auto_detected",
+                None,
+            )
         return resolve_context_window(
             model_id,
             configured=(
-                model_info.max_input_length if model_info is not None else None
+                configured_info.max_input_length
+                if configured_info is not None
+                else None
             ),
             configured_is_explicit=(
-                getattr(model_info, "max_input_length_configured", False)
-                if model_info is not None
+                getattr(
+                    configured_info,
+                    "max_input_length_configured",
+                    False,
+                )
+                if configured_info is not None
                 else False
             ),
             use_catalog=self._context_catalog_enabled(),
+            auto_detected=auto_detected,
         )
 
     def _get_context_size(self, model_id: str) -> int:
@@ -630,6 +1183,15 @@ class Provider(ProviderInfo, ABC):
             api_key = prefix_for_mask + "*" * 6
         else:
             api_key = self.api_key
+        removed = set(self.removed_model_ids)
+
+        def serialize_model(model: ModelInfo) -> dict[str, Any]:
+            payload = model.model_dump()
+            payload["supports_agent_thinking"] = self.supports_agent_thinking(
+                model.id,
+            )
+            return payload
+
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
         # the class in its own module scope.  This avoids pydantic
@@ -642,13 +1204,38 @@ class Provider(ProviderInfo, ABC):
             base_url=self.base_url,
             api_key=api_key,
             chat_model=self.chat_model,
-            models=[m.model_dump() for m in self.models],
-            extra_models=[m.model_dump() for m in self.extra_models],
+            # Discovery is a separate catalog used by the add-model form.
+            # Do not expose it as configured models to selectors or lists.
+            models=[
+                serialize_model(model)
+                for model in self.models
+                if model.id not in removed
+            ],
+            extra_models=[
+                serialize_model(model)
+                for model in self.extra_models
+                if model.id not in removed
+            ],
+            discovered_models=[
+                serialize_model(model)
+                for model in self.discovered_models
+                if model.id not in removed
+            ],
+            models_last_synced_at=self.models_last_synced_at,
+            models_last_sync_error=self.models_last_sync_error,
+            models_syncing=self.models_syncing,
+            hidden_model_ids=list(self.hidden_model_ids),
+            removed_model_ids=list(self.removed_model_ids),
+            discovery_strategy=self.discovery_strategy,
+            discovery_support_reason=self.discovery_support_reason,
+            discovery_requires_auth=self.discovery_requires_auth,
+            model_sync_mode=self.model_sync_mode,
             api_key_prefix=self.api_key_prefix,
             api_key_prefixes=self.api_key_prefixes,
             is_local=self.is_local,
             is_custom=self.is_custom,
             support_model_discovery=self.support_model_discovery,
+            merge_with_catalog=self.merge_with_catalog,
             support_connection_check=self.support_connection_check
             and not self.is_custom,
             freeze_url=self.freeze_url,

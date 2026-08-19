@@ -438,7 +438,9 @@
       "safety": "Segurança",
       "commit": "Commit"
     },
-    "summary": { "total": "pontos" },
+    "summary": {
+      "total": "pontos"
+    },
     "snapshotDialog": {
       "title": "Criar snapshot",
       "session": "Sessão",
@@ -1643,6 +1645,7 @@
     "oauthWaitingDescription": "Por favor, conclua a autorização na janela do navegador.",
     "oauthConnected": "Conectado ao {{provider}} com sucesso",
     "oauthFailed": "Autorização falhou, tente novamente",
+    "oauthTimeout": "Autorização expirou, tente novamente",
     "viewMore": "Ver mais ({{count}})"
   },
   "tokenUsage": {
@@ -1696,6 +1699,17 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "discoveryOriginApi": "Detectado via API",
+    "discoveryOriginCatalog": "Catálogo oficial",
+    "discoveryOriginBoth": "API + catálogo",
+    "availabilityAvailable": "Disponível",
+    "availabilityPermissionDenied": "Sem permissão",
+    "availabilityNotFound": "Não encontrado",
+    "availabilityIncompatible": "Incompatível com chat",
+    "availabilityRateLimited": "Limite de requisições",
+    "availabilityTransientError": "Temporariamente indisponível",
+    "availabilityUnverified": "Não verificado",
+    "modelAlreadyConfigured": "Configurado",
     "llmConfiguration": "LLM Configuracao",
     "providersTitle": "Providers",
     "providersDescription": "Configure API keys and endpoints for each provider.",
@@ -2040,6 +2054,11 @@
     "uploadConflictTitle": "Já existem arquivos com o mesmo nome",
     "uploadConflictDescription": "Estes arquivos já existem: {{files}}. Escolha como continuar.",
     "promptToggle": "Alternar se {{name}} entra no prompt do sistema",
+    "addSystemPrompt": "Adicionar do workspace",
+    "addSystemPromptTitle": "Adicionar arquivo de prompt do sistema",
+    "addSystemPromptDescription": "Escolha um arquivo Markdown do workspace para incluir no prompt do sistema.",
+    "searchSystemPromptFiles": "Buscar arquivos Markdown do workspace",
+    "noSystemPromptCandidates": "Nenhum arquivo correspondente está disponível.",
     "sourceControl": "Controle de código-fonte",
     "preview": "Preview",
     "edit": "Editar",
@@ -2583,6 +2602,10 @@
     "requiresConfig": "Requer configuração",
     "configSaved": "Configuração salva",
     "configSaveError": "Falha ao salvar configuração",
+    "webSearchProviderLabel": "Provedor",
+    "webSearchApiKeyLabel": "Chave de API (opcional)",
+    "webSearchQuotaHintBefore": "Grátis: 100 chamadas/dia. Registre-se em ",
+    "webSearchQuotaHintAfter": " para 1.000/dia.",
     "active": "ativo(s)",
     "available": "Disponível",
     "noEnabled": "Nenhuma ferramenta ativada",
@@ -2660,9 +2683,14 @@
       "gotIt": "Entendi"
     },
     "simpleMode": "Modo simples",
-    "fullMode": "Modo completo"
+    "fullMode": "Modo completo",
+    "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Agendado",
+      "subagentShort": "Subagente"
+    },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
     },

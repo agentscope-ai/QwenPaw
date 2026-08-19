@@ -2,6 +2,7 @@
 """Tests for ADBPG memory manager behavior."""
 # pylint: disable=protected-access
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -39,7 +40,13 @@ def _memory_config(
 async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
     manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
     manager._client = object()
-    manager.get_memory_config = lambda: _memory_config(max_results=2)
+    worker_threads = []
+
+    def load_auto_search_config():
+        worker_threads.append(threading.get_ident())
+        return _memory_config(max_results=2), 4
+
+    manager._load_auto_search_config = load_auto_search_config
     manager.memory_search = AsyncMock(
         return_value=ToolChunk(
             is_last=True,
@@ -79,13 +86,17 @@ async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
         query="我喜欢什么动物",
         max_results=2,
     )
+    assert worker_threads[0] != threading.get_ident()
 
 
 @pytest.mark.asyncio
 async def test_adbpg_auto_memory_search_respects_disabled_config(tmp_path):
     manager = ADBPGMemoryManager(str(tmp_path), "agent-1")
     manager._client = object()
-    manager.get_memory_config = lambda: _memory_config(enabled=False)
+    manager._load_auto_search_config = lambda: (
+        _memory_config(enabled=False),
+        4,
+    )
     manager.memory_search = AsyncMock()
 
     result = await manager.auto_memory_search([_user_msg("hello")])

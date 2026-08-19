@@ -195,7 +195,8 @@
       "gotIt": "Đã hiểu"
     },
     "simpleMode": "Chế độ đơn giản",
-    "fullMode": "Chế độ đầy đủ"
+    "fullMode": "Chế độ đầy đủ",
+    "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
   "theme": {
     "dark": "Tối",
@@ -252,6 +253,10 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "groups": {
+      "cronShort": "Định kỳ",
+      "subagentShort": "Tác tử con"
+    },
     "fileReference": {
       "codeSnippet": "Đoạn mã · {{count}} dòng"
     },
@@ -575,7 +580,9 @@
       "safety": "An toàn",
       "commit": "Commit"
     },
-    "summary": { "total": "điểm" },
+    "summary": {
+      "total": "điểm"
+    },
     "snapshotDialog": {
       "title": "Tạo ảnh chụp",
       "session": "Phiên",
@@ -847,6 +854,10 @@
     "requiresConfig": "Cần cấu hình",
     "configSaved": "Đã lưu cấu hình",
     "configSaveError": "Lưu cấu hình thất bại",
+    "webSearchProviderLabel": "Nhà cung cấp",
+    "webSearchApiKeyLabel": "Khóa API (tùy chọn)",
+    "webSearchQuotaHintBefore": "Miễn phí 100 lần gọi/ngày. Đăng ký tại ",
+    "webSearchQuotaHintAfter": " để nhận 1.000 lần/ngày.",
     "active": "đang hoạt động",
     "available": "Có sẵn",
     "noEnabled": "Không có công cụ nào được bật",
@@ -1117,6 +1128,11 @@
     "uploadConflictTitle": "Phát hiện file trùng tên",
     "uploadConflictDescription": "Các file sau đã tồn tại: {{files}}. Hãy chọn cách xử lý.",
     "promptToggle": "Bật hoặc tắt {{name}} trong prompt hệ thống",
+    "addSystemPrompt": "Thêm từ workspace",
+    "addSystemPromptTitle": "Thêm tệp prompt hệ thống",
+    "addSystemPromptDescription": "Chọn một tệp Markdown trong workspace để đưa vào prompt hệ thống.",
+    "searchSystemPromptFiles": "Tìm tệp Markdown trong workspace",
+    "noSystemPromptCandidates": "Không có tệp phù hợp.",
     "sourceControl": "Quản lý mã nguồn",
     "preview": "Preview",
     "edit": "Chỉnh sửa",

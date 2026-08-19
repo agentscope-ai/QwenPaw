@@ -1,6 +1,6 @@
 ---
 title: "QwenPaw Files: One Place for Your Agent's Work, Profile, and Memory"
-date: 2026-08-07
+date: 2026-08-17
 author: QwenPaw Team
 tags: [Files, Workspace, Profile, Daily, Knowledge Base]
 cover: https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png
@@ -47,9 +47,9 @@ The directory switcher at the top lets you move between two locations:
 - **Project Directory** contains the code, materials, and outputs for the current project.
 - **Agent Configuration Directory** contains the Agent's own configuration, memory, skills, and other internal files.
 
-The boundary between them is clear. Project Directory determines which project Files displays and becomes the project directory that the current Chat uses by default for ordinary tasks. Agent Configuration Directory remains the place for the Agent's own files.
+The boundary between them is clear. Project Directory determines which project appears in Files and serves as the default working directory for the current Chat during ordinary tasks. Agent Configuration Directory remains the place for the Agent's own files.
 
-Project Directory supports inheritance and per-conversation selection. An Agent can define a default directory, while an individual Chat can choose its own and retain that choice with the conversation. Files always shows the directory currently in effect for that Chat. Unless you specify another file path or Shell working directory, file operations, search, Shell, code analysis, and Git operations in Files use it as their default root. Clear the Chat-specific selection to inherit the Agent default again. Task modes and forked workspaces can use higher-priority dedicated directories when they need isolated runtimes.
+Project Directory supports inheritance and per-conversation selection. An Agent can define a default directory, while an individual Chat can choose its own and retain that choice with the conversation. Files always shows the directory currently in effect for that Chat. Unless you specify another file path or Shell working directory, file operations, search, Shell, code analysis, and Git operations use it as their default root. Clear the Chat-specific selection to inherit the Agent default again. Task modes and forked workspaces can use higher-priority dedicated directories when they need isolated runtimes.
 
 ## Profile: Tell the Agent Who It Is and How It Should Work
 
@@ -68,7 +68,7 @@ You can open and edit these files, enable or disable them, and change their orde
 
 There is an important difference between Profile and the Daily and Knowledge Base sections that follow. Profile is closer to a set of durable instructions you explicitly give the Agent. Daily and Knowledge Base continue to grow and evolve as conversations and tasks accumulate.
 
-## Daily: Keep What Was Worth Remembering Today
+## Daily: Keep What Is Worth Remembering
 
 A conversation may be long, but only a few details usually deserve to last: a decision, a preference, a finding from a report, or a follow-up action.
 
@@ -149,9 +149,9 @@ Chat carries the intent. Workspace holds the current task. Profile explains how 
 
 ## Visible Files Make Collaboration Controllable
 
-Files works with local data, so its file APIs restrict access to the selected root, reject path traversal and symbolic links that lead outside it, and require an explicit choice when uploaded filenames conflict. Historical attachments that can no longer be resolved under the current Project Directory or Agent Configuration Directory open in read-only preview instead of appearing editable. When you save a text file in Workspace, Files compares it with the version recorded when you opened it. If the file has changed on disk, Files refuses to overwrite it with stale content; otherwise, it writes the update atomically.
+Files restricts file access to the selected directory, prevents stale edits from overwriting newer content, and asks you how to handle filename conflicts. Historical attachments that can no longer be resolved under the current Project Directory or Agent Configuration Directory open in read-only preview instead of appearing editable.
 
-Files currently works best with workspaces of ordinary size. Directory contents are paginated, but the file tree does not yet support search or virtualize long lists. Although the server reads text in chunks, the interface waits until every chunk has been assembled before previewing or editing the file. Very large text files and directories with many immediate children may therefore take longer to open.
+Files currently works best with workspaces of ordinary size. Very large text files and directories with many immediate children may take longer to open.
 
 More importantly, memory and configuration are not hidden in a black box. They are stored as files in the Agent Configuration Directory, where you can open, read, and edit them through the corresponding Files sections.
 
@@ -161,9 +161,9 @@ Files is valuable not simply because it adds a larger file tree, but because it 
 - Which profile and instructions shape how it works?
 - What did it retain from recent tasks?
 - Which lasting lessons have emerged from scattered records?
-- Which changes are already saved, and which still need approval?
+- Which changes are already saved, and which still need to be reviewed and saved?
 
-When working files, profiles, daily records, and knowledge are all visible, you and the Agent can keep collaborating around the same shared state.
+When project files, profiles, daily records, and knowledge are all visible, you and the Agent can keep collaborating around the same shared state.
 
 Related implementation and design notes:
 

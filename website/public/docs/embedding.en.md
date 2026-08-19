@@ -1,153 +1,142 @@
 # Embedding Models
 
-Embeddings map text, images, or other inputs to fixed-dimensional numeric vectors. Semantically similar content is closer in vector space, allowing downstream modules to perform semantic search, clustering, deduplication, and similarity checks.
+Suppose you told QwenPaw a month ago, “We will keep the current database for this release and reassess migration afterward.” Today you ask, “Why did we stay with the old data setup?”
 
-QwenPaw currently provides an **embedding model configuration and runtime layer** based on AgentScope. It covers multiple provider adapters, real-request testing, strict dimension validation, batching and retry mapping, and configuration lifecycle management. ReMeLight is the current direct consumer and uses this layer to add vector support to memory.
+The two sentences mean nearly the same thing but share few keywords. A keyword-only search may miss the memory. Embeddings help QwenPaw recognize content whose meaning is similar even when the wording is different.
 
----
+An embedding is not another memory system, and it does not generate an answer. It simply adds semantic retrieval to the memories you already have.
 
-## Capabilities and Boundaries
+## How Embeddings Help Long-Term Memory
 
-| Capability                       | Description                                                                                                    |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Multiple providers               | Supports `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, and `ollama`                                 |
-| Unified model interface          | Uses AgentScope Credential and EmbeddingModel classes to hide provider SDK differences                         |
-| Text embedding                   | Accepts batches of text and returns fixed-dimensional vectors in input order                                   |
-| Dimension control and validation | Sends dimension settings according to provider rules and validates the actual output size                      |
-| Batching and retries             | QwenPaw sets an upstream batch size; AgentScope splits again for provider limits and retries eligible failures |
-| Pre-save test                    | Sends a real request with unsaved settings and reports actual dimensions, latency, and errors                  |
-| Configuration lifecycle          | Supports hot updates when possible and invalidates stale cache/index state after vector-space changes          |
-| Local cache                      | Lets the current consumer cache identical inputs to reduce repeated computation and API calls                  |
+QwenPaw still stores memories as Markdown files in the workspace. When Embedding is enabled, ReMeLight generates vectors for text under `memory/` and `digest/`, then searches through two complementary paths:
 
-QwenPaw's embedding capability is based on **AgentScope 2.x**. AgentScope supplies provider credentials, embedding models, request assembly, base batching, and retries. QwenPaw supplies configuration mapping, enablement rules, connectivity and response validation, saving, and hot updates.
+- **BM25 keyword search** works well for exact terms such as function names, error codes, product names, and quoted wording.
+- **Embedding semantic search** works well for synonyms, paraphrases, and topically related content.
+- **RRF fusion** combines the rankings from both paths and puts more relevant memories first.
 
-```mermaid
-graph LR
-    UI[QwenPaw configuration] --> Adapter[Mapping / test / lifecycle]
-    Adapter --> AS[AgentScope Credential + EmbeddingModel]
-    AS --> Provider[Embedding service API]
-    Adapter --> Consumer[Downstream consumer: currently ReMeLight]
-```
+For example, the query “How does the user usually travel to work?” may not keyword-match “My preferred commute is a lightweight bicycle,” but semantic search can connect them. For `HTTP 409` or a specific function name, keyword search is usually more dependable.
 
-AgentScope supports more input types than QwenPaw currently exposes:
+Embeddings are optional. Without a configured model, BM25 and Wikilink expansion continue to work. A small knowledge base, or one searched mainly by exact terms, may not need vector retrieval at all.
 
-- `DashScopeEmbeddingModel` routes text and image/video `DataBlock` inputs based on the model name. `GeminiEmbeddingModel` also includes a multimodal path.
-- QwenPaw currently sends only text produced by ReMeLight. It does not expose a general embedding API or pass images, audio, video, or PDFs to these models. Selecting a multimodal type or model therefore does not add multimodal file parsing.
-- QwenPaw constructs AgentScope models with `parameters=None`. Extra call-level options that AgentScope may accept, such as `task_type` or `text_type`, have no Console or `agent.json` field in the current integration.
+## Think of a Vector as a Semantic Coordinate
 
----
+An embedding model turns a piece of text into a fixed-length list of numbers: a vector. Texts with similar meanings are placed near one another, so they can be found by distance even when their words differ.
 
-## Principles
+Documents and queries must be placed in the same compatible coordinate system. This leads to two important rules:
 
-The same model maps documents and queries into one vector space. Systems commonly compare vector direction with cosine similarity: a higher value indicates closer semantics. Embeddings work well for synonyms, natural-language paraphrases, and topical similarity, but do not guarantee exact-token matches for function names or error codes. Retrieval consumers commonly combine them with keyword signals.
+1. `dimensions` must match the model's actual output size; it is not an arbitrary target.
+2. After changing the backend, endpoint, model, dimensions, or dimension-control behavior, rebuild the memory index.
 
-```mermaid
-graph LR
-    Input[Text input] --> Batch[Truncate and batch]
-    Batch --> Model[AgentScope EmbeddingModel]
-    Model --> API[Provider or local service]
-    API --> Vector[Fixed-dimensional vectors]
-    Vector --> Consumer[Search / clustering / deduplication]
-```
+Even if two models both return 1,024 numbers, they do not necessarily share a coordinate system. Document vectors created by the old model cannot safely be compared with query vectors from the new one.
 
-A change in model, version, endpoint, output dimensions, or dimension-control behavior can produce a different vector space. Document and query vectors must come from compatible spaces; equal output dimensions alone do not make two models compatible.
+Memory files remain the source of truth. Vectors and indexes are derived data that QwenPaw can recreate. Rebuilding the index does not rewrite your Markdown memories.
 
-### Test, Save, and Apply
+## Current Scope and Boundaries
 
-The Console's **Test Embedding Service** action sends the current unsaved form values to
-`POST /api/workspace/embedding/test`. The backend creates the real model and sends one test string. It requires the
-service to:
+QwenPaw connects to `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, and `ollama` backends through AgentScope 2.x. ReMeLight is currently the only direct consumer of this configuration.
 
-1. return one non-empty vector within 15 seconds;
-2. return only finite numeric values; and
-3. return exactly the configured `dimensions`.
+Keep these boundaries in mind:
 
-On success, the model object is staged for a subsequent save whose service fingerprint still matches the tested values.
-That fingerprint contains the backend, API key, normalized Base URL, model name, dimensions, and `use_dimensions`.
-QwenPaw first persists the submitted running config, then reuses the staged model for an in-place update when possible.
-If the model was not tested, the fingerprint changed after testing, or Embedding components must be added or removed,
-QwenPaw recreates the embedded ReMe application. The normal Agent reload is also scheduled after every successful save.
+- QwenPaw currently sends only **text** produced by ReMeLight. Selecting a multimodal type or model does not make QwenPaw parse images, audio, video, or PDFs.
+- Embeddings do not capture or organize memories and do not provide a standalone agent tool. They only add a semantic signal to `memory_search` and digest similarity queries.
+- Other memory backends, such as ADBPG, manage their own vector behavior and do not read this ReMeLight configuration.
+- Identical inputs can use a local cache to reduce repeated computation and API calls.
 
-The runtime update is transactional. If both in-place update and ReMe recreation fail, QwenPaw restores the submitted
-configuration fields when that can be done without overwriting a concurrent edit, restores the previous runtime when
-possible, and returns an error. Embedding changes are rejected while an explicit index rebuild is running.
-
-Changing the backend, normalized Base URL, model name, dimensions, or `use_dimensions` changes the vector-space
-fingerprint and sets `needs_reindex=true`; changing only the API key does not. An in-place vector-space change clears
-the memory and disk Embedding cache, but deliberately does **not** rebuild the file index. Use **Rebuild Memory Index**
-after saving. Until that succeeds, existing same-dimension vectors may still belong to the previous model. A successful
-rebuild clears `needs_reindex` only if the persisted and active fingerprints still match the rebuild target.
-
----
-
-## Configuration
-
-### Configure in the Console
+## Configure in the Console
 
 Open **Agent Config → Running Config → Long-term Memory → Embedding Model Config**:
 
-1. Select the Embedding SDK Type.
-2. Enter the endpoint, model name, and credentials required by that backend.
+1. Select the SDK type that matches the service interface.
+2. Enter the model name, API key, and endpoint.
 3. Enter the model's actual output dimensions.
-4. Tune cache, per-input character budget, and batch size for the service limits.
-5. Select **Test Embedding Service**. After the actual dimensions and latency are displayed, save the running config.
-
-The Console keeps the connection, model, cache, and batching options in one configuration area so they can be reviewed together before saving:
+4. Select **Test Embedding Service**.
+5. Save after the test succeeds. If the Console reports a vector-space change, select **Rebuild Memory Index**.
 
 ![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
 
-Testing before saving catches endpoint, credential, model-name, and dimension errors before the configuration enters the running state.
+The setup moves through several distinct stages:
 
-If the form does not meet the enable condition, ReMeLight does not create vector components and memory search continues
-to use BM25.
-
-The **Enabled/Disabled** status in the Console overview and the **Embedding Service** card updates in real time from the
-current unsaved form. It uses the same configuration enablement rules as the backend and only indicates that the
-Backend, model name, and required credentials are complete. It does not make a network request and does not mean the
-draft has been saved or applied to the running agent. **Verified** means **Test Embedding Service** completed a real
-request with the current service parameters. Runtime state changes only after saving, through either a hot update or an
-automatic agent reload.
-
-After a successful request, the service card shows the returned dimensions and latency and marks the current form as **Verified**:
+- **Enabled** means the current form contains the fields required to enable the backend. It does not prove that the service is reachable.
+- **Verified** means the current form completed one real request and the returned dimensions matched the configuration.
+- **Saved** means the settings were written to the running configuration and applied through a hot update or agent reload.
+- **Rebuild required** means the semantic coordinate system changed and existing vectors must be regenerated.
 
 ![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
 
-This status covers one real request with the current service parameters. The configuration must still be saved, and a vector-space change still requires an index rebuild.
+The test sends one real text request. The result must arrive within 15 seconds, contain a non-empty vector of finite numbers, and match `dimensions`. This proves only that one call works with the current settings. Initial indexing or a rebuild still has to process existing memories and can encounter quotas, rate limits, or oversized inputs.
 
-### Backend Types and Parameters
+## Verify Semantic Retrieval
 
-| QwenPaw type           | AgentScope Credential / Model                     | AgentScope input and model routing                                                                                                                                   | Authentication and endpoint                                                                                                                    | How dimensions are sent                                                                                                     | Enable condition and QwenPaw limit                                                                         |
-| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `openai`               | `OpenAICredential` / `OpenAIEmbeddingModel`       | Text; supports `text-embedding-3-small`, `text-embedding-3-large`, and other OpenAI-compatible models                                                                | Required `api_key`; optional `base_url` passed to `openai.AsyncClient`; AgentScope also supports `organization`, which QwenPaw does not expose | Always sends `input`, `model`, and `encoding_format="float"`; sends `dimensions` only when `use_dimensions=true`            | Non-empty `model_name` and `api_key`; the only type that shows `use_dimensions` in the UI                  |
-| `dashscope`            | `DashScopeCredential` / `DashScopeEmbeddingModel` | `text-embedding-*` uses the text API; `qwen3-vl-embedding`, `qwen2.5-vl-embedding`, `multimodal-embedding-*`, and `tongyi-embedding-vision-*` use the multimodal API | Required `api_key`; the credential accepts `base_url`, but the current model calls do not use it                                               | Text API always sends `dimension`; multimodal API does not send dimensions, while QwenPaw still validates the response size | Non-empty `model_name` and `api_key`; QwenPaw currently supplies text only                                 |
-| `dashscope_multimodal` | Exactly the same as `dashscope`                   | A QwenPaw/ReMe configuration type; AgentScope still selects text or multimodal routing from `model_name`                                                             | Same as `dashscope`                                                                                                                            | Same as `dashscope`                                                                                                         | Non-empty `model_name` and `api_key`; does not make QwenPaw read images or videos automatically            |
-| `gemini`               | `GeminiCredential` / `GeminiEmbeddingModel`       | `gemini-embedding-001` uses the text path; `gemini-embedding-2*` uses the multimodal path                                                                            | `api_key` only; neither the AgentScope credential nor QwenPaw exposes Base URL                                                                 | Both paths send `dimensions` as `output_dimensionality`                                                                     | Non-empty `model_name` and `api_key`; QwenPaw currently supplies text only and does not expose `task_type` |
-| `ollama`               | `OllamaCredential` / `OllamaEmbeddingModel`       | Text; examples include `nomic-embed-text` and `mxbai-embed-large`                                                                                                    | No API key; maps `base_url` to `host`, with blank selecting Ollama's default host                                                              | Always sends `dimensions`                                                                                                   | Non-empty `model_name`; the QwenPaw process must be able to reach the Ollama host                          |
+Use two sentences with similar meanings but little keyword overlap:
 
-For every AgentScope model, QwenPaw also sets `context_size=max_input_length` and uses `max_retries=3` during normal
-operation. **Test Embedding Service** lowers retries to `1` and adds a 15-second QwenPaw-level timeout.
+1. Save the memory: “My preferred commute is a lightweight bicycle.”
+2. Search for: “How does the user usually travel to work?”
+3. Check that the memory is recalled and that the raw result contains a numeric `vector=...` value.
 
-`max_batch_size` is the upstream batch size used by ReMeLight's `embedding_store`. AgentScope retains its own internal
-limits: in the pinned source these are 2048 for OpenAI, 10 for DashScope text, 100 for Gemini text, and 512 for Ollama.
-AgentScope splits again and dispatches batches concurrently when needed. The actual usable value still depends on the
-specific model and provider limits.
+```text
+Call memory_search for "How does the user usually travel to work?" Return the raw tool result,
+including the score, vector, and keyword fields, without summarizing or rewriting it.
+```
+
+- A numeric `vector` means the vector branch found the result; `-` means it did not.
+- A numeric `keyword` means the BM25 branch found the result; `-` means it did not.
+- `score` is normally the RRF-fused score. When only one path runs, it may be that branch's original score.
+
+## Common Problems
+
+### Dimension Mismatch
+
+`dimensions` is used for strict validation. Unless both the model and API explicitly support variable dimensions, enter the model's native output size. If the configuration expects 256 dimensions but the service returns 1,024, the test fails:
+
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i4/O1CN01ZFtJXcpF1MH1GnlE_!!6000000004901-0-tps-626-242.jpg" alt="Embedding test failing because the expected and returned dimensions differ" />
+
+`use_dimensions` only controls whether the `openai` backend sends a dimension parameter. It does not disable response validation. Some OpenAI-compatible services reject this parameter; turn it off and set `dimensions` to the size the service actually returns.
+
+### Search Behaves Strangely After a Model Change
+
+After saving a new backend, endpoint, model, dimensions, or `use_dimensions` value, follow the Console prompt and rebuild the index. Changing only the API key does not change the vector space and does not require a rebuild.
+
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Confirmation shown before rebuilding the memory index" />
+
+### The Service Endpoint Is Unreachable
+
+- For an OpenAI-compatible service, select `openai`; `base_url` is used as the API endpoint.
+- DashScope currently uses the official SDK destination, so a custom `base_url` does not redirect its requests.
+- Gemini currently does not use `base_url`.
+- Ollama treats `base_url` as its `host`. When QwenPaw runs in a container, `localhost` refers to the container itself; use an address reachable from the QwenPaw process.
+
+### Long or Batched Requests Fail
+
+`max_input_length` is an approximate **character** budget for each input, not an exact token limit. For context-length errors, HTTP 400 responses, oversized requests, or rate limits, reduce `max_input_length` or `max_batch_size` first. A larger cache also consumes more memory and disk space.
+
+## Configuration Parameters
+
+The configuration lives at `running.reme_light_memory_config.embedding_model_config` in `agent.json`.
+
+### Backends
+
+| `backend`              | Credentials and endpoint                | Notes                                                                                             |
+| ---------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `openai`               | `api_key` required; optional `base_url` | OpenAI and OpenAI-compatible text embedding services; the only backend that uses `use_dimensions` |
+| `dashscope`            | `api_key` required                      | The model name selects the text or multimodal API path; QwenPaw currently sends only text         |
+| `dashscope_multimodal` | `api_key` required                      | Uses the same adapter as `dashscope`; does not automatically read multimodal files                |
+| `gemini`               | `api_key` required                      | Currently receives only text, does not expose `task_type`, and does not use `base_url`            |
+| `ollama`               | No API key; `base_url` is the `host`    | Local or self-hosted text embedding service; the QwenPaw process must be able to reach it         |
 
 ### Fields
 
-The configuration lives at `running.reme_light_memory_config.embedding_model_config` in `agent.json`:
-
-| Field              | Default    | Purpose                                                                                                          |
-| ------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------- |
-| `backend`          | `"openai"` | SDK type used to invoke the embedding model                                                                      |
-| `api_key`          | `""`       | Provider credential; unused by Ollama                                                                            |
-| `base_url`         | `""`       | Optional OpenAI API URL; Ollama interprets it as `host`; the current DashScope model calls do not use this value |
-| `model_name`       | `""`       | Model name; required by every backend                                                                            |
-| `dimensions`       | `1024`     | Expected actual vector size, also used for index and cache compatibility                                         |
-| `use_dimensions`   | `false`    | For the `openai` backend only; whether to send `dimensions` in the request                                       |
-| `enable_cache`     | `true`     | Whether to cache embedding results locally                                                                       |
-| `max_cache_size`   | `10000`    | Maximum local cache entries                                                                                      |
-| `max_input_length` | `8192`     | Approximate character budget per input, not an exact token count                                                 |
-| `max_batch_size`   | `10`       | Maximum items per batch request                                                                                  |
+| Field              | Default    | Purpose                                                                      |
+| ------------------ | ---------- | ---------------------------------------------------------------------------- |
+| `backend`          | `"openai"` | SDK type used to call the service                                            |
+| `api_key`          | `""`       | Service credential; unused by Ollama                                         |
+| `base_url`         | `""`       | OpenAI API endpoint or Ollama host                                           |
+| `model_name`       | `""`       | Model name; required for every backend                                       |
+| `dimensions`       | `1024`     | Actual model output size, used for strict validation and index compatibility |
+| `use_dimensions`   | `false`    | `openai` only; whether to send the dimension parameter                       |
+| `enable_cache`     | `true`     | Whether to cache vectors for identical text                                  |
+| `max_cache_size`   | `10000`    | Maximum number of local cache entries                                        |
+| `max_input_length` | `8192`     | Approximate character budget per input                                       |
+| `max_batch_size`   | `10`       | Maximum items ReMeLight submits per batch                                    |
 
 Example for an OpenAI-compatible service:
 
@@ -172,119 +161,10 @@ Example for an OpenAI-compatible service:
 }
 ```
 
-If the service rejects a `dimensions` request parameter, keep `use_dimensions: false` but still set `dimensions` to
-the model's actual output size.
-
----
-
-## Pitfalls and Troubleshooting
-
-### Dimensions Are Not an Arbitrary Target
-
-`dimensions` is first and foremost a strict validation value. Unless the model and API explicitly support variable
-dimensions, it must equal the model's native output size. A wrong value fails the test with a dimension mismatch;
-bypassing the test and saving can also break index construction.
-
-For example, when the configuration expects 256 dimensions but the service returns 1024, the test reports the mismatch instead of accepting an incompatible vector space:
-
-![Embedding test failing because the expected and returned dimensions differ](https://img.alicdn.com/imgextra/i4/O1CN01ZFtJXcpF1MH1GnlE_!!6000000004901-0-tps-626-242.jpg)
-
-When this appears, verify the model's native dimensions and whether the service supports a dimension parameter rather than bypassing the test.
-
-`use_dimensions` only controls whether the `openai` backend sends that parameter. It does not disable validation. Some
-OpenAI-compatible services and vLLM deployments reject the parameter; turn it off and enter the actual output size.
-
-### A Model Change Requires New Vectors
-
-Two models with the same output size can still use incompatible vector spaces. QwenPaw treats backend, normalized
-endpoint, model, dimensions, and `use_dimensions` as vector-space identity. It marks the configuration as requiring a
-rebuild and, for an in-place update, removes the old `.npz` cache. The index rebuild is explicit rather than automatic:
-follow the Console warning and select **Rebuild Memory Index** before relying on vector results. Do not retain or
-manually copy an old cache to bypass rebuilding.
-
-Before starting, the Console confirms that rebuilding can temporarily increase CPU and memory usage:
-
-![Confirmation shown before rebuilding the memory index](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
-
-After confirmation, QwenPaw regenerates the derived index from the existing Markdown. Until it finishes, old vectors should not be treated as valid results from the new model.
-
-### Base URL, Host, and SDK Type Are Different Concepts
-
-- OpenAI passes `base_url` to `openai.AsyncClient`.
-- `DashScopeCredential` accepts `base_url`, but the AgentScope 2.x `DashScopeEmbeddingModel` used by the current project reads only the API key
-  for both its text and multimodal embedding calls; it does not forward that URL to the DashScope SDK. A custom Base URL
-  therefore does not change the embedding destination for `dashscope` or `dashscope_multimodal` in the current version.
-  Select the `openai` backend when targeting an OpenAI-compatible endpoint.
-- Gemini currently ignores `base_url`.
-- Ollama interprets the same field as `host`, for example `http://localhost:11434`.
-- The SDK type determines request format and credential class, not just the label shown in the UI.
-
-When QwenPaw runs in a container, Ollama at `localhost` refers to that container rather than the host machine. Use an
-address reachable from the QwenPaw process.
-
-### Input Length Is a Character Budget, Not a Token Limit
-
-`max_input_length` does not count with the target model's tokenizer. If the service returns HTTP 400 or a context-length
-error, especially for long Chinese text, reduce this value. It limits each item; `max_batch_size` limits how many items
-are sent together, so the two settings address different constraints.
-
-### Larger Batches and Caches Are Not Always Better
-
-A larger `max_batch_size` can improve throughput but can hit request-size, concurrency, or rate limits. Reduce it first
-when a remote service is unstable. A larger cache consumes more memory and disk. Disabling the cache increases repeated
-computation and API cost but does not disable the vector index.
-
-### A Successful Test Does Not Mean History Is Fully Indexed
-
-The test validates only one live request, numeric values, and dimensions. First-time enablement and explicit index
-rebuilds must still process existing memories and can encounter quotas, rate limits, network errors, or oversized
-inputs. After saving, complete any **Rebuild Memory Index** warning, then run a semantic `memory_search` query with
-little keyword overlap and confirm that the raw result contains a numeric `vector=...` value.
-
-### Running Without Embeddings Is Valid
-
-When the model name or required credentials are missing, QwenPaw disables vector components and BM25 continues to work.
-Paraphrase recall becomes weaker, but exact keywords, function names, and error codes remain searchable.
-
----
-
-## Current QwenPaw Integration
-
-ReMeLight is currently the only direct consumer of this embedding configuration. It embeds Markdown text under
-`memory/` and `digest/` to add a semantic signal to `memory_search` and digest-node similarity queries; BM25 continues
-to handle exact keywords.
-
-Embeddings do not expose a standalone agent tool and do not generate memories or answers. Auto Memory Search,
-Auto-Dream, and agent context benefit only indirectly through ReMeLight retrieval. When another memory backend such as
-ADBPG is selected, that service manages its own vector behavior and is not configured by
-`reme_light_memory_config.embedding_model_config`.
-
----
-
-## Verification
-
-Save a memory such as “My preferred commute is a lightweight bicycle,” then search for “How does the user usually travel
-to work?” The two sentences have little keyword overlap. If the memory is recalled and the raw tool output contains a
-numeric `vector=...`, the vector branch returned a candidate.
-
-Ask the agent to preserve the raw retrieval fields:
-
-```text
-Call memory_search for "How does the user usually travel to work?" Return the raw tool result,
-including the score, vector, and keyword fields, without summarizing or rewriting it.
-```
-
-- `score`: the RRF-fused score when both paths have candidates; it may be a raw branch score when only one path runs.
-- `vector`: raw cosine similarity; a number means a vector hit and `-` means no vector hit.
-- `keyword`: raw BM25 score; a number means a keyword hit and `-` means no keyword hit.
-
-If testing fails, check the enable condition, network reachability from the QwenPaw process, model name, exact dimensions,
-support for the `dimensions` parameter, input and batch limits, and provider quota or rate limits.
-
----
+QwenPaw uses up to three retries during normal operation. The test uses one retry and a 15-second timeout. AgentScope may split requests again to meet provider limits, so `max_batch_size` is an upstream limit; the usable value still depends on the model and service.
 
 ## Related Pages
 
-- [Long-term Memory](./memory) — ReMeLight memory files, automatic jobs, and search entry points
-- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive) — Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive workflows
+- [Long-term Memory](./memory) — Memory files, indexing, and retrieval
+- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive) — Auto Memory, Auto Dream, Auto Memory Search, and Proactive workflows
 - [Configuration & Working Directory](./config) — Agent configuration files and workspace layout

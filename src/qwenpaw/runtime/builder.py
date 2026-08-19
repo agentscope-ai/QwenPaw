@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
+from ..utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
     from ..agents.context.visual_compression.runtime.recovery import (
@@ -248,7 +249,7 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = load_agent_config(agent_id)
+        agent_config = await run_sync_io(load_agent_config, agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,
@@ -272,11 +273,13 @@ class AgentBuilder:
         workspace_dir = getattr(ctx, "workspace_dir", None)
 
         # Resolve skills.
-        ensure_skills_initialized(workspace_dir or WORKING_DIR)
+        skills_workspace = workspace_dir or WORKING_DIR
+        await run_sync_io(ensure_skills_initialized, skills_workspace)
         channel_name = request_context.get("channel", "console")
         try:
-            effective_skills = resolve_effective_skills(
-                workspace_dir or WORKING_DIR,
+            effective_skills = await run_sync_io(
+                resolve_effective_skills,
+                skills_workspace,
                 channel_name,
             )
         except Exception:
@@ -346,7 +349,10 @@ class AgentBuilder:
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
         model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        model, _formatter = self.build_model(
+        if model_slot_override is None:
+            model_slot_override = request_context.get("model_slot_override")
+        model, _formatter = await run_sync_io(
+            self.build_model,
             agent_config,
             model_slot_override=model_slot_override,
         )
@@ -407,7 +413,11 @@ class AgentBuilder:
         )
 
         # System prompt.
-        sys_prompt = self.build_prompt(ctx, agent_config)
+        sys_prompt = await run_sync_io(
+            self.build_prompt,
+            ctx,
+            agent_config,
+        )
 
         middlewares = self._build_middlewares(
             ctx,
@@ -449,7 +459,7 @@ class AgentBuilder:
         _logger.info(
             "builder: built agent for session=%s agent=%s"
             " model=%s/%s tools=%d",
-            getattr(ctx, "session_id", ""),
+            sanitize_log_value(getattr(ctx, "session_id", "")),
             agent_id,
             active.provider_id,
             active.model,
@@ -512,6 +522,7 @@ class AgentBuilder:
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
             model_slot_override=model_slot_override,
+            agent_config=agent_config,
         )
         if formatter is not None:
             innermost = model
@@ -663,7 +674,7 @@ class AgentBuilder:
                 _logger.warning(
                     "Rejecting fork_project_dir outside allowed worktree "
                     "subtree: %s",
-                    fork_raw,
+                    sanitize_log_value(fork_raw),
                 )
                 return agent_config
             raw_project_dir = str(validated)
@@ -672,7 +683,7 @@ class AgentBuilder:
         if not project_dir.is_dir():
             _logger.warning(
                 "Ignoring non-directory request project: %s",
-                raw_project_dir,
+                sanitize_log_value(raw_project_dir),
             )
             return agent_config
 
@@ -851,9 +862,21 @@ class AgentBuilder:
                 if trc.enabled
                 else ContextConfig.model_fields["tool_result_limit"].default
             )
+            trigger_ratio = ccc.compact_threshold_ratio
+            reserve_ratio = min(
+                ccc.reserve_threshold_ratio,
+                trigger_ratio - 0.000001,
+            )
+            if reserve_ratio != ccc.reserve_threshold_ratio:
+                _logger.warning(
+                    f"Context reserve ratio "
+                    f"{ccc.reserve_threshold_ratio} must be smaller than "
+                    f"trigger ratio {trigger_ratio}; using "
+                    f"{reserve_ratio}.",
+                )
             return ContextConfig(
-                trigger_ratio=ccc.compact_threshold_ratio,
-                reserve_ratio=ccc.reserve_threshold_ratio,
+                trigger_ratio=trigger_ratio,
+                reserve_ratio=reserve_ratio,
                 tool_result_limit=tool_result_limit,
             )
         except Exception:

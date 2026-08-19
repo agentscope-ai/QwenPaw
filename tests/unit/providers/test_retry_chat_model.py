@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, AsyncGenerator, cast
 
 import pytest
+from agentscope.agent import Agent, InjectionConfig
 from agentscope.message import (
     Msg,
     TextBlock,
@@ -14,13 +15,14 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
 )
+from agentscope.tool import Toolkit
 
 from qwenpaw.agents import model_factory
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.model_capability_cache import get_capability_cache
-from qwenpaw.providers.rate_limiter import _limiters
+from qwenpaw.providers.model_error_policy import RETRYABLE_STATUS_CODES
+from qwenpaw.providers.rate_limiter import LLMRateLimiter, _limiters
 from qwenpaw.providers.retry_chat_model import (
-    RETRYABLE_STATUS_CODES,
     RetryChatModel,
     RetryConfig,
     RateLimitConfig,
@@ -35,6 +37,7 @@ from qwenpaw.providers.retry_chat_model import (
     _normalize_rate_limit_config,
     _normalize_retry_config,
 )
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
 
 async def _failing_reasoning_stream() -> AsyncGenerator[Any, None]:
@@ -47,6 +50,62 @@ async def _failing_reasoning_stream() -> AsyncGenerator[Any, None]:
 
 async def _successful_stream() -> AsyncGenerator[Any, None]:
     yield SimpleNamespace(content="ok")
+
+
+async def _empty_then_failing_stream() -> AsyncGenerator[Any, None]:
+    yield SimpleNamespace(content=[])
+    status_code = 503
+    exc = Exception(f"temporary failure: {status_code}")
+    exc.status_code = 503  # type: ignore[attr-defined]
+    raise exc
+
+
+async def test_wrapped_model_exposes_formatter_and_model_name() -> None:
+    """AgentScope attributes stay visible through both QwenPaw wrappers."""
+    formatter = SimpleNamespace(supported_input_media_types=[])
+    provider_model = SimpleNamespace(
+        credential=None,
+        model="wrapped-model",
+        parameters=None,
+        stream=True,
+        context_size=32768,
+        formatter=formatter,
+    )
+    recording_model = TokenRecordingModelWrapper(
+        provider_id="unit",
+        model=provider_model,  # type: ignore[arg-type]
+    )
+    retry_model = RetryChatModel(
+        recording_model,
+        retry_config=RetryConfig(enabled=False),
+    )
+
+    assert retry_model.model == "wrapped-model"
+    assert retry_model.formatter is formatter
+    assert retry_model.formatter.supported_input_media_types == []
+
+    replacement = SimpleNamespace(supported_input_media_types=["image/*"])
+    retry_model.formatter = replacement
+
+    assert recording_model.formatter is replacement
+    assert provider_model.formatter is replacement
+
+    agent = Agent(
+        name="test-agent",
+        system_prompt="",
+        model=retry_model,
+        toolkit=Toolkit(tools=[]),
+        injection_config=InjectionConfig(inject_runtime_state=False),
+    )
+    await agent._handle_incoming_messages(  # pylint: disable=protected-access
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="hello")],
+        ),
+    )
+
+    assert agent.state.context[-1].get_text_content() == "hello"
 
 
 class _ReasoningRetryStreamModel:
@@ -218,9 +277,11 @@ def test_is_retryable_openai_internal_server_error() -> None:
     assert _is_retryable(exc) is True
 
 
-async def _failing_stream_api_error() -> AsyncGenerator[Any, None]:
+async def _failing_stream_api_error(
+    content: Any,
+) -> AsyncGenerator[Any, None]:
     openai = pytest.importorskip("openai")
-    yield SimpleNamespace(content="partial")
+    yield SimpleNamespace(content=content)
     body = {
         "error": {
             "message": "Internal error: ReadError",
@@ -243,8 +304,9 @@ class _TransientStreamRetryModel:
     parameters = None
     _provider_id = "unit"
 
-    def __init__(self) -> None:
+    def __init__(self, content: Any) -> None:
         self.calls = 0
+        self.content = content
 
     async def __call__(
         self,
@@ -253,16 +315,27 @@ class _TransientStreamRetryModel:
     ) -> AsyncGenerator[Any, None]:
         self.calls += 1
         if self.calls == 1:
-            return _failing_stream_api_error()
+            return _failing_stream_api_error(self.content)
         return _successful_stream()
 
 
 @pytest.mark.asyncio
-async def test_stream_retries_transient_openai_api_error() -> None:
-    pytest.importorskip("openai")
+@pytest.mark.parametrize(
+    "content",
+    [
+        [{"type": "text", "text": "partial"}],
+        [{"type": "thinking", "thinking": "partial"}],
+        [{"type": "tool_use", "id": "call-1"}],
+        [{"type": "data", "data": "media"}],
+    ],
+)
+async def test_stream_does_not_retry_after_visible_output(
+    content: Any,
+) -> None:
+    openai = pytest.importorskip("openai")
     _limiters.clear()
     try:
-        inner = _TransientStreamRetryModel()
+        inner = _TransientStreamRetryModel(content)
         model = RetryChatModel(
             inner,  # type: ignore[arg-type]
             retry_config=RetryConfig(
@@ -282,10 +355,188 @@ async def test_stream_retries_transient_openai_api_error() -> None:
 
         result = await model(messages=[{"role": "user", "content": "hi"}])
         stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(openai.APIError):
+            _ = [chunk async for chunk in stream]
+
+        assert inner.calls == 1
+    finally:
+        _limiters.clear()
+
+
+class _EmptyControlRetryModel:
+    model = "empty-control-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls == 1:
+            return _empty_then_failing_stream()
+        return _successful_stream()
+
+
+@pytest.mark.asyncio
+async def test_stream_retries_after_empty_control_chunk() -> None:
+    _limiters.clear()
+    try:
+        inner = _EmptyControlRetryModel()
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
         chunks = [chunk async for chunk in stream]
 
-        assert [chunk.content for chunk in chunks] == ["partial", "ok"]
+        assert [chunk.content for chunk in chunks] == [[], "ok"]
         assert inner.calls == 2
+    finally:
+        _limiters.clear()
+
+
+class _StructuredRetryModel:
+    model = "structured-retry-test"
+    stream = False
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate_structured_output(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        self.calls += 1
+        if self.calls == 1:
+            status_code = 503
+            exc = Exception(f"temporary failure: {status_code}")
+            exc.status_code = 503  # type: ignore[attr-defined]
+            raise exc
+        return SimpleNamespace(value=f"ok-{self.calls}")
+
+
+class _ResponseOnlyRateLimitModel:
+    model = "response-only-rate-limit-test"
+    stream = False
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate_structured_output(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        self.calls += 1
+        if self.calls == 1:
+            exc = Exception("Too many requests")
+            exc.response = SimpleNamespace(  # type: ignore[attr-defined]
+                status_code=429,
+            )
+            raise exc
+        return SimpleNamespace(value=f"ok-{self.calls}")
+
+
+@pytest.mark.asyncio
+async def test_structured_output_retries_same_model() -> None:
+    _limiters.clear()
+    try:
+        inner = _StructuredRetryModel()
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model.generate_structured_output(messages=[])
+
+        assert result.value == "ok-2"
+        assert inner.calls == 2
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_response_only_429_reports_rate_limit_and_retries(
+    monkeypatch,
+) -> None:
+    reported: list[float | None] = []
+
+    async def report_rate_limit(
+        _limiter: LLMRateLimiter,
+        retry_after: float | None = None,
+    ) -> None:
+        reported.append(retry_after)
+
+    monkeypatch.setattr(
+        LLMRateLimiter,
+        "report_rate_limit",
+        report_rate_limit,
+    )
+    _limiters.clear()
+    try:
+        inner = _ResponseOnlyRateLimitModel()
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=1,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model.generate_structured_output(messages=[])
+
+        assert result.value == "ok-2"
+        assert inner.calls == 2
+        assert reported == [None]
     finally:
         _limiters.clear()
 
@@ -679,3 +930,102 @@ async def test_stream_recovers_agentscope_msg_via_formatter_fallback() -> None:
         ]
     finally:
         cache.clear(model_key)
+
+
+# ---------------------------------------------------------------------------
+# Streaming rate-limit policy
+# ---------------------------------------------------------------------------
+
+
+async def _failing_stream_rate_limit(
+    retry_after: str,
+) -> AsyncGenerator[Any, None]:
+    for chunk in ():
+        yield chunk
+    exc = Exception("FreeUsageLimitError: daily quota exhausted")
+    exc.status_code = 429  # type: ignore[attr-defined]
+    exc.headers = {"Retry-After": retry_after}  # type: ignore[attr-defined]
+    raise exc
+
+
+class _RateLimitStreamModel:
+    model = "rate-limit-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self, retry_after: str) -> None:
+        self.calls = 0
+        self.retry_after = retry_after
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls == 1:
+            return _failing_stream_rate_limit(self.retry_after)
+        return _successful_stream()
+
+
+def _build_rate_limit_model(inner: _RateLimitStreamModel) -> RetryChatModel:
+    return RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(
+            enabled=True,
+            max_retries=2,
+            backoff_base=0.01,
+            backoff_cap=0.01,
+        ),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_over_cap_raises_without_pause() -> None:
+    """A Retry-After above the cap must not be retried or reported."""
+    _limiters.clear()
+    try:
+        inner = _RateLimitStreamModel("51496")
+        model = _build_rate_limit_model(inner)
+
+        result = await model(messages=[{"role": "user", "content": "hi"}])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(Exception, match="FreeUsageLimitError"):
+            async for _chunk in stream:
+                pass
+
+        assert inner.calls == 1
+        stats = _limiters[model.model_key].stats()
+        assert stats["total_rate_limited"] == 0
+        assert stats["is_paused"] is False
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_under_cap_still_retries() -> None:
+    """A Retry-After below the cap keeps the existing pause-and-retry."""
+    _limiters.clear()
+    try:
+        inner = _RateLimitStreamModel("0.05")
+        model = _build_rate_limit_model(inner)
+
+        result = await model(messages=[{"role": "user", "content": "hi"}])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert [chunk.content for chunk in chunks] == ["ok"]
+        assert inner.calls == 2
+        stats = _limiters[model.model_key].stats()
+        assert stats["total_rate_limited"] == 1
+    finally:
+        _limiters.clear()

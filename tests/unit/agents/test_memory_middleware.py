@@ -4,6 +4,7 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -77,6 +78,28 @@ def _make_memory_manager(*, interval: int = 1):
 
 def _turn_state(agent):
     return auto_memory_turn_state(agent.state)
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_getter_runs_in_worker_thread():
+    """Memory prompt configuration must not load on the event loop."""
+    event_loop_thread = threading.get_ident()
+    getter_threads = []
+    mm = _make_memory_manager()
+
+    def get_memory_prompt():
+        getter_threads.append(threading.get_ident())
+        return "Memory guidance"
+
+    mm.get_memory_prompt.side_effect = get_memory_prompt
+
+    prompt = await MemoryMiddleware(memory_manager=mm).on_system_prompt(
+        _make_agent(source="user"),
+        "System prompt",
+    )
+
+    assert prompt == "System prompt\n\nMemory guidance"
+    assert getter_threads[0] != event_loop_thread
 
 
 # ---------------------------------------------------------------------------

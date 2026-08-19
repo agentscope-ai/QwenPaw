@@ -1,0 +1,162 @@
+.header {
+  position: relative;
+  display: flex;
+  width: calc(100% - 12px);
+  height: 38px;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 6px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  cursor: pointer;
+}
+
+.header:hover {
+  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+
+  .more {
+    opacity: 1;
+  }
+}
+
+.source {
+  margin-top: 8px;
+  background: color-mix(in srgb, var(--color-primary, #ff7f16) 5%, transparent);
+  color: var(--colorPrimary, #ff7f16);
+}
+
+.pinned {
+  background: var(--colorFillQuaternary, rgba(43, 18, 0, 0.025));
+}
+
+.chevron,
+.kindIcon,
+.more,
+.pinMark,
+.lockMark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.chevron {
+  transition: transform 0.16s ease;
+}
+
+.collapsed {
+  transform: rotate(-90deg);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-flex;
+  min-width: 20px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--colorFillTertiary, rgba(43, 18, 0, 0.05));
+  font-size: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.pinMark {
+  color: var(--color-primary, #ff7f16);
+  transition: opacity 0.15s ease;
+}
+
+.lockMark {
+  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.3));
+}
+
+.more {
+  position: absolute;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.managed:hover,
+.managed:focus-within {
+  .count,
+  .pinMark {
+    opacity: 0;
+  }
+}
+
+.more:hover {
+  background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+}
+
+.renameInput {
+  min-width: 0;
+  flex: 1;
+  height: 26px;
+  font-size: 11px;
+}
+
+:global(.dark-mode) {
+  .header {
+    color: rgba(255, 255, 255, 0.68);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.95);
+    }
+  }
+
+  .pinned {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .count {
+    background: rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .lockMark {
+    color: rgba(255, 255, 255, 0.38);
+  }
+
+  .more:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+@media (hover: none), (max-width: 768px) {
+  .more {
+    position: static;
+    opacity: 1;
+  }
+
+  .managed:hover,
+  .managed:focus-within {
+    .count,
+    .pinMark {
+      opacity: 1;
+    }
+  }
+}
