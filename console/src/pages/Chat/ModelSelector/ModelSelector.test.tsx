@@ -1016,18 +1016,27 @@ describe("ModelSelector", () => {
       }),
     );
 
-    await user.selectOptions(
-      await screen.findByLabelText("modelSelector.thinkingLevel"),
-      "high",
+    await user.click(
+      await screen.findByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
     );
-    await user.selectOptions(
-      screen.getByLabelText("modelSelector.subagentModel"),
-      "openai:gpt-3.5-turbo",
+    const thinkingOptions = screen.getAllByText("modelSelector.thinking.high");
+    await user.click(thinkingOptions[thinkingOptions.length - 1]);
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "modelSelector.subagentModel",
+      }),
     );
-    await user.selectOptions(
-      screen.getByLabelText("modelSelector.chooseFallback"),
-      "openai:gpt-3.5-turbo",
+    const subagentOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(subagentOptions[subagentOptions.length - 1]);
+    await user.click(
+      screen.getByRole("combobox", {
+        name: "modelSelector.chooseFallback",
+      }),
     );
+    const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    await user.click(fallbackOptions[fallbackOptions.length - 1]);
     await user.click(
       screen.getByRole("button", { name: "modelSelector.addFallback" }),
     );
@@ -1306,7 +1315,9 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByLabelText("modelSelector.thinkingLevel"),
+      await screen.findByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
     ).toBeDisabled();
     expect(
       screen.getByText("modelSelector.thinkingUnsupported"),
@@ -1362,7 +1373,9 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByLabelText("modelSelector.thinkingLevel"),
+      await screen.findByRole("combobox", {
+        name: "modelSelector.thinkingLevel",
+      }),
     ).not.toBeDisabled();
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
