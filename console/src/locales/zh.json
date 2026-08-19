@@ -3514,7 +3514,7 @@
       },
       "runtime": {
         "title": "运行环境策略",
-        "description": "管理员统一选择所有新运行环境使用的后端。",
+        "description": "管理员统一选择运行环境后端；现有环境将在下次重启时切换。",
         "provisioner": "运行环境后端",
         "localBackend": "本机进程",
         "localBackendHint": "直接在当前宿主机上运行隔离进程。",

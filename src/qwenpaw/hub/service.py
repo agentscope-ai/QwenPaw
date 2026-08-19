@@ -246,8 +246,8 @@ class RuntimeService:
         *,
         owner_initiated: bool = False,
     ) -> RuntimeRecord:
-        """Restart one runtime as an atomic lifecycle operation."""
-        with self._runtime_lock(runtime_id):
+        """Restart one runtime with the current administrator policy."""
+        with self._runtime_lock(runtime_id), self._admission_lock:
             record = self.get(runtime_id)
             if (
                 owner_initiated
@@ -256,6 +256,7 @@ class RuntimeService:
                 raise PermissionError(
                     "Runtime start is restricted by an administrator.",
                 )
+            provisioner_name, metadata = self._current_runtime_policy(record)
             if record.state in {
                 RuntimeState.STARTING,
                 RuntimeState.RUNNING,
@@ -265,9 +266,27 @@ class RuntimeService:
                     desired_state=RuntimeState.STOPPED,
                 )
                 stopped = self._provisioner(requested).stop(requested)
-                self.registry.save(stopped)
-            with self._admission_lock:
-                return self._start_locked(runtime_id)
+                record = self.registry.save(stopped)
+            reconciled = replace(
+                record,
+                provisioner=provisioner_name,
+                host=(
+                    "127.0.0.1"
+                    if provisioner_name != record.provisioner
+                    else record.host
+                ),
+                port=(
+                    0
+                    if provisioner_name != record.provisioner
+                    else record.port
+                ),
+                pid=None,
+                last_error=None,
+                metadata=metadata,
+            )
+            if reconciled != record:
+                self.registry.save(reconciled)
+            return self._start_locked(runtime_id)
 
     def rebuild(self, runtime_id: str) -> RuntimeRecord:
         """Recreate a Docker runtime with the current global image policy."""
@@ -381,6 +400,22 @@ class RuntimeService:
                 f"Unknown runtime provisioner: {record.provisioner}",
             )
         return provisioner
+
+    def _current_runtime_policy(
+        self,
+        record: RuntimeRecord,
+    ) -> tuple[str, dict[str, object]]:
+        """Resolve backend metadata from the current administrator policy."""
+        provisioner_name = self.default_provisioner
+        self.require_provisioner_available(provisioner_name)
+        provisioner = self.provisioners[provisioner_name]
+        metadata = dict(record.metadata)
+        for name in self.provisioners:
+            metadata.pop(name, None)
+        normalized_config = provisioner.validate_config({})
+        if normalized_config:
+            metadata[provisioner_name] = normalized_config
+        return provisioner_name, metadata
 
     def _preflight_provisioners(
         self,

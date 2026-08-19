@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.hub.config import (
+    DockerRuntimeConfig,
     HubConfig,
     RuntimeCapacityConfig,
     RuntimeConfig,
@@ -31,11 +32,32 @@ class _FakeProvisioner(RuntimeProvisioner):
     name = "local"
     security_level = "test"
 
-    def __init__(self, available: bool = True) -> None:
+    def __init__(
+        self,
+        available: bool = True,
+        *,
+        name: str = "local",
+        start_error: str | None = None,
+    ) -> None:
+        self.name = name
         self.available = available
+        self.start_error = start_error
+        self.config: dict[str, object] = {}
         self.status_calls = 0
         self.start_calls = 0
         self.stop_calls = 0
+
+    def configure(self, config: Mapping[str, object]) -> None:
+        self.config = dict(config)
+
+    def validate_config(self, value: object) -> dict[str, object]:
+        del value
+        if self.name != "docker":
+            return {}
+        return {
+            "image": self.config["image"],
+            "pull_policy": self.config["pull_policy"],
+        }
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         del root_dir
@@ -51,6 +73,8 @@ class _FakeProvisioner(RuntimeProvisioner):
     ) -> RuntimeRecord:
         del credentials
         self.start_calls += 1
+        if self.start_error is not None:
+            raise RuntimeError(self.start_error)
         return replace(record, state=RuntimeState.RUNNING, pid=100)
 
     def stop(self, record: RuntimeRecord) -> RuntimeRecord:
@@ -173,6 +197,133 @@ def test_restart_starts_failed_runtime_without_stopping(
     assert restarted.state is RuntimeState.RUNNING
     assert provisioner.start_calls == 1
     assert provisioner.stop_calls == 0
+
+
+def test_restart_switches_to_current_administrator_backend(
+    tmp_path: Path,
+) -> None:
+    local = _FakeProvisioner(name="local")
+    docker = _FakeProvisioner(name="docker")
+    service = RuntimeService(
+        root_dir=tmp_path,
+        registry=RuntimeRegistry(tmp_path / "control.db"),
+        provisioners={"local": local, "docker": docker},
+        credential_provider=lambda _: {},
+        hub_config=HubConfig(),
+    )
+    service.create(_spec("runtime-a"))
+    service.start("runtime-a")
+    service.apply_config(
+        HubConfig(
+            runtime=RuntimeConfig(
+                provisioner="docker",
+                docker=DockerRuntimeConfig(
+                    source="custom",
+                    image="qwenpaw-hub-test:pr-7112",
+                    pull_policy="never",
+                ),
+            ),
+        ),
+    )
+
+    restarted = service.restart("runtime-a", owner_initiated=True)
+
+    assert restarted.provisioner == "docker"
+    assert restarted.host == "127.0.0.1"
+    assert restarted.port == 0
+    assert restarted.metadata["docker"] == {
+        "image": "qwenpaw-hub-test:pr-7112",
+        "pull_policy": "never",
+    }
+    assert local.stop_calls == 1
+    assert docker.start_calls == 1
+
+
+def test_restart_refreshes_current_docker_image_policy(
+    tmp_path: Path,
+) -> None:
+    local = _FakeProvisioner(name="local")
+    docker = _FakeProvisioner(name="docker")
+    initial_config = HubConfig(
+        runtime=RuntimeConfig(
+            provisioner="docker",
+            docker=DockerRuntimeConfig(
+                source="custom",
+                image="qwenpaw:test-old",
+                pull_policy="never",
+            ),
+        ),
+    )
+    service = RuntimeService(
+        root_dir=tmp_path,
+        registry=RuntimeRegistry(tmp_path / "control.db"),
+        provisioners={"local": local, "docker": docker},
+        credential_provider=lambda _: {},
+        hub_config=initial_config,
+    )
+    service.create(_spec("runtime-a"))
+    service.start("runtime-a")
+    service.apply_config(
+        initial_config.model_copy(
+            update={
+                "runtime": RuntimeConfig(
+                    provisioner="docker",
+                    docker=DockerRuntimeConfig(
+                        source="custom",
+                        image="qwenpaw:test-new",
+                        pull_policy="never",
+                    ),
+                ),
+            },
+        ),
+    )
+
+    restarted = service.restart("runtime-a")
+
+    assert restarted.metadata["docker"] == {
+        "image": "qwenpaw:test-new",
+        "pull_policy": "never",
+    }
+    assert docker.stop_calls == 1
+    assert docker.start_calls == 2
+
+
+def test_restart_persists_target_backend_failure(tmp_path: Path) -> None:
+    local = _FakeProvisioner(name="local")
+    docker = _FakeProvisioner(
+        name="docker",
+        start_error="container failed",
+    )
+    service = RuntimeService(
+        root_dir=tmp_path,
+        registry=RuntimeRegistry(tmp_path / "control.db"),
+        provisioners={"local": local, "docker": docker},
+        credential_provider=lambda _: {},
+        hub_config=HubConfig(),
+    )
+    service.create(_spec("runtime-a"))
+    service.start("runtime-a")
+    service.apply_config(
+        HubConfig(
+            runtime=RuntimeConfig(
+                provisioner="docker",
+                docker=DockerRuntimeConfig(
+                    source="custom",
+                    image="qwenpaw:test",
+                    pull_policy="never",
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="container failed"):
+        service.restart("runtime-a")
+
+    failed = service.get("runtime-a")
+    assert failed.provisioner == "docker"
+    assert failed.state is RuntimeState.FAILED
+    assert failed.last_error == "container failed"
+    assert local.stop_calls == 1
 
 
 def test_owner_can_restart_runtime_after_recoverable_stop(

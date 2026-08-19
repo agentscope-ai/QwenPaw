@@ -3657,7 +3657,7 @@
       },
       "runtime": {
         "title": "Runtime policy",
-        "description": "Select the single backend used for every new runtime.",
+        "description": "Select the runtime backend. Existing runtimes switch on their next restart.",
         "provisioner": "Runtime backend",
         "localBackend": "Local process",
         "localBackendHint": "Runs isolated processes directly on this host.",
