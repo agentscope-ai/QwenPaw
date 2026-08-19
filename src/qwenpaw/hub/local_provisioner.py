@@ -18,6 +18,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import IO, Any
 
+from .credentials import runtime_credential_name_allowed
 from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
 from .models import RuntimeRecord, RuntimeState
 from .process_isolation import ProcessIsolator, platform_process_isolator
@@ -306,7 +307,13 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 for value in python_path.split(os.pathsep)
                 if value
             )
-        environment.update(credentials)
+        environment.update(
+            {
+                name: value
+                for name, value in credentials.items()
+                if runtime_credential_name_allowed(name)
+            },
+        )
         environment["HOME"] = str(record.working_dir)
         environment["TMP"] = str(record.working_dir / "tmp")
         environment["TEMP"] = str(record.working_dir / "tmp")
@@ -319,6 +326,9 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         ] = f"qwenpaw-hub-{record.runtime_id}"
         environment["QWENPAW_RUNTIME_ID"] = record.runtime_id
         environment["QWENPAW_TENANT_ID"] = record.tenant_id
+        runtime_token = credentials.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")
+        if runtime_token:
+            environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] = runtime_token
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         return environment

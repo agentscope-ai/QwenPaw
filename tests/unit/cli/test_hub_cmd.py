@@ -65,7 +65,8 @@ def test_app_rejects_removed_pro_option() -> None:
     result = CliRunner().invoke(app_cmd, ["--pro"])
 
     assert result.exit_code != 0
-    assert "No such option '--pro'" in result.output
+    assert "No such option" in result.output
+    assert "--pro" in result.output
 
 
 def test_hub_is_registered_at_root() -> None:

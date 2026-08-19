@@ -22,6 +22,35 @@ from .database import (
 _CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _SYSTEM_TENANT_ID = "__qwenpaw_hub_system__"
 _SYSTEM_SCOPE = "control"
+_RUNTIME_CONTROL_NAMES = {
+    "BASH_ENV",
+    "COMSPEC",
+    "CONDA_PREFIX",
+    "ENV",
+    "HOME",
+    "PATH",
+    "PATHEXT",
+    "SHELLOPTS",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "VIRTUAL_ENV",
+    "WINDIR",
+}
+_RUNTIME_CONTROL_PREFIXES = (
+    "DYLD_",
+    "LD_",
+    "PYTHON",
+    "QWENPAW_",
+)
+
+
+def runtime_credential_name_allowed(name: str) -> bool:
+    """Return whether a tenant may project a credential into a runtime."""
+    return name not in _RUNTIME_CONTROL_NAMES and not name.startswith(
+        _RUNTIME_CONTROL_PREFIXES,
+    )
 
 
 class TenantCredentialVault:
@@ -44,9 +73,12 @@ class TenantCredentialVault:
         scope: str,
         name: str,
         value: str,
+        trusted: bool = False,
     ) -> None:
         """Create or replace one credential inside an explicit tenant scope."""
         self._validate_scope(tenant_id, scope, name)
+        if not trusted:
+            self._validate_runtime_credential_name(name)
         if not value:
             raise ValueError("Credential value cannot be empty.")
         encrypted = self._fernet.encrypt(value.encode("utf-8")).decode("ascii")
@@ -197,11 +229,15 @@ class TenantCredentialVault:
         runtime_id: str,
     ) -> dict[str, str]:
         """Resolve tenant credentials with runtime-specific overrides."""
-        resolved = self._resolve_scope(tenant_id, "tenant")
-        resolved.update(
+        stored = self._resolve_scope(tenant_id, "tenant")
+        stored.update(
             self._resolve_scope(tenant_id, f"runtime:{runtime_id}"),
         )
-        return resolved
+        return {
+            name: value
+            for name, value in stored.items()
+            if runtime_credential_name_allowed(name)
+        }
 
     def get_or_create_system_secret(self, name: str) -> str:
         """Store control-plane keys in the encrypted system tenant scope."""
@@ -218,6 +254,7 @@ class TenantCredentialVault:
             scope=_SYSTEM_SCOPE,
             name=name,
             value=value,
+            trusted=True,
         )
         return value
 
@@ -229,9 +266,17 @@ class TenantCredentialVault:
         name: str,
     ) -> str:
         """Create a stable tenant-qualified runtime boundary secret."""
-        scope = f"runtime:{runtime_id}"
+        try:
+            self.delete(
+                tenant_id=tenant_id,
+                scope=f"runtime:{runtime_id}",
+                name=name,
+            )
+        except KeyError:
+            pass
+        scope = self._runtime_control_scope(tenant_id, runtime_id)
         existing = self.get(
-            tenant_id=tenant_id,
+            tenant_id=_SYSTEM_TENANT_ID,
             scope=scope,
             name=name,
         )
@@ -239,12 +284,27 @@ class TenantCredentialVault:
             return existing
         value = secrets.token_urlsafe(48)
         self.put(
-            tenant_id=tenant_id,
+            tenant_id=_SYSTEM_TENANT_ID,
             scope=scope,
             name=name,
             value=value,
+            trusted=True,
         )
         return value
+
+    def get_runtime_secret(
+        self,
+        *,
+        tenant_id: str,
+        runtime_id: str,
+        name: str,
+    ) -> str | None:
+        """Read a server-owned runtime secret outside tenant scopes."""
+        return self.get(
+            tenant_id=_SYSTEM_TENANT_ID,
+            scope=self._runtime_control_scope(tenant_id, runtime_id),
+            name=name,
+        )
 
     def _resolve_scope(self, tenant_id: str, scope: str) -> dict[str, str]:
         with self._connect() as connection:
@@ -278,6 +338,10 @@ class TenantCredentialVault:
         return key
 
     @staticmethod
+    def _runtime_control_scope(tenant_id: str, runtime_id: str) -> str:
+        return f"runtime-control:{tenant_id}:{runtime_id}"
+
+    @staticmethod
     def _validate_scope(tenant_id: str, scope: str, name: str) -> None:
         if not tenant_id or not scope:
             raise ValueError("tenant_id and scope are required.")
@@ -285,4 +349,11 @@ class TenantCredentialVault:
             raise ValueError(
                 "Credential name must be an uppercase environment "
                 "variable name.",
+            )
+
+    @staticmethod
+    def _validate_runtime_credential_name(name: str) -> None:
+        if not runtime_credential_name_allowed(name):
+            raise ValueError(
+                f"Credential name is reserved by the runtime: {name}",
             )

@@ -141,7 +141,11 @@ def test_container_launch_applies_persistence_security_and_limits(
 
     running = provisioner.start(
         _record(tmp_path),
-        {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token"},
+        {
+            "QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token",
+            "PYTHONPATH": "/",
+            "OPENAI_API_KEY": "tenant-key",
+        },
     )
 
     launch = client.containers.run_kwargs
@@ -151,6 +155,11 @@ def test_container_launch_applies_persistence_security_and_limits(
     assert launch["pids_limit"] == 512
     assert launch["shm_size"] == "256m"
     assert launch["security_opt"] == ["no-new-privileges:true"]
+    environment = launch["environment"]
+    assert isinstance(environment, dict)
+    assert "PYTHONPATH" not in environment
+    assert environment["OPENAI_API_KEY"] == "tenant-key"
+    assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "runtime-token"
     volumes = launch["volumes"]
     assert isinstance(volumes, dict)
     assert set(volumes) == {

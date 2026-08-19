@@ -17,6 +17,7 @@ from typing import Any
 import docker
 from docker.errors import DockerException, ImageNotFound, NotFound
 
+from .credentials import runtime_credential_name_allowed
 from .models import RuntimeRecord, RuntimeState
 from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
 
@@ -121,7 +122,11 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         ):
             path.mkdir(parents=True, exist_ok=True)
 
-        environment = dict(credentials)
+        environment = {
+            name: value
+            for name, value in credentials.items()
+            if runtime_credential_name_allowed(name)
+        }
         environment.update(
             {
                 "QWENPAW_WORKING_DIR": "/app/working",
@@ -129,6 +134,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 "QWENPAW_BACKUP_DIR": "/app/working.backups",
                 "QWENPAW_RUNTIME_ID": record.runtime_id,
                 "QWENPAW_TENANT_ID": record.tenant_id,
+                "QWENPAW_RUNTIME_INTERNAL_TOKEN": runtime_token,
             },
         )
         labels = self._labels(record.runtime_id, record.owner_user_id)

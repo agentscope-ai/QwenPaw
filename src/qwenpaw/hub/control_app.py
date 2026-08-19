@@ -13,7 +13,15 @@ from typing import Any, AsyncIterator
 
 import httpx
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+)
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -51,6 +59,7 @@ from .models import (
 from .operations import HubOperationsStore
 from .registry import RuntimeRegistry
 from .service import RuntimeService
+from . import websocket_proxy
 
 _ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
@@ -375,9 +384,15 @@ def create_hub_app(  # pylint: disable=too-many-statements
             )
         return client_ip
 
-    def require_runtime_access(runtime_id: str, user: HubUser) -> None:
+    async def require_runtime_access(
+        runtime_id: str,
+        user: HubUser,
+    ) -> None:
         try:
-            record = runtime_service.get(runtime_id)
+            record = await run_in_threadpool(
+                runtime_service.get,
+                runtime_id,
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -472,7 +487,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 ) from exc
         return record
 
-    def validate_credential_scope(scope: str, user: HubUser) -> None:
+    async def validate_credential_scope(
+        scope: str,
+        user: HubUser,
+    ) -> None:
         if scope == "tenant":
             return
         prefix = "runtime:"
@@ -483,7 +501,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
             )
         runtime_id = scope[len(prefix) :]
         try:
-            record = runtime_service.get(runtime_id)
+            record = await run_in_threadpool(
+                runtime_service.get,
+                runtime_id,
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -526,7 +547,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @app.get("/api/auth/status")
     async def auth_status() -> dict[str, object]:
-        return hub_auth.status()
+        return await run_in_threadpool(hub_auth.status)
 
     @app.post("/api/auth/register")
     async def register(
@@ -809,7 +830,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         body: CredentialBody,
         user: HubUser = Depends(require_user),
     ) -> None:
-        validate_credential_scope(body.scope, user)
+        await validate_credential_scope(body.scope, user)
         try:
             await run_in_threadpool(
                 credential_vault.put,
@@ -833,7 +854,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         name: str,
         user: HubUser = Depends(require_user),
     ) -> None:
-        validate_credential_scope(scope, user)
+        await validate_credential_scope(scope, user)
         try:
             await run_in_threadpool(
                 credential_vault.delete,
@@ -1036,7 +1057,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_id: str,
         user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
-        require_runtime_access(runtime_id, user)
+        await require_runtime_access(runtime_id, user)
         try:
             record = await run_in_threadpool(
                 runtime_service.status,
@@ -1054,7 +1075,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_id: str,
         user: HubUser = Depends(require_admin),
     ) -> dict[str, Any]:
-        require_runtime_access(runtime_id, user)
+        await require_runtime_access(runtime_id, user)
         try:
             record = await run_in_threadpool(
                 runtime_service.start,
@@ -1085,7 +1106,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         user: HubUser = Depends(require_admin),
     ) -> dict[str, Any]:
         """Rebuild a Docker runtime with the current global image."""
-        require_runtime_access(runtime_id, user)
+        await require_runtime_access(runtime_id, user)
         try:
             record = await run_in_threadpool(
                 runtime_service.rebuild,
@@ -1115,7 +1136,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_id: str,
         user: HubUser = Depends(require_admin),
     ) -> dict[str, Any]:
-        require_runtime_access(runtime_id, user)
+        await require_runtime_access(runtime_id, user)
         try:
             record = await run_in_threadpool(
                 runtime_service.stop,
@@ -1139,7 +1160,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_id: str,
         user: HubUser = Depends(require_admin),
     ) -> dict[str, Any]:
-        require_runtime_access(runtime_id, user)
+        await require_runtime_access(runtime_id, user)
         try:
             record = await run_in_threadpool(
                 runtime_service.stop,
@@ -1164,7 +1185,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_id: str,
         user: HubUser = Depends(require_user),
     ) -> None:
-        require_runtime_access(runtime_id, user)
+        await require_runtime_access(runtime_id, user)
         try:
             await run_in_threadpool(runtime_service.delete, runtime_id)
         except KeyError as exc:
@@ -1253,9 +1274,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 detail="OAuth callback runtime is not running",
             )
         internal_token = await run_in_threadpool(
-            credential_vault.get,
+            credential_vault.get_runtime_secret,
             tenant_id=record.tenant_id,
-            scope=f"runtime:{record.runtime_id}",
+            runtime_id=record.runtime_id,
             name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         if internal_token is None:
@@ -1310,9 +1331,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> Response:
         record = await ensure_personal_runtime(user)
         internal_token = await run_in_threadpool(
-            credential_vault.get,
+            credential_vault.get_runtime_secret,
             tenant_id=record.tenant_id,
-            scope=f"runtime:{record.runtime_id}",
+            runtime_id=record.runtime_id,
             name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         if internal_token is None:
@@ -1400,6 +1421,53 @@ def create_hub_app(  # pylint: disable=too-many-statements
             headers=response_headers,
         )
 
+    @app.websocket("/api/{path:path}")
+    async def personal_runtime_websocket_proxy(
+        websocket: WebSocket,
+        path: str,
+    ) -> None:
+        authorization = websocket.headers.get("authorization", "")
+        prefix = "Bearer "
+        token = (
+            authorization[len(prefix) :]
+            if authorization.startswith(prefix)
+            else ""
+        )
+        if not token:
+            await websocket.close(code=4401)
+            return
+        user = await run_in_threadpool(hub_auth.verify_token, token)
+        if user is None:
+            await websocket.close(code=4401)
+            return
+        try:
+            record = await ensure_personal_runtime(user)
+            internal_token = await run_in_threadpool(
+                credential_vault.get_runtime_secret,
+                tenant_id=record.tenant_id,
+                runtime_id=record.runtime_id,
+                name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+            )
+            if internal_token is None:
+                await websocket.close(code=1013)
+                return
+            target = f"ws://{record.host}:{record.port}/api/{path}"
+            if websocket.url.query:
+                target = f"{target}?{websocket.url.query}"
+            await websocket_proxy.relay_websocket(
+                websocket,
+                target,
+                headers={
+                    "X-QwenPaw-Runtime-Token": internal_token,
+                },
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            logging.exception("Personal runtime WebSocket proxy failed")
+            try:
+                await websocket.close(code=1013)
+            except RuntimeError:
+                return
+
     static_dir = _resolve_console_static_dir()
     assets_dir = static_dir / "assets"
     if assets_dir.is_dir():
@@ -1413,11 +1481,14 @@ def create_hub_app(  # pylint: disable=too-many-statements
     async def hub_console(path: str) -> Response:
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
-        index_file = static_dir / "index.html"
-        requested = (static_dir / path).resolve()
-        if requested.is_file() and static_dir in requested.parents:
+        requested, index_file = await run_in_threadpool(
+            _resolve_console_response,
+            static_dir,
+            path,
+        )
+        if requested is not None:
             return FileResponse(requested)
-        if index_file.is_file():
+        if index_file is not None:
             return FileResponse(
                 index_file,
                 headers={
@@ -1435,6 +1506,20 @@ def create_hub_app(  # pylint: disable=too-many-statements
         )
 
     return app
+
+
+def _resolve_console_response(
+    static_dir: Path,
+    path: str,
+) -> tuple[Path | None, Path | None]:
+    """Resolve static response paths outside the asyncio event loop."""
+    index_file = static_dir / "index.html"
+    requested = (static_dir / path).resolve()
+    if requested.is_file() and static_dir in requested.parents:
+        return requested, None
+    if index_file.is_file():
+        return None, index_file
+    return None, None
 
 
 def _resolve_console_static_dir() -> Path:

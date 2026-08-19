@@ -4,6 +4,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from qwenpaw.hub.credentials import TenantCredentialVault
 from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
@@ -103,6 +105,133 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
     assert environment["ANTHROPIC_API_KEY"] == "tenant-key"
     assert environment["QWENPAW_TENANT_ID"] == "tenant-a"
     assert environment.get("PATH") == os.environ.get("PATH")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "PATH",
+        "PYTHONPATH",
+        "HOME",
+        "TMPDIR",
+        "QWENPAW_WORKING_DIR",
+        "LD_PRELOAD",
+        "DYLD_INSERT_LIBRARIES",
+    ],
+)
+def test_tenant_cannot_store_runtime_control_credentials(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    vault = TenantCredentialVault(
+        tmp_path / "control.db",
+        tmp_path / ".vault_key",
+    )
+
+    with pytest.raises(ValueError, match="reserved by the runtime"):
+        vault.put(
+            tenant_id="tenant-a",
+            scope="tenant",
+            name=name,
+            value="attacker-controlled",
+        )
+
+
+def test_preexisting_control_credentials_are_not_resolved(
+    tmp_path: Path,
+) -> None:
+    vault = TenantCredentialVault(
+        tmp_path / "control.db",
+        tmp_path / ".vault_key",
+    )
+    vault.put(
+        tenant_id="tenant-a",
+        scope="tenant",
+        name="PYTHONPATH",
+        value="/",
+        trusted=True,
+    )
+
+    assert (
+        vault.resolve_environment(
+            tenant_id="tenant-a",
+            runtime_id="runtime-a",
+        )
+        == {}
+    )
+
+
+def test_runtime_boundary_secret_ignores_tenant_planted_value(
+    tmp_path: Path,
+) -> None:
+    vault = TenantCredentialVault(
+        tmp_path / "control.db",
+        tmp_path / ".vault_key",
+    )
+    vault.put(
+        tenant_id="tenant-a",
+        scope="runtime:runtime-a",
+        name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+        value="tenant-known-token",
+        trusted=True,
+    )
+
+    secret = vault.get_or_create_runtime_secret(
+        tenant_id="tenant-a",
+        runtime_id="runtime-a",
+        name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+    )
+
+    assert secret != "tenant-known-token"
+    assert (
+        vault.get(
+            tenant_id="tenant-a",
+            scope="runtime:runtime-a",
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+        )
+        is None
+    )
+    assert (
+        vault.get_runtime_secret(
+            tenant_id="tenant-a",
+            runtime_id="runtime-a",
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+        )
+        == secret
+    )
+
+
+def test_local_runtime_filters_untrusted_control_environment(
+    tmp_path: Path,
+) -> None:
+    record = RuntimeRecord(
+        runtime_id="runtime-a",
+        tenant_id="tenant-a",
+        owner_user_id="user-a",
+        provisioner="local",
+        host="127.0.0.1",
+        port=9001,
+        state=RuntimeState.CREATED,
+        working_dir=tmp_path / "working",
+        secret_dir=tmp_path / "secrets",
+        backup_dir=tmp_path / "backups",
+        log_file=tmp_path / "logs" / "app.log",
+    )
+
+    environment = LocalProcessRuntimeProvisioner.runtime_environment(
+        record,
+        {
+            "PYTHONPATH": "/",
+            "QWENPAW_WORKING_DIR": "/other-tenant",
+            "QWENPAW_RUNTIME_INTERNAL_TOKEN": "boundary-token",
+            "OPENAI_API_KEY": "tenant-key",
+        },
+    )
+
+    assert environment.get("PYTHONPATH") != "/"
+    assert environment["QWENPAW_WORKING_DIR"] == str(record.working_dir)
+    assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "boundary-token"
+    assert environment["OPENAI_API_KEY"] == "tenant-key"
 
 
 def test_credential_metadata_pages_are_tenant_scoped_and_filterable(

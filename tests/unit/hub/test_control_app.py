@@ -2,9 +2,11 @@
 """Authorization tests for QwenPaw Hub control-plane APIs."""
 
 from collections.abc import AsyncIterator, Mapping
+import asyncio
 import gzip
 from pathlib import Path
 import sqlite3
+import threading
 from urllib.parse import urlsplit
 from unittest.mock import patch
 
@@ -12,6 +14,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
+from starlette.websockets import WebSocketDisconnect
+from websockets.sync.server import ServerConnection, serve
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.hub.auth import HubAuthService
@@ -36,8 +40,9 @@ class _FakeProvisioner(RuntimeProvisioner):
     name = "local"
     security_level = "isolated-local"
 
-    def __init__(self, available: bool = True) -> None:
+    def __init__(self, available: bool = True, port: int = 0) -> None:
         self.available = available
+        self.port = port
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         del root_dir
@@ -57,6 +62,7 @@ class _FakeProvisioner(RuntimeProvisioner):
                 **record.__dict__,
                 "state": RuntimeState.RUNNING,
                 "pid": 100,
+                "port": self.port or record.port,
             },
         )
 
@@ -86,6 +92,7 @@ def _client(
     proxy_transport: httpx.AsyncBaseTransport | None = None,
     hub_config: HubConfig | None = None,
     provisioner_available: bool = True,
+    runtime_port: int = 0,
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -111,7 +118,12 @@ def _client(
     service = RuntimeService(
         root_dir=tmp_path,
         registry=registry,
-        provisioners={"local": _FakeProvisioner(provisioner_available)},
+        provisioners={
+            "local": _FakeProvisioner(
+                provisioner_available,
+                runtime_port,
+            ),
+        },
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -169,6 +181,92 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_websocket_proxy_requires_hub_authentication(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        with pytest.raises(WebSocketDisconnect) as caught:
+            with client.websocket_connect("/api/ws/chrome"):
+                pass
+
+    assert caught.value.code == 4401
+
+
+def test_websocket_proxy_relays_authenticated_session(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def relay(websocket, upstream_url: str, *, headers) -> None:
+        captured["url"] = upstream_url
+        captured["headers"] = headers
+        await websocket.accept()
+        message = await websocket.receive_text()
+        await websocket.send_text(f"relayed:{message}")
+        await websocket.close(code=4000)
+
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        with patch(
+            "qwenpaw.hub.websocket_proxy.relay_websocket",
+            new=relay,
+        ):
+            with client.websocket_connect(
+                "/api/ws/chrome?mode=test",
+                headers=_headers(token),
+            ) as websocket:
+                websocket.send_text("hello")
+                assert websocket.receive_text() == "relayed:hello"
+
+    assert captured["url"] == "ws://127.0.0.1:0/api/ws/chrome?mode=test"
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers["X-QwenPaw-Runtime-Token"]
+
+
+def test_websocket_proxy_relays_real_text_and_binary_frames(
+    tmp_path: Path,
+) -> None:
+    upstream_headers: dict[str, str] = {}
+
+    def echo(connection: ServerConnection) -> None:
+        upstream_headers.update(connection.request.headers)
+        for message in connection:
+            connection.send(message)
+
+    with serve(echo, "127.0.0.1", 0) as server:
+        port = int(server.socket.getsockname()[1])
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            with _client(tmp_path, runtime_port=port) as client:
+                token = _register(client, "owner")
+                with client.websocket_connect(
+                    "/api/ws/echo",
+                    headers=_headers(token),
+                ) as websocket:
+                    websocket.send_text("hello")
+                    assert websocket.receive_text() == "hello"
+                    websocket.send_bytes(b"binary")
+                    assert websocket.receive_bytes() == b"binary"
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+
+    assert upstream_headers["x-qwenpaw-runtime-token"]
+
+
+def test_websocket_proxy_rejects_unavailable_runtime(tmp_path: Path) -> None:
+    with _client(tmp_path, provisioner_available=False) as client:
+        token = _register(client, "owner")
+        with pytest.raises(WebSocketDisconnect) as caught:
+            with client.websocket_connect(
+                "/api/ws/chrome",
+                headers=_headers(token),
+            ):
+                pass
+
+    assert caught.value.code == 1013
+
+
 def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         response = client.get("/api/version")
@@ -176,6 +274,43 @@ def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
         assert response.status_code == 200
         assert response.json() == {"version": __version__}
         assert client.app.state.runtime_service.registry.list() == []
+
+
+@pytest.mark.asyncio
+async def test_slow_auth_status_does_not_block_event_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    with _client(tmp_path) as client:
+        auth = client.app.state.auth_service
+
+        def slow_status() -> dict[str, object]:
+            started.set()
+            release.wait(timeout=2)
+            return {"enabled": True}
+
+        monkeypatch.setattr(auth, "status", slow_status)
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as async_client:
+            blocked = asyncio.create_task(
+                async_client.get("/api/auth/status"),
+            )
+            assert await asyncio.to_thread(started.wait, 1)
+            responsive = await asyncio.wait_for(
+                async_client.get("/api/version"),
+                timeout=0.2,
+            )
+            release.set()
+            status = await blocked
+
+    assert responsive.status_code == 200
+    assert status.json() == {"enabled": True}
 
 
 def test_docker_image_management_is_admin_only(tmp_path: Path) -> None:
@@ -201,6 +336,26 @@ def test_docker_image_management_is_admin_only(tmp_path: Path) -> None:
     assert admin_response.status_code == 200
     assert admin_response.json()["available"] is False
     assert member_response.status_code == 403
+
+
+def test_credential_api_rejects_runtime_control_environment(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+
+        response = client.put(
+            "/api/hub/credentials",
+            headers=_headers(token),
+            json={
+                "scope": "tenant",
+                "name": "PYTHONPATH",
+                "value": "/",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "reserved by the runtime" in response.json()["detail"]
 
 
 def test_runtime_create_rejects_backend_overrides(tmp_path: Path) -> None:

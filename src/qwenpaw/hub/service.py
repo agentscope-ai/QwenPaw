@@ -24,7 +24,17 @@ from .models import (
 )
 from .registry import RuntimeRegistry
 
-_RUNTIME_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+_RUNTIME_ID_PATTERN = re.compile(
+    r"^[a-z0-9](?:[a-z0-9_.-]{0,62}[a-z0-9_-])?$",
+)
+_WINDOWS_RESERVED_NAMES = {
+    "aux",
+    "con",
+    "nul",
+    "prn",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
 
 
 class RuntimeService:
@@ -460,8 +470,13 @@ class RuntimeService:
 
     @staticmethod
     def _validate_identifier(value: str, field_name: str) -> None:
-        if not _RUNTIME_ID_PATTERN.fullmatch(value):
+        windows_basename = value.split(".", 1)[0]
+        if (
+            not _RUNTIME_ID_PATTERN.fullmatch(value)
+            or windows_basename in _WINDOWS_RESERVED_NAMES
+        ):
             raise ValueError(
-                f"Invalid {field_name}: use 1-64 letters, numbers, '.', "
-                f"'_' or '-'",
+                f"Invalid {field_name}: use 1-64 lowercase ASCII letters, "
+                "numbers, '.', '_' or '-', without a trailing dot or "
+                "Windows reserved name",
             )

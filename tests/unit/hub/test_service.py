@@ -150,6 +150,22 @@ def test_runtime_cannot_override_administrator_backend(tmp_path: Path) -> None:
     assert service.registry.list() == []
 
 
+@pytest.mark.parametrize(
+    "runtime_id",
+    ["Runtime-A", "runtime-a.", "con", "nul.txt", "com1", "lpt9.log"],
+)
+def test_runtime_id_rejects_cross_platform_directory_collisions(
+    tmp_path: Path,
+    runtime_id: str,
+) -> None:
+    service = _service(tmp_path, HubConfig())
+
+    with pytest.raises(ValueError, match="Invalid runtime_id"):
+        service.create(_spec(runtime_id))
+
+    assert service.registry.list() == []
+
+
 def test_running_runtime_limit_is_global(tmp_path: Path) -> None:
     service = _service(
         tmp_path,

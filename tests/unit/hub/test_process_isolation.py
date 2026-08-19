@@ -100,6 +100,11 @@ def test_linux_command_mounts_only_runtime_root_writable(
     bind_index = args.index("--bind")
     assert args[bind_index + 1] == str(record.working_dir.parent)
     assert str(record.working_dir.parent.parent) not in args
+    assert ("/etc", "/etc") not in {
+        (args[index + 1], args[index + 2])
+        for index, value in enumerate(args)
+        if value == "--ro-bind"
+    }
     assert "--unshare-pid" in args
     assert "--unshare-user" in args
     assert ["--cap-drop", "ALL"] == args[
@@ -164,6 +169,34 @@ def test_linux_command_mounts_python_base_prefix(
         if value == "--ro-bind"
     }
     assert (str(base_prefix), str(base_prefix)) in read_only_mounts
+
+
+def test_linux_command_never_mounts_pythonpath(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted_path = tmp_path / "trusted-source"
+    trusted_path.mkdir()
+    other_tenant = tmp_path / "runtimes" / "runtime-b"
+    other_tenant.mkdir(parents=True)
+    monkeypatch.setenv("PYTHONPATH", str(trusted_path))
+    isolator = LinuxBubblewrapIsolator("/usr/bin/bwrap")
+    monkeypatch.setattr(isolator, "_probe", lambda *args: None)
+
+    launch = isolator.prepare(
+        _record(tmp_path),
+        ["python", "-m", "qwenpaw"],
+        {"PYTHONPATH": f"{Path('/')}:{other_tenant}"},
+    )
+
+    read_only_sources = {
+        launch.command[index + 1]
+        for index, value in enumerate(launch.command)
+        if value == "--ro-bind"
+    }
+    assert str(trusted_path.resolve()) not in read_only_sources
+    assert str(Path("/")) not in read_only_sources
+    assert str(other_tenant.resolve()) not in read_only_sources
 
 
 def test_provisioner_never_bypasses_injected_isolator(tmp_path: Path) -> None:

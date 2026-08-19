@@ -57,10 +57,15 @@ def _runtime_root(record: RuntimeRecord) -> Path:
     return roots.pop()
 
 
-def _read_roots(environment: Mapping[str, str]) -> list[Path]:
+def _read_roots() -> list[Path]:
     source_root = Path(__file__).resolve().parents[2]
     roots = {
+        Path("/etc/ca-certificates").resolve(),
+        Path("/etc/hosts").resolve(),
+        Path("/etc/nsswitch.conf").resolve(),
         Path("/etc/resolv.conf").resolve(),
+        Path("/etc/ssl/certs").resolve(),
+        Path("/etc/pki/tls/certs").resolve(),
         Path(sys.base_prefix).resolve(),
         Path(sys.executable).resolve(),
         Path(sys.prefix).resolve(),
@@ -70,10 +75,6 @@ def _read_roots(environment: Mapping[str, str]) -> list[Path]:
         repository_root = source_root.parent
         roots.add(repository_root / "website" / "public" / "docs")
         roots.add(repository_root / "console" / "dist")
-    python_path = environment.get("PYTHONPATH", "")
-    for value in python_path.split(os.pathsep):
-        if value:
-            roots.add(Path(value).expanduser().resolve())
     return sorted((path for path in roots if path.exists()), key=str)
 
 
@@ -116,11 +117,10 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             "/sbin",
             "/lib",
             "/lib64",
-            "/etc",
         ):
             if Path(path).exists():
                 args.extend(["--ro-bind", path, path])
-        for path in _read_roots(environment):
+        for path in _read_roots():
             args.extend(["--ro-bind", str(path), str(path)])
         args.extend(
             [
@@ -200,7 +200,7 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
                 "Local isolation requires sandbox-exec on macOS.",
             )
         profile_path = record.secret_dir / "runtime.sb"
-        profile = self._profile(record, environment)
+        profile = self._profile(record)
         profile_path.write_text(profile, encoding="utf-8")
         try:
             os.chmod(profile_path, 0o600)
@@ -215,7 +215,6 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
     def _profile(
         self,
         record: RuntimeRecord,
-        environment: Mapping[str, str],
     ) -> str:
         runtime_root = _runtime_root(record)
         read_paths = [
@@ -225,7 +224,7 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             Path("/sbin"),
             Path("/Library"),
             Path("/private/var/db/timezone"),
-            *_read_roots(environment),
+            *_read_roots(),
             runtime_root,
         ]
         lines = [
