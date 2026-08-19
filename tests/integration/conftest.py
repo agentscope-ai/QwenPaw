@@ -430,7 +430,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     max_attempts = 3
     port = _find_free_port(host)
     while True:
-        process = subprocess.Popen(
+        # Not a ``with`` block: the retry loop owns the process lifetime
+        # across attempts and hands the surviving process to the fixture
+        # teardown below.
+        process = subprocess.Popen(  # pylint: disable=consider-using-with
             [
                 sys.executable,
                 "-m",
