@@ -29,6 +29,10 @@ export default function LoginPage() {
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
   const [termsRead, setTermsRead] = useState(false);
+  const [pendingCredentials, setPendingCredentials] = useState<{
+    username: string;
+    password: string;
+  } | null>(null);
   const { message } = useAppMessage();
   const rawRedirect = searchParams.get("redirect") || "/chat";
   const redirect =
@@ -66,10 +70,10 @@ export default function LoginPage() {
       .catch(() => {});
   }, [finishNavigation, redirect]);
 
-  const onFinish = async (values: { username: string; password: string }) => {
-    if (isHub && !disclaimerAccepted) {
-      return;
-    }
+  const submitCredentials = async (values: {
+    username: string;
+    password: string;
+  }) => {
     setLoading(true);
     try {
       if (isRegister) {
@@ -106,6 +110,15 @@ export default function LoginPage() {
     }
   };
 
+  const onFinish = async (values: { username: string; password: string }) => {
+    if (isHub && !disclaimerAccepted) {
+      setPendingCredentials(values);
+      openTerms();
+      return;
+    }
+    await submitCredentials(values);
+  };
+
   const openTerms = () => {
     setTermsRead(false);
     setTermsOpen(true);
@@ -117,6 +130,16 @@ export default function LoginPage() {
     }
     setDisclaimerAccepted(true);
     setTermsOpen(false);
+    if (pendingCredentials) {
+      const credentials = pendingCredentials;
+      setPendingCredentials(null);
+      void submitCredentials(credentials);
+    }
+  };
+
+  const cancelTerms = () => {
+    setTermsOpen(false);
+    setPendingCredentials(null);
   };
 
   return (
@@ -244,7 +267,6 @@ export default function LoginPage() {
               type="primary"
               htmlType="submit"
               loading={loading}
-              disabled={isHub && !disclaimerAccepted}
               block
               style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
             >
@@ -289,7 +311,7 @@ export default function LoginPage() {
           className={styles.termsModal}
           open={termsOpen}
           title={t("login.hubTermsTitle")}
-          onCancel={() => setTermsOpen(false)}
+          onCancel={cancelTerms}
           footer={
             <Button type="primary" disabled={!termsRead} onClick={acceptTerms}>
               {t("login.hubTermsAgree")}

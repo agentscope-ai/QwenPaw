@@ -41,11 +41,15 @@ describe("LoginPage", () => {
     vi.clearAllMocks();
   });
 
-  it("requires reading the terms before accepting in Hub mode", async () => {
+  it("resumes login after accepting terms in Hub mode", async () => {
     vi.mocked(authApi.getStatus).mockResolvedValue({
       enabled: true,
       has_users: true,
       mode: "hub",
+    });
+    vi.mocked(authApi.login).mockResolvedValue({
+      token: "hub-token",
+      username: "ray",
     });
 
     render(<LoginPage />);
@@ -63,14 +67,17 @@ describe("LoginPage", () => {
       screen.getByRole("navigation", { name: "login.hubLinks" }),
     ).toContainElement(screen.getByRole("link", { name: /GitHub/ }));
     const submit = screen.getByRole("button", { name: "login.submit" });
-    expect(submit).toBeDisabled();
+    expect(submit).toBeEnabled();
 
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: "login.hubDisclaimerAccept",
-      }),
-    );
+    fireEvent.change(screen.getByPlaceholderText("login.usernamePlaceholder"), {
+      target: { value: "ray" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("login.passwordPlaceholder"), {
+      target: { value: "password" },
+    });
+    fireEvent.click(submit);
 
+    expect(authApi.login).not.toHaveBeenCalled();
     const agree = await screen.findByRole("button", {
       name: "login.hubTermsAgree",
     });
@@ -87,7 +94,9 @@ describe("LoginPage", () => {
     expect(agree).toBeEnabled();
     fireEvent.click(agree);
 
-    expect(submit).toBeEnabled();
+    await waitFor(() =>
+      expect(authApi.login).toHaveBeenCalledWith("ray", "password"),
+    );
     expect(
       screen.getByRole("checkbox", {
         name: "login.hubDisclaimerAccept",
