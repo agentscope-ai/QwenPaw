@@ -22,6 +22,10 @@ import tempfile
 from typing import BinaryIO, Literal, Protocol
 
 from domain.errors import StorageIntegrityError, ValidationError
+from services.runtime_files.atomic_store import (
+    chmod_descriptor_if_supported,
+    fsync_directory as runtime_fsync_directory,
+)
 
 
 ContentNamespace = Literal["blob", "artifact"]
@@ -51,17 +55,7 @@ def _notify(hook: WriteStageHook | None, stage: str, path: Path) -> None:
 
 def _fsync_directory(path: Path) -> None:
     """Persist a directory entry update where the platform supports it."""
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:  # pragma: no cover - uncommon platform limitation
-        raise StorageIntegrityError(f"无法打开目录进行 fsync: {path}") from exc
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    runtime_fsync_directory(path)
 
 
 def atomic_replace_bytes(
@@ -88,7 +82,7 @@ def atomic_replace_bytes(
     temp_path = Path(raw_temp)
     _notify(stage_hook, "temp_created", temp_path)
     try:
-        os.fchmod(descriptor, mode)
+        chmod_descriptor_if_supported(descriptor, mode)
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = -1
             handle.write(payload)
@@ -134,7 +128,7 @@ def atomic_copy_file(
     temp_path = Path(raw_temp)
     _notify(stage_hook, "temp_created", temp_path)
     try:
-        os.fchmod(descriptor, mode)
+        chmod_descriptor_if_supported(descriptor, mode)
         with source.open("rb") as input_handle, os.fdopen(
             descriptor,
             "wb",

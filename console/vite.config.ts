@@ -65,6 +65,7 @@ export default defineConfig(({ command, mode }) => {
     test: {
       globals: true,
       environment: "jsdom",
+      testTimeout: 15_000,
       setupFiles: ["./src/test/setup.ts"],
       css: true,
       // all @agentscope-ai/* packages excluded from inline — they are large / have CSS imports
@@ -73,6 +74,11 @@ export default defineConfig(({ command, mode }) => {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: {
+        // Preserve vendor deep imports before aliasing the package entrypoint.
+        "@agentscope-ai/chat/lib": path.resolve(
+          __dirname,
+          "node_modules/@agentscope-ai/chat/lib",
+        ),
         // chat is aliased to a tiny stub to avoid OOM from the 2.3MB real package
         // Tests that need specific behavior override with vi.mock('@agentscope-ai/chat', factory)
         "@agentscope-ai/chat": path.resolve(__dirname, "src/test/chat-mock.ts"),

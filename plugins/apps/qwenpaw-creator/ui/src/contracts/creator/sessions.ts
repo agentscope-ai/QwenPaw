@@ -74,7 +74,12 @@ export interface CreatorSessionView {
   lastMessageSeq: number;
   lastConsumedMessageSeq: number;
   lastEventSeq: number;
-  error?: { code: string; message: string; retryable: boolean } | null;
+  error?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    details?: Record<string, unknown>;
+  } | null;
 }
 
 export interface CreatorMessage {

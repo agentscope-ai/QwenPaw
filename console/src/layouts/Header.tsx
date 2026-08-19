@@ -207,6 +207,11 @@ export default function Header() {
       label: t("header.faq"),
       onClick: () => handleNavClick(getFaqUrl(i18n.language)),
     },
+  ];
+
+  // The standalone GitHub button is hidden on mobile, so the entry is only
+  // surfaced inside the mobile menu to avoid a duplicated link on desktop.
+  const githubMenuItem: MenuProps["items"] = [
     {
       key: "github",
       icon: <GithubOutlined />,
@@ -251,6 +256,7 @@ export default function Header() {
     },
     { type: "divider" },
     ...resourcesMenuItems,
+    ...githubMenuItem,
   ];
 
   const handleOpenUpdateModal = () => {

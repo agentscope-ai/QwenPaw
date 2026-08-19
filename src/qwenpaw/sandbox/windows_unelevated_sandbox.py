@@ -1414,9 +1414,6 @@ class WindowsSandboxBase(ABC):
         env = dict(os.environ)
         if self._config.env_vars:
             env.update(self._config.env_vars)
-        python_dir = _get_python_install_dir()
-        if python_dir:
-            env.setdefault("PYTHONHOME", python_dir)
         return env
 
 

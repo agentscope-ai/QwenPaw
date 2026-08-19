@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from vendor.mm_plugins.video_memory.embeddings import EmbeddingIndex
-from vendor.mm_plugins.video_memory.schema import (
+from vendor.media_toolkit.video_memory.embeddings import EmbeddingIndex
+from vendor.media_toolkit.video_memory.schema import (
     Edge,
     Entity,
     HierarchicalGraphMemory,
@@ -19,7 +19,7 @@ from vendor.mm_plugins.video_memory.schema import (
     SuperRelation,
     VideoRoot,
 )
-from vendor.mm_plugins.video_memory.toolkit import MemoryToolkit
+from vendor.media_toolkit.video_memory.toolkit import MemoryToolkit
 
 
 def build_fixture_memory() -> HierarchicalGraphMemory:
@@ -298,7 +298,7 @@ def test_asr_nodes_are_chunked_for_embedding() -> None:
 
 
 def test_cjk_tokenizer_emits_character_bigrams() -> None:
-    from vendor.mm_plugins.video_memory.embeddings import _tokenize
+    from vendor.media_toolkit.video_memory.embeddings import _tokenize
 
     tokens = _tokenize("张飞也没一波一换三 asphalt road")
     assert "一换" in tokens
@@ -332,5 +332,7 @@ def test_short_chinese_phrase_gets_exact_bm25_hit() -> None:
     index.build(nodes, None)
     hits = index.search("一换三", top_k=4)
     assert hits[0]["node_id"] == "asr_0"
-    # Zero-score BM25 candidates gain no sparse rank credit.
-    assert hits[0]["score"] > hits[1]["score"]
+    # Upstream f9d5741: a node absent from both the dense and the sparse
+    # rank lists is dropped entirely instead of carrying default-rank RRF
+    # credit, so the zero-score candidates no longer appear at all.
+    assert len(hits) == 1

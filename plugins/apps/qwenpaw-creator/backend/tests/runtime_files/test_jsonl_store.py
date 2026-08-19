@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import errno
 import json
 import multiprocessing
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 import pytest
 
+from services.runtime_files import atomic_store as atomic_store_module
 from services.runtime_files import (
     DurableJsonlStore,
     JsonlCorruptionError,
@@ -128,6 +131,26 @@ def test_jsonl_file_is_plain_one_object_per_line(tmp_path):
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["seq"] == 1
+
+
+def test_jsonl_append_tolerates_windows_like_missing_fchmod_and_dir_fsync(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "events.jsonl"
+    real_open = os.open
+
+    def windows_like_open(target, flags, mode=0o777, *args, **kwargs):
+        if Path(target).is_dir():
+            raise PermissionError(errno.EACCES, "Permission denied", target)
+        return real_open(target, flags, mode, *args, **kwargs)
+
+    monkeypatch.delattr(atomic_store_module.os, "fchmod", raising=False)
+    monkeypatch.setattr(atomic_store_module.os, "open", windows_like_open)
+
+    store = DurableJsonlStore(path, EventRecord)
+    assert store.append(EventRecord(worker=7, value=9)).seq == 1
+    assert store.read_records() == [EventRecord(worker=7, value=9)]
 
 
 def test_jsonl_read_records_after_cursor_only_reads_the_tail(tmp_path):

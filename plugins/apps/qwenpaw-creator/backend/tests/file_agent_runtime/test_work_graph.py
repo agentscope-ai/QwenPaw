@@ -137,6 +137,7 @@ def _task(kind: str, target: str, status: TaskStatus, **extra):
         progress=extra.pop("progress", None),
         error=extra.pop("error", None),
         updated_at=extra.pop("updated_at", "2026-08-05T00:00:00Z"),
+        idempotency_key=extra.pop("idempotency_key", None),
     )
 
 
@@ -195,6 +196,60 @@ def test_failed_variant_carries_the_error_summary() -> None:
     node = graph.by_id["visual:char:a:var:x"]
     assert node.status is WorkNodeStatus.FAILED
     assert "safety rejected" in (node.error or "")
+
+
+def test_prompt_rewrite_reopens_a_deterministically_failed_node() -> None:
+    """FAILED parks a node only while its inputs are unchanged.
+
+    Field run 2026-08-11: three safety-rejected character anchors kept
+    their nodes FAILED after the agent rewrote the prompts, so the
+    scheduler never retried and the project stalled. The dag idempotency
+    key carries the dispatch fingerprint: an input change re-derives
+    READY, while same-input failures (including transient retry slots)
+    and agent-dispatched failures without a dag key stay parked.
+    """
+
+    project = _project()
+    project.visual.entities.items["char:a"] = _entity(
+        "char:a",
+        {"var:x": None},
+    )
+    project.visual.entities.order.append("char:a")
+    node_id = "visual:char:a:var:x"
+    current = derive_work_graph(project).by_id[node_id].dispatch_fingerprint
+
+    def status_with_failed_key(key: str | None) -> WorkNodeStatus:
+        graph = derive_work_graph(
+            project,
+            tasks=[
+                _task(
+                    "image_generation",
+                    "asset:char:a",
+                    TaskStatus.FAILED,
+                    metadata={"variantId": "var:x"},
+                    error={"message": "safety rejected"},
+                    idempotency_key=key,
+                ),
+            ],
+        )
+        return graph.by_id[node_id].status
+
+    # The prompt (and thus the fingerprint) moved on: reopen.
+    assert (
+        status_with_failed_key(f"dag-{node_id}-stale-fingerprint")
+        is WorkNodeStatus.READY
+    )
+    # Same inputs, including the transient retry slots: stay parked.
+    assert (
+        status_with_failed_key(f"dag-{node_id}-{current}")
+        is WorkNodeStatus.FAILED
+    )
+    assert (
+        status_with_failed_key(f"dag-{node_id}-{current}:transient-retry-1")
+        is WorkNodeStatus.FAILED
+    )
+    # Agent-dispatched failures carry no graph identity: stay parked.
+    assert status_with_failed_key(None) is WorkNodeStatus.FAILED
 
 
 def test_lineup_gates_until_members_have_artwork() -> None:
@@ -290,6 +345,77 @@ def test_missing_storyboard_prompt_is_a_model_required_gap() -> None:
     assert storyboard.missing == ("storyboard_prompt 缺失",)
     # The scheduler cannot solve this: it needs a model turn.
     assert storyboard in graph.model_required_nodes()
+
+
+def test_multi_character_storyboard_waits_for_the_planned_lineup() -> None:
+    """The lineup image is the pairwise-contrast anchor.
+
+    Field run (project-bb49): storyboards rendered while the planned
+    lineup was still absent and identities drifted (duplicated jersey
+    numbers). A planned lineup covering ≥2 of the element's characters
+    must gate the storyboard until its image is selected.
+    """
+
+    project = _project()
+    for ref in ("char:a", "char:b"):
+        project.visual.entities.items[ref] = _entity(
+            ref,
+            {f"var:{ref[-1]}": f"art:{ref[-1]}"},
+        )
+        project.visual.entities.order.append(ref)
+    project.visual.cast_lineups.items["lineup:duo"] = VisualCastLineup(
+        lineup_id="lineup:duo",
+        name="双人阵容",
+        character_refs=["char:a", "char:b"],
+    )
+    project.visual.cast_lineups.order.append("lineup:duo")
+    _add_element(
+        project,
+        _element(
+            "elem:pair",
+            character_refs=["char:a", "char:b"],
+            visual_variant_refs={"char:a": "var:a", "char:b": "var:b"},
+        ),
+    )
+
+    graph = derive_work_graph(project)
+    storyboard = graph.by_id["storyboard:elem:pair"]
+    assert storyboard.status is WorkNodeStatus.GATED
+    assert "lineup:lineup:duo" in storyboard.missing
+
+    # The lineup image lands: the storyboard unblocks.
+    project.visual.cast_lineups.items[
+        "lineup:duo"
+    ].selected_artifact_version_id = "art:lineup"
+    graph = derive_work_graph(project)
+    assert graph.by_id["storyboard:elem:pair"].status is (WorkNodeStatus.READY)
+
+
+def test_single_character_storyboard_ignores_planned_lineups() -> None:
+    project = _project()
+    for ref in ("char:a", "char:b"):
+        project.visual.entities.items[ref] = _entity(
+            ref,
+            {f"var:{ref[-1]}": f"art:{ref[-1]}"},
+        )
+        project.visual.entities.order.append(ref)
+    project.visual.cast_lineups.items["lineup:duo"] = VisualCastLineup(
+        lineup_id="lineup:duo",
+        name="双人阵容",
+        character_refs=["char:a", "char:b"],
+    )
+    project.visual.cast_lineups.order.append("lineup:duo")
+    _add_element(
+        project,
+        _element(
+            "elem:solo",
+            character_refs=["char:a"],
+            visual_variant_refs={"char:a": "var:a"},
+        ),
+    )
+
+    graph = derive_work_graph(project)
+    assert graph.by_id["storyboard:elem:solo"].status is (WorkNodeStatus.READY)
 
 
 def test_stale_marks_but_does_not_regenerate() -> None:
@@ -411,6 +537,50 @@ def test_ready_media_nodes_exclude_compose() -> None:
     )
 
     graph = derive_work_graph(project)
-    assert graph.by_id["compose:final"].status is WorkNodeStatus.READY
-    assert not graph.ready_media_nodes()
-    assert graph.unfinished() == (graph.by_id["compose:final"],)
+    compose = graph.by_id["compose:final"]
+    assert compose.status is WorkNodeStatus.READY
+    # The master render is machine-dispatchable: an unattended project
+    # reaches its final cut without a user pressing "render".
+    assert graph.ready_media_nodes() == (compose,)
+    assert compose.command == "COMPOSE_FINAL_VIDEO"
+    assert compose.target_ref == "timeline:timeline:main"
+    assert graph.unfinished() == (compose,)
+
+
+def test_stale_final_render_reopens_compose() -> None:
+    # Render review revises an overlay after the master render: edit
+    # impact marks the final_video version stale. The compose node must
+    # drop back to READY so the unattended loop re-renders the corrected
+    # cut instead of reporting DONE one compose short.
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    _select_slot(
+        project,
+        slot_id="element:elem:one:storyboard",
+        kind="r2v_storyboard_image",
+        owner_ref="element:elem:one",
+        version_id="art:sb",
+    )
+    _select_slot(
+        project,
+        slot_id="element:elem:one:main",
+        kind="element_video",
+        owner_ref="element:elem:one",
+        version_id="art:vid",
+    )
+    _select_slot(
+        project,
+        slot_id="timeline:timeline:main:render",
+        kind="final_video",
+        owner_ref="timeline:timeline:main",
+        version_id="art:final",
+    )
+
+    graph = derive_work_graph(project)
+    assert graph.by_id["compose:final"].status is WorkNodeStatus.DONE
+
+    project.assets.artifact_versions_by_id["art:final"].stale = True
+    graph = derive_work_graph(project)
+    compose = graph.by_id["compose:final"]
+    assert compose.status is WorkNodeStatus.READY
+    assert compose in graph.ready_media_nodes()

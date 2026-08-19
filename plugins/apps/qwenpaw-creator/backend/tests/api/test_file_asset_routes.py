@@ -72,19 +72,21 @@ def test_media_kind_classifies_readable_documents_by_extension() -> None:
 
 
 def test_source_upload_rejects_unreadable_binary_formats() -> None:
-    # Opaque blobs (e.g. 3D models) cannot enter Source Intelligence and
-    # must be refused at the upload boundary with a readable hint.
+    # Opaque blobs without a renderer cannot enter Source Intelligence
+    # and must be refused at the upload boundary with a readable hint.
     with pytest.raises(ValidationError) as excinfo:
         _assert_supported_source_upload(
-            "unsupported.glb",
-            "model/gltf-binary",
+            "unsupported.exe",
+            "application/octet-stream",
         )
     assert "不支持的来源素材格式" in str(excinfo.value)
-    assert "unsupported.glb" in str(excinfo.value)
-    # Readable creative material passes untouched.
+    assert "unsupported.exe" in str(excinfo.value)
+    # Readable creative material passes untouched. 3D models are
+    # renderable documents since the model3d renderer landed.
     _assert_supported_source_upload("script.pdf", "application/pdf")
     _assert_supported_source_upload("budget.csv", "text/csv")
     _assert_supported_source_upload("clip.mp4", "video/mp4")
+    _assert_supported_source_upload("prop.glb", "model/gltf-binary")
 
 
 def _install_remote_transport(

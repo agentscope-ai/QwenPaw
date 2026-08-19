@@ -15,7 +15,6 @@ import {
   HeartPulse,
   Wifi,
   Inbox,
-  Code,
   Store,
   Settings,
   Puzzle,
@@ -56,8 +55,7 @@ export interface OsAppDef {
 }
 
 /**
- * The PoC features these 6 (+ Chat & Coding) apps to demonstrate the desktop
- * shell. Each entry references a route already registered in builtinRoutes.
+ * Each entry references a route already registered in builtinRoutes.
  */
 export const OS_APPS: OsAppDef[] = [
   {
@@ -79,15 +77,6 @@ export const OS_APPS: OsAppDef[] = [
     defaultH: 720,
     minW: 760,
     minH: 480,
-  },
-  {
-    routeId: "core.coding",
-    labelKey: "nav.coding",
-    fallback: "Coding IDE",
-    Icon: Code,
-    accent: "#64748b",
-    defaultW: 1020,
-    defaultH: 700,
   },
   {
     routeId: "core.skills",

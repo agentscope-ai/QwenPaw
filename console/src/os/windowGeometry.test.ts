@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clampRectToViewport } from "./windowGeometry";
-import { MENUBAR_H, DOCK_H } from "./useOsStyles";
+import { clampRectToViewport, clampWindowY } from "./windowGeometry";
+import { MENUBAR_H } from "./useOsStyles";
 
 const VW = 1920;
 const VH = 1080;
@@ -22,7 +22,7 @@ describe("clampRectToViewport", () => {
     expect(out.y).toBe(MENUBAR_H);
   });
 
-  it("pulls off-screen coordinates back so the title bar stays grabbable", () => {
+  it("pulls off-screen coordinates back so the full height stays visible", () => {
     const out = clampRectToViewport(
       { x: 5000, y: 4000, w: 800, h: 600 },
       {},
@@ -30,7 +30,7 @@ describe("clampRectToViewport", () => {
       VH,
     );
     expect(out.x).toBe(VW - 80);
-    expect(out.y).toBe(VH - DOCK_H - 40);
+    expect(out.y).toBe(VH - 600);
   });
 
   it("shrinks oversized rects to the work area", () => {
@@ -66,5 +66,11 @@ describe("clampRectToViewport", () => {
     expect(out.h).toBe(360);
     expect(out.x).toBeLessThanOrEqual(800 - 80);
     expect(out.y).toBeGreaterThanOrEqual(MENUBAR_H);
+  });
+});
+
+describe("clampWindowY", () => {
+  it("pins a window taller than the viewport below the menu bar", () => {
+    expect(clampWindowY(4000, 1200, 800)).toBe(MENUBAR_H);
   });
 });

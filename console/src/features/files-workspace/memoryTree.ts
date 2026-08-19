@@ -4,6 +4,9 @@ export interface MemoryTreeEntry extends DirectoryEntry {
   children?: MemoryTreeEntry[];
 }
 
+const DAILY_FILE_PATTERN = /^(\d{4}-\d{2}-\d{2})\.md$/;
+const DAILY_DIRECTORY_PATTERN = /^(\d{4}-\d{2}-\d{2})$/;
+
 function modifiedTimestamp(value: string): number {
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp) ? 0 : timestamp;
@@ -66,4 +69,51 @@ export function buildMemoryTree(files: DirectoryEntry[]): MemoryTreeEntry[] {
   };
   sortEntries(root);
   return root;
+}
+
+export function buildDailyMemoryTree(
+  files: DirectoryEntry[],
+): MemoryTreeEntry[] {
+  const tree = buildMemoryTree(files);
+  const dateGroups = new Map<
+    string,
+    { file?: MemoryTreeEntry; directory?: MemoryTreeEntry }
+  >();
+  const otherEntries: MemoryTreeEntry[] = [];
+
+  tree.forEach((entry) => {
+    const match =
+      entry.kind === "file"
+        ? entry.name.match(DAILY_FILE_PATTERN)
+        : entry.name.match(DAILY_DIRECTORY_PATTERN);
+    if (!match) {
+      otherEntries.push(entry);
+      return;
+    }
+
+    const date = match[1];
+    const group = dateGroups.get(date) ?? {};
+    if (entry.kind === "file") group.file = entry;
+    else group.directory = entry;
+    dateGroups.set(date, group);
+  });
+
+  const dailyEntries = Array.from(dateGroups.entries())
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([, group]) => {
+      if (!group.file) return group.directory as MemoryTreeEntry;
+      if (!group.directory) return group.file;
+
+      return {
+        ...group.directory,
+        modified_at:
+          modifiedTimestamp(group.file.modified_at) >
+          modifiedTimestamp(group.directory.modified_at)
+            ? group.file.modified_at
+            : group.directory.modified_at,
+        children: [group.file, ...(group.directory.children ?? [])],
+      };
+    });
+
+  return [...dailyEntries, ...otherEntries];
 }

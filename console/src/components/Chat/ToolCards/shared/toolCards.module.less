@@ -8,6 +8,20 @@
   max-width: 100%;
 }
 
+.toolCallMetadata {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 4px 0;
+  box-sizing: border-box;
+}
+
+.toolCallMetadata > .defaultBlock {
+  margin: 0;
+}
+
 // Tool call — compact single-line (click to expand)
 .toolCallCompact {
   margin: 2px 0;
@@ -96,13 +110,6 @@
     color: var(--ant-color-primary, #1677ff);
     text-decoration: underline;
   }
-}
-
-.toolCallInputProgress {
-  color: var(--ant-color-text-secondary, #8c8c8c) !important;
-  flex-shrink: 0;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 // Badges — use explicit colors that work on both light and dark backgrounds.

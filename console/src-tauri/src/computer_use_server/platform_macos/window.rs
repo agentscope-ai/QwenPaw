@@ -12,11 +12,12 @@ use core_graphics::window::{
     copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
     kCGWindowListOptionAll, kCGWindowName, kCGWindowNumber, kCGWindowOwnerName, kCGWindowOwnerPID,
 };
+use objc2_app_kit::NSWorkspace;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 use super::super::state::{merge_app_list, InstalledApp, WindowInfo};
-use super::accessibility_tree::find_ax_window;
+use super::accessibility_tree::{find_ax_window, focused_window_id};
 use super::{dict_i64, dict_string};
 
 /// Directories a macOS application bundle is normally installed into.
@@ -47,6 +48,23 @@ pub(crate) fn list_windows(app: Option<&str>) -> Vec<Value> {
 
 pub(crate) fn list_apps() -> Vec<Value> {
     merge_app_list(installed_apps(), enumerate_windows())
+}
+
+/// The focused window of the application macOS currently considers frontmost.
+pub(crate) fn active_window() -> Option<WindowInfo> {
+    let pid = NSWorkspace::sharedWorkspace()
+        .frontmostApplication()?
+        .processIdentifier();
+    let windows = enumerate_windows();
+    let focused = focused_window_id(&AXUIElement::application(pid));
+    focused
+        .and_then(|id| {
+            windows
+                .iter()
+                .find(|window| window.hwnd == id as isize)
+                .cloned()
+        })
+        .or_else(|| windows.into_iter().find(|window| window.owner_pid == pid))
 }
 
 /// Applications installed in the usual locations, whether running or not.

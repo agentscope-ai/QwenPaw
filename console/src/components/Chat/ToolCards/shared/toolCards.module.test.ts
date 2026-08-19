@@ -40,4 +40,14 @@ describe("Tool card layout styles", () => {
     expect(rule).toMatch(/text-overflow:\s*ellipsis/);
     expect(rule).toMatch(/white-space:\s*nowrap/);
   });
+
+  it("uses a consistent grid gap for tool metadata panels", () => {
+    const rule = readRule(".toolCallMetadata");
+
+    expect(rule).not.toBe("");
+    expect(rule).toMatch(/display:\s*grid/);
+    expect(rule).toMatch(/gap:\s*6px/);
+    expect(rule).toMatch(/min-width:\s*0/);
+    expect(rule).toMatch(/max-width:\s*100%/);
+  });
 });

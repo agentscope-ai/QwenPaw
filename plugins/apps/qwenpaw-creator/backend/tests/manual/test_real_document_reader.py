@@ -27,7 +27,7 @@ import pytest
 
 from services.document_reader import read_document
 from services.runtime_files.runtime_dependencies import resolve_libreoffice
-from vendor.mm_plugins.image_budget import (
+from vendor.media_toolkit.image_budget import (
     IMAGE_BUDGET_TOKENS,
     IMAGE_MIN_PIXELS,
     TOKEN_SIZE,
@@ -80,7 +80,7 @@ def _script_pdf() -> Path:
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_pdf import PdfPages
 
-        from vendor.mm_plugins.renderers import configure_matplotlib_cjk
+        from vendor.media_toolkit.renderers import configure_matplotlib_cjk
 
         configure_matplotlib_cjk()
         with PdfPages(generated) as pdf:

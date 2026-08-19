@@ -13,7 +13,9 @@ from agentscope.message import ToolResultState
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
 from .file_io import _path_to_file_url
+from ..utils.image_freezing import freeze_local_images_async
 
 
 def _tool_error(msg: str) -> ToolChunk:
@@ -183,7 +185,13 @@ async def desktop_screenshot(
 
     # macOS: optional window selection via screencapture -w
     if system == "Darwin" and capture_window:
-        return await _capture_macos_screencapture(path, capture_window=True)
+        result = await _capture_macos_screencapture(
+            path,
+            capture_window=True,
+        )
+    else:
+        # Full-screen on all platforms (macOS, Linux, Windows) via mss.
+        result = await run_sync_io(_capture_mss, path)
 
-    # Full-screen on all platforms (macOS, Linux, Windows) via mss
-    return _capture_mss(path)
+    await freeze_local_images_async(result)
+    return result

@@ -150,6 +150,29 @@ def test_transient_error_classifier():
     )
     assert is_transient_task_error({"message": "Read Timed Out"})
     assert is_transient_task_error({"message": "status 503 from provider"})
+    # DNS resolution failures: no billable request ever left the machine,
+    # so a bounded retry is free (field run 2026-08-07: one [Errno 8]
+    # blip permanently locked three nodes under the old classification).
+    assert is_transient_task_error(
+        {
+            "message": (
+                "[Errno 8] nodename nor servname provided, or not known"
+            ),
+        },
+    )
+    assert is_transient_task_error(
+        {"message": "[Errno -2] Name or service not known"},
+    )
+    assert is_transient_task_error(
+        {"message": "getaddrinfo failed"},
+    )
+    # httpx transport errors (WriteError/ReadError/ConnectError) stringify
+    # empty; the provider now labels them "connection failure: <type>" so
+    # they classify as transient instead of locking the node (field run
+    # 2026-08-10: an upload burst walled two storyboards).
+    assert is_transient_task_error(
+        {"message": "Image generation connection failure: WriteError"},
+    )
     assert is_transient_task_error(
         {"message": "opaque failure", "retryable": True},
     )

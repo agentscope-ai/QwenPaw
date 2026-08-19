@@ -20,7 +20,7 @@ from schemas.render_review import AudioProfile, LoudnessSegment, ReviewFrame
 from services.runtime_files.media_probe import probe_media
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
 from utils.logger import setup_logger
-from vendor.mm_plugins.image_budget import (
+from vendor.media_toolkit.image_budget import (
     VIDEO_BUDGET_TOKENS,
     VIDEO_MIN_PIXELS,
     budget_to_pixels,
@@ -58,7 +58,13 @@ def _require_ffmpeg() -> str:
 
 
 def _frame_timestamps(duration_seconds: float, max_frames: int) -> list[float]:
-    """Uniform timestamps across the duration; first and last always sampled."""
+    """Uniform timestamps across the duration; first and last always sampled.
+
+    The opening window gets extra probes: title cards and hooks live in
+    the first ~3 seconds behind entrance animations, and a uniform grid
+    over a long cut leaves t=0 as the only evidence there — the reviewer
+    would judge the opening design by a frame taken before it entered.
+    """
     if duration_seconds <= 0:
         return [0.0]
     # About one frame per second, capped by max_frames, at least two frames.
@@ -67,7 +73,25 @@ def _frame_timestamps(duration_seconds: float, max_frames: int) -> list[float]:
     if count == 2:
         return [0.0, last]
     step = last / (count - 1)
-    return [round(index * step, 3) for index in range(count)]
+    stamps = [round(index * step, 3) for index in range(count)]
+    if duration_seconds > 6 and step > 1.2:
+        opening = [
+            probe
+            for probe in (0.8, 1.8, 2.8)
+            if probe < last and all(abs(probe - s) > 0.4 for s in stamps)
+        ]
+        merged = sorted(set(stamps) | set(opening))
+        # Respect the budget: drop mid-cut frames (never the first, the
+        # opening probes or the last) until the count fits again.
+        while len(merged) > max_frames:
+            interior = [s for s in merged[1:-1] if s > 3.2]
+            if not interior:
+                break
+            # Remove the interior frame whose neighbours are closest,
+            # keeping coverage as even as the budget allows.
+            merged.remove(interior[len(interior) // 2])
+        stamps = merged
+    return stamps
 
 
 def _run_frame_grab(
@@ -150,19 +174,31 @@ def extract_review_frames(
         if result.returncode != 0 or not frame_path.is_file():
             # A fast seek can land past the final packet; grab the tail
             # frame relative to EOF instead of dropping the mandatory
-            # last-frame evidence.
-            result = _run_frame_grab(
-                ffmpeg,
-                ["-sseof", "-0.5"],
-                video_path,
-                target_width,
-                target_height,
-                frame_path,
-            )
+            # last-frame evidence. A -0.5s window can still decode zero
+            # frames when the final GOP is longer (ffmpeg exits 0 with an
+            # empty output), so widen the window before giving up.
+            for sseof_window in ("-0.5", "-2.0"):
+                result = _run_frame_grab(
+                    ffmpeg,
+                    ["-sseof", sseof_window],
+                    video_path,
+                    target_width,
+                    target_height,
+                    frame_path,
+                )
+                if result.returncode == 0 and frame_path.is_file():
+                    break
         if result.returncode != 0 or not frame_path.is_file():
+            stderr = (result.stderr or "").strip()[:500]
             raise RenderReviewError(
                 f"frame extraction failed at {timestamp:.3f}s: "
-                f"{(result.stderr or '').strip()[:500]}",
+                + (
+                    stderr
+                    or (
+                        f"ffmpeg exit={result.returncode} produced no "
+                        "frame (empty tail GOP?)"
+                    )
+                ),
             )
         frames.append(
             ReviewFrame(

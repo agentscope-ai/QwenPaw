@@ -47,6 +47,8 @@ import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationSt
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
+import SourceCacheGate from "@/components/creator/SourceCacheGate";
+import { useSourceCache } from "@/lib/sourceCache";
 import {
   creatorEventLabel,
   creatorRoleLabel,
@@ -82,10 +84,14 @@ interface DockSize {
   height: number;
 }
 
-const DOCK_MIN_WIDTH = 440;
+const DOCK_MIN_WIDTH = 240;
 const DOCK_MIN_HEIGHT = 420;
 const DOCK_DEFAULT_SIZE: DockSize = { width: 440, height: 620 };
 const DOCK_SIZE_STORAGE_KEY = "agentDock.size.v1";
+// The workspace keeps at least this many pixels no matter how wide the dock
+// is dragged; below that width its container queries switch to the drawer
+// layout, so the pages stay usable instead of being squeezed out.
+const WORKSPACE_MIN_WIDTH = 360;
 
 // "Stoppable" check consistent with the global hard-stop (the stop button
 // migrated here from the former AgentStatusBar).
@@ -110,7 +116,7 @@ const STOPPABLE_SESSION_STATUSES = [
 function dockMaxSize(): DockSize {
   if (typeof window === "undefined") return { width: 960, height: 1200 };
   return {
-    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - 40),
+    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - WORKSPACE_MIN_WIDTH),
     height: Math.max(DOCK_MIN_HEIGHT, window.innerHeight - 40),
   };
 }
@@ -1703,6 +1709,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const stopping = useCreatorSessionStore((state) => state.stopping);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const stopAllAgents = useCreatorSessionStore((state) => state.stopAllAgents);
+  const rateLimitRetry = useCreatorSessionStore(
+    (state) => state.rateLimitRetry,
+  );
   const subagentActivities = useCreatorSessionStore(
     (state) => state.subagentActivities,
   );
@@ -1727,6 +1736,13 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const project = useProjectSnapshotStore((state) =>
     state.projectId === projectId ? state.project : null,
   );
+  const builtinExample = useProjectSnapshotStore((state) =>
+    state.projectId === projectId ? state.builtinExample : false,
+  );
+  // Bundled examples ship trimmed clips only; follow-up agent questions need
+  // the full originals cached locally, so gate sending until they land.
+  const sourceCache = useSourceCache(projectId, builtinExample);
+  const originalsGate = builtinExample && sourceCache.originalsMissing;
   const timeline = selectPrimaryTimeline(project);
 
   const streaming = Boolean(
@@ -1741,6 +1757,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
   const [removedContextRefs, setRemovedContextRefs] = useState<string[]>([]);
   const [canSend, setCanSend] = useState(false);
+  const [rateLimitResuming, setRateLimitResuming] = useState(false);
   const [inlineRefs, setInlineRefs] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionOptions, setMentionOptions] = useState<RefSearchItem[]>([]);
@@ -1839,7 +1856,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   );
 
   // Live status row above the input: derived purely on the frontend, no data
-  // structures are mutated.
+  // structures are mutated. `t` must stay in the deps: the labels come from
+  // the global i18n singleton, so a runtime language switch has to recompute
+  // them even when the agent state itself did not change.
   const liveStatus = useMemo(
     () =>
       deriveAgentLiveStatus({
@@ -1852,6 +1871,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         toolCalls,
         tasks,
         project,
+        rateLimitRetry,
       }),
     [
       session,
@@ -1863,8 +1883,25 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
       toolCalls,
       tasks,
       project,
+      rateLimitRetry,
+      t,
     ],
   );
+
+  // A throttled run stops with the full conversation still intact; the
+  // continue control re-submits a resume request so the Agent picks the
+  // same task back up on the previous messages.
+  const resumeAfterRateLimit = async () => {
+    if (rateLimitResuming) return;
+    setRateLimitResuming(true);
+    try {
+      await sendMessage({ message: t("agent.rateLimitResumeMessage") });
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setRateLimitResuming(false);
+    }
+  };
 
   const contextChips = useMemo(() => {
     const chips: RefSearchItem[] = [];
@@ -2169,6 +2206,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   };
 
   const submit = async () => {
+    if (originalsGate) return;
     const content = inputRef.current?.getContent() ?? {
       text: "",
       refs: [],
@@ -2297,7 +2335,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           style={sidebar ? { width, flexShrink: 0 } : panelStyle}
           className={
             sidebar
-              ? "relative flex h-full flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
+              ? "relative flex min-h-0 flex-1 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
               : "agent-dock-enter fixed bottom-5 right-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 shadow-2xl backdrop-blur-xl"
           }
         >
@@ -2313,11 +2351,16 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               onPointerDown={beginResize("x")}
               className={
                 sidebar
-                  ? "absolute inset-y-0 left-0 z-20 w-1 cursor-ew-resize hover:bg-[var(--color-accent)]/20"
+                  ? "group absolute inset-y-0 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20"
                   : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
               }
               title={t("agent.dragWidth")}
-            />
+            >
+              {/* Always-visible grip so the resizable edge is discoverable. */}
+              {sidebar && (
+                <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+              )}
+            </div>
             {!sidebar && (
               <div
                 onPointerDown={beginResize("xy")}
@@ -2478,7 +2521,30 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                 ))}
                 {session?.status === "ERROR" && session?.error?.message && (
                   <div className="mx-3 my-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--color-danger)]">
-                    {session.error.message}
+                    {session.error.code === "MODEL_RATE_LIMITED" ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span>
+                          {t("agent.rateLimitExhausted", {
+                            retries: Number.isFinite(
+                              Number(session.error.details?.retryCount),
+                            )
+                              ? Number(session.error.details?.retryCount)
+                              : rateLimitRetry?.maxAttempts ?? 5,
+                          })}
+                        </span>
+                        <Button
+                          size="small"
+                          type="primary"
+                          danger
+                          loading={rateLimitResuming}
+                          onClick={() => void resumeAfterRateLimit()}
+                        >
+                          {t("agent.rateLimitContinue")}
+                        </Button>
+                      </div>
+                    ) : (
+                      session.error.message
+                    )}
                   </div>
                 )}
               </div>
@@ -2655,6 +2721,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               <OnboardingHint hintKey="mention" className="mb-2">
                 {t("agent.mentionHint")}
               </OnboardingHint>
+              {originalsGate && (
+                <div className="mb-2">
+                  <SourceCacheGate status={sourceCache} compact />
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <MentionInput
                   ref={inputRef}
@@ -2693,7 +2764,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     type="primary"
                     aria-label={t("common.send")}
                     icon={<ArrowUpOutlined />}
-                    disabled={!canSend}
+                    disabled={!canSend || originalsGate}
                     onClick={() => void submit()}
                     className="!flex !h-8 !w-8 !items-center !justify-center !p-0"
                   />

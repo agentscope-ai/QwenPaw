@@ -90,6 +90,7 @@ const baseConfig: ModelConfigData = {
     protocol: "OpenAI 协议",
     custom_protocol: "",
     translate_model: "",
+    reuse_llm_key: true,
   },
   video: {
     enabled: false,
@@ -98,6 +99,7 @@ const baseConfig: ModelConfigData = {
     base_url: "",
     protocol: "DashScope（百炼）",
     custom_protocol: "",
+    reuse_llm_key: true,
   },
   oss: {
     enabled: false,
@@ -120,6 +122,11 @@ const baseConfig: ModelConfigData = {
   executionAuthorization: { mode: "allow_all" },
   creationCheckpoints: { mode: "skip" },
   mediaReview: { mode: "required" },
+  selfReview: {
+    sync_enabled: false,
+    media_enabled: false,
+    render_enabled: false,
+  },
 };
 
 const capabilities = {
@@ -162,12 +169,11 @@ function mount(config: ModelConfigData = baseConfig) {
 }
 
 async function openSpeechCard() {
-  // The collapsed card header carries the label plus the current model name.
+  // Navigate to the media pane, then expand the collapsed TTS card by
+  // clicking its header label.
+  fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
   const headers = await screen.findAllByText(/TTS 语音合成/);
-  const card = headers
-    .map((node) => node.closest(".glass-card") ?? node.parentElement)
-    .find((node): node is HTMLElement => node instanceof HTMLElement);
-  fireEvent.click(card as HTMLElement);
+  fireEvent.click(headers[0]);
 }
 
 describe("ModelConfigModal speech section", () => {
@@ -209,13 +215,11 @@ describe("ModelConfigModal speech section", () => {
         detect_model_name: "",
       },
     });
-    // Only the active tab renders its card, and the tab label drops "模型".
-    fireEvent.click(await screen.findByText("数字人"));
+    // Navigate to the media pane, then expand the digital-human card by
+    // clicking its header label.
+    fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
     const headers = await screen.findAllByText(/数字人模型/);
-    const card = headers
-      .map((node) => node.closest(".glass-card") ?? node.parentElement)
-      .find((node): node is HTMLElement => node instanceof HTMLElement);
-    fireEvent.click(card as HTMLElement);
+    fireEvent.click(headers[0]);
     await waitFor(() => {
       expect(screen.getByText("人像检测模型（可选）")).toBeInTheDocument();
     });

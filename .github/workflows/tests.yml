@@ -77,27 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js (for console build)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: console/package-lock.json
-
-      - name: Build console frontend
-        shell: bash
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          cd console && npm ci && npm run build
-
-      - name: Copy console build into package
-        shell: bash
-        run: |
-          rm -rf src/qwenpaw/console/*
-          mkdir -p src/qwenpaw/console
-          cp -R console/dist/* src/qwenpaw/console/
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -107,8 +86,14 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
+          # Slim install for the unit tier: unit tests neither serve the
+          # console frontend nor require the optional heavy extras
+          # (whisper/torch, codex, qoder). Optional-dependency tests are
+          # guarded with pytest.importorskip and still run in the nightly
+          # full sweep, which keeps the full extra. Keeping this job lean
+          # cuts the Windows matrix entry from tens of minutes to a few.
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          pip install -e ".[dev,test]"
 
       - name: Run unit tests
         shell: bash
@@ -275,7 +260,21 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          # The macOS runner ships setuptools 65.5.0, which pip's resolver
+          # upgrades to the latest release (84.x) while backtracking the
+          # dependency graph. setuptools >= 82 no longer ships
+          # pkg_resources.declare_namespace, which lark-oapi's namespace
+          # packages still call at import time, so the Feishu mock IM
+          # integration tests crash with AttributeError on macOS. Pin
+          # setuptools <82 here — the pin must ride in the SAME pip command
+          # as the install: a separate `pip install "setuptools<82"` step
+          # beforehand gets upgraded away by this resolution again
+          # (reproduced with pip 26.2.1; see CI run 31571533395).
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            pip install -e ".[dev,test,full]" "setuptools<82"
+          else
+            pip install -e ".[dev,test,full]"
+          fi
 
       # tests/integration/browser carries the integration marker but no
       # priority marker, so any expression without a p0/p1 filter (a

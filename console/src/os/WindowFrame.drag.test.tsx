@@ -12,7 +12,8 @@ import { fireEvent, screen } from "@testing-library/react";
 import { MessageSquare, Inbox } from "lucide-react";
 import { renderWithProviders } from "@/test/common_setup";
 import WindowFrame from "./WindowFrame";
-import { useOsWindows, type OsWindow } from "./osWindowStore";
+import { computeSnapRect } from "./snap";
+import { useOsWindows, type OsRect, type OsWindow } from "./osWindowStore";
 
 /** jsdom lacks the pointer-capture API used by drag/resize handlers. */
 beforeAll(() => {
@@ -35,6 +36,31 @@ function win(id: string, x: number, y: number): OsWindow {
 
 const winA = win("core.chat", 100, 100);
 const winB = win("core.inbox", 400, 300);
+const filesWin = { ...win("core.files", 100, 100), w: 800, h: 600 };
+
+function StoreBackedFilesWindow() {
+  const currentWin = useOsWindows((state) => state.windows[filesWin.id]);
+  return (
+    <WindowFrame
+      win={currentWin}
+      title="Files"
+      Icon={Inbox}
+      accent="#eab308"
+      isMobile={false}
+      minW={760}
+      minH={480}
+    >
+      <div>files-content</div>
+    </WindowFrame>
+  );
+}
+
+function expectRenderedRect(frame: HTMLElement, rect: OsRect) {
+  expect(frame.style.left).toBe(`${rect.x}px`);
+  expect(frame.style.top).toBe(`${rect.y}px`);
+  expect(frame.style.width).toBe(`${rect.w}px`);
+  expect(frame.style.height).toBe(`${rect.h}px`);
+}
 
 beforeEach(() => {
   Object.defineProperty(window, "innerWidth", {
@@ -143,6 +169,136 @@ describe("WindowFrame drag", () => {
     const committed = useOsWindows.getState().windows["core.chat"];
     expect(committed).toMatchObject({ x: 350, y: 290 });
     expect(onRenderB).not.toHaveBeenCalled();
+  });
+
+  it("restores transient DOM geometry when the drag returns to its origin", () => {
+    useOsWindows.setState({
+      windows: { [filesWin.id]: filesWin },
+      order: [filesWin.id],
+      activeId: filesWin.id,
+    });
+    renderWithProviders(<StoreBackedFilesWindow />);
+
+    const title = screen.getByText("Files");
+    const frame = screen.getByRole("group", { name: "Files" });
+    fireEvent.pointerDown(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 110,
+    });
+    fireEvent.pointerMove(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 300,
+    });
+    vi.advanceTimersByTime(32);
+    expect(frame.style.top).toBe("290px");
+
+    fireEvent.pointerMove(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 110,
+    });
+    fireEvent.pointerUp(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 110,
+    });
+
+    expect(useOsWindows.getState().windows[filesWin.id].y).toBe(filesWin.y);
+    expect(frame.style.top).toBe(`${filesWin.y}px`);
+  });
+
+  it("keeps a dragged window inside the bottom viewport edge", () => {
+    useOsWindows.setState({
+      windows: { [filesWin.id]: filesWin },
+      order: [filesWin.id],
+      activeId: filesWin.id,
+    });
+    renderWithProviders(<StoreBackedFilesWindow />);
+
+    const title = screen.getByText("Files");
+    const frame = screen.getByRole("group", { name: "Files" });
+    fireEvent.pointerDown(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 110,
+    });
+    fireEvent.pointerMove(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 1070,
+    });
+    vi.advanceTimersByTime(32);
+
+    const maxY = window.innerHeight - filesWin.h;
+    expect(frame.style.top).toBe(`${maxY}px`);
+
+    fireEvent.pointerUp(title, {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 1070,
+    });
+    expect(useOsWindows.getState().windows[filesWin.id].y).toBe(maxY);
+    expect(Number.parseFloat(frame.style.top) + filesWin.h).toBe(
+      window.innerHeight,
+    );
+  });
+
+  it("keeps DOM geometry aligned with the store across repeated edge snaps", () => {
+    useOsWindows.setState({
+      windows: { [filesWin.id]: filesWin },
+      order: [filesWin.id],
+      activeId: filesWin.id,
+    });
+    renderWithProviders(<StoreBackedFilesWindow />);
+
+    const title = screen.getByText("Files");
+    const frame = screen.getByRole("group", { name: "Files" });
+    const snapTo = (
+      pointerId: number,
+      startX: number,
+      targetX: number,
+      targetY: number,
+    ) => {
+      fireEvent.pointerDown(title, {
+        pointerId,
+        clientX: startX,
+        clientY: 38,
+      });
+      fireEvent.pointerMove(title, {
+        pointerId,
+        clientX: targetX,
+        clientY: targetY,
+      });
+      vi.advanceTimersByTime(32);
+      fireEvent.pointerUp(title, {
+        pointerId,
+        clientX: targetX,
+        clientY: targetY,
+      });
+    };
+
+    const leftRect = computeSnapRect("left", 1920, 1080);
+    const rightRect = computeSnapRect("right", 1920, 1080);
+
+    snapTo(1, 150, 5, 400);
+    expect(useOsWindows.getState().windows[filesWin.id]).toMatchObject(
+      leftRect,
+    );
+    expectRenderedRect(frame, leftRect);
+
+    snapTo(2, 100, 1915, 496);
+    expect(useOsWindows.getState().windows[filesWin.id]).toMatchObject(
+      rightRect,
+    );
+    expectRenderedRect(frame, rightRect);
+
+    snapTo(3, 1060, 5, 596);
+    expect(useOsWindows.getState().windows[filesWin.id]).toMatchObject(
+      leftRect,
+    );
+    expectRenderedRect(frame, leftRect);
   });
 
   it("commits resize once on pointerup with the final rect", () => {

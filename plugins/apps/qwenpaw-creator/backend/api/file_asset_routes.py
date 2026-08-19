@@ -17,6 +17,7 @@ import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import socket
+import threading
 from typing import Any, Callable, Literal
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid5
@@ -50,6 +51,7 @@ from services.project_files.models import (
     SourceAssetVersion,
 )
 from services.project_files.remote_cache import (
+    public_source_url,
     publish_remote_cache,
     remote_source_media_type,
     remote_source_name,
@@ -1211,6 +1213,320 @@ async def drain_remote_ingest_tasks(timeout_seconds: float = 15.0) -> None:
     for identity, task in list(_REMOTE_INGEST_TASKS.items()):
         if task.done():
             _REMOTE_INGEST_TASKS.pop(identity, None)
+
+
+# Original-footage cache downloads for bundled example Projects. The bytes
+# are only a Runtime cache behind an existing URL-backed SourceAssetVersion,
+# so completion never advances the Project generation.
+_SOURCE_CACHE_DOWNLOADS: dict[tuple[str, str], asyncio.Task[None]] = {}
+_SOURCE_CACHE_PROGRESS: dict[tuple[str, str], dict[str, Any]] = {}
+_SOURCE_CACHE_PROGRESS_LOCK = threading.Lock()
+
+
+def _source_cache_progress_set(
+    identity: tuple[str, str],
+    *,
+    state: str,
+    received_bytes: int = 0,
+    total_bytes: int | None = None,
+    error: str | None = None,
+) -> None:
+    with _SOURCE_CACHE_PROGRESS_LOCK:
+        _SOURCE_CACHE_PROGRESS[identity] = {
+            "state": state,
+            "receivedBytes": received_bytes,
+            "totalBytes": total_bytes,
+            "error": error,
+        }
+
+
+def _source_cache_progress_get(
+    identity: tuple[str, str],
+) -> dict[str, Any] | None:
+    with _SOURCE_CACHE_PROGRESS_LOCK:
+        value = _SOURCE_CACHE_PROGRESS.get(identity)
+        return dict(value) if value is not None else None
+
+
+def _source_cache_task_item(
+    tasks: Any,
+    version_id: str,
+) -> dict[str, Any] | None:
+    """Locate the bundled SUCCEEDED asset_ingest result for one version."""
+
+    for task in tasks:
+        if (
+            task.kind is not TaskKind.ASSET_INGEST
+            or task.status is not TaskStatus.SUCCEEDED
+            or task.metadata.get("assetVersionId") != version_id
+        ):
+            continue
+        items = list((task.result or {}).get("items") or [])
+        item = next(
+            (
+                value
+                for value in items
+                if isinstance(value, dict)
+                and value.get("assetVersionId") == version_id
+            ),
+            None,
+        )
+        if item is not None:
+            return item
+    return None
+
+
+def _download_source_cache_sync(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    version_id: str,
+    url: str,
+    expected_size_bytes: int | None,
+) -> None:
+    identity = (project_id, version_id)
+    try:
+        snapshot = services.projects.read(project_id)
+        version = snapshot.project.assets.source_versions_by_id.get(
+            version_id,
+        )
+        if version is None:
+            raise NotFoundError("远程 AssetVersion 不存在")
+        project_root = services.projects.project_root(project_id)
+        staging_store = AssetFileStore(project_root)
+
+        def report_progress(downloaded: int, total: int | None) -> None:
+            if _REMOTE_INGEST_SHUTTING_DOWN:
+                raise RuntimeError("Creator 正在关闭，原片下载中止")
+            _source_cache_progress_set(
+                identity,
+                state="downloading",
+                received_bytes=downloaded,
+                total_bytes=total or expected_size_bytes,
+            )
+
+        download: _RemoteAssetDownload | None = None
+        try:
+            download = _download_remote_to_staging(
+                url,
+                file_store=staging_store,
+                staging_id=_stable_id(
+                    "source-cache",
+                    project_id,
+                    version_id,
+                ),
+                on_progress=report_progress,
+            )
+            if (
+                expected_size_bytes is not None
+                and download.staged.size_bytes != expected_size_bytes
+            ):
+                raise ValidationError("下载的原片大小与入库任务记录不一致")
+            publish_remote_cache(
+                project_root,
+                version,
+                download.staged,
+                media_type=download.media_type,
+            )
+        finally:
+            if download is not None:
+                staging_store.abandon(download.staged)
+        _source_cache_progress_set(
+            identity,
+            state="cached",
+            received_bytes=download.staged.size_bytes
+            if download is not None
+            else 0,
+            total_bytes=download.staged.size_bytes
+            if download is not None
+            else expected_size_bytes,
+        )
+    except BaseException as error:
+        if not isinstance(error, KeyboardInterrupt):
+            _source_cache_progress_set(
+                identity,
+                state="failed",
+                error=str(error),
+            )
+        raise
+
+
+def _start_source_cache_download(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    version_id: str,
+    url: str,
+    expected_size_bytes: int | None,
+) -> None:
+    if _REMOTE_INGEST_SHUTTING_DOWN:
+        return
+    identity = (project_id, version_id)
+    running = _SOURCE_CACHE_DOWNLOADS.get(identity)
+    if running is not None and not running.done():
+        return
+    background = asyncio.create_task(
+        asyncio.to_thread(
+            _download_source_cache_sync,
+            services,
+            project_id=project_id,
+            version_id=version_id,
+            url=url,
+            expected_size_bytes=expected_size_bytes,
+        ),
+        name=f"creator-source-cache:{project_id}:{version_id}",
+    )
+    _SOURCE_CACHE_DOWNLOADS[identity] = background
+    # Share the ingest registry so shutdown drains these workers too.
+    drain_identity = (project_id, f"source-cache:{version_id}")
+    _REMOTE_INGEST_TASKS[drain_identity] = background
+
+    def completed(task: asyncio.Task[None]) -> None:
+        if _SOURCE_CACHE_DOWNLOADS.get(identity) is task:
+            _SOURCE_CACHE_DOWNLOADS.pop(identity, None)
+        if _REMOTE_INGEST_TASKS.get(drain_identity) is task:
+            _REMOTE_INGEST_TASKS.pop(drain_identity, None)
+        if not task.cancelled():
+            task.exception()
+
+    background.add_done_callback(completed)
+
+
+def _source_cache_version_view(
+    *,
+    project_root: Path,
+    version: SourceAssetVersion,
+    tasks: Any,
+) -> dict[str, Any] | None:
+    url = public_source_url(version)
+    if version.file_id is not None or url is None:
+        return None
+    item = _source_cache_task_item(tasks, version.version_id)
+    expected_size: int | None = None
+    if item is not None:
+        try:
+            expected_size = int(item["cacheSizeBytes"])
+        except (KeyError, TypeError, ValueError):
+            expected_size = None
+    cached = resolve_remote_cache(project_root, version, tasks) is not None
+    return {
+        "assetVersionId": version.version_id,
+        "name": version.name,
+        "sourceUrl": url,
+        "cached": cached,
+        "expectedSizeBytes": expected_size,
+    }
+
+
+@router.get("/source-cache")
+async def get_source_cache(
+    project_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    """Cache state of every URL-backed source version in one Project."""
+
+    snapshot = await asyncio.to_thread(services.projects.read, project_id)
+    project_root = services.projects.project_root(project_id)
+    tasks = await asyncio.to_thread(
+        ProjectExecutionStore(services.root).list_tasks,
+        project_id,
+    )
+    versions: list[dict[str, Any]] = []
+    for version in snapshot.project.assets.source_versions_by_id.values():
+        view = _source_cache_version_view(
+            project_root=project_root,
+            version=version,
+            tasks=tasks,
+        )
+        if view is None:
+            continue
+        identity = (project_id, version.version_id)
+        progress = _source_cache_progress_get(identity)
+        if view["cached"]:
+            state = "cached"
+        elif progress is not None and progress["state"] in {
+            "downloading",
+            "failed",
+        }:
+            state = progress["state"]
+        else:
+            state = "idle"
+        view["state"] = state
+        view["receivedBytes"] = (
+            progress["receivedBytes"] if progress is not None else 0
+        )
+        if view["expectedSizeBytes"] is None and progress is not None:
+            view["expectedSizeBytes"] = progress["totalBytes"]
+        view["error"] = progress["error"] if progress is not None else None
+        versions.append(view)
+    return {"projectId": project_id, "versions": versions}
+
+
+@router.post(
+    "/source-cache/{version_id}/download",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def download_source_cache(
+    project_id: str,
+    version_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    """Fetch the remote original footage behind one example source version."""
+
+    snapshot = await asyncio.to_thread(services.projects.read, project_id)
+    version = snapshot.project.assets.source_versions_by_id.get(version_id)
+    if version is None:
+        raise NotFoundError("AssetVersion 不存在")
+    url = public_source_url(version)
+    if version.file_id is not None or url is None:
+        raise ValidationError("该素材不是远程 URL 素材")
+    project_root = services.projects.project_root(project_id)
+    tasks = await asyncio.to_thread(
+        ProjectExecutionStore(services.root).list_tasks,
+        project_id,
+    )
+    if resolve_remote_cache(project_root, version, tasks) is not None:
+        return {"assetVersionId": version_id, "state": "cached"}
+    item = _source_cache_task_item(tasks, version_id)
+    if item is None:
+        raise NotFoundError("缺少远程素材入库任务记录，无法下载原片")
+    expected_size: int | None
+    try:
+        expected_size = int(item["cacheSizeBytes"])
+    except (KeyError, TypeError, ValueError):
+        expected_size = None
+    identity = (project_id, version_id)
+    running = _SOURCE_CACHE_DOWNLOADS.get(identity)
+    if running is not None and not running.done():
+        progress = _source_cache_progress_get(identity) or {}
+        return {
+            "assetVersionId": version_id,
+            "state": "downloading",
+            "receivedBytes": progress.get("receivedBytes", 0),
+            "totalBytes": progress.get("totalBytes") or expected_size,
+        }
+    if _REMOTE_INGEST_SHUTTING_DOWN:
+        raise ValidationError("Creator 正在关闭，无法开始原片下载")
+    url = _validate_public_remote_url(url)
+    _source_cache_progress_set(
+        identity,
+        state="downloading",
+        received_bytes=0,
+        total_bytes=expected_size,
+    )
+    _start_source_cache_download(
+        services,
+        project_id=project_id,
+        version_id=version_id,
+        url=url,
+        expected_size_bytes=expected_size,
+    )
+    return {
+        "assetVersionId": version_id,
+        "state": "downloading",
+        "receivedBytes": 0,
+        "totalBytes": expected_size,
+    }
 
 
 def _translate(error: BaseException) -> None:

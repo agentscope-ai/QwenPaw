@@ -57,7 +57,9 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   setOpen: (open) => set({ open }),
   setTab: (tab) => set({ tab, open: true }),
   setSize: (width, height) =>
-    set({ width: Math.max(440, width), height: Math.max(320, height) }),
+    // Floor must match AgentDock's DOCK_MIN_WIDTH so users can actually
+    // narrow the dock down to 240px on tight windows.
+    set({ width: Math.max(240, width), height: Math.max(320, height) }),
   setRunFilter: (runFilter) => set({ runFilter }),
   setDraft: (draft) => set({ draft }),
   setSelection: (selection) =>

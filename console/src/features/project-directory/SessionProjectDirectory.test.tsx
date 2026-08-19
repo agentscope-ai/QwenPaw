@@ -180,6 +180,120 @@ describe("SessionProjectDirectory", () => {
     });
   });
 
+  it("re-browses the current directory when hidden folders are toggled", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
+    await waitFor(() => {
+      expect(mockBrowseDirs).toHaveBeenCalledWith(
+        "/projects/agentscope",
+        false,
+      );
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "codingMode.openDirHiddenFolders",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockBrowseDirs).toHaveBeenLastCalledWith("/projects", true);
+    });
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("discards stale browse responses when toggle completes out of order", async () => {
+    const user = userEvent.setup();
+
+    // We will control resolve order manually.
+    let resolvers: Array<{
+      resolve: (v: {
+        current: string;
+        parent: string;
+        dirs: { name: string; path: string }[];
+      }) => void;
+      showHidden: boolean;
+    }> = [];
+    mockBrowseDirs.mockImplementation(
+      (_path: string | undefined, showHidden: boolean) =>
+        new Promise((resolve) => {
+          resolvers.push({
+            resolve: resolve as never,
+            showHidden,
+          });
+        }),
+    );
+
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
+
+    // Wait for the initial browse request (show_hidden=false).
+    await waitFor(() => {
+      expect(resolvers.length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Toggle hidden ON → second request (show_hidden=true).
+    await user.click(
+      screen.getByRole("button", {
+        name: "codingMode.openDirHiddenFolders",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(resolvers.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // Resolve in REVERSE order: true first, then false.
+    const trueReq = resolvers.find((r) => r.showHidden)!;
+    const falseReq = resolvers.find((r) => !r.showHidden)!;
+
+    act(() => {
+      trueReq.resolve({
+        current: "/projects",
+        parent: "/",
+        dirs: [
+          { name: ".secret", path: "/projects/.secret" },
+          { name: "custom", path: "/projects/custom" },
+        ],
+      });
+    });
+
+    // After the newer (true) response resolves, .secret should be visible.
+    await waitFor(() => {
+      expect(screen.getByText(".secret")).toBeInTheDocument();
+    });
+
+    // Now resolve the stale false request.
+    act(() => {
+      falseReq.resolve({
+        current: "/projects",
+        parent: "/",
+        dirs: [{ name: "custom", path: "/projects/custom" }],
+      });
+    });
+
+    // The stale response must NOT overwrite the newer result.
+    // The toggle button should still show pressed=true and .secret should remain.
+    expect(
+      screen.getByRole("button", { name: "codingMode.openDirHiddenFolders" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(".secret")).toBeInTheDocument();
+  });
+
   it("applies the path that owns the visible selection state", async () => {
     const user = userEvent.setup();
     mockSetSessionDirectory.mockResolvedValue({

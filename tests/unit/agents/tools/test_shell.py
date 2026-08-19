@@ -2012,6 +2012,60 @@ def test_execute_subprocess_sync_honors_stop_event(tmp_path):
     assert elapsed < 5.0
 
 
+def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
+    """Fallback kill must be followed by an unconditional process wait."""
+    import threading
+
+    stop_event = threading.Event()
+    stop_event.set()
+    proc = MagicMock()
+    proc.pid = 4321
+    proc.returncode = -9
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired("cmd", 0.5),
+        0,
+    ]
+    stdout_file = MagicMock()
+    stdout_reader = MagicMock()
+    stderr_file = MagicMock()
+    stderr_reader = MagicMock()
+
+    with (
+        patch("qwenpaw.agents.tools.shell.sys.platform", "win32"),
+        patch(
+            "qwenpaw.agents.tools.shell._open_windows_temp_output",
+            side_effect=[
+                (stdout_file, stdout_reader),
+                (stderr_file, stderr_reader),
+            ],
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell.subprocess.Popen",
+            return_value=proc,
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell._kill_process_tree_win32",
+        ) as kill_tree,
+        patch(
+            "qwenpaw.agents.tools.shell._read_temp_output",
+            return_value="",
+        ),
+    ):
+        code, _stdout, _stderr = _execute_subprocess_sync(
+            "echo ok",
+            str(tmp_path),
+            timeout=30.0,
+            stop_event=stop_event,
+        )
+
+    assert code == -1
+    kill_tree.assert_called_once_with(4321)
+    proc.kill.assert_called_once_with()
+    # The final reap is bounded so a child stuck in kernel I/O costs a
+    # leaked handle, not a worker thread parked forever.
+    assert proc.wait.call_args_list[-1].kwargs == {"timeout": 5.0}
+
+
 @pytest.mark.asyncio
 async def test_windows_host_arms_kill_deadline():
     import asyncio
@@ -2419,6 +2473,7 @@ async def test_execute_shell_command_win32_uses_windows_host():
 async def test_non_dataclass_sandbox_config_ignored(
     monkeypatch,
     tmp_path,
+    caplog,
 ):
     """Model-supplied non-SandboxConfig value must not crash replace().
 
@@ -2427,15 +2482,28 @@ async def test_non_dataclass_sandbox_config_ignored(
     ``dataclasses.replace()`` raises ``TypeError``. The fix discards
     any non-``SandboxConfig`` value and falls through to direct
     execution.
+
+    Also verifies that a WARNING is emitted so the discard is observable
+    (not silently swallowed).
     """
+    import logging
+
     from qwenpaw.agents.tools.shell import execute_shell_command
 
     monkeypatch.setenv("SHELL", "/bin/sh")
 
-    result = await execute_shell_command(
-        "echo hello",
-        cwd=tmp_path,
-        sandbox_config={},
-    )
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.tools.shell"):
+        result = await execute_shell_command(
+            "echo hello",
+            cwd=tmp_path,
+            sandbox_config={},
+        )
 
     assert "hello" in result.content[0].text
+    assert any(
+        "dict" in rec.message and "discarding" in rec.message
+        for rec in caplog.records
+    ), (
+        "Expected a WARNING about discarding dict sandbox_config, "
+        f"got: {[r.message for r in caplog.records]}"
+    )

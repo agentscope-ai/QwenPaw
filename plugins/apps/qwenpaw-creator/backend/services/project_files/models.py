@@ -32,9 +32,13 @@ from pydantic import (
 )
 
 
-CURRENT_PROJECT_SCHEMA_VERSION = 6
+CURRENT_PROJECT_SCHEMA_VERSION = 8
 DEFAULT_TIMELINE_ID = "timeline:main"
 DEFAULT_TIMELINE_TICKS_PER_SECOND = 1_000
+
+# Unified colour-grade preset names; the ffmpeg filters live in the local
+# media renderer (keys must stay aligned with _COLOR_GRADE_FILTERS there).
+COLOR_GRADE_PRESETS = ("warm_bright", "clean_cool", "cinematic")
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
 
@@ -1114,6 +1118,72 @@ class TimelineElement(StrictModel):
         return self
 
 
+class EditPlanDials(StrictModel):
+    """Three taste dials from the upstream video-edit taste contract."""
+
+    energy: Literal["low", "mid", "high"] = "mid"
+    density: Literal["low", "mid", "high"] = "mid"
+    decoration: Literal["low", "mid", "high"] = "mid"
+
+
+class EditPlanDesignFloor(StrictModel):
+    """The four designed slots every watchable deliverable declares.
+
+    Upstream [design-floor]: Opening (1-3s hook), Transitions (hard-cut
+    spine + one named accent family), Body (a designed beat per scene
+    change), Ending (designed close, hard stop).
+    """
+
+    opening: str = ""
+    transitions: str = ""
+    body: str = ""
+    ending: str = ""
+
+
+class SceneLedgerRow(StrictModel):
+    """One scene's lock state inside the scene-loop assembly."""
+
+    scene_id: EntityId
+    label: str = ""
+    element_ids: list[EntityId] = Field(default_factory=list)
+    status: Literal["draft", "locked"] = "draft"
+    review_round: int = Field(default=0, ge=0)
+    # Content fingerprint of the scene's elements at lock time: the compose
+    # gate recomputes it, so a lock silently goes stale (and blocks the
+    # master render) whenever any element inside the scene changed.
+    locked_fingerprint: str | None = None
+
+
+class EditPlan(StrictModel):
+    """Taste contract for one Timeline (upstream video-edit methodology).
+
+    Written by the AI editing director BEFORE placing Edit Elements;
+    reviews grade against it and the plan advisory nudges the model to
+    fill it in. ``mechanical_exemption`` is user-granted only.
+    """
+
+    concept: str = ""
+    dials: EditPlanDials = Field(default_factory=EditPlanDials)
+    signature_device: str = ""
+    pacing: str = ""
+    design_floor: EditPlanDesignFloor = Field(
+        default_factory=EditPlanDesignFloor,
+    )
+    mechanical_exemption: bool = False
+    scene_ledger: list[SceneLedgerRow] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_ledger(self) -> EditPlan:
+        seen: set[str] = set()
+        for row in self.scene_ledger:
+            if row.scene_id in seen:
+                raise ValueError(
+                    f"duplicate scene_id in scene_ledger: {row.scene_id}",
+                )
+            seen.add(row.scene_id)
+        return self
+
+
 class Timeline(StrictModel):
     """One time coordinate system containing freely overlapping Elements."""
 
@@ -1122,9 +1192,26 @@ class Timeline(StrictModel):
         default=DEFAULT_TIMELINE_TICKS_PER_SECOND,
         gt=0,
     )
+    # Named unified colour-grade preset applied to the whole composited
+    # cut (empty string = no grading). Must be one of COLOR_GRADE_PRESETS
+    # (warm_bright / clean_cool / cinematic) — free-form colour
+    # descriptions are rejected at commit time so a typo can never
+    # silently skip the grade pass.
+    color_grade: str = ""
+    edit_plan: EditPlan | None = None
     elements_by_id: dict[EntityId, TimelineElement] = Field(
         default_factory=dict,
     )
+
+    @model_validator(mode="after")
+    def _validate_color_grade(self) -> Timeline:
+        if self.color_grade and self.color_grade not in COLOR_GRADE_PRESETS:
+            raise ValueError(
+                "color_grade 必须是命名预设之一（不支持自由文本描述）："
+                + ", ".join(COLOR_GRADE_PRESETS)
+                + "；留空字符串表示不调色",
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_elements(self) -> Timeline:
@@ -1186,7 +1273,7 @@ class Timeline(StrictModel):
 
 
 class Project(StrictModel):
-    schema_version: Literal[6] = CURRENT_PROJECT_SCHEMA_VERSION
+    schema_version: Literal[8] = CURRENT_PROJECT_SCHEMA_VERSION
     project_id: EntityId
     generation: int = Field(default=0, ge=0)
     created_at: UtcDateTime
@@ -1571,6 +1658,7 @@ class Project(StrictModel):
                 self._validate_committed_motion_document(
                     element_id,
                     creation.motion,
+                    require_externalized=True,
                 )
             elif isinstance(creation, AudioCreation):
                 _require_key(
@@ -1674,9 +1762,22 @@ class Project(StrictModel):
         self,
         element_id: str,
         motion: MotionGraphic | None,
+        *,
+        require_externalized: bool = False,
     ) -> None:
         if motion is None:
             return
+        if require_externalized and motion.html is not None:
+            # Main-track motion clips render exclusively from externalized
+            # documents; accepting a hand-written inline body here would
+            # only fail later at composition time, wasting a whole design
+            # round. Fail closed at commit instead.
+            raise ValueError(
+                f"element {element_id!r} carries an inline motion clip "
+                "document; motion clip documents must be created through "
+                "the motion design pipeline (design_motion_overlays), "
+                "which probes and externalizes the document before commit",
+            )
         if motion.format == "html_js" and motion.html is not None:
             # html_js documents may only enter a committed Project through
             # the motion design pipeline, which probes the __hf contract

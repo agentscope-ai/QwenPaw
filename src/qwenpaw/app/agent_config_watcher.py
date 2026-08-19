@@ -4,8 +4,7 @@
 Delegates to ``MultiAgentManager.reload_agent`` so disk-edit reloads
 go through the same atomic workspace swap as frontend saves and wait
 for in-flight tasks. Only triggers when ``channels`` or ``heartbeat``
-hashes change, so runtime bookkeeping rewrites (e.g. ``last_dispatch``)
-do not cause spurious reloads.
+hashes change.
 """
 
 from __future__ import annotations
@@ -15,7 +14,12 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
-from ..config.config import load_agent_config
+from ..config.config import (
+    _AgentConfigFingerprint,
+    _agent_config_fingerprint,
+    load_agent_config,
+)
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from ..config.config import HeartbeatConfig
@@ -25,6 +29,23 @@ logger = logging.getLogger(__name__)
 
 # How often to poll (seconds)
 DEFAULT_POLL_INTERVAL = 2.0
+_SNAPSHOT_RETRIES = 3
+
+
+def _load_config_snapshot(
+    agent_id: str,
+    config_path: Path,
+) -> tuple[Any, _AgentConfigFingerprint]:
+    """Load config while the observed disk fingerprint stays stable."""
+    for _attempt in range(_SNAPSHOT_RETRIES):
+        before = _agent_config_fingerprint(config_path)
+        agent_config = load_agent_config(agent_id)
+        after = _agent_config_fingerprint(config_path)
+        if before == after:
+            return agent_config, after
+    raise OSError(
+        f"Agent config changed repeatedly while loading {config_path}",
+    )
 
 
 def _channels_hash(channels: Any) -> Optional[int]:
@@ -68,7 +89,7 @@ class AgentConfigWatcher:
         self._poll_interval = poll_interval
         self._task: Optional[asyncio.Task] = None
 
-        self._last_mtime: float = 0.0
+        self._last_fingerprint: Optional[_AgentConfigFingerprint] = None
         self._last_channels_hash: Optional[int] = None
         self._last_heartbeat_hash: Optional[int] = None
 
@@ -77,7 +98,7 @@ class AgentConfigWatcher:
 
     async def start(self) -> None:
         """Take initial snapshot and start the polling task."""
-        self._snapshot()
+        await self._snapshot()
         self._task = asyncio.create_task(
             self._poll_loop(),
             name=f"agent_config_watcher_{self._agent_id}",
@@ -109,24 +130,21 @@ class AgentConfigWatcher:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _read_mtime(self) -> float:
-        """Return current mtime of agent.json, 0.0 if missing."""
+    async def _snapshot(self) -> None:
+        """Record current section hashes as the new baseline."""
         try:
-            return self._config_path.stat().st_mtime
-        except FileNotFoundError:
-            return 0.0
-
-    def _snapshot(self) -> None:
-        """Record current mtime and section hashes as the new baseline."""
-        self._last_mtime = self._read_mtime()
-        try:
-            agent_config = load_agent_config(self._agent_id)
+            agent_config, fingerprint = await run_sync_io(
+                _load_config_snapshot,
+                self._agent_id,
+                self._config_path,
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "
                 f"failed to load initial config",
             )
             return
+        self._last_fingerprint = fingerprint
         self._last_channels_hash = _channels_hash(
             getattr(agent_config, "channels", None),
         )
@@ -155,13 +173,18 @@ class AgentConfigWatcher:
 
     async def _check(self) -> None:
         """Check for meaningful config changes and trigger a reload."""
-        mtime = self._read_mtime()
-        if mtime == self._last_mtime:
-            return
-        self._last_mtime = mtime
-
         try:
-            agent_config = load_agent_config(self._agent_id)
+            fingerprint = await run_sync_io(
+                _agent_config_fingerprint,
+                self._config_path,
+            )
+            if fingerprint == self._last_fingerprint:
+                return
+            agent_config, fingerprint = await run_sync_io(
+                _load_config_snapshot,
+                self._agent_id,
+                self._config_path,
+            )
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "
@@ -169,6 +192,7 @@ class AgentConfigWatcher:
             )
             return
 
+        self._last_fingerprint = fingerprint
         new_channels_hash = _channels_hash(
             getattr(agent_config, "channels", None),
         )
@@ -184,8 +208,7 @@ class AgentConfigWatcher:
             or new_heartbeat_hash != old_heartbeat_hash
         )
 
-        # Refresh hashes regardless so non-meaningful rewrites
-        # (e.g. last_dispatch) re-baseline silently.
+        # Refresh hashes regardless so unrelated changes re-baseline silently.
         self._last_channels_hash = new_channels_hash
         self._last_heartbeat_hash = new_heartbeat_hash
 
@@ -210,6 +233,10 @@ class AgentConfigWatcher:
             f"heartbeat: {old_heartbeat_hash} -> {new_heartbeat_hash})",
         )
         try:
+            # The on-disk config changed: bump the generation so a
+            # reload already mid-build cannot re-install the pre-change
+            # snapshot after this one delivers the fresh state.
+            manager.note_agent_config_changed(self._agent_id)
             await manager.reload_agent(self._agent_id)
         except Exception:
             logger.exception(

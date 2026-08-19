@@ -20,6 +20,7 @@ from typing import (
     Union,
     AsyncIterator,
     AsyncGenerator,
+    Awaitable,
     Callable,
     TYPE_CHECKING,
 )
@@ -40,12 +41,13 @@ from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
+from ...utils.logging import sanitize_log_value
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
 
 # Called when a user-originated reply was sent (channel, user_id, session_id)
-OnReplySent = Optional[Callable[[str, str, str], None]]
+OnReplySent = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -547,7 +549,7 @@ class BaseChannel(ABC):
 
         logger.info(
             f"_consume_with_tracker: chat_id={chat.id} "
-            f"session={session_id[:30]}",
+            f"session={sanitize_log_value(session_id[:30])}",
         )
 
         # Refresh updated_at so the session list surfaces this chat as the
@@ -579,13 +581,14 @@ class BaseChannel(ABC):
             except asyncio.CancelledError:
                 logger.info(
                     f"Task cancelled: chat_id={chat.id} "
-                    f"session={session_id[:30]}",
+                    f"session={sanitize_log_value(session_id[:30])}",
                 )
                 raise
         else:
             logger.warning(
                 f"Message ignored (task already running): "
-                f"chat_id={chat.id} session={session_id[:30]}. "
+                f"chat_id={chat.id} "
+                f"session={sanitize_log_value(session_id[:30])}. "
                 f"This should not happen with UnifiedQueueManager.",
             )
 
@@ -980,6 +983,11 @@ class BaseChannel(ABC):
                             event,
                             send_meta,
                         )
+                    await self._send_model_fallback_notice(
+                        to_handle,
+                        event,
+                        send_meta,
+                    )
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
@@ -1012,12 +1020,13 @@ class BaseChannel(ABC):
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
+                await self._on_reply_sent(self.channel, *args)
 
         except asyncio.CancelledError:
+            raw_session = getattr(request, "session_id", "")
             logger.info(
-                f"channel task cancelled: "
-                f"session={getattr(request, 'session_id', '')[:30]}",
+                "channel task cancelled: session="
+                f"{sanitize_log_value(raw_session)[:34]}",
             )
             self._clear_session_turn_usage(session_id)
             if process_iterator is not None:
@@ -1565,6 +1574,11 @@ class BaseChannel(ABC):
                         event,
                         send_meta,
                     )
+                    await self._send_model_fallback_notice(
+                        to_handle,
+                        event,
+                        send_meta,
+                    )
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
@@ -1589,7 +1603,7 @@ class BaseChannel(ABC):
                 )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
+                await self._on_reply_sent(self.channel, *args)
         except asyncio.CancelledError:
             logger.info(
                 "channel task cancelled: session=%s",
@@ -1770,6 +1784,86 @@ class BaseChannel(ABC):
         Override for batch/debounce (e.g. DingTalk merge then send).
         """
         await self.send_message_content(to_handle, event, send_meta)
+
+    @staticmethod
+    def _model_fallback_events(event: Any) -> List[Dict[str, str]]:
+        """Return valid, unique model fallback events from message metadata."""
+        metadata = getattr(event, "metadata", None)
+        if not isinstance(metadata, dict):
+            message = getattr(event, "message", None)
+            metadata = getattr(message, "metadata", None)
+        if not isinstance(metadata, dict):
+            return []
+
+        nested_metadata = metadata.get("metadata")
+        event_source = (
+            nested_metadata if isinstance(nested_metadata, dict) else metadata
+        )
+        raw_events = event_source.get("qwenpaw_model_fallbacks")
+        if not isinstance(raw_events, list):
+            return []
+
+        required_fields = (
+            "from_provider_id",
+            "from_model_id",
+            "to_provider_id",
+            "to_model_id",
+            "reason_kind",
+        )
+        events: List[Dict[str, str]] = []
+        seen: set[tuple[str, ...]] = set()
+        for raw_event in raw_events:
+            if not isinstance(raw_event, dict):
+                continue
+            if raw_event.get("type") != "model_fallback":
+                continue
+            if not all(
+                isinstance(raw_event.get(field), str)
+                for field in required_fields
+            ):
+                continue
+            event_key = tuple(
+                str(raw_event[field]) for field in required_fields
+            )
+            if event_key in seen:
+                continue
+            seen.add(event_key)
+            events.append(
+                {field: str(raw_event[field]) for field in required_fields},
+            )
+        return events
+
+    @staticmethod
+    def _format_model_fallback_notice(event: Dict[str, str]) -> str:
+        """Format one model fallback event for channel users."""
+        source = f"{event['from_provider_id']}:{event['from_model_id']}"
+        target = f"{event['to_provider_id']}:{event['to_model_id']}"
+        return (
+            f"Model switched from {source} to {target} "
+            f"({event['reason_kind']})."
+        )
+
+    async def _send_model_fallback_notice(
+        self,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Send fallback metadata to channels without Console rendering."""
+        if self.channel == "console":
+            return
+        fallback_events = self._model_fallback_events(event)
+        if not fallback_events:
+            return
+        notice = "\n".join(
+            self._format_model_fallback_notice(item)
+            for item in fallback_events
+        )
+        await self.send_content_parts(
+            to_handle,
+            [TextContent(type=ContentType.TEXT, text=notice)],
+            send_meta,
+        )
 
     async def on_event_response(
         self,
@@ -2212,6 +2306,7 @@ class BaseChannel(ABC):
             session_id=session_id,
         )
         await self.send_message_content(to_handle, event, meta)
+        await self._send_model_fallback_notice(to_handle, event, meta or {})
 
     async def send_approval_notification(
         self,

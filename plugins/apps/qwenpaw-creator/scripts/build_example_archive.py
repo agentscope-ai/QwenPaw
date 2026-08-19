@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
+# pylint: disable=too-many-branches,too-many-statements
 """Build an OSS-hosted inspiration example archive from a real Project.
 
 Only ``backend/examples/manifest.json`` ships inside the plugin; the archive
@@ -71,9 +72,11 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -168,6 +171,304 @@ def _prune_superseded_artifacts(staged: Path) -> int:
     for path in removed_paths:
         path.unlink(missing_ok=True)
     return len(removed_paths)
+
+
+def _resolve_local_source_video(
+    source: Path,
+    version: dict,
+    override: str,
+) -> Path | None:
+    """Locate the original footage bytes a URL-backed source version needs.
+
+    The build trims the timeline clips locally, so it needs the real bytes of
+    every remote source version.  A live ``CREATOR_DATA_ROOT`` Project keeps
+    them in ``runtime/asset-cache``; ``--source-video`` overrides for exports.
+    """
+
+    if override:
+        candidate = Path(override).expanduser().resolve()
+        return candidate if candidate.is_file() else None
+    version_id = version.get("version_id")
+    if not isinstance(version_id, str):
+        return None
+    cache_root = source / "runtime" / "asset-cache"
+    if not cache_root.is_dir():
+        return None
+    for path in sorted(cache_root.iterdir()):
+        if path.is_file() and path.name.startswith(version_id):
+            return path
+    return None
+
+
+def _probe_duration_seconds(path: Path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return float(result.stdout.strip())
+
+
+def _materialize_remote_source_clips(
+    staged: Path,
+    *,
+    source: Path,
+    source_video_overrides: dict[str, str],
+) -> int:
+    """Bundle ffmpeg-trimmed clips instead of the remote original footage.
+
+    The original gigabyte-scale videos stay URL-backed (``file_id`` null) so
+    opening the example never downloads them; each timeline element's
+    ``render_source`` is repointed at a small local clip covering exactly its
+    ``source_in_tick..source_out_tick`` window.  Elements sharing one window
+    share one clip.  The user can still fetch the original footage later
+    through the source-cache download endpoints.
+    """
+
+    project_path = staged / "project.json"
+    document = json.loads(project_path.read_text(encoding="utf-8"))
+    assets = document.get("assets", {})
+    versions = assets.get("source_versions_by_id", {})
+    files = assets.get("files_by_id", {})
+    intelligences = assets.get("intelligence_versions_by_id", {})
+    ticks_per_second = 1000
+    timelines = document.get("timelines", {})
+    timeline_items = (
+        timelines.get("items", {}) if isinstance(timelines, dict) else {}
+    )
+    for timeline in timeline_items.values():
+        if isinstance(timeline, dict) and timeline.get("ticks_per_second"):
+            ticks_per_second = int(timeline["ticks_per_second"])
+            break
+
+    remote_ids = {
+        version_id
+        for version_id, version in versions.items()
+        if isinstance(version, dict)
+        and version.get("file_id") is None
+        and version.get("metadata", {}).get("publicSourceUrl")
+    }
+    if not remote_ids:
+        return 0
+
+    windows: dict[tuple[str, int, int], dict] = {}
+    for timeline in timeline_items.values():
+        if not isinstance(timeline, dict):
+            continue
+        for element in (timeline.get("elements_by_id") or {}).values():
+            if not isinstance(element, dict):
+                continue
+            render_source = element.get("render_source")
+            if not isinstance(render_source, dict):
+                continue
+            if render_source.get("type") != "source_asset_version":
+                continue
+            version_id = render_source.get("version_id")
+            if version_id not in remote_ids:
+                continue
+            in_tick = int(render_source.get("source_in_tick") or 0)
+            out_tick = int(
+                render_source.get("source_out_tick")
+                or render_source.get("source_in_tick")
+                or 0,
+            )
+            if out_tick <= in_tick:
+                continue
+            window = windows.setdefault(
+                (version_id, in_tick, out_tick),
+                {"elements": []},
+            )
+            window["elements"].append(element)
+
+    created = 0
+    now = datetime.now(UTC).isoformat()
+    example_identity = staged.name
+    for index, ((version_id, in_tick, out_tick), window) in enumerate(
+        sorted(windows.items()),
+    ):
+        version = versions[version_id]
+        local_video = _resolve_local_source_video(
+            source,
+            version,
+            source_video_overrides.get(version_id)
+            or source_video_overrides.get("")
+            or "",
+        )
+        if local_video is None:
+            raise SystemExit(
+                f"cannot locate local bytes for remote source {version_id}; "
+                "open the source Project once so runtime/asset-cache is "
+                "populated, or pass --source-video",
+            )
+        start_seconds = in_tick / ticks_per_second
+        duration_seconds = (out_tick - in_tick) / ticks_per_second
+        file_identity = (
+            f"qwenpaw-creator:example-clip:{example_identity}:"
+            f"{version_id}:{in_tick}:{out_tick}"
+        )
+        file_id = f"file-{uuid5(NAMESPACE_URL, file_identity).hex}"
+        clip_version_id = (
+            f"asset-version-{uuid5(NAMESPACE_URL, file_identity).hex}"
+        )
+        relative_uri = f"assets/sources/{file_id}.mp4"
+        clip_path = staged / relative_uri
+        clip_path.parent.mkdir(parents=True, exist_ok=True)
+        print(
+            f"trimming clip {index + 1}/{len(windows)}: {version_id} "
+            f"[{start_seconds:.3f}s +{duration_seconds:.3f}s]",
+        )
+        # -ss after -i: sample-accurate output-side seek, re-encoded so the
+        # clip is self-contained and its reported duration is trustworthy.
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(local_video),
+                "-ss",
+                f"{start_seconds:.3f}",
+                "-t",
+                f"{duration_seconds:.3f}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(clip_path),
+            ],
+            check=True,
+        )
+        clip_duration = _probe_duration_seconds(clip_path)
+        with clip_path.open("rb") as handle:
+            digest = hashlib.sha256()
+            # Bind the handle as a default argument so the callable does not
+            # close over the loop variable (pylint cell-var-from-loop).
+            for chunk in iter(lambda h=handle: h.read(1024 * 1024), b""):
+                digest.update(chunk)
+        files[file_id] = {
+            "file_id": file_id,
+            "kind": "source_original",
+            "relative_uri": relative_uri,
+            "sha256": digest.hexdigest(),
+            "size_bytes": clip_path.stat().st_size,
+            "media_type": "video/mp4",
+            "schema_name": None,
+            "schema_version": None,
+            "created_at": now,
+        }
+        versions[clip_version_id] = {
+            "version_id": clip_version_id,
+            "logical_asset_id": version.get("logical_asset_id"),
+            "name": (
+                f"clip-{index + 1:02d}-"
+                f"{Path(version.get('name') or 'remote.mp4').stem}.mp4"
+            ),
+            "file_id": file_id,
+            "checksum": digest.hexdigest(),
+            "media_kind": version.get("media_kind") or "video",
+            "media_type": "video/mp4",
+            "provenance_refs": [version_id],
+            "thumbnail_file_id": None,
+            "duration_seconds": clip_duration,
+            "native_model_file_id": None,
+            "created_at": now,
+            "metadata": {
+                "sourceKind": "example_clip",
+                "checksumKind": "file_sha256",
+                "clippedFromVersionId": version_id,
+                "clippedInTick": in_tick,
+                "clippedOutTick": out_tick,
+            },
+        }
+        # Keep the element's original tick window: the Project validator
+        # requires source_out_tick - source_in_tick to render exactly
+        # span.duration_tick, and timeline continuity stays untouched. A
+        # sub-frame encoding difference from the probed duration is
+        # imperceptible in the showcase preview.
+        clip_ticks = out_tick - in_tick
+        for element in window["elements"]:
+            render_source = element["render_source"]
+            render_source["version_id"] = clip_version_id
+            render_source["source_in_tick"] = 0
+            render_source["source_out_tick"] = clip_ticks
+            # Project validation requires an edit Element's intelligence to
+            # target its render_source version; clone the index (its file is
+            # content-addressed and shared) for each clip.
+            creation = element.get("creation") or {}
+            intelligence_id = creation.get("source_intelligence_version_id")
+            intelligence = (
+                intelligences.get(intelligence_id)
+                if isinstance(intelligence_id, str)
+                else None
+            )
+            if not isinstance(intelligence, dict):
+                continue
+            clone_identity = f"{file_identity}:intelligence:{intelligence_id}"
+            clone_id = f"source-intelligence-{uuid5(NAMESPACE_URL, clone_identity).hex}"
+            if clone_id not in intelligences:
+                clone = dict(intelligence)
+                clone["intelligence_version_id"] = clone_id
+                clone["source_asset_version_id"] = clip_version_id
+                # Validation ties the index checksum to its source version.
+                clone["source_checksum"] = digest.hexdigest()
+                intelligences[clone_id] = clone
+            creation["source_intelligence_version_id"] = clone_id
+        created += 1
+
+    project_path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return created
+
+
+def _align_artifact_generations(staged: Path) -> int:
+    """Mark every bundled artifact as rendered from the current generation.
+
+    An example must open as a finished showcase: any artifact whose
+    ``based_on_generation`` lags the project generation would make the
+    frontend immediately launch a recompose.
+    """
+
+    project_path = staged / "project.json"
+    document = json.loads(project_path.read_text(encoding="utf-8"))
+    generation = document.get("generation")
+    aligned = 0
+    for version in (
+        document.get("assets", {}).get("artifact_versions_by_id", {}).values()
+    ):
+        if not isinstance(version, dict):
+            continue
+        if version.get("based_on_generation") != generation:
+            version["based_on_generation"] = generation
+            aligned += 1
+        if version.get("stale"):
+            version["stale"] = False
+            version["stale_reason"] = None
+    if aligned:
+        project_path.write_text(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return aligned
 
 
 def example_project_id(example_id: str) -> str:
@@ -299,6 +600,19 @@ def _update_manifest(
     )
 
 
+def _parse_source_videos(raw: str) -> dict[str, str]:
+    """Parse ``--source-video`` specs of the form ``[version_id=]/path``."""
+
+    overrides: dict[str, str] = {}
+    for spec in raw:
+        key, separator, value = spec.partition("=")
+        if separator and value.strip():
+            overrides[key.strip()] = value.strip()
+        else:
+            overrides[""] = spec.strip()
+    return overrides
+
+
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -332,6 +646,16 @@ def build(args: argparse.Namespace) -> Path:
         _copy_pruned(source, staged)
         removed = _prune_superseded_artifacts(staged)
         print(f"removed {removed} superseded artifact payloads")
+        clips = _materialize_remote_source_clips(
+            staged,
+            source=source,
+            source_video_overrides=_parse_source_videos(
+                args.source_video,
+            ),
+        )
+        print(f"materialized {clips} trimmed source clips")
+        aligned = _align_artifact_generations(staged)
+        print(f"aligned {aligned} artifact versions to the current generation")
         if args.simplified:
             converted = _convert_text_files_to_simplified(staged)
             print(f"converted {converted} text files to simplified Chinese")
@@ -406,6 +730,16 @@ def main() -> None:
         "--archive-url",
         default="",
         help="public OSS URL of the uploaded zip (placeholder when omitted)",
+    )
+    parser.add_argument(
+        "--source-video",
+        action="append",
+        default=[],
+        metavar="[VERSION_ID=]/PATH",
+        help=(
+            "local bytes of a remote source video for clip trimming "
+            "(repeatable; defaults to runtime/asset-cache of --source)"
+        ),
     )
     parser.add_argument(
         "--simplified",

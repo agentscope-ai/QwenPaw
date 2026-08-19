@@ -206,6 +206,7 @@ def _process_session_file(
                     agent_llm_calls += 1
                     ds["agent_prompt_tokens"] += pt
                     ds["agent_completion_tokens"] += ct
+                    ds["agent_llm_calls"] += 1
 
             if isinstance(content, list):
                 for block in content:
@@ -263,6 +264,7 @@ class AgentStatsService:
                 "tool_calls": 0,
                 "agent_prompt_tokens": 0,
                 "agent_completion_tokens": 0,
+                "agent_llm_calls": 0,
             }
 
         start_date_str = start_date.isoformat()

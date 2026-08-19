@@ -26,8 +26,9 @@ import { useShallow } from "zustand/react/shallow";
 import { useTheme } from "../contexts/ThemeContext";
 import { useOsWindows, type OsWindow, type OsRect } from "./osWindowStore";
 import { computeSnapRect, type SnapZone } from "./snap";
+import { clampWindowY } from "./windowGeometry";
 import OsAppHost from "./OsAppHost";
-import { useOsStyles, MENUBAR_H, DOCK_H } from "./useOsStyles";
+import { useOsStyles, MENUBAR_H } from "./useOsStyles";
 
 interface WindowFrameProps {
   win: OsWindow;
@@ -204,23 +205,37 @@ export default function WindowFrame({
           h: Math.max(minH, win.h + dy),
         });
       } else {
-        move(win.id, Math.max(0, win.x + dx), Math.max(MENUBAR_H, win.y + dy));
+        move(
+          win.id,
+          Math.max(0, win.x + dx),
+          clampWindowY(win.y + dy, win.h, window.innerHeight),
+        );
       }
     },
     [isFull, minH, minW, move, resize, win],
   );
 
-  // Write the pending gesture rect to the DOM (idempotent, cheap no-op
-  // when no gesture is in flight).
-  const applyRect = useCallback(() => {
+  const writeRect = useCallback((rect: Partial<OsRect>) => {
     const el = frameRef.current;
-    const rect = pendingRef.current;
-    if (!el || !rect) return;
+    if (!el) return;
     if (rect.x !== undefined) el.style.left = `${rect.x}px`;
     if (rect.y !== undefined) el.style.top = `${rect.y}px`;
     if (rect.w !== undefined) el.style.width = `${rect.w}px`;
     if (rect.h !== undefined) el.style.height = `${rect.h}px`;
   }, []);
+
+  // Write the pending gesture rect to the DOM (idempotent, cheap no-op
+  // when no gesture is in flight).
+  const applyRect = useCallback(() => {
+    const rect = pendingRef.current;
+    if (rect) writeRect(rect);
+  }, [writeRect]);
+
+  // Undo transient DOM writes before React reconciles the store commit.
+  // Otherwise unchanged VDOM style fields can retain stale inline values.
+  const restoreCommittedRect = useCallback(() => {
+    writeRect({ x: win.x, y: win.y, w: win.w, h: win.h });
+  }, [win.h, win.w, win.x, win.y, writeRect]);
 
   const onFrame = useCallback(() => {
     rafRef.current = null;
@@ -276,11 +291,11 @@ export default function WindowFrame({
     (e: React.PointerEvent) => {
       if (!dragRef.current) return;
       const maxX = window.innerWidth - 80;
-      const maxY = window.innerHeight - DOCK_H - 40;
       const nx = Math.min(Math.max(0, e.clientX - dragRef.current.dx), maxX);
-      const ny = Math.min(
-        Math.max(MENUBAR_H, e.clientY - dragRef.current.dy),
-        maxY,
+      const ny = clampWindowY(
+        e.clientY - dragRef.current.dy,
+        win.h,
+        window.innerHeight,
       );
       // Transient: DOM only — the store is untouched until pointerup.
       queueApply({ x: nx, y: ny });
@@ -290,7 +305,7 @@ export default function WindowFrame({
       else if (e.clientX >= window.innerWidth - EDGE) setSnapZone("right");
       else setSnapZone(null);
     },
-    [queueApply],
+    [queueApply, win.h],
   );
 
   const endDrag = useCallback(
@@ -302,6 +317,7 @@ export default function WindowFrame({
       const wasDragging = dragRef.current !== null;
       dragRef.current = null;
       const rect = takeGestureRect();
+      if (wasDragging) restoreCommittedRect();
       if (wasDragging && snapZone) {
         snap(win.id, snapZone);
         setSnapZone(null);
@@ -315,7 +331,7 @@ export default function WindowFrame({
         /* pointer may already be released */
       }
     },
-    [snapZone, snap, move, takeGestureRect, win.id],
+    [snapZone, snap, move, restoreCommittedRect, takeGestureRect, win.id],
   );
 
   const onResizePointerDown = useCallback(
@@ -374,6 +390,7 @@ export default function WindowFrame({
       const wasResizing = resizeRef.current !== null;
       resizeRef.current = null;
       const rect = takeGestureRect();
+      if (wasResizing) restoreCommittedRect();
       if (wasResizing && rect) {
         // Single commit: one store update (and one persisted write) per
         // resize gesture.
@@ -385,7 +402,7 @@ export default function WindowFrame({
         /* noop */
       }
     },
-    [resize, takeGestureRect, win.id],
+    [resize, restoreCommittedRect, takeGestureRect, win.id],
   );
 
   const handleMinimize = useCallback(() => {

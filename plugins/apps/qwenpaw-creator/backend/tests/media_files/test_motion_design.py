@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-# pylint: disable=unused-argument,protected-access
+# pylint: disable=unused-argument,protected-access,redefined-outer-name
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 
 import pytest
@@ -12,6 +13,8 @@ import pytest
 from domain.errors import ValidationError
 from services.media_files import local_execution as local_execution_module
 from services.media_files import motion_design
+from services.media_files import motion_engine
+from services.media_files.motion_engine import VendorLib
 from services.media_files.local_execution import (
     FfmpegLocalMediaRunner,
     LocalMediaInput,
@@ -27,6 +30,8 @@ from services.media_files.motion_design import (
 )
 from services.media_files.motion_overlay import (
     MotionDocumentProbe,
+    MotionLayerPrep,
+    PreparedMotionLayer,
     _alpha_plane_stats,
 )
 from services.media_files.motion_templates import (
@@ -44,9 +49,44 @@ from services.project_files.models import (
     Timeline,
     TimelineElement,
     TimelineSpan,
+    overlay_role,
 )
 
 _HTML = "<html><body><div class='card'>本喵要发光</div></body></html>"
+
+_FAKE_GSAP = b"window.gsap={timeline:function(){return{}}};"
+
+
+@pytest.fixture()
+def stub_gsap_vendor(monkeypatch, tmp_path):
+    """Install a verified stand-in for the pinned GSAP runtime.
+
+    CI never runs the vendor fetch CLI, so html_js documents (which
+    reference vendor/gsap.min.js) must resolve against a stub file.
+    """
+
+    stub = VendorLib(
+        name="gsap",
+        filename="gsap.min.js",
+        sha256=hashlib.sha256(_FAKE_GSAP).hexdigest(),
+        size_bytes=len(_FAKE_GSAP),
+        source_url="https://example.invalid/gsap.min.js",
+        license_note="test stub",
+    )
+    vendor_dir = tmp_path / "vendor"
+    vendor_dir.mkdir()
+    (vendor_dir / stub.filename).write_bytes(_FAKE_GSAP)
+    monkeypatch.setattr(motion_engine, "VENDOR_LIBS", {"gsap": stub})
+    monkeypatch.setattr(
+        motion_engine,
+        "_LIBS_BY_FILENAME",
+        {stub.filename: stub},
+    )
+    monkeypatch.setenv(
+        "QWENPAW_CREATOR_MOTION_VENDOR_DIR",
+        str(vendor_dir),
+    )
+    return stub
 
 
 def _motion() -> MotionGraphic:
@@ -108,6 +148,20 @@ class TestValidatedDesignTextMode:
         motion, _location, _concept = design
         assert motion.loop is False
 
+    def test_scene_mode_allows_visible_text(self) -> None:
+        """Full-canvas motion clips may carry copy (teaching panels,
+        title cards); only decorations must stay text-free."""
+
+        raw = {**self._BASE, "needed": True, "html": _HTML}
+        with pytest.raises(ValidationError, match="不允许包含任何可见文字"):
+            _validated_design(raw, default_loop=False)
+        design = _validated_design(
+            raw,
+            allow_visible_text=True,
+            default_loop=False,
+        )
+        assert not isinstance(design, str)
+
     def test_extra_visible_text_is_rejected(self) -> None:
         raw = {
             **self._BASE,
@@ -168,15 +222,30 @@ class TestMotionDesignSafety:
     }
 
     def test_location_box_must_stay_inside_canvas(self) -> None:
-        with pytest.raises(ValidationError, match="超出画布边界"):
+        # An overshooting box is translated back inside (the size and
+        # edge-hugging intent are unambiguous), never rejected outright.
+        clamped = _validated_location(
+            {
+                "x": 0.95,
+                "y": 0.1,
+                "width": 0.2,
+                "height": 0.2,
+                "anchor_x": 0,
+                "anchor_y": 0,
+            },
+        )
+        assert clamped.x == pytest.approx(0.8)
+        assert clamped.y == pytest.approx(0.1)
+        left = clamped.x - clamped.anchor_x * clamped.width
+        assert 0.0 <= left and left + clamped.width <= 1.0 + 1e-9
+        # A box larger than the canvas is stopped by the size gate.
+        with pytest.raises(ValidationError, match="1% 到 100%"):
             _validated_location(
                 {
-                    "x": 0.95,
-                    "y": 0.1,
-                    "width": 0.2,
-                    "height": 0.2,
-                    "anchor_x": 0,
-                    "anchor_y": 0,
+                    "x": 0.5,
+                    "y": 0.5,
+                    "width": 1.0,
+                    "height": 1.2,
                 },
             )
 
@@ -473,26 +542,38 @@ class TestAlphaPlaneStats:
 
     def test_centered_content_has_no_edge_contact(self) -> None:
         visible = {(x, y) for x in range(2, 8) for y in range(2, 8)}
-        coverage, edge = _alpha_plane_stats(
+        coverage, edge, center, edge_floor = _alpha_plane_stats(
             self._plane(10, 10, visible),
             10,
             10,
         )
         assert coverage == pytest.approx(0.36)
         assert edge == 0.0
+        assert edge_floor == 0.0
+        # The whole 3..7 center window is painted.
+        assert center == pytest.approx(1.0)
 
     def test_clipped_content_touches_edge(self) -> None:
         visible = {(9, y) for y in range(3, 8)}
-        coverage, edge = _alpha_plane_stats(
+        coverage, edge, center, edge_floor = _alpha_plane_stats(
             self._plane(10, 10, visible),
             10,
             10,
         )
         assert coverage == pytest.approx(0.05)
         assert edge == pytest.approx(0.5)
+        # One-sided overflow: the other edges stay empty.
+        assert edge_floor == 0.0
+        # Edge column stays outside the center window.
+        assert center == 0.0
 
     def test_geometry_mismatch_returns_unknown(self) -> None:
-        assert _alpha_plane_stats(b"\xff" * 10, 10, 10) == (-1.0, -1.0)
+        assert _alpha_plane_stats(b"\xff" * 10, 10, 10) == (
+            -1.0,
+            -1.0,
+            -1.0,
+            -1.0,
+        )
 
 
 def _edit_element(
@@ -589,6 +670,25 @@ class TestSelectDecorationIds:
         assert selected <= {element.element_id for element in elements}
 
 
+def _layer_prep(tmp_path) -> MotionLayerPrep:
+    """A minimal prepared layer for mocking the capture stage."""
+
+    return MotionLayerPrep(
+        layer=PreparedMotionLayer(
+            frames_dir=tmp_path,
+            frame_count=1,
+            effective_fps=24.0,
+            appear_at=0.0,
+            duration=1.0,
+            left=0,
+            top=0,
+            opacity=1.0,
+            period_mode=False,
+            managed_exit=False,
+        ),
+    )
+
+
 class TestApplyOverlayStyledRouting:
     def _runner(
         self,
@@ -650,8 +750,12 @@ class TestApplyOverlayStyledRouting:
     ) -> None:
         calls: list[str] = []
 
-        def fake_motion(**kwargs):
-            calls.append("motion")
+        def fake_prepare(**kwargs):
+            calls.append("prepare")
+            return _layer_prep(tmp_path)
+
+        def fake_composite(**kwargs):
+            calls.append("burn")
             kwargs["output_path"].write_bytes(b"styled")
             return OverlayRenderResult(success=True)
 
@@ -661,8 +765,13 @@ class TestApplyOverlayStyledRouting:
 
         monkeypatch.setattr(
             local_execution_module,
-            "render_motion_overlay",
-            fake_motion,
+            "prepare_motion_layer",
+            fake_prepare,
+        )
+        monkeypatch.setattr(
+            local_execution_module,
+            "composite_motion_layers",
+            fake_composite,
         )
         monkeypatch.setattr(
             local_execution_module,
@@ -676,7 +785,7 @@ class TestApplyOverlayStyledRouting:
         )
         warnings = runner._apply_overlay(item, segment)
         assert not warnings
-        assert calls == ["motion"]
+        assert calls == ["prepare", "burn"]
         assert segment.read_bytes() == b"styled"
 
     def test_motion_failure_falls_back_with_warning(
@@ -686,9 +795,9 @@ class TestApplyOverlayStyledRouting:
     ) -> None:
         calls: list[str] = []
 
-        def fake_motion(**kwargs):
-            calls.append("motion")
-            return OverlayRenderResult(success=False, error="capture crashed")
+        def fake_prepare(**kwargs):
+            calls.append("prepare")
+            return MotionLayerPrep(error="capture crashed")
 
         def fake_pet_os(**kwargs):
             calls.append("pet_os")
@@ -697,8 +806,8 @@ class TestApplyOverlayStyledRouting:
 
         monkeypatch.setattr(
             local_execution_module,
-            "render_motion_overlay",
-            fake_motion,
+            "prepare_motion_layer",
+            fake_prepare,
         )
         monkeypatch.setattr(
             local_execution_module,
@@ -714,7 +823,7 @@ class TestApplyOverlayStyledRouting:
         assert len(warnings) == 1
         assert "回退固定样式" in warnings[0]
         assert "capture crashed" in warnings[0]
-        assert calls == ["motion", "motion", "pet_os"]
+        assert calls == ["prepare", "prepare", "pet_os"]
         assert segment.read_bytes() == b"bubble"
 
     def test_without_motion_uses_fixed_template(
@@ -758,10 +867,14 @@ class TestApplyOverlayStyledRouting:
         safe_motion_locations: list[dict] = []
         safe_motion_html: list[str] = []
 
-        def fake_motion(**kwargs):
-            calls.append("motion")
+        def fake_prepare(**kwargs):
+            calls.append("prepare")
             safe_motion_locations.append(kwargs["location"])
             safe_motion_html.append(kwargs["html"])
+            return _layer_prep(tmp_path)
+
+        def fake_composite(**kwargs):
+            calls.append("burn")
             kwargs["output_path"].write_bytes(b"safe motion")
             return OverlayRenderResult(success=True)
 
@@ -772,8 +885,13 @@ class TestApplyOverlayStyledRouting:
 
         monkeypatch.setattr(
             local_execution_module,
-            "render_motion_overlay",
-            fake_motion,
+            "prepare_motion_layer",
+            fake_prepare,
+        )
+        monkeypatch.setattr(
+            local_execution_module,
+            "composite_motion_layers",
+            fake_composite,
         )
         monkeypatch.setattr(
             local_execution_module,
@@ -796,7 +914,7 @@ class TestApplyOverlayStyledRouting:
 
         warnings = runner._apply_overlay(item, segment)
 
-        assert calls == ["motion"]
+        assert calls == ["prepare", "burn"]
         assert segment.read_bytes() == b"safe motion"
         assert len(warnings) == 1
         assert "未通过合成安全检查" in warnings[0]
@@ -814,3 +932,400 @@ class TestApplyOverlayStyledRouting:
             },
         ]
         assert 'data-motion-motif="caption_card"' in safe_motion_html[0]
+
+
+class TestVarietyFrameDesign:
+    """Deterministic variety frame: window derivation and conventions."""
+
+    def test_window_mirrors_shrunk_edit_placement(self) -> None:
+        location = ElementLocation(
+            x=0.5,
+            y=0.48,
+            width=0.84,
+            height=0.80,
+            anchor_x=0.5,
+            anchor_y=0.5,
+        )
+        window = motion_design._frame_window_from_edit(location)
+        assert window == {
+            "left": pytest.approx(0.08),
+            "top": pytest.approx(0.08),
+            "width": pytest.approx(0.84),
+            "height": pytest.approx(0.80),
+        }
+
+    def test_full_frame_or_rotated_edit_keeps_default_window(self) -> None:
+        assert motion_design._frame_window_from_edit(None) is None
+        assert motion_design._frame_window_from_edit(ElementLocation()) is None
+        rotated = ElementLocation(width=0.8, height=0.8, rotation_degrees=8.0)
+        assert motion_design._frame_window_from_edit(rotated) is None
+
+    def test_frame_overlay_convention_is_text_free_with_prompt(self) -> None:
+        # The director creates the declaration (text-free, vibe="frame",
+        # prompt states the intent); the design tool fills creation.motion.
+        creation = OverlayCreation(vibe="frame", prompt="家庭高光时刻包裹框")
+        assert overlay_role(creation) == "decoration"
+        assert creation.motion is None
+
+
+class TestUniformCaptionStyle:
+    def test_bad_caption_style_is_rejected_before_any_read(self) -> None:
+        with pytest.raises(ValidationError, match="captionStyle"):
+            asyncio.run(
+                motion_design.design_motion_overlays(
+                    object(),
+                    project_id="p1",
+                    target_ref="timeline:main",
+                    arguments={"captionStyle": "rainbow"},
+                    idempotency_key="k1",
+                ),
+            )
+
+    def test_uniform_blueprint_renders_identically_across_cards(self) -> None:
+        """Uniform narration captions share one deterministic skeleton:
+        two cards differ only by their words, never by style."""
+
+        from services.media_files.motion_blueprints import (
+            render_caption_blueprint,
+        )
+
+        blueprint = motion_design._UNIFORM_CAPTION_BLUEPRINT
+        intensity = motion_design._UNIFORM_CAPTION_INTENSITY
+        first, _ = render_caption_blueprint(
+            blueprint,
+            "第一句旁白。",
+            intensity=intensity,
+        )
+        again, _ = render_caption_blueprint(
+            blueprint,
+            "第一句旁白。",
+            intensity=intensity,
+        )
+        assert first == again  # deterministic, no per-card variation
+        second, _ = render_caption_blueprint(
+            blueprint,
+            "第二句旁白。",
+            intensity=intensity,
+        )
+        assert first.replace("第一句旁白。", "") == second.replace(
+            "第二句旁白。",
+            "",
+        )
+
+    def test_uniform_blueprint_font_size_ignores_text_length(self) -> None:
+        """The static capsule keeps one fixed font size: a long sentence
+        wraps instead of shrinking, so short and long captions share the
+        exact same style skeleton (the hyperframes caption-bar contract)."""
+
+        from services.media_files.motion_blueprints import (
+            render_caption_blueprint,
+        )
+
+        blueprint = motion_design._UNIFORM_CAPTION_BLUEPRINT
+        intensity = motion_design._UNIFORM_CAPTION_INTENSITY
+        short_text = "所以x等于3。"
+        long_text = "这道题要求我们解一元一次方程，6乘以括号x加2，等于30。"
+        short_doc, _ = render_caption_blueprint(
+            blueprint,
+            short_text,
+            intensity=intensity,
+        )
+        long_doc, _ = render_caption_blueprint(
+            blueprint,
+            long_text,
+            intensity=intensity,
+        )
+        # Style skeleton (all CSS, including font-size) is byte-identical
+        # across very different text lengths -- only the words differ.
+        assert short_doc.replace(short_text, "") == long_doc.replace(
+            long_text,
+            "",
+        )
+        # No adaptive vw/text-length term ever reaches the font size.
+        assert "font-size:24vh" in short_doc
+        # No per-card entrance choreography beyond the single card fade.
+        for performance in ("letterSpacing", "scaleY", "stagger"):
+            assert performance not in short_doc
+        # Compose probes reject documents whose t=0 frame is fully
+        # transparent, so the fade must start from partial visibility.
+        assert "autoAlpha:0}" not in short_doc
+        assert "autoAlpha:.35" in short_doc
+        # Captions hand over back-to-back: a managed exit fade would
+        # double-expose neighbouring cards, so the exit is a hard cut.
+        assert 'data-motion-exit="none"' in short_doc
+
+
+class TestSegmentCache:
+    """Finished-segment cache: identity coverage and round trip."""
+
+    def _spec(self, tmp_path):
+        from domain.enums import CreatorCommandType
+        from services.media_files.local_execution import (
+            LocalMediaExecutionSpec,
+        )
+
+        return LocalMediaExecutionSpec(
+            command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+            target_ref="timeline:main",
+            task_id="task-1",
+            work_dir=tmp_path,
+            output_path=tmp_path / "out.mp4",
+            inputs=(),
+            transitions=(),
+            audio_plan="",
+            expected_duration_seconds=None,
+            canvas_size=(1280, 720),
+        )
+
+    def _item(self, tmp_path, *, checksum="a" * 64, overlays=()):
+        segment = tmp_path / "src.mp4"
+        segment.write_bytes(b"src")
+        return LocalMediaInput(
+            version_id="ver-1",
+            file_id=None,
+            checksum=checksum,
+            media_type="video/mp4",
+            path=segment,
+            source_ref="element:clip-1",
+            start_seconds=0.0,
+            end_seconds=4.0,
+            overlays=tuple(overlays),
+        )
+
+    def test_key_tracks_burned_layer_checksum_not_html(
+        self,
+        tmp_path,
+    ) -> None:
+        runner = FfmpegLocalMediaRunner(executable="ffmpeg")
+        spec = self._spec(tmp_path)
+
+        def overlay(checksum: str, html: str) -> dict:
+            return {
+                "kind": "pet_os",
+                "text": "第一句",
+                "vibe": "chill",
+                "appear_at": 0.0,
+                "duration": 2.0,
+                "motion": {
+                    "format": "html_js",
+                    "html": html,
+                    "checksum": checksum,
+                    "fps": 24,
+                    "loop": False,
+                },
+                "location": None,
+                "element_id": "overlay-1",
+            }
+
+        base = runner._segment_cache_key(
+            spec,
+            self._item(tmp_path, overlays=[overlay("c1", "<html>a")]),
+            segment_duration=4.0,
+            freeze_duration=0.0,
+        )
+        # Identical content with a different (never-fingerprinted) html
+        # body: hydration state must not split the cache.
+        same = runner._segment_cache_key(
+            spec,
+            self._item(tmp_path, overlays=[overlay("c1", "<html>b")]),
+            segment_duration=4.0,
+            freeze_duration=0.0,
+        )
+        changed = runner._segment_cache_key(
+            spec,
+            self._item(tmp_path, overlays=[overlay("c2", "<html>a")]),
+            segment_duration=4.0,
+            freeze_duration=0.0,
+        )
+        assert base == same
+        assert base != changed
+        # Canvas geometry always reaches the key.
+        other_canvas = self._spec(tmp_path)
+        object.__setattr__(other_canvas, "canvas_size", (1920, 1080))
+        assert base != runner._segment_cache_key(
+            other_canvas,
+            self._item(tmp_path, overlays=[overlay("c1", "<html>a")]),
+            segment_duration=4.0,
+            freeze_duration=0.0,
+        )
+        # No stable source checksum -> never cached.
+        assert (
+            runner._segment_cache_key(
+                spec,
+                self._item(tmp_path, checksum=""),
+                segment_duration=4.0,
+                freeze_duration=0.0,
+            )
+            is None
+        )
+
+    def test_store_and_restore_round_trip(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = FfmpegLocalMediaRunner(executable="ffmpeg")
+        monkeypatch.setattr(
+            FfmpegLocalMediaRunner,
+            "_segment_cache_root",
+            staticmethod(lambda: tmp_path / "cache"),
+        )
+        (tmp_path / "cache").mkdir()
+        rendered = tmp_path / "rendered.mp4"
+        rendered.write_bytes(b"finished segment")
+        runner._store_cached_segment("k" * 64, rendered, ["warn-1"])
+        restored = tmp_path / "restored.mp4"
+        warnings = runner._restore_cached_segment("k" * 64, restored)
+        assert warnings == ("warn-1",)
+        assert restored.read_bytes() == b"finished segment"
+        assert runner._restore_cached_segment("m" * 64, restored) is None
+
+
+def test_frame_overlay_recognition_covers_field_variants() -> None:
+    # Taught convention: vibe="frame". Field variant: emotional vibe,
+    # frame wording in the label, hand-written thin-border css motion —
+    # recognised so the blueprint pass can upgrade it.
+    def overlay(vibe: str, label: str, motion=None) -> TimelineElement:
+        return TimelineElement(
+            element_id="elem:ov-frame-x",
+            label=label,
+            span=TimelineSpan(start_tick=0, duration_tick=3000),
+            location=ElementLocation(),
+            creation=OverlayCreation(
+                vibe=vibe,
+                prompt="综艺感手绘边框，包裹画面",
+                motion=motion,
+            ),
+        )
+
+    assert motion_design._is_frame_overlay(overlay("frame", "框"))
+    hand_written = MotionGraphic(
+        format="html_css",
+        html="<html><body><div style='border:2px solid pink'>"
+        + "x" * 32
+        + "</div></body></html>",
+        motif="custom",
+    )
+    assert motion_design._is_frame_overlay(
+        overlay("playful", "综艺框·鬼脸", motion=hand_written),
+    )
+    blueprint_done = MotionGraphic(
+        format="html_js",
+        html="<html><body>" + "y" * 40 + "</body></html>",
+        motif="variety_frame",
+    )
+    assert not motion_design._is_frame_overlay(
+        overlay("frame", "综艺框", motion=blueprint_done),
+    )
+    # Plain decorations without frame wording stay untouched.
+    plain = TimelineElement(
+        element_id="elem:ov-decor",
+        label="装饰",
+        span=TimelineSpan(start_tick=0, duration_tick=3000),
+        location=ElementLocation(),
+        creation=OverlayCreation(vibe="chill", prompt="微光粒子点缀"),
+    )
+    assert not motion_design._is_frame_overlay(plain)
+
+
+def test_required_text_tolerates_punctuation_reexpression(
+    stub_gsap_vendor,
+) -> None:
+    # Expressive lettering replaces the comma with a line break and the
+    # exclamation mark with an accent shape; characters stay verbatim.
+    hf = (
+        "<script src='vendor/gsap.min.js'></script>"
+        "<script>var tl = gsap.timeline({paused:true});"
+        "window.__hf={duration:2.0,seek:function(t){tl.totalTime(t)}};"
+        "</script>"
+    )
+    html = (
+        "<!DOCTYPE html><html><body><div class='l1'>整蛊老爸</div>"
+        "<div class='l2'>行动</div><i class='accent'></i>"
+        + hf
+        + "</body></html>"
+    )
+    motion, _loc, _concept = _validated_design(
+        {
+            "concept": "斜角花字",
+            "format": "html_js",
+            "html": html,
+            "fps": 24,
+            "loop": False,
+            "location": {
+                "x": 0.5,
+                "y": 0.3,
+                "width": 0.5,
+                "height": 0.24,
+            },
+        },
+        required_text="整蛊老爸，行动！",
+        default_loop=False,
+        canvas_size=(1280, 720),
+    )
+    assert motion.format == "html_js"
+    # Rewriting the words themselves is still rejected.
+    with pytest.raises(ValidationError, match="一字不差"):
+        _validated_design(
+            {
+                "concept": "改词",
+                "format": "html_js",
+                "html": (
+                    "<!DOCTYPE html><html><body><div>整老爸行动</div>"
+                    + hf
+                    + "</body></html>"
+                ),
+                "fps": 24,
+                "loop": False,
+                "location": {
+                    "x": 0.5,
+                    "y": 0.3,
+                    "width": 0.5,
+                    "height": 0.24,
+                },
+            },
+            required_text="整蛊老爸，行动！",
+            default_loop=False,
+            canvas_size=(1280, 720),
+        )
+
+
+def test_repair_recovers_missing_script_close_tag() -> None:
+    # Field run 2026-08-09: the model dropped </script> after the vendor
+    # include, browsers swallowed the inline timeline, and every retry
+    # died on "__hf 未注册" — a pure syntax slip, fixed deterministically.
+    from services.media_files.motion_design import _repair_common_html_slips
+
+    nested = '<script src="vendor/gsap.min.js">\n<script>var tl = 1;</script>'
+    fixed = _repair_common_html_slips(nested)
+    assert (
+        'vendor/gsap.min.js">\n</script><script>var tl = 1;</script>'
+        in (fixed.replace('vendor/gsap.min.js">', 'vendor/gsap.min.js">', 1))
+        or fixed.count("</script>") == 2
+    )
+    inline_in_src = '<script src="vendor/gsap.min.js">var tl = 2;</script>'
+    fixed2 = _repair_common_html_slips(inline_in_src)
+    assert fixed2.count("<script") == 2 and "var tl = 2;" in fixed2
+    # Well-formed documents pass through unchanged.
+    good = (
+        '<script src="vendor/gsap.min.js"></script>'
+        "<script>var tl = 3;</script>"
+    )
+    assert _repair_common_html_slips(good) == good
+
+
+def test_repair_lifts_zero_starting_opacity() -> None:
+    from services.media_files.motion_design import _repair_common_html_slips
+
+    html = (
+        "<style>.a{opacity:0;} .b{opacity:0.8}</style>"
+        '<script src="vendor/gsap.min.js"></script>'
+        "<script>tl.from('.a',{autoAlpha:0,y:20});"
+        "tl.fromTo('.b',{opacity: 0.0},{opacity:1});"
+        "tl.to('.c',{opacity:0.6});</script>"
+    )
+    fixed = _repair_common_html_slips(html)
+    assert "autoAlpha:0.25" in fixed
+    assert "opacity: 0.25" in fixed or "opacity:0.25" in fixed
+    # Non-zero values stay untouched.
+    assert "opacity:0.8" in fixed and "opacity:0.6" in fixed

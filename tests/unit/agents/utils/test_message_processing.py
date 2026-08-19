@@ -9,7 +9,14 @@ Covers:
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentscope.message import DataBlock, Msg, TextBlock, URLSource
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    Msg,
+    TextBlock,
+    URLSource,
+)
+from PIL import Image
 
 from qwenpaw.agents.utils.message_processing import (
     _process_audio_block,
@@ -264,3 +271,37 @@ class TestProcessAudioDataBlock:
         assert content == [
             {"type": "text", "text": "[Voice message]: legacy voice"},
         ]
+
+
+class TestProcessLocalImageDataBlock:
+    """Local Console image blocks are frozen before entering context."""
+
+    @pytest.mark.asyncio
+    async def test_overwritten_path_preserves_first_version(self, tmp_path):
+        image_path = tmp_path / "upload.png"
+        Image.new("RGB", (2, 2), color="red").save(image_path)
+        first_block = DataBlock(
+            source=URLSource(
+                url=image_path.resolve().as_uri(),
+                media_type="image/png",
+            ),
+        )
+        first_msg = Msg(name="user", role="user", content=[first_block])
+
+        await process_file_and_media_blocks_in_message(first_msg)
+        first_source = first_msg.content[0].source
+
+        Image.new("RGB", (2, 2), color="blue").save(image_path)
+        second_block = DataBlock(
+            source=URLSource(
+                url=image_path.resolve().as_uri(),
+                media_type="image/png",
+            ),
+        )
+        second_msg = Msg(name="user", role="user", content=[second_block])
+        await process_file_and_media_blocks_in_message(second_msg)
+
+        assert isinstance(first_source, Base64Source)
+        assert isinstance(second_msg.content[0].source, Base64Source)
+        assert first_msg.content[0].source.data == first_source.data
+        assert second_msg.content[0].source.data != first_source.data

@@ -45,6 +45,9 @@ _TASK_PRESENTATION: dict[TaskKind, tuple[str, str]] = {
     TaskKind.ASSET_IMPORT: ("source_ingest", "素材导入"),
     TaskKind.SOURCE_INTELLIGENCE: ("source_intelligence", "素材理解"),
     TaskKind.SOURCE_MEMORY_BUILD: ("source_intelligence", "长素材记忆构建"),
+    TaskKind.OBSERVE_SOURCE_CLIP: ("source_intelligence", "素材画面核验"),
+    TaskKind.READ_SOURCE_VIDEO: ("source_intelligence", "素材帧序列阅读"),
+    TaskKind.REVIEW_SCENE: ("timeline_edit", "场景预审"),
     TaskKind.IMAGE_GENERATION: ("visual_development", "图片生成"),
     TaskKind.R2V_GENERATION: ("timeline_render", "视频生成"),
     TaskKind.AI_EDIT_EXECUTE: ("timeline_edit", "AI 剪辑执行"),
@@ -77,7 +80,13 @@ def _progress_percent(task: TaskRecord) -> int | None:
 
 
 def _task_progress(task: TaskRecord) -> _ProjectedProgress:
-    phase, base = _TASK_PRESENTATION[task.kind]
+    # A newly added TaskKind missing its presentation entry must degrade
+    # to a generic label, not 500 the whole session bootstrap (field run
+    # 2026-08-09: review_scene tasks blanked AgentDock history).
+    phase, base = _TASK_PRESENTATION.get(
+        task.kind,
+        ("timeline_edit", str(getattr(task.kind, "value", task.kind))),
+    )
     percent = _progress_percent(task)
     if task.status is TaskStatus.QUEUED:
         label = f"{base}等待执行"
@@ -106,7 +115,12 @@ def _task_progress(task: TaskRecord) -> _ProjectedProgress:
 
 
 def _run_progress(run: SpecialistRunRecord) -> _ProjectedProgress:
-    phase, base = _RUN_PRESENTATION[run.role]
+    # Same fail-safe as _task_progress: an unmapped new role degrades to
+    # its raw name instead of blanking the session status bar.
+    phase, base = _RUN_PRESENTATION.get(
+        run.role,
+        ("timeline_edit", f"「{getattr(run.role, 'value', run.role)}」"),
+    )
     if run.status in {
         SpecialistRunStatus.QUEUED,
         SpecialistRunStatus.QUEUED_CAPACITY,

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button, Input, message, Modal, Tabs } from "antd";
 import i18n from "@/i18n";
 import {
@@ -40,8 +41,11 @@ import {
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useNarrowWorkspace, useDetailRail } from "@/lib/useNarrowWorkspace";
 import AssetMediaPreview from "@/components/assets/AssetMediaPreview";
 import DocumentUnderstanding from "@/components/assets/DocumentUnderstanding";
+import SourceCacheGate from "@/components/creator/SourceCacheGate";
+import { useSourceCache } from "@/lib/sourceCache";
 import PageLoadError from "@/components/PageLoadError";
 import PageSkeleton from "@/components/PageSkeleton";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
@@ -907,6 +911,12 @@ export default function AssetsPage() {
   );
   const syncStatus = useProjectSnapshotStore((state) => state.syncStatus);
   const syncError = useProjectSnapshotStore((state) => state.syncError);
+  const builtinExample = useProjectSnapshotStore((state) =>
+    state.projectId === id ? state.builtinExample : false,
+  );
+  // Bundled examples ship trimmed clips only; the gigabyte-scale originals
+  // are fetched on demand when the user wants to watch them here.
+  const sourceCache = useSourceCache(id, builtinExample);
   const pollOnce = useProjectSnapshotStore((state) => state.pollOnce);
   const patchProject = useProjectSnapshotStore((state) => state.patch);
   const patching = useProjectSnapshotStore((state) => state.patching);
@@ -980,6 +990,11 @@ export default function AssetsPage() {
         item.variantState === "active",
     ) ||
     null;
+  const selectedOriginalGate =
+    selected?.kind === "source" &&
+    sourceCache.versions.some(
+      (version) => version.assetVersionId === selected.id && !version.cached,
+    );
   const memoryBuilt = useMemo(
     () => (project ? memoryBuiltVersionIds(project, tasks) : new Set<string>()),
     [project, tasks],
@@ -1050,6 +1065,10 @@ export default function AssetsPage() {
       setUploading(false);
     }
   };
+
+  // Hooks must run unconditionally, before the loading early-returns.
+  const narrowWorkspace = useNarrowWorkspace();
+  const detailRail = useDetailRail(narrowWorkspace);
 
   if (!project) {
     if (syncStatus === "invalid" || syncStatus === "not_found") {
@@ -1157,336 +1176,250 @@ export default function AssetsPage() {
         </span>
       </div>
 
-      <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] gap-4 overflow-hidden p-4">
-        <section
-          data-onboarding-id="assets-grid"
-          className="min-h-0 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3"
-        >
-          {items.length > 0 ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
-              {itemGroups.map((group) => (
-                <Fragment key={group.key}>
-                  {group.label && (
+      {/* Size container for the grid/detail area; container queries cannot
+          match the querying element itself. */}
+      <div className="@container min-h-0 flex-1">
+        <main className="relative grid h-full min-h-0 grid-cols-[minmax(0,1fr)_340px] gap-4 overflow-hidden p-4 @max-[719px]:grid-cols-1">
+          <section
+            data-onboarding-id="assets-grid"
+            className="min-h-0 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3"
+          >
+            {items.length > 0 ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
+                {itemGroups.map((group) => (
+                  <Fragment key={group.key}>
+                    {group.label && (
+                      <div
+                        data-asset-group={group.key}
+                        className="col-span-full flex items-center gap-2 border-b border-[var(--color-border)] pb-1.5 pt-1 text-xs font-semibold text-[var(--color-text-secondary)]"
+                      >
+                        {group.badge && (
+                          <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-text-tertiary)]">
+                            {group.badge}
+                          </span>
+                        )}
+                        <span>{group.label}</span>
+                        {group.countLabel && (
+                          <span className="font-normal text-[var(--color-text-tertiary)]">
+                            {group.countLabel}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {group.items.map((item) => {
+                      const Icon = mediaIcon(item.mediaKind);
+                      return (
+                        <button
+                          key={`${item.kind}:${item.id}`}
+                          type="button"
+                          data-creator-module="asset-card"
+                          data-creator-module-id={item.id}
+                          onClick={() => selectItem(item)}
+                          className={`group overflow-hidden rounded-xl border bg-[var(--color-bg-card)] text-left transition ${
+                            selected?.id === item.id
+                              ? "border-[var(--color-accent)] shadow-[0_0_0_1px_var(--color-accent)]"
+                              : "border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:shadow-sm"
+                          }`}
+                        >
+                          <div className="relative flex h-32 items-center justify-center overflow-hidden bg-[var(--color-bg-secondary)]">
+                            <AssetMediaPreview
+                              name={item.name}
+                              mediaType={item.mediaKind}
+                              previewUrl={item.previewUrl}
+                              state={
+                                item.previewUrl
+                                  ? "ready"
+                                  : item.kind === "visual"
+                                  ? "planned"
+                                  : "unavailable"
+                              }
+                              mediaClassName="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                              placeholderClassName="flex flex-col items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]"
+                            />
+                            {!item.previewUrl && (
+                              <Icon className="pointer-events-none absolute h-6 w-6 -translate-y-3 text-[var(--color-text-tertiary)]" />
+                            )}
+                            <span className="absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                              {kindLabel(item, t)}
+                            </span>
+                            <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
+                              {item.variantState && (
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                    item.variantState === "active"
+                                      ? "bg-emerald-500 text-white"
+                                      : item.variantState === "history"
+                                      ? "bg-black/60 text-white"
+                                      : "bg-amber-500 text-white"
+                                  }`}
+                                >
+                                  {item.variantState === "active"
+                                    ? t("assets.active")
+                                    : item.variantState === "history"
+                                    ? t("assets.history")
+                                    : t("assets.unselected")}
+                                </span>
+                              )}
+                              {item.stale && (
+                                <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                  {t("assets.stale")}
+                                </span>
+                              )}
+                            </div>
+                            {characterVoice(item) && (
+                              <span
+                                title="已绑定专属音色"
+                                className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                              >
+                                <Mic className="h-3 w-3" />
+                                音色
+                              </span>
+                            )}
+                            {item.kind === "source" &&
+                              memoryBuilt.has(item.id) && (
+                                <span
+                                  data-creator-memory-badge={item.id}
+                                  className="absolute bottom-2 right-2 rounded bg-emerald-600/90 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                                >
+                                  记忆已构建
+                                </span>
+                              )}
+                          </div>
+                          <div className="p-3">
+                            <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                              {item.kind === "visual" && filter === "visual"
+                                ? item.cardName || item.name
+                                : item.name}
+                            </h3>
+                            <p className="mt-1 line-clamp-2 min-h-8 text-[11px] leading-4 text-[var(--color-text-secondary)]">
+                              {item.description}
+                            </p>
+                            {item.kind === "artifact" && item.variantLabel && (
+                              <p className="mt-2 truncate text-[10px] font-medium text-[var(--color-text-secondary)]">
+                                {item.variantLabel}
+                              </p>
+                            )}
+                            <p className="mt-2 truncate font-mono text-[10px] text-[var(--color-text-tertiary)]">
+                              {item.id}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-full min-h-64 flex-col items-center justify-center text-center text-[var(--color-text-tertiary)]">
+                <Paperclip className="mb-3 h-8 w-8 opacity-50" />
+                <p className="text-sm font-medium text-[var(--color-text-secondary)]">
+                  {t("assets.noAssets")}
+                </p>
+                <p className="mt-1 text-xs">{t("assets.noAssetsDesc")}</p>
+              </div>
+            )}
+          </section>
+
+          {/* On a narrow workspace the detail pane only appears once an asset
+            is selected: with the dock open it portals into the right rail
+            below the dock, otherwise it slides in as a drawer over the grid. */}
+          {(() => {
+            const assetDetailAside = (
+              <aside
+                data-onboarding-id="assets-detail"
+                className={`min-h-0 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] ${
+                  selected
+                    ? "@max-[719px]:absolute @max-[719px]:inset-y-4 @max-[719px]:right-4 @max-[719px]:z-40 @max-[719px]:w-[min(calc(100%-32px),420px)] @max-[719px]:shadow-2xl"
+                    : "@max-[719px]:hidden"
+                }`}
+              >
+                {selected ? (
+                  <div>
                     <div
-                      data-asset-group={group.key}
-                      className="col-span-full flex items-center gap-2 border-b border-[var(--color-border)] pb-1.5 pt-1 text-xs font-semibold text-[var(--color-text-secondary)]"
+                      data-review-media-anchor={versionFromUrl ?? undefined}
+                      className={
+                        selectedOriginalGate
+                          ? ""
+                          : "flex aspect-video items-center justify-center overflow-hidden bg-black"
+                      }
                     >
-                      {group.badge && (
-                        <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-text-tertiary)]">
-                          {group.badge}
-                        </span>
-                      )}
-                      <span>{group.label}</span>
-                      {group.countLabel && (
-                        <span className="font-normal text-[var(--color-text-tertiary)]">
-                          {group.countLabel}
-                        </span>
+                      {selectedOriginalGate ? (
+                        <div className="p-4">
+                          <SourceCacheGate status={sourceCache} />
+                        </div>
+                      ) : selected.mediaKind === "audio" &&
+                        selected.previewUrl ? (
+                        <audio
+                          src={selected.previewUrl}
+                          controls
+                          className="w-[86%]"
+                        />
+                      ) : (
+                        <AssetMediaPreview
+                          name={selected.name}
+                          mediaType={selected.mediaKind}
+                          previewUrl={selected.previewUrl}
+                          state={
+                            selected.previewUrl
+                              ? "ready"
+                              : selected.kind === "visual"
+                              ? "planned"
+                              : "unavailable"
+                          }
+                          controls
+                          mediaClassName="h-full w-full object-contain"
+                          placeholderClassName="text-xs text-white/55"
+                        />
                       )}
                     </div>
-                  )}
-                  {group.items.map((item) => {
-                    const Icon = mediaIcon(item.mediaKind);
-                    return (
-                      <button
-                        key={`${item.kind}:${item.id}`}
-                        type="button"
-                        data-creator-module="asset-card"
-                        data-creator-module-id={item.id}
-                        onClick={() => selectItem(item)}
-                        className={`group overflow-hidden rounded-xl border bg-[var(--color-bg-card)] text-left transition ${
-                          selected?.id === item.id
-                            ? "border-[var(--color-accent)] shadow-[0_0_0_1px_var(--color-accent)]"
-                            : "border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:shadow-sm"
-                        }`}
-                      >
-                        <div className="relative flex h-32 items-center justify-center overflow-hidden bg-[var(--color-bg-secondary)]">
-                          <AssetMediaPreview
-                            name={item.name}
-                            mediaType={item.mediaKind}
-                            previewUrl={item.previewUrl}
-                            state={
-                              item.previewUrl
-                                ? "ready"
-                                : item.kind === "visual"
-                                ? "planned"
-                                : "unavailable"
-                            }
-                            mediaClassName="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                            placeholderClassName="flex flex-col items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)]"
-                          />
-                          {!item.previewUrl && (
-                            <Icon className="pointer-events-none absolute h-6 w-6 -translate-y-3 text-[var(--color-text-tertiary)]" />
-                          )}
-                          <span className="absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            {kindLabel(item, t)}
+                    <div className="space-y-4 p-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-[var(--color-accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-accent)]">
+                            {kindLabel(selected, t)}
                           </span>
-                          <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
-                            {item.variantState && (
-                              <span
-                                className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                  item.variantState === "active"
-                                    ? "bg-emerald-500 text-white"
-                                    : item.variantState === "history"
-                                    ? "bg-black/60 text-white"
-                                    : "bg-amber-500 text-white"
-                                }`}
-                              >
-                                {item.variantState === "active"
-                                  ? t("assets.active")
-                                  : item.variantState === "history"
-                                  ? t("assets.history")
-                                  : t("assets.unselected")}
-                              </span>
-                            )}
-                            {item.stale && (
-                              <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                {t("assets.stale")}
-                              </span>
-                            )}
-                          </div>
-                          {characterVoice(item) && (
-                            <span
-                              title="已绑定专属音色"
-                              className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-bold text-white"
-                            >
-                              <Mic className="h-3 w-3" />
-                              音色
+                          {selected.stale && (
+                            <span className="text-[10px] font-semibold text-amber-600">
+                              {t("assets.expired")}
                             </span>
                           )}
-                          {item.kind === "source" &&
-                            memoryBuilt.has(item.id) && (
-                              <span
-                                data-creator-memory-badge={item.id}
-                                className="absolute bottom-2 right-2 rounded bg-emerald-600/90 px-1.5 py-0.5 text-[10px] font-bold text-white"
-                              >
-                                记忆已构建
-                              </span>
-                            )}
-                        </div>
-                        <div className="p-3">
-                          <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                            {item.kind === "visual" && filter === "visual"
-                              ? item.cardName || item.name
-                              : item.name}
-                          </h3>
-                          <p className="mt-1 line-clamp-2 min-h-8 text-[11px] leading-4 text-[var(--color-text-secondary)]">
-                            {item.description}
-                          </p>
-                          {item.kind === "artifact" && item.variantLabel && (
-                            <p className="mt-2 truncate text-[10px] font-medium text-[var(--color-text-secondary)]">
-                              {item.variantLabel}
-                            </p>
+                          {characterVoice(selected) && (
+                            <span className="flex items-center gap-1 rounded bg-[var(--color-accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-accent)]">
+                              <Mic className="h-3 w-3" />
+                              已绑定音色
+                            </span>
                           )}
-                          <p className="mt-2 truncate font-mono text-[10px] text-[var(--color-text-tertiary)]">
-                            {item.id}
-                          </p>
                         </div>
-                      </button>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </div>
-          ) : (
-            <div className="flex h-full min-h-64 flex-col items-center justify-center text-center text-[var(--color-text-tertiary)]">
-              <Paperclip className="mb-3 h-8 w-8 opacity-50" />
-              <p className="text-sm font-medium text-[var(--color-text-secondary)]">
-                {t("assets.noAssets")}
-              </p>
-              <p className="mt-1 text-xs">{t("assets.noAssetsDesc")}</p>
-            </div>
-          )}
-        </section>
-
-        <aside
-          data-onboarding-id="assets-detail"
-          className="min-h-0 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)]"
-        >
-          {selected ? (
-            <div>
-              <div
-                data-review-media-anchor={versionFromUrl ?? undefined}
-                className="flex aspect-video items-center justify-center overflow-hidden bg-black"
-              >
-                {selected.mediaKind === "audio" && selected.previewUrl ? (
-                  <audio
-                    src={selected.previewUrl}
-                    controls
-                    className="w-[86%]"
-                  />
-                ) : (
-                  <AssetMediaPreview
-                    name={selected.name}
-                    mediaType={selected.mediaKind}
-                    previewUrl={selected.previewUrl}
-                    state={
-                      selected.previewUrl
-                        ? "ready"
-                        : selected.kind === "visual"
-                        ? "planned"
-                        : "unavailable"
-                    }
-                    controls
-                    mediaClassName="h-full w-full object-contain"
-                    placeholderClassName="text-xs text-white/55"
-                  />
-                )}
-              </div>
-              <div className="space-y-4 p-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded bg-[var(--color-accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-accent)]">
-                      {kindLabel(selected, t)}
-                    </span>
-                    {selected.stale && (
-                      <span className="text-[10px] font-semibold text-amber-600">
-                        {t("assets.expired")}
-                      </span>
-                    )}
-                    {characterVoice(selected) && (
-                      <span className="flex items-center gap-1 rounded bg-[var(--color-accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-accent)]">
-                        <Mic className="h-3 w-3" />
-                        已绑定音色
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="mt-2 text-base font-semibold text-[var(--color-text-primary)]">
-                    {selected.name}
-                  </h3>
-                  <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]">
-                    {selected.description}
-                  </p>
-                </div>
-                <dl className="space-y-2 text-xs">
-                  {[
-                    [t("assets.ref"), selected.ref],
-                    [
-                      t("assets.media"),
-                      selected.mediaType || selected.mediaKind,
-                    ],
-                    [
-                      t("common.duration"),
-                      selected.durationSeconds == null
-                        ? "—"
-                        : `${selected.durationSeconds.toFixed(2)}s`,
-                    ],
-                    ["Owner", selected.ownerRef || "—"],
-                    [
-                      t("assets.createdTime"),
-                      selected.createdAt
-                        ? new Date(selected.createdAt).toLocaleString("zh-CN")
-                        : "—",
-                    ],
-                    ["Checksum", selected.checksum || "—"],
-                  ].map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="grid grid-cols-[64px_minmax(0,1fr)] gap-2"
-                    >
-                      <dt className="text-[var(--color-text-tertiary)]">
-                        {label}
-                      </dt>
-                      <dd className="break-all font-mono text-[11px] text-[var(--color-text-secondary)]">
-                        {value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                {selected.kind === "source" &&
-                  selected.mediaKind === "document" && (
-                    <DocumentUnderstanding
-                      projectId={id}
-                      assetId={
-                        (selected.raw as SourceAssetVersionDocument)
-                          .logical_asset_id
-                      }
-                      intelligenceVersionId={
-                        // Bind the panel to this exact source version; the
-                        // versionless endpoint would show the current
-                        // version's understanding on older cards.
-                        intelligenceVersionForSource(
-                          project,
-                          selected.raw as SourceAssetVersionDocument,
-                        )
-                      }
-                    />
-                  )}
-                {(() => {
-                  if (!project) return null;
-                  const resolved = selected.provenanceRefs
-                    .map((ref) => resolveProvenanceRef(project, ref))
-                    .filter(Boolean) as NonNullable<
-                    ReturnType<typeof resolveProvenanceRef>
-                  >[];
-                  if (!resolved.length) return null;
-                  return (
-                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
-                      <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-                        {t("assets.provenanceRef")}
+                        <h3 className="mt-2 text-base font-semibold text-[var(--color-text-primary)]">
+                          {selected.name}
+                        </h3>
+                        <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]">
+                          {selected.description}
+                        </p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        {resolved.map((entry) => {
-                          const target = allItems.find(
-                            (item) => item.ref === entry.ref,
-                          );
-                          return (
-                            <button
-                              key={entry.ref}
-                              type="button"
-                              title={entry.name}
-                              onClick={() => target && selectItem(target)}
-                              className="group flex w-24 flex-col gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-1 text-left transition hover:border-[var(--color-accent)]"
-                            >
-                              <div className="aspect-video w-full overflow-hidden rounded bg-black/20">
-                                {entry.kind === "video" ? (
-                                  <video
-                                    src={entry.url}
-                                    className="h-full w-full object-cover"
-                                    muted
-                                  />
-                                ) : (
-                                  <img
-                                    src={entry.url}
-                                    alt={entry.name}
-                                    className="h-full w-full object-cover"
-                                    loading="lazy"
-                                  />
-                                )}
-                              </div>
-                              <span className="truncate text-[10px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-accent)]">
-                                {entry.name}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-                {(() => {
-                  const voice = characterVoice(selected);
-                  if (!voice) return null;
-                  const sampleUrl = voice.sample_source_version_id
-                    ? getAssetVersionMediaUrl(voice.sample_source_version_id)
-                    : null;
-                  return (
-                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
-                      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)]">
-                        <Mic className="h-3.5 w-3.5" />
-                        专属音色
-                      </div>
-                      <dl className="space-y-1.5 text-xs">
+                      <dl className="space-y-2 text-xs">
                         {[
-                          ["音色名", voice.preferred_name || "—"],
-                          ["合成模型", voice.target_model],
+                          [t("assets.ref"), selected.ref],
                           [
-                            "创建时间",
-                            voice.created_at
-                              ? new Date(voice.created_at).toLocaleString(
+                            t("assets.media"),
+                            selected.mediaType || selected.mediaKind,
+                          ],
+                          [
+                            t("common.duration"),
+                            selected.durationSeconds == null
+                              ? "—"
+                              : `${selected.durationSeconds.toFixed(2)}s`,
+                          ],
+                          ["Owner", selected.ownerRef || "—"],
+                          [
+                            t("assets.createdTime"),
+                            selected.createdAt
+                              ? new Date(selected.createdAt).toLocaleString(
                                   "zh-CN",
                                 )
                               : "—",
                           ],
+                          ["Checksum", selected.checksum || "—"],
                         ].map(([label, value]) => (
                           <div
                             key={label}
@@ -1501,149 +1434,276 @@ export default function AssetsPage() {
                           </div>
                         ))}
                       </dl>
-                      {sampleUrl && (
-                        <audio
-                          src={sampleUrl}
-                          controls
-                          className="mt-2 h-8 w-full"
-                        />
-                      )}
-                      <p className="mt-2 text-[10px] leading-4 text-[var(--color-text-tertiary)]">
-                        在对话中要求重新设计或复刻可替换该音色；后续该角色的台词配音会自动沿用。
-                      </p>
-                    </div>
-                  );
-                })()}
-                {Object.keys(selected.metadata).length > 0 && (
-                  <details className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-xs">
-                    <summary className="cursor-pointer font-semibold text-[var(--color-text-secondary)]">
-                      {t("assets.metadata")}
-                    </summary>
-                    <dl className="mt-2 space-y-1.5">
-                      {Object.entries(selected.metadata).map(([key, value]) => (
-                        <div
-                          key={key}
-                          className="grid grid-cols-[100px_minmax(0,1fr)] gap-2"
-                        >
-                          <dt className="truncate font-mono text-[10px] text-[var(--color-text-tertiary)]">
-                            {key}
-                          </dt>
-                          <dd className="break-all text-[11px] text-[var(--color-text-secondary)]">
-                            {displayValue(value)}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </details>
-                )}
-                {(() => {
-                  if (!project) return null;
-                  const promptTarget = generationPromptTarget(
-                    project,
-                    selected,
-                  );
-                  if (!promptTarget) return null;
-                  return (
-                    <GenerationPromptEditor
-                      key={promptTarget.pointer}
-                      target={promptTarget}
-                      saving={patching}
-                      onSave={async (target, next) => {
-                        try {
-                          await patchProject(id, [
-                            {
-                              op: "replace",
-                              path: target.pointer,
-                              before: target.value,
-                              value: next,
-                            },
-                          ]);
-                          message.success(t("assets.promptSaved"));
-                        } catch (error) {
-                          message.error(
-                            t("assets.saveFailed", {
-                              detail: (error as Error).message,
-                            }),
-                          );
-                        }
-                      }}
-                    />
-                  );
-                })()}
-                {selected.mediaKind === "video" &&
-                  selected.ownerRef?.startsWith("element:") && (
-                    <Button
-                      block
-                      icon={<Clapperboard className="h-3.5 w-3.5" />}
-                      onClick={() =>
-                        navigate(
-                          `/project/${id}/plan/element/${encodeURIComponent(
-                            selected.ownerRef!.slice("element:".length),
-                          )}`,
-                        )
-                      }
-                    >
-                      {t("assets.enterR2VWorkbench")}
-                    </Button>
-                  )}
-                <div className="flex gap-2">
-                  {selected.previewUrl && (
-                    <Button
-                      icon={<Download className="h-3.5 w-3.5" />}
-                      onClick={() => {
-                        const filename = downloadName(
-                          selected.name,
-                          selected.mediaType,
+                      {selected.kind === "source" &&
+                        selected.mediaKind === "document" && (
+                          <DocumentUnderstanding
+                            projectId={id}
+                            assetId={
+                              (selected.raw as SourceAssetVersionDocument)
+                                .logical_asset_id
+                            }
+                            intelligenceVersionId={
+                              // Bind the panel to this exact source version; the
+                              // versionless endpoint would show the current
+                              // version's understanding on older cards.
+                              intelligenceVersionForSource(
+                                project,
+                                selected.raw as SourceAssetVersionDocument,
+                              )
+                            }
+                          />
+                        )}
+                      {(() => {
+                        if (!project) return null;
+                        const resolved = selected.provenanceRefs
+                          .map((ref) => resolveProvenanceRef(project, ref))
+                          .filter(Boolean) as NonNullable<
+                          ReturnType<typeof resolveProvenanceRef>
+                        >[];
+                        if (!resolved.length) return null;
+                        return (
+                          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+                            <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                              {t("assets.provenanceRef")}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {resolved.map((entry) => {
+                                const target = allItems.find(
+                                  (item) => item.ref === entry.ref,
+                                );
+                                return (
+                                  <button
+                                    key={entry.ref}
+                                    type="button"
+                                    title={entry.name}
+                                    onClick={() => target && selectItem(target)}
+                                    className="group flex w-24 flex-col gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-1 text-left transition hover:border-[var(--color-accent)]"
+                                  >
+                                    <div className="aspect-video w-full overflow-hidden rounded bg-black/20">
+                                      {entry.kind === "video" ? (
+                                        <video
+                                          src={entry.url}
+                                          className="h-full w-full object-cover"
+                                          muted
+                                        />
+                                      ) : (
+                                        <img
+                                          src={entry.url}
+                                          alt={entry.name}
+                                          className="h-full w-full object-cover"
+                                          loading="lazy"
+                                        />
+                                      )}
+                                    </div>
+                                    <span className="truncate text-[10px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-accent)]">
+                                      {entry.name}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         );
-                        fetch(selected.previewUrl!)
-                          .then((res) => {
-                            if (!res.ok)
-                              throw new Error(
-                                t("assets.downloadFailed", {
-                                  status: res.status,
-                                }),
+                      })()}
+                      {(() => {
+                        const voice = characterVoice(selected);
+                        if (!voice) return null;
+                        const sampleUrl = voice.sample_source_version_id
+                          ? getAssetVersionMediaUrl(
+                              voice.sample_source_version_id,
+                            )
+                          : null;
+                        return (
+                          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+                            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                              <Mic className="h-3.5 w-3.5" />
+                              专属音色
+                            </div>
+                            <dl className="space-y-1.5 text-xs">
+                              {[
+                                ["音色名", voice.preferred_name || "—"],
+                                ["合成模型", voice.target_model],
+                                [
+                                  "创建时间",
+                                  voice.created_at
+                                    ? new Date(voice.created_at).toLocaleString(
+                                        "zh-CN",
+                                      )
+                                    : "—",
+                                ],
+                              ].map(([label, value]) => (
+                                <div
+                                  key={label}
+                                  className="grid grid-cols-[64px_minmax(0,1fr)] gap-2"
+                                >
+                                  <dt className="text-[var(--color-text-tertiary)]">
+                                    {label}
+                                  </dt>
+                                  <dd className="break-all font-mono text-[11px] text-[var(--color-text-secondary)]">
+                                    {value}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                            {sampleUrl && (
+                              <audio
+                                src={sampleUrl}
+                                controls
+                                className="mt-2 h-8 w-full"
+                              />
+                            )}
+                            <p className="mt-2 text-[10px] leading-4 text-[var(--color-text-tertiary)]">
+                              在对话中要求重新设计或复刻可替换该音色；后续该角色的台词配音会自动沿用。
+                            </p>
+                          </div>
+                        );
+                      })()}
+                      {Object.keys(selected.metadata).length > 0 && (
+                        <details className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-xs">
+                          <summary className="cursor-pointer font-semibold text-[var(--color-text-secondary)]">
+                            {t("assets.metadata")}
+                          </summary>
+                          <dl className="mt-2 space-y-1.5">
+                            {Object.entries(selected.metadata).map(
+                              ([key, value]) => (
+                                <div
+                                  key={key}
+                                  className="grid grid-cols-[100px_minmax(0,1fr)] gap-2"
+                                >
+                                  <dt className="truncate font-mono text-[10px] text-[var(--color-text-tertiary)]">
+                                    {key}
+                                  </dt>
+                                  <dd className="break-all text-[11px] text-[var(--color-text-secondary)]">
+                                    {displayValue(value)}
+                                  </dd>
+                                </div>
+                              ),
+                            )}
+                          </dl>
+                        </details>
+                      )}
+                      {(() => {
+                        if (!project) return null;
+                        const promptTarget = generationPromptTarget(
+                          project,
+                          selected,
+                        );
+                        if (!promptTarget) return null;
+                        return (
+                          <GenerationPromptEditor
+                            key={promptTarget.pointer}
+                            target={promptTarget}
+                            saving={patching}
+                            onSave={async (target, next) => {
+                              try {
+                                await patchProject(id, [
+                                  {
+                                    op: "replace",
+                                    path: target.pointer,
+                                    before: target.value,
+                                    value: next,
+                                  },
+                                ]);
+                                message.success(t("assets.promptSaved"));
+                              } catch (error) {
+                                message.error(
+                                  t("assets.saveFailed", {
+                                    detail: (error as Error).message,
+                                  }),
+                                );
+                              }
+                            }}
+                          />
+                        );
+                      })()}
+                      {selected.mediaKind === "video" &&
+                        selected.ownerRef?.startsWith("element:") && (
+                          <Button
+                            block
+                            icon={<Clapperboard className="h-3.5 w-3.5" />}
+                            onClick={() =>
+                              navigate(
+                                `/project/${id}/plan/element/${encodeURIComponent(
+                                  selected.ownerRef!.slice("element:".length),
+                                )}`,
+                              )
+                            }
+                          >
+                            {t("assets.enterR2VWorkbench")}
+                          </Button>
+                        )}
+                      <div className="flex gap-2">
+                        {selected.previewUrl && (
+                          <Button
+                            icon={<Download className="h-3.5 w-3.5" />}
+                            onClick={() => {
+                              const filename = downloadName(
+                                selected.name,
+                                selected.mediaType,
                               );
-                            return res.blob();
-                          })
-                          .then((blob) => {
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = filename;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          })
-                          .catch((error) => {
-                            message.error(
-                              error instanceof Error
-                                ? error.message
-                                : t("assets.downloadFailedGeneric"),
-                            );
-                          });
-                      }}
-                    >
-                      {t("common.download")}
-                    </Button>
-                  )}
-                  <Button className="flex-1" onClick={() => selectItem(null)}>
-                    {t("common.close")}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-full min-h-64 flex-col items-center justify-center px-8 text-center">
-              <Box className="mb-3 h-8 w-8 text-[var(--color-text-tertiary)] opacity-50" />
-              <p className="text-sm font-medium text-[var(--color-text-secondary)]">
-                {t("assets.selectDetail")}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
-                {t("assets.selectDetailDesc")}
-              </p>
-            </div>
-          )}
-        </aside>
-      </main>
+                              fetch(selected.previewUrl!)
+                                .then((res) => {
+                                  if (!res.ok)
+                                    throw new Error(
+                                      t("assets.downloadFailed", {
+                                        status: res.status,
+                                      }),
+                                    );
+                                  return res.blob();
+                                })
+                                .then((blob) => {
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = filename;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                })
+                                .catch((error) => {
+                                  message.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : t("assets.downloadFailedGeneric"),
+                                  );
+                                });
+                            }}
+                          >
+                            {t("common.download")}
+                          </Button>
+                        )}
+                        <Button
+                          className="flex-1"
+                          onClick={() => selectItem(null)}
+                        >
+                          {t("common.close")}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-64 flex-col items-center justify-center px-8 text-center">
+                    <Box className="mb-3 h-8 w-8 text-[var(--color-text-tertiary)] opacity-50" />
+                    <p className="text-sm font-medium text-[var(--color-text-secondary)]">
+                      {t("assets.selectDetail")}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                      {t("assets.selectDetailDesc")}
+                    </p>
+                  </div>
+                )}
+              </aside>
+            );
+            return detailRail && selected
+              ? createPortal(
+                  <div className="grid h-full min-h-0 p-3">
+                    {assetDetailAside}
+                  </div>,
+                  detailRail,
+                )
+              : assetDetailAside;
+          })()}
+        </main>
+      </div>
 
       <Modal
         title={t("assets.addSourceAsset")}

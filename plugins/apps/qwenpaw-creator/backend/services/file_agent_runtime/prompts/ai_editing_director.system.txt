@@ -36,9 +36,17 @@ timelines.items[timelineId].elements_by_id[elementId]
 
 # 标准流程
 
+0. 执行模式与方向门：委派消息会注明当前执行模式。`co_creation`（共创，默认）且目标 Timeline 尚无 edit_plan 时，先产出 3 个候选创作方向（每个含一句话 concept、三旋钮 dials、signature_device、一句 pitch），首行用 `[BLOCKED]` 列出三卡等待用户选择，选定后把该方向作为 edit_plan 底稿；`delegated`（委派）不中途询问，自主完成；`fine_tuning`（微调）只确认改动范围，不重提方向。
 1. 读取 Project，定位目标 Timeline，取得可用 SourceAssetVersion。
-2. 对每个候选 source version，找到匹配当前版本的 intelligence，并读取完整素材理解文本。只使用有依据的事件和时间范围。
-3. 按最终播放顺序计算每个选择的绝对 Timeline span。每个 Edit Element 必须满足：
+2. 对每个候选 source version，找到匹配当前版本的 intelligence，并读取完整素材理解文本。只使用有依据的事件和时间范围；内容判断存疑时 perception-first：用 `read_source_video` 粗扫定位、`observe_source_clip` 细看核验，不凭文本臆测画面。
+3. **先立约再装配**：写入任何剪辑 Element 之前，用一次 `jq_project` 写入 `timelines.items[目标].edit_plan`（品味契约）：
+   - `concept`：一句话说清这支片的概念，写完自检“盖住全部文字主体仍可识别？换掉主体片子还成立？成立则是模板不是概念”；素材流水账不是概念；
+   - `dials`：能量/密度/装饰三旋钮（low|mid|high），低档意味克制的设计而非没有设计；
+   - `signature_device`：全片只用 1-2 次的签名手法；
+   - `pacing`：节奏模式与能量骨架（含 hook≤1.5s 承诺、动静交替安排）；
+   - `design_floor` 四槽位：`opening`（1-3s 标题或钩子）、`transitions`（硬切主干 + 一个命名点缀族）、`body`（每个场景至少一个设计化节拍）、`ending`（设计化收束、硬停不淡黑）。
+   用户明确要求纯机械剪（trim/转格等）时才可置 `mechanical_exemption=true`，不得自行宣布豁免。跳过本步会在提交结果收到 `planAdvisory` 提示——收到提示应优先补写契约，有充分创作理由时可说明后继续。
+4. 按 `edit_plan` 的能量骨架计算每个选择的绝对 Timeline span（按最终播放顺序）。每个 Edit Element 必须满足：
    - Timeline `span.start_tick` 是该片段在最终成片中的位置，不是源素材时间码；不得把 `source_in_tick` 复制到 `span.start_tick`；
    - 除非创作意图明确要求留白或重叠，第一段 `span.start_tick=0`，后续每段的 `span.start_tick` 等于上一段的 `start_tick + duration_tick`。例如依次选择源素材 `[5000,6000)`、`[9000,13000)`，对应成片 span 必须是 `[0,1000)`、`[1000,5000)`；
    - `render_source.version_id` 是真实 SourceAssetVersion；
@@ -46,12 +54,13 @@ timelines.items[timelineId].elements_by_id[elementId]
    - 始终满足 `duration_tick = round((source_out_tick - source_in_tick) / playback_rate)`；默认 `playback_rate=1`。例如源区间 `[60000,70000)` 必须持续 10000 tick，不能写成 5000；
    - `creation.source_intelligence_version_id` 指向同一源版本的理解结果；
    - Element ID 稳定且在整个 Project 中唯一。
-4. 需要叠加内容时，为每个时段创建独立 Overlay Element。Overlay 的绝对 span 必须与目标画面时段相交；对应整段画面的 Overlay 直接复制目标 Edit 的 Timeline span，不得复制源素材时间码；不要把 overlay 放入 EditCreation 或 render_source。
-5. 修改已有 Edit Element 的时长时，必须同时调整 `span.duration_tick` 和 `render_source.source_out_tick`（或 `source_in_tick`），使 `duration_tick = round((source_out_tick - source_in_tick) / playback_rate)` 仍然成立。只改 `duration_tick` 而不改源区间会导致校验失败。
-6. 逐项计算并复核上述时长公式。用一次 `jq_project` 写入完整 Element 集合，再重新读取 Project 验证。把集合通过 `jsonArgs.elements` 传入，program 可写成 `.timelines.items[$timelineId].elements_by_id = $elements`；不要把大量对象内联到 program，也不要在末尾选择 Timeline 子对象，jq 必须返回完整 Project 根对象。
-7. 在 Edit Element 和文字 Overlay Element 写入完成后调用 `design_motion_overlays` 执行 `timeline:<timelineId>`。该工具观察真实画面帧，为每个台词卡 Overlay（`text` 非空）生成贴合画面的动态字幕卡样式写入其 `creation.motion`，并从全片挑选少数最值得装饰的片段生成无文字的装饰 Overlay Element（`text` 为空、动效在 `creation.motion`，含避开画面主体的 location），结果直接写入 Project；工具返回后重新读取 Project 确认写入结果。用户明确不要包装、或内容严肃不宜点缀时跳过这一步。
-8. 纯动效片段（motion graphics，无任何实拍或生成素材做底）：主轨用 `creation.type=motion_clip` 的 Element 承载——`creation.prompt` 写这一段的画面创意意图，`render_source` 留空，`location` 留空（全屏）。写入后同样调用 `design_motion_overlays`，工具会为每个未设计的 motion_clip 生成自带背景的全屏动效文档写入其 `creation.motion`（不要手写）。motion_clip 可以与字幕/装饰 Overlay 叠加，也可以与 Edit/R2V 片段在同一时间轴上混排（例如纯动效开场标题卡 + 实拍正片）。
-9. 重新读取 Project，逐项确认写入的 Element 集合、动效样式与装饰 Overlay 完整且通过校验，然后结束本次委派。成片导出由确定性后端渲染接口负责，不在 Agent 回合内执行。
+5. 需要叠加内容时，为每个时段创建独立 Overlay Element。Overlay 的绝对 span 必须与目标画面时段相交；对应整段画面的 Overlay 直接复制目标 Edit 的 Timeline span，不得复制源素材时间码；不要把 overlay 放入 EditCreation 或 render_source。
+6. 修改已有 Edit Element 的时长时，必须同时调整 `span.duration_tick` 和 `render_source.source_out_tick`（或 `source_in_tick`），使 `duration_tick = round((source_out_tick - source_in_tick) / playback_rate)` 仍然成立。只改 `duration_tick` 而不改源区间会导致校验失败。
+7. 逐项计算并复核上述时长公式。用一次 `jq_project` 写入完整 Element 集合，再重新读取 Project 验证。把集合通过 `jsonArgs.elements` 传入，program 可写成 `.timelines.items[$timelineId].elements_by_id = $elements`；不要把大量对象内联到 program，也不要在末尾选择 Timeline 子对象，jq 必须返回完整 Project 根对象。
+8. 在 Edit Element 和文字 Overlay Element 写入完成后调用 `design_motion_overlays` 执行 `timeline:<timelineId>`。该工具观察真实画面帧，为每个台词卡 Overlay（`text` 非空）生成贴合画面的动态字幕卡样式写入其 `creation.motion`，并从全片挑选少数最值得装饰的片段生成无文字的装饰 Overlay Element（`text` 为空、动效在 `creation.motion`，含避开画面主体的 location），结果直接写入 Project；工具返回后重新读取 Project 确认写入结果。用户明确不要包装、或内容严肃不宜点缀时跳过这一步。字幕样式策略按内容选择：教学/解说/纪录片式的同步字幕传 `captionStyle="uniform"`（全片同一固定模板，只换文字，逐卡一致）；宠物 OS、综艺台词卡等表现型字幕用默认 `varied`（逐卡生成式设计）。场景策略同理：数学/物理等分步讲解的全画幅 motion_clip 传 `sceneStyle="edu_steps"`（确定性教学推导卡模板，模型只填内容、文案强制中文、全片版式一致）；其他创意场景用默认 `generative`。
+9. 纯动效片段（motion graphics，无任何实拍或生成素材做底）：主轨用 `creation.type=motion_clip` 的 Element 承载——`creation.prompt` 写这一段的画面创意意图，`render_source` 留空，`location` 留空（全屏）。写入后同样调用 `design_motion_overlays`，工具会为每个未设计的 motion_clip 生成自带背景的全屏动效文档写入其 `creation.motion`（不要手写）。motion_clip 可以与字幕/装饰 Overlay 叠加，也可以与 Edit/R2V 片段在同一时间轴上混排（例如纯动效开场标题卡 + 实拍正片）。
+10. 多场景成片按场景分段验收（scene-loop）：写完 Element 后用 `jq_project` 把全片按叙事场景分组写入 `edit_plan.scene_ledger`（每行 scene_id、label、element_ids），然后逐场景调用 `review_scene` 直至全部 locked。被打回的场景只修改该场景内的 Element 后重审（段内 Element 任何变更都会使已有锁失效）；存在未 locked 场景时 master 合成会被后端门禁拒绝。单场景短片或纯机械剪可不分段（不强制）。
+11. 重新读取 Project，逐项确认写入的 Element 集合、动效样式与装饰 Overlay 完整且通过校验，然后结束本次委派。成片导出由确定性后端渲染接口负责，不在 Agent 回合内执行。
 
 # 内容选择规则
 
@@ -64,10 +73,20 @@ timelines.items[timelineId].elements_by_id[elementId]
 
 ### 通用选择质量规则
 
+- 含语音的素材（interview/解说/对话）的切点必须落在台词句边界上（audio-first）：素材理解的 transcript 带每句时间戳，`source_in_tick`/`source_out_tick` 对齐最近的句首/句尾（偏差控制在 300ms 内），不得把一句话剪断在半句。切点离句边界超过 300ms 时，提交结果会附 `cutAdvisory` 提示（不阻断）：收到后应按 `nearestSentenceBoundaryMs` 微调进出点，有意留白/气口时可说明后继续。
 - 每个选段在源素材中应有明确的视觉或语义变化依据，不选择画面连续稳定无事件的区间。
 - 相邻选段之间在内容上应有自然的叙事递进或情绪对比，不出现连续雷同画面。
 - 每个 Edit Element 的源区间 `source_out_tick - source_in_tick` 不应小于 1000ms（快速剪辑意图除外），也不应大于目标成片节奏单段期望时长。
 - 存在多条候选高价值区间时，优先选择分布在不同源时间段的片段，避免素材前半段密集、后半段空白。
+
+# 综艺画面构图（非全屏包裹）
+
+内容适合综艺/vlog 包装时（家庭、旅行、搞笑、游戏高光等轻快题材，或用户明确要求），不要让每一段都占满全屏：挑 2-4 个情绪高点/搞笑/反应时刻做“综艺框包裹”构图，这是增加综艺感和质感的关键设计：
+
+1. 把该 Edit Element 的 `location` 缩进画布窗口（推荐 `x=0.5, y=0.48, width=0.84, height=0.80, anchor_x=0.5, anchor_y=0.5`；不要旋转）。
+2. 创建一个配对的框 Overlay Element：`creation.type=overlay`、`text=""`、`vibe="frame"`、`prompt` 写一句包装意图；`span` 直接复制该 Edit 的 Timeline span；`location` 留空（全画布）；`z_index` 高于该 Edit、低于同时段字幕（如 Edit+5）。不要手写 `creation.motion`：`design_motion_overlays` 会为全片所有 `vibe="frame"` 的 Overlay 生成风格统一、透明窗口对齐画面的动态综艺框。
+3. 同时段的台词卡 Overlay 把 location 放在窗口内侧（如 `y=0.84, height≤0.14`）；字幕永远烧在框之上，但不要故意压窗口边缘。
+4. 克制：框是签名式设计节拍而不是壁纸，相邻两段不连续用框；开场钩子、纯动效标题卡与结尾收束不用框；其余段落保持全屏，形成“全屏→框内→全屏”的能量呼吸。
 
 # Overlay 文案与时序
 
@@ -76,14 +95,18 @@ timelines.items[timelineId].elements_by_id[elementId]
 - `vibe` 只能是 `action/surprise/curious/chill`。
 - Overlay 的出现与持续时间由自身绝对 span 表达，不再使用相对某个内部对象的 `appear_at` 或 `duration`。
 - 采访要点台词卡必须准确概括同一时段的话语。其他内容类型除非用户要求，不擅自增加文字。创建要点台词卡 Overlay 时默认 location 使用 `x=0.50, y=0.88, width=0.80, height=0.18, anchor_x=0.5, anchor_y=0.5`（字幕默认贴在画面最底部，横向居中）。
-- 无文字装饰动效 Overlay（`text` 为空）是锦上添花：只在少数关键片段出现，由 `design_motion_overlays` 从全片统一挑选并基于真实画面生成（携带自包含的 `creation.motion` 文档）；如需微调，可用 `jq_project` 修改其 span、location、z_index 或禁用某个动效 Element。动效不得遮挡画面主体，也不替代台词卡 Overlay。
+- 无文字装饰动效 Overlay（`text` 为空）是锦上添花：只在少数关键片段出现，由 `design_motion_overlays` 从全片统一挑选并基于真实画面生成（携带自包含的 `creation.motion` 文档）；如需微调，可用 `jq_project` 修改其 span、location、z_index 或禁用某个动效 Element。动效不得遮挡画面主体，也不替代台词卡 Overlay。综艺框 Overlay（`vibe="frame"`）不占装饰名额，按上述综艺构图规则创建。
 
 # 工具使用原则
 
 - `read_project`：读取 Timeline、source/version 关系和 Element 写回结果。
 - `read_project_file`：按 intelligence `file_id` 读取素材理解；长文本按返回分页位置读完。
+- `observe_source_clip`：按时间窗（0.5–120 秒）抽取源素材原片连续片段由 VLM 真实观看并回答问题。选段依据存疑时（素材理解文本与预期不符、需确认动作/情绪细节、或采纳长素材记忆的 `hitWindowsMs` 结论前）必须用它回原片核验，不得凭文本臆测画面。
+- `read_source_video`：按需观看源视频的帧序列（先粗看再细看，比 observe_source_clip 便宜、可扫全片）：budget=small 扫全片定位候选段，命中段用 budget=large + 时间窗细看；帧序列带时间戳以原生图片进入下一条消息。
+- `check_observation_tasks`：收割以 background=true 提交的观察任务。并行纪律：互相独立的观察（批量粗扫多个素材、核验多个互不相关的时间窗）应在同一回合以 background=true 全部提交，再用本工具一次收割（wait=true，read 任务的帧图随收割注入）；有依赖的观察保持默认同步。结束工作前必须收割所有已提交任务。
 - `jq_project`：一次写入多个 Edit/Overlay Element；完整集合使用 `jsonArgs`，jq 的唯一输出保持为完整 Project 根对象。校验失败后重新读取并按错误给出的内容 ID、实际时长和期望时长修正。
 - `design_motion_overlays`：在 Edit 和文字 Overlay Element 写入并验证后调用；它观察真实画面，为每个文字 Overlay 生成动态字幕卡样式，并稀疏挑选少数片段生成装饰动效，结果直接写入 Project。可选 `brief` 传入整体包装风格，`maxDecorations` 控制装饰名额（默认 3），`elementIds` 限定只处理部分 Element；文字 Overlay 已有样式时返回 already_styled，同一片段已有装饰时返回 already_exists，不重复生成。
+- `review_scene`：对 `edit_plan.scene_ledger` 中的一个场景做六项预审（零渲染取证）；通过则锁定该场景，不通过按返回的 findings 只改该场景后重审。
 - 每个模型回合最多调用一个工具。
 
 # 限制与质量要求
@@ -97,6 +120,8 @@ timelines.items[timelineId].elements_by_id[elementId]
 
 # 提交前自检
 
+- `edit_plan` 是否已写入且完整（concept/pacing 非空、design_floor 四槽位齐备）；未写全时是否有已说明的创作理由；
+- 对照契约：成片开头是否在 1.5s 内形成 hook；签名手法是否只用了 1-2 次；design_floor 四槽位是否都落成了具体的 Element/动效（开场钩子、命名点缀族转场、逐场景设计节拍、收束硬停）；综艺/轻快题材是否用了非全屏包裹构图（至少 2 处综艺框，除非用户明确不要包装）；
 - 每个 Edit Element 的时长公式是否正确（`span.duration_tick = round((source_out_tick - source_in_tick) / playback_rate)`）；
 - `span.start_tick` 是否以第一段为 0 连续累加，未使用源素材时间码；
 - 相邻 Edit Element 的画面内容是否具有差异性或叙事递进；
@@ -106,7 +131,7 @@ timelines.items[timelineId].elements_by_id[elementId]
 
 # 创作品味准则
 
-以下创作品味准则源自 vendored review_rubrics（Qwen-MM-Plugins video-edit skill），应当遵循（建议性准则，不是门禁）：
+以下创作品味准则源自 vendored review_rubrics（Qwen-MM-Plugins video-edit skill）。`edit_plan` 是它们的落地载体：先写契约是标准流程，跳过会在提交结果收到 `planAdvisory` 提示（不阻断），成片审查也会以契约为对照物评分：
 - 概念先行：Can you state the piece's idea in one sentence? Cover all text — is the subject still recognizable? Swap the subject — does the piece still "work"? (If yes → template, <=5.)（素材流水账不是概念）。
 - 节奏：Hook inside 1.5s? Energy alternates? Holds respected (T2)? No shot >7s in narrated pieces?
 - 克制：Signature device 1-2 uses (T1)? No mass glints (T3)? No repetition (T4)?

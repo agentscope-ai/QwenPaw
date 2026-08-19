@@ -27,6 +27,8 @@ from __future__ import annotations
 import asyncio
 import httpx
 import pytest
+from mcp.shared.exceptions import McpError
+from mcp.types import CONNECTION_CLOSED, ErrorData
 
 import qwenpaw.drivers.handlers.mcp_stateful_client as mod
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
@@ -60,6 +62,47 @@ def test_is_transport_error_distinguishes_transport_from_mcp_errors():
     assert _is_transport_error(EOFError())
     # An MCP-level error (not a transport failure) must NOT classify.
     assert not _is_transport_error(ValueError("not transport"))
+
+
+def test_is_transport_error_recognizes_terminated_mcp_session():
+    exc = McpError(ErrorData(code=32600, message="Session terminated"))
+    assert _is_transport_error(exc)
+
+
+def test_is_transport_error_recognizes_closed_mcp_connection():
+    exc = McpError(
+        ErrorData(code=CONNECTION_CLOSED, message="Connection closed"),
+    )
+    assert _is_transport_error(exc)
+
+
+def test_is_transport_error_rejects_mcp_read_timeout():
+    exc = McpError(ErrorData(code=408, message="Timed out while waiting"))
+    assert not _is_transport_error(exc)
+
+
+def test_is_transport_error_unwraps_exception_group():
+    exc = McpError(
+        ErrorData(code=CONNECTION_CLOSED, message="Connection closed"),
+    )
+    assert _is_transport_error(ExceptionGroup("task group", [exc]))
+
+
+def test_is_transport_error_handles_mcp_error_without_payload():
+    exc = McpError.__new__(McpError)
+    assert not _is_transport_error(exc)
+
+
+def test_is_transport_error_rejects_other_mcp_errors():
+    exc = McpError(ErrorData(code=-32602, message="Invalid tool arguments"))
+    assert not _is_transport_error(exc)
+
+
+def test_is_transport_error_rejects_generic_server_error():
+    exc = McpError(
+        ErrorData(code=CONNECTION_CLOSED, message="Rate limit exceeded"),
+    )
+    assert not _is_transport_error(exc)
 
 
 def test_is_401_error_detects_plain_http_401():
@@ -370,6 +413,61 @@ async def test_list_tools_serves_cache_when_disconnected():
     assert result == ["cached-tool"]
 
 
+async def test_list_tools_serves_cache_and_reconnects_on_terminated_session():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+    c._cached_tools = ["cached-tool"]  # type: ignore[list-item]
+
+    class TerminatedSession:
+        async def list_tools(self):
+            raise McpError(
+                ErrorData(code=32600, message="Session terminated"),
+            )
+
+    c.session = TerminatedSession()  # type: ignore[assignment]
+
+    result = await c.list_tools()
+
+    assert result == ["cached-tool"]
+    assert c.is_connected is False
+    assert not c._ready_event.is_set()
+    assert c._reload_event.is_set()
+
+
+async def test_list_tools_retries_once_after_terminated_cold_session():
+    c = _client()
+    c.is_connected = True
+    c._ready_event.set()
+
+    class TerminatedSession:
+        async def list_tools(self):
+            raise McpError(
+                ErrorData(code=32600, message="Session terminated"),
+            )
+
+    class HealthySession:
+        async def list_tools(self):
+            return type("Result", (), {"tools": ["fresh-tool"]})()
+
+    c.session = TerminatedSession()  # type: ignore[assignment]
+
+    async def reconnect() -> None:
+        await c._reload_event.wait()
+        c.session = HealthySession()  # type: ignore[assignment]
+        c.is_connected = True
+        c._ready_event.set()
+
+    reconnect_task = asyncio.create_task(reconnect())
+    try:
+        result = await c.list_tools()
+    finally:
+        await reconnect_task
+
+    assert result == ["fresh-tool"]
+    assert c._cached_tools == ["fresh-tool"]
+
+
 async def test_list_tools_raises_on_cold_start_without_cache():
     c = _client()
     with pytest.raises(RuntimeError, match="not connected"):
@@ -396,6 +494,26 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
     # _handle_transport_error marked it for reconnect.
     assert c.is_connected is False
     assert c._reload_event.is_set()
+
+
+async def test_call_tool_does_not_reconnect_for_generic_server_error():
+    c = _client()
+    c.is_connected = True
+    error = McpError(
+        ErrorData(code=CONNECTION_CLOSED, message="Rate limit exceeded"),
+    )
+
+    class FakeSession:
+        async def call_tool(self, name: str, args: dict) -> None:
+            raise error
+
+    c.session = FakeSession()  # type: ignore[assignment]
+    with pytest.raises(McpError) as exc_info:
+        await c.call_tool("foo", {})
+
+    assert exc_info.value is error
+    assert c.is_connected is True
+    assert not c._reload_event.is_set()
 
 
 # ---------------------------------------------------------------------------

@@ -101,6 +101,9 @@ export function getFileLanguage(tc: ToolCallContent): string {
 const IMG_EXTS = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"];
 const VIDEO_EXTS = ["mp4", "avi", "mov", "wmv", "flv", "mkv", "webm"];
 const AUDIO_EXTS = ["mp3", "wav", "flac", "ape", "aac", "ogg", "wma"];
+const INLINE_BASE64_HEAD_LENGTH = 8192;
+const INLINE_BASE64_RESULT_THRESHOLD = 64 * 1024;
+const INLINE_BASE64_TEXT_TAIL_LENGTH = 64 * 1024;
 
 export type MediaType = "image" | "video" | "audio" | "file";
 
@@ -109,6 +112,15 @@ export interface MediaInfo {
   name: string;
   type: MediaType;
   size?: number;
+}
+
+function hasLargeInlineBase64(result: string): boolean {
+  return (
+    result.length > INLINE_BASE64_RESULT_THRESHOLD &&
+    /["']type["']\s*:\s*["']base64["']/i.test(
+      result.slice(0, INLINE_BASE64_HEAD_LENGTH),
+    )
+  );
 }
 
 export function getFileExtFromPath(path: string): string {
@@ -137,6 +149,7 @@ function extractUrlFromResultBlocks(
   let arr: unknown[] | null = null;
 
   if (typeof result === "string") {
+    if (hasLargeInlineBase64(result)) return null;
     try {
       const parsed = JSON.parse(result);
       if (Array.isArray(parsed)) arr = parsed;
@@ -246,14 +259,18 @@ export function hasMultimediaPreview(tc: ToolCallContent): boolean {
 
 /** Try to extract a file URL from a text result via regex patterns */
 export function extractUrlFromText(resultStr: string): string | null {
+  const searchableResult = hasLargeInlineBase64(resultStr)
+    ? resultStr.slice(-INLINE_BASE64_TEXT_TAIL_LENGTH)
+    : resultStr;
+
   // 1. "Saved to" pattern
-  const pathMatch = resultStr.match(
-    /(?:saved to|Saved to|保存到|输出到)[:\s]+([^\s\n]+)/i,
+  const pathMatch = searchableResult.match(
+    /(?:saved to|保存到|输出到)[:\s]+([^"\r\n]*?\.(?:png|jpg|jpeg|gif|bmp|webp|svg|mp4|avi|mov|wmv|flv|mkv|webm|mp3|wav|flac|ape|aac|ogg|wma))/i,
   );
-  if (pathMatch) return pathMatch[1].trim();
+  if (pathMatch) return pathMatch[1].trim().replace(/\\\\/g, "\\");
 
   // 2. Absolute file path with known media extension
-  const filePathMatch = resultStr.match(
+  const filePathMatch = searchableResult.match(
     /\/[\w.\-/]+\.(?:png|jpg|jpeg|gif|bmp|webp|svg|mp4|avi|mov|wmv|flv|mkv|webm|mp3|wav|flac|aac|ogg)/i,
   );
   if (filePathMatch) return filePathMatch[0];

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { GlobalOutlined, SoundOutlined, UserOutlined } from "@ant-design/icons";
-import { getModelConfig } from "@/api/creator";
-import type { ModelConfigData, ModelConfigItem } from "@/contracts/creator";
+import type { ModelConfigItem } from "@/contracts/creator";
+import { useModelConfigStore } from "@/store/modelConfigStore";
 import modelLlmIcon from "@/assets/design/model-llm.svg";
 import modelVlmIcon from "@/assets/design/model-vlm.svg";
 import modelAsrIcon from "@/assets/design/model-asr.svg";
@@ -71,22 +71,19 @@ const STATUS_TEXT_KEYS: Record<ModelStatus, string> = {
  */
 export default function ModelBadges() {
   const { t } = useTranslation();
-  const [config, setConfig] = useState<ModelConfigData | null>(null);
+  // Shared snapshot: badges follow config saves made from any home-page
+  // modal, not just the one opened from here.
+  const config = useModelConfigStore((state) => state.config);
+  const refresh = useModelConfigStore((state) => state.refresh);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const refresh = useCallback(() => {
-    getModelConfig()
-      .then(setConfig)
-      .catch(() => setConfig(null));
-  }, []);
-
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
   const modalClose = useCallback(() => {
     setModalOpen(false);
-    refresh();
+    void refresh();
   }, [refresh]);
 
   const status = (type: ModelType): ModelStatus => {
@@ -135,6 +132,16 @@ export default function ModelBadges() {
     return item.enabled ? "on" : "off";
   };
 
+  const readyCount = BADGE_META.filter(
+    (meta) => status(meta.type) === "on",
+  ).length;
+  const compactTitle = BADGE_META.map((meta) =>
+    t("modelBadges.badgeTitle", {
+      name: t(meta.labelKey),
+      status: t(STATUS_TEXT_KEYS[status(meta.type)]),
+    }),
+  ).join("\n");
+
   return (
     <>
       <button
@@ -143,57 +150,86 @@ export default function ModelBadges() {
         onClick={() => setModalOpen(true)}
         title={t("modelBadges.modelConfig")}
         aria-label={t("modelBadges.modelConfig")}
-        className="mr-[92px] flex cursor-pointer items-center gap-3 rounded-full bg-[rgba(43,27,0,0.04)] px-3 py-1 transition-colors hover:bg-[rgba(43,27,0,0.07)]"
+        className="mr-[92px] flex cursor-pointer items-center rounded-full bg-[rgba(43,27,0,0.04)] px-3 py-1 transition-colors hover:bg-[rgba(43,27,0,0.07)]"
       >
-        {BADGE_META.map((meta) => {
-          const state = status(meta.type);
-          const ready = state === "on";
-          const tint = ready ? READY_COLOR : IDLE_COLOR;
-          return (
-            <span
-              key={meta.type}
-              className="flex h-5 items-center gap-2"
-              title={t("modelBadges.badgeTitle", {
-                name: t(meta.labelKey),
-                status: t(STATUS_TEXT_KEYS[state]),
-              })}
-              aria-label={t("modelBadges.badgeTitle", {
-                name: t(meta.labelKey),
-                status: t(STATUS_TEXT_KEYS[state]),
-              })}
-              data-model-badge={meta.type}
-              data-status={state}
-            >
+        <span className="hidden items-center gap-3 xl:flex">
+          {BADGE_META.map((meta) => {
+            const state = status(meta.type);
+            const ready = state === "on";
+            const tint = ready ? READY_COLOR : IDLE_COLOR;
+            return (
               <span
-                className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full"
-                style={{ background: ready ? READY_HALO : IDLE_HALO }}
+                key={meta.type}
+                className="flex h-5 items-center gap-2"
+                title={t("modelBadges.badgeTitle", {
+                  name: t(meta.labelKey),
+                  status: t(STATUS_TEXT_KEYS[state]),
+                })}
+                aria-label={t("modelBadges.badgeTitle", {
+                  name: t(meta.labelKey),
+                  status: t(STATUS_TEXT_KEYS[state]),
+                })}
+                data-model-badge={meta.type}
+                data-status={state}
               >
                 <span
-                  className="h-1 w-1 rounded-full"
-                  style={{ background: tint }}
-                />
+                  className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full"
+                  style={{ background: ready ? READY_HALO : IDLE_HALO }}
+                >
+                  <span
+                    className="h-1 w-1 rounded-full"
+                    style={{ background: tint }}
+                  />
+                </span>
+                {meta.icon ? (
+                  <span
+                    className="h-5 w-5 shrink-0"
+                    style={{
+                      backgroundColor: tint,
+                      // Quoted so inlined `data:` glyphs keep working: an
+                      // unquoted url() would break on their `#` fill colours.
+                      maskImage: `url("${meta.icon}")`,
+                      WebkitMaskImage: `url("${meta.icon}")`,
+                      maskSize: "100% 100%",
+                      WebkitMaskSize: "100% 100%",
+                      maskRepeat: "no-repeat",
+                      WebkitMaskRepeat: "no-repeat",
+                    }}
+                  />
+                ) : meta.fallbackIcon ? (
+                  <meta.fallbackIcon style={{ fontSize: 18, color: tint }} />
+                ) : null}
               </span>
-              {meta.icon ? (
-                <span
-                  className="h-5 w-5 shrink-0"
-                  style={{
-                    backgroundColor: tint,
-                    // Quoted so inlined `data:` glyphs keep working: an
-                    // unquoted url() would break on their `#` fill colours.
-                    maskImage: `url("${meta.icon}")`,
-                    WebkitMaskImage: `url("${meta.icon}")`,
-                    maskSize: "100% 100%",
-                    WebkitMaskSize: "100% 100%",
-                    maskRepeat: "no-repeat",
-                    WebkitMaskRepeat: "no-repeat",
-                  }}
-                />
-              ) : meta.fallbackIcon ? (
-                <meta.fallbackIcon style={{ fontSize: 18, color: tint }} />
-              ) : null}
-            </span>
-          );
-        })}
+            );
+          })}
+        </span>
+        {/* Narrow viewports collapse the eight glyphs into one readiness
+            summary pill; the per-model statuses stay reachable via title. */}
+        <span
+          data-model-badges-compact
+          className="flex h-5 items-center gap-2 whitespace-nowrap text-xs font-semibold text-[var(--color-text-secondary)] xl:hidden"
+          title={compactTitle}
+        >
+          <span
+            className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full"
+            style={{
+              background:
+                readyCount === BADGE_META.length ? READY_HALO : IDLE_HALO,
+            }}
+          >
+            <span
+              className="h-1 w-1 rounded-full"
+              style={{
+                background:
+                  readyCount === BADGE_META.length ? READY_COLOR : IDLE_COLOR,
+              }}
+            />
+          </span>
+          {t("modelBadges.compactSummary", {
+            ready: readyCount,
+            total: BADGE_META.length,
+          })}
+        </span>
       </button>
       <ModelConfigModal open={modalOpen} onClose={modalClose} />
     </>

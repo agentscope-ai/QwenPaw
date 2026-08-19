@@ -92,6 +92,7 @@ const config: ModelConfigData = {
     protocol: "DashScope（百炼）",
     custom_protocol: "",
     translate_model: "",
+    reuse_llm_key: true,
   },
   video: {
     enabled: true,
@@ -100,6 +101,7 @@ const config: ModelConfigData = {
     base_url: "https://example.test/video",
     protocol: "DashScope（百炼）",
     custom_protocol: "",
+    reuse_llm_key: true,
   },
   oss: {
     enabled: false,
@@ -113,6 +115,11 @@ const config: ModelConfigData = {
   executionAuthorization: { mode: "allow_all" },
   creationCheckpoints: { mode: "skip" },
   mediaReview: { mode: "required" },
+  selfReview: {
+    sync_enabled: false,
+    media_enabled: false,
+    render_enabled: false,
+  },
 };
 
 describe("ModelBadges", () => {

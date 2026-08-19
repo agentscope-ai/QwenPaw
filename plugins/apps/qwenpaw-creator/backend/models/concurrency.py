@@ -28,7 +28,7 @@ async def model_slot(kind: str) -> AsyncIterator[None]:
     elif kind == "image":
         limit = config.get_image_concurrency()
     elif kind == "video":
-        limit = config.VIDEO_CONCURRENCY
+        limit = config.get_video_concurrency()
     elif kind == "vlm":
         limit = config.get_vlm_concurrency()
     else:

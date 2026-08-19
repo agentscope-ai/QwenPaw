@@ -28,6 +28,7 @@ class DailyStats(BaseModel):
     # Current-agent daily token totals (independent of global overlay).
     agent_prompt_tokens: int = 0
     agent_completion_tokens: int = 0
+    agent_llm_calls: int = 0
 
 
 class AgentStatsSummary(BaseModel):

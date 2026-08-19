@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
 """Tests for the shared capping-formatter module.
 
-agentscope's chat formatters (OpenAI, Anthropic, Gemini, DashScope) all read
-every local ``file://`` media source off disk and base64-encode the entire
-file into the request body on every API call.  For a large file persisted in
-conversation history this balloons the request and the provider drops the
-connection on every subsequent turn.  The shared
-:mod:`qwenpaw.providers.capping_formatter` substitutes a text placeholder for
-oversized media so the request stays small, while leaving small media,
-remote URLs, and persisted history untouched.
+The request formatter prepares local media outside the event loop and hands
+these formatters in-memory ``Base64Source`` objects. The shared capping layer
+then substitutes provider-shaped text placeholders for oversized data.
 
 These tests cover the shared helpers and each per-provider capping formatter
 directly; the provider-level wiring (the field reaching
@@ -43,17 +38,25 @@ def _write(tmp_path, name: str, size: int) -> str:
     return path.as_uri()
 
 
+def _base64_source(size: int, media_type: str):
+    """Build an in-memory source with an approximate raw byte size."""
+    from agentscope.message import Base64Source
+
+    encoded_size = ((size + 2) // 3) * 4
+    return Base64Source(data="A" * encoded_size, media_type=media_type)
+
+
 # ---------------------------------------------------------------------------
 # inline_media_size
 # ---------------------------------------------------------------------------
 
 
-def test_local_file_size_is_measured(tmp_path) -> None:
+def test_url_source_size_is_left_to_async_preparation(tmp_path) -> None:
     from agentscope.message import URLSource
 
     url = _write(tmp_path, "clip.mp4", 1024)
     source = URLSource(url=url, media_type="video/mp4")
-    assert inline_media_size(source) == 1024
+    assert inline_media_size(source) is None
 
 
 def test_remote_url_is_not_inlined() -> None:
@@ -90,29 +93,20 @@ def test_unknown_source_returns_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_maybe_cap_returns_none_within_limit(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "small.mp4", 1024)
-    source = URLSource(url=url, media_type="video/mp4")
+def test_maybe_cap_returns_none_within_limit() -> None:
+    source = _base64_source(1023, "video/mp4")
     assert _CappingDashScopeFormatter()._maybe_cap(source, "video") is None
 
 
-def test_maybe_cap_returns_placeholder_over_limit(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
-    source = URLSource(url=url, media_type="video/mp4")
+def test_maybe_cap_returns_placeholder_over_limit() -> None:
+    source = _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "video/mp4")
     capped = _CappingDashScopeFormatter()._maybe_cap(source, "video")
     assert capped is not None
     assert "omitted" in capped["text"]
 
 
-def test_maybe_cap_custom_threshold(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "clip.mp4", 4096)
-    source = URLSource(url=url, media_type="video/mp4")
+def test_maybe_cap_custom_threshold() -> None:
+    source = _base64_source(4095, "video/mp4")
     assert _CappingDashScopeFormatter()._maybe_cap(source, "video") is None
     assert (
         _CappingDashScopeFormatter(max_bytes=1024)._maybe_cap(source, "video")
@@ -120,11 +114,8 @@ def test_maybe_cap_custom_threshold(tmp_path) -> None:
     )
 
 
-def test_maybe_cap_zero_disables(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
-    source = URLSource(url=url, media_type="video/mp4")
+def test_maybe_cap_zero_disables() -> None:
+    source = _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "video/mp4")
     assert (
         _CappingDashScopeFormatter(max_bytes=0)._maybe_cap(source, "video")
         is None
@@ -158,69 +149,51 @@ def test_default_max_bytes(cls) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_openai_oversized_image_capped(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.jpg", MAX_INLINE_MEDIA_BYTES + 1)
+def test_openai_oversized_image_capped() -> None:
     out = _CappingOpenAIFormatter()._format_image_source(
-        URLSource(url=url, media_type="image/jpeg"),
+        _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "image/jpeg"),
     )
     # OpenAI wire format uses {"type": "text", "text": ...}.
     assert out["type"] == "text"
     assert "omitted" in out["text"]
 
 
-def test_openai_small_image_passthrough(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "thumb.jpg", 2048)
+def test_openai_small_image_passthrough() -> None:
     out = _CappingOpenAIFormatter()._format_image_source(
-        URLSource(url=url, media_type="image/jpeg"),
+        _base64_source(2046, "image/jpeg"),
     )
     assert out["type"] == "image_url"
     assert out["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
 
-def test_openai_oversized_audio_capped(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.wav", MAX_INLINE_MEDIA_BYTES + 1)
+def test_openai_oversized_audio_capped() -> None:
     out = _CappingOpenAIFormatter()._format_audio_source(
-        URLSource(url=url, media_type="audio/wav"),
+        _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "audio/wav"),
     )
     assert out["type"] == "text"
     assert "omitted" in out["text"]
 
 
-def test_anthropic_oversized_image_capped(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.png", MAX_INLINE_MEDIA_BYTES + 1)
+def test_anthropic_oversized_image_capped() -> None:
     out = _CappingAnthropicFormatter()._format_image_source(
-        URLSource(url=url, media_type="image/png"),
+        _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "image/png"),
     )
     # Anthropic wire format uses {"type": "text", "text": ...}.
     assert out["type"] == "text"
     assert "omitted" in out["text"]
 
 
-def test_anthropic_small_image_passthrough(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "thumb.png", 2048)
+def test_anthropic_small_image_passthrough() -> None:
     out = _CappingAnthropicFormatter()._format_image_source(
-        URLSource(url=url, media_type="image/png"),
+        _base64_source(2046, "image/png"),
     )
     assert out["type"] == "image"
     assert out["source"]["type"] == "base64"
 
 
-def test_gemini_oversized_media_capped_with_text_part(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
+def test_gemini_oversized_media_capped_with_text_part() -> None:
     out = _CappingGeminiFormatter()._format_media_source(
-        URLSource(url=url, media_type="video/mp4"),
+        _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "video/mp4"),
     )
     # Gemini part shape is {"text": ...}, NOT {"type": "text", ...}.
     assert out == {"text": out["text"]}
@@ -228,23 +201,17 @@ def test_gemini_oversized_media_capped_with_text_part(tmp_path) -> None:
     assert "type" not in out
 
 
-def test_gemini_small_media_passthrough(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "thumb.jpg", 2048)
+def test_gemini_small_media_passthrough() -> None:
     out = _CappingGeminiFormatter()._format_media_source(
-        URLSource(url=url, media_type="image/jpeg"),
+        _base64_source(2046, "image/jpeg"),
     )
     assert "inline_data" in out
     assert out["inline_data"]["mime_type"] == "image/jpeg"
 
 
-def test_dashscope_oversized_video_capped(tmp_path) -> None:
-    from agentscope.message import URLSource
-
-    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
+def test_dashscope_oversized_video_capped() -> None:
     out = _CappingDashScopeFormatter()._format_video_source(
-        URLSource(url=url, media_type="video/mp4"),
+        _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "video/mp4"),
     )
     assert out["type"] == "text"
     assert "omitted" in out["text"]
@@ -276,32 +243,19 @@ def _source_with_bare_path(path, media_type: str):
     return source
 
 
-def test_bare_local_path_size_is_measured(tmp_path) -> None:
-    """inline_media_size handles bare paths (no file:// prefix)."""
+def test_bare_local_path_size_is_deferred(tmp_path) -> None:
+    """Bare paths are measured by the asynchronous preparation stage."""
     path = tmp_path / "img.png"
     path.write_bytes(b"\x89PNG" + b"\0" * 500)
     source = _source_with_bare_path(path, "image/png")
-    assert inline_media_size(source) == 504
+    assert inline_media_size(source) is None
 
 
-def test_bare_local_path_base64_conversion(tmp_path) -> None:
-    """_local_source_to_base64 converts bare paths to Base64Source."""
-    from agentscope.message import Base64Source
-
-    path = tmp_path / "photo.jpg"
-    path.write_bytes(b"\xff\xd8" + b"\0" * 100)
-    source = _source_with_bare_path(path, "image/jpeg")
-    result = _CappingOpenAIFormatter._local_source_to_base64(source)
-    assert isinstance(result, Base64Source)
-    assert result.media_type == "image/jpeg"
-
-
-def test_bare_local_path_image_formatted(tmp_path) -> None:
-    """Capping formatter produces data URI from bare local path."""
-    path = tmp_path / "pic.png"
-    path.write_bytes(b"\x89PNG" + b"\0" * 50)
-    source = _source_with_bare_path(path, "image/png")
-    out = _CappingOpenAIFormatter()._format_image_source(source)
+def test_prepared_image_is_formatted_without_file_access() -> None:
+    """Prepared in-memory media produces the expected provider payload."""
+    out = _CappingOpenAIFormatter()._format_image_source(
+        _base64_source(54, "image/png"),
+    )
     assert out["type"] == "image_url"
     assert out["image_url"]["url"].startswith("data:image/png;base64,")
 
@@ -316,8 +270,5 @@ def test_non_http_remote_scheme_passthrough() -> None:
         "ftp://host/file.txt",
     ]:
         source = URLSource(url=scheme_url, media_type="image/png")
-        result = _CappingOpenAIFormatter._local_source_to_base64(source)
-        # Must return source unchanged (not try to open)
-        assert result is source, f"{scheme_url} was not passed through"
         # inline_media_size must return None (not try getsize)
         assert inline_media_size(source) is None

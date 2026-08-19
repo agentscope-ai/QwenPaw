@@ -101,7 +101,6 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   const inputProgress =
     isInputStreaming && typeof rawArgs === "string"
       ? {
-          characterCount: rawArgs.length,
           preview: rawArgs.slice(-STREAM_INPUT_PREVIEW_CHARS),
           truncated: rawArgs.length > STREAM_INPUT_PREVIEW_CHARS,
         }

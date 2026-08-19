@@ -25,11 +25,13 @@ import { openExternalLink } from "../utils/openExternalLink";
 import {
   fetchPlugins,
   uninstallPlugin,
+  type InstallPluginResult,
   type PluginInfo,
 } from "../api/modules/plugin";
+import { loadPawApp } from "../plugins/usePluginLoader";
 import { OS_APPS } from "./osApps";
 import { useOsPlugins } from "./osPluginStore";
-import { purgeAppState, purgePluginAppState } from "./osCleanup";
+import { purgeAppState, removePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 import { useOsAppMarket } from "./useOsAppMarket";
@@ -75,6 +77,15 @@ export default function AppStore() {
       .finally(() => setAppsLoading(false));
   };
 
+  const syncInstalledApp = async (result: InstallPluginResult) => {
+    if (installedApps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
+    await loadPawApp(result.id);
+    refreshInstalledApps();
+  };
+
   const {
     loading,
     error,
@@ -89,10 +100,8 @@ export default function AppStore() {
     handlePageChange,
     handleRefresh,
     handleInstall,
-    // onInstalled: refresh the installed-apps section after a market
-    // install/update so the new PawApp shows up without a full page reload.
   } = useOsAppMarket({
-    onInstalled: refreshInstalledApps,
+    onInstalled: syncInstalledApp,
   });
 
   const [searchInput, setSearchInput] = useState("");
@@ -115,16 +124,14 @@ export default function AppStore() {
       onOk: async () => {
         try {
           await uninstallPlugin(p.id);
-          // Confirmed uninstall: purge persisted desktop state before the
-          // reload drops the plugin's routes from the registry.
-          purgePluginAppState(p.id);
+          removePluginAppState(p.id);
+          refreshInstalledApps();
           message.success(
             t("os.uninstalledApp", {
               name: p.name,
               defaultValue: "Uninstalled",
             }),
           );
-          setTimeout(() => window.location.reload(), 600);
         } catch (err) {
           message.error(
             err instanceof Error

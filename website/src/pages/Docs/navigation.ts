@@ -28,6 +28,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "cron", titleKey: "docs.cron" },
       { slug: "heartbeat", titleKey: "docs.heartbeat" },
       { slug: "memory", titleKey: "docs.memory" },
+      { slug: "embedding", titleKey: "docs.embedding" },
       {
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",
@@ -115,8 +116,8 @@ const DOC_TITLE_BANNERS = [
 ] as const;
 
 export const CREATOR_BANNER_BY_LANG = {
-  zh: "https://img.alicdn.com/imgextra/i1/O1CN01fqzbpn1uZs98aHllk_!!6000000006052-2-tps-1600-600.png",
-  en: "https://img.alicdn.com/imgextra/i4/O1CN01k0Q45RQSEyL3FPZ2_!!6000000000720-2-tps-1600-600.png",
+  zh: "https://img.alicdn.com/imgextra/i1/O1CN01mdypL9tClfC3FPZ2_!!6000000002252-2-tps-1600-600.png",
+  en: "https://img.alicdn.com/imgextra/i1/O1CN0141WNzmX0SxB3FPZ2_!!6000000007600-2-tps-1600-600.png",
 } as const;
 
 export const DOC_BANNER_BY_SLUG = (() => {

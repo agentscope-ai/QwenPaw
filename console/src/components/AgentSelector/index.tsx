@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
 import { useAgentLongPress } from "./useAgentLongPress";
+import { isAgentAvailableInChat } from "../../utils/agentVisibility";
 import styles from "./index.module.less";
 
 interface AgentSelectorProps {
@@ -70,31 +71,35 @@ export default function AgentSelector({
     void loadAgents();
   }, [loadAgents]);
 
-  const enabledAgents = useMemo(
-    () => agents.filter((agent) => agent.enabled),
+  const chatAgents = useMemo(
+    () => agents.filter(isAgentAvailableInChat),
     [agents],
   );
+  const enabledAgents = useMemo(
+    () => chatAgents.filter((agent) => agent.enabled),
+    [chatAgents],
+  );
   const pinnedAgents = useMemo(
-    () => agents.filter((agent) => agent.id === "default" || agent.pinned),
-    [agents],
+    () => chatAgents.filter((agent) => agent.id === "default" || agent.pinned),
+    [chatAgents],
   );
   const regularEnabledAgents = useMemo(
     () =>
-      agents.filter(
+      chatAgents.filter(
         (agent) => agent.enabled && agent.id !== "default" && !agent.pinned,
       ),
-    [agents],
+    [chatAgents],
   );
   const regularDisabledAgents = useMemo(
     () =>
-      agents.filter(
+      chatAgents.filter(
         (agent) => !agent.enabled && agent.id !== "default" && !agent.pinned,
       ),
-    [agents],
+    [chatAgents],
   );
 
   const handleChange = (value: string) => {
-    const targetAgent = agents.find((agent) => agent.id === value);
+    const targetAgent = chatAgents.find((agent) => agent.id === value);
     if (!targetAgent?.enabled) return;
     setSelectedAgent(value);
     message.success(t("agent.switchSuccess"));
@@ -107,6 +112,8 @@ export default function AgentSelector({
     if (!currentAgent) {
       setSelectedAgent("default");
       message.warning(t("agent.currentAgentDeleted"));
+    } else if (!isAgentAvailableInChat(currentAgent)) {
+      setSelectedAgent("default");
     } else if (!currentAgent.enabled) {
       setSelectedAgent("default");
       message.warning(t("agent.currentAgentDisabled"));
@@ -193,7 +200,9 @@ export default function AgentSelector({
     },
   );
 
-  const currentAgentInfo = agents.find((agent) => agent.id === selectedAgent);
+  const currentAgentInfo = chatAgents.find(
+    (agent) => agent.id === selectedAgent,
+  );
 
   if (collapsed) {
     return (

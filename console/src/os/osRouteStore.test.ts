@@ -29,21 +29,6 @@ describe("osRouteStore", () => {
     resetStores();
   });
 
-  it("replaces the source window during a mode transition", () => {
-    useOsWindows.getState().open("core.chat");
-
-    useOsRoute
-      .getState()
-      .navigateTo("core.coding", "/coding/session-1", "core.chat");
-
-    expect(useOsWindows.getState().windows["core.chat"]).toBeUndefined();
-    expect(useOsWindows.getState().windows["core.coding"]).toBeDefined();
-    expect(useOsWindows.getState().activeId).toBe("core.coding");
-    expect(useOsRoute.getState().targets["core.coding"]?.path).toBe(
-      "/coding/session-1",
-    );
-  });
-
   it("keeps the source window for normal cross-app navigation", () => {
     useOsWindows.getState().open("core.chat");
 

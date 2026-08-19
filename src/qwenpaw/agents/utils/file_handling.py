@@ -39,6 +39,43 @@ def single_line_log_value(value: object) -> str:
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
 
 
+def decode_text_bytes_with_encoding_fallback(
+    data: bytes,
+    *,
+    file_name: object = "<bytes>",
+) -> str:
+    """Decode bytes with the historical fallback and newline behavior."""
+    encodings_to_try = [
+        "utf-8-sig",
+        "utf-8",
+        "gbk",
+        "cp936",
+        "cp1252",
+        "latin-1",
+    ]
+    for encoding in encodings_to_try:
+        try:
+            content = data.decode(encoding)
+            if encoding not in ("utf-8", "utf-8-sig"):
+                logger.debug(
+                    "File %s read with encoding: %s",
+                    single_line_log_value(file_name),
+                    encoding,
+                )
+            return content.replace("\r\n", "\n").replace("\r", "\n")
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    # latin-1 can decode every byte sequence, so this is defensive only.
+    content = data.decode("utf-8", errors="replace")
+    logger.warning(
+        "File %s read with UTF-8 errors='replace' fallback, "
+        "some characters may be corrupted",
+        single_line_log_value(file_name),
+    )
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     """Read text file with multiple encoding attempts for cross-platform
     compatibility.
@@ -69,48 +106,10 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    encodings_to_try = [
-        "utf-8-sig",  # UTF-8 with BOM - try first
-        "utf-8",
-        "gbk",  # Windows Chinese default
-        "cp936",  # Alias for GBK
-        "cp1252",  # Windows Western default
-        "latin-1",  # Fallback for Western text
-    ]
-
-    for encoding in encodings_to_try:
-        try:
-            with open(file_path, "r", encoding=encoding) as f:
-                content = f.read()
-                if encoding not in ("utf-8", "utf-8-sig"):
-                    logger.debug(
-                        "File %s read with encoding: %s",
-                        single_line_log_value(file_path.name),
-                        encoding,
-                    )
-                return content
-        except (UnicodeDecodeError, LookupError):
-            continue
-
-    # Final fallback: UTF-8 with error replacement
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-            logger.warning(
-                "File %s read with UTF-8 errors='replace' fallback, "
-                "some characters may be corrupted",
-                single_line_log_value(file_path.name),
-            )
-            return content
-    except Exception as e:
-        logger.error(
-            "File %s cannot be read even with fallback: %s",
-            single_line_log_value(file_path.name),
-            single_line_log_value(e),
-        )
-        raise IOError(
-            f"File {file_path.name} cannot be read even with fallback: {e}",
-        ) from e
+    return decode_text_bytes_with_encoding_fallback(
+        file_path.read_bytes(),
+        file_name=file_path.name,
+    )
 
 
 def _default_download_dir() -> str:

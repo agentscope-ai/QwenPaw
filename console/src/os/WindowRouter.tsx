@@ -24,7 +24,7 @@ import {
 } from "react-router-dom";
 import { useRoutes } from "../plugins/registry/hooks";
 import { useOsRoute } from "./osRouteStore";
-import { isModeWindowTransition, pathToRouteId } from "./osRouteMap";
+import { pathToRouteId } from "./osRouteMap";
 
 interface WindowRouterProps {
   /** This window's route id (e.g. "core.chat"). */
@@ -68,13 +68,7 @@ function WindowRouterBridge({
       lastOwnPath.current = location.pathname + location.search;
       return;
     }
-    const replaceSource = isModeWindowTransition(routeId, targetId);
-    navigateTo(
-      targetId,
-      location.pathname + location.search,
-      replaceSource ? routeId : undefined,
-    );
-    if (replaceSource) return;
+    navigateTo(targetId, location.pathname + location.search);
     // Restore this window to its last own-app location (preserve state).
     navigate(lastOwnPath.current, { replace: true });
   }, [location, routeId, routes, navigate, navigateTo]);

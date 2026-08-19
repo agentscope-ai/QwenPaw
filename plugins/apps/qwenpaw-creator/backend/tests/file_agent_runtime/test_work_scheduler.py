@@ -9,9 +9,11 @@ unattended ladder.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
+from domain.enums import TaskStatus
 from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
@@ -249,6 +251,82 @@ def test_deterministic_failures_stay_locked(tmp_path, monkeypatch):
         for _ in range(3):
             await scheduler.tick(PROJECT_ID)
             await _drain()
+        await scheduler.shutdown()
+
+    asyncio.run(scenario())
+
+    assert len(dispatch.calls) == 1
+
+
+def test_quarantined_stale_result_reopens_dispatch(tmp_path, monkeypatch):
+    """Field run 2026-08-07: the first commit of a four-wide storyboard
+    wave staled the other three; their tasks went QUARANTINED (invisible
+    to the graph), the nodes re-derived READY, and the ledger parked
+    them forever. A quarantined-stale stored result reopens the ledger
+    (bounded) so the durable slot can rescue it without a second bill."""
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+    dispatch = _RecordingDispatch()
+    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
+
+    async def scenario():
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+        target_ref = dispatch.calls[0]["target_ref"]
+        stale_task = SimpleNamespace(
+            kind="image_generation",
+            status=TaskStatus.QUARANTINED,
+            error={"code": "PROJECT_INPUT_SNAPSHOT_STALE"},
+            result={"outputRef": "artifact-version:paid"},
+            metadata={"targetRef": target_ref},
+            input_refs=[target_ref],
+        )
+        monkeypatch.setattr(
+            scheduler.executions,
+            "list_tasks",
+            lambda _project_id: [stale_task],
+        )
+        for _ in range(4):  # 2 bounded reopens, then locked again
+            await scheduler.tick(PROJECT_ID)
+            await _drain()
+        await scheduler.shutdown()
+
+    asyncio.run(scenario())
+
+    # 1 initial dispatch + 2 bounded rescue re-dispatches, then locked.
+    assert len(dispatch.calls) == 3
+
+
+def test_quarantine_without_stored_result_stays_locked(
+    tmp_path,
+    monkeypatch,
+):
+    """No stored result means a reopen would pay for a fresh render —
+    the ledger stays closed and the node waits for an input change."""
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+    dispatch = _RecordingDispatch()
+    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
+
+    async def scenario():
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+        target_ref = dispatch.calls[0]["target_ref"]
+        stale_task = SimpleNamespace(
+            kind="image_generation",
+            status=TaskStatus.QUARANTINED,
+            error={"code": "PROJECT_INPUT_SNAPSHOT_STALE"},
+            result=None,
+            metadata={"targetRef": target_ref},
+            input_refs=[target_ref],
+        )
+        monkeypatch.setattr(
+            scheduler.executions,
+            "list_tasks",
+            lambda _project_id: [stale_task],
+        )
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
         await scheduler.shutdown()
 
     asyncio.run(scenario())

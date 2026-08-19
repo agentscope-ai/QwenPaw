@@ -133,7 +133,27 @@ async def download_remote_image(remote_url: str, model_name: str) -> str:
             img_bytes = await asyncio.to_thread(temporary.read_bytes)
         finally:
             temporary.unlink(missing_ok=True)
-    return persist_image_bytes(img_bytes, model_name, "url→file")
+    # The durable write (full image + fsync + rename + directory fsync)
+    # must not stall the event loop; contextvars carry the Task scope into
+    # the worker thread so the file still lands in the right scratch dir.
+    return await asyncio.to_thread(
+        persist_image_bytes,
+        img_bytes,
+        model_name,
+        "url→file",
+    )
+
+
+def _logged_model_error(message: str, model_name: str) -> ModelError:
+    """Log and build the terminal error in one step.
+
+    The message doubles as the persisted task error that the transient
+    classifier matches, so it must always carry a detail — an empty one
+    once turned a plain network blip into a deterministic wall.
+    """
+
+    logger.error(message)
+    return ModelError(message, model_name=model_name)
 
 
 def _configured_value(
@@ -168,6 +188,25 @@ def _configured_int(
         env_name,
         default,
     )
+
+
+def _image_api_key(env_name: str, default: str = "") -> str:
+    """Image credential: explicit value first, else optionally reuse LLM.
+
+    Bailian image generation runs on the same DashScope credential as the
+    text model, so when no image-specific key is configured and the
+    persisted ``image.reuse_llm_key`` flag (default on) allows it, the text
+    key is reused — mirroring the tts/s2v sections.
+    """
+    configured = _configured_value("api_key", env_name, default)
+    if configured:
+        return configured
+    section = model_config._get_user_config().get("image", {})
+    reuse = not isinstance(section, dict) or section.get(
+        "reuse_llm_key",
+        True,
+    )
+    return model_config.get_text_api_key() if reuse else ""
 
 
 def _validated_mode(
@@ -364,6 +403,16 @@ class BaseImageModel(ABC):
                 f"Image generation timed out after {self.timeout}s",
                 model_name=self.model_name,
             )
+        except httpx.TransportError as e:
+            # ReadError/WriteError/ConnectError stringify empty; losing the
+            # type name made the persisted error unclassifiable and a plain
+            # network blip became a deterministic wall (field run
+            # 2026-08-10: an upload burst locked two storyboard nodes).
+            raise _logged_model_error(
+                "Image generation connection failure: "
+                f"{str(e) or type(e).__name__}",
+                self.model_name,
+            )
         except httpx.HTTPStatusError as e:
             detail = format_http_error_detail(e.response)
             logger.error(
@@ -375,10 +424,10 @@ class BaseImageModel(ABC):
                 model_name=self.model_name,
             )
         except Exception as e:
-            logger.error(f"Image generation failed: {e}")
-            raise ModelError(
-                f"Image generation failed: {str(e)}. Check creator_image_model configuration.",
-                model_name=self.model_name,
+            raise _logged_model_error(
+                f"Image generation failed: {str(e) or type(e).__name__}. "
+                "Check creator_image_model configuration.",
+                self.model_name,
             )
 
     async def _translate(

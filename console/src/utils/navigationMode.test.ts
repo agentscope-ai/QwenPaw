@@ -5,13 +5,14 @@ import {
   getConsoleRootHref,
   getLoginHref,
   getLoginPath,
-  getOsAppHref,
+  getOsPawAppIdFromHistoryState,
   getOsRootHref,
   getPostLoginHref,
   getRouterBasename,
   isLoginPath,
   isOsPath,
   stripRouterBasename,
+  withOsPawAppHistoryState,
 } from "./navigationMode";
 
 describe("navigationMode", () => {
@@ -49,17 +50,28 @@ describe("navigationMode", () => {
     expect(isLoginPath("/console/login")).toBe(true);
   });
 
-  it("only requests a hard post-login redirect for OS destinations", () => {
+  it("canonicalizes OS destinations after login", () => {
     expect(getPostLoginHref("/console/login", "/os/apps/office")).toBe(
-      "/console/os/apps/office",
+      "/console/os",
     );
+    expect(getPostLoginHref("/login", "/os/chat")).toBe("/os");
     expect(getPostLoginHref("/login", "/chat")).toBeNull();
   });
 
-  it("builds OS-owned browser paths", () => {
+  it("builds the single OS browser entry path", () => {
     expect(getOsRootHref("/console/os/apps/office")).toBe("/console/os");
-    expect(getOsAppHref("/os", "/apps/office")).toBe("/os/apps/office");
+    expect(getOsRootHref("/os/chat")).toBe("/os");
     expect(addRouterBasename("/console/login", "/os")).toBe("/console/os");
+  });
+
+  it("stores OS PawApp history without discarding other shell state", () => {
+    const appState = withOsPawAppHistoryState({ osApp: "core.apps" }, "office");
+    expect(appState).toEqual({ osApp: "core.apps", osPawAppId: "office" });
+    expect(getOsPawAppIdFromHistoryState(appState)).toBe("office");
+
+    const rootState = withOsPawAppHistoryState(appState, null);
+    expect(rootState).toEqual({ osApp: "core.apps" });
+    expect(getOsPawAppIdFromHistoryState(rootState)).toBeUndefined();
   });
 
   it("builds basename-safe classic console paths", () => {
