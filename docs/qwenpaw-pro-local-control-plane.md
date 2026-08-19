@@ -72,8 +72,6 @@ qwenpaw app --pro --config ./qwenpaw-pro.yaml
 version: 1
 
 control_plane:
-  # Browser-reachable URL used by Provider and MCP OAuth callbacks.
-  public_base_url: https://qwenpaw.example.com
   registration:
     enabled: false
     default_role: user
@@ -97,11 +95,6 @@ tenants:
 管理员 UI 修改数据库后立即生效；如果下次仍使用包含该字段的 YAML 启动，YAML
 会再次覆盖它。YAML 中出现未知字段、错误版本、不可用 driver 或非法 quota 时
 启动失败，避免拼写错误被静默忽略。
-
-公网绑定时必须配置 `control_plane.public_base_url`。该值必须是浏览器可访问的
-完整 HTTP(S) URL，而不是监听地址 `0.0.0.0`。Provider OAuth 和 MCP OAuth
-会通过控制面的短期一次性 relay 把回调送回发起流程的个人 Runtime；单机模式
-仍根据当前请求地址生成 callback，不读取该 Pro 配置。
 
 解析结果生成与部署实现无关的 `ProConfig` 和 `TenantQuota`，由
 `RuntimeService` 在创建和启动 Runtime 前执行准入检查。tenant 单独覆盖默认限制
