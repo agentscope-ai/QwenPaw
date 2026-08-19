@@ -1748,7 +1748,17 @@
     "wrongPassword": "Kata sandi saat ini salah",
     "nothingToUpdate": "Harap masukkan nama pengguna atau kata sandi baru",
     "passwordEmpty": "Kata sandi tidak boleh kosong",
-    "usernameEmpty": "Nama pengguna tidak boleh kosong"
+    "usernameEmpty": "Nama pengguna tidak boleh kosong",
+    "username": "Nama pengguna",
+    "passwordRequired": "Masukkan kata sandi baru",
+    "hubPasswordPlaceholder": "Masukkan minimal delapan karakter",
+    "runtimeTitle": "Runtime pribadi",
+    "runtimeDescription": "Mulai ulang runtime jika ruang kerja tidak tersedia. Tugas yang berjalan akan dihentikan, tetapi data tersimpan tetap dipertahankan.",
+    "runtimeRestartConfirmTitle": "Mulai ulang runtime?",
+    "runtimeRestartConfirmDescription": "Tugas yang berjalan akan dihentikan selama runtime dimulai ulang.",
+    "runtimeRestart": "Mulai ulang runtime",
+    "runtimeRestartSuccess": "Runtime berhasil dimulai ulang",
+    "runtimeRestartFailed": "Gagal memulai ulang runtime"
   },
   "voiceTranscription": {
     "title": "Transkripsi Suara",

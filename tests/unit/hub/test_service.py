@@ -25,6 +25,8 @@ class _FakeProvisioner(RuntimeProvisioner):
     def __init__(self, available: bool = True) -> None:
         self.available = available
         self.status_calls = 0
+        self.start_calls = 0
+        self.stop_calls = 0
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         del root_dir
@@ -39,9 +41,11 @@ class _FakeProvisioner(RuntimeProvisioner):
         credentials: Mapping[str, str],
     ) -> RuntimeRecord:
         del credentials
+        self.start_calls += 1
         return replace(record, state=RuntimeState.RUNNING, pid=100)
 
     def stop(self, record: RuntimeRecord) -> RuntimeRecord:
+        self.stop_calls += 1
         return replace(record, state=RuntimeState.STOPPED, pid=None)
 
     def status(self, record: RuntimeRecord) -> RuntimeRecord:
@@ -122,6 +126,38 @@ def test_running_runtime_limit_is_tenant_scoped(tmp_path: Path) -> None:
     assert service.start("first").state is RuntimeState.RUNNING
     with pytest.raises(ValueError, match="running runtime limit reached: 1"):
         service.start("second")
+
+
+def test_restart_replaces_running_runtime(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
+    service.create(_spec("runtime-a"))
+    service.start("runtime-a")
+
+    restarted = service.restart("runtime-a")
+
+    provisioner = service.provisioners["local"]
+    assert isinstance(provisioner, _FakeProvisioner)
+    assert restarted.state is RuntimeState.RUNNING
+    assert provisioner.start_calls == 2
+    assert provisioner.stop_calls == 1
+
+
+def test_restart_starts_failed_runtime_without_stopping(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path, HubConfig())
+    created = service.create(_spec("runtime-a"))
+    service.registry.save(
+        replace(created, state=RuntimeState.FAILED, last_error="crashed"),
+    )
+
+    restarted = service.restart("runtime-a")
+
+    provisioner = service.provisioners["local"]
+    assert isinstance(provisioner, _FakeProvisioner)
+    assert restarted.state is RuntimeState.RUNNING
+    assert provisioner.start_calls == 1
+    assert provisioner.stop_calls == 0
 
 
 def test_provisioner_policy_fails_closed_at_startup(tmp_path: Path) -> None:

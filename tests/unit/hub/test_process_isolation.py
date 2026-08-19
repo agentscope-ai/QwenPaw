@@ -2,6 +2,7 @@
 """Tests for fail-closed Hub runtime process isolation."""
 
 import sys
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -173,3 +174,59 @@ def test_provisioner_never_bypasses_injected_isolator(tmp_path: Path) -> None:
     isolator.prepare(record, ["python"], environment)
 
     assert isolator.called is True
+
+
+def test_runtime_parent_thread_survives_request_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolator = _RecordingIsolator()
+    provisioner = LocalProcessRuntimeProvisioner(isolator=isolator)
+    launcher_threads: list[threading.Thread] = []
+    results: list[RuntimeRecord] = []
+
+    class _Process:
+        pid = 12345
+
+        @staticmethod
+        def poll() -> None:
+            return None
+
+        @staticmethod
+        def wait(timeout: float) -> int:
+            del timeout
+            return 0
+
+    def popen(*args, **kwargs):
+        del args, kwargs
+        launcher_threads.append(threading.current_thread())
+        return _Process()
+
+    monkeypatch.setattr(
+        "qwenpaw.hub.local_provisioner.subprocess.Popen",
+        popen,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.hub.local_provisioner.os.killpg",
+        lambda *_: None,
+    )
+    monkeypatch.setattr(provisioner, "_wait_until_ready", lambda *_: None)
+
+    request_worker = threading.Thread(
+        target=lambda: results.append(
+            provisioner.start(
+                _record(tmp_path),
+                {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "secret"},
+            ),
+        ),
+    )
+    request_worker.start()
+    request_worker.join()
+
+    assert results[0].state is RuntimeState.RUNNING
+    assert launcher_threads[0] is not request_worker
+    assert launcher_threads[0].is_alive()
+
+    provisioner.close()
+
+    assert not launcher_threads[0].is_alive()

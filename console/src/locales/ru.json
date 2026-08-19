@@ -2829,7 +2829,17 @@
     "wrongPassword": "Текущий пароль неверен",
     "nothingToUpdate": "Пожалуйста, введите новое имя пользователя или пароль",
     "passwordEmpty": "Пароль не может быть пустым",
-    "usernameEmpty": "Имя пользователя не может быть пустым"
+    "usernameEmpty": "Имя пользователя не может быть пустым",
+    "username": "Имя пользователя",
+    "passwordRequired": "Введите новый пароль",
+    "hubPasswordPlaceholder": "Введите не менее восьми символов",
+    "runtimeTitle": "Личная среда выполнения",
+    "runtimeDescription": "Перезапустите среду, если рабочее пространство недоступно. Текущие задачи будут прерваны, сохранённые данные останутся.",
+    "runtimeRestartConfirmTitle": "Перезапустить среду выполнения?",
+    "runtimeRestartConfirmDescription": "Текущие задачи будут прерваны на время перезапуска.",
+    "runtimeRestart": "Перезапустить среду",
+    "runtimeRestartSuccess": "Среда перезапущена",
+    "runtimeRestartFailed": "Не удалось перезапустить среду"
   },
   "voiceTranscription": {
     "title": "Транскрипция голоса",

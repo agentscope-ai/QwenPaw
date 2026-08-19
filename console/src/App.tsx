@@ -307,7 +307,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
           element={
             <AuthGuard authStatus={backendInfo.authStatus}>
               <RuntimeAvailabilityGuard enabled={hubMode}>
-                <MainLayout />
+                <MainLayout hubMode={hubMode} />
               </RuntimeAvailabilityGuard>
             </AuthGuard>
           }

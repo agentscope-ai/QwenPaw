@@ -250,7 +250,17 @@
     "saving": "Đang lưu...",
     "save": "Lưu thay đổi",
     "authDisabled": "Xác thực đang tắt — đổi mật khẩu không khả dụng",
-    "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
+    "wrongCurrentPassword": "Mật khẩu hiện tại không đúng",
+    "username": "Tên người dùng",
+    "passwordRequired": "Vui lòng nhập mật khẩu mới",
+    "hubPasswordPlaceholder": "Nhập ít nhất tám ký tự",
+    "runtimeTitle": "Môi trường cá nhân",
+    "runtimeDescription": "Khởi động lại môi trường nếu không gian làm việc không khả dụng. Tác vụ đang chạy sẽ bị gián đoạn nhưng dữ liệu đã lưu vẫn được giữ lại.",
+    "runtimeRestartConfirmTitle": "Khởi động lại môi trường?",
+    "runtimeRestartConfirmDescription": "Tác vụ đang chạy sẽ bị gián đoạn trong khi khởi động lại.",
+    "runtimeRestart": "Khởi động lại môi trường",
+    "runtimeRestartSuccess": "Đã khởi động lại môi trường",
+    "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
     "groups": {

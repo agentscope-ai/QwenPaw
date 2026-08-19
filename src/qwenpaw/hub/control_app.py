@@ -134,6 +134,12 @@ class AdminUserPatchBody(BaseModel):
     disabled: bool | None = None
 
 
+class PasswordChangeBody(BaseModel):
+    """Authenticated password replacement request."""
+
+    new_password: str = Field(min_length=8, max_length=1024)
+
+
 class RegistrationSettingsBody(BaseModel):
     """Public registration policy update."""
 
@@ -332,7 +338,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             detail=detail,
         )
 
-    async def ensure_personal_runtime(user: HubUser) -> RuntimeRecord:
+    async def personal_runtime(user: HubUser) -> RuntimeRecord:
         try:
             runtime_service.require_provisioner_available(
                 runtime_service.default_provisioner,
@@ -374,6 +380,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
                         status_code=409,
                         detail="Personal runtime ID is unavailable",
                     ) from exc
+        return record
+
+    async def ensure_personal_runtime(user: HubUser) -> RuntimeRecord:
+        record = await personal_runtime(user)
         if record.state is not RuntimeState.RUNNING:
             try:
                 record = await run_in_threadpool(
@@ -492,6 +502,54 @@ def create_hub_app(  # pylint: disable=too-many-statements
         user: HubUser = Depends(require_user),
     ) -> dict[str, object]:
         return user.to_dict()
+
+    @app.post("/api/hub/me/password")
+    async def change_password(
+        body: PasswordChangeBody,
+        user: HubUser = Depends(require_user),
+    ) -> dict[str, object]:
+        updated = await run_in_threadpool(
+            hub_auth.change_password,
+            user.user_id,
+            body.new_password,
+        )
+        token = await run_in_threadpool(hub_auth.create_token, updated)
+        await record_audit(
+            updated,
+            "auth.password_change",
+            "user",
+            updated.user_id,
+        )
+        return {
+            "token": token,
+            "username": updated.username,
+            "user": updated.to_dict(),
+        }
+
+    @app.post("/api/hub/me/runtime/restart")
+    async def restart_own_runtime(
+        user: HubUser = Depends(require_user),
+    ) -> dict[str, Any]:
+        record = await personal_runtime(user)
+        try:
+            restarted = await run_in_threadpool(
+                runtime_service.restart,
+                record.runtime_id,
+            )
+        except RuntimeProvisionerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Personal QwenPaw failed to restart: {exc}",
+            ) from exc
+        await record_audit(
+            user,
+            "runtime.restart",
+            "runtime",
+            restarted.runtime_id,
+        )
+        return await runtime_payload(restarted)
 
     @app.get("/api/hub/admin/users")
     async def list_users(

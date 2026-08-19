@@ -409,6 +409,34 @@ class HubAuthService:
             raise KeyError(user_id)
         return updated
 
+    def change_password(self, user_id: str, password: str) -> HubUser:
+        """Replace a user's password and invalidate existing sessions."""
+        current = self.get_user(user_id)
+        if current is None:
+            raise KeyError(user_id)
+        self._validate_credentials(current.username, password)
+        salt = secrets.token_bytes(16)
+        password_hash = self._hash_password(password, salt)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE hub_users SET password_hash = ?, password_salt = ?,
+                    token_version = token_version + 1,
+                    revision = revision + 1, updated_at = ?
+                WHERE user_id = ? AND deleted_at IS NULL
+                """,
+                (
+                    password_hash,
+                    salt.hex(),
+                    utc_now(),
+                    user_id,
+                ),
+            )
+        updated = self.get_user(user_id)
+        if updated is None:
+            raise KeyError(user_id)
+        return updated
+
     def _active_admin_count(self) -> int:
         with self._connect() as connection:
             row = connection.execute(

@@ -26,6 +26,12 @@ export interface HubRuntime {
   updated_at: string;
 }
 
+export interface HubPasswordChangeResponse {
+  token: string;
+  username: string;
+  user: HubUser;
+}
+
 export interface HubCredential {
   scope: string;
   name: string;
@@ -146,6 +152,15 @@ function listPath<T extends HubListParams>(path: string, params: T): string {
 export const hubApi = {
   getHealth: () => request<HubHealth>("/hub/healthz"),
   me: () => request<HubUser>("/hub/me"),
+  changePassword: (newPassword: string) =>
+    request<HubPasswordChangeResponse>("/hub/me/password", {
+      method: "POST",
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
+  restartOwnRuntime: () =>
+    request<HubRuntime>("/hub/me/runtime/restart", {
+      method: "POST",
+    }),
   listRuntimes: (params: HubRuntimeListParams = {}) =>
     request<HubPage<HubRuntime>>(listPath("/hub/runtimes", params)),
   createRuntime: (runtimeId: string, autoStart = false) =>

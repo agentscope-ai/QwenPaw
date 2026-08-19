@@ -404,6 +404,92 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes["items"][0]["metadata"]["hub_default"] is True
 
 
+def test_authenticated_user_changes_only_their_password(
+    tmp_path: Path,
+) -> None:
+    with _client(tmp_path) as client:
+        old_token = _register(client, "owner")
+
+        changed = client.post(
+            "/api/hub/me/password",
+            json={"new_password": "new-safe-password"},
+            headers=_headers(old_token),
+        )
+
+        assert changed.status_code == 200
+        assert changed.json()["username"] == "owner"
+        assert changed.json()["user"]["username"] == "owner"
+        new_token = changed.json()["token"]
+        assert (
+            client.get(
+                "/api/hub/me",
+                headers=_headers(old_token),
+            ).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                "/api/hub/me",
+                headers=_headers(new_token),
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "safe-password"},
+            ).status_code
+            == 401
+        )
+        assert (
+            client.post(
+                "/api/auth/login",
+                json={
+                    "username": "owner",
+                    "password": "new-safe-password",
+                },
+            ).status_code
+            == 200
+        )
+
+
+def test_authenticated_user_restarts_only_their_personal_runtime(
+    tmp_path: Path,
+) -> None:
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        admin_token = _register(client, "owner")
+        auth = client.app.state.auth_service
+        member = auth.create_user(
+            username="member",
+            password="safe-password",
+        )
+        _, member_token = auth.authenticate("member", "safe-password")
+        client.get("/api/probe", headers=_headers(admin_token))
+        client.get("/api/probe", headers=_headers(member_token))
+
+        restarted = client.post(
+            "/api/hub/me/runtime/restart",
+            headers=_headers(member_token),
+        )
+        audit = client.get(
+            "/api/hub/admin/audit?action=runtime.restart",
+            headers=_headers(admin_token),
+        )
+
+        assert restarted.status_code == 200
+        assert restarted.json()["owner_user_id"] == member.user_id
+        assert restarted.json()["runtime_id"].startswith(
+            f"personal-{member.user_id[:24]}",
+        )
+        assert audit.status_code == 200
+        assert audit.json()["total"] == 1
+        assert audit.json()["items"][0]["actor_user_id"] == member.user_id
+
+
 def test_hub_lists_use_server_side_pagination_and_filters(
     tmp_path: Path,
 ) -> None:

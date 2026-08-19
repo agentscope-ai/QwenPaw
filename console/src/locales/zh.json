@@ -3547,7 +3547,17 @@
     "wrongPassword": "当前密码不正确",
     "nothingToUpdate": "请输入新用户名或新密码",
     "passwordEmpty": "密码不能为空白",
-    "usernameEmpty": "用户名不能为空白"
+    "usernameEmpty": "用户名不能为空白",
+    "username": "用户名",
+    "passwordRequired": "请输入新密码",
+    "hubPasswordPlaceholder": "请输入至少八个字符",
+    "runtimeTitle": "个人运行环境",
+    "runtimeDescription": "工作空间不可用时可在此重启。正在运行的任务会被中断，已保存的数据不会删除。",
+    "runtimeRestartConfirmTitle": "确认重启运行环境？",
+    "runtimeRestartConfirmDescription": "正在运行的任务会被中断，运行环境就绪后页面将自动刷新。",
+    "runtimeRestart": "重启运行环境",
+    "runtimeRestartSuccess": "运行环境已重启",
+    "runtimeRestartFailed": "运行环境重启失败"
   },
   "voiceTranscription": {
     "title": "语音转写",

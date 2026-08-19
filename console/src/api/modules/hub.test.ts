@@ -73,4 +73,25 @@ describe("hubApi pagination", () => {
       expect.anything(),
     );
   });
+
+  it("changes the authenticated user's password without an old password", async () => {
+    await hubApi.changePassword("new-safe-password");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/hub/me/password",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ new_password: "new-safe-password" }),
+      }),
+    );
+  });
+
+  it("restarts the authenticated user's runtime without a runtime id", async () => {
+    await hubApi.restartOwnRuntime();
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/hub/me/runtime/restart",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
 });

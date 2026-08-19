@@ -108,3 +108,22 @@ def test_usernames_are_loaded_in_one_batch(tmp_path: Path) -> None:
         owner.user_id: "owner",
         member.user_id: "member",
     }
+
+
+def test_change_password_rotates_token_and_preserves_username(
+    tmp_path: Path,
+) -> None:
+    auth = _auth_service(tmp_path)
+    user, old_token = auth.register("owner", "safe-password")
+
+    updated = auth.change_password(user.user_id, "new-safe-password")
+    new_token = auth.create_token(updated)
+
+    assert updated.username == "owner"
+    assert auth.verify_token(old_token) is None
+    assert auth.verify_token(new_token).user_id == user.user_id
+    with pytest.raises(PermissionError, match="Invalid username or password"):
+        auth.authenticate("owner", "safe-password")
+    assert auth.authenticate("owner", "new-safe-password")[0].user_id == (
+        user.user_id
+    )

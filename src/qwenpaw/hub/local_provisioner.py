@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from typing import IO, Any
@@ -54,6 +55,10 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             self.security_level = "isolated-local-shared-network"
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._log_handles: dict[str, IO[str]] = {}
+        self._launcher = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="qwenpaw-runtime-launcher",
+        )
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         """Run the native isolation probes in a disposable runtime root."""
@@ -159,11 +164,9 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         else:
             popen_options["start_new_session"] = True
 
-        try:
-            # The process remains owned by this provisioner until stop or
-            # close.
+        def launch_process() -> subprocess.Popen[str]:
             # pylint: disable-next=consider-using-with
-            process = subprocess.Popen(
+            return subprocess.Popen(
                 isolated.command,
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
@@ -175,6 +178,11 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 cwd=record.working_dir,
                 **popen_options,
             )
+
+        try:
+            # The process remains owned by this provisioner until stop or
+            # close.
+            process = self._launcher.submit(launch_process).result()
         except Exception:
             log_handle.close()
             raise
@@ -263,6 +271,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             else:
                 self._processes.pop(runtime_id, None)
                 self._close_log(runtime_id)
+        self._launcher.shutdown(wait=True)
 
     @staticmethod
     def runtime_environment(

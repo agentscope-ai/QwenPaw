@@ -2814,7 +2814,17 @@
     "wrongPassword": "現在のパスワードが正しくありません",
     "nothingToUpdate": "新しいユーザー名またはパスワードを入力してください",
     "passwordEmpty": "パスワードを空白にすることはできません",
-    "usernameEmpty": "ユーザー名を空白にすることはできません"
+    "usernameEmpty": "ユーザー名を空白にすることはできません",
+    "username": "ユーザー名",
+    "passwordRequired": "新しいパスワードを入力してください",
+    "hubPasswordPlaceholder": "8文字以上入力してください",
+    "runtimeTitle": "個人ランタイム",
+    "runtimeDescription": "ワークスペースが利用できない場合に再起動します。実行中のタスクは中断されますが、保存済みデータは保持されます。",
+    "runtimeRestartConfirmTitle": "ランタイムを再起動しますか？",
+    "runtimeRestartConfirmDescription": "再起動中は実行中のタスクが中断されます。",
+    "runtimeRestart": "ランタイムを再起動",
+    "runtimeRestartSuccess": "ランタイムを再起動しました",
+    "runtimeRestartFailed": "ランタイムの再起動に失敗しました"
   },
   "voiceTranscription": {
     "title": "音声文字起こし",

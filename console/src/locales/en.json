@@ -3690,7 +3690,17 @@
     "wrongPassword": "Current password is incorrect",
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
-    "usernameEmpty": "Username cannot be blank"
+    "usernameEmpty": "Username cannot be blank",
+    "username": "Username",
+    "passwordRequired": "Please enter a new password",
+    "hubPasswordPlaceholder": "Enter at least eight characters",
+    "runtimeTitle": "Personal runtime",
+    "runtimeDescription": "Restart your runtime if the workspace becomes unavailable. Running tasks will be interrupted, but stored data is retained.",
+    "runtimeRestartConfirmTitle": "Restart your runtime?",
+    "runtimeRestartConfirmDescription": "Running tasks will be interrupted while the runtime starts again.",
+    "runtimeRestart": "Restart runtime",
+    "runtimeRestartSuccess": "Runtime restarted",
+    "runtimeRestartFailed": "Failed to restart runtime"
   },
   "approval": {
     "title": "Security Approval Required",

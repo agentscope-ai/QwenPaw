@@ -3088,7 +3088,17 @@
     "wrongPassword": "Atual password is incorrect",
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
-    "usernameEmpty": "Username cannot be blank"
+    "usernameEmpty": "Username cannot be blank",
+    "username": "Nome de usuário",
+    "passwordRequired": "Digite uma nova senha",
+    "hubPasswordPlaceholder": "Digite pelo menos oito caracteres",
+    "runtimeTitle": "Ambiente pessoal",
+    "runtimeDescription": "Reinicie o ambiente se o espaço de trabalho ficar indisponível. As tarefas em execução serão interrompidas, mas os dados salvos serão mantidos.",
+    "runtimeRestartConfirmTitle": "Reiniciar o ambiente?",
+    "runtimeRestartConfirmDescription": "As tarefas em execução serão interrompidas durante a reinicialização.",
+    "runtimeRestart": "Reiniciar ambiente",
+    "runtimeRestartSuccess": "Ambiente reiniciado",
+    "runtimeRestartFailed": "Falha ao reiniciar o ambiente"
   },
   "approval": {
     "title": "Seguranca Approval Obrigatorio",

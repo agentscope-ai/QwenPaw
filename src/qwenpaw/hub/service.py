@@ -212,6 +212,23 @@ class RuntimeService:
             stopped = self._provisioner(requested).stop(requested)
             return self.registry.save(stopped)
 
+    def restart(self, runtime_id: str) -> RuntimeRecord:
+        """Restart one runtime as an atomic lifecycle operation."""
+        with self._runtime_lock(runtime_id):
+            record = self.get(runtime_id)
+            if record.state in {
+                RuntimeState.STARTING,
+                RuntimeState.RUNNING,
+            }:
+                requested = replace(
+                    record,
+                    desired_state=RuntimeState.STOPPED,
+                )
+                stopped = self._provisioner(requested).stop(requested)
+                self.registry.save(stopped)
+            with self._admission_lock:
+                return self._start_locked(runtime_id)
+
     def status(self, runtime_id: str) -> RuntimeRecord:
         """Refresh one runtime's observed state."""
         with self._runtime_lock(runtime_id):
