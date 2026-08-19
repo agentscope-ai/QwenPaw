@@ -96,7 +96,7 @@ the app is not running).
 | `qwenpaw daemon version`       | Version and paths                                                                         |
 | `qwenpaw daemon logs [-n N]`   | Last N lines of log (default 100; from `qwenpaw.log` in working dir)                      |
 
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+**Multi-Agent Support:** These commands accept `--agent-id` to target a specific agent (defaults to `default`); see the "Targeting a specific agent (`--agent-id`)" section.
 
 ```bash
 qwenpaw daemon status                     # Default agent status
@@ -185,6 +185,26 @@ Restore by copying files from the `files/` subtree back into your working
 directory using the same relative paths.
 
 > Avoid `--no-backup` unless you are sure you do not need rollback.
+
+---
+
+## Targeting a specific agent (`--agent-id`)
+
+QwenPaw can run multiple agents side by side. Per-agent CLI commands operate
+on the agent given by `--agent-id`; if you omit the flag, the built-in
+`default` agent is used.
+
+- **Available on:** the `agents`, `channels`, `chats`, `cron`, `daemon`,
+  `skills`, and `task` command groups (per-subcommand coverage varies —
+  `qwenpaw <group> <command> --help` shows whether a command accepts it).
+- **Default:** `default` (the built-in agent).
+- **Discover ids:** `qwenpaw agents list` prints every configured agent id.
+
+```
+qwenpaw cron list --agent-id my_bot   # cron jobs of agent "my_bot"
+qwenpaw chats list --agent-id my_bot  # chats of agent "my_bot"
+qwenpaw cron list                     # same, for the "default" agent
+```
 
 ---
 
@@ -313,7 +333,7 @@ subcommand); use `remove` to uninstall custom channels (no `uninstall`).
 | `qwenpaw channels send`   | Send a one-way message to a user/session via a channel (requires all 5 parameters) |
 | `qwenpaw channels config` | Interactively enable/disable channels and fill in credentials                      |
 
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+**Multi-Agent Support:** These commands accept `--agent-id` to target a specific agent (defaults to `default`); see the "Targeting a specific agent (`--agent-id`)" section.
 
 ```bash
 qwenpaw channels list                    # See default agent's channels
@@ -518,7 +538,7 @@ ask QwenPaw and send the reply". **Requires `qwenpaw app` to be running.**
 | `qwenpaw cron resume <job_id>` | Resume a paused job                           |
 | `qwenpaw cron run <job_id>`    | Run once immediately                          |
 
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+**Multi-Agent Support:** These commands accept `--agent-id` to target a specific agent (defaults to `default`); see the "Targeting a specific agent (`--agent-id`)" section.
 
 ### Creating jobs
 
@@ -658,7 +678,7 @@ Manage chat sessions via the API. **Requires `qwenpaw app` to be running.**
 | `qwenpaw chats update <id> --name "..."` | Rename a session                                              |
 | `qwenpaw chats delete <id>`              | Delete a session                                              |
 
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+**Multi-Agent Support:** These commands accept `--agent-id` to target a specific agent (defaults to `default`); see the "Targeting a specific agent (`--agent-id`)" section.
 
 ```bash
 qwenpaw chats list                        # Default agent's chats
@@ -687,7 +707,7 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 | `qwenpaw skills config`    | Interactively enable/disable skills (checkbox UI)         |
 | `qwenpaw skills info`      | Show local details for one workspace skill                |
 
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+**Multi-Agent Support:** These commands accept `--agent-id` to target a specific agent (defaults to `default`); see the "Targeting a specific agent (`--agent-id`)" section.
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill  # Import into the local skill pool

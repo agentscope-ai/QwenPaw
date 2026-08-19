@@ -87,7 +87,7 @@ Docker 镜像或 pip 安装包已内置控制台，无需单独构建。
 | `qwenpaw daemon version`       | 版本与路径                                                                     |
 | `qwenpaw daemon logs [-n N]`   | 最近 N 行日志（默认 100，来自工作目录 `qwenpaw.log`）                          |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw daemon status                     # 默认智能体状态
@@ -173,6 +173,24 @@ qwenpaw doctor fix -y --only seed-missing-agent-json,reset-invalid-agent-json
 恢复时，将 `files/` 子树中的文件按相同相对路径复制回工作目录即可。
 
 > 除非你非常确定不需要回滚，否则不建议使用 `--no-backup`。
+
+---
+
+## 指定智能体（`--agent-id`）
+
+QwenPaw 支持同时运行多个智能体。按智能体划分的 CLI 命令通过 `--agent-id`
+选择目标智能体；省略时使用内置的 `default` 智能体。
+
+- **支持的命令组：** `agents`、`channels`、`chats`、`cron`、`daemon`、`skills`、`task`
+  （各子命令的支持情况略有差异，以 `qwenpaw <组> <命令> --help` 为准）。
+- **默认值：** `default`（内置智能体）。
+- **查看可用 id：** `qwenpaw agents list` 列出所有已配置的智能体 id。
+
+```
+qwenpaw cron list --agent-id my_bot   # 查看智能体 "my_bot" 的定时任务
+qwenpaw chats list --agent-id my_bot  # 查看智能体 "my_bot" 的会话
+qwenpaw cron list                     # 同上，但针对 "default" 智能体
+```
 
 ---
 
@@ -298,7 +316,7 @@ qwenpaw env delete TAVILY_API_KEY
 | `qwenpaw channels send`   | 向用户/会话单向发送消息（需要全部 5 个参数） |
 | `qwenpaw channels config` | 交互式启用/禁用频道并填写凭据                |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw channels list                    # 看默认智能体的频道状态
@@ -503,7 +521,7 @@ qwenpaw agents chat \
 | `qwenpaw cron resume <job_id>` | 恢复暂停的任务                 |
 | `qwenpaw cron run <job_id>`    | 立刻执行一次                   |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ### 创建任务
 
@@ -641,7 +659,7 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 | `qwenpaw chats update <id> --name "..."` | 重命名会话                                         |
 | `qwenpaw chats delete <id>`              | 删除会话                                           |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw chats list                        # 默认智能体的会话
@@ -670,7 +688,7 @@ qwenpaw chats delete <chat_id>
 | `qwenpaw skills config`    | 交互式启用/禁用技能（复选框界面）  |
 | `qwenpaw skills info`      | 查看某个 workspace 技能的本地详情  |
 
-**多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
+**多智能体支持：** 这些命令支持 `--agent-id` 以指定目标智能体（默认为 `default`），详见「指定智能体（`--agent-id`）」一节。
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill  # 导入到本地技能池
