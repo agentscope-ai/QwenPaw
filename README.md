@@ -94,6 +94,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 - [API Key](#api-key)
 - [Local Models](#local-models)
 - [Security Features](#security-features)
+- [Self-Hosted Deployment](#self-hosted-deployment)
 - [Documentation](#documentation)
 - [FAQ](#faq)
 - [Roadmap](#roadmap)
@@ -394,6 +395,16 @@ QwenPaw includes four core security layers:
 - **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.
 
 See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
+
+---
+
+## Self-Hosted Deployment
+
+Running QwenPaw on your own server (VPS, homelab, or production)? The Quick Start options above are built for it:
+
+- [Option 3: Docker](#option-3-docker) — containerized deployment with images on Docker Hub
+- [Option 4: Deploy on Alibaba Cloud ECS](#option-4-deploy-on-alibaba-cloud-ecs) — one-click cloud setup
+- Online guide with all deployment options and verification steps: [Quick Start](https://qwenpaw.agentscope.io/docs/quickstart)
 
 ---
 
