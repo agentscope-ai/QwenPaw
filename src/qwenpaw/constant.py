@@ -445,3 +445,10 @@ TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
 MEDIA_UNSUPPORTED_PLACEHOLDER = (
     "[Media content removed - model does not support this media type]"
 )
+
+# Placeholder persisted when a model provider cannot fetch a remote media URL.
+# Keep the failed URL out of model-visible text so the agent does not retry the
+# same ``view_image`` / ``view_video`` call on a later reasoning step.
+REMOTE_MEDIA_UNAVAILABLE_PLACEHOLDER = (
+    "[Remote media unavailable - model provider could not download it]"
+)

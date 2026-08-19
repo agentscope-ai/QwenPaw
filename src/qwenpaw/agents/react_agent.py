@@ -38,6 +38,7 @@ from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     QWENPAW_MESSAGE_TAG_KEY,
+    REMOTE_MEDIA_UNAVAILABLE_PLACEHOLDER,
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
@@ -136,6 +137,22 @@ _REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS = (
     "per image",
     "file size",
 )
+
+_REMOTE_MEDIA_DOWNLOAD_ERROR_MARKERS = (
+    "timeout while downloading url",
+    "timed out while downloading url",
+)
+_REMOTE_MEDIA_LOADED_TEXT_PREFIXES = (
+    "image loaded from url:",
+    "video loaded from url:",
+)
+
+
+def _block_value(value: Any, key: str, default: Any = None) -> Any:
+    """Read one field from either a serialized block or a block object."""
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
 
 
 def _effective_artifact_retention_days(light_context_config: Any) -> int:
@@ -831,11 +848,19 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 self._last_wire_request_had_audio()
                 and self._is_audio_fallback_error(e)
             )
+            remote_media_download_retry = (
+                self._last_wire_request_had_media()
+                and self._is_remote_media_download_error(e)
+            )
             media_capability_retry = (
                 self._last_wire_request_had_media()
                 and self._is_explicit_media_capability_error(e)
             )
-            if not (audio_fallback_retry or media_capability_retry):
+            if not (
+                audio_fallback_retry
+                or remote_media_download_retry
+                or media_capability_retry
+            ):
                 if self._uses_request_time_media_normalization():
                     if should_strip_media:
                         self._set_formatter_media_strip(False)
@@ -848,7 +873,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 media_capability_retry
                 and self._is_global_media_capability_error(e)
             )
-            if audio_fallback_retry:
+            if remote_media_download_retry:
+                degraded = self._degrade_failed_remote_media(e)
+                if degraded <= 0:
+                    if self._uses_request_time_media_normalization():
+                        if should_strip_media:
+                            self._set_formatter_media_strip(False)
+                        if should_strip_audio:
+                            self._set_formatter_audio_strip(False)
+                    raise
+                logger.warning(
+                    "_reasoning failed because the provider could not "
+                    "download remote media (%s); degraded %d matching "
+                    "media block(s) and retrying once.",
+                    e,
+                    degraded,
+                )
+            elif audio_fallback_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected an "
                     "audio payload (%s); stripping audio and retrying.",
@@ -1047,6 +1088,127 @@ class QwenPawAgent(CodingModeMixin, Agent):
             pattern.search(error_str) is not None
             for pattern in _GLOBAL_MEDIA_CAPABILITY_PATTERNS
         )
+
+    @staticmethod
+    def _is_remote_media_download_error(exc: Exception) -> bool:
+        """Return whether a provider failed while fetching a remote URL.
+
+        Keep this deliberately narrower than the generic ``MODEL_TIMEOUT``
+        conversion. A normal inference timeout must not mutate conversation
+        history or remove otherwise valid media.
+        """
+        error_str = " ".join(str(exc).lower().split())
+        return any(
+            marker in error_str
+            for marker in _REMOTE_MEDIA_DOWNLOAD_ERROR_MARKERS
+        )
+
+    @classmethod
+    def _remote_media_url(cls, block: Any) -> str | None:
+        """Return an HTTP(S) URL carried by a media ``DataBlock``."""
+        if _block_value(block, "type") != "data":
+            return None
+
+        source = _block_value(block, "source")
+        source_type = _block_value(source, "type")
+        media_type = _block_value(source, "media_type", "") or ""
+        raw_url = _block_value(source, "url")
+        if (
+            source_type != "url"
+            or not str(media_type).startswith(cls._MEDIA_MIME_PREFIXES)
+            or raw_url is None
+        ):
+            return None
+        url = str(raw_url)
+        return url if url.lower().startswith(("http://", "https://")) else None
+
+    @staticmethod
+    def _is_remote_media_loaded_text(
+        block: Any,
+        failed_urls: set[str],
+    ) -> bool:
+        """Identify the text companion emitted beside a remote media block."""
+        if _block_value(block, "type") != "text":
+            return False
+        text = _block_value(block, "text", "") or ""
+        normalized = text.lstrip().lower()
+        return normalized.startswith(
+            _REMOTE_MEDIA_LOADED_TEXT_PREFIXES,
+        ) and any(url in text for url in failed_urls)
+
+    @classmethod
+    def _degrade_remote_media_blocks(
+        cls,
+        blocks: list[Any],
+        error_text: str,
+    ) -> tuple[list[Any], int]:
+        """Replace matching remote media blocks with a durable text stub."""
+        direct_failed_urls = {
+            url
+            for block in blocks
+            if (url := cls._remote_media_url(block)) and url in error_text
+        }
+        degraded = 0
+        rewritten: list[Any] = []
+
+        for block in blocks:
+            remote_url = cls._remote_media_url(block)
+            if remote_url in direct_failed_urls:
+                rewritten.append(
+                    TextBlock(
+                        type="text",
+                        text=REMOTE_MEDIA_UNAVAILABLE_PLACEHOLDER,
+                    ),
+                )
+                degraded += 1
+                continue
+
+            if cls._is_remote_media_loaded_text(block, direct_failed_urls):
+                continue
+
+            if _block_value(block, "type") == "tool_result":
+                output = _block_value(block, "output")
+                if isinstance(output, list):
+                    (
+                        new_output,
+                        nested_degraded,
+                    ) = cls._degrade_remote_media_blocks(
+                        output,
+                        error_text,
+                    )
+                    if nested_degraded:
+                        if isinstance(block, dict):
+                            block["output"] = new_output
+                        else:
+                            block.output = new_output
+                        degraded += nested_degraded
+
+            rewritten.append(block)
+
+        return rewritten, degraded
+
+    def _degrade_failed_remote_media(self, exc: Exception) -> int:
+        """Degrade only remote media URLs explicitly named by *exc*.
+
+        Mutating ``state.context`` rather than the formatted wire request is
+        intentional: normal session persistence then repairs future turns too.
+        """
+        if not self._is_remote_media_download_error(exc):
+            return 0
+        error_text = str(exc)
+        degraded = 0
+        for msg in self.state.context:
+            content = getattr(msg, "content", None)
+            if not isinstance(content, list):
+                continue
+            rewritten, count = self._degrade_remote_media_blocks(
+                content,
+                error_text,
+            )
+            if count:
+                msg.content = rewritten
+                degraded += count
+        return degraded
 
     def _is_media_block(self, block: Any) -> bool:
         """Return True if *block* carries image/audio/video data."""
