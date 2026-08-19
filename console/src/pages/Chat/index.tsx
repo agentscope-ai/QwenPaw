@@ -1234,9 +1234,10 @@ export default function ChatPage() {
       const customEvent = event as CustomEvent<{
         target: FileTarget;
         trigger?: HTMLElement | null;
+        workspace?: boolean;
       }>;
       dispatchFilesDrawer({
-        type: "OPEN_PREVIEW",
+        type: customEvent.detail.workspace ? "OPEN_WORKSPACE" : "OPEN_PREVIEW",
         target: customEvent.detail.target,
         trigger: customEvent.detail.trigger ?? null,
       });
