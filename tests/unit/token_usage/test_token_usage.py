@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
-import time
+from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
+from agentscope.model import ChatResponse, ChatUsage
 
 from qwenpaw.token_usage.buffer import (
     TokenUsageBuffer,
     _UsageEvent,
     _apply_event,
 )
-from qwenpaw.app.agent_context import _current_agent_id
 from qwenpaw.token_usage.manager import (
     TokenUsageByDateModel,
     TokenUsageByModel,
@@ -23,20 +22,37 @@ from qwenpaw.token_usage.manager import (
     TokenUsageRecord,
     TokenUsageStats,
     TokenUsageSummary,
-    _TURN_USAGE_META_KEY,
-    _count_tool_calls_in_message,
-    _usage_totals,
-    collect_daily_tool_calls_sync,
-    migrate_historical_agent_ids_sync,
 )
-from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+from qwenpaw.token_usage.model_wrapper import (
+    TokenRecordingModelWrapper,
+    _count_tool_calls,
+)
 from qwenpaw.token_usage.storage import load_data, save_data_sync
-from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
+
+_EMPTY_AGENT_KEY = "\x1f".join(("", "openai", "gpt-4"))
+_NAMED_AGENT_KEY = "\x1f".join(("bot-a", "openai", "gpt-4"))
+_USAGE = ChatUsage(input_tokens=1, output_tokens=1, time=0)
 
 
-def test_meta_key_sync():
-    """manager and turn_usage must share the same metadata key string."""
-    assert _TURN_USAGE_META_KEY == TURN_USAGE_META_KEY
+def _ev(**kwargs) -> _UsageEvent:
+    base = {
+        "provider_id": "openai",
+        "model_name": "gpt-4",
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "date_str": "2026-04-24",
+        "now_iso": "2026-04-24T10:00:00+00:00",
+    }
+    base.update(kwargs)
+    return _UsageEvent(**base)
+
+
+def _tool(tid: str) -> dict:
+    return {"type": "tool_call", "id": tid}
+
+
+def _resp(content, *, is_last=False, usage=None):
+    return ChatResponse(id="r1", content=content, is_last=is_last, usage=usage)
 
 
 # =============================================================================
@@ -66,20 +82,8 @@ class TestApplyEvent:
     def test_apply_event_creates_new_entry(self):
         """Should create new entry for first event."""
         cache = {}
-        event = _UsageEvent(
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=50,
-            date_str="2026-04-24",
-            now_iso="2026-04-24T10:00:00+00:00",
-        )
-        _apply_event(cache, event)
-
-        assert "2026-04-24" in cache
-        assert "|openai:gpt-4" in cache["2026-04-24"]
-        entry = cache["2026-04-24"]["|openai:gpt-4"]
-        assert entry["agent_id"] == ""
+        _apply_event(cache, _ev())
+        entry = cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 100
         assert entry["completion_tokens"] == 50
         assert entry["call_count"] == 1
@@ -88,58 +92,70 @@ class TestApplyEvent:
         """Should accumulate tokens for same provider:model on same date."""
         cache = {}
         for _ in range(3):
-            _apply_event(
-                cache,
-                _UsageEvent(
-                    provider_id="openai",
-                    model_name="gpt-4",
-                    prompt_tokens=100,
-                    completion_tokens=50,
-                    date_str="2026-04-24",
-                    now_iso="2026-04-24T10:00:00+00:00",
-                ),
-            )
-
-        entry = cache["2026-04-24"]["|openai:gpt-4"]
+            _apply_event(cache, _ev())
+        entry = cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
 
-    def test_apply_event_separates_by_agent(self):
-        """Same model under different agents should not merge."""
-        cache = {}
+    def test_apply_event_keys_and_null_tool_calls(self):
+        """Named/empty ids stay off the legacy row; null tools coalesce."""
+        cache = {
+            "2026-04-24": {
+                "openai:gpt-4": {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "call_count": 1,
+                },
+                _EMPTY_AGENT_KEY: {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "call_count": 1,
+                    "agent_id": "",
+                    "tool_calls": None,
+                },
+            },
+        }
+        _apply_event(cache, _ev(agent_id="bot-a", tool_calls=2))
         _apply_event(
             cache,
-            _UsageEvent(
-                provider_id="openai",
-                model_name="gpt-4",
-                prompt_tokens=100,
-                completion_tokens=50,
-                date_str="2026-04-24",
-                now_iso="2026-04-24T10:00:00+00:00",
-                agent_id="agent-a",
+            _ev(
+                agent_id="",
+                prompt_tokens=1,
+                completion_tokens=1,
+                tool_calls=2,
             ),
         )
-        _apply_event(
-            cache,
-            _UsageEvent(
-                provider_id="openai",
-                model_name="gpt-4",
-                prompt_tokens=200,
-                completion_tokens=80,
-                date_str="2026-04-24",
-                now_iso="2026-04-24T10:00:01+00:00",
-                agent_id="agent-b",
-            ),
-        )
+        day = cache["2026-04-24"]
+        assert day["openai:gpt-4"]["call_count"] == 1
+        assert day[_NAMED_AGENT_KEY]["agent_id"] == "bot-a"
+        assert day[_EMPTY_AGENT_KEY]["agent_id"] == ""
+        assert day[_EMPTY_AGENT_KEY]["tool_calls"] == 2
+        assert day[_EMPTY_AGENT_KEY]["call_count"] == 2
 
-        assert "agent-a|openai:gpt-4" in cache["2026-04-24"]
-        assert "agent-b|openai:gpt-4" in cache["2026-04-24"]
+
+class TestCountToolCalls:
+    """Test tool-call counting used by the recording wrapper."""
+
+    def test_count_tool_calls(self):
         assert (
-            cache["2026-04-24"]["agent-a|openai:gpt-4"]["prompt_tokens"] == 100
+            _count_tool_calls(
+                {"content": [_tool("a"), _tool("b")]},
+            )
+            == 2
         )
+        assert _count_tool_calls({"content": (_tool("c"),)}) == 1
         assert (
-            cache["2026-04-24"]["agent-b|openai:gpt-4"]["prompt_tokens"] == 200
+            _count_tool_calls(
+                {"content": [{"type": "tool_call", "call_id": "d"}]},
+            )
+            == 1
         )
+        assert _count_tool_calls({"usage": {}}) is None
+        assert _count_tool_calls({"content": []}) is None
 
 
 # =============================================================================
@@ -268,7 +284,7 @@ class TestTokenUsageBuffer:
         await asyncio.sleep(0.2)
         await buffer.stop()
 
-        entry = buffer._disk_cache["2026-04-24"]["|openai:gpt-4"]
+        entry = buffer._disk_cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
 
@@ -351,7 +367,7 @@ class TestTokenUsageBuffer:
 
         written = json.loads(path.read_text(encoding="utf-8"))
         assert written["2026-04-23"]["openai:gpt-4"]["prompt_tokens"] == 7
-        assert written["2026-04-24"]["|openai:gpt-4"]["prompt_tokens"] == 100
+        assert written["2026-04-24"][_EMPTY_AGENT_KEY]["prompt_tokens"] == 100
 
     @pytest.mark.asyncio
     async def test_flush_retries_after_transient_write_failure(
@@ -412,6 +428,7 @@ class TestTokenUsageStats:
         assert stats.prompt_tokens == 0
         assert stats.completion_tokens == 0
         assert stats.call_count == 0
+        assert stats.tool_calls == 0
 
     def test_custom_values(self):
         """Should accept custom values."""
@@ -439,7 +456,6 @@ class TestTokenUsageModels:
             date="2026-04-24",
             provider_id="openai",
             model="gpt-4",
-            agent_id="agent-a",
             prompt_tokens=100,
             completion_tokens=50,
             call_count=3,
@@ -447,7 +463,8 @@ class TestTokenUsageModels:
         assert record.date == "2026-04-24"
         assert record.provider_id == "openai"
         assert record.model == "gpt-4"
-        assert record.agent_id == "agent-a"
+        assert record.agent_id is None
+        assert record.tool_calls == 0
 
     def test_empty_summary(self):
         """Should create empty summary with defaults."""
@@ -641,14 +658,12 @@ class TestTokenUsageManagerCore:
             model_name="gpt-4",
             prompt_tokens=100,
             completion_tokens=50,
-            agent_id="agent-a",
         )
         await manager.record(
             provider_id="dashscope",
             model_name="qwen3-max",
             prompt_tokens=200,
             completion_tokens=100,
-            agent_id="agent-b",
         )
 
         await asyncio.sleep(0.2)
@@ -662,35 +677,41 @@ class TestTokenUsageManagerCore:
         models = {r.model for r in details}
         assert "gpt-4" in models
         assert "qwen3-max" in models
-        by_agent = {r.agent_id: r for r in details}
-        assert by_agent["agent-a"].prompt_tokens == 100
-        assert by_agent["agent-b"].prompt_tokens == 200
+        assert all(r.agent_id == "" for r in details)
 
         await manager.stop()
 
     @pytest.mark.asyncio
-    async def test_query_backward_compat_old_keys(self, tmp_path, monkeypatch):
-        """Old disk keys without agent_id prefix should still query."""
-        from datetime import date
-
+    async def test_get_details_null_tool_calls_defaults_zero(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Legacy / null tool_calls must not fail Pydantic validation."""
         monkeypatch.setattr(
             "qwenpaw.token_usage.manager.WORKING_DIR",
             tmp_path,
         )
         monkeypatch.setattr(
             "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
-            "test_token_usage.json",
+            "t.json",
         )
-        path = tmp_path / "test_token_usage.json"
-        path.write_text(
+        (tmp_path / "t.json").write_text(
             json.dumps(
                 {
                     "2026-04-24": {
-                        "openai:gpt-4": {
+                        "k": {
+                            "provider_id": "o",
+                            "model_name": "m",
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "call_count": 1,
+                            "tool_calls": None,
+                        },
+                        _EMPTY_AGENT_KEY: {
                             "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 111,
-                            "completion_tokens": 22,
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
                             "call_count": 1,
                         },
                     },
@@ -698,17 +719,17 @@ class TestTokenUsageManagerCore:
             ),
             encoding="utf-8",
         )
-
         manager = TokenUsageManager()
         manager.start(flush_interval=10)
-        details = await manager.get_details(
-            start_date=date(2026, 4, 1),
-            end_date=date(2026, 4, 30),
+        rows = await manager.get_details(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 24),
         )
-        assert len(details) == 1
-        assert details[0].model == "gpt-4"
-        assert details[0].agent_id == ""
-        assert details[0].prompt_tokens == 111
+        assert rows[0].tool_calls == 0
+        assert rows[0].agent_id is None
+        missing = next(r for r in rows if r.provider_id == "openai")
+        assert missing.model == "gpt-4"
+        assert "\x1f" not in missing.model
         await manager.stop()
 
 
@@ -721,6 +742,36 @@ class TestTokenRecordingModelWrapper:
     """Test TokenRecordingModelWrapper."""
 
     # pylint: disable=protected-access
+
+    def _stream_harness(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+        captured: list = []
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper.get_token_usage_manager",
+            lambda: MagicMock(enqueue=captured.append),
+        )
+        mock_model = MagicMock()
+        mock_model.model = "gpt-4"
+        wrapper = TokenRecordingModelWrapper(
+            provider_id="openai",
+            model=mock_model,
+        )
+        return wrapper, captured
+
+    async def _drain_stream(self, wrapper, chunks):
+        async def gen():
+            for chunk in chunks:
+                yield chunk
+
+        async for _ in wrapper._wrap_stream(gen()):
+            pass
 
     def test_init_wraps_model(self, tmp_path, monkeypatch):
         """Should wrap a ChatModelBase instance."""
@@ -758,6 +809,7 @@ class TestTokenRecordingModelWrapper:
             "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
             "test_token_usage.json",
         )
+
         mock_model = MagicMock()
         mock_model.model = "gpt-4"
 
@@ -770,18 +822,74 @@ class TestTokenRecordingModelWrapper:
         mock_usage.input_tokens = 100
         mock_usage.output_tokens = 50
 
-        token = _current_agent_id.set("interview-agent")
-        try:
-            wrapper._record_usage(mock_usage)
-        finally:
-            _current_agent_id.reset(token)
+        wrapper._record_usage(mock_usage)
 
-        # pylint: disable=protected-access
-        pending = list(
-            TokenUsageManager.get_instance()._buffer._queue._queue,
+    def test_record_usage_uses_contextvar_agent_id(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Should stamp ContextVar agent id onto the event."""
+        fake_var = MagicMock()
+        fake_var.get.return_value = "bot-a"
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context._current_agent_id",
+            fake_var,
         )
-        assert len(pending) == 1
-        assert pending[0].agent_id == "interview-agent"
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 100
+        usage.output_tokens = 50
+        wrapper._record_usage(usage)
+        assert captured[0].agent_id == "bot-a"
+        fake_var.get.return_value = None
+        wrapper._record_usage(usage)
+        assert captured[1].agent_id == ""
+
+    @pytest.mark.asyncio
+    async def test_wrap_stream_tool_call_counts(self, tmp_path, monkeypatch):
+        """Text is_last unions; snapshot last; empty last keeps union."""
+        cases = (
+            (
+                [
+                    _resp([_tool("a")]),
+                    _resp([_tool("b")]),
+                    _resp(
+                        [{"type": "text", "text": "x"}],
+                        is_last=True,
+                        usage=_USAGE,
+                    ),
+                ],
+                2,
+            ),
+            (
+                [_resp([_tool("a"), _tool("b")], is_last=True, usage=_USAGE)],
+                2,
+            ),
+            (
+                [
+                    _resp([_tool("a"), _tool("b")]),
+                    _resp([], is_last=True, usage=_USAGE),
+                ],
+                2,
+            ),
+            (
+                [
+                    _resp([_tool("a")]),
+                    _resp([_tool("b")]),
+                    _resp(
+                        [_tool("a"), _tool("b")],
+                        is_last=True,
+                        usage=_USAGE,
+                    ),
+                ],
+                2,
+            ),
+        )
+        for chunks, expected in cases:
+            wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+            await self._drain_stream(wrapper, chunks)
+            assert captured[0].tool_calls == expected
 
     def test_record_usage_includes_context_and_threshold(
         self,
@@ -815,11 +923,7 @@ class TestTokenRecordingModelWrapper:
         mock_usage = MagicMock()
         mock_usage.input_tokens = 123_000
         mock_usage.output_tokens = 50
-        agent_token = _current_agent_id.set("default")
-        try:
-            wrapper._record_usage(mock_usage)
-        finally:
-            _current_agent_id.reset(agent_token)
+        wrapper._record_usage(mock_usage)
 
         stored = TokenRecordingModelWrapper.pop_usage_for_session("sess-1")
         assert stored is not None
@@ -856,911 +960,3 @@ class TestTokenRecordingModelWrapper:
             TokenRecordingModelWrapper.pop_usage_for_session("test-session")
             is None
         )
-
-
-# =============================================================================
-# Test historical agent attribution migration
-# =============================================================================
-
-
-def _write_session_with_usage(
-    path,
-    *,
-    created_at: str,
-    provider_id: str,
-    model_name: str,
-    prompt_tokens: int,
-    completion_tokens: int,
-    estimated: bool = False,
-):
-    usage = {
-        "provider_id": provider_id,
-        "model_name": model_name,
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": prompt_tokens + completion_tokens,
-    }
-    if estimated:
-        usage["estimated"] = True
-    payload = {
-        "agent": {
-            "state": {
-                "context": [
-                    {
-                        "role": "assistant",
-                        "created_at": created_at,
-                        "content": [{"type": "text", "text": "hi"}],
-                        "metadata": {
-                            TURN_USAGE_META_KEY: {"usage": usage},
-                        },
-                    },
-                ],
-            },
-        },
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-class TestHistoricalAgentAttributionMigration:
-    """Cover strict, idempotent historical agent_id backfill."""
-
-    def test_splits_legacy_bucket_and_keeps_unknown_residual(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        usage_path = tmp_path / "token_usage.json"
-        legacy = {
-            "2026-04-24": {
-                "openai:gpt-4": {
-                    "provider_id": "openai",
-                    "model_name": "gpt-4",
-                    "prompt_tokens": 300,
-                    "completion_tokens": 90,
-                    "call_count": 3,
-                },
-            },
-        }
-        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
-
-        agent_a = tmp_path / "agent-a"
-        agent_b = tmp_path / "agent-b"
-        _write_session_with_usage(
-            agent_a / "sessions" / "console" / "s1.json",
-            created_at="2026-04-24T10:00:00Z",
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=40,
-        )
-        _write_session_with_usage(
-            agent_b / "sessions" / "console" / "s1.json",
-            created_at="2026-04-24T11:00:00Z",
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=50,
-            completion_tokens=10,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a), ("agent-b", agent_b)],
-        )
-
-        before = _usage_totals(legacy)
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
-        assert _usage_totals(migrated) == before
-
-        day = migrated["2026-04-24"]
-        assert "openai:gpt-4" not in day
-        assert day["agent-a|openai:gpt-4"]["prompt_tokens"] == 100
-        assert day["agent-a|openai:gpt-4"]["call_count"] == 1
-        assert day["agent-b|openai:gpt-4"]["prompt_tokens"] == 50
-        assert day["agent-b|openai:gpt-4"]["call_count"] == 1
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 150
-        assert day["|openai:gpt-4"]["completion_tokens"] == 40
-        assert day["|openai:gpt-4"]["call_count"] == 1
-        assert day["|openai:gpt-4"]["agent_id"] == ""
-
-    def test_second_run_is_noop(self, tmp_path, monkeypatch):
-        usage_path = tmp_path / "token_usage.json"
-        usage_path.write_text(
-            json.dumps(
-                {
-                    "2026-04-24": {
-                        "openai:gpt-4": {
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 100,
-                            "completion_tokens": 20,
-                            "call_count": 1,
-                        },
-                    },
-                },
-            ),
-            encoding="utf-8",
-        )
-        agent_a = tmp_path / "agent-a"
-        _write_session_with_usage(
-            agent_a / "sessions" / "console" / "s1.json",
-            created_at="2026-04-24T10:00:00Z",
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=20,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a)],
-        )
-
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        first = usage_path.read_text(encoding="utf-8")
-        assert migrate_historical_agent_ids_sync(usage_path) is False
-        assert usage_path.read_text(encoding="utf-8") == first
-
-    def test_skips_estimated_and_identity_less_usage(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        usage_path = tmp_path / "token_usage.json"
-        usage_path.write_text(
-            json.dumps(
-                {
-                    "2026-04-24": {
-                        "openai:gpt-4": {
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 100,
-                            "completion_tokens": 20,
-                            "call_count": 1,
-                        },
-                    },
-                },
-            ),
-            encoding="utf-8",
-        )
-        agent_a = tmp_path / "agent-a"
-        _write_session_with_usage(
-            agent_a / "sessions" / "console" / "est.json",
-            created_at="2026-04-24T10:00:00Z",
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=20,
-            estimated=True,
-        )
-        # Missing provider/model identity
-        bad = {
-            "agent": {
-                "state": {
-                    "context": [
-                        {
-                            "role": "assistant",
-                            "created_at": "2026-04-24T10:00:00Z",
-                            "metadata": {
-                                TURN_USAGE_META_KEY: {
-                                    "usage": {
-                                        "prompt_tokens": 100,
-                                        "completion_tokens": 20,
-                                    },
-                                },
-                            },
-                        },
-                    ],
-                },
-            },
-        }
-        bad_path = agent_a / "sessions" / "console" / "bad.json"
-        bad_path.parent.mkdir(parents=True, exist_ok=True)
-        bad_path.write_text(json.dumps(bad), encoding="utf-8")
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a)],
-        )
-
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
-        day = migrated["2026-04-24"]
-        assert "agent-a|openai:gpt-4" not in day
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 100
-        assert day["|openai:gpt-4"]["call_count"] == 1
-
-    def test_rejects_unsafe_over_allocation(self, tmp_path, monkeypatch):
-        usage_path = tmp_path / "token_usage.json"
-        usage_path.write_text(
-            json.dumps(
-                {
-                    "2026-04-24": {
-                        "openai:gpt-4": {
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 100,
-                            "completion_tokens": 20,
-                            "call_count": 1,
-                        },
-                    },
-                },
-            ),
-            encoding="utf-8",
-        )
-        agent_a = tmp_path / "agent-a"
-        _write_session_with_usage(
-            agent_a / "sessions" / "console" / "s1.json",
-            created_at="2026-04-24T10:00:00Z",
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=999,
-            completion_tokens=20,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a)],
-        )
-
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
-        day = migrated["2026-04-24"]
-        assert "agent-a|openai:gpt-4" not in day
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 100
-        assert day["|openai:gpt-4"]["call_count"] == 1
-
-    def test_preserves_existing_new_format_rows(self, tmp_path, monkeypatch):
-        usage_path = tmp_path / "token_usage.json"
-        usage_path.write_text(
-            json.dumps(
-                {
-                    "2026-04-24": {
-                        "openai:gpt-4": {
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 100,
-                            "completion_tokens": 20,
-                            "call_count": 1,
-                        },
-                        "agent-x|openai:gpt-4": {
-                            "agent_id": "agent-x",
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 55,
-                            "completion_tokens": 5,
-                            "call_count": 1,
-                        },
-                    },
-                },
-            ),
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [],
-        )
-        before = _usage_totals(
-            json.loads(usage_path.read_text(encoding="utf-8")),
-        )
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
-        assert _usage_totals(migrated) == before
-        day = migrated["2026-04-24"]
-        assert day["agent-x|openai:gpt-4"]["prompt_tokens"] == 55
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 100
-
-    def test_merges_legacy_into_existing_residual_row(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        """Existing residual '|model' rows must merge, not overwrite."""
-        usage_path = tmp_path / "token_usage.json"
-        usage_path.write_text(
-            json.dumps(
-                {
-                    "2026-04-24": {
-                        "openai:gpt-4": {
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 100,
-                            "completion_tokens": 20,
-                            "call_count": 1,
-                        },
-                        "|openai:gpt-4": {
-                            "agent_id": "",
-                            "provider_id": "openai",
-                            "model_name": "gpt-4",
-                            "prompt_tokens": 55,
-                            "completion_tokens": 5,
-                            "call_count": 1,
-                        },
-                    },
-                },
-            ),
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [],
-        )
-        before = _usage_totals(
-            json.loads(usage_path.read_text(encoding="utf-8")),
-        )
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
-        assert _usage_totals(migrated) == before
-        day = migrated["2026-04-24"]
-        assert "openai:gpt-4" not in day
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 155
-        assert day["|openai:gpt-4"]["completion_tokens"] == 25
-        assert day["|openai:gpt-4"]["call_count"] == 2
-
-    @pytest.mark.asyncio
-    async def test_manager_migration_failure_is_non_fatal(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.WORKING_DIR",
-            tmp_path,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
-            "token_usage.json",
-        )
-
-        async def _boom():
-            raise RuntimeError("simulated migration failure")
-
-        manager = TokenUsageManager()
-        monkeypatch.setattr(manager, "migrate_historical_agent_ids", _boom)
-
-        # Mirror the startup guard in app lifespan.
-        try:
-            await manager.migrate_historical_agent_ids()
-        except Exception:
-            pass
-        manager.start(flush_interval=10)
-        await manager.stop()
-
-    def test_attributes_despite_old_session_mtime(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        """Restored/copied sessions with old mtime must still attribute."""
-        import os
-        from datetime import datetime
-
-        usage_path = tmp_path / "token_usage.json"
-        legacy = {
-            "2026-04-24": {
-                "openai:gpt-4": {
-                    "provider_id": "openai",
-                    "model_name": "gpt-4",
-                    "prompt_tokens": 100,
-                    "completion_tokens": 40,
-                    "call_count": 1,
-                },
-            },
-        }
-        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
-
-        agent_a = tmp_path / "agent-a"
-        session = agent_a / "sessions" / "console" / "s1.json"
-        _write_session_with_usage(
-            session,
-            created_at="2026-04-24T10:00:00Z",
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=40,
-        )
-        old = datetime(2020, 1, 1).timestamp()
-        os.utime(session, (old, old))
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a)],
-        )
-
-        assert migrate_historical_agent_ids_sync(usage_path) is True
-        migrated = json.loads(usage_path.read_text(encoding="utf-8"))
-        day = migrated["2026-04-24"]
-        assert day["agent-a|openai:gpt-4"]["prompt_tokens"] == 100
-        assert "|openai:gpt-4" not in day
-
-    @pytest.mark.asyncio
-    async def test_manager_reload_after_successful_migration(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.WORKING_DIR",
-            tmp_path,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
-            "token_usage.json",
-        )
-        usage_path = tmp_path / "token_usage.json"
-        legacy = {
-            "2026-04-24": {
-                "openai:gpt-4": {
-                    "provider_id": "openai",
-                    "model_name": "gpt-4",
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "call_count": 1,
-                },
-            },
-        }
-        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [],
-        )
-
-        manager = TokenUsageManager()
-        # Seed buffer with legacy data before migration.
-        # pylint: disable=protected-access
-        await manager._buffer._seed_cache()
-        assert "openai:gpt-4" in manager._buffer._disk_cache["2026-04-24"]
-
-        wrote = await manager.migrate_historical_agent_ids()
-        assert wrote is True
-        day = manager._buffer._disk_cache["2026-04-24"]
-        assert "openai:gpt-4" not in day
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 10
-
-    @pytest.mark.asyncio
-    async def test_prestart_migration_preserves_dirty_buffer_events(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        """Flush-before-migrate must not drop unflushed in-memory events."""
-        from datetime import date
-
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.WORKING_DIR",
-            tmp_path,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
-            "token_usage.json",
-        )
-        usage_path = tmp_path / "token_usage.json"
-        legacy = {
-            "2026-04-24": {
-                "openai:gpt-4": {
-                    "provider_id": "openai",
-                    "model_name": "gpt-4",
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "call_count": 1,
-                },
-            },
-        }
-        usage_path.write_text(json.dumps(legacy), encoding="utf-8")
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [],
-        )
-
-        manager = TokenUsageManager()
-        # pylint: disable=protected-access
-        await manager._buffer._seed_cache()
-        _apply_event(
-            manager._buffer._disk_cache,
-            _UsageEvent(
-                provider_id="openai",
-                model_name="gpt-4",
-                prompt_tokens=7,
-                completion_tokens=3,
-                date_str=date(2026, 4, 24).isoformat(),
-                now_iso="2026-04-24T12:00:00+00:00",
-                agent_id="live-agent",
-            ),
-        )
-        manager._buffer._dirty = True
-
-        wrote = await manager.migrate_historical_agent_ids()
-        assert wrote is True
-        day = manager._buffer._disk_cache["2026-04-24"]
-        # Pre-start dirty event must survive flush-then-migrate-then-reload.
-        assert day["live-agent|openai:gpt-4"]["prompt_tokens"] == 7
-        assert day["|openai:gpt-4"]["prompt_tokens"] == 10
-
-    @pytest.mark.asyncio
-    async def test_migration_rejected_after_start(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.WORKING_DIR",
-            tmp_path,
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
-            "token_usage.json",
-        )
-        manager = TokenUsageManager()
-        manager.start(flush_interval=10)
-        try:
-            with pytest.raises(RuntimeError, match="before start"):
-                await manager.migrate_historical_agent_ids()
-        finally:
-            await manager.stop()
-
-
-# =============================================================================
-# Daily tool-call aggregation (LLM & Tool Call Trend)
-# =============================================================================
-
-
-def _write_session_with_tool_calls(
-    path,
-    messages: list[dict],
-):
-    payload = {
-        "agent": {
-            "state": {
-                "context": messages,
-            },
-        },
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-class TestCountToolCallsInMessage:
-    """Cover tool_use / tool_call block counting."""
-
-    def test_counts_tool_use_and_tool_call(self):
-        msg = {
-            "content": [
-                {"type": "text", "text": "hi"},
-                {"type": "tool_use", "id": "1", "name": "search"},
-                {"type": "tool_call", "id": "2", "name": "shell"},
-            ],
-        }
-        assert _count_tool_calls_in_message(msg) == 2
-
-    def test_returns_zero_for_non_list_content(self):
-        assert _count_tool_calls_in_message({"content": "plain"}) == 0
-        assert _count_tool_calls_in_message({}) == 0
-
-    def test_counts_top_level_openai_tool_calls(self):
-        msg = {
-            "content": "calling tools",
-            "tool_calls": [
-                {"id": "1", "type": "function", "function": {"name": "a"}},
-                {"id": "2", "type": "function", "function": {"name": "b"}},
-            ],
-        }
-        assert _count_tool_calls_in_message(msg) == 2
-
-    def test_falls_back_when_content_list_has_no_tool_blocks(self):
-        msg = {
-            "content": [],
-            "tool_calls": [
-                {"id": "1", "type": "function", "function": {"name": "a"}},
-            ],
-        }
-        assert _count_tool_calls_in_message(msg) == 1
-        msg_missing = {
-            "tool_calls": [
-                {"id": "1", "type": "function", "function": {"name": "a"}},
-                {"id": "2", "type": "function", "function": {"name": "b"}},
-            ],
-        }
-        assert _count_tool_calls_in_message(msg_missing) == 2
-
-    def test_prefers_content_blocks_over_top_level(self):
-        msg = {
-            "content": [{"type": "tool_use", "id": "1", "name": "search"}],
-            "tool_calls": [
-                {"id": "2", "type": "function", "function": {"name": "shell"}},
-            ],
-        }
-        assert _count_tool_calls_in_message(msg) == 1
-
-
-class TestCollectDailyToolCalls:
-    """Cover cross-agent daily tool-call aggregation."""
-
-    def test_aggregates_across_agents_and_filters_by_date(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        from datetime import date
-
-        agent_a = tmp_path / "agent-a"
-        agent_b = tmp_path / "agent-b"
-        _write_session_with_tool_calls(
-            agent_a / "sessions" / "console" / "s1.json",
-            [
-                {
-                    "role": "assistant",
-                    "created_at": "2026-04-24T10:00:00Z",
-                    "content": [
-                        {"type": "tool_use", "id": "a1", "name": "search"},
-                        {"type": "tool_call", "id": "a2", "name": "shell"},
-                    ],
-                },
-                {
-                    "role": "assistant",
-                    "created_at": "2026-04-25T10:00:00Z",
-                    "content": [
-                        {"type": "tool_use", "id": "a3", "name": "read"},
-                    ],
-                },
-                {
-                    "role": "assistant",
-                    "created_at": "2026-04-26T10:00:00Z",
-                    "content": [
-                        {"type": "tool_use", "id": "out", "name": "skip"},
-                    ],
-                },
-            ],
-        )
-        _write_session_with_tool_calls(
-            agent_b / "sessions" / "console" / "s1.json",
-            [
-                {
-                    "role": "assistant",
-                    "timestamp": "2026-04-24T12:00:00Z",
-                    "content": [
-                        {"type": "tool_call", "id": "b1", "name": "grep"},
-                    ],
-                },
-                {
-                    "role": "user",
-                    "created_at": "2026-04-24T12:01:00Z",
-                    "content": [{"type": "text", "text": "hi"}],
-                },
-            ],
-        )
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a), ("agent-b", agent_b)],
-        )
-
-        result = collect_daily_tool_calls_sync(
-            date(2026, 4, 24),
-            date(2026, 4, 25),
-        )
-        assert result == {
-            "2026-04-24": 3,
-            "2026-04-25": 1,
-        }
-
-    def test_counts_tool_calls_despite_old_session_mtime(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        """Restored sessions with old mtime must still count in-range calls."""
-        import os
-        from datetime import date, datetime
-
-        agent_a = tmp_path / "agent-a"
-        session = agent_a / "sessions" / "console" / "s1.json"
-        _write_session_with_tool_calls(
-            session,
-            [
-                {
-                    "role": "assistant",
-                    "created_at": "2026-04-24T10:00:00Z",
-                    "content": [
-                        {"type": "tool_use", "id": "a1", "name": "search"},
-                    ],
-                },
-            ],
-        )
-        old = datetime(2020, 1, 1).timestamp()
-        os.utime(session, (old, old))
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a)],
-        )
-
-        result = collect_daily_tool_calls_sync(
-            date(2026, 4, 24),
-            date(2026, 4, 25),
-        )
-        assert result == {"2026-04-24": 1}
-
-    def test_skips_corrupt_session_files(self, tmp_path, monkeypatch):
-        from datetime import date
-
-        agent_a = tmp_path / "agent-a"
-        bad = agent_a / "sessions" / "console" / "bad.json"
-        bad.parent.mkdir(parents=True, exist_ok=True)
-        bad.write_text("{not-json", encoding="utf-8")
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager._iter_agent_profiles",
-            lambda: [("agent-a", agent_a)],
-        )
-
-        assert not collect_daily_tool_calls_sync(
-            date(2026, 4, 24),
-            date(2026, 4, 25),
-        )
-
-    @pytest.mark.asyncio
-    async def test_manager_get_daily_tool_calls_delegates(
-        self,
-        monkeypatch,
-    ):
-        from datetime import date
-
-        manager = TokenUsageManager()
-        called = {}
-
-        def _fake(start_date, end_date):
-            called["start"] = start_date
-            called["end"] = end_date
-            called["n"] = called.get("n", 0) + 1
-            return {"2026-04-24": 2}
-
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
-            _fake,
-        )
-        result = await manager.get_daily_tool_calls(
-            start_date=date(2026, 4, 24),
-            end_date=date(2026, 4, 25),
-        )
-        assert result == {"2026-04-24": 2}
-        assert called["start"] == date(2026, 4, 24)
-        assert called["end"] == date(2026, 4, 25)
-
-        # Same range within TTL should hit cache.
-        cached = await manager.get_daily_tool_calls(
-            start_date=date(2026, 4, 24),
-            end_date=date(2026, 4, 25),
-        )
-        assert cached == {"2026-04-24": 2}
-        assert called["n"] == 1
-
-    @pytest.mark.asyncio
-    async def test_manager_get_daily_tool_calls_ttl_expires(
-        self,
-        monkeypatch,
-    ):
-        from datetime import date
-
-        manager = TokenUsageManager()
-        # pylint: disable=protected-access
-        manager._TOOL_CALLS_TTL = 0  # expire immediately
-        calls = {"n": 0}
-
-        def _fake(_start_date, _end_date):
-            calls["n"] += 1
-            return {"2026-04-24": calls["n"]}
-
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
-            _fake,
-        )
-        first = await manager.get_daily_tool_calls(
-            start_date=date(2026, 4, 24),
-            end_date=date(2026, 4, 25),
-        )
-        second = await manager.get_daily_tool_calls(
-            start_date=date(2026, 4, 24),
-            end_date=date(2026, 4, 25),
-        )
-        assert first == {"2026-04-24": 1}
-        assert second == {"2026-04-24": 2}
-        assert calls["n"] == 2
-
-    @pytest.mark.asyncio
-    async def test_manager_get_daily_tool_calls_single_flight(
-        self,
-        monkeypatch,
-    ):
-        from datetime import date
-
-        manager = TokenUsageManager()
-        calls = {"n": 0}
-
-        def _fake(_start_date, _end_date):
-            calls["n"] += 1
-            return {"2026-04-24": calls["n"]}
-
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
-            _fake,
-        )
-        results = await asyncio.gather(
-            manager.get_daily_tool_calls(
-                start_date=date(2026, 4, 24),
-                end_date=date(2026, 4, 25),
-            ),
-            manager.get_daily_tool_calls(
-                start_date=date(2026, 4, 24),
-                end_date=date(2026, 4, 25),
-            ),
-        )
-        assert results[0] == results[1] == {"2026-04-24": 1}
-        assert calls["n"] == 1
-
-    @pytest.mark.asyncio
-    async def test_manager_get_daily_tool_calls_cancel_safe(
-        self,
-        monkeypatch,
-    ):
-        from datetime import date
-
-        manager = TokenUsageManager()
-        started = threading.Event()
-        release = threading.Event()
-        calls = {"n": 0}
-
-        def _fake(_start_date, _end_date):
-            calls["n"] += 1
-            started.set()
-            # Block the worker thread until the first waiter is cancelled.
-            assert release.wait(timeout=5)
-            return {"2026-04-24": 1}
-
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
-            _fake,
-        )
-
-        first = asyncio.create_task(
-            manager.get_daily_tool_calls(
-                start_date=date(2026, 4, 24),
-                end_date=date(2026, 4, 25),
-            ),
-        )
-        await asyncio.to_thread(started.wait, 5)
-        second = asyncio.create_task(
-            manager.get_daily_tool_calls(
-                start_date=date(2026, 4, 24),
-                end_date=date(2026, 4, 25),
-            ),
-        )
-        # Let the second waiter attach to the shared in-flight task.
-        await asyncio.sleep(0)
-        first.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await first
-        release.set()
-        assert await second == {"2026-04-24": 1}
-        assert calls["n"] == 1
-
-    @pytest.mark.asyncio
-    async def test_manager_get_daily_tool_calls_prunes_expired_cache(
-        self,
-        monkeypatch,
-    ):
-        from datetime import date
-
-        manager = TokenUsageManager()
-        # pylint: disable=protected-access
-        old_key = (date(2026, 4, 1), date(2026, 4, 2))
-        manager._tool_calls_cache[old_key] = (
-            time.monotonic() - manager._TOOL_CALLS_TTL - 1,
-            {"2026-04-01": 9},
-        )
-
-        def _fake(_start_date, _end_date):
-            return {"2026-04-24": 1}
-
-        monkeypatch.setattr(
-            "qwenpaw.token_usage.manager.collect_daily_tool_calls_sync",
-            _fake,
-        )
-        result = await manager.get_daily_tool_calls(
-            start_date=date(2026, 4, 24),
-            end_date=date(2026, 4, 25),
-        )
-        assert result == {"2026-04-24": 1}
-        assert old_key not in manager._tool_calls_cache

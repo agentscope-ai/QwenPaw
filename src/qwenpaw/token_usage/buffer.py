@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from .storage import _file_write_lock, load_data, save_data_sync
+from .storage import load_data, save_data_sync
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class _UsageEvent(NamedTuple):
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
     agent_id: str = ""
+    tool_calls: int = 0
 
 
 class TokenUsageBuffer:
@@ -38,7 +39,7 @@ class TokenUsageBuffer:
         self._path = path
         self._flush_interval = flush_interval
 
-        # Format: { "2026-04-23": { "agent_id|provider:model": {...} } }
+        # Format: { date: { colon key or unit-separator triple: {...} } }
         self._disk_cache: dict = {}
         self._cache_loaded = False
 
@@ -158,17 +159,12 @@ class TokenUsageBuffer:
         self._dirty = False
 
         snapshot = copy.deepcopy(self._disk_cache)
-        ok = await asyncio.to_thread(self._flush_with_lock, snapshot)
+        ok = await asyncio.to_thread(save_data_sync, self._path, snapshot)
         if not ok:
             # Keep dirty so a later periodic flush retries the write.
             self._dirty = True
             return
         logger.debug("token_usage: flushed cache to disk")
-
-    def _flush_with_lock(self, snapshot: dict) -> bool:
-        """Persist snapshot under the shared file write lock."""
-        with _file_write_lock(self._path):
-            return save_data_sync(self._path, snapshot)
 
     async def _flush_loop(self) -> None:
         """Periodically flush the cache to disk."""
@@ -192,40 +188,36 @@ class TokenUsageBuffer:
         self._cache_loaded = True
         logger.debug("token_usage: cache seeded from disk")
 
-    async def reload_from_disk(self) -> None:
-        """Force-refresh ``_disk_cache`` from disk (e.g. after migration)."""
-        self._disk_cache = await load_data(self._path)
-        self._cache_loaded = True
-        logger.debug("token_usage: cache reloaded from disk")
-
 
 def _apply_event(cache: dict, ev: _UsageEvent) -> None:
     """Accumulate a single usage event into *cache* in-place.
 
-    Cache format: { "2026-04-23": { "agent_id|provider:model": {...} } }
+    Cache format: { "2026-04-23": { key: {...} } }.
+    New events always use unit-separator keys
+    (agent_id\\x1fprovider_id\\x1fmodel_name), including empty agent_id
+    (\\x1fprovider\\x1fmodel), so they do not merge into legacy
+    provider:model rows. Old colon keys are left as-is (no migration).
     """
-    composite_key = f"{ev.agent_id}|{ev.provider_id}:{ev.model_name}"
-
-    # Get or create the day bucket
+    composite_key = "\x1f".join(
+        (ev.agent_id or "", ev.provider_id, ev.model_name),
+    )
     day_bucket = cache.setdefault(ev.date_str, {})
-
-    # Get or create the entry for this agent_id|provider:model
     entry = day_bucket.setdefault(
         composite_key,
         {
-            "agent_id": ev.agent_id,
             "provider_id": ev.provider_id,
             "model_name": ev.model_name,
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "call_count": 0,
+            "agent_id": ev.agent_id,
+            "tool_calls": 0,
         },
     )
-
-    # Accumulate the tokens
     entry["prompt_tokens"] += ev.prompt_tokens
     entry["completion_tokens"] += ev.completion_tokens
     entry["call_count"] += 1
+    entry["tool_calls"] = (entry.get("tool_calls") or 0) + ev.tool_calls
 
 
 __all__ = ["TokenUsageBuffer", "_UsageEvent"]

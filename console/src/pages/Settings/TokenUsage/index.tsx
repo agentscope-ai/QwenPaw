@@ -7,34 +7,33 @@ import api from "../../../api";
 import type { TokenUsageRecord } from "../../../api/types/tokenUsage";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PageHeader } from "@/components/PageHeader";
-import { useAgentStore } from "../../../stores/agentStore";
 import {
   LoadingState,
   SummaryCards,
   ModelTrendChart,
   TokenTypeChart,
-  LlmToolTrendChart,
   DataTables,
   EmptyState,
 } from "./components";
+import { useAgentStore } from "../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { useDataAggregation } from "./hooks/useDataAggregation";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
-import { useLlmToolTrendConfig } from "./hooks/useLlmToolTrendConfig";
 import styles from "./index.module.less";
 
 function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
-  const { agents } = useAgentStore();
+  const agents = useAgentStore((state) => state.agents);
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
-  const [dailyToolCalls, setDailyToolCalls] = useState<Record<string, number>>(
-    {},
-  );
-  const [toolCallsLoadFailed, setToolCallsLoadFailed] = useState(false);
   const [startDate, setStartDate] = useState<Dayjs>(
     dayjs().subtract(30, "day"),
   );
@@ -43,34 +42,16 @@ function TokenUsagePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(false);
-    setToolCallsLoadFailed(false);
-    const params = {
-      start_date: startDate.format("YYYY-MM-DD"),
-      end_date: endDate.format("YYYY-MM-DD"),
-    };
     try {
-      const [detailsData, toolCallsResult] = await Promise.all([
-        api.getTokenUsageDetails(params),
-        api.getDailyToolCalls(params).then(
-          (data) => ({ ok: true as const, data }),
-          (err) => {
-            console.error("Failed to load daily tool calls:", err);
-            return { ok: false as const, data: {} as Record<string, number> };
-          },
-        ),
-      ]);
+      const detailsData = await api.getTokenUsageDetails({
+        start_date: startDate.format("YYYY-MM-DD"),
+        end_date: endDate.format("YYYY-MM-DD"),
+      });
       setRecords(detailsData);
-      setDailyToolCalls(toolCallsResult.data);
-      if (!toolCallsResult.ok) {
-        setToolCallsLoadFailed(true);
-        message.warning(t("tokenUsage.toolCallsLoadFailed"));
-      }
     } catch (err) {
       console.error("Failed to load token usage:", err);
       message.error(t("tokenUsage.loadFailed"));
       setRecords([]);
-      setDailyToolCalls({});
-      setToolCallsLoadFailed(false);
       setError(true);
     } finally {
       setLoading(false);
@@ -103,15 +84,6 @@ function TokenUsagePage() {
     isDark,
   });
 
-  const llmToolTrendConfig = useLlmToolTrendConfig({
-    byDate: aggregatedData?.by_date ?? null,
-    dailyToolCalls,
-    startDate,
-    endDate,
-    isDark,
-    toolCallsUnavailable: toolCallsLoadFailed,
-  });
-
   const byModelData = useMemo(() => {
     if (!aggregatedData?.by_model) return [];
     return Object.entries(aggregatedData.by_model).map(([key, stats]) => ({
@@ -120,6 +92,7 @@ function TokenUsagePage() {
       prompt_tokens: stats.prompt_tokens,
       completion_tokens: stats.completion_tokens,
       call_count: stats.call_count,
+      tool_calls: stats.tool_calls,
     }));
   }, [aggregatedData?.by_model]);
 
@@ -132,24 +105,34 @@ function TokenUsagePage() {
         prompt_tokens: stats.prompt_tokens,
         completion_tokens: stats.completion_tokens,
         call_count: stats.call_count,
+        tool_calls: stats.tool_calls,
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [aggregatedData?.by_date]);
 
   const byAgentData = useMemo(() => {
     if (!aggregatedData?.by_agent) return [];
-    const nameById = new Map(agents.map((a) => [a.id, a.name]));
-    return Object.entries(aggregatedData.by_agent).map(([key, stats]) => ({
-      key,
-      agent:
-        nameById.get(stats.agent_id) ||
-        stats.agent_id ||
-        t("tokenUsage.unknownAgent"),
-      prompt_tokens: stats.prompt_tokens,
-      completion_tokens: stats.completion_tokens,
-      call_count: stats.call_count,
-    }));
-  }, [aggregatedData?.by_agent, agents, t]);
+    return Object.entries(aggregatedData.by_agent).map(([key, stats]) => {
+      const agentId = stats.agent_id;
+      let agent: string;
+      if (agentId == null) {
+        agent = t("tokenUsage.historicAgent");
+      } else if (agentId === "") {
+        agent = t("tokenUsage.unattributed");
+      } else {
+        const profile = agentsById.get(agentId);
+        agent = profile ? getAgentDisplayName(profile, t) : agentId;
+      }
+      return {
+        key,
+        agent,
+        prompt_tokens: stats.prompt_tokens,
+        completion_tokens: stats.completion_tokens,
+        call_count: stats.call_count,
+        tool_calls: stats.tool_calls,
+      };
+    });
+  }, [aggregatedData?.by_agent, agentsById, t]);
 
   const pageHeader = (
     <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
@@ -209,14 +192,7 @@ function TokenUsagePage() {
           <TokenTypeChart chartConfig={tokenTypeConfig} />
         </div>
 
-        {llmToolTrendConfig && (
-          <LlmToolTrendChart chartConfig={llmToolTrendConfig} />
-        )}
-
-        {byModelData.length === 0 &&
-        byDateData.length === 0 &&
-        byAgentData.length === 0 &&
-        !llmToolTrendConfig ? (
+        {byModelData.length === 0 && byDateData.length === 0 ? (
           <EmptyState message={t("tokenUsage.noData")} />
         ) : (
           <DataTables
