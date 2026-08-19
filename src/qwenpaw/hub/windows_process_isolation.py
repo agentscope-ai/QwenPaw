@@ -169,14 +169,11 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             "-is",
             f"-p={container_sid}",
         ]
-        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         # pylint: disable-next=consider-using-with
         broker = subprocess.Popen(
             command,
-            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=creation_flags,
         )
         time.sleep(min(0.25, _BROKER_START_TIMEOUT_SECONDS))
         if broker.poll() is not None:

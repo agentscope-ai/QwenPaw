@@ -110,11 +110,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,test,full]"
 
+      - name: Verify Windows AppContainer preflight
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          QWENPAW_WINDOWS_APPCONTAINER_E2E: '1'
+        run: |
+          pytest tests/unit/hub/test_windows_process_isolation.py::test_windows_appcontainer_real_preflight -v
+
       - name: Run unit tests
         shell: bash
         env:
           COVERAGE_FILE: .coverage.unit
-          QWENPAW_WINDOWS_APPCONTAINER_E2E: ${{ matrix.os == 'windows-latest' && '1' || '' }}
         run: |
           # Coverage is collected only on the ubuntu/py3.13 entry so the
           # data file can be uploaded for coverage-report. Other matrix
