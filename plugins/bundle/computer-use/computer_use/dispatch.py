@@ -14,7 +14,13 @@ import threading
 import time
 from typing import Any, Literal, Mapping
 
-from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    TextBlock,
+    ToolResultState,
+    URLSource,
+)
 from agentscope.tool import ToolChunk
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
@@ -212,6 +218,18 @@ def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return {**payload, "accessibility": compact}
 
 
+def _screenshot_source(url: str) -> Base64Source | URLSource:
+    header, separator, data = url.partition(",")
+    if (
+        separator
+        and header.casefold().startswith("data:")
+        and ";base64" in header.casefold()
+    ):
+        media_type = header[5:].split(";", 1)[0] or "image/*"
+        return Base64Source(data=data, media_type=media_type)
+    return URLSource(url=url, media_type="image/*")
+
+
 def _response(
     payload: Mapping[str, Any],
     *,
@@ -227,10 +245,7 @@ def _response(
             ):
                 content.append(
                     DataBlock(
-                        source=URLSource(
-                            url=screenshot["url"],
-                            media_type="image/*",
-                        ),
+                        source=_screenshot_source(screenshot["url"]),
                     ),
                 )
     content.append(

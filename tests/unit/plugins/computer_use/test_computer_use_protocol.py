@@ -241,8 +241,8 @@ def test_client_rejects_action_before_observe() -> None:
     assert refusal.value.code == "observation_required"
 
 
-def test_screenshot_data_stays_out_of_the_text_block() -> None:
-    """Inline screenshot data must not be duplicated into the JSON text."""
+def test_screenshot_data_uses_base64_source_and_stays_out_of_text() -> None:
+    """Inline screenshots use the standard media representation once."""
     data_url = "data:image/jpeg;base64," + "A" * 4096
     payload = {
         "ok": True,
@@ -263,7 +263,9 @@ def test_screenshot_data_stays_out_of_the_text_block() -> None:
     ]
     text_blocks = [block for block in response.content if block.type == "text"]
     assert len(image_blocks) == 1
-    assert str(image_blocks[0].source.url) == data_url
+    assert image_blocks[0].source.type == "base64"
+    assert image_blocks[0].source.media_type == "image/jpeg"
+    assert image_blocks[0].source.data == "A" * 4096
     assert len(text_blocks) == 1
     assert data_url not in text_blocks[0].text
     assert "screenshot-1" in text_blocks[0].text
