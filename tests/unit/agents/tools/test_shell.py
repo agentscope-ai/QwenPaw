@@ -449,12 +449,18 @@ def test_windows_background_handles_are_eventually_deleted(
 
     command = f"{sys.executable} launcher.py"
 
-    returncode, stdout, stderr = _execute_subprocess_sync(
-        command,
-        str(tmp_path),
-        timeout=15.0,
-        env=os.environ.copy(),
-    )
+    # Disable the job object so that closing it does not kill the
+    # background child before we can observe the retained handles.
+    with patch(
+        "qwenpaw.agents.tools.shell._create_job_object_win32",
+        return_value=None,
+    ):
+        returncode, stdout, stderr = _execute_subprocess_sync(
+            command,
+            str(tmp_path),
+            timeout=15.0,
+            env=os.environ.copy(),
+        )
     pending_paths = list(tmp_path.glob("qwenpaw_*"))
     release_path.touch()
 
