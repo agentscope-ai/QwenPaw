@@ -735,6 +735,8 @@
     "dmDisabledTooltip": "Saat diaktifkan, bot akan sepenuhnya mengabaikan semua pesan langsung",
     "groupDisabled": "Nonaktifkan Grup",
     "groupDisabledTooltip": "Saat diaktifkan, bot akan sepenuhnya mengabaikan semua pesan grup",
+    "shareSessionInGroup": "Bagikan Konteks dalam Grup",
+    "shareSessionInGroupTooltip": "Saat diaktifkan, semua anggota grup berbagi konteks percakapan yang sama. Saat dinonaktifkan, setiap anggota memiliki konteks independen.",
     "manageAccessControl": "Kontrol Akses",
     "pendingApprovals": "Menunggu Persetujuan",
     "whitelist": "Daftar Putih",

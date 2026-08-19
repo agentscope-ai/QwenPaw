@@ -1735,6 +1735,8 @@
     "noTextDebounce": "Debounce không văn bản",
     "noTextDebounceTooltip": "Khi bật, các tin nhắn chỉ chứa phương tiện (ảnh/video/tệp) sẽ được lưu tạm, đợi tin nhắn văn bản tiếp theo đến rồi gộp xử lý. Tắt để xử lý ngay tất cả tin nhắn. Tin nhắn thoại luôn được xử lý ngay.",
     "streamingEnabled": "Xuất streaming",
+    "shareSessionInGroup": "Chia sẻ ngữ cảnh trong nhóm",
+    "shareSessionInGroupTooltip": "Khi bật, tất cả thành viên trong nhóm dùng chung một ngữ cảnh hội thoại. Khi tắt, mỗi thành viên có ngữ cảnh độc lập.",
     "ackMessage": "Tin nhắn xác nhận",
     "ackMessageTooltip": "Gửi phản hồi tức thì khi nhận được tin nhắn, trước khi xử lý",
     "wechatSetupGuide": "Bot tài khoản WeChat cá nhân (giao thức iLink). Lần đầu khởi động sẽ in URL mã QR; quét để ủy quyền.",

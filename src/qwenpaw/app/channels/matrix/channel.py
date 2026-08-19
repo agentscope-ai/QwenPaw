@@ -212,7 +212,7 @@ class MatrixChannel(BaseChannel):
         access_control_dm: bool = False,
         access_control_group: bool = False,
         enabled: bool = True,
-        share_session_in_group: bool = False,
+        share_session_in_group: bool = True,
         **_kwargs: Any,
     ) -> None:
         super().__init__(
@@ -233,8 +233,6 @@ class MatrixChannel(BaseChannel):
         self.device_id: str = device_id
         self.encryption: bool = encryption
         self.enabled: bool = enabled
-        # Session isolation: default each member gets an independent
-        # session; True restores the legacy room-wide shared session.
         self.share_session_in_group: bool = share_session_in_group
         # Channel-level mute
         self.dm_disabled: bool = dm_disabled
@@ -334,7 +332,7 @@ class MatrixChannel(BaseChannel):
             access_control_group=bool(raw.get("access_control_group", False)),
             enabled=raw.get("enabled", True),
             share_session_in_group=bool(
-                raw.get("share_session_in_group", False),
+                raw.get("share_session_in_group", True),
             ),
         )
 
@@ -2903,19 +2901,13 @@ class MatrixChannel(BaseChannel):
         if not content:
             content = [TextContent(type=ContentType.TEXT, text="")]
 
-        # QwenPaw keys session state AND memory on (session_id, user_id).
-        # Default: use the real sender so every member in a group room gets
-        # an independent session/memory. share_session_in_group=True keeps
-        # the legacy behavior where all room members share one session.
-        # Reply routing is unaffected: get_to_handle_from_request /
-        # to_handle_from_target resolve the room from session_id/meta.
-        if meta.get("is_group") and self.share_session_in_group:
-            user_id = room_id
-        else:
-            user_id = sender_id
         req = self.build_agent_request_from_user_content(
             channel_id=CHANNEL_KEY,
-            sender_id=user_id,
+            sender_id=(
+                sender_id
+                if meta.get("is_group") and not self.share_session_in_group
+                else room_id
+            ),
             session_id=session_id,
             content_parts=content,
             channel_meta=meta,
@@ -2945,8 +2937,7 @@ class MatrixChannel(BaseChannel):
         room_id = meta.get("room_id")
         if room_id:
             return room_id
-        # Fallback: user_id is now the real sender (not the room), so
-        # resolve the room from session_id when meta is unavailable.
+        # Recover the room from session_id when metadata is unavailable.
         session_id = getattr(request, "session_id", "") or ""
         if session_id.startswith("matrix:"):
             return session_id[len("matrix:") :]
