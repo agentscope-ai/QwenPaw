@@ -115,6 +115,16 @@ def test_runtime_total_limit_is_tenant_scoped(tmp_path: Path) -> None:
     assert service.create(_spec("other", "tenant-b")).tenant_id == "tenant-b"
 
 
+def test_runtime_cannot_override_administrator_backend(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
+    spec = replace(_spec("runtime-a"), provisioner="docker")
+
+    with pytest.raises(ValueError, match="controlled by the administrator"):
+        service.create(spec)
+
+    assert service.registry.list() == []
+
+
 def test_running_runtime_limit_is_tenant_scoped(tmp_path: Path) -> None:
     service = _service(
         tmp_path,
@@ -222,14 +232,13 @@ def test_close_preserves_runtime_control_intent(tmp_path: Path) -> None:
 def test_provisioner_policy_fails_closed_at_startup(tmp_path: Path) -> None:
     config = HubConfig(
         runtime=RuntimeConfig(
-            default_provisioner="docker",
-            allowed_provisioners=["docker"],
+            provisioner="docker",
         ),
     )
 
     with pytest.raises(
         ValueError,
-        match="Unknown default runtime provisioner",
+        match="Unknown runtime provisioner",
     ):
         _service(tmp_path, config)
 

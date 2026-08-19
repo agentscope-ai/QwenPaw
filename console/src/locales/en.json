@@ -3460,6 +3460,7 @@
       "start": "Start",
       "stop": "Stop",
       "disable": "Disable",
+      "rebuild": "Rebuild",
       "enableAndStart": "Enable and start"
     },
     "roles": {
@@ -3485,13 +3486,15 @@
       "actionFailed": "Action failed",
       "createFailed": "Create failed",
       "updateFailed": "Update failed",
-      "saveFailed": "Save failed"
+      "saveFailed": "Save failed",
+      "pullTimedOut": "Timed out waiting for the image pull"
     },
     "messages": {
       "runtimeCreated": "Runtime created",
       "accountCreated": "Account created",
       "credentialStored": "Credential stored",
-      "settingsSaved": "Hub settings saved"
+      "settingsSaved": "Hub settings saved",
+      "imagePulled": "Docker image pull completed"
     },
     "validation": {
       "required": "This field is required",
@@ -3523,12 +3526,15 @@
       "localEndpoint": "Local endpoint · {{endpoint}}",
       "provisioner": "Execution type",
       "localExecution": "Local isolation",
+      "dockerExecution": "Docker container",
       "security": "Security",
       "tenant": "Tenant",
       "removeTitle": "Remove {{id}}?",
       "removeDescription": "Registration is removed; runtime data is retained.",
       "disableTitle": "Disable {{id}}?",
       "disableDescription": "The process will stop and the owner cannot restart it until an administrator enables it.",
+      "rebuildTitle": "Rebuild {{id}} with the current image?",
+      "rebuildDescription": "The container will be replaced using the image in system settings. Persistent workspace, secrets, and backups are retained.",
       "emptyTitle": "No runtimes yet",
       "emptyDescription": "Create the first isolated local QwenPaw runtime."
     },
@@ -3627,11 +3633,32 @@
       },
       "runtime": {
         "title": "Runtime policy",
-        "description": "Choose which installed runtime implementations may be used.",
-        "defaultProvisioner": "Default runtime implementation",
-        "allowedProvisioners": "Allowed runtime implementations",
-        "allowedProvisionersHint": "The default implementation must remain in this list.",
-        "defaultMustBeAllowed": "The default implementation must be allowed."
+        "description": "Select the single backend used for every new runtime.",
+        "provisioner": "Runtime backend"
+      },
+      "docker": {
+        "title": "Docker policy",
+        "description": "Centrally manage the image, pull behavior, and per-container resource limits. Users cannot override these settings.",
+        "unavailable": "Docker engine is unavailable",
+        "source": "Image source",
+        "dockerHub": "Official Docker Hub",
+        "aliyunAcr": "Official Alibaba Cloud registry",
+        "custom": "Custom image",
+        "image": "Image and tag",
+        "downloaded": "Downloaded",
+        "notDownloaded": "Not downloaded",
+        "pullPolicy": "Automatic pull policy",
+        "ifNotPresent": "Pull when missing locally",
+        "always": "Pull before the first creation",
+        "never": "Use local images only",
+        "allowedRegistries": "Allowed registry hosts",
+        "pullImage": "Pull image now",
+        "localImages": "{{count}} local image references",
+        "resources": "Container resource limits",
+        "cpuLimit": "CPU cores",
+        "memoryLimit": "Memory (MB)",
+        "pidsLimit": "Maximum processes",
+        "shmSize": "Shared memory (MB)"
       },
       "quotas": {
         "title": "Default capacity quotas",
@@ -3656,7 +3683,11 @@
         "start": "Started runtime",
         "stop": "Stopped runtime",
         "disable": "Disabled runtime",
+        "rebuild": "Rebuilt runtime",
         "delete": "Deleted runtime"
+      },
+      "image": {
+        "pull": "Pulled Docker image"
       },
       "user": {
         "create": "Created user",

@@ -142,6 +142,53 @@ def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
         assert client.app.state.runtime_service.registry.list() == []
 
 
+def test_docker_image_management_is_admin_only(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        admin_token = _register(client, "admin")
+        auth = client.app.state.auth_service
+        auth.create_user(
+            username="member",
+            password="safe-password",
+            role="user",
+        )
+        _, member_token = auth.authenticate("member", "safe-password")
+
+        admin_response = client.get(
+            "/api/hub/images",
+            headers=_headers(admin_token),
+        )
+        member_response = client.get(
+            "/api/hub/images",
+            headers=_headers(member_token),
+        )
+
+    assert admin_response.status_code == 200
+    assert admin_response.json()["available"] is False
+    assert member_response.status_code == 403
+
+
+def test_runtime_create_rejects_backend_overrides(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        token = _register(client, "admin")
+
+        top_level = client.post(
+            "/api/hub/runtimes",
+            json={"runtime_id": "top-level", "provisioner": "docker"},
+            headers=_headers(token),
+        )
+        metadata = client.post(
+            "/api/hub/runtimes",
+            json={
+                "runtime_id": "metadata",
+                "metadata": {"docker": {"image": "attacker/image"}},
+            },
+            headers=_headers(token),
+        )
+
+    assert top_level.status_code == 422
+    assert metadata.status_code == 400
+
+
 def test_console_assets_use_precompression_and_immutable_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

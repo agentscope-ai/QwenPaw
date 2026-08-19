@@ -45,8 +45,8 @@ class RuntimeService:
         self.credential_provider = credential_provider
         self.hub_config = hub_config or HubConfig()
         self.default_provisioner = self.hub_config.default_provisioner
-        self.allowed_provisioners = self.hub_config.allowed_provisioners
         self._validate_provisioner_policy()
+        self._configure_provisioners()
         self._lock_registry = threading.Lock()
         self._admission_lock = threading.Lock()
         self._runtime_locks: dict[str, threading.RLock] = {}
@@ -63,18 +63,16 @@ class RuntimeService:
             previous = (
                 self.hub_config,
                 self.default_provisioner,
-                self.allowed_provisioners,
             )
             self.hub_config = config
             self.default_provisioner = config.default_provisioner
-            self.allowed_provisioners = config.allowed_provisioners
             try:
                 self._validate_provisioner_policy()
+                self._configure_provisioners()
             except ValueError:
                 (
                     self.hub_config,
                     self.default_provisioner,
-                    self.allowed_provisioners,
                 ) = previous
                 raise
 
@@ -82,19 +80,22 @@ class RuntimeService:
         """Create a runtime while the lifecycle lock is held."""
         self._validate_identifier(spec.runtime_id, "runtime_id")
         self._validate_identifier(spec.tenant_id, "tenant_id")
-        provisioner_name = spec.provisioner or self.default_provisioner
+        if spec.provisioner and spec.provisioner != self.default_provisioner:
+            raise ValueError(
+                "Runtime provisioner is controlled by the administrator.",
+            )
+        provisioner_name = self.default_provisioner
         if provisioner_name not in self.provisioners:
             raise ValueError(
                 f"Unknown runtime provisioner: {provisioner_name}",
             )
-        if (
-            self.allowed_provisioners is not None
-            and provisioner_name not in self.allowed_provisioners
-        ):
-            raise ValueError(
-                f"Runtime provisioner is not allowed: {provisioner_name}",
-            )
         self.require_provisioner_available(provisioner_name)
+        provisioner = self.provisioners[provisioner_name]
+        metadata = dict(spec.metadata)
+        metadata.pop(provisioner_name, None)
+        normalized_config = provisioner.validate_config({})
+        if normalized_config:
+            metadata[provisioner_name] = normalized_config
         if self.registry.get(spec.runtime_id) is not None:
             raise ValueError(f"Runtime already exists: {spec.runtime_id}")
         quota = self.hub_config.quota_for(spec.tenant_id)
@@ -123,7 +124,7 @@ class RuntimeService:
             secret_dir=runtime_root / "secrets",
             backup_dir=runtime_root / "backups",
             log_file=runtime_root / "logs" / "app.log",
-            metadata=dict(spec.metadata),
+            metadata=metadata,
         )
         for path in (
             record.working_dir,
@@ -274,6 +275,32 @@ class RuntimeService:
             with self._admission_lock:
                 return self._start_locked(runtime_id)
 
+    def rebuild(self, runtime_id: str) -> RuntimeRecord:
+        """Recreate a Docker runtime with the current global image policy."""
+        with self._runtime_lock(runtime_id), self._admission_lock:
+            record = self.get(runtime_id)
+            if record.provisioner != "docker":
+                raise ValueError("Only Docker runtimes can be rebuilt.")
+            if record.state in {
+                RuntimeState.STARTING,
+                RuntimeState.RUNNING,
+            }:
+                record = self._provisioner(record).stop(record)
+            metadata = dict(record.metadata)
+            metadata["docker"] = self.provisioners["docker"].validate_config(
+                {},
+            )
+            self.registry.save(
+                replace(
+                    record,
+                    state=RuntimeState.STOPPED,
+                    desired_state=RuntimeState.RUNNING,
+                    metadata=metadata,
+                    last_error=None,
+                ),
+            )
+            return self._start_locked(runtime_id)
+
     def status(self, runtime_id: str) -> RuntimeRecord:
         """Refresh one runtime's observed state."""
         with self._runtime_lock(runtime_id):
@@ -391,19 +418,15 @@ class RuntimeService:
         available = set(self.provisioners)
         if self.default_provisioner not in available:
             raise ValueError(
-                "Unknown default runtime provisioner: "
-                f"{self.default_provisioner}",
+                "Unknown runtime provisioner: " f"{self.default_provisioner}",
             )
-        if self.allowed_provisioners is None:
-            return
-        unknown = sorted(self.allowed_provisioners - available)
-        if unknown:
-            raise ValueError(
-                f"Unknown allowed runtime provisioners: {', '.join(unknown)}",
-            )
-        if self.default_provisioner not in self.allowed_provisioners:
-            raise ValueError(
-                "default_provisioner must be included in allowed_provisioners",
+
+    def _configure_provisioners(self) -> None:
+        """Apply current Hub settings to every registered provisioner."""
+        docker_provisioner = self.provisioners.get("docker")
+        if docker_provisioner is not None:
+            docker_provisioner.configure(
+                self.hub_config.runtime.docker.model_dump(),
             )
 
     @staticmethod

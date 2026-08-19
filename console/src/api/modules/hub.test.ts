@@ -112,8 +112,17 @@ describe("hubApi pagination", () => {
         registration: { enabled: false, default_role: "user" as const },
       },
       runtime: {
-        default_provisioner: "local",
-        allowed_provisioners: ["local"],
+        provisioner: "local" as const,
+        docker: {
+          source: "docker_hub" as const,
+          image: "docker.io/agentscope/qwenpaw:latest",
+          pull_policy: "if_not_present" as const,
+          allowed_registries: ["docker.io"],
+          cpu_limit: 2,
+          memory_limit_mb: 4096,
+          pids_limit: 1024,
+          shm_size_mb: 512,
+        },
       },
       tenant_defaults: {
         max_runtimes: 3,

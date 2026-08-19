@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Literal
@@ -24,6 +25,17 @@ from .database import (
     initialize_hub_database,
     utc_now,
 )
+
+_DOCKER_IMAGE_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,511}$",
+)
+_DOCKER_SOURCE_REPOSITORIES = {
+    "docker_hub": "docker.io/agentscope/qwenpaw",
+    "aliyun_acr": (
+        "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/"
+        "qwenpaw"
+    ),
+}
 
 
 class RegistrationConfig(BaseModel):
@@ -86,34 +98,82 @@ class ControlPlaneConfig(BaseModel):
         )
 
 
+class DockerRuntimeConfig(BaseModel):
+    """Docker runtime defaults and host resource limits."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["docker_hub", "aliyun_acr", "custom"] = "docker_hub"
+    image: str = "docker.io/agentscope/qwenpaw:latest"
+    pull_policy: Literal[
+        "always",
+        "if_not_present",
+        "never",
+    ] = "if_not_present"
+    allowed_registries: list[str] = Field(
+        default_factory=lambda: [
+            "docker.io",
+            "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
+        ],
+    )
+    cpu_limit: float | None = Field(default=2.0, gt=0, le=128)
+    memory_limit_mb: int | None = Field(default=4096, ge=256)
+    pids_limit: int | None = Field(default=1024, ge=64)
+    shm_size_mb: int = Field(default=512, ge=64)
+
+    @field_validator("image")
+    @classmethod
+    def validate_default_image(cls, value: str) -> str:
+        """Reject empty or whitespace-padded image references."""
+        if value != value.strip() or not _DOCKER_IMAGE_PATTERN.fullmatch(
+            value,
+        ):
+            raise ValueError("image must be a valid Docker image reference")
+        return value
+
+    @field_validator("allowed_registries")
+    @classmethod
+    def validate_allowed_registries(cls, value: list[str]) -> list[str]:
+        """Require a non-empty list of unique registry host names."""
+        if not value or any(not item.strip() for item in value):
+            raise ValueError("allowed_registries must not be empty")
+        if any("/" in item or "://" in item for item in value):
+            raise ValueError("allowed_registries must contain registry hosts")
+        if len(set(value)) != len(value):
+            raise ValueError("allowed_registries must not contain duplicates")
+        return value
+
+    @model_validator(mode="after")
+    def validate_source_and_registry(self) -> DockerRuntimeConfig:
+        """Keep the selected source, image, and registry policy aligned."""
+        first = self.image.split("/", 1)[0]
+        registry = (
+            first
+            if "." in first or ":" in first or first == "localhost"
+            else "docker.io"
+        )
+        if registry not in self.allowed_registries:
+            raise ValueError(
+                f"image registry is not allowed: {registry}",
+            )
+        repository = _DOCKER_SOURCE_REPOSITORIES.get(self.source)
+        if repository and not (
+            self.image.startswith(f"{repository}:")
+            or self.image.startswith(f"{repository}@")
+        ):
+            raise ValueError(
+                f"image does not match configured source: {self.source}",
+            )
+        return self
+
+
 class RuntimeConfig(BaseModel):
     """Deployment-neutral runtime provisioner selection."""
 
     model_config = ConfigDict(extra="forbid")
 
-    default_provisioner: str | None = None
-    allowed_provisioners: list[str] | None = None
-
-    @field_validator("allowed_provisioners")
-    @classmethod
-    def validate_allowed_provisioners(
-        cls,
-        value: list[str] | None,
-    ) -> list[str] | None:
-        """Reject empty or duplicate allowlists."""
-        if value is None:
-            return value
-        if not value:
-            raise ValueError("allowed_provisioners must not be empty")
-        if any(not item.strip() for item in value):
-            raise ValueError(
-                "allowed_provisioners must contain provisioner names",
-            )
-        if len(set(value)) != len(value):
-            raise ValueError(
-                "allowed_provisioners must not contain duplicates",
-            )
-        return value
+    provisioner: Literal["local", "docker"] = "local"
+    docker: DockerRuntimeConfig = Field(default_factory=DockerRuntimeConfig)
 
 
 class TenantQuota(BaseModel):
@@ -177,15 +237,8 @@ class HubConfig(BaseModel):
 
     @property
     def default_provisioner(self) -> str:
-        """Return the configured provisioner or the built-in local default."""
-        return self.runtime.default_provisioner or "local"
-
-    @property
-    def allowed_provisioners(self) -> frozenset[str] | None:
-        """Return the optional configured provisioner allowlist."""
-        if self.runtime.allowed_provisioners is None:
-            return None
-        return frozenset(self.runtime.allowed_provisioners)
+        """Return the administrator-selected runtime provisioner."""
+        return self.runtime.provisioner
 
     def quota_for(self, tenant_id: str) -> TenantQuota:
         """Resolve field-level tenant quota overrides."""
@@ -429,20 +482,7 @@ def _validate_provisioners(
     available_provisioners: set[str],
 ) -> None:
     """Reject unavailable or internally inconsistent provisioner policy."""
-    if config.default_provisioner not in available_provisioners:
+    if config.runtime.provisioner not in available_provisioners:
         raise ValueError(
-            "Unknown default runtime provisioner: "
-            f"{config.default_provisioner}",
-        )
-    allowed = config.allowed_provisioners
-    if allowed is None:
-        return
-    unknown = sorted(allowed - available_provisioners)
-    if unknown:
-        raise ValueError(
-            f"Unknown allowed runtime provisioners: {', '.join(unknown)}",
-        )
-    if config.default_provisioner not in allowed:
-        raise ValueError(
-            "default_provisioner must be included in allowed_provisioners",
+            "Unknown runtime provisioner: " f"{config.runtime.provisioner}",
         )

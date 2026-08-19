@@ -9,6 +9,7 @@ import pytest
 from qwenpaw.hub.auth import HubAuthService
 from qwenpaw.hub.config import (
     ControlPlaneConfig,
+    DockerRuntimeConfig,
     HubConfig,
     HubConfigStore,
     RuntimeConfig,
@@ -30,8 +31,7 @@ control_plane:
   registration:
     enabled: false
 runtime:
-  default_provisioner: local
-  allowed_provisioners: [local]
+  provisioner: local
 tenant_defaults:
   max_runtimes: 3
   max_running_runtimes: 2
@@ -50,7 +50,6 @@ tenants:
         == "https://qwenpaw.example.com/root"
     )
     assert config.default_provisioner == "local"
-    assert config.allowed_provisioners == frozenset({"local"})
     assert config.quota_for("personal-user-a") == TenantQuota(
         max_runtimes=3,
         max_running_runtimes=1,
@@ -65,6 +64,53 @@ def test_no_config_uses_built_in_defaults() -> None:
     assert config.quota_for("tenant").max_runtimes is None
 
 
+def test_docker_yaml_fields_round_trip_without_panel_only_values(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "hub.yaml"
+    config_path.write_text(
+        """
+version: 1
+runtime:
+  provisioner: docker
+  docker:
+    source: custom
+    image: registry.example.com/qwenpaw:v2
+    pull_policy: never
+    allowed_registries: [registry.example.com]
+    cpu_limit: 3.5
+    memory_limit_mb: 6144
+    pids_limit: 768
+    shm_size_mb: 1024
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_hub_config(config_path)
+
+    assert config.runtime.provisioner == "docker"
+    assert config.runtime.docker == DockerRuntimeConfig(
+        source="custom",
+        image="registry.example.com/qwenpaw:v2",
+        pull_policy="never",
+        allowed_registries=["registry.example.com"],
+        cpu_limit=3.5,
+        memory_limit_mb=6144,
+        pids_limit=768,
+        shm_size_mb=1024,
+    )
+    assert set(config.runtime.docker.model_dump()) == {
+        "source",
+        "image",
+        "pull_policy",
+        "allowed_registries",
+        "cpu_limit",
+        "memory_limit_mb",
+        "pids_limit",
+        "shm_size_mb",
+    }
+
+
 @pytest.mark.parametrize(
     "content, match",
     [
@@ -76,8 +122,8 @@ def test_no_config_uses_built_in_defaults() -> None:
             "greater than or equal to 0",
         ),
         (
-            "version: 1\nruntime:\n  allowed_provisioners: []",
-            "must not be empty",
+            "version: 1\nruntime:\n  provisioner: unsupported",
+            "Input should be 'local' or 'docker'",
         ),
         (
             "version: 1\ncontrol_plane:\n  public_base_url: localhost",
@@ -114,7 +160,7 @@ control_plane:
   registration:
     enabled: true
 runtime:
-  allowed_provisioners: [local]
+  provisioner: local
 tenant_defaults:
   max_runtimes: 3
   max_running_runtimes: 2
@@ -127,7 +173,7 @@ tenant_defaults:
     loaded_from_disk = store.resolve(None)
 
     assert imported == loaded_from_disk
-    assert loaded_from_disk.allowed_provisioners == frozenset({"local"})
+    assert loaded_from_disk.runtime.provisioner == "local"
     assert loaded_from_disk.tenant_defaults.max_runtimes == 3
     with sqlite3.connect(database) as connection:
         registration = connection.execute(
@@ -159,8 +205,7 @@ def test_config_store_updates_with_revision_and_rejects_stale_writes(
     _, revision, _ = store.snapshot()
     updated = HubConfig(
         runtime=RuntimeConfig(
-            default_provisioner="local",
-            allowed_provisioners=["local"],
+            provisioner="local",
         ),
         tenant_defaults=TenantQuota(
             max_runtimes=4,
@@ -194,14 +239,14 @@ def test_config_store_does_not_persist_unavailable_provisioner(
 ) -> None:
     config_path = tmp_path / "hub.yaml"
     config_path.write_text(
-        "version: 1\nruntime:\n  default_provisioner: docker",
+        "version: 1\nruntime:\n  provisioner: docker",
         encoding="utf-8",
     )
     store = HubConfigStore(tmp_path / "control.db")
 
     with pytest.raises(
         ValueError,
-        match="Unknown default runtime provisioner",
+        match="Unknown runtime provisioner",
     ):
         store.resolve(config_path, available_provisioners={"local"})
 

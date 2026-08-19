@@ -23,6 +23,16 @@ export interface HubRuntime {
   start_policy: "owner_allowed" | "admin_only";
   endpoint: string;
   security_level: string;
+  metadata?: {
+    docker?: {
+      image: string;
+      pull_policy: "always" | "if_not_present" | "never";
+      image_id?: string;
+      image_digests?: string[];
+      container_id?: string;
+    };
+    [key: string]: unknown;
+  };
   last_error?: string | null;
   created_at: string;
   updated_at: string;
@@ -127,11 +137,59 @@ export interface HubConfig {
     };
   };
   runtime: {
-    default_provisioner: string | null;
-    allowed_provisioners: string[] | null;
+    provisioner: "local" | "docker";
+    docker: HubDockerConfig;
   };
   tenant_defaults: HubTenantQuota;
   tenants: Record<string, HubTenantQuota>;
+}
+
+export interface HubDockerConfig {
+  source: "docker_hub" | "aliyun_acr" | "custom";
+  image: string;
+  pull_policy: "always" | "if_not_present" | "never";
+  allowed_registries: string[];
+  cpu_limit: number | null;
+  memory_limit_mb: number | null;
+  pids_limit: number | null;
+  shm_size_mb: number;
+}
+
+export interface HubDockerImage {
+  reference: string;
+  image_id: string;
+  short_id: string;
+  digests: string[];
+  size: number;
+  created?: string | null;
+  downloaded: boolean;
+}
+
+export interface HubOfficialDockerImage {
+  source: "docker_hub" | "aliyun_acr";
+  reference: string;
+  tag: string;
+  downloaded: boolean;
+}
+
+export interface HubDockerImageCatalog {
+  available: boolean;
+  reason?: string | null;
+  sources: Record<"docker_hub" | "aliyun_acr", string>;
+  official_images: HubOfficialDockerImage[];
+  local_images: HubDockerImage[];
+  policy: HubDockerConfig;
+}
+
+export interface HubDockerImagePull {
+  pull_id: string;
+  reference: string;
+  status: "queued" | "pulling" | "completed" | "failed";
+  progress: number;
+  message: string;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface HubSettings {
@@ -210,6 +268,10 @@ export const hubApi = {
     request<HubRuntime>(`/hub/runtimes/${runtimeId}/stop`, {
       method: "POST",
     }),
+  rebuildRuntime: (runtimeId: string) =>
+    request<HubRuntime>(`/hub/runtimes/${runtimeId}/rebuild`, {
+      method: "POST",
+    }),
   disableRuntime: (runtimeId: string) =>
     request<HubRuntime>(`/hub/runtimes/${runtimeId}/disable`, {
       method: "POST",
@@ -236,6 +298,14 @@ export const hubApi = {
     request<HubSettings>("/hub/admin/settings", {
       method: "PUT",
       body: JSON.stringify({ revision, config }),
+    }),
+  getDockerImages: () => request<HubDockerImageCatalog>("/hub/images"),
+  listDockerImagePulls: () =>
+    request<HubDockerImagePull[]>("/hub/images/pulls"),
+  pullDockerImage: (reference: string) =>
+    request<HubDockerImagePull>("/hub/images/pulls", {
+      method: "POST",
+      body: JSON.stringify({ reference }),
     }),
   listCredentials: (params: HubCredentialListParams = {}) =>
     request<HubPage<HubCredential>>(listPath("/hub/credentials", params)),

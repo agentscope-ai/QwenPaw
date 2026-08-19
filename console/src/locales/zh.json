@@ -3317,6 +3317,7 @@
       "start": "启动",
       "stop": "停止",
       "disable": "禁用",
+      "rebuild": "重建",
       "enableAndStart": "启用并启动"
     },
     "roles": {
@@ -3342,13 +3343,15 @@
       "actionFailed": "操作失败",
       "createFailed": "创建失败",
       "updateFailed": "更新失败",
-      "saveFailed": "保存失败"
+      "saveFailed": "保存失败",
+      "pullTimedOut": "镜像拉取等待超时"
     },
     "messages": {
       "runtimeCreated": "运行环境已创建",
       "accountCreated": "账号已创建",
       "credentialStored": "凭据已保存",
-      "settingsSaved": "Hub 设置已保存"
+      "settingsSaved": "Hub 设置已保存",
+      "imagePulled": "Docker 镜像拉取完成"
     },
     "validation": {
       "required": "此项为必填项",
@@ -3380,12 +3383,15 @@
       "localEndpoint": "本地端点 · {{endpoint}}",
       "provisioner": "运行方式",
       "localExecution": "本机隔离",
+      "dockerExecution": "Docker 容器",
       "security": "安全级别",
       "tenant": "租户",
       "removeTitle": "移除 {{id}}？",
       "removeDescription": "仅移除注册记录，运行环境数据将保留。",
       "disableTitle": "禁用 {{id}}？",
       "disableDescription": "进程将被停止；在管理员重新启用之前，用户无法自行启动或重启。",
+      "rebuildTitle": "使用当前镜像重建 {{id}}？",
+      "rebuildDescription": "容器将被替换并使用系统设置中的当前镜像；持久化工作目录、密钥和备份会保留。",
       "emptyTitle": "尚无运行环境",
       "emptyDescription": "创建第一个隔离的本地 QwenPaw 运行环境。"
     },
@@ -3484,11 +3490,32 @@
       },
       "runtime": {
         "title": "运行环境策略",
-        "description": "选择可以使用的已安装运行环境实现。",
-        "defaultProvisioner": "默认运行环境实现",
-        "allowedProvisioners": "允许运行环境实现",
-        "allowedProvisionersHint": "默认实现必须保留在允许列表中。",
-        "defaultMustBeAllowed": "默认实现必须包含在允许列表中。"
+        "description": "管理员统一选择所有新运行环境使用的后端。",
+        "provisioner": "运行环境后端"
+      },
+      "docker": {
+        "title": "Docker 策略",
+        "description": "统一管理镜像、拉取规则和每个容器的资源上限。普通用户无法覆盖这些设置。",
+        "unavailable": "Docker 引擎不可用",
+        "source": "镜像源",
+        "dockerHub": "Docker Hub 官方源",
+        "aliyunAcr": "阿里云官方源",
+        "custom": "自定义镜像",
+        "image": "镜像与 Tag",
+        "downloaded": "已下载",
+        "notDownloaded": "未下载",
+        "pullPolicy": "自动拉取策略",
+        "ifNotPresent": "本地不存在时拉取",
+        "always": "每次首次创建前拉取",
+        "never": "仅使用本地镜像",
+        "allowedRegistries": "允许的镜像仓库域名",
+        "pullImage": "立即拉取镜像",
+        "localImages": "本机已有 {{count}} 个镜像引用",
+        "resources": "容器资源上限",
+        "cpuLimit": "CPU 核数",
+        "memoryLimit": "内存（MB）",
+        "pidsLimit": "最大进程数",
+        "shmSize": "共享内存（MB）"
       },
       "quotas": {
         "title": "默认容量配额",
@@ -3513,7 +3540,11 @@
         "start": "启动运行实例",
         "stop": "停止运行实例",
         "disable": "禁用运行实例",
+        "rebuild": "重建运行实例",
         "delete": "删除运行实例"
+      },
+      "image": {
+        "pull": "拉取 Docker 镜像"
       },
       "user": {
         "create": "创建用户",

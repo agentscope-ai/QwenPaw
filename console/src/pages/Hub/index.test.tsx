@@ -32,6 +32,9 @@ vi.mock("../../api/modules/hub", async () => {
       getHealth: vi.fn(),
       getOverview: vi.fn(),
       getSettings: vi.fn(),
+      getDockerImages: vi.fn(),
+      listDockerImagePulls: vi.fn(),
+      pullDockerImage: vi.fn(),
       updateSettings: vi.fn(),
       listRuntimes: vi.fn(),
       listUsers: vi.fn(),
@@ -40,6 +43,7 @@ vi.mock("../../api/modules/hub", async () => {
       startRuntime: vi.fn(),
       stopRuntime: vi.fn(),
       disableRuntime: vi.fn(),
+      rebuildRuntime: vi.fn(),
       deleteRuntime: vi.fn(),
     },
   };
@@ -99,8 +103,20 @@ describe("HubPage", () => {
           registration: { enabled: false, default_role: "user" },
         },
         runtime: {
-          default_provisioner: "local",
-          allowed_provisioners: ["local"],
+          provisioner: "local",
+          docker: {
+            source: "docker_hub",
+            image: "docker.io/agentscope/qwenpaw:latest",
+            pull_policy: "if_not_present",
+            allowed_registries: [
+              "docker.io",
+              "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
+            ],
+            cpu_limit: 2,
+            memory_limit_mb: 4096,
+            pids_limit: 1024,
+            shm_size_mb: 512,
+          },
         },
         tenant_defaults: {
           max_runtimes: null,
@@ -110,8 +126,36 @@ describe("HubPage", () => {
       },
       revision: 3,
       updated_at: "2026-01-01T00:00:00Z",
-      available_provisioners: ["local"],
+      available_provisioners: ["local", "docker"],
     });
+    vi.mocked(hubApi.getDockerImages).mockResolvedValue({
+      available: true,
+      sources: {
+        docker_hub: "docker.io/agentscope/qwenpaw",
+        aliyun_acr:
+          "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw",
+      },
+      official_images: [
+        {
+          source: "docker_hub",
+          reference: "docker.io/agentscope/qwenpaw:latest",
+          tag: "latest",
+          downloaded: true,
+        },
+      ],
+      local_images: [],
+      policy: {
+        source: "docker_hub",
+        image: "docker.io/agentscope/qwenpaw:latest",
+        pull_policy: "if_not_present",
+        allowed_registries: ["docker.io"],
+        cpu_limit: 2,
+        memory_limit_mb: 4096,
+        pids_limit: 1024,
+        shm_size_mb: 512,
+      },
+    });
+    vi.mocked(hubApi.listDockerImagePulls).mockResolvedValue([]);
     vi.mocked(hubApi.listCredentials).mockResolvedValue(page);
     vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page);
   });
@@ -259,6 +303,22 @@ describe("HubPage", () => {
           control_plane: expect.objectContaining({
             public_base_url: "https://hub.example.com",
           }),
+          runtime: {
+            provisioner: "local",
+            docker: {
+              source: "docker_hub",
+              image: "docker.io/agentscope/qwenpaw:latest",
+              pull_policy: "if_not_present",
+              allowed_registries: [
+                "docker.io",
+                "agentscope-registry.ap-southeast-1.cr.aliyuncs.com",
+              ],
+              cpu_limit: 2,
+              memory_limit_mb: 4096,
+              pids_limit: 1024,
+              shm_size_mb: 512,
+            },
+          },
         }),
       );
     });

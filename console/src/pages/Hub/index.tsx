@@ -50,6 +50,8 @@ import {
   hubApi,
   type HubAuditEvent,
   type HubCredential,
+  type HubDockerImageCatalog,
+  type HubDockerImagePull,
   type HubHealth,
   type HubOverview,
   type HubRuntime,
@@ -69,8 +71,15 @@ type Section =
 interface SettingsFormValues {
   publicBaseUrl?: string;
   registrationEnabled: boolean;
-  defaultProvisioner: string;
-  allowedProvisioners: string[];
+  runtimeProvisioner: "local" | "docker";
+  dockerSource: "docker_hub" | "aliyun_acr" | "custom";
+  dockerImage: string;
+  dockerPullPolicy: "always" | "if_not_present" | "never";
+  dockerAllowedRegistries: string[];
+  dockerCpuLimit?: number;
+  dockerMemoryLimitMb?: number;
+  dockerPidsLimit?: number;
+  dockerShmSizeMb: number;
   maxRuntimes?: number;
   maxRunningRuntimes?: number;
   tenants: Array<{
@@ -115,6 +124,10 @@ export default function HubPage() {
     useState<PageData<HubCredential>>(emptyPage);
   const [audit, setAudit] = useState<PageData<HubAuditEvent>>(emptyPage);
   const [settings, setSettings] = useState<HubSettings | null>(null);
+  const [dockerImages, setDockerImages] =
+    useState<HubDockerImageCatalog | null>(null);
+  const [dockerPulls, setDockerPulls] = useState<HubDockerImagePull[]>([]);
+  const [dockerPulling, setDockerPulling] = useState(false);
   const [runtimeQuery, setRuntimeQuery] = useState("");
   const [runtimeState, setRuntimeState] = useState<string>();
   const [runtimeOwner, setRuntimeOwner] = useState("");
@@ -182,17 +195,27 @@ export default function HubPage() {
   );
 
   const loadSettings = useCallback(async () => {
-    const result = await hubApi.getSettings();
+    const [result, imageResult, pullResult] = await Promise.all([
+      hubApi.getSettings(),
+      hubApi.getDockerImages(),
+      hubApi.listDockerImagePulls(),
+    ]);
     setSettings(result);
+    setDockerImages(imageResult);
+    setDockerPulls(pullResult);
     settingsForm.setFieldsValue({
       publicBaseUrl: result.config.control_plane.public_base_url || undefined,
       registrationEnabled: result.config.control_plane.registration.enabled,
-      defaultProvisioner:
-        result.config.runtime.default_provisioner ||
-        result.available_provisioners[0],
-      allowedProvisioners:
-        result.config.runtime.allowed_provisioners ||
-        result.available_provisioners,
+      runtimeProvisioner: result.config.runtime.provisioner,
+      dockerSource: result.config.runtime.docker.source,
+      dockerImage: result.config.runtime.docker.image,
+      dockerPullPolicy: result.config.runtime.docker.pull_policy,
+      dockerAllowedRegistries: result.config.runtime.docker.allowed_registries,
+      dockerCpuLimit: result.config.runtime.docker.cpu_limit ?? undefined,
+      dockerMemoryLimitMb:
+        result.config.runtime.docker.memory_limit_mb ?? undefined,
+      dockerPidsLimit: result.config.runtime.docker.pids_limit ?? undefined,
+      dockerShmSizeMb: result.config.runtime.docker.shm_size_mb,
       maxRuntimes: result.config.tenant_defaults.max_runtimes ?? undefined,
       maxRunningRuntimes:
         result.config.tenant_defaults.max_running_runtimes ?? undefined,
@@ -343,8 +366,17 @@ export default function HubPage() {
           },
         },
         runtime: {
-          default_provisioner: values.defaultProvisioner,
-          allowed_provisioners: values.allowedProvisioners,
+          provisioner: values.runtimeProvisioner,
+          docker: {
+            source: values.dockerSource,
+            image: values.dockerImage.trim(),
+            pull_policy: values.dockerPullPolicy,
+            allowed_registries: values.dockerAllowedRegistries,
+            cpu_limit: values.dockerCpuLimit ?? null,
+            memory_limit_mb: values.dockerMemoryLimitMb ?? null,
+            pids_limit: values.dockerPidsLimit ?? null,
+            shm_size_mb: values.dockerShmSizeMb,
+          },
         },
         tenant_defaults: {
           max_runtimes: values.maxRuntimes ?? null,
@@ -364,15 +396,45 @@ export default function HubPage() {
     }
   };
 
+  const pullDockerImage = async (reference: string) => {
+    setDockerPulling(true);
+    try {
+      await hubApi.pullDockerImage(reference);
+      const deadline = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < deadline) {
+        const pulls = await hubApi.listDockerImagePulls();
+        setDockerPulls(pulls);
+        const current = pulls.find((pull) => pull.reference === reference);
+        if (current?.status === "completed") {
+          setDockerImages(await hubApi.getDockerImages());
+          message.success(t("hub.messages.imagePulled"));
+          return;
+        }
+        if (current?.status === "failed") {
+          throw new Error(current.error || current.message);
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+      throw new Error(t("hub.errors.pullTimedOut"));
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("hub.errors.actionFailed"),
+      );
+    } finally {
+      setDockerPulling(false);
+    }
+  };
+
   const runRuntimeAction = async (
     runtimeId: string,
-    action: "start" | "stop" | "disable" | "delete",
+    action: "start" | "stop" | "disable" | "rebuild" | "delete",
   ) => {
     setBusyId(runtimeId);
     try {
       if (action === "start") await hubApi.startRuntime(runtimeId);
       if (action === "stop") await hubApi.stopRuntime(runtimeId);
       if (action === "disable") await hubApi.disableRuntime(runtimeId);
+      if (action === "rebuild") await hubApi.rebuildRuntime(runtimeId);
       if (action === "delete") await hubApi.deleteRuntime(runtimeId);
       await loadRuntimes(runtimes.page);
     } catch (error) {
@@ -651,12 +713,12 @@ export default function HubPage() {
                           placeholder={t("hub.table.allExecutions")}
                           className={styles.filterSelect}
                           onChange={setRuntimeExecution}
-                          options={[
-                            {
-                              value: "local",
-                              label: t("hub.runtimes.localExecution"),
-                            },
-                          ]}
+                          options={Object.keys(
+                            health?.provisioner_statuses || {},
+                          ).map((name) => ({
+                            value: name,
+                            label: t(`hub.runtimes.${name}Execution`),
+                          }))}
                         />
                       </>
                     }
@@ -719,9 +781,14 @@ export default function HubPage() {
                               </td>
                               <td>
                                 <strong>
-                                  {t("hub.runtimes.localExecution")}
+                                  {t(
+                                    `hub.runtimes.${runtime.provisioner}Execution`,
+                                  )}
                                 </strong>
-                                <small>{runtime.security_level}</small>
+                                <small>
+                                  {runtime.metadata?.docker?.image ||
+                                    runtime.security_level}
+                                </small>
                               </td>
                               <td>
                                 {formatDate(runtime.updated_at, i18n.language)}
@@ -790,6 +857,32 @@ export default function HubPage() {
                                         }
                                       >
                                         {t("hub.actions.disable")}
+                                      </Button>
+                                    )}
+                                  {me?.role === "admin" &&
+                                    runtime.provisioner === "docker" && (
+                                      <Button
+                                        size="small"
+                                        icon={<RefreshCw size={14} />}
+                                        loading={busyId === runtime.runtime_id}
+                                        onClick={() =>
+                                          modal.confirm({
+                                            title: t(
+                                              "hub.runtimes.rebuildTitle",
+                                              { id: runtime.runtime_id },
+                                            ),
+                                            content: t(
+                                              "hub.runtimes.rebuildDescription",
+                                            ),
+                                            onOk: () =>
+                                              runRuntimeAction(
+                                                runtime.runtime_id,
+                                                "rebuild",
+                                              ),
+                                          })
+                                        }
+                                      >
+                                        {t("hub.actions.rebuild")}
                                       </Button>
                                     )}
                                   <Button
@@ -1126,7 +1219,11 @@ export default function HubPage() {
                 <SettingsPanel
                   form={settingsForm}
                   settings={settings}
+                  dockerImages={dockerImages}
+                  dockerPulls={dockerPulls}
+                  dockerPulling={dockerPulling}
                   saving={settingsSaving}
+                  onPullImage={pullDockerImage}
                   onSave={saveSettings}
                   t={t}
                 />
@@ -1278,13 +1375,21 @@ export default function HubPage() {
 function SettingsPanel({
   form,
   settings,
+  dockerImages,
+  dockerPulls,
+  dockerPulling,
   saving,
+  onPullImage,
   onSave,
   t,
 }: {
   form: FormInstance<SettingsFormValues>;
   settings: HubSettings;
+  dockerImages: HubDockerImageCatalog | null;
+  dockerPulls: HubDockerImagePull[];
+  dockerPulling: boolean;
   saving: boolean;
+  onPullImage: (reference: string) => Promise<void>;
   onSave: (values: SettingsFormValues) => Promise<void>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -1292,6 +1397,23 @@ function SettingsPanel({
     label: name,
     value: name,
   }));
+  const dockerSource = Form.useWatch("dockerSource", form);
+  const dockerImage = Form.useWatch("dockerImage", form);
+  const officialOptions = (dockerImages?.official_images || [])
+    .filter((image) => image.source === dockerSource)
+    .map((image) => ({
+      value: image.reference,
+      label: `${image.tag} · ${t(
+        image.downloaded
+          ? "hub.settings.docker.downloaded"
+          : "hub.settings.docker.notDownloaded",
+      )}`,
+    }));
+  const currentPull = dockerPulls.find(
+    (pull) =>
+      pull.reference === dockerImage &&
+      (pull.status === "queued" || pull.status === "pulling"),
+  );
   return (
     <section>
       <PageHeader
@@ -1362,35 +1484,158 @@ function SettingsPanel({
               <Boxes size={18} />
             </div>
             <Form.Item
-              name="defaultProvisioner"
-              label={t("hub.settings.runtime.defaultProvisioner")}
+              name="runtimeProvisioner"
+              label={t("hub.settings.runtime.provisioner")}
               rules={[
                 { required: true, message: t("hub.validation.required") },
               ]}
             >
               <Select options={provisionerOptions} />
             </Form.Item>
-            <Form.Item
-              name="allowedProvisioners"
-              label={t("hub.settings.runtime.allowedProvisioners")}
-              extra={t("hub.settings.runtime.allowedProvisionersHint")}
-              dependencies={["defaultProvisioner"]}
-              rules={[
-                { required: true, message: t("hub.validation.required") },
-                ({ getFieldValue }) => ({
-                  validator: async (_, value: string[]) => {
-                    if (value?.includes(getFieldValue("defaultProvisioner"))) {
-                      return;
+          </article>
+
+          <article className={`${styles.settingsCard} ${styles.dockerCard}`}>
+            <div className={styles.settingsCardHeader}>
+              <div>
+                <strong>{t("hub.settings.docker.title")}</strong>
+                <span>{t("hub.settings.docker.description")}</span>
+              </div>
+              <Box size={18} />
+            </div>
+            {!dockerImages?.available && (
+              <div className={styles.dockerWarning}>
+                {dockerImages?.reason || t("hub.settings.docker.unavailable")}
+              </div>
+            )}
+            <div className={styles.dockerFields}>
+              <Form.Item
+                name="dockerSource"
+                label={t("hub.settings.docker.source")}
+                rules={[{ required: true }]}
+              >
+                <Select
+                  options={[
+                    {
+                      value: "docker_hub",
+                      label: t("hub.settings.docker.dockerHub"),
+                    },
+                    {
+                      value: "aliyun_acr",
+                      label: t("hub.settings.docker.aliyunAcr"),
+                    },
+                    {
+                      value: "custom",
+                      label: t("hub.settings.docker.custom"),
+                    },
+                  ]}
+                  onChange={(
+                    source: "docker_hub" | "aliyun_acr" | "custom",
+                  ) => {
+                    if (source !== "custom") {
+                      const repository = dockerImages?.sources[source];
+                      if (repository) {
+                        form.setFieldValue(
+                          "dockerImage",
+                          `${repository}:latest`,
+                        );
+                      }
                     }
-                    throw new Error(
-                      t("hub.settings.runtime.defaultMustBeAllowed"),
-                    );
-                  },
-                }),
-              ]}
-            >
-              <Select mode="multiple" options={provisionerOptions} />
-            </Form.Item>
+                  }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="dockerImage"
+                label={t("hub.settings.docker.image")}
+                rules={[{ required: true }]}
+              >
+                {dockerSource === "custom" ? (
+                  <Input placeholder="registry.example.com/qwenpaw:v1" />
+                ) : (
+                  <Select options={officialOptions} />
+                )}
+              </Form.Item>
+              <Form.Item
+                name="dockerPullPolicy"
+                label={t("hub.settings.docker.pullPolicy")}
+                rules={[{ required: true }]}
+              >
+                <Select
+                  options={[
+                    {
+                      value: "if_not_present",
+                      label: t("hub.settings.docker.ifNotPresent"),
+                    },
+                    {
+                      value: "always",
+                      label: t("hub.settings.docker.always"),
+                    },
+                    {
+                      value: "never",
+                      label: t("hub.settings.docker.never"),
+                    },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item
+                name="dockerAllowedRegistries"
+                label={t("hub.settings.docker.allowedRegistries")}
+                rules={[{ required: true }]}
+              >
+                <Select mode="tags" tokenSeparators={[","]} />
+              </Form.Item>
+            </div>
+            <div className={styles.imagePullRow}>
+              <Button
+                icon={<RefreshCw size={14} />}
+                loading={dockerPulling}
+                disabled={!dockerImages?.available || !dockerImage}
+                onClick={() => onPullImage(dockerImage)}
+              >
+                {t("hub.settings.docker.pullImage")}
+              </Button>
+              <span>
+                {t("hub.settings.docker.localImages", {
+                  count: dockerImages?.local_images.length || 0,
+                })}
+              </span>
+            </div>
+            {currentPull && (
+              <Progress
+                percent={currentPull.progress}
+                status="active"
+                size="small"
+              />
+            )}
+            <div className={styles.resourceTitle}>
+              {t("hub.settings.docker.resources")}
+            </div>
+            <div className={styles.resourceFields}>
+              <Form.Item
+                name="dockerCpuLimit"
+                label={t("hub.settings.docker.cpuLimit")}
+              >
+                <InputNumber min={0.1} max={128} step={0.1} />
+              </Form.Item>
+              <Form.Item
+                name="dockerMemoryLimitMb"
+                label={t("hub.settings.docker.memoryLimit")}
+              >
+                <InputNumber min={256} precision={0} />
+              </Form.Item>
+              <Form.Item
+                name="dockerPidsLimit"
+                label={t("hub.settings.docker.pidsLimit")}
+              >
+                <InputNumber min={64} precision={0} />
+              </Form.Item>
+              <Form.Item
+                name="dockerShmSizeMb"
+                label={t("hub.settings.docker.shmSize")}
+                rules={[{ required: true }]}
+              >
+                <InputNumber min={64} precision={0} />
+              </Form.Item>
+            </div>
           </article>
 
           <article className={styles.settingsCard}>

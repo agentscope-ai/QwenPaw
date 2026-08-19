@@ -29,6 +29,17 @@ class RuntimeProvisioner(ABC):
     name: str
     security_level: str
 
+    def configure(self, config: Mapping[str, object]) -> None:
+        """Apply validated backend settings without restarting the Hub."""
+
+    def validate_config(self, value: object) -> dict[str, object]:
+        """Normalize one runtime's backend-specific configuration."""
+        if value not in ({}, None):
+            raise ValueError(
+                f"Runtime provisioner '{self.name}' has no config",
+            )
+        return {}
+
     @abstractmethod
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
         """Probe the real runtime boundary without launching QwenPaw."""

@@ -21,7 +21,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -36,6 +36,12 @@ from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
 from .provisioner import RuntimeProvisionerUnavailableError
 from .local_provisioner import LocalProcessRuntimeProvisioner
+from .docker_images import DockerImagePullStore
+from .docker_provisioner import (
+    OFFICIAL_DOCKER_IMAGES,
+    OFFICIAL_DOCKER_TAGS,
+    DockerRuntimeProvisioner,
+)
 from .models import (
     RuntimeRecord,
     RuntimeSpec,
@@ -111,12 +117,19 @@ class CompressedStaticFiles(StaticFiles):
 class RuntimeCreateBody(BaseModel):
     """Request body for a new managed runtime."""
 
+    model_config = ConfigDict(extra="forbid")
+
     runtime_id: str = Field(min_length=1, max_length=64)
-    provisioner: str | None = None
     host: str = "127.0.0.1"
     port: int = Field(default=0, ge=0, le=65535)
     metadata: dict[str, Any] = Field(default_factory=dict)
     auto_start: bool = False
+
+
+class DockerImagePullBody(BaseModel):
+    """Request an asynchronous Docker image pull."""
+
+    reference: str = Field(min_length=1, max_length=512)
 
 
 class CredentialsBody(BaseModel):
@@ -201,6 +214,7 @@ def build_runtime_service(
         resolved_root / "secrets" / ".vault_key",
     )
     local_provisioner = LocalProcessRuntimeProvisioner()
+    docker_provisioner = DockerRuntimeProvisioner(resolved_root)
 
     def runtime_environment(record: Any) -> dict[str, str]:
         environment = credential_vault.resolve_environment(
@@ -219,7 +233,10 @@ def build_runtime_service(
     return RuntimeService(
         root_dir=resolved_root,
         registry=registry,
-        provisioners={local_provisioner.name: local_provisioner},
+        provisioners={
+            local_provisioner.name: local_provisioner,
+            docker_provisioner.name: docker_provisioner,
+        },
         credential_provider=runtime_environment,
         hub_config=hub_config,
     )
@@ -256,6 +273,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         runtime_service.root_dir,
     )
+    docker_provisioner = runtime_service.provisioners.get("docker")
+    docker_pulls = (
+        DockerImagePullStore(docker_provisioner)
+        if isinstance(docker_provisioner, DockerRuntimeProvisioner)
+        else None
+    )
 
     async def runtime_payload(record: Any) -> dict[str, Any]:
         owner = await run_in_threadpool(
@@ -287,6 +310,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
         try:
             yield
         finally:
+            if docker_pulls is not None:
+                await run_in_threadpool(docker_pulls.close)
             await run_in_threadpool(runtime_service.close)
 
     app = FastAPI(title="QwenPaw Hub", lifespan=lifespan)
@@ -295,6 +320,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     app.state.hub_config = effective_config
     app.state.config_store = config_store
     app.state.operations = operations
+    app.state.docker_pulls = docker_pulls
     oauth_relays = OAuthRelayStore()
     app.state.oauth_relays = oauth_relays
 
@@ -785,6 +811,111 @@ def create_hub_app(  # pylint: disable=too-many-statements
             f"{scope}:{name}",
         )
 
+    @app.get("/api/hub/images")
+    async def list_runtime_images(
+        _: HubUser = Depends(require_admin),
+    ) -> dict[str, object]:
+        """List administrator-managed Docker image choices and status."""
+        provisioner = runtime_service.provisioners.get("docker")
+        status = runtime_service.provisioner_statuses().get("docker")
+        policy = runtime_service.hub_config.runtime.docker
+        official = []
+        if isinstance(provisioner, DockerRuntimeProvisioner):
+            available = bool(status and status.get("available"))
+            for source, repository in OFFICIAL_DOCKER_IMAGES.items():
+                for tag in OFFICIAL_DOCKER_TAGS:
+                    reference = f"{repository}:{tag}"
+                    official.append(
+                        {
+                            "source": source,
+                            "reference": reference,
+                            "tag": tag,
+                            "downloaded": (
+                                await run_in_threadpool(
+                                    provisioner.image_exists,
+                                    reference,
+                                )
+                                if available
+                                else False
+                            ),
+                        },
+                    )
+        local_images: list[dict[str, object]] = []
+        if (
+            isinstance(provisioner, DockerRuntimeProvisioner)
+            and status
+            and status.get("available")
+        ):
+            local_images = await run_in_threadpool(provisioner.list_images)
+        return {
+            "available": bool(status and status.get("available")),
+            "reason": status.get("reason") if status else None,
+            "sources": OFFICIAL_DOCKER_IMAGES,
+            "official_images": official,
+            "local_images": local_images,
+            "policy": policy.model_dump(),
+        }
+
+    @app.get("/api/hub/images/pulls")
+    async def list_image_pulls(
+        _: HubUser = Depends(require_admin),
+    ) -> list[dict[str, object]]:
+        """List current and recent Docker image pulls."""
+        if docker_pulls is None:
+            return []
+        pulls = await run_in_threadpool(docker_pulls.list)
+        return [pull.to_dict() for pull in pulls]
+
+    @app.get("/api/hub/images/pulls/{pull_id}")
+    async def get_image_pull(
+        pull_id: str,
+        _: HubUser = Depends(require_admin),
+    ) -> dict[str, object]:
+        """Return one Docker image pull status."""
+        if docker_pulls is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Docker is unavailable",
+            )
+        try:
+            pull = await run_in_threadpool(docker_pulls.get, pull_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Pull not found",
+            ) from exc
+        return pull.to_dict()
+
+    @app.post("/api/hub/images/pulls", status_code=202)
+    async def pull_runtime_image(
+        body: DockerImagePullBody,
+        user: HubUser = Depends(require_admin),
+    ) -> dict[str, object]:
+        """Start a deduplicated Docker image pull."""
+        if docker_pulls is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Docker is unavailable",
+            )
+        try:
+            runtime_service.require_provisioner_available("docker")
+            pull = await run_in_threadpool(
+                docker_pulls.submit,
+                body.reference,
+            )
+        except RuntimeProvisionerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await record_audit(
+            user,
+            "image.pull",
+            "docker_image",
+            body.reference,
+            {"pull_id": pull.pull_id},
+        )
+        return pull.to_dict()
+
     @app.get("/api/hub/runtimes")
     async def list_runtimes(
         user: HubUser = Depends(require_user),
@@ -814,6 +945,14 @@ def create_hub_app(  # pylint: disable=too-many-statements
         body: RuntimeCreateBody,
         user: HubUser = Depends(require_user),
     ) -> dict[str, Any]:
+        reserved_metadata = {"local", "docker"} & set(body.metadata)
+        if reserved_metadata:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Runtime backend settings are " "administrator-controlled."
+                ),
+            )
         try:
             record = await run_in_threadpool(
                 runtime_service.create,
@@ -821,7 +960,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     runtime_id=body.runtime_id,
                     tenant_id=personal_tenant_id(user),
                     owner_user_id=user.user_id,
-                    provisioner=body.provisioner,
+                    provisioner=None,
                     host=body.host,
                     port=body.port,
                     metadata=body.metadata,
@@ -893,6 +1032,37 @@ def create_hub_app(  # pylint: disable=too-many-statements
         await record_audit(
             user,
             "runtime.start",
+            "runtime",
+            runtime_id,
+        )
+        return await runtime_payload(record)
+
+    @app.post("/api/hub/runtimes/{runtime_id}/rebuild")
+    async def rebuild_runtime(
+        runtime_id: str,
+        user: HubUser = Depends(require_admin),
+    ) -> dict[str, Any]:
+        """Rebuild a Docker runtime with the current global image."""
+        require_runtime_access(runtime_id, user)
+        try:
+            record = await run_in_threadpool(
+                runtime_service.rebuild,
+                runtime_id,
+            )
+        except RuntimeProvisionerUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Runtime not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        await record_audit(
+            user,
+            "runtime.rebuild",
             "runtime",
             runtime_id,
         )
@@ -1280,7 +1450,7 @@ def run_hub_app(
     root_dir = get_hub_root()
     hub_config = HubConfigStore(
         root_dir / "control.db",
-    ).resolve(config_path, available_provisioners={"local"})
+    ).resolve(config_path, available_provisioners={"local", "docker"})
     if public_bind:
         database_path = root_dir / "control.db"
         credential_vault = TenantCredentialVault(

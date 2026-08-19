@@ -602,6 +602,49 @@
   gap: 12px;
 }
 
+.dockerCard {
+  grid-column: 1 / -1;
+}
+
+.dockerFields,
+.resourceFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dockerWarning {
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--hub-danger) 30%, transparent);
+  border-radius: 9px;
+  color: var(--hub-danger);
+  background: color-mix(in srgb, var(--hub-danger) 6%, transparent);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.imagePullRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 2px 0 14px;
+
+  span {
+    color: var(--hub-muted);
+    font-size: 10px;
+  }
+}
+
+.resourceTitle {
+  margin: 20px 0 12px;
+  color: var(--hub-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .tenantCard {
   grid-column: 1 / -1;
 }
@@ -881,6 +924,11 @@
     > :first-child {
       grid-column: 1 / -1;
     }
+  }
+
+  .dockerFields,
+  .resourceFields {
+    grid-template-columns: 1fr;
   }
 }
 
