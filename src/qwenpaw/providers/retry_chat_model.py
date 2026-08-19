@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, AsyncIterator
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
@@ -45,6 +45,8 @@ from ..constant import (
     LLM_MAX_QPM,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
+    LLM_STREAM_FIRST_CONTENT_TIMEOUT,
+    LLM_STREAM_IDLE_TIMEOUT,
 )
 from .error_utils import extract_status_code as _extract_status_code
 from .model_capability_cache import get_capability_cache
@@ -63,6 +65,18 @@ class _AcquireTimeoutError(RateLimitExceededException):
     ``isinstance`` and raise immediately without calling
     ``report_rate_limit()`` or attempting another retry.
     """
+
+
+class StreamIdleTimeoutError(TimeoutError):
+    """Raised when an LLM stream stops producing content-bearing chunks."""
+
+    def __init__(self, model_key: str, timeout_seconds: float) -> None:
+        self.model_key = model_key
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            f"LLM stream for {model_key} produced no content for "
+            f"{timeout_seconds:g}s",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,6 +314,10 @@ class RetryChatModel(ChatModelBase):
         inner: ChatModelBase,
         retry_config: RetryConfig | None = None,
         rate_limit_config: RateLimitConfig | None = None,
+        stream_first_content_timeout: float = (
+            LLM_STREAM_FIRST_CONTENT_TIMEOUT
+        ),
+        stream_idle_timeout: float = LLM_STREAM_IDLE_TIMEOUT,
     ) -> None:
         # agentscope 2.0 ChatModelBase requires credential/model/parameters;
         # forward the inner wrapper's own values so attribute access stays
@@ -322,6 +340,14 @@ class RetryChatModel(ChatModelBase):
         self._retry_config = _normalize_retry_config(retry_config)
         self._rate_limit_config = _normalize_rate_limit_config(
             rate_limit_config,
+        )
+        self._stream_idle_timeout = max(
+            0.0,
+            float(stream_idle_timeout),
+        )
+        self._stream_first_content_timeout = max(
+            0.0,
+            float(stream_first_content_timeout),
         )
 
     @property
@@ -378,13 +404,20 @@ class RetryChatModel(ChatModelBase):
         limiter: LLMRateLimiter,
         acquired_at: float,
     ) -> AsyncGenerator[ChatResponse, None]:
-        """Yield all chunks from *stream*, managing the semaphore slot
-        lifecycle.
+        """Yield chunks while managing the slot and upstream idle budget.
 
         Releases the semaphore slot after the first chunk arrives — once the
         API starts streaming the request has been accepted and will not be
         rate-limited mid-flight, so holding the slot for the full streaming
         duration would unnecessarily starve other callers.
+
+        Before any content arrives, the first-content budget applies. After
+        the first content-bearing chunk, the shorter steady-state idle budget
+        applies and is restored by each later content-bearing chunk. Empty
+        control chunks do not restore either budget. Both budgets count only
+        time spent waiting for the upstream iterator, excluding time suspended
+        at ``yield`` because of consumer backpressure. A configured timeout of
+        zero disables that phase's watchdog.
 
         Always closes *stream* on completion or error.  Any exception raised
         during iteration propagates to the caller's ``async for`` loop
@@ -397,8 +430,28 @@ class RetryChatModel(ChatModelBase):
                 ``on_success()`` so only stale pauses are cleared.
         """
         first_chunk = True
+        loop = asyncio.get_running_loop()
+        active_timeout = self._stream_first_content_timeout
+        idle_budget = active_timeout
+        iterator = stream.__aiter__()
         try:
-            async for chunk in stream:
+            while True:
+                wait_started_at = loop.time()
+                try:
+                    chunk = await self._next_stream_chunk(
+                        iterator,
+                        idle_budget if active_timeout > 0 else None,
+                        active_timeout,
+                    )
+                except StopAsyncIteration:
+                    break
+
+                if active_timeout > 0:
+                    idle_budget = max(
+                        0.0,
+                        idle_budget - (loop.time() - wait_started_at),
+                    )
+
                 if first_chunk:
                     first_chunk = False
                     # return the slot once the API starts delivering
@@ -407,6 +460,9 @@ class RetryChatModel(ChatModelBase):
                     # subsequent callers (including user chats) are not
                     # held back by a pause set by a background task.
                     await limiter.on_success(acquired_at)
+                if chunk.content:
+                    active_timeout = self._stream_idle_timeout
+                    idle_budget = active_timeout
                 yield chunk
         finally:
             await stream.aclose()
@@ -414,6 +470,38 @@ class RetryChatModel(ChatModelBase):
                 # Stream failed before producing any chunk;
                 # slot not yet released.
                 limiter.release()
+
+    async def _next_stream_chunk(
+        self,
+        iterator: AsyncIterator[ChatResponse],
+        timeout: float | None,
+        timeout_seconds: float,
+    ) -> ChatResponse:
+        """Return the next stream chunk within the upstream idle budget."""
+        # Do not replace this with asyncio.wait_for(). AgentScope may suppress
+        # CancelledError and return an interrupted response. Waiting on an
+        # independent task lets this layer enforce its own timeout even when
+        # the provider converts cancellation into a normal result.
+        next_chunk = asyncio.ensure_future(anext(iterator))
+        try:
+            done, _ = await asyncio.wait(
+                {next_chunk},
+                timeout=timeout,
+            )
+        except BaseException:
+            next_chunk.cancel()
+            await asyncio.gather(next_chunk, return_exceptions=True)
+            raise
+
+        if done:
+            return next_chunk.result()
+
+        next_chunk.cancel()
+        await asyncio.gather(next_chunk, return_exceptions=True)
+        raise StreamIdleTimeoutError(
+            self.model_key,
+            timeout_seconds,
+        )
 
     async def generate_structured_output(
         self,

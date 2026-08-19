@@ -112,6 +112,15 @@ You can customize paths and behavior via environment variables:
 | `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
 | `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
 
+**LLM streaming timeouts:**
+
+| Variable                                           | Default | Description                                                                                                                        |
+| -------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT`         | `120`   | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                       |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`                  | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout   |
+
+These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
+
 **Security & Authentication:**
 
 | Variable                     | Default | Description                                        |
