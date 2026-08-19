@@ -111,7 +111,8 @@ def test_packaged_catalog_snapshot() -> None:
     assert {
         model.id: model.max_input_length
         for model in catalog["VOLCENGINE_CODINGPLAN_MODELS"]
-        if model.id in {"deepseek-v4-flash", "kimi-k2.7-code", "doubao-seed-2.1-turbo"}
+        if model.id
+        in {"deepseek-v4-flash", "kimi-k2.7-code", "doubao-seed-2.1-turbo"}
     } == {
         "deepseek-v4-flash": 1_048_576,
         "kimi-k2.7-code": 262_144,
@@ -120,15 +121,15 @@ def test_packaged_catalog_snapshot() -> None:
     assert {
         model.id: model.max_input_length
         for model in catalog["VOLCENGINE_AGENTPLAN_MODELS"]
-        if model.id in {"deepseek-v4-flash", "kimi-k2.7-code", "ark-code-latest"}
+        if model.id
+        in {"deepseek-v4-flash", "kimi-k2.7-code", "ark-code-latest"}
     } == {
         "deepseek-v4-flash": 1_048_576,
         "kimi-k2.7-code": 262_144,
         "ark-code-latest": 262_144,
     }
     assert {
-        model.id: model.max_input_length
-        for model in catalog["MIMO_MODELS"]
+        model.id: model.max_input_length for model in catalog["MIMO_MODELS"]
     } == {
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,

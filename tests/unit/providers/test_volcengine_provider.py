@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
+# pylint: disable=no-name-in-module
 """Tests for the Volcengine built-in providers."""
+
 from __future__ import annotations
 
 import pytest
@@ -38,9 +40,7 @@ def test_volcengine_provider_configs() -> None:
     assert PROVIDER_VOLCENGINE_CN.support_model_discovery is True
 
     assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.id == "volcengine-cn-codingplan"
-    assert (
-        PROVIDER_VOLCENGINE_CN_CODINGPLAN.name == "Volcengine Coding Plan"
-    )
+    assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.name == "Volcengine Coding Plan"
     assert (
         PROVIDER_VOLCENGINE_CN_CODINGPLAN.base_url
         == "https://ark.cn-beijing.volces.com/api/coding/v3"
@@ -53,9 +53,7 @@ def test_volcengine_provider_configs() -> None:
 def test_volcengine_agentplan_provider_config() -> None:
     """Verify Volcengine Agent Plan provider configuration defaults."""
     assert PROVIDER_VOLCENGINE_CN_AGENTPLAN.id == "volcengine-cn-agentplan"
-    assert (
-        PROVIDER_VOLCENGINE_CN_AGENTPLAN.name == "Volcengine Agent Plan"
-    )
+    assert PROVIDER_VOLCENGINE_CN_AGENTPLAN.name == "Volcengine Agent Plan"
     assert (
         PROVIDER_VOLCENGINE_CN_AGENTPLAN.base_url
         == "https://ark.cn-beijing.volces.com/api/plan/v3"
@@ -101,7 +99,10 @@ def test_volcengine_agentplan_models_list() -> None:
 
 def test_volcengine_agentplan_model_limits() -> None:
     """Agent Plan model limits should follow the official docs."""
-    limits = {m.id: (m.max_input_length, m.max_tokens) for m in VOLCENGINE_AGENTPLAN_MODELS}
+    limits = {
+        m.id: (m.max_input_length, m.max_tokens)
+        for m in VOLCENGINE_AGENTPLAN_MODELS
+    }
     assert limits["doubao-seed-2-0-lite-260428"] == (256 * 1024, 128 * 1024)
     assert limits["deepseek-v4-flash"] == (1024 * 1024, 384 * 1024)
     assert limits["minimax-m3"] == (1024 * 1024, 128 * 1024)
@@ -114,6 +115,7 @@ def test_volcengine_agentplan_model_limits() -> None:
 
 @pytest.fixture
 def isolated_secret_dir(monkeypatch, tmp_path):
+    """Provide an isolated secret dir for provider tests."""
     secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
     return secret_dir

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
+# pylint: disable=no-name-in-module
 """Tests for the Xiaomi MiMo built-in providers (Standard API + Token Plan)."""
+
 from __future__ import annotations
 
 import pytest
@@ -58,7 +60,7 @@ def test_mimo_models_list() -> None:
 
 
 def test_mimo_models_limits() -> None:
-    """MiMo V2.5 chat models: context 1M / max output 128K per official docs."""
+    """MiMo V2.5 chat models: 1M context / 128K output, per official docs."""
     for model in MIMO_TOKENPLAN_MODELS:
         assert model.max_input_length == 1024 * 1024
         assert model.max_tokens == 128 * 1024
@@ -88,6 +90,7 @@ def test_mimo_models_attributes() -> None:
 
 @pytest.fixture
 def isolated_secret_dir(monkeypatch, tmp_path):
+    """Provide an isolated secret dir for provider tests."""
     secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
     return secret_dir
