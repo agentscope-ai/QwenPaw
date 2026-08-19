@@ -130,7 +130,7 @@ tenant_defaults:
     assert loaded_from_disk.tenant_defaults.max_runtimes == 3
     with sqlite3.connect(database) as connection:
         registration = connection.execute(
-            "SELECT value FROM hub_settings WHERE key = ?",
+            "SELECT value_json FROM hub_settings WHERE key = ?",
             ("registration_enabled",),
         ).fetchone()
     assert registration == ("true",)

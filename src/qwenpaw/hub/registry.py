@@ -6,17 +6,16 @@ from __future__ import annotations
 import builtins
 import json
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .database import (
+    connect_hub_database,
+    ensure_tenant,
+    initialize_hub_database,
+    utc_now,
+)
 from .models import RuntimeRecord, RuntimeState
-
-_SCHEMA_VERSION = 1
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class RuntimeRegistry:
@@ -24,66 +23,14 @@ class RuntimeRegistry:
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize()
+        initialize_hub_database(database_path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
-
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS schema_meta ("
-                "key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS runtimes (
-                    runtime_id TEXT PRIMARY KEY,
-                    tenant_id TEXT NOT NULL,
-                    owner_user_id TEXT NOT NULL,
-                    provisioner TEXT NOT NULL,
-                    host TEXT NOT NULL,
-                    port INTEGER NOT NULL,
-                    state TEXT NOT NULL,
-                    pid INTEGER,
-                    working_dir TEXT NOT NULL,
-                    secret_dir TEXT NOT NULL,
-                    backup_dir TEXT NOT NULL,
-                    log_file TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    last_error TEXT,
-                    metadata_json TEXT NOT NULL
-                )
-                """,
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runtimes_owner_created "
-                "ON runtimes(owner_user_id, created_at DESC)",
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runtimes_state "
-                "ON runtimes(state)",
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runtimes_provisioner "
-                "ON runtimes(provisioner)",
-            )
-            connection.execute(
-                "INSERT OR REPLACE INTO schema_meta(key, value) "
-                "VALUES ('schema_version', ?)",
-                (str(_SCHEMA_VERSION),),
-            )
+        return connect_hub_database(self.database_path)
 
     def create(self, record: RuntimeRecord) -> RuntimeRecord:
         """Insert a new runtime record."""
-        now = _now()
+        now = utc_now()
         stored = RuntimeRecord(
             **{
                 **record.__dict__,
@@ -92,13 +39,15 @@ class RuntimeRegistry:
             },
         )
         with self._connect() as connection:
+            ensure_tenant(connection, stored.tenant_id)
             connection.execute(
                 """
                 INSERT INTO runtimes(
-                    runtime_id, tenant_id, owner_user_id, provisioner,
-                    host, port,
-                    state, pid, working_dir, secret_dir, backup_dir, log_file,
-                    created_at, updated_at, last_error, metadata_json
+                    runtime_id, tenant_id, owner_user_id, runtime_type,
+                    provisioner, desired_state, observed_state,
+                    endpoint_json, storage_json, config_json, status_json,
+                    metadata_json, revision, created_at, updated_at,
+                    observed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 self._values(stored),
@@ -107,35 +56,52 @@ class RuntimeRegistry:
 
     def save(self, record: RuntimeRecord) -> RuntimeRecord:
         """Persist the latest observed state for an existing runtime."""
+        now = utc_now()
         stored = RuntimeRecord(
             **{
                 **record.__dict__,
-                "updated_at": _now(),
+                "updated_at": now,
+                "observed_at": now,
+                "revision": record.revision + 1,
             },
         )
         with self._connect() as connection:
             cursor = connection.execute(
                 """
                 UPDATE runtimes SET
-                    tenant_id = ?, owner_user_id = ?, provisioner = ?,
-                    host = ?,
-                    port = ?, state = ?, pid = ?, working_dir = ?,
-                    secret_dir = ?, backup_dir = ?, log_file = ?,
-                    created_at = ?, updated_at = ?, last_error = ?,
-                    metadata_json = ?
-                WHERE runtime_id = ?
+                    tenant_id = ?, owner_user_id = ?, runtime_type = ?,
+                    provisioner = ?, desired_state = ?, observed_state = ?,
+                    endpoint_json = ?, storage_json = ?, config_json = ?,
+                    status_json = ?, metadata_json = ?, revision = ?,
+                    created_at = ?, updated_at = ?, observed_at = ?
+                WHERE runtime_id = ? AND revision = ?
+                    AND deleted_at IS NULL
                 """,
-                (*self._values(stored)[1:], stored.runtime_id),
+                (
+                    *self._values(stored)[1:],
+                    stored.runtime_id,
+                    record.revision,
+                ),
             )
             if cursor.rowcount != 1:
-                raise KeyError(stored.runtime_id)
+                row = connection.execute(
+                    "SELECT revision FROM runtimes WHERE runtime_id = ? "
+                    "AND deleted_at IS NULL",
+                    (stored.runtime_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(stored.runtime_id)
+                raise RuntimeError(
+                    f"Runtime changed concurrently: {stored.runtime_id}",
+                )
         return stored
 
     def get(self, runtime_id: str) -> RuntimeRecord | None:
         """Return one runtime or None when it does not exist."""
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM runtimes WHERE runtime_id = ?",
+                "SELECT * FROM runtimes WHERE runtime_id = ? "
+                "AND deleted_at IS NULL",
                 (runtime_id,),
             ).fetchone()
         return self._from_row(row) if row is not None else None
@@ -145,11 +111,13 @@ class RuntimeRegistry:
         with self._connect() as connection:
             if owner_user_id is None:
                 rows = connection.execute(
-                    "SELECT * FROM runtimes ORDER BY created_at, runtime_id",
+                    "SELECT * FROM runtimes WHERE deleted_at IS NULL "
+                    "ORDER BY created_at, runtime_id",
                 ).fetchall()
             else:
                 rows = connection.execute(
                     "SELECT * FROM runtimes WHERE owner_user_id = ? "
+                    "AND deleted_at IS NULL "
                     "ORDER BY created_at, runtime_id",
                     (owner_user_id,),
                 ).fetchall()
@@ -167,7 +135,7 @@ class RuntimeRegistry:
         owner: str | None = None,
     ) -> tuple[builtins.list[RuntimeRecord], int]:
         """Return one filtered runtime page and the matching total."""
-        clauses: list[str] = []
+        clauses: list[str] = ["deleted_at IS NULL"]
         parameters: list[object] = []
         if owner_user_id is not None:
             clauses.append("owner_user_id = ?")
@@ -175,12 +143,13 @@ class RuntimeRegistry:
         if query:
             clauses.append(
                 "(runtime_id LIKE ? OR tenant_id LIKE ? "
-                "OR owner_user_id LIKE ? OR host LIKE ?)",
+                "OR owner_user_id LIKE ? OR "
+                "json_extract(endpoint_json, '$.host') LIKE ?)",
             )
             pattern = f"%{query}%"
             parameters.extend([pattern, pattern, pattern, pattern])
         if state is not None:
-            clauses.append("state = ?")
+            clauses.append("observed_state = ?")
             parameters.append(state.value)
         if provisioner:
             clauses.append("provisioner = ?")
@@ -188,7 +157,7 @@ class RuntimeRegistry:
         if owner:
             clauses.append("owner_user_id LIKE ?")
             parameters.append(f"%{owner}%")
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f" WHERE {' AND '.join(clauses)}"
         with self._connect() as connection:
             total_row = connection.execute(
                 f"SELECT COUNT(*) AS count FROM runtimes{where}",
@@ -211,28 +180,30 @@ class RuntimeRegistry:
     ) -> dict[str, int]:
         """Return runtime totals grouped by persisted lifecycle state."""
         parameters: tuple[object, ...] = ()
-        where = ""
+        clauses = ["deleted_at IS NULL"]
         if owner_user_id is not None:
-            where = " WHERE owner_user_id = ?"
+            clauses.append("owner_user_id = ?")
             parameters = (owner_user_id,)
+        where = f" WHERE {' AND '.join(clauses)}"
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT state, COUNT(*) AS count FROM runtimes"
-                f"{where} GROUP BY state",
+                "SELECT observed_state, COUNT(*) AS count FROM runtimes"
+                f"{where} GROUP BY observed_state",
                 parameters,
             ).fetchall()
         counts = {state.value: 0 for state in RuntimeState}
         counts.update(
-            {str(row["state"]): int(row["count"]) for row in rows},
+            {str(row["observed_state"]): int(row["count"]) for row in rows},
         )
         return counts
 
     def delete(self, runtime_id: str) -> None:
-        """Delete registration without deleting runtime data."""
+        """Retire registration without deleting runtime data."""
         with self._connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM runtimes WHERE runtime_id = ?",
-                (runtime_id,),
+                "UPDATE runtimes SET deleted_at = ?, revision = revision + 1 "
+                "WHERE runtime_id = ? AND deleted_at IS NULL",
+                (utc_now(), runtime_id),
             )
             if cursor.rowcount != 1:
                 raise KeyError(runtime_id)
@@ -243,42 +214,79 @@ class RuntimeRegistry:
             record.runtime_id,
             record.tenant_id,
             record.owner_user_id,
+            record.runtime_type,
             record.provisioner,
-            record.host,
-            record.port,
+            record.desired_state.value,
             record.state.value,
-            record.pid,
-            str(record.working_dir),
-            str(record.secret_dir),
-            str(record.backup_dir),
-            str(record.log_file),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "host": record.host,
+                    "port": record.port,
+                },
+                sort_keys=True,
+            ),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "working_dir": str(record.working_dir),
+                    "secret_dir": str(record.secret_dir),
+                    "backup_dir": str(record.backup_dir),
+                    "log_file": str(record.log_file),
+                },
+                sort_keys=True,
+            ),
+            json.dumps({"schema_version": 1}, sort_keys=True),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "pid": record.pid,
+                    "last_error": record.last_error,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "values": record.metadata,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            record.revision,
             record.created_at,
             record.updated_at,
-            record.last_error,
-            json.dumps(record.metadata, ensure_ascii=False, sort_keys=True),
+            record.observed_at or record.updated_at,
         )
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> RuntimeRecord:
+        endpoint = json.loads(str(row["endpoint_json"]))
+        storage = json.loads(str(row["storage_json"]))
+        status = json.loads(str(row["status_json"]))
+        metadata = json.loads(str(row["metadata_json"]))
         return RuntimeRecord(
             runtime_id=str(row["runtime_id"]),
             tenant_id=str(row["tenant_id"]),
             owner_user_id=str(row["owner_user_id"]),
+            runtime_type=str(row["runtime_type"]),
             provisioner=str(row["provisioner"]),
-            host=str(row["host"]),
-            port=int(row["port"]),
-            state=RuntimeState(str(row["state"])),
-            pid=int(row["pid"]) if row["pid"] is not None else None,
-            working_dir=Path(str(row["working_dir"])),
-            secret_dir=Path(str(row["secret_dir"])),
-            backup_dir=Path(str(row["backup_dir"])),
-            log_file=Path(str(row["log_file"])),
+            host=str(endpoint["host"]),
+            port=int(endpoint["port"]),
+            desired_state=RuntimeState(str(row["desired_state"])),
+            state=RuntimeState(str(row["observed_state"])),
+            pid=(
+                int(status["pid"]) if status.get("pid") is not None else None
+            ),
+            working_dir=Path(str(storage["working_dir"])),
+            secret_dir=Path(str(storage["secret_dir"])),
+            backup_dir=Path(str(storage["backup_dir"])),
+            log_file=Path(str(storage["log_file"])),
+            revision=int(row["revision"]),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
-            last_error=(
-                str(row["last_error"])
-                if row["last_error"] is not None
-                else None
-            ),
-            metadata=json.loads(str(row["metadata_json"])),
+            observed_at=str(row["observed_at"]),
+            last_error=status.get("last_error"),
+            metadata=dict(metadata.get("values", {})),
         )

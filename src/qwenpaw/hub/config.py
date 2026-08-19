@@ -19,6 +19,12 @@ from pydantic import (
     model_validator,
 )
 
+from .database import (
+    connect_hub_database,
+    initialize_hub_database,
+    utc_now,
+)
+
 
 class RegistrationConfig(BaseModel):
     """Configuration-managed account registration policy."""
@@ -193,18 +199,10 @@ class HubConfigStore:
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS hub_settings ("
-                "key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-            )
+        initialize_hub_database(database_path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
+        return connect_hub_database(self.database_path)
 
     def resolve(
         self,
@@ -223,11 +221,18 @@ class HubConfigStore:
             if available_provisioners is not None:
                 _validate_provisioners(effective, available_provisioners)
             connection.execute(
-                "INSERT OR REPLACE INTO hub_settings(key, value) "
-                "VALUES (?, ?)",
+                "INSERT INTO hub_settings("
+                "key, value_json, schema_version, revision, updated_at) "
+                "VALUES (?, ?, 1, 1, ?) "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "value_json = excluded.value_json, "
+                "schema_version = excluded.schema_version, "
+                "revision = hub_settings.revision + 1, "
+                "updated_at = excluded.updated_at",
                 (
                     self._CONFIG_KEY,
                     effective.model_dump_json(exclude_none=True),
+                    utc_now(),
                 ),
             )
             registration = explicit.get("control_plane", {}).get(
@@ -238,7 +243,7 @@ class HubConfigStore:
                 self._write_setting(
                     connection,
                     "registration_enabled",
-                    "true" if registration["enabled"] else "false",
+                    bool(registration["enabled"]),
                 )
             if "default_role" in registration:
                 self._write_setting(
@@ -253,13 +258,13 @@ class HubConfigStore:
         connection: sqlite3.Connection,
     ) -> dict[str, object]:
         row = connection.execute(
-            "SELECT value FROM hub_settings WHERE key = ?",
+            "SELECT value_json FROM hub_settings WHERE key = ?",
             (self._CONFIG_KEY,),
         ).fetchone()
         if row is None:
             return {"version": 1}
         try:
-            value = json.loads(str(row["value"]))
+            value = json.loads(str(row["value_json"]))
         except json.JSONDecodeError as exc:
             raise ValueError("Persisted Hub config is invalid") from exc
         if not isinstance(value, dict):
@@ -270,11 +275,17 @@ class HubConfigStore:
     def _write_setting(
         connection: sqlite3.Connection,
         key: str,
-        value: str,
+        value: object,
     ) -> None:
         connection.execute(
-            "INSERT OR REPLACE INTO hub_settings(key, value) VALUES (?, ?)",
-            (key, value),
+            "INSERT INTO hub_settings("
+            "key, value_json, schema_version, revision, updated_at) "
+            "VALUES (?, ?, 1, 1, ?) "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "value_json = excluded.value_json, "
+            "revision = hub_settings.revision + 1, "
+            "updated_at = excluded.updated_at",
+            (key, json.dumps(value), utc_now()),
         )
 
 

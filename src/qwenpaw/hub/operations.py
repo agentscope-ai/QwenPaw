@@ -6,15 +6,16 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import psutil
 
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .database import (
+    connect_hub_database,
+    initialize_hub_database,
+    utc_now,
+)
 
 
 class HubOperationsStore:
@@ -23,35 +24,10 @@ class HubOperationsStore:
     def __init__(self, database_path: Path, data_root: Path) -> None:
         self.database_path = database_path
         self.data_root = data_root
-        self._initialize()
+        initialize_hub_database(database_path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
-
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS hub_audit_events (
-                    event_id TEXT PRIMARY KEY,
-                    actor_user_id TEXT NOT NULL,
-                    actor_username TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    resource_type TEXT NOT NULL,
-                    resource_id TEXT NOT NULL,
-                    outcome TEXT NOT NULL,
-                    detail_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-                """,
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_hub_audit_created "
-                "ON hub_audit_events(created_at DESC)",
-            )
+        return connect_hub_database(self.database_path)
 
     def record(
         self,
@@ -63,6 +39,9 @@ class HubOperationsStore:
         resource_id: str,
         outcome: str = "success",
         detail: dict[str, Any] | None = None,
+        request_id: str | None = None,
+        correlation_id: str | None = None,
+        remote_address: str | None = None,
     ) -> None:
         """Append one sanitized Hub management event."""
         with self._connect() as connection:
@@ -70,9 +49,9 @@ class HubOperationsStore:
                 """
                 INSERT INTO hub_audit_events(
                     event_id, actor_user_id, actor_username, action,
-                    resource_type, resource_id, outcome, detail_json,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    resource_type, resource_id, outcome, request_id,
+                    correlation_id, remote_address, detail_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     uuid.uuid4().hex,
@@ -82,12 +61,15 @@ class HubOperationsStore:
                     resource_type,
                     resource_id,
                     outcome,
+                    request_id,
+                    correlation_id,
+                    remote_address,
                     json.dumps(
                         detail or {},
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
-                    _now(),
+                    utc_now(),
                 ),
             )
 
@@ -154,6 +136,9 @@ class HubOperationsStore:
             "resource_type": str(row["resource_type"]),
             "resource_id": str(row["resource_id"]),
             "outcome": str(row["outcome"]),
+            "request_id": row["request_id"],
+            "correlation_id": row["correlation_id"],
+            "remote_address": row["remote_address"],
             "detail": json.loads(str(row["detail_json"])),
             "created_at": str(row["created_at"]),
         }

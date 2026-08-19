@@ -179,7 +179,12 @@ class RuntimeService:
             )
         provisioner = self._provisioner(record)
         starting = self.registry.save(
-            replace(record, state=RuntimeState.STARTING, last_error=None),
+            replace(
+                record,
+                desired_state=RuntimeState.RUNNING,
+                state=RuntimeState.STARTING,
+                last_error=None,
+            ),
         )
         try:
             credentials = self.credential_provider(starting)
@@ -200,7 +205,11 @@ class RuntimeService:
         """Stop a runtime through its configured provisioner."""
         with self._runtime_lock(runtime_id):
             record = self.get(runtime_id)
-            stopped = self._provisioner(record).stop(record)
+            requested = replace(
+                record,
+                desired_state=RuntimeState.STOPPED,
+            )
+            stopped = self._provisioner(requested).stop(requested)
             return self.registry.save(stopped)
 
     def status(self, runtime_id: str) -> RuntimeRecord:
@@ -235,7 +244,12 @@ class RuntimeService:
                 RuntimeState.STARTING,
             }:
                 self.registry.save(
-                    replace(record, state=RuntimeState.STOPPED, pid=None),
+                    replace(
+                        record,
+                        desired_state=RuntimeState.STOPPED,
+                        state=RuntimeState.STOPPED,
+                        pid=None,
+                    ),
                 )
 
     def security_level(self, provisioner_name: str) -> str:

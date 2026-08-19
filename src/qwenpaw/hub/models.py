@@ -48,8 +48,12 @@ class RuntimeRecord:
     backup_dir: Path
     log_file: Path
     pid: int | None = None
+    desired_state: RuntimeState = RuntimeState.CREATED
+    runtime_type: str = "qwenpaw"
+    revision: int = 1
     created_at: str = ""
     updated_at: str = ""
+    observed_at: str = ""
     last_error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -57,6 +61,7 @@ class RuntimeRecord:
         """Return a JSON-compatible representation."""
         data = asdict(self)
         data["state"] = self.state.value
+        data["desired_state"] = self.desired_state.value
         for key in ("working_dir", "secret_dir", "backup_dir", "log_file"):
             data[key] = str(data[key])
         return data

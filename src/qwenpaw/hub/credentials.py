@@ -7,18 +7,21 @@ import os
 import re
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+import uuid
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from .database import (
+    connect_hub_database,
+    ensure_tenant,
+    initialize_hub_database,
+    utc_now,
+)
+
 _CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _SYSTEM_TENANT_ID = "__qwenpaw_hub_system__"
 _SYSTEM_SCOPE = "control"
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class TenantCredentialVault:
@@ -29,33 +32,10 @@ class TenantCredentialVault:
         self.key_path = key_path
         self._fernet = Fernet(self._load_or_create_key())
         self._cache: dict[tuple[str, str, str], str] = {}
-        self._initialize()
+        initialize_hub_database(database_path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
-
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tenant_credentials (
-                    tenant_id TEXT NOT NULL,
-                    scope TEXT NOT NULL,
-                    credential_name TEXT NOT NULL,
-                    encrypted_value TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (tenant_id, scope, credential_name)
-                )
-                """,
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_credentials_tenant_updated "
-                "ON tenant_credentials(tenant_id, updated_at DESC)",
-            )
+        return connect_hub_database(self.database_path)
 
     def put(
         self,
@@ -70,19 +50,34 @@ class TenantCredentialVault:
         if not value:
             raise ValueError("Credential value cannot be empty.")
         encrypted = self._fernet.encrypt(value.encode("utf-8")).decode("ascii")
-        now = _now()
+        now = utc_now()
         with self._connect() as connection:
+            ensure_tenant(connection, tenant_id)
             connection.execute(
                 """
                 INSERT INTO tenant_credentials(
-                    tenant_id, scope, credential_name, encrypted_value,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    credential_id, tenant_id, scope, credential_name,
+                    encrypted_value, encryption_scheme, encryption_key_id,
+                    secret_type, metadata_json, revision, created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'fernet-v1', 'local-vault',
+                    'environment', '{"schema_version":1}', 1, ?, ?)
                 ON CONFLICT(tenant_id, scope, credential_name) DO UPDATE SET
                     encrypted_value = excluded.encrypted_value,
+                    encryption_scheme = excluded.encryption_scheme,
+                    encryption_key_id = excluded.encryption_key_id,
+                    revision = tenant_credentials.revision + 1,
                     updated_at = excluded.updated_at
                 """,
-                (tenant_id, scope, name, encrypted, now, now),
+                (
+                    uuid.uuid4().hex,
+                    tenant_id,
+                    scope,
+                    name,
+                    encrypted,
+                    now,
+                    now,
+                ),
             )
         self._cache[(tenant_id, scope, name)] = value
 

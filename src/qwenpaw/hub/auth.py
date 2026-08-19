@@ -13,17 +13,18 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .credentials import TenantCredentialVault
+from .database import (
+    connect_hub_database,
+    ensure_tenant,
+    initialize_hub_database,
+    utc_now,
+)
 
 _PASSWORD_ITERATIONS = 600_000
 _TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,11 @@ class HubUser:
     role: str
     disabled: bool
     token_version: int
+    profile: dict[str, object]
+    preferences: dict[str, object]
+    metadata: dict[str, object]
+    revision: int
+    last_login_at: str | None
     created_at: str
     updated_at: str
 
@@ -48,6 +54,11 @@ class HubUser:
             "username": self.username,
             "role": self.role,
             "disabled": self.disabled,
+            "profile": self.profile,
+            "preferences": self.preferences,
+            "metadata": self.metadata,
+            "revision": self.revision,
+            "last_login_at": self.last_login_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -64,54 +75,13 @@ class HubAuthService:
         self.database_path = database_path
         self.credential_vault = credential_vault
         self._registration_lock = threading.Lock()
-        self._initialize()
+        initialize_hub_database(database_path)
         self._token_secret = self.credential_vault.get_or_create_system_secret(
             "TOKEN_SIGNING_SECRET",
         ).encode("ascii")
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
-
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS hub_users (
-                    user_id TEXT PRIMARY KEY,
-                    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                    password_hash TEXT NOT NULL,
-                    password_salt TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
-                    disabled INTEGER NOT NULL DEFAULT 0,
-                    token_version INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """,
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS hub_settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                )
-                """,
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_hub_users_role_disabled "
-                "ON hub_users(role, disabled)",
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO hub_settings(key, value) "
-                "VALUES ('registration_enabled', 'false')",
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO hub_settings(key, value) "
-                "VALUES ('registration_default_role', 'user')",
-            )
+        return connect_hub_database(self.database_path)
 
     def status(self) -> dict[str, object]:
         """Return public bootstrap and registration state."""
@@ -127,7 +97,8 @@ class HubAuthService:
     def user_count(self) -> int:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT COUNT(*) AS count FROM hub_users",
+                "SELECT COUNT(*) AS count FROM hub_users "
+                "WHERE deleted_at IS NULL",
             ).fetchone()
         return int(row["count"])
 
@@ -136,17 +107,18 @@ class HubAuthService:
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT 1 FROM hub_users "
-                "WHERE role = 'admin' AND disabled = 0 LIMIT 1",
+                "WHERE role = 'admin' AND disabled = 0 "
+                "AND deleted_at IS NULL LIMIT 1",
             ).fetchone()
         return row is not None
 
     def registration_enabled(self) -> bool:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT value FROM hub_settings WHERE key = ?",
+                "SELECT value_json FROM hub_settings WHERE key = ?",
                 ("registration_enabled",),
             ).fetchone()
-        return row is not None and str(row["value"]).lower() == "true"
+        return row is not None and bool(json.loads(str(row["value_json"])))
 
     def registration_setting(self) -> dict[str, object]:
         """Return the effective value and whether SQLite can change it."""
@@ -160,9 +132,13 @@ class HubAuthService:
     def set_registration_enabled(self, enabled: bool) -> bool:
         with self._connect() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO hub_settings(key, value) "
-                "VALUES (?, ?)",
-                ("registration_enabled", "true" if enabled else "false"),
+                "UPDATE hub_settings SET value_json = ?, "
+                "revision = revision + 1, updated_at = ? WHERE key = ?",
+                (
+                    "true" if enabled else "false",
+                    utc_now(),
+                    "registration_enabled",
+                ),
             )
         return enabled
 
@@ -186,10 +162,12 @@ class HubAuthService:
     def _registration_default_role(self) -> str:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT value FROM hub_settings WHERE key = ?",
+                "SELECT value_json FROM hub_settings WHERE key = ?",
                 ("registration_default_role",),
             ).fetchone()
-        return str(row["value"]) if row is not None else "user"
+        if row is None:
+            return "user"
+        return str(json.loads(str(row["value_json"])))
 
     def create_user(
         self,
@@ -205,16 +183,25 @@ class HubAuthService:
             raise ValueError(f"Invalid role: {role}")
         salt = secrets.token_bytes(16)
         password_hash = self._hash_password(password, salt)
-        now = _now()
+        now = utc_now()
         user_id = uuid.uuid4().hex
         try:
             with self._connect() as connection:
+                tenant_id = f"personal-{user_id}"
+                ensure_tenant(
+                    connection,
+                    tenant_id,
+                    tenant_type="personal",
+                    display_name=normalized_username,
+                )
                 connection.execute(
                     """
                     INSERT INTO hub_users(
                         user_id, username, password_hash, password_salt,
-                        role, disabled, token_version, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?)
+                        role, disabled, token_version, profile_json,
+                        preferences_json, metadata_json, revision,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         user_id,
@@ -222,6 +209,9 @@ class HubAuthService:
                         password_hash,
                         salt.hex(),
                         role,
+                        '{"schema_version":1}',
+                        '{"schema_version":1}',
+                        '{"schema_version":1}',
                         now,
                         now,
                     ),
@@ -243,7 +233,8 @@ class HubAuthService:
         """Verify credentials and return a fresh bearer token."""
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM hub_users WHERE username = ? COLLATE NOCASE",
+                "SELECT * FROM hub_users WHERE username = ? COLLATE NOCASE "
+                "AND deleted_at IS NULL",
                 (username.strip(),),
             ).fetchone()
         if row is None or bool(row["disabled"]):
@@ -253,6 +244,16 @@ class HubAuthService:
         if not hmac.compare_digest(actual_hash, str(row["password_hash"])):
             raise PermissionError("Invalid username or password.")
         user = self._user_from_row(row)
+        login_time = utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE hub_users SET last_login_at = ?, updated_at = ?, "
+                "revision = revision + 1 WHERE user_id = ?",
+                (login_time, login_time, user.user_id),
+            )
+        refreshed = self.get_user(user.user_id)
+        if refreshed is not None:
+            user = refreshed
         return user, self.create_token(user)
 
     def create_token(self, user: HubUser) -> str:
@@ -302,7 +303,8 @@ class HubAuthService:
     def list_users(self) -> list[HubUser]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM hub_users ORDER BY created_at, username",
+                "SELECT * FROM hub_users WHERE deleted_at IS NULL "
+                "ORDER BY created_at, username",
             ).fetchall()
         return [self._user_from_row(row) for row in rows]
 
@@ -316,7 +318,7 @@ class HubAuthService:
         disabled: bool | None = None,
     ) -> tuple[list[HubUser], int]:
         """Return one filtered account page and the matching total."""
-        clauses: list[str] = []
+        clauses: list[str] = ["deleted_at IS NULL"]
         parameters: list[object] = []
         if query:
             clauses.append("(username LIKE ? OR user_id LIKE ?)")
@@ -330,7 +332,7 @@ class HubAuthService:
         if disabled is not None:
             clauses.append("disabled = ?")
             parameters.append(int(disabled))
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f" WHERE {' AND '.join(clauses)}"
         with self._connect() as connection:
             total_row = connection.execute(
                 f"SELECT COUNT(*) AS count FROM hub_users{where}",
@@ -350,7 +352,8 @@ class HubAuthService:
     def get_user(self, user_id: str) -> HubUser | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM hub_users WHERE user_id = ?",
+                "SELECT * FROM hub_users WHERE user_id = ? "
+                "AND deleted_at IS NULL",
                 (user_id,),
             ).fetchone()
         return self._user_from_row(row) if row is not None else None
@@ -380,10 +383,11 @@ class HubAuthService:
             connection.execute(
                 """
                 UPDATE hub_users SET role = ?, disabled = ?,
-                    token_version = token_version + 1, updated_at = ?
+                    token_version = token_version + 1,
+                    revision = revision + 1, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (next_role, int(next_disabled), _now(), user_id),
+                (next_role, int(next_disabled), utc_now(), user_id),
             )
         updated = self.get_user(user_id)
         if updated is None:
@@ -394,7 +398,8 @@ class HubAuthService:
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT COUNT(*) AS count FROM hub_users "
-                "WHERE role = 'admin' AND disabled = 0",
+                "WHERE role = 'admin' AND disabled = 0 "
+                "AND deleted_at IS NULL",
             ).fetchone()
         return int(row["count"])
 
@@ -425,6 +430,15 @@ class HubAuthService:
             role=str(row["role"]),
             disabled=bool(row["disabled"]),
             token_version=int(row["token_version"]),
+            profile=json.loads(str(row["profile_json"])),
+            preferences=json.loads(str(row["preferences_json"])),
+            metadata=json.loads(str(row["metadata_json"])),
+            revision=int(row["revision"]),
+            last_login_at=(
+                str(row["last_login_at"])
+                if row["last_login_at"] is not None
+                else None
+            ),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
         )

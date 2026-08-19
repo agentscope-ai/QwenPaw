@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for QwenPaw Hub users, roles, and token invalidation."""
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,12 @@ def test_first_registration_bootstraps_admin_and_closes_registration(
     assert auth.has_enabled_admin() is True
     assert auth.verify_token(token) == admin
     assert auth.status()["registration_enabled"] is False
+    with sqlite3.connect(tmp_path / "control.db") as connection:
+        tenant = connection.execute(
+            "SELECT tenant_type FROM hub_tenants WHERE tenant_id = ?",
+            (f"personal-{admin.user_id}",),
+        ).fetchone()
+    assert tenant == ("personal",)
     with pytest.raises(PermissionError, match="Registration is disabled"):
         auth.register("second", "safe-password")
 
