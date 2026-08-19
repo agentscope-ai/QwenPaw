@@ -10,12 +10,18 @@ from urllib.parse import unquote
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import DataBlock, TextBlock, URLSource
+from agentscope.message import (
+    DataBlock,
+    TextBlock,
+    URLSource,
+    ToolResultState,
+)
 from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
 
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
 from .file_io import _path_to_file_url, _resolve_file_path
+from ..utils.image_freezing import freeze_local_image
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +147,21 @@ def _validate_media_path(
         )
 
     return resolved, None
+
+
+def _load_local_image(
+    image_path: str,
+) -> tuple[Path, DataBlock | None, ToolChunk | None, str | None]:
+    """Resolve, validate, and freeze one local image transaction."""
+    resolved, validation_error = _validate_media_path(
+        image_path,
+        _IMAGE_EXTENSIONS,
+        "image",
+    )
+    if validation_error is not None:
+        return resolved, None, validation_error, None
+    frozen, freeze_error = freeze_local_image(resolved)
+    return resolved, frozen, None, freeze_error
 
 
 async def _probe_multimodal_if_needed(
@@ -384,15 +405,23 @@ async def view_image(image_path: str) -> ToolChunk:
             ],
         )
 
-    resolved, err = _validate_media_path(
+    resolved, frozen_image, validation_error, freeze_error = await run_sync_io(
+        _load_local_image,
         image_path,
-        _IMAGE_EXTENSIONS,
-        "image",
     )
-    if err is not None:
-        return err
-
-    file_url = _path_to_file_url(str(resolved))
+    if validation_error is not None:
+        return validation_error
+    if freeze_error is not None or frozen_image is None:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=freeze_error or f"Error: failed to load {resolved}",
+                ),
+            ],
+        )
 
     text_msg = (
         fallback_hint if fallback_hint else f"Image loaded: {resolved.name}"
@@ -401,7 +430,7 @@ async def view_image(image_path: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[
-            _media_data_block(file_url, "image"),
+            frozen_image,
             TextBlock(type="text", text=text_msg),
         ],
     )

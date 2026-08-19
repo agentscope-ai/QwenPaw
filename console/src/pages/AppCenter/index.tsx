@@ -3,8 +3,8 @@
  *
  * Lists all plugins with `meta.pawapp` from the backend. Clicking an
  * app renders its registered route component INLINE within this page
- * (no full-page navigation). The URL bar is mirrored via history.pushState
- * so path-based SDK helpers (getAppId) keep resolving.
+ * (no full-page navigation). The classic console mirrors the app path in the
+ * URL; the Desktop OS keeps its single `/os` browser entry point.
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,20 +23,31 @@ import type { MenuProps } from "antd";
 import {
   AppWindow,
   BadgeCheck,
+  CircleX,
   LayoutGrid,
   Search,
   RefreshCw,
   Info,
-  RotateCcw,
   Store,
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
+import type { InstallPluginResult } from "../../api/modules/plugin";
 import { useRoutes } from "../../plugins/registry/hooks";
-import { AppCard, type AppCardData } from "./AppCard";
+import { loadPawApp } from "../../plugins/usePluginLoader";
+import { removePluginAppState } from "../../os/osCleanup";
+import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
+import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
+import {
+  addRouterBasename,
+  getOsPawAppIdFromHistoryState,
+  getOsRootHref,
+  isOsPath,
+  withOsPawAppHistoryState,
+} from "../../utils/navigationMode";
 import styles from "./index.module.less";
 
 // Code-split market views so their bundle + network fetch never block the
@@ -49,9 +60,17 @@ const { Option } = Select;
 
 /** URL-persisted App Center views; unknown values fall back to installed. */
 type AppCenterView = "installed" | "official" | "market";
+// Featured installed apps (e.g. Creator) are pinned to the top of the grid.
+// Lower index = higher placement.
+const FEATURED_APP_IDS = ["qwenpaw-creator"];
+
+function featuredRank(id: string): number {
+  const index = FEATURED_APP_IDS.indexOf(id);
+  return index === -1 ? FEATURED_APP_IDS.length : index;
+}
 
 export default function AppCenterPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { appId } = useParams();
   const { message } = useAppMessage();
   const routes = useRoutes();
@@ -89,6 +108,7 @@ export default function AppCenterPage() {
           name: app.name,
           version: app.version,
           description: app.description,
+          description_i18n: app.description_i18n ?? {},
           category: app.category ?? "",
           icon: app.icon ?? "",
           icon_url: app.icon_url ?? "",
@@ -105,6 +125,15 @@ export default function AppCenterPage() {
     }
   };
 
+  const handleMarketInstalled = async (result: InstallPluginResult) => {
+    if (apps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
+    await loadPawApp(result.id);
+    await fetchApps();
+  };
+
   useEffect(() => {
     fetchApps();
   }, []);
@@ -118,6 +147,11 @@ export default function AppCenterPage() {
     if (found) setActiveApp(found);
   }, [appId, apps]);
 
+  useEffect(() => {
+    setActivePawAppId(activeApp?.id ?? null);
+    return () => setActivePawAppId(null);
+  }, [activeApp?.id]);
+
   // Compute available categories
   const categories = useMemo(() => {
     const cats = new Set<string>();
@@ -127,39 +161,77 @@ export default function AppCenterPage() {
     return Array.from(cats).sort();
   }, [apps]);
 
-  // Filter apps
+  // Filter apps (featured apps stay pinned to the top, stable otherwise)
   const filteredApps = useMemo(() => {
-    return apps.filter((app) => {
-      const matchesSearch =
-        !searchQuery ||
-        app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        app.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory =
-        categoryFilter === "all" || app.category === categoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-  }, [apps, searchQuery, categoryFilter]);
+    return apps
+      .filter((app) => {
+        const description = pickAppDescription(app, i18n.language);
+        const matchesSearch =
+          !searchQuery ||
+          app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          description.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesCategory =
+          categoryFilter === "all" || app.category === categoryFilter;
+        return matchesSearch && matchesCategory;
+      })
+      .sort((a, b) => featuredRank(a.id) - featuredRank(b.id));
+  }, [apps, searchQuery, categoryFilter, i18n.language]);
 
   const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
 
-  // Resolve the registered route component for the active app so it can be
-  // rendered inline (no full-page navigation).
   const activeRoute = useMemo(() => {
     if (!activeApp) return null;
     const target = appTarget(activeApp);
-    return routes.find((r) => r.path === target) ?? null;
+    return routes.find((route) => route.path === target) ?? null;
   }, [activeApp, routes]);
 
-  const handleAppClick = (app: AppCardData) => {
-    // Reflect the app path in the URL bar (so path-based SDK helpers keep
-    // working) WITHOUT triggering a react-router navigation, then render the
-    // app inline within this page.
-    window.history.pushState({ pawappInline: true }, "", appTarget(app));
+  const handleAppClick = async (app: AppCardData) => {
+    const target = appTarget(app);
+    try {
+      await loadPawApp(app.id, target);
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("appCenter.appLoadFailed", "Failed to load app"),
+      );
+      return;
+    }
+    if (isOsPath(window.location.pathname)) {
+      window.history.pushState(
+        withOsPawAppHistoryState(window.history.state, app.id),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+    } else {
+      window.history.pushState(
+        { pawappInline: true },
+        "",
+        addRouterBasename(window.location.pathname, target),
+      );
+    }
     setActiveApp(app);
   };
 
   const handleBack = () => {
-    window.history.pushState({}, "", "/apps");
+    if (isOsPath(window.location.pathname)) {
+      if (getOsPawAppIdFromHistoryState(window.history.state)) {
+        window.history.back();
+        return;
+      }
+      window.history.replaceState(
+        withOsPawAppHistoryState(window.history.state, null),
+        "",
+        getOsRootHref(window.location.pathname),
+      );
+      setActiveApp(null);
+      return;
+    }
+    window.history.pushState(
+      {},
+      "",
+      addRouterBasename(window.location.pathname, "/apps"),
+    );
     setActiveApp(null);
   };
 
@@ -178,6 +250,7 @@ export default function AppCenterPage() {
       onOk: async () => {
         try {
           await pawappApi.uninstall(app.id);
+          removePluginAppState(app.id);
           message.success(t("appCenter.uninstallSuccess", "App uninstalled"));
           await fetchApps();
         } catch (err) {
@@ -194,12 +267,19 @@ export default function AppCenterPage() {
 
   // Keep the inline view in sync with browser back/forward.
   useEffect(() => {
-    const onPop = () => {
-      if (!/\/apps\//.test(window.location.pathname)) setActiveApp(null);
+    const onPop = (event: PopStateEvent) => {
+      const appId = isOsPath(window.location.pathname)
+        ? getOsPawAppIdFromHistoryState(event.state)
+        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+      if (!appId) {
+        setActiveApp(null);
+        return;
+      }
+      setActiveApp(apps.find((app) => app.id === appId) ?? null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [apps]);
 
   // ESC key to close app and return to list
   useEffect(() => {
@@ -216,20 +296,8 @@ export default function AppCenterPage() {
   // ── Embedded app view ─────────────────────────────────────────────────────
   if (activeApp) {
     const AppComponent = activeRoute?.Component;
-
     // App menu items
     const appMenuItems: MenuProps["items"] = [
-      {
-        key: "refresh",
-        icon: <RotateCcw size={14} />,
-        label: t("appCenter.refreshApp", "刷新应用"),
-        onClick: () => {
-          // Force reload by unmounting and remounting the app component
-          setActiveApp(null);
-          setTimeout(() => setActiveApp(activeApp), 0);
-          message.success(t("appCenter.appRefreshed", "应用已刷新"));
-        },
-      },
       {
         key: "about",
         icon: <Info size={14} />,
@@ -256,7 +324,7 @@ export default function AppCenterPage() {
                 {activeApp.description && (
                   <p>
                     <strong>{t("appCenter.description", "描述")}:</strong>{" "}
-                    {activeApp.description}
+                    {pickAppDescription(activeApp, i18n.language)}
                   </p>
                 )}
               </div>
@@ -301,16 +369,7 @@ export default function AppCenterPage() {
             onClick={handleBack}
             title={t("appCenter.backToListHint", "返回应用列表 (ESC)")}
           >
-            <svg
-              className={styles.capsuleCloseIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            >
-              <circle cx="12" cy="12" r="9" />
-            </svg>
+            <CircleX className={styles.capsuleCloseIcon} size={20} />
           </button>
         </div>
 
@@ -324,7 +383,7 @@ export default function AppCenterPage() {
               image={<AppWindow size={48} strokeWidth={1} />}
               description={t(
                 "appCenter.appNotLoaded",
-                "This app is not loaded yet. Open it once from the sidebar, then retry.",
+                "This app is not loaded yet.",
               )}
               style={{ marginTop: 48 }}
             />
@@ -434,7 +493,7 @@ export default function AppCenterPage() {
           )}
         </Empty>
       ) : (
-        <div className={styles.grid}>
+        <div className={styles.gridLarge}>
           {filteredApps.map((app) => (
             <AppCard
               key={app.id}
@@ -520,7 +579,10 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket channel="official" onInstalled={fetchApps} />
+              <AppMarket
+                channel="official"
+                onInstalled={handleMarketInstalled}
+              />
             </Suspense>
           ) : view === "market" ? (
             <Suspense
@@ -530,7 +592,7 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket onInstalled={fetchApps} />
+              <AppMarket onInstalled={handleMarketInstalled} />
             </Suspense>
           ) : (
             installedContent

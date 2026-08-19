@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { MessageSquarePlus, MousePointer2, Play } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 
@@ -38,9 +39,10 @@ function ClickCursor({ label }: { label: string }) {
 }
 
 export function MockTimeline() {
+  const { t } = useTranslation();
   return (
     <MockFrame>
-      <MockCaption>示例：规划完成后的时间轴</MockCaption>
+      <MockCaption>{t("tourMocks.sampleTimeline")}</MockCaption>
       <div className="flex gap-1 text-[9px] text-[var(--color-text-tertiary)]">
         {["0s", "2s", "4s", "6s"].map((tick) => (
           <span key={tick} className="w-14">
@@ -50,22 +52,22 @@ export function MockTimeline() {
       </div>
       <div className="mt-0.5 flex gap-1">
         <span className="relative flex h-6 w-24 items-center justify-center rounded border border-[var(--color-accent)]/60 bg-[var(--color-accent-soft)] text-[9px] font-semibold text-[var(--color-accent)]">
-          画面 · 镜头一
-          <ClickCursor label="点击查看详情" />
+          {t("tourMocks.shot1")}
+          <ClickCursor label={t("tourMocks.clickDetail")} />
         </span>
         <span className="flex h-6 w-20 items-center justify-center rounded border border-emerald-300 bg-emerald-50 text-[9px] font-semibold text-emerald-600">
-          画面 · 镜头二
+          {t("tourMocks.shot2")}
         </span>
         <span className="flex h-6 w-12 items-center justify-center rounded border border-violet-300 bg-violet-50 text-[9px] font-semibold text-violet-600">
-          转场
+          {t("tourMocks.transition")}
         </span>
       </div>
       <div className="mt-1 flex gap-1">
         <span className="flex h-4 w-32 items-center justify-center rounded border border-sky-300 bg-sky-50 text-[9px] text-sky-600">
-          字幕动效
+          {t("tourMocks.subtitleEffect")}
         </span>
         <span className="flex h-4 w-24 items-center justify-center rounded border border-amber-300 bg-amber-50 text-[9px] text-amber-600">
-          声音 · 配乐
+          {t("tourMocks.audioMusic")}
         </span>
       </div>
     </MockFrame>
@@ -73,30 +75,31 @@ export function MockTimeline() {
 }
 
 export function MockElementDetail() {
+  const { t } = useTranslation();
   return (
     <MockFrame>
-      <MockCaption>示例：选中「镜头一」后的详情面板</MockCaption>
+      <MockCaption>{t("tourMocks.sampleDetail")}</MockCaption>
       <div className="rounded-md border border-[var(--color-border)] bg-white p-2">
         <div className="flex items-center gap-1.5">
           <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-px text-[9px] font-semibold text-[var(--color-accent)]">
-            画面
+            {t("tourMocks.frame")}
           </span>
           <span className="text-[11px] font-semibold text-[var(--color-text-primary)]">
-            镜头一
+            {t("tourMocks.shotOne")}
           </span>
         </div>
         <div className="mt-1.5 space-y-1 text-[10px]">
           <div className="flex gap-1.5">
             <span className="shrink-0 text-[var(--color-text-tertiary)]">
-              画面描述
+              {t("tourMocks.frameDesc")}
             </span>
             <span className="flex-1 truncate rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1.5 text-[var(--color-text-secondary)]">
-              晨雾山谷中，小狐狸跃上岩石…
+              {t("tourMocks.sampleDesc")}
             </span>
           </div>
           <div className="flex gap-1.5">
             <span className="shrink-0 text-[var(--color-text-tertiary)]">
-              时长
+              {t("tourMocks.duration")}
             </span>
             <span className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1.5 text-[var(--color-text-secondary)]">
               4.0s
@@ -105,8 +108,8 @@ export function MockElementDetail() {
         </div>
         <div className="mt-1.5 flex justify-end">
           <span className="relative rounded bg-[var(--color-accent)] px-2 py-0.5 text-[9px] font-semibold text-white">
-            应用修改
-            <ClickCursor label="编辑后点这里" />
+            {t("tourMocks.applyChanges")}
+            <ClickCursor label={t("tourMocks.editHint")} />
           </span>
         </div>
       </div>
@@ -115,23 +118,24 @@ export function MockElementDetail() {
 }
 
 export function MockSelectionDemo() {
+  const { t } = useTranslation();
   const chip = (
     <span className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-white px-1.5 py-0.5 text-[9px] font-semibold text-[var(--color-text-primary)] shadow-sm">
       <MessageSquarePlus className="h-3 w-3" />
-      添加到对话
+      {t("tourMocks.addToConversation")}
     </span>
   );
   return (
     <MockFrame>
-      <MockCaption>示例：两种选中方式</MockCaption>
+      <MockCaption>{t("tourMocks.sampleSelection")}</MockCaption>
       <div className="space-y-1.5">
         <div className="flex items-center gap-2">
           <p className="text-[10px] leading-4 text-[var(--color-text-secondary)]">
-            晨雾山谷中，
+            {t("tourMocks.sampleText1")}
             <span className="rounded-sm bg-[var(--color-accent-soft)] px-0.5 text-[var(--color-accent)]">
-              小狐狸跃上岩石
+              {t("tourMocks.sampleText2")}
             </span>
-            回望镜头…
+            {t("tourMocks.sampleText3")}
           </p>
           {chip}
         </div>
@@ -147,18 +151,19 @@ export function MockSelectionDemo() {
 }
 
 export function MockAgentChat() {
+  const { t } = useTranslation();
   return (
     <MockFrame>
-      <MockCaption>示例：一次修改对话</MockCaption>
+      <MockCaption>{t("tourMocks.sampleConversation")}</MockCaption>
       <div className="space-y-1">
         <p className="ml-auto w-fit max-w-[85%] rounded-lg bg-[var(--color-accent)] px-2 py-1 text-[10px] text-white">
-          把 @镜头一 改成夜景氛围
+          {t("tourMocks.sampleMessage")}
         </p>
         <p className="w-fit max-w-[85%] rounded-lg bg-white px-2 py-1 text-[10px] text-[var(--color-text-secondary)]">
-          好的，我会更新画面描述并重新生成分镜图。
+          {t("tourMocks.sampleReply")}
         </p>
         <span className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] bg-white px-1.5 py-0.5 text-[9px] text-[var(--color-text-tertiary)]">
-          ⚙ 图像生成 · 镜头一 · 进行中
+          {t("tourMocks.sampleTool")}
         </span>
       </div>
     </MockFrame>
@@ -166,18 +171,27 @@ export function MockAgentChat() {
 }
 
 export function MockAssetCards() {
+  const { t } = useTranslation();
   const cards = [
-    { label: "角色", name: "主角小狐", tone: "bg-orange-100 text-orange-500" },
     {
-      label: "场景",
-      name: "晨雾山谷",
+      label: t("tourMocks.character"),
+      name: t("tourMocks.mainCharacter"),
+      tone: "bg-orange-100 text-orange-500",
+    },
+    {
+      label: t("tourMocks.scene"),
+      name: t("tourMocks.sceneName"),
       tone: "bg-emerald-100 text-emerald-500",
     },
-    { label: "产物", name: "镜头一分镜图", tone: "bg-sky-100 text-sky-500" },
+    {
+      label: t("tourMocks.artifact"),
+      name: t("tourMocks.storyboardArtifact"),
+      tone: "bg-sky-100 text-sky-500",
+    },
   ];
   return (
     <MockFrame>
-      <MockCaption>示例：短剧项目的资产卡片</MockCaption>
+      <MockCaption>{t("tourMocks.sampleAssetCard")}</MockCaption>
       <div className="flex gap-1.5">
         {cards.map((card) => (
           <div
@@ -208,6 +222,7 @@ const DEMO_FIELD = "project:onboarding-demo";
  * AgentDock is collapsed, it genuinely gets opened).
  */
 export function LiveSelectionDemo() {
+  const { t } = useTranslation();
   const demoRef = useRef<HTMLSpanElement>(null);
 
   const runDemo = () => {
@@ -238,15 +253,15 @@ export function LiveSelectionDemo() {
 
   return (
     <MockFrame>
-      <MockCaption>试一试（真实操作）</MockCaption>
+      <MockCaption>{t("tourMocks.tryIt")}</MockCaption>
       <p
         data-creator-field={DEMO_FIELD}
-        data-creator-field-label="引导示例文本"
+        data-creator-field-label={t("tourMocks.sampleText")}
         className="select-text text-[11px] leading-5 text-[var(--color-text-secondary)]"
       >
-        晨雾山谷中，
-        <span ref={demoRef}>小狐狸跃上岩石回望镜头</span>
-        ，画面定格。
+        {t("tourMocks.sampleLine1")}
+        <span ref={demoRef}>{t("tourMocks.sampleLine2")}</span>
+        {t("tourMocks.sampleLine3")}
       </p>
       <div className="mt-1.5 flex items-center gap-2">
         <button
@@ -255,10 +270,10 @@ export function LiveSelectionDemo() {
           className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-semibold text-white transition hover:opacity-90"
         >
           <Play className="h-3 w-3" />
-          模拟选中这段文字
+          {t("tourMocks.simulateSelect")}
         </button>
         <span className="text-[10px] text-[var(--color-text-tertiary)]">
-          选中后点浮出的「添加到对话」，内容会真正进入创作助手输入框
+          {t("tourMocks.selectHint")}
         </span>
       </div>
     </MockFrame>
@@ -271,11 +286,12 @@ export function LiveSelectionDemo() {
  * clicking it genuinely expands the dock again.
  */
 export function LiveDockToggleDemo() {
+  const { t } = useTranslation();
   const open = useAgentDockUiStore((state) => state.open);
   const setOpen = useAgentDockUiStore((state) => state.setOpen);
   return (
     <MockFrame>
-      <MockCaption>试一试（真实操作）</MockCaption>
+      <MockCaption>{t("tourMocks.tryIt")}</MockCaption>
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -283,12 +299,10 @@ export function LiveDockToggleDemo() {
           className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-[var(--color-accent)] px-2 py-1 text-[10px] font-semibold text-white transition hover:opacity-90"
         >
           <Play className="h-3 w-3" />
-          {open ? "收起面板" : "展开面板"}
+          {open ? t("tourMocks.collapsePanel") : t("tourMocks.expandPanel")}
         </button>
         <span className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
-          {open
-            ? "面板当前已展开；收起后右缘会出现贴边把手"
-            : "已收起：点击屏幕右缘的把手，或再点一次按钮展开"}
+          {open ? t("tourMocks.panelExpanded") : t("tourMocks.panelCollapsed")}
         </span>
       </div>
     </MockFrame>

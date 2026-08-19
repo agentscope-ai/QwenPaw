@@ -10,13 +10,16 @@ from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 from pydantic import Field
 
+from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.provider import (
     Provider,
+    ModelConnectionResult,
     ExtendedModelInfo,
     ModelInfo,
 )
 from .capping_formatter import _CappingOpenAIFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+from .multimodal_prober import ProbeResult
 
 
 class OpenRouterProvider(Provider):
@@ -34,11 +37,7 @@ class OpenRouterProvider(Provider):
         ),
     )
 
-    _OPENROUTER_CATEGORIES = (
-        "cli-agent,cloud-agent,programming-app,"
-        "creative-writing,writing-assistant,"
-        "general-chat,personal-agent"
-    )
+    _OPENROUTER_CATEGORIES = "personal-agent,cli-agent"
 
     _DEFAULT_HEADERS = {
         "HTTP-Referer": "https://qwenpaw.agentscope.io/",
@@ -59,6 +58,13 @@ class OpenRouterProvider(Provider):
             timeout=timeout,
             default_headers=self._build_default_headers(),
         )
+
+    @staticmethod
+    async def _close_client(client: AsyncOpenAI) -> None:
+        """Close a temporary SDK client when it owns async resources."""
+        close = getattr(client, "close", None)
+        if close is not None:
+            await close()
 
     @staticmethod
     def _extract_provider(model_id: str) -> str:
@@ -159,14 +165,10 @@ class OpenRouterProvider(Provider):
                     getattr(row, "pricing", None),
                 )
                 is_free = OpenRouterProvider._is_free_model(pricing_dict)
-                # OpenRouter's /models reports each model's authoritative
-                # window. Writing it into max_input_length makes it win the
-                # context-window resolution outright (an explicit value
-                # beats the static catalog), so OpenRouter models never
-                # depend on hand-maintained catalog entries. Absent or
-                # invalid → field default, which resolves via the catalog
-                # as before.
-                window_kwargs: dict[str, int | bool] = {}
+                # OpenRouter's /models reports authoritative context metadata.
+                # Store it as auto-detected so it wins over catalog and static
+                # values without becoming an explicit user override.
+                window_kwargs: dict[str, int] = {}
                 try:
                     context_length = int(
                         getattr(row, "context_length", 0) or 0,
@@ -174,8 +176,12 @@ class OpenRouterProvider(Provider):
                 except (TypeError, ValueError):
                     context_length = 0
                 if context_length >= 1000:  # ModelInfo's field lower bound
+                    # Keep the legacy field populated for API compatibility;
+                    # provenance still marks this as discovered metadata.
                     window_kwargs["max_input_length"] = context_length
-                    window_kwargs["max_input_length_configured"] = True
+                    window_kwargs[
+                        "max_input_length_auto_detected"
+                    ] = context_length
 
                 if include_extended:
                     # Get architecture and pricing from the API response
@@ -227,6 +233,8 @@ class OpenRouterProvider(Provider):
             return True, ""
         except APIError as e:
             return False, str(e)
+        finally:
+            await self._close_client(client)
 
     async def fetch_models(
         self,
@@ -243,8 +251,8 @@ class OpenRouterProvider(Provider):
         Returns:
             List of ModelInfo (or ExtendedModelInfo if include_extended=True)
         """
+        client = self._client(timeout=timeout)
         try:
-            client = self._client(timeout=timeout)
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(
                 payload,
@@ -253,6 +261,8 @@ class OpenRouterProvider(Provider):
             return models
         except APIError:
             return []
+        finally:
+            await self._close_client(client)
 
     async def fetch_extended_models(
         self,
@@ -273,6 +283,68 @@ class OpenRouterProvider(Provider):
             timeout=timeout,
             include_extended=True,
         )  # type: ignore
+
+    async def probe_model_multimodal(
+        self,
+        model_id: str,
+        timeout: float = 10,
+        image_only: bool = False,
+    ) -> ProbeResult:
+        """Resolve multimodal support from OpenRouter's model catalog.
+
+        OpenRouter publishes input modalities in its ``/models`` response.
+        Treat that metadata as authoritative instead of sending a paid chat
+        completion.  A missing or unavailable catalog is inconclusive and
+        must raise so the provider manager does not persist false capability
+        flags over previously known values.
+        """
+        try:
+            client = self._client(timeout=timeout)
+            payload = await client.models.list(timeout=timeout)
+        except APIError as exc:
+            raise ProviderError(
+                message=(
+                    "Unable to read OpenRouter model metadata while probing "
+                    f"'{model_id}'"
+                ),
+                details={"model_id": model_id},
+            ) from exc
+
+        models = self._normalize_models_payload(
+            payload,
+            include_extended=True,
+        )
+        model = next((item for item in models if item.id == model_id), None)
+        if model is None:
+            raise ProviderError(
+                message=(
+                    f"Model '{model_id}' was not found in the OpenRouter "
+                    "model catalog"
+                ),
+                details={"model_id": model_id},
+            )
+
+        supports_image = bool(model.supports_image)
+        supports_video = False if image_only else bool(model.supports_video)
+        image_message = (
+            "Image capability reported by OpenRouter model metadata: "
+            f"{supports_image}"
+        )
+        video_message = (
+            "Skipped: image_only=True"
+            if image_only
+            else (
+                "Video capability reported by OpenRouter model metadata: "
+                f"{supports_video}"
+            )
+        )
+        return ProbeResult(
+            supports_image=supports_image,
+            supports_video=supports_video,
+            image_message=image_message,
+            video_message=video_message,
+            probe_source="documentation",
+        )
 
     def filter_models(
         self,
@@ -358,23 +430,15 @@ class OpenRouterProvider(Provider):
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
-        """Check if a specific model is reachable/usable"""
-        try:
-            client = self._client(timeout=timeout)
-            res = await client.chat.completions.create(
-                model=model_id,
-                messages=[{"role": "user", "content": "ping"}],
-                timeout=timeout,
-                max_tokens=1,
-                stream=True,
-            )
-            # consume the stream to ensure the model is actually responsive
-            async for _ in res:
-                break
-            return True, ""
-        except APIError as e:
-            return False, str(e)
+    ) -> ModelConnectionResult:
+        """Check a model through a basic OpenAI-compatible chat request."""
+        from .openai_provider import OpenAIProvider
+
+        return await OpenAIProvider.check_model_connection(
+            self,
+            model_id=model_id,
+            timeout=timeout,
+        )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential
@@ -388,6 +452,7 @@ class OpenRouterProvider(Provider):
         )
         return OpenAIChatModelCompat(
             credential=credential,
+            provider_id=self.id,
             model=model_id,
             stream=True,
             default_headers=self._build_default_headers() or None,

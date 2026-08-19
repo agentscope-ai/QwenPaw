@@ -237,6 +237,9 @@ class ExecutionAuthorizationRecord(TraceableExecutionRecord):
     scope: dict[str, Any] | None = None
     requested_provider: str | None = None
     requested_model: str | None = None
+    # Deprecated: local price estimation was removed (stale price tables
+    # mislead). Field kept so durable records written before the removal
+    # still validate under extra=forbid; never written or surfaced.
     estimated_cost: float | None = Field(default=None, ge=0)
     requested_candidates: int | None = Field(default=None, ge=1)
     decision: dict[str, Any] | None = None

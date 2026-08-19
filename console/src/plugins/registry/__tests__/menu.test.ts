@@ -108,6 +108,15 @@ describe("menuRegistry.replace", () => {
       .find((i) => i.id === "x");
     expect(item?.label).toBe("P1");
   });
+
+  it("removes every item owned by one source", () => {
+    menuRegistry.add("core", { id: "x", label: "Core" });
+    menuRegistry.replace("plugin", "x", { id: "x", label: "Plugin" });
+    menuRegistry.add("plugin", { id: "plugin-only", label: "Only" });
+
+    menuRegistry.removeBySource("plugin");
+    expect(menuRegistry.snapshot().map((item) => item.label)).toEqual(["Core"]);
+  });
 });
 
 describe("menuRegistry topology (before/after/order)", () => {

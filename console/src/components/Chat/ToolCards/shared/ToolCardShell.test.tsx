@@ -13,8 +13,8 @@ vi.mock("./ToolCallSessionContext", () => ({
 vi.mock("../../../../hooks/useToolCallControl", () => ({
   useToolCallControl: () => ({
     bannerVisible: false,
-    offloadRemaining: null,
-    killRemaining: null,
+    offloadRemaining: 12,
+    killRemaining: 30,
     defaultPolicy: "keep_foreground",
     maxInternalTimeoutSecs: null,
     elapsed: 0,
@@ -40,7 +40,111 @@ const content: ToolCallContent = {
   status: "done",
 };
 
+const runningContent: ToolCallContent = {
+  ...content,
+  params: { command: "python verbose_script.py" },
+  status: "calling",
+};
+
+const streamingInputContent: ToolCallContent = {
+  ...runningContent,
+  inputProgress: {
+    preview: '{"path":"notes.txt"}',
+    truncated: false,
+  },
+};
+
 describe("ToolCardShell lazy body", () => {
+  it("opens file-facing results by default when requested", () => {
+    render(
+      <ToolCardShell
+        content={content}
+        icon={<span />}
+        title="Send file"
+        defaultExpanded
+      >
+        <div>hello.txt</div>
+      </ToolCardShell>,
+    );
+
+    const details = screen.getByText("hello.txt").closest("details");
+    expect(details).toHaveAttribute("open");
+  });
+
+  it("keeps ordinary tool details collapsed and unmounted", () => {
+    const { container } = render(
+      <ToolCardShell content={content} icon={<span />} title="Ordinary tool">
+        <div>raw output</div>
+      </ToolCardShell>,
+    );
+
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+    expect(screen.queryByText("raw output")).not.toBeInTheDocument();
+  });
+
+  it("does not toggle the tool when its summary action is clicked", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={content}
+        icon={<span />}
+        title="Read file"
+        summaryAction={
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            Preview
+          </button>
+        }
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+  });
+
+  it("keeps the full tool title available when the label is truncated", () => {
+    const title = `Run ${"long-command-argument ".repeat(40)}`;
+
+    const { container } = render(
+      <ToolCardShell content={content} icon={<span />} title={title} />,
+    );
+    const label = container.querySelector(`[title]`);
+
+    expect(label).not.toBeNull();
+    expect(label).toHaveAttribute("title", title);
+    expect(label).toHaveTextContent(title.trim());
+  });
+
+  it("replaces the spinner node when the tool finishes", () => {
+    const { container, rerender } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+    const spinner = container.querySelector('[class*="toolCallSpinner"]');
+
+    expect(spinner).not.toBeNull();
+
+    rerender(
+      <ToolCardShell
+        content={content}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+      />,
+    );
+
+    const completionIcon = screen.getByTestId("completion-icon");
+    expect(spinner).not.toBeInTheDocument();
+    expect(completionIcon.parentElement).not.toBe(spinner);
+  });
+
   it("mounts the body only after the first expansion", () => {
     const { container } = render(
       <ToolCardShell content={content} icon={<span />} title="Shell">
@@ -60,5 +164,42 @@ describe("ToolCardShell lazy body", () => {
     details!.open = false;
     fireEvent(details!, new Event("toggle"));
     expect(screen.getByText("Expensive output")).toBeInTheDocument();
+  });
+
+  it("groups Parameters and Runtime in one metadata panel", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span />}
+        title="Shell"
+        isStreaming
+        defaultExpanded
+      />,
+    );
+
+    const metadata = container.querySelector('[class*="toolCallMetadata"]');
+    expect(metadata).not.toBeNull();
+    expect(metadata).toHaveTextContent("Parameters");
+    expect(metadata).toHaveTextContent("Runtime");
+  });
+
+  it("keeps streaming input quiet in the summary and preserves its preview", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={streamingInputContent}
+        icon={<span />}
+        title="Read file"
+        isStreaming
+        defaultExpanded
+      />,
+    );
+
+    const summary = container.querySelector("summary");
+    expect(summary).toHaveTextContent("tool.loading");
+    expect(summary).not.toHaveTextContent("tool.inputProgress");
+    const previewTitle = screen.getByText("tool.rawInputPreview");
+    const previewBlock = previewTitle.parentElement?.parentElement;
+    expect(previewBlock).toHaveTextContent("path");
+    expect(previewBlock).toHaveTextContent("notes.txt");
   });
 });

@@ -7,7 +7,13 @@ vi.mock("@/api/modules/chat", () => ({
   },
 }));
 
-import { formatAgentList, formatMemorySearch, getMediaInfo } from "./utils";
+import {
+  extractUrlFromText,
+  formatAgentList,
+  formatMemorySearch,
+  getMediaInfo,
+  hasMultimediaPreview,
+} from "./utils";
 import type { ToolCallContent } from "./types";
 
 const translate = ((key: string) => {
@@ -143,6 +149,81 @@ describe("getMediaInfo", () => {
     );
     expect(media?.url).toBe("/api/files/preview/abs/path/file1.txt");
     expect(media?.name).toBe("file1.txt");
+  });
+
+  it("only auto-expands multimedia file previews", () => {
+    expect(
+      hasMultimediaPreview(
+        baseToolCall({ params: { file_path: "/abs/path/image.png" } }),
+      ),
+    ).toBe(true);
+    expect(
+      hasMultimediaPreview(
+        baseToolCall({ params: { file_path: "/abs/path/readme.txt" } }),
+      ),
+    ).toBe(false);
+  });
+
+  it("extracts a screenshot path without the serialized JSON suffix", () => {
+    const screenshotPath =
+      "/Users/zz/.copaw/workspaces/Yn8ymB/" +
+      "desktop_screenshot_1786592092.png";
+    const result = JSON.stringify([
+      {
+        type: "data",
+        source: {
+          type: "base64",
+          data: "A".repeat(1_300_000),
+          media_type: "image/png",
+        },
+      },
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            ok: true,
+            path: screenshotPath,
+            message: `Desktop screenshot saved to ${screenshotPath}`,
+          },
+          null,
+          2,
+        ),
+      },
+    ]);
+
+    const media = getMediaInfo(
+      baseToolCall({
+        name: "desktop_screenshot",
+        status: "done",
+        result,
+      }),
+    );
+
+    expect(media).toEqual({
+      url: `/api/files/preview${screenshotPath}`,
+      name: "desktop_screenshot_1786592092.png",
+      type: "image",
+    });
+  });
+});
+
+describe("extractUrlFromText", () => {
+  it("supports saved media paths containing spaces", () => {
+    expect(
+      extractUrlFromText(
+        "Desktop screenshot saved to /Users/test/My Screens/image 1.png",
+      ),
+    ).toBe("/Users/test/My Screens/image 1.png");
+  });
+
+  it("supports escaped Windows paths in serialized JSON", () => {
+    const result = JSON.stringify({
+      message: String.raw`Desktop screenshot saved to C:\Users\test user\image.png`,
+    });
+
+    expect(extractUrlFromText(result)).toBe(
+      String.raw`C:\Users\test user\image.png`,
+    );
   });
 });
 

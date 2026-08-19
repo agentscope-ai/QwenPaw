@@ -41,7 +41,9 @@ async function fetchBlogPost(
     response = await fetch(`${base}/blog/${slug}.en.md`);
   }
   if (!response.ok) return null;
-  return parseBlogMarkdown(await response.text(), {
+  const md = await response.text();
+  if (!md.trimStart().startsWith("---")) return null;
+  return parseBlogMarkdown(md, {
     sessionList: slug === DEVELOPER_DAY_COLLECTION_SLUG,
   });
 }

@@ -20,7 +20,7 @@ QwenPaw's **Loop Engineering** provides an explicit control layer for both cases
 
 QwenPaw 2.0 ships three built-in loops—Default, Goal, and Mission. Starting in QwenPaw 2.0.1, you can also create your own loops directly in the Console, with no code required.
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/788fdbac-23f6-402d-999d-63ab549828be.png?x-oss-process=image/crop,x_0,y_95,w_1776,h_783/ignore-error,1)
+![image.png](https://img.alicdn.com/imgextra/i2/O1CN01N7AdGblTdqG3bZE7_!!6000000000365-2-tps-1776-783.png)
 
 ## Loop Engineering: A Quality Gate After Every Round of Work
 
@@ -56,7 +56,7 @@ Time and budget Gates are checked at Loop boundaries—after a model response or
 
 ### Default: Basic Guardrails for Everyday Chat
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/45c1ab8a-ed91-4dc2-a2e3-722df7ed5aaf.png)
+![image.png]https://img.alicdn.com/imgextra/i3/O1CN010E5YOV1pwhoZKuMLZ_!!6000000005425-2-tps-2322-1278.png)
 
 Default is the standard Loop when no explicit mode is enabled. You send one request; the Agent can reason and call tools across multiple rounds within that Turn, then return the result.
 
@@ -70,7 +70,7 @@ It fits smaller tasks like "analyze this error," "edit these files," or "put tog
 
 ### Goal: Sustained Progress Around One Clear Objective
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/dd7b210e-daa0-4ed3-8075-5848af40719e.png)
+![image.png](https://img.alicdn.com/imgextra/i3/O1CN01ZBbk2MObx4K4g2BK_!!6000000000836-2-tps-2304-1206.png)
 
 When a task cannot be finished in one ordinary reply but still suits one Agent working continuously, use Goal:
 
@@ -85,7 +85,7 @@ It suits clearly scoped work: ongoing research, batch test fixes, cross-file ref
 
 ### Mission: Large Tasks Split Across Context-Isolated Roles
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/2de182ca-cf97-4156-b1a6-04f7f72e9078.png)
+![image.png](https://img.alicdn.com/imgextra/i4/O1CN01a9OC27KCn4I4k3wM_!!6000000004813-2-tps-2336-1246.png)
 
 When a task naturally breaks into several relatively independent subtasks, use Mission:
 
@@ -113,7 +113,7 @@ To check progress:
 
 ## Custom Loops: Save Your Own Work Standards as a Mode
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/e31a3f15-daa4-4f56-b35e-b7206676d9f6.png)
+![image.png](https://img.alicdn.com/imgextra/i3/O1CN01uHuiXTNBGmL2tlIe_!!6000000001518-2-tps-1428-1108.png)
 
 Built-in modes solve common cases, but teams disagree on what "done" means.
 
@@ -128,7 +128,7 @@ In **Agent Loop Settings**, click `+` and start from one of four templates:
 | **Quality First**   | Iteration limit + Token budget + Repeated-behavior protection + Completion-signal check      | Tasks with clear acceptance criteria    |
 | **Blank Flow**      | No Gates preconfigured                                                                       | Building a special policy from scratch  |
 
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/eYVOL5or72jbRlpz/img/91c9693d-5776-453f-a7d6-18a1521ea611.png)
+![image.png](https://img.alicdn.com/imgextra/i4/O1CN01Xitzy7v6xEH57Tbq_!!6000000002994-2-tps-2522-1276.png)
 
 After creation, set a display name, description, and dedicated slash command, and drag to reorder Gate checks. You can combine seven Gate types today:
 

@@ -14,8 +14,9 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
-from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
+from ..utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
     from ..agents.context.visual_compression.runtime.recovery import (
@@ -142,15 +143,13 @@ class AgentBuilder:
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
 
-        skill_dirs = self._resolve_skill_loader_dirs(
+        skills = await run_sync_io(
+            self._load_runtime_skills,
             effective_skills,
             workspace_dir,
+            tools,
         )
-        for extra in _bound_skill_loader_dirs(tools):
-            if extra not in skill_dirs:
-                skill_dirs.append(extra)
-
-        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+        return Toolkit(tools=tools, skills_or_loaders=skills)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -223,6 +222,25 @@ class AgentBuilder:
                 )
         return dirs
 
+    @classmethod
+    def _load_runtime_skills(
+        cls,
+        effective_skills: Iterable[str] | None,
+        workspace_dir: str | None,
+        tools: Iterable[Any],
+    ) -> list[Any]:
+        """Resolve and load runtime Skills in one synchronous I/O job."""
+        from ..agents.skill_system.runtime_cache import load_runtime_skills
+
+        skill_dirs = cls._resolve_skill_loader_dirs(
+            effective_skills,
+            workspace_dir,
+        )
+        for extra in _bound_skill_loader_dirs(tools):
+            if extra not in skill_dirs:
+                skill_dirs.append(extra)
+        return load_runtime_skills(skill_dirs)
+
     # ----------------------------------------------------------------- build
 
     async def build(  # pylint: disable=too-many-statements,too-many-branches
@@ -248,9 +266,9 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = load_agent_config(agent_id)
+        agent_config = await run_sync_io(load_agent_config, agent_id)
         request_context = self._build_request_context(ctx)
-        agent_config = self._apply_request_coding_project(
+        agent_config = self._apply_request_project(
             agent_config,
             request_context,
         )
@@ -261,18 +279,24 @@ class AgentBuilder:
         if not (active and active.provider_id and active.model):
             active = ProviderManager.get_instance().get_active_model()
         if active is None or not active.provider_id or not active.model:
-            raise RuntimeError(
+            from ..exceptions import ConfigurationException
+
+            raise ConfigurationException(
                 "No active model configured; pick one in the UI",
+                config_key="active_model",
+                error_code="MODEL_NOT_CONFIGURED",
             )
 
         workspace_dir = getattr(ctx, "workspace_dir", None)
 
         # Resolve skills.
-        ensure_skills_initialized(workspace_dir or WORKING_DIR)
+        skills_workspace = workspace_dir or WORKING_DIR
+        await run_sync_io(ensure_skills_initialized, skills_workspace)
         channel_name = request_context.get("channel", "console")
         try:
-            effective_skills = resolve_effective_skills(
-                workspace_dir or WORKING_DIR,
+            effective_skills = await run_sync_io(
+                resolve_effective_skills,
+                skills_workspace,
                 channel_name,
             )
         except Exception:
@@ -292,12 +316,7 @@ class AgentBuilder:
                 active_modes = plugins.active_mode_names(ctx)
 
         # Governor (governance policy layer).
-        _cm = getattr(agent_config, "coding_mode", None)
-        _project_dir = (
-            _cm.project_dir
-            if _cm and getattr(_cm, "project_dir", None)
-            else None
-        )
+        _project_dir = getattr(agent_config, "project_dir", None)
         governor = await run_sync_io(
             self._init_governor,
             workspace_dir,
@@ -347,7 +366,10 @@ class AgentBuilder:
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
         model_slot_override = getattr(ctx.request, "model_slot_override", None)
-        model, _formatter = self.build_model(
+        if model_slot_override is None:
+            model_slot_override = request_context.get("model_slot_override")
+        model, _formatter = await run_sync_io(
+            self.build_model,
             agent_config,
             model_slot_override=model_slot_override,
         )
@@ -357,7 +379,7 @@ class AgentBuilder:
         offloader = self._build_offloader(ctx, agent_config)
 
         # Optional scroll context strategy (None unless strategy="scroll").
-        scroll = self._build_scroll_components(
+        scroll = await self._build_scroll_components(
             ctx,
             agent_config,
             model,
@@ -389,6 +411,7 @@ class AgentBuilder:
                 governor,
             )
 
+        memory_manager = self._get_memory_manager(ctx)
         toolkit = await self.build_toolkit(
             agent_config,
             agent_id=agent_id,
@@ -396,13 +419,22 @@ class AgentBuilder:
             active_modes=active_modes,
             effective_skills=effective_skills,
             extra_tools=extra_tools,
+            memory_tools=(
+                memory_manager.list_memory_tools()
+                if memory_manager is not None
+                else None
+            ),
             governor=governor,
             ctx=ctx,
             workspace_dir=workspace_dir,
         )
 
         # System prompt.
-        sys_prompt = self.build_prompt(ctx, agent_config)
+        sys_prompt = await run_sync_io(
+            self.build_prompt,
+            ctx,
+            agent_config,
+        )
 
         middlewares = self._build_middlewares(
             ctx,
@@ -428,7 +460,6 @@ class AgentBuilder:
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             request_context=request_context,
-            memory_manager=self._get_memory_manager(ctx),
             offloader=offloader,
             context_config=self._build_context_config(agent_config),
             context_manager=(
@@ -445,7 +476,7 @@ class AgentBuilder:
         _logger.info(
             "builder: built agent for session=%s agent=%s"
             " model=%s/%s tools=%d",
-            getattr(ctx, "session_id", ""),
+            sanitize_log_value(getattr(ctx, "session_id", "")),
             agent_id,
             active.provider_id,
             active.model,
@@ -508,6 +539,7 @@ class AgentBuilder:
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
             model_slot_override=model_slot_override,
+            agent_config=agent_config,
         )
         if formatter is not None:
             innermost = model
@@ -608,17 +640,32 @@ class AgentBuilder:
         )
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
+        mode_state = getattr(ctx, "mode_state", {}) or {}
+        mission_state = mode_state.get("mission", {})
+        if isinstance(mission_state, dict) and mission_state.get("active"):
+            loop_dir = mission_state.get("loop_dir")
+            if isinstance(loop_dir, str) and loop_dir:
+                from ..modes.mission.state import read_loop_config
+
+                mission_config = read_loop_config(Path(loop_dir))
+                source_project = mission_config.get("source_project_dir")
+                if isinstance(source_project, str) and source_project:
+                    rc["active_mode_project_dir"] = source_project
         return rc
 
     @staticmethod
-    def _apply_request_coding_project(
+    def _apply_request_project(
         agent_config: Any,
         request_context: dict[str, Any],
     ) -> Any:
-        """Enable Coding Mode when ACP or fork worktree supplies a project."""
+        """Apply a validated request or active-mode project snapshot."""
         from ..agents.fork_project import resolve_allowed_fork_project_dir
 
-        raw_project_dir = request_context.get(ACP_CODING_PROJECT_META_KEY)
+        raw_project_dir = request_context.get("active_mode_project_dir")
+        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
+            raw_project_dir = request_context.get("project_dir")
+        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
+            raw_project_dir = request_context.get(ACP_PROJECT_DIR_META_KEY)
         fork_raw = request_context.get("fork_project_dir")
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             # spawn_subagent(fork=True) places the worktree here.
@@ -626,15 +673,10 @@ class AgentBuilder:
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             return agent_config
 
-        # When fork_project_dir is present, the final coding project MUST be
+        # When fork_project_dir is present, the final project directory MUST be
         # the validated worktree — never fall through to an unchecked ACP path.
         if isinstance(fork_raw, str) and fork_raw.strip():
-            existing_cm = getattr(agent_config, "coding_mode", None)
-            existing_pd = (
-                getattr(existing_cm, "project_dir", None)
-                if existing_cm and getattr(existing_cm, "enabled", False)
-                else None
-            )
+            existing_pd = getattr(agent_config, "project_dir", None)
             workspace_hint = request_context.get("workspace_dir") or getattr(
                 agent_config,
                 "workspace_dir",
@@ -649,7 +691,7 @@ class AgentBuilder:
                 _logger.warning(
                     "Rejecting fork_project_dir outside allowed worktree "
                     "subtree: %s",
-                    fork_raw,
+                    sanitize_log_value(fork_raw),
                 )
                 return agent_config
             raw_project_dir = str(validated)
@@ -657,28 +699,20 @@ class AgentBuilder:
         project_dir = Path(raw_project_dir).expanduser().resolve()
         if not project_dir.is_dir():
             _logger.warning(
-                "Ignoring non-directory Coding Mode project: %s",
-                raw_project_dir,
+                "Ignoring non-directory request project: %s",
+                sanitize_log_value(raw_project_dir),
             )
             return agent_config
 
         if not hasattr(agent_config, "model_copy"):
             _logger.warning(
-                "Ignoring request Coding Mode project for unsupported config "
-                "type: %s",
+                "Ignoring request project for unsupported config type: %s",
                 type(agent_config).__name__,
             )
             return agent_config
 
         agent_config = agent_config.model_copy(deep=True)
-        cm = getattr(agent_config, "coding_mode", None)
-        if cm is None:
-            from ..config.config import CodingModeConfig
-
-            cm = CodingModeConfig()
-            agent_config.coding_mode = cm
-        cm.enabled = True
-        cm.project_dir = str(project_dir)
+        agent_config.project_dir = str(project_dir)
         return agent_config
 
     @staticmethod
@@ -691,14 +725,7 @@ class AgentBuilder:
         workspace_dir = getattr(ctx, "workspace_dir", None)
         ws = str(workspace_dir) if workspace_dir else str(WORKING_DIR)
 
-        _cm = getattr(agent_config, "coding_mode", None)
-        _project_dir = (
-            _cm.project_dir
-            if _cm
-            and getattr(_cm, "enabled", False)
-            and getattr(_cm, "project_dir", None)
-            else None
-        )
+        _project_dir = getattr(agent_config, "project_dir", None) or ws
         # Prefer validated fork worktree as the shell/file working_dir.
         request = getattr(ctx, "request", None)
         _payload = (
@@ -852,16 +879,28 @@ class AgentBuilder:
                 if trc.enabled
                 else ContextConfig.model_fields["tool_result_limit"].default
             )
+            trigger_ratio = ccc.compact_threshold_ratio
+            reserve_ratio = min(
+                ccc.reserve_threshold_ratio,
+                trigger_ratio - 0.000001,
+            )
+            if reserve_ratio != ccc.reserve_threshold_ratio:
+                _logger.warning(
+                    f"Context reserve ratio "
+                    f"{ccc.reserve_threshold_ratio} must be smaller than "
+                    f"trigger ratio {trigger_ratio}; using "
+                    f"{reserve_ratio}.",
+                )
             return ContextConfig(
-                trigger_ratio=ccc.compact_threshold_ratio,
-                reserve_ratio=ccc.reserve_threshold_ratio,
+                trigger_ratio=trigger_ratio,
+                reserve_ratio=reserve_ratio,
                 tool_result_limit=tool_result_limit,
             )
         except Exception:
             return ContextConfig()
 
     @staticmethod
-    def _build_scroll_components(
+    async def _build_scroll_components(
         ctx: Any,
         agent_config: Any,
         model: Any,
@@ -892,7 +931,8 @@ class AgentBuilder:
         # history.db is shared across sessions in this workspace; rows are
         # keyed by session_id (the conversation) and agent_id (which agent
         # wrote them).
-        return build_scroll_components(
+        return await run_sync_io(
+            build_scroll_components,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             model=model,

@@ -98,11 +98,66 @@ def bind_candidate_output(
         }
 
 
+def reconcile_candidate_span(
+    candidate: dict[str, Any],
+    *,
+    element_id: str,
+    actual_duration_seconds: float | None,
+    tolerance_seconds: float = 0.25,
+) -> bool:
+    """Shrink an element's span to the published video's real duration.
+
+    Providers may return less footage than the planned span — an s2v clip
+    only lasts as long as its driving audio — and leaving the span at the
+    planned length freezes the last frame for the remainder in the final
+    cut while the timeline over-reports the segment. When the artifact is
+    measurably shorter, shrink the span and pull every element that starts
+    at/after the old end forward so the cut stays seamless. Longer footage
+    is left alone: the span keeps its planned length and trims the tail.
+
+    Returns True when the candidate was modified (idempotent on replay:
+    once shrunk, the delta falls under the tolerance).
+    """
+    if actual_duration_seconds is None or actual_duration_seconds <= 0:
+        return False
+    timelines = candidate.get("timelines", {}).get("items", {})
+    for timeline in timelines.values():
+        element = timeline.get("elements_by_id", {}).get(element_id)
+        if element is None:
+            continue
+        ticks_per_second = int(timeline.get("ticks_per_second") or 0)
+        span = element.get("span")
+        if ticks_per_second <= 0 or not isinstance(span, dict):
+            return False
+        old_duration = int(span.get("duration_tick") or 0)
+        new_duration = round(actual_duration_seconds * ticks_per_second)
+        if new_duration <= 0:
+            return False
+        delta = old_duration - new_duration
+        if delta <= round(tolerance_seconds * ticks_per_second):
+            return False
+        start = int(span.get("start_tick") or 0)
+        old_end = start + old_duration
+        span["duration_tick"] = new_duration
+        for other_id, other in timeline.get("elements_by_id", {}).items():
+            if other_id == element_id:
+                continue
+            other_span = other.get("span")
+            if not isinstance(other_span, dict):
+                continue
+            other_start = int(other_span.get("start_tick") or 0)
+            if other_start >= old_end:
+                other_span["start_tick"] = other_start - delta
+        return True
+    return False
+
+
 __all__ = [
     "bind_candidate_output",
     "candidate_element",
     "element_output_slot_id",
     "find_timeline_element",
+    "reconcile_candidate_span",
     "selected_element_output",
     "target_element_id",
 ]

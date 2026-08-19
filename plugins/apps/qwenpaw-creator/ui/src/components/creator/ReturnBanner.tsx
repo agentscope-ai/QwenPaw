@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { usePathname } from "@/routing/navigation";
 import { ArrowLeft, X } from "lucide-react";
 import { useNavigationStore } from "@/store/navigationStore";
@@ -16,6 +17,7 @@ export default function ReturnBanner() {
   const expectedPath = useNavigationStore((s) => s.expectedPath);
   const clear = useNavigationStore((s) => s.clear);
   const lastPathRef = useRef(pathname);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (pathname === lastPathRef.current) return;
@@ -38,12 +40,14 @@ export default function ReturnBanner() {
 
   const top = stack[stack.length - 1];
   const sourceDescription =
-    top.description === "决策中心" ? "审阅/决策" : top.description;
+    top.description === t("lib.decisionCenter")
+      ? t("returnBanner.reviewDecision")
+      : top.description;
 
   return (
     <div className="flex items-center justify-between gap-3 border-b border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
       <span className="min-w-0 truncate">
-        已跳转到新上下文，来自{" "}
+        {t("returnBanner.jumpedToContext")}{" "}
         <b className="font-semibold">{sourceDescription}</b>
       </span>
       <div className="flex shrink-0 items-center gap-2">
@@ -53,12 +57,12 @@ export default function ReturnBanner() {
           className="inline-flex items-center gap-1.5 rounded-md border border-blue-300 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-transparent dark:text-blue-300 dark:hover:bg-blue-900/40"
         >
           <ArrowLeft className="h-3 w-3" />
-          返回刚刚的位置
+          {t("returnBanner.backToPrevious")}
         </button>
         <button
           type="button"
           onClick={() => clear()}
-          aria-label="关闭返回条"
+          aria-label={t("returnBanner.closeBanner")}
           className="inline-flex h-6 w-6 items-center justify-center rounded-md text-blue-500 transition-colors hover:bg-blue-100 dark:hover:bg-blue-900/40"
         >
           <X className="h-3.5 w-3.5" />

@@ -254,7 +254,7 @@ The runtime turns one incoming request into a stream of UI events. It runs as a 
 
 **Modes** bundle related commands, tools, hooks, and prompt fragments behind a single on/off switch. Two modes ship today:
 
-- **Coding mode** adds project-aware tools (code search, inline diff editing) and a coding system prompt, scoped to a project directory. See [Coding Mode](./coding-mode).
+- **Coding mode** adds project-aware tools (code search, inline diff editing) and a coding system prompt, scoped to a project directory.
 - **Mission mode** runs long tasks as a two-phase loop: the agent first writes a plan, then iterates with implementation tools until every checkpoint passes.
 
 **Assembling the agent** happens once per request: the agent config, model, tools, system prompt, memory, and context strategy come together, and every tool is wrapped so the governance layer always sees it. Building fresh each time keeps provisioning and policy out of the agent itself.

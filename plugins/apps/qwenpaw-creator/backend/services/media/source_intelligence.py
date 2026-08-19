@@ -166,6 +166,14 @@ def _index_text(index: SourceIntelligenceIndex) -> str:
         "channels",
     ):
         lines.append(f"media\t{key}\t{_optional(media.get(key))}")
+    document_meta = media.get("document")
+    if document_meta:
+        lines.append(
+            f"media\tdocumentFormat\t{_enc(document_meta['format'])}",
+        )
+        lines.append(
+            f"media\tdocumentPageCount\t{_enc(document_meta['pageCount'])}",
+        )
     for kind, key in (
         ("shot", "shots"),
         ("transcript", "transcript"),
@@ -537,6 +545,7 @@ def parse_source_intelligence_files(
             if value is not None and fields[1] not in {
                 "mediaKind",
                 "mediaType",
+                "documentFormat",
             }:
                 value = int(value)
             media[fields[1]] = value
@@ -562,6 +571,13 @@ def parse_source_intelligence_files(
         raise StorageIntegrityError(
             "Source Intelligence summary.md does not use the canonical template",
         )
+    document_format = media.pop("documentFormat", None)
+    document_page_count = media.pop("documentPageCount", None)
+    if document_format is not None or document_page_count is not None:
+        media["document"] = {
+            "format": document_format,
+            "pageCount": document_page_count,
+        }
     payload = {
         **scalars,
         "modelRuns": model_runs,

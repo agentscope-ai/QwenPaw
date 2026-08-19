@@ -27,11 +27,11 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  codingProjectApi,
+  projectDirectoryApi,
   type BrowseDirsResponse,
   type ProjectListItem,
-} from "../../api/modules/codingProject";
-import { useProjectDir } from "../../stores/codingModeStore";
+} from "../../api/modules/projectDirectory";
+import { useProjectDir } from "../../stores/projectDirectoryStore";
 import styles from "./index.module.less";
 
 interface ProjectSelectModalProps {
@@ -110,7 +110,7 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
     setLogs([]);
     setError(null);
     try {
-      const res = await codingProjectApi.cloneStream(
+      const res = await projectDirectoryApi.cloneStream(
         url.trim(),
         name.trim() || undefined,
       );
@@ -338,7 +338,7 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
       const zipFile = new File([blob], `${localSel.name}.zip`, {
         type: "application/zip",
       });
-      const res = await codingProjectApi.uploadZip(zipFile, localSel.name);
+      const res = await projectDirectoryApi.uploadZip(zipFile, localSel.name);
       onSelect(res.path);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Import failed");
@@ -448,7 +448,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
     setBrowsePath(path);
     setLoading(true);
     setError(null);
-    codingProjectApi
+    projectDirectoryApi
       .browseDirs(path, showHidden)
       .then((res) => {
         if (seq !== navSeq.current) return;
@@ -651,7 +651,7 @@ function NewProjectTab({ onDone }: { onDone: (path: string) => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await codingProjectApi.create(name.trim());
+      const res = await projectDirectoryApi.create(name.trim());
       onDone(res.path);
     } catch (err: unknown) {
       const detail =
@@ -739,12 +739,12 @@ export default function ProjectSelectModal({
   const [workspaceDir, setWorkspaceDir] = useState<string | null>(null);
 
   const handleOpen = () => {
-    codingProjectApi
+    projectDirectoryApi
       .list()
       .then(setProjects)
       .catch(() => undefined);
     // GET returns workspace_dir field alongside the active project
-    codingProjectApi
+    projectDirectoryApi
       .get()
       .then((info) => {
         if (info.workspace_dir) setWorkspaceDir(info.workspace_dir);
@@ -757,7 +757,7 @@ export default function ProjectSelectModal({
       // For workspace default (path === null), explicitly reset on backend too
       if (path === null) {
         try {
-          await codingProjectApi.set(null);
+          await projectDirectoryApi.set(null);
         } catch {
           // ignore – best effort
         }
@@ -769,7 +769,7 @@ export default function ProjectSelectModal({
 
   const handlePathSelected = async (path: string) => {
     try {
-      await codingProjectApi.set(path);
+      await projectDirectoryApi.set(path);
     } catch {
       // best effort
     }

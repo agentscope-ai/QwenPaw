@@ -501,6 +501,52 @@ def test_authorization_request_and_token_are_project_unique(tmp_path):
         )
 
 
+def test_authorization_same_id_retry_replays_durable_record(tmp_path):
+    store = _store(tmp_path)
+    first = ExecutionAuthorizationRecord(
+        authorization_id="authorization-1",
+        project_id=PROJECT_ID,
+        round_id=ROUND_ID,
+        run_id=RUN_ID,
+        execution_request_id="execution-request-1",
+        operation="generate_video",
+        target_scope=["element:r2v-1"],
+        authorization_token="secret-token",
+        summary="Generate one candidate",
+        metadata={"toolCallId": "call-1"},
+    )
+    store.create_authorization(first)
+    store.decide_authorization(
+        PROJECT_ID,
+        "authorization-1",
+        authorization_token="secret-token",
+        status="APPROVED",
+        decision={"provider": "demo", "model": "model-1"},
+    )
+
+    replay = store.create_authorization(
+        first.model_copy(
+            update={
+                "authorization_token": "fresh-random-token",
+                "metadata": {"toolCallId": "call-2"},
+            },
+        ),
+    )
+    assert replay.authorization_id == "authorization-1"
+    assert replay.authorization_token == "secret-token"
+    assert replay.status is ExecutionAuthorizationStatus.APPROVED
+
+    with pytest.raises(ExecutionPayloadConflict, match="different request"):
+        store.create_authorization(
+            first.model_copy(
+                update={
+                    "authorization_token": "another-token",
+                    "summary": "A different request body",
+                },
+            ),
+        )
+
+
 def test_quarantine_is_create_once_and_never_reclassifies_provenance(tmp_path):
     store = _store(tmp_path)
     store.create_run(_run())

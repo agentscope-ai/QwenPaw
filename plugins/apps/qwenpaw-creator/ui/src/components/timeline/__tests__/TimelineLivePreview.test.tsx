@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import TimelineLivePreview, {
   motionExitProgress,
@@ -148,7 +148,7 @@ describe("TimelineLivePreview", () => {
           node.getAttribute("data-live-text-overlay") ??
           node.getAttribute("data-live-placeholder"),
       ),
-    ).toEqual(["edit-opening", "r2v-window", "overlay-os"]);
+    ).toEqual(["audio-bgm", "edit-opening", "r2v-window", "overlay-os"]);
 
     const editLayer = container.querySelector(
       '[data-live-layer="edit-opening"]',
@@ -160,11 +160,12 @@ describe("TimelineLivePreview", () => {
     );
     expect(editLayer).not.toHaveClass("invisible");
 
-    // Same convention as final composition: audio elements don't take part in
-    // the preview.
-    expect(
-      container.querySelector('[data-live-layer="audio-bgm"]'),
-    ).not.toBeInTheDocument();
+    // Narration/BGM plays through a hidden <audio> node driven by the same
+    // playhead-following machinery as video layers.
+    const audioLayer = container.querySelector(
+      '[data-live-layer="audio-bgm"]',
+    ) as HTMLAudioElement;
+    expect(audioLayer.tagName).toBe("AUDIO");
 
     // pet_os bubble drawn to the final-render spec: white bubble with black
     // border + tail + vibe emoji.
@@ -210,7 +211,7 @@ describe("TimelineLivePreview", () => {
     const { container } = renderPreview(cloneProject(), 7000);
     const visibleVideos = [
       ...container.querySelectorAll<HTMLVideoElement>(
-        "[data-live-layer]:not(.invisible)",
+        "video[data-live-layer]:not(.invisible)",
       ),
     ];
 
@@ -231,6 +232,60 @@ describe("TimelineLivePreview", () => {
     expect(
       container.querySelector("[data-live-preview-incomplete]"),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps the last complete frame during a transient seek before covering", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderPreview(cloneProject(), 7000);
+      const visibleVideos = [
+        ...container.querySelectorAll<HTMLVideoElement>(
+          "video[data-live-layer]:not(.invisible)",
+        ),
+      ];
+      visibleVideos.forEach((video) => {
+        Object.defineProperty(video, "readyState", {
+          configurable: true,
+          value: 2,
+        });
+        fireEvent.loadedData(video);
+        fireEvent.seeked(video);
+      });
+      expect(
+        container.querySelector("[data-live-preview-incomplete]"),
+      ).not.toBeInTheDocument();
+
+      // A drift-correction seek on an already-complete composite keeps the
+      // last painted frame instead of flashing the opaque notice.
+      const [firstVideo] = visibleVideos;
+      Object.defineProperty(firstVideo, "seeking", {
+        configurable: true,
+        value: true,
+      });
+      fireEvent.seeking(firstVideo);
+      expect(
+        container.querySelector("[data-live-preview-incomplete]"),
+      ).not.toBeInTheDocument();
+
+      // Only a persistent gap surfaces the notice.
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(
+        container.querySelector("[data-live-preview-incomplete]"),
+      ).toHaveTextContent("正在定位画面");
+
+      Object.defineProperty(firstVideo, "seeking", {
+        configurable: true,
+        value: false,
+      });
+      fireEvent.seeked(firstVideo);
+      expect(
+        container.querySelector("[data-live-preview-incomplete]"),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("recognizes an already-decoded cached video again after the layer remounts", () => {
@@ -317,6 +372,120 @@ describe("TimelineLivePreview", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("previews html_js timelines as backend poster frames, never script iframes", () => {
+    const project = cloneProject();
+    const overlay =
+      project.timelines.items["timeline:main"].elements_by_id["overlay-title"];
+    if (overlay.creation.type !== "overlay" || !overlay.creation.motion) {
+      throw new Error("expected generated motion overlay");
+    }
+    // js timelines never execute in the preview sandbox; the layer must
+    // show the deterministic backend poster instead of a dead iframe.
+    overlay.creation.motion.format = "html_js";
+    overlay.creation.motion.html = null;
+    overlay.creation.motion.html_file_id = "file-motion-poster-test";
+
+    const { container } = renderPreview(project, 2000);
+    const poster = container.querySelector(
+      '[data-live-motion-overlay="overlay-title"]',
+    ) as HTMLImageElement;
+    expect(poster).toBeInTheDocument();
+    expect(poster.tagName).toBe("IMG");
+    expect(poster).toHaveAttribute("data-live-motion-poster", "true");
+    expect(poster.getAttribute("src")).toContain(
+      "/media/motion-documents/file-motion-poster-test/poster",
+    );
+    expect(poster.getAttribute("src")).toContain("format=html_js");
+    expect(
+      container.querySelector("iframe[data-live-motion-overlay]"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("previews full-canvas motion clips as backend poster frames", () => {
+    const project = cloneProject();
+    const elements = project.timelines.items["timeline:main"].elements_by_id;
+    // A pure motion-graphics segment: the document itself is the picture.
+    elements["clip-scene"] = {
+      element_id: "clip-scene",
+      label: "开场场景",
+      enabled: true,
+      z_index: 0,
+      location: null,
+      render_source: null,
+      span: { start_tick: 0, duration_tick: 8000 },
+      outputs: {},
+      creation: {
+        type: "motion_clip",
+        prompt: "scene",
+        motion: {
+          format: "html_js",
+          html: null,
+          html_file_id: "file-motion-clip-test",
+          fps: 24,
+          loop: false,
+        },
+      },
+    } as never;
+
+    const { container } = renderPreview(project, 2000);
+    const poster = container.querySelector(
+      '[data-live-motion-overlay="clip-scene"]',
+    ) as HTMLImageElement;
+    expect(poster).toBeInTheDocument();
+    expect(poster.tagName).toBe("IMG");
+    expect(poster.getAttribute("src")).toContain(
+      "/media/motion-documents/file-motion-clip-test/poster",
+    );
+    // Full-canvas: no location means the layer spans the whole stage.
+    expect(
+      container.querySelector('[data-live-placeholder="clip-scene"]'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("mounts a sandboxed same-source player alongside the html_js poster", () => {
+    const project = cloneProject();
+    const overlay =
+      project.timelines.items["timeline:main"].elements_by_id["overlay-title"];
+    if (overlay.creation.type !== "overlay" || !overlay.creation.motion) {
+      throw new Error("expected generated motion overlay");
+    }
+    overlay.creation.motion.format = "html_js";
+    overlay.creation.motion.html = null;
+    overlay.creation.motion.html_file_id = "file-motion-player-test";
+
+    const { container } = renderPreview(project, 2000);
+    const player = container.querySelector(
+      'iframe[data-live-motion-player="overlay-title"]',
+    ) as HTMLIFrameElement;
+    expect(player).toBeInTheDocument();
+    // Opaque-origin sandbox: scripts may run, nothing else.
+    expect(player.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(player.getAttribute("src")).toContain(
+      "/media/motion-documents/file-motion-player-test/preview",
+    );
+    // Hidden until the document boots; the poster underlay carries the
+    // first paint.
+    expect(player.style.visibility).toBe("hidden");
+  });
+
+  it("fails closed for html_js without a poster", () => {
+    const project = cloneProject();
+    const overlay =
+      project.timelines.items["timeline:main"].elements_by_id["overlay-title"];
+    if (overlay.creation.type !== "overlay" || !overlay.creation.motion) {
+      throw new Error("expected generated motion overlay");
+    }
+    // Inline html_js cannot exist in committed Projects (schema rejects
+    // it); if such a shape ever reaches the UI it must render nothing
+    // instead of a dead script document.
+    overlay.creation.motion.format = "html_js";
+
+    const { container } = renderPreview(project, 2000);
+    expect(
+      container.querySelector('[data-live-motion-overlay="overlay-title"]'),
+    ).not.toBeInTheDocument();
+  });
+
   it("reduces older agent paw trails to the trusted three-paw sequence", () => {
     const project = cloneProject();
     const overlay =
@@ -324,6 +493,9 @@ describe("TimelineLivePreview", () => {
     if (overlay.creation.type !== "overlay" || !overlay.creation.motion) {
       throw new Error("expected generated motion overlay");
     }
+    // Paw trails are text-free decorations; the caption viewport-safety
+    // wrapper only applies to overlays with copy.
+    overlay.creation.text = "";
     overlay.creation.motion.html =
       '<html><head></head><body><div data-motion-motif="paw_trail"><i class="p5"></i></div></body></html>';
 
@@ -491,5 +663,68 @@ describe("TimelineLivePreview", () => {
       '[data-live-layer="edit-opening"]',
     ) as HTMLVideoElement;
     expect(editLayer.currentTime).toBeCloseTo(2, 3);
+  });
+
+  it("freezes a trimmed clip on the frame the readiness check expects", () => {
+    // A clip cut from the middle of its source (source_in 2s, window 3s)
+    // whose span outlives the window: the frozen frame must live at
+    // source_in + window (the drift target), not at the bare window
+    // offset — that mismatch pinned the "正在定位画面" notice forever.
+    // jsdom reports duration=NaN which skipped the old freeze branch, so
+    // pin a finite decoded duration like a real browser.
+    const originalDuration = Object.getOwnPropertyDescriptor(
+      HTMLMediaElement.prototype,
+      "duration",
+    );
+    Object.defineProperty(HTMLMediaElement.prototype, "duration", {
+      configurable: true,
+      get: () => 5.04,
+    });
+    try {
+      const project = cloneProject();
+      const timeline = project.timelines.items["timeline:main"];
+      const source =
+        timeline.elements_by_id["edit-opening"].render_source ?? ({} as never);
+      Object.assign(source, {
+        source_in_tick: 2000,
+        source_out_tick: 5000,
+      });
+      const { container } = renderPreview(project, 4500);
+
+      const editLayer = container.querySelector(
+        '[data-live-layer="edit-opening"]',
+      ) as HTMLVideoElement;
+      expect(editLayer.currentTime).toBeCloseTo(2 + 3 - 0.033, 3);
+
+      // Release every mounted video layer; with the old freeze offset the
+      // trimmed clip stayed seconds away from the drift target and the
+      // notice below could never clear.
+      container
+        .querySelectorAll<HTMLVideoElement>("[data-live-layer]")
+        .forEach((video) => {
+          Object.defineProperty(video, "readyState", {
+            configurable: true,
+            value: 2,
+          });
+          fireEvent.loadedData(video);
+          fireEvent.seeked(video);
+        });
+      container
+        .querySelectorAll("[data-live-motion-overlay]")
+        .forEach((frame) => fireEvent.load(frame));
+      expect(
+        container.querySelector("[data-live-preview-incomplete]"),
+      ).not.toBeInTheDocument();
+    } finally {
+      if (originalDuration) {
+        Object.defineProperty(
+          HTMLMediaElement.prototype,
+          "duration",
+          originalDuration,
+        );
+      } else {
+        delete (HTMLMediaElement.prototype as { duration?: number }).duration;
+      }
+    }
   });
 });

@@ -7,7 +7,7 @@
  */
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@agentscope-ai/chat", () => ({
   Attachments: {
@@ -18,7 +18,21 @@ vi.mock("@agentscope-ai/chat", () => ({
 }));
 
 vi.mock("@agentscope-ai/design", () => ({
-  Audio: () => <div data-testid="audio" />,
+  Audio: () => (
+    <div data-testid="audio">
+      <div className="spark-media-player-controller">
+        <button type="button" data-testid="play-button">
+          play
+        </button>
+        <button type="button" data-testid="volume-button">
+          volume
+        </button>
+        <span>00:00</span>
+        <div className="spark-media-progress-container" />
+        <span>00:00</span>
+      </div>
+    </div>
+  ),
   Video: () => <div data-testid="video" />,
 }));
 
@@ -27,10 +41,6 @@ vi.mock("react-i18next", () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
       opts && "defaultValue" in opts ? opts.defaultValue ?? "" : key,
   }),
-}));
-
-vi.mock("../../../../utils/openExternalLink", () => ({
-  openExternalLink: vi.fn(),
 }));
 
 import MediaPreview from "./MediaPreview";
@@ -54,6 +64,41 @@ function mockFetchByUrl(responses: Record<string, number>) {
 }
 
 describe("MediaPreview error state", () => {
+  it("shows a download action for audio previews", () => {
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/media.audio",
+          name: "media.audio",
+          type: "audio",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "common.download" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["image", "video"] as const)(
+    "does not show a download action for %s previews",
+    (type) => {
+      render(
+        <MediaPreview
+          media={{
+            url: `/api/files/preview/media.${type}`,
+            name: `media.${type}`,
+            type,
+          }}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("button", { name: "common.download" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("shows a warning when the file preview URL 404s", async () => {
     mockFetchByUrl({ "/api/files/preview/file1.txt": 404 });
 
@@ -109,5 +154,27 @@ describe("MediaPreview error state", () => {
       ).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("file-card")).toBeInTheDocument();
+  });
+
+  it("opens a file card in Preview without downloading it", async () => {
+    mockFetchByUrl({ "/api/files/preview/hello.txt": 200 });
+    const onFileOpen = vi.fn();
+
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/files/preview/hello.txt",
+          name: "hello.txt",
+          type: "file",
+        }}
+        onFileOpen={onFileOpen}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-card")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("file-card"));
+    expect(onFileOpen).toHaveBeenCalledTimes(1);
   });
 });

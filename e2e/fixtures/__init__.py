@@ -182,6 +182,14 @@ def page(browser_context: BrowserContext, request: pytest.FixtureRequest) -> Gen
     page = browser_context.new_page()
     page.set_default_timeout(config.browser.timeout)
 
+    # Dismiss the desktop-mode onboarding Tour before it can render: its mask
+    # (DIV.ant-tour-mask) intercepts pointer events and breaks clicking
+    # any switch/button in automated tests. Same key as console's
+    # desktopModeHint.ts (dismissDesktopModeHint).
+    page.add_init_script(
+        "window.localStorage.setItem('qwenpaw.desktop-mode-hint.dismissed', '1');",
+    )
+
     # Inject test name + step counter, used by BasePage.step_shot for auto-archiving
     try:
         page._qwenpaw_test_name = test_name

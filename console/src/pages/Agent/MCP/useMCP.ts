@@ -33,6 +33,9 @@ export function useMCP() {
         try {
           const discovered = await harnessApi.listMCP(selectedBackend);
           setProviderServers(discovered.servers);
+          if (discovered.message) {
+            message.warning(discovered.message);
+          }
         } catch (error) {
           console.warn("Failed to discover Provider MCP servers:", error);
           setProviderServers([]);

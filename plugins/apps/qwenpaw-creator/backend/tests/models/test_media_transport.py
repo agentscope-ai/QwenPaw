@@ -6,9 +6,11 @@ import asyncio
 import base64
 import io
 
+import httpx
 import pytest
 from PIL import Image
 
+from models import media_transport
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
     _upload_local_file_to_dashscope_temp_sync,
@@ -259,3 +261,83 @@ def test_reference_media_checks_local_size_before_reading(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="exceeds 5 bytes"):
         asyncio.run(read_reference_media(reference.as_uri(), max_bytes=5))
+
+
+@pytest.mark.parametrize(
+    ("values", "expected_status"),
+    [
+        (("", "", ""), "absent"),
+        (("id", "secret", "https://oss.example.test"), "ready"),
+        (("id", "", ""), "invalid"),
+    ],
+)
+def test_creator_oss_readiness_has_explicit_three_states(
+    monkeypatch,
+    values,
+    expected_status,
+) -> None:
+    access_id, access_secret, endpoint = values
+    monkeypatch.setattr(
+        media_transport.model_config,
+        "get_oss_access_key_id",
+        lambda: access_id,
+    )
+    monkeypatch.setattr(
+        media_transport.model_config,
+        "get_oss_access_key_secret",
+        lambda: access_secret,
+    )
+    monkeypatch.setattr(
+        media_transport.model_config,
+        "get_oss_endpoint",
+        lambda: endpoint,
+    )
+    monkeypatch.setattr(
+        media_transport.model_config,
+        "get_oss_bucket",
+        lambda default: default,
+    )
+    monkeypatch.setattr(
+        media_transport.model_config,
+        "get_oss_public_base_url",
+        lambda: "",
+    )
+
+    readiness = media_transport.creator_oss_readiness()
+
+    assert readiness["status"] == expected_status
+
+
+def test_uguu_upload_retries_429_and_parses_temporary_url(monkeypatch) -> None:
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(429, json={"error": "rate limited"})
+        return httpx.Response(
+            200,
+            json={"files": [{"url": "https://uguu.se/example.png"}]},
+        )
+
+    async def no_sleep(_seconds):
+        return None
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        media_transport.httpx,
+        "AsyncClient",
+        lambda **kwargs: client,
+    )
+    monkeypatch.setattr(media_transport.asyncio, "sleep", no_sleep)
+
+    url = asyncio.run(
+        media_transport.upload_image_to_uguu_for_temporary_public_url(
+            _png_bytes(),
+            "reference.png",
+        ),
+    )
+
+    assert url == "https://uguu.se/example.png"
+    assert len(calls) == 2
+    assert b'name="files[]"' in calls[-1].content

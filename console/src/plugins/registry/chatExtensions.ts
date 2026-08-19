@@ -382,7 +382,7 @@ class ChatExtensionsRegistry {
     };
   }
 
-  // ── Bulk dispose for plugin unload (future) ───────────────────────────────
+  // ── Bulk dispose for plugin unload ────────────────────────────────────────
 
   disposeAll(pluginId: string): void {
     let mutated = false;

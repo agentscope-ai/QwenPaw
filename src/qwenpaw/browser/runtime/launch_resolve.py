@@ -15,6 +15,7 @@ def resolve_launch(
     has_display: bool,
     system_default: Tuple[Optional[str], Optional[str]],
     bundled_path: Optional[str],
+    prefer_desktop_bundle: bool = False,
 ) -> dict[str, Any]:
     """Resolve automatic launch fields without reading process state."""
     if config.headless == "true":
@@ -28,6 +29,13 @@ def resolve_launch(
     engine = config.engine
     executable_path = config.executable_path
     if executable_path:
+        engine = "chromium" if engine == "auto" else engine
+    elif config.channel:
+        engine = "chromium" if engine == "auto" else engine
+    elif prefer_desktop_bundle:
+        # Windows Tauri uses a QwenPaw-managed Playwright cache. Leave the
+        # executable unset so Playwright selects the exact driver-matched
+        # Chromium revision instead of an arbitrary system browser.
         engine = "chromium" if engine == "auto" else engine
     elif engine == "auto":
         if (
@@ -74,10 +82,14 @@ def resolve_launch_env(config: Any) -> dict[str, Any]:
     )
 
     in_container = is_running_in_container()
+    prefer_desktop_bundle = (
+        os.environ.get("QWENPAW_DESKTOP_MANAGED_PLAYWRIGHT") == "1"
+    )
     return resolve_launch(
         config,
         in_container=in_container,
         has_display=_has_display(in_container),
         system_default=get_system_default_browser(),
         bundled_path=get_playwright_chromium_executable_path(),
+        prefer_desktop_bundle=prefer_desktop_bundle,
     )

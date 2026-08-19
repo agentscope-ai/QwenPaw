@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Table, Button, Space, Popconfirm, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
@@ -65,6 +66,22 @@ export function AgentTable({
 }: AgentTableProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  // Measure the table's container so the scroll body height follows the
+  // actual layout (classic page or OS window) instead of the viewport.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState<number>();
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const headerH =
+        el.querySelector("thead")?.getBoundingClientRect().height ?? 40;
+      const next = el.clientHeight - headerH;
+      setBodyHeight(next > 0 ? next : undefined);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -96,6 +113,7 @@ export function AgentTable({
       key: "sort",
       width: 56,
       align: "center",
+      fixed: "left",
       render: (_value: unknown, record: AgentSummary) => (
         <Tooltip title={t("agent.dragHandleTooltip")}>
           <span>
@@ -111,6 +129,7 @@ export function AgentTable({
       dataIndex: "name",
       key: "name",
       width: 260,
+      fixed: "left",
       render: (_text: string, record: AgentSummary) => (
         <Space>
           <AgentStatusIndicator
@@ -345,31 +364,39 @@ export function AgentTable({
   ];
 
   return (
-    <div className={styles.tableCard}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext
+        items={agents.map((agent) => agent.id)}
+        strategy={verticalListSortingStrategy}
       >
-        <SortableContext
-          items={agents.map((agent) => agent.id)}
-          strategy={verticalListSortingStrategy}
+        <div
+          ref={containerRef}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
         >
           <Table
             dataSource={agents}
             columns={columns}
             loading={loading}
             rowKey="id"
-            scroll={{ x: 1620 }}
             components={{
               body: {
                 row: SortableAgentRow,
               },
             }}
             pagination={false}
+            scroll={{ x: 1620, y: bodyHeight }}
           />
-        </SortableContext>
-      </DndContext>
-    </div>
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 }

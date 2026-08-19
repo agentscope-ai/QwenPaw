@@ -9,6 +9,7 @@ reply needs the same handling, so it lives here once.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterable
 from typing import Any
 
 
@@ -70,7 +71,7 @@ async def consume_model_response(
     cumulative text — the last non-empty wins); others return one response.
     """
     response = await model(messages, **call_kwargs)
-    if not hasattr(response, "__aiter__"):
+    if not isinstance(response, AsyncIterable):
         return extract_response_text(response)
     text = ""
     async for chunk in response:

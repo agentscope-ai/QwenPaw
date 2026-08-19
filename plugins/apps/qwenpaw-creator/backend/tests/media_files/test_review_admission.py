@@ -9,14 +9,18 @@ import logging
 
 import pytest
 
-from domain.errors import ConflictError, ReviewPendingError
+from domain.errors import ConflictError, ReviewPendingError, ValidationError
 from services.media_files.image_execution import FileImageExecutionService
 from services.media_files.review_admission import assert_media_review_admission
+from services.media_files.visual_reference_resolution import (
+    resolve_r2v_visual_reference_version_ids,
+)
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
     ArtifactVersion,
     EntityCollection,
     Project,
+    R2VCreation,
     VisualEntity,
     VisualVariant,
 )
@@ -234,6 +238,10 @@ def test_image_execution_freezes_only_the_pending_variant(
         entity_id="char:hero",
         kind="character",
         name="Hero",
+        required_variant_ids=[
+            "variant:hero-peak",
+            "variant:hero-fallen",
+        ],
         variants=variants,
     )
     project.visual.entities.order.append("char:hero")
@@ -293,4 +301,122 @@ def test_image_execution_freezes_only_the_pending_variant(
             fallen.artifact_version_id
         ].metadata["variantId"]
         == "variant:hero-fallen"
+    )
+    peak_variant = snapshot.visual.entities.items["char:hero"].variants.items[
+        "variant:hero-peak"
+    ]
+    fallen_variant = snapshot.visual.entities.items[
+        "char:hero"
+    ].variants.items["variant:hero-fallen"]
+    assert peak_variant.selected_artifact_version_id == (
+        first.artifact_version_id
+    )
+    assert fallen_variant.selected_artifact_version_id == (
+        fallen.artifact_version_id
+    )
+    assert (
+        snapshot.assets.artifact_versions_by_id[
+            first.artifact_version_id
+        ].slot_id
+        != snapshot.assets.artifact_versions_by_id[
+            fallen.artifact_version_id
+        ].slot_id
+    )
+    assert (
+        snapshot.visual.entities.items[
+            "char:hero"
+        ].selected_artifact_version_id
+        is None
+    )
+
+    resolved = resolve_r2v_visual_reference_version_ids(
+        snapshot,
+        R2VCreation(
+            character_refs=["char:hero"],
+            visual_variant_refs={
+                "char:hero": "variant:hero-fallen",
+            },
+        ),
+        [
+            first.artifact_version_id,
+            fallen.artifact_version_id,
+        ],
+    )
+    assert resolved == (fallen.artifact_version_id,)
+
+
+def test_visual_reference_resolution_fails_closed_for_missing_entity() -> None:
+    broken = Project.new(
+        project_id="project-missing-visual",
+        name="Missing visual",
+    )
+
+    with pytest.raises(ValidationError, match="视觉引用实体不存在"):
+        resolve_r2v_visual_reference_version_ids(
+            broken,
+            R2VCreation(character_refs=["char:hero"]),
+            [],
+        )
+
+
+def test_validate_local_media_execution_rejects_pending_review_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The route-level precheck must mirror execute()'s review admission.
+
+    execute() raises ReviewPendingError before it persists the Task, so
+    without this precheck the render route would return 202 with a taskId
+    that never materializes and the frontend would silently mark the
+    compose as failed (auto-compose regression on the review-pending path).
+    """
+
+    from types import SimpleNamespace
+
+    from domain.enums import CreatorCommandType
+    from services.media_files import local_execution
+
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    services = CreatorFileServices.create(tmp_path.resolve())
+    services.projects.create(
+        Project.new(project_id="project-validate-review", name="Validate"),
+    )
+
+    resolved = SimpleNamespace(
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:timeline:main",
+        inputs=(SimpleNamespace(version_id="artifact-version-pending"),),
+    )
+    # Structural resolution of a composable timeline is covered elsewhere;
+    # this test pins the admission behaviour of the precheck itself.
+    monkeypatch.setattr(
+        local_execution,
+        "_resolve_execution",
+        lambda **_kwargs: resolved,
+    )
+    monkeypatch.setattr(
+        services.reviews,
+        "all_pending",
+        lambda _project_id: [_review()],
+    )
+
+    with pytest.raises(ReviewPendingError, match="不要继续下游生成"):
+        local_execution.validate_local_media_execution(
+            services,
+            project_id="project-validate-review",
+            command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+            target_ref="timeline:timeline:main",
+        )
+
+    # Once no review is pending the same precheck admits the compose.
+    monkeypatch.setattr(
+        services.reviews,
+        "all_pending",
+        lambda _project_id: [],
+    )
+    local_execution.validate_local_media_execution(
+        services,
+        project_id="project-validate-review",
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:timeline:main",
     )

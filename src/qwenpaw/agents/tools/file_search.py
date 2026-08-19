@@ -17,7 +17,10 @@ from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
 from ...constant import WORKING_DIR
-from ...config.context import get_current_workspace_dir
+from ...config.context import (
+    get_current_project_dir,
+    get_current_workspace_dir,
+)
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
 
@@ -172,7 +175,11 @@ def _resolve_search_root(
     search_root = (
         Path(_resolve_file_path(path))
         if path
-        else (get_current_workspace_dir() or WORKING_DIR)
+        else (
+            get_current_project_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
+        )
     )
     try:
         exists = search_root.exists()

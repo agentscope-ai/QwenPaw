@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getAgentDisplayName } from "./agentDisplayName";
-import { stripFrontmatter } from "./markdown";
+import { parseMarkdownFrontmatter, stripFrontmatter } from "./markdown";
 
 // ---------------------------------------------------------------------------
 // getAgentDisplayName
@@ -78,5 +78,20 @@ describe("stripFrontmatter", () => {
   it("handles Windows line endings \\r\\n", () => {
     const input = "---\r\ntitle: Test\r\n---\r\n# Hello";
     expect(stripFrontmatter(input)).toBe("# Hello");
+  });
+});
+
+describe("parseMarkdownFrontmatter", () => {
+  it("returns ordered metadata entries and the Markdown body", () => {
+    const input =
+      "---\ndescription: Memory Search: query guidance\nname: memory-search\n---\n## Body";
+
+    expect(parseMarkdownFrontmatter(input)).toEqual({
+      body: "## Body",
+      entries: [
+        { key: "description", value: "Memory Search: query guidance" },
+        { key: "name", value: "memory-search" },
+      ],
+    });
   });
 });

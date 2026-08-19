@@ -266,7 +266,6 @@ def test_elements_at_uses_half_open_intervals_and_returns_raw_elements(
             z_index=10,
             creation={
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": "抓到你了",
             },
         ),
@@ -277,7 +276,6 @@ def test_elements_at_uses_half_open_intervals_and_returns_raw_elements(
             location=_full_canvas(),
             creation={
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": "hidden",
             },
         ),
@@ -537,7 +535,6 @@ def test_each_edit_selection_is_an_element_and_timeline_executes_them(
             "z_index": 10,
             "creation": {
                 "type": "overlay",
-                "overlay_kind": "pet_os",
                 "text": f"第 {index + 1} 段内心独白",
                 "vibe": "action",
                 "prompt": "",

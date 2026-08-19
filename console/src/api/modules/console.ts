@@ -68,6 +68,7 @@ export const consoleApi = {
     limit?: number;
     offset?: number;
     source_type?: string;
+    source_types?: string[];
     status?: string;
     agent_id?: string;
     unread_only?: boolean;
@@ -77,13 +78,20 @@ export const consoleApi = {
     if (params?.offset !== undefined)
       query.set("offset", String(params.offset));
     if (params?.source_type) query.set("source_type", params.source_type);
+    for (const sourceType of params?.source_types ?? []) {
+      query.append("source_types", sourceType);
+    }
     if (params?.status) query.set("status", params.status);
     if (params?.agent_id) query.set("agent_id", params.agent_id);
     if (params?.unread_only !== undefined) {
       query.set("unread_only", String(params.unread_only));
     }
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return request<{ events: InboxEvent[] }>(`/console/inbox/events${suffix}`);
+    return request<{
+      events: InboxEvent[];
+      total?: number;
+      unread_count?: number;
+    }>(`/console/inbox/events${suffix}`);
   },
 
   markInboxRead: (payload: { event_ids?: string[]; all?: boolean }) =>

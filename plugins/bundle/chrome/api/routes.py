@@ -4,19 +4,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
+import threading
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from qwenpaw.browser.control_link.chrome.bridge import (
+    NMBridgeError,
+    get_nm_bridge,
+)
+
 from ..extension_setup import (
+    CHROME_EXTENSIONS_URL,
     atomic_write_json_0600,
     extension_install_status,
     BridgeEndpointUnavailable,
-    open_chrome_extensions_page,
+    InstallModeError,
     open_extension_folder,
     require_bridge_endpoint,
     setup_extension_files,
@@ -27,6 +35,7 @@ api_router = APIRouter(tags=["chrome"])
 router = api_router
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 _state = get_nm_bridge_route_state()
+_SETUP_LOCK = threading.Lock()
 
 
 class ExtensionSetupRequest(BaseModel):
@@ -91,6 +100,19 @@ async def get_extension_status() -> dict[str, Any]:
     }
 
 
+def _setup_extension_files_serially(
+    *,
+    install_mode: str,
+    reset: bool,
+) -> dict[str, str | bool]:
+    """Run one local setup operation at a time within this backend process."""
+    with _SETUP_LOCK:
+        return setup_extension_files(
+            install_mode=install_mode,
+            reset=reset,
+        )
+
+
 @api_router.get("/install-status")
 async def extension_status() -> dict[str, Any]:
     """Return Chrome extension installation status."""
@@ -103,19 +125,46 @@ async def extension_setup(
 ) -> dict[str, Any]:
     """Install or repair the extension and its Native Messaging host."""
     try:
-        result = setup_extension_files(
+        result = await asyncio.to_thread(
+            _setup_extension_files_serially,
             install_mode=request.install_mode,
             reset=request.reset,
         )
+    except InstallModeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except BridgeEndpointUnavailable as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**result, **await get_extension_status()}
 
 
 @api_router.post("/open-chrome-extensions")
-async def open_chrome_extensions() -> dict[str, str | bool]:
-    """Open Chrome's extensions management page."""
-    return open_chrome_extensions_page()
+async def open_chrome_extensions() -> dict[str, str | bool | None]:
+    """Ask the connected extension to open Chrome's extensions manager."""
+    bridge = get_nm_bridge()
+    if not bridge.is_connected():
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": "Chrome extension is not connected.",
+        }
+    try:
+        result = await bridge.request(
+            "extension.open_extensions_manager",
+            timeout=5.0,
+        )
+    except NMBridgeError:
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": "Chrome extension could not open the extensions page.",
+        }
+    if not isinstance(result, dict) or result.get("opened") is not True:
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": "Chrome extension could not open the extensions page.",
+        }
+    return {"opened": True, "url": CHROME_EXTENSIONS_URL, "error": None}
 
 
 @api_router.post("/open-extension-folder")

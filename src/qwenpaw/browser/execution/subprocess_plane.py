@@ -597,7 +597,10 @@ class SubprocessPlane:
                 continue
             if worker.lock.locked():
                 continue
-            if now - worker.last_used > effective_ttl:
+            # Non-strict: a ttl of 0 means "reclaim whatever is idle now", and
+            # on Windows loop.time() has ~15ms resolution, so now - last_used
+            # is frequently exactly 0 right after a run.
+            if now - worker.last_used >= effective_ttl:
                 self._workers.pop(key, None)
                 await self._terminate(worker)
 

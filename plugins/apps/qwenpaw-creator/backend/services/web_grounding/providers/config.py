@@ -10,12 +10,20 @@ import httpx
 
 from models import config as model_config
 
-DEFAULT_VISUAL_SEARCH_PROVIDERS = ("tavily", "dashscope_web_search_image")
+DEFAULT_VISUAL_SEARCH_PROVIDERS = (
+    "tavily",
+    "serper",
+    "dashscope_web_search_image",
+)
 DEFAULT_VISUAL_SEARCH_MIN_RESULTS_FOR_FALLBACK = 2
 
 
 def tavily_api_key() -> str:
     return model_config.get_web_grounding_tavily_api_key()
+
+
+def serper_api_key() -> str:
+    return model_config.get_web_grounding_serper_api_key()
 
 
 def dashscope_api_key() -> str:
@@ -114,6 +122,7 @@ def visual_search_provider_order() -> tuple[str, ...]:
     native_search_ok = not dashscope_native_search_unavailable_reason()
     available = {
         "tavily": bool(tavily_api_key()),
+        "serper": bool(serper_api_key()),
         "dashscope_web_search_image": native_search_ok,
     }
     providers = tuple(

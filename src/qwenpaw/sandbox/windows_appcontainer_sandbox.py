@@ -315,13 +315,8 @@ def _compute_network_capabilities(
     if not config.network_allow:
         return []
 
-    if "*" not in config.network_allow:
-        logger.warning(
-            "WindowsAppContainerSandbox: domain-level network"
-            " filtering not supported by AppContainer."
-            " Allowing all network access.",
-        )
-
+    # A domain allowlist cannot be honoured here; the fail-open outcome is
+    # reported by report_unenforced_config at construction time.
     return [
         _CAP_INTERNET_CLIENT,
         _CAP_INTERNET_CLIENT_SERVER,

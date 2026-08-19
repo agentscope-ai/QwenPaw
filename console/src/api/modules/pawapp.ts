@@ -6,6 +6,8 @@ export interface PawAppInfo {
   name: string;
   version: string;
   description: string;
+  /** Per-locale descriptions from plugin.json, e.g. { "zh-CN": "..." }. */
+  description_i18n?: Record<string, string>;
   author: string;
   category: string;
   icon: string;

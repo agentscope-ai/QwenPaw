@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Input, Select, Tooltip } from "antd";
 import type { InputRef } from "antd";
 import {
@@ -25,6 +26,7 @@ const { TextArea } = Input;
 
 /** Inline hero composer on the redesigned home page. */
 export default function HeroComposerCard() {
+  const { t } = useTranslation();
   const launch = useProjectLaunch();
   const {
     projectName,
@@ -110,14 +112,16 @@ export default function HeroComposerCard() {
           <Input
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
-            placeholder={`请输入项目名称（选填，留空则取目标描述前 ${AUTO_PROJECT_NAME_LENGTH} 字）`}
+            placeholder={t("home.modelName", {
+              count: AUTO_PROJECT_NAME_LENGTH,
+            })}
             className="!rounded-none !border-x-0 !border-t-0 !border-b-[#EAE9E7] !bg-transparent !px-4 !py-3 !text-sm !leading-6 !shadow-none focus:!shadow-none"
           />
           <TextArea
             value={projectDescription}
             onChange={(e) => setProjectDescription(e.target.value)}
             autoSize={{ minRows: 2, maxRows: 10 }}
-            placeholder={"目标描述：" + SCENARIO_TERMS[scenario].description}
+            placeholder={t(SCENARIO_TERMS[scenario].descriptionKey)}
             className="!border-none !bg-transparent !px-4 !pb-2 !pt-3 !text-sm !leading-6 !shadow-none focus:!shadow-none"
           />
 
@@ -138,7 +142,7 @@ export default function HeroComposerCard() {
                       type="button"
                       onClick={() => removeAttachment(att.id)}
                       className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
-                      aria-label="移除附件"
+                      aria-label={t("home.removeAttachment")}
                     >
                       <X className="h-2.5 w-2.5" />
                     </button>
@@ -155,7 +159,7 @@ export default function HeroComposerCard() {
               className="flex w-full flex-wrap items-center gap-2 border-t border-[var(--color-warning)]/30 bg-[var(--color-warning-soft)]/40 px-3 py-2 text-left transition-colors hover:bg-[var(--color-warning-soft)]/70"
             >
               <span className="text-[11px] font-medium text-[var(--color-warning)]">
-                必选模型未配置：
+                {t("home.requiredModelNotConfigured")}
               </span>
               {missingRequiredModels!.map((type) => {
                 const meta = {
@@ -183,7 +187,7 @@ export default function HeroComposerCard() {
                 );
               })}
               <span className="ml-auto text-[11px] font-semibold text-[var(--color-accent)]">
-                点击配置 →
+                {t("home.clickToConfigure")}
               </span>
             </button>
           )}
@@ -195,7 +199,7 @@ export default function HeroComposerCard() {
               className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm font-medium text-[var(--color-text-primary)] transition-opacity hover:opacity-70"
             >
               <img src={addFileIcon} alt="" width={24} height={24} />
-              添加文件
+              {t("home.addFile")}
             </button>
             <input
               ref={fileInputRef}
@@ -213,7 +217,7 @@ export default function HeroComposerCard() {
               className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm font-medium text-[var(--color-text-primary)] transition-opacity hover:opacity-70"
             >
               <img src={addFolderIcon} alt="" width={24} height={24} />
-              添加文件夹
+              {t("home.addFolder")}
             </button>
             <input
               ref={folderInputRef}
@@ -239,7 +243,7 @@ export default function HeroComposerCard() {
               }`}
             >
               <img src={addLinkIcon} alt="" width={24} height={24} />
-              添加链接
+              {t("home.addLink")}
             </button>
             {urlInputOpen && (
               <Input
@@ -251,7 +255,7 @@ export default function HeroComposerCard() {
                 onBlur={() => {
                   if (!urlDraft.trim()) setUrlInputOpen(false);
                 }}
-                placeholder="粘贴 URL 后回车添加"
+                placeholder={t("home.pasteUrlAndEnter")}
                 className="!w-[240px] !rounded-full !border-[var(--color-border)] !bg-[var(--color-bg-secondary)] !px-3 !text-xs !shadow-none"
               />
             )}
@@ -262,7 +266,7 @@ export default function HeroComposerCard() {
       <div className="mt-4 flex items-center gap-3 px-5 py-4">
         <div
           role="radiogroup"
-          aria-label="视频场景"
+          aria-label={t("home.projectScenario")}
           className="flex items-center rounded-full bg-[rgba(43,27,0,0.04)] p-1"
         >
           {SCENARIO_OPTIONS.map((option) => (
@@ -278,7 +282,7 @@ export default function HeroComposerCard() {
                   : "text-[#656563] hover:text-[var(--color-text-primary)]"
               }`}
             >
-              {option.label}
+              {t(option.labelKey)}
             </button>
           ))}
         </div>
@@ -287,18 +291,18 @@ export default function HeroComposerCard() {
         {isVideoEdit && (
           <div className="flex items-center gap-1 rounded-full bg-[rgba(43,27,0,0.04)] py-1 pl-4 pr-2">
             <span className="text-sm font-medium leading-6 text-[#656563]">
-              内容类型
-              <sup className="text-[var(--color-accent)]">*</sup>：
+              {t("home.contentType")}
+              <sup className="text-[var(--color-accent)]">*</sup>:
             </span>
             <Select
-              aria-label="内容类型"
+              aria-label={t("home.contentType")}
               size="small"
               value={contentType}
               onChange={setContentType}
-              placeholder="请选择"
+              placeholder={t("home.pleaseSelect")}
               options={CONTENT_TYPE_OPTIONS.map((option) => ({
                 value: option.key,
-                label: option.label,
+                label: t(option.labelKey),
               }))}
               popupMatchSelectWidth={false}
               variant="borderless"
@@ -311,7 +315,7 @@ export default function HeroComposerCard() {
         {!isVideoEdit && (
           <>
             <Select
-              aria-label="分辨率"
+              aria-label={t("home.resolution")}
               size="small"
               value={resolution}
               onChange={setResolution}
@@ -325,7 +329,7 @@ export default function HeroComposerCard() {
               classNames={pillSelectClassNames}
             />
             <Select
-              aria-label="宽高比"
+              aria-label={t("home.aspectRatio")}
               size="small"
               value={aspectRatio}
               onChange={setAspectRatio}
@@ -352,12 +356,12 @@ export default function HeroComposerCard() {
             className="flex cursor-pointer items-center gap-1 rounded-full bg-[rgba(43,27,0,0.04)] px-4 py-1 text-sm font-medium leading-6 text-[#656563] transition-colors hover:bg-[rgba(43,27,0,0.08)] hover:text-[var(--color-text-primary)]"
           >
             <img src={modelConfigIcon} alt="" width={20} height={20} />
-            模型配置
+            {t("home.modelConfig")}
           </button>
           <Tooltip title={canLaunch ? undefined : launchHint()}>
             <button
               type="button"
-              aria-label="启动 Agent"
+              aria-label={t("home.launchAgent")}
               disabled={!canLaunch}
               onClick={handleLaunch}
               className={`flex h-8 w-8 items-center justify-center rounded-md transition-all ${

@@ -272,6 +272,25 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
 
 _DINGTALK_API_BASE = "https://oapi.dingtalk.com"
 _DINGTALK_SOURCE = "QWENPAW"
+# Statuses that mean "keep polling": no credentials have been issued yet.
+# DingTalk keeps adding intermediate steps, so any unknown status is
+# treated the same way (and logged) instead of aborting the flow.
+_DINGTALK_PENDING_STATUSES = (
+    "WAITING",
+    "CREATING",
+    "PUBLISHING",
+    "APPROVING",
+)
+_DINGTALK_FAILED_STATUSES = ("FAIL", "EXPIRED")
+
+
+def _clean_str(value: Any) -> str:
+    """Return a stripped string only for real string values.
+
+    JSON ``null`` (``None``) and non-string types are treated as absent so
+    that e.g. ``client_id: null`` never turns into the literal ``"None"``.
+    """
+    return value.strip() if isinstance(value, str) else ""
 
 
 class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
@@ -280,7 +299,21 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
     Flow:
     1. POST /app/registration/init   → nonce (5 min TTL)
     2. POST /app/registration/begin  → device_code + verification_uri_complete
-    3. POST /app/registration/poll   → client_id + client_secret on SUCCESS
+    3. POST /app/registration/poll   → client_id + client_secret once issued
+
+    Observed ``poll`` status sequences (device_code TTL is 2 hours and
+    ``poll`` is idempotent, so a terminal payload can be fetched again).
+    Intermediate steps may be missed depending on the poll interval:
+
+    * Org without app approval:
+      ``WAITING`` → ``CREATING`` → ``PUBLISHING`` → ``SUCCESS``
+    * Org with app approval enabled:
+      ``WAITING`` → ``CREATING`` → ``PUBLISHING`` → ``APPROVING``
+
+    Credentials are issued as soon as the app exists, which happens at
+    ``APPROVING`` as well, i.e. before the admin approves the app.  The
+    status name is therefore only used for logging and the presence of
+    both ``client_id`` and ``client_secret`` decides success.
     """
 
     async def fetch_qrcode(self, request: Request) -> QRCodeResult:
@@ -368,28 +401,46 @@ class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
                 detail=f"DingTalk status check failed: {exc}",
             ) from exc
 
-        status = data.get("status", "WAITING")
+        status = _clean_str(data.get("status")).upper()
+        client_id = _clean_str(data.get("client_id"))
+        client_secret = _clean_str(data.get("client_secret"))
 
-        if status == "SUCCESS":
+        if client_id and client_secret:
+            logger.info(
+                f"dingtalk registration poll: credentials issued "
+                f"(status={status or 'unknown'})",
+            )
             return PollResult(
                 status="success",
                 credentials={
-                    "client_id": data.get("client_id", ""),
-                    "client_secret": data.get("client_secret", ""),
+                    "client_id": client_id,
+                    "client_secret": client_secret,
                 },
             )
-        elif status == "FAIL":
+
+        if status in _DINGTALK_FAILED_STATUSES:
+            fail_reason = _clean_str(data.get("fail_reason"))
+            logger.warning(
+                f"dingtalk registration poll: status={status} "
+                f"errcode={data.get('errcode')} "
+                f"errmsg={data.get('errmsg')} reason={fail_reason}",
+            )
             return PollResult(
-                status="fail",
-                credentials={
-                    "fail_reason": data.get("fail_reason", ""),
-                },
+                status="expired" if status == "EXPIRED" else "fail",
+                credentials={"fail_reason": fail_reason},
             )
-        elif status == "EXPIRED":
-            return PollResult(status="expired", credentials={})
+
+        if status not in _DINGTALK_PENDING_STATUSES:
+            logger.warning(
+                f"dingtalk registration poll: unknown status={status!r} "
+                f"errcode={data.get('errcode')} "
+                f"errmsg={data.get('errmsg')}",
+            )
         else:
-            # WAITING or any other status
-            return PollResult(status="waiting", credentials={})
+            logger.debug(
+                f"dingtalk registration poll: status={status}",
+            )
+        return PollResult(status="waiting", credentials={})
 
 
 # ---------------------------------------------------------------------------

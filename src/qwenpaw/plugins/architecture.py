@@ -138,6 +138,9 @@ class PluginManifest(BaseModel):
     version: str = Field(..., min_length=1)
     name: str = ""
     description: str = ""
+    # Per-locale descriptions (e.g. {"zh-CN": ..., "en-US": ...}) surfaced
+    # to UI listings such as the App Center; not used for loading logic.
+    description_i18n: Dict[str, str] = Field(default_factory=dict)
     author: str = ""
     entry: PluginEntryPoints = Field(default_factory=PluginEntryPoints)
     dependencies: List[str] = Field(default_factory=list)
@@ -168,6 +171,16 @@ class PluginManifest(BaseModel):
         for key in ("name", "description", "author"):
             if key in data:
                 data[key] = _coerce_manifest_str(data[key])
+
+        # ``description_i18n`` must be a str→str mapping; anything else is
+        # dropped so malformed manifests keep loading.
+        raw_i18n = data.get("description_i18n")
+        if isinstance(raw_i18n, dict):
+            data["description_i18n"] = {
+                str(k): v for k, v in raw_i18n.items() if isinstance(v, str)
+            }
+        else:
+            data.pop("description_i18n", None)
 
         # ``name`` defaults to ``id`` when missing or empty.
         if not data.get("name"):

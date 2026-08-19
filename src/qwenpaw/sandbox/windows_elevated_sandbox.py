@@ -2329,10 +2329,23 @@ class WindowsElevatedSandbox(WindowsSandboxBase):
     """Elevated sandbox using a dedicated user + WRITE_RESTRICTED token.
 
     Reads use normal DACL evaluation; writes are gated by the
-    restricting SID list.  Network is blocked via WFP firewall rules
-    when ``network_allow`` is empty.  Instances are cached on disk and
-    reused across invocations with identical configurations.
+    restricting SID list.  WFP firewall rules block the network for every
+    ``network_allow`` value except ``["*"]`` -- a domain allowlist cannot be
+    expressed, so it degrades to a wholesale block rather than to open
+    access.  Instances are cached on disk and reused across invocations
+    with identical configurations.
     """
+
+    # Overrides the base hint, which describes the fail-OPEN degradation of
+    # AppContainer. WFP is the opposite: an unexpressible domain allowlist
+    # ends up denying everything, so the operator needs the reverse warning.
+    _ENFORCEMENT_HINTS: dict = {
+        "network_allow": (
+            "WFP cannot filter by domain, so a domain allowlist degrades to "
+            "blocking ALL network access rather than allowing the listed "
+            'domains. Use ["*"] to permit the network wholesale.'
+        ),
+    }
 
     def __init__(self, config: SandboxConfig):
         super().__init__(config)

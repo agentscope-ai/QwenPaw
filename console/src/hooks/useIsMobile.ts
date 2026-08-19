@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { OsWindowSizeContext } from "../os/osWindowSizeContext";
 
 const MOBILE_BREAKPOINT_PX = 768;
 
 /**
- * Returns true when the viewport width is at or below the mobile breakpoint.
+ * Returns true when the effective width is at or below the mobile breakpoint.
+ * Inside an OS window the enclosing window's content width wins (so pages
+ * adapt to the window, not the screen); otherwise the viewport width is used.
  * Safe for SSR (defaults to false when window is undefined).
  */
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
+  const containerWidth = useContext(OsWindowSizeContext);
+  const [isViewportMobile, setIsViewportMobile] = useState(
     typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT_PX,
   );
 
@@ -15,11 +19,15 @@ export function useIsMobile() {
     if (typeof window === "undefined") {
       return;
     }
-    const sync = () => setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT_PX);
+    const sync = () =>
+      setIsViewportMobile(window.innerWidth <= MOBILE_BREAKPOINT_PX);
     sync();
     window.addEventListener("resize", sync);
     return () => window.removeEventListener("resize", sync);
   }, []);
 
-  return isMobile;
+  if (containerWidth != null) {
+    return containerWidth <= MOBILE_BREAKPOINT_PX;
+  }
+  return isViewportMobile;
 }

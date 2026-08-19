@@ -157,7 +157,11 @@ class TokenUsageBuffer:
         self._dirty = False
 
         snapshot = copy.deepcopy(self._disk_cache)
-        await asyncio.to_thread(save_data_sync, self._path, snapshot)
+        ok = await asyncio.to_thread(save_data_sync, self._path, snapshot)
+        if not ok:
+            # Keep dirty so a later periodic flush retries the write.
+            self._dirty = True
+            return
         logger.debug("token_usage: flushed cache to disk")
 
     async def _flush_loop(self) -> None:

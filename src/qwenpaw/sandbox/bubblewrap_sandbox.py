@@ -60,7 +60,12 @@ class BubblewrapSandbox(LocalSandbox):
       - workspace_dir and mounts are layered with appropriate permissions.
       - deny_paths are masked with --tmpfs (invisible to sandboxed process).
       - PID namespace is isolated (--unshare-pid + --proc /proc).
+
+    Network is NOT isolated (no --unshare-net), so ``network_allow`` and
+    ``network_ports`` are reported as ignored rather than applied.
     """
+
+    _ENFORCED_FIELDS = frozenset({"mounts", "deny_paths"})
 
     def _find_bwrap(self) -> str:
         """Locate the bwrap binary.

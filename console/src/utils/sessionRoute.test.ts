@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSessionPath, getSessionIdFromPath } from "./sessionRoute";
+import { buildChatPath, getSessionIdFromPath } from "./sessionRoute";
 
-describe("session mode routes", () => {
-  it("preserves the session id across coding and chat routes", () => {
-    const sessionId = getSessionIdFromPath("/coding/chat-123");
+describe("chat session routes", () => {
+  it("builds and parses the unified chat route", () => {
+    const path = buildChatPath("chat-123");
 
-    expect(buildSessionPath("chat", sessionId)).toBe("/chat/chat-123");
-    expect(
-      buildSessionPath("coding", getSessionIdFromPath("/chat/chat-123")),
-    ).toBe("/coding/chat-123");
+    expect(path).toBe("/chat/chat-123");
+    expect(getSessionIdFromPath(path)).toBe("chat-123");
+    expect(buildChatPath()).toBe("/chat");
   });
 });

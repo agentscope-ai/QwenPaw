@@ -125,8 +125,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function renderConfigHook() {
-  return renderHook(() => useAgentConfig());
+function renderConfigHook(onConfigLoaded?: (config: Config) => void) {
+  return renderHook(() => useAgentConfig(onConfigLoaded));
 }
 
 describe("useAgentConfig", () => {
@@ -252,6 +252,25 @@ describe("useAgentConfig", () => {
     expect(messageMock.success).toHaveBeenCalledWith("agentConfig.saveSuccess");
   });
 
+  it("reports the server config after save", async () => {
+    const onConfigLoaded = vi.fn();
+    const savedConfig = makeConfig({
+      reme_light_memory_config: {
+        needs_reindex: true,
+      } as Config["reme_light_memory_config"],
+    });
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(savedConfig);
+    const { result } = renderConfigHook(onConfigLoaded);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    onConfigLoaded.mockClear();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(onConfigLoaded).toHaveBeenCalledWith(savedConfig);
+  });
+
   it("handleSave persists configToSave containing approval_level", async () => {
     apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
     const { result } = renderConfigHook();
@@ -269,6 +288,37 @@ describe("useAgentConfig", () => {
 
     const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
     expect(saved.approval_level).toBe("STRICT");
+  });
+
+  it("handleSave syncs legacy max_iters from loop.iteration.max_iterations", async () => {
+    apiMocks.getAgentRunningConfig.mockResolvedValue(
+      makeConfig({ max_iters: 100 }),
+    );
+    const loaded = makeConfig({ max_iters: 100 });
+    const { max_iters: _staleMaxIters, ...formWithoutMaxIters } = loaded;
+    mockGetFieldsValue.mockReturnValue({
+      ...formWithoutMaxIters,
+      loop: {
+        ...loaded.loop,
+        iteration: {
+          enabled: true,
+          max_iterations: 99,
+        },
+      },
+    });
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
+    const { result } = renderConfigHook();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const saved = apiMocks.updateAgentRunningConfig.mock.calls[0][0] as Config;
+    expect(saved.loop.iteration?.max_iterations).toBe(99);
+    expect(saved.max_iters).toBe(99);
   });
 
   it("handleSave includes unmounted custom loop template values", async () => {

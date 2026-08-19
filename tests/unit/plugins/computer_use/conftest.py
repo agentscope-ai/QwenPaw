@@ -23,7 +23,7 @@ _PLUGIN_DIR = os.path.join(
         ),
     ),
     "plugins",
-    "tool",
+    "bundle",
     "computer-use",
 )
 

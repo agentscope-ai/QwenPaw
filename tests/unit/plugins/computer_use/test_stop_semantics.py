@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Stopping Computer Use: promptness, and which event loop it runs on.
-
-Stopping used to queue behind the action it was meant to interrupt, and that
-action could itself be waiting on a person answering an approval prompt. These
-tests hold the two properties that fix depended on: a stop lands while an
-action is in flight, and it survives the connection being replaced afterwards.
-A third covers the control route arriving on a different event loop from the
-one that owns the transport, which is how the host actually calls it.
-"""
+"""Per-turn Computer Use stopping without terminating the shared helper."""
 
 from __future__ import annotations
 
@@ -19,50 +11,42 @@ from typing import Any
 
 import pytest
 
-from computer_use_tool.client import ComputerUseClient
-from computer_use_tool.protocol import ComputerUseProtocolError
-from computer_use_tool.transport import (
+from computer_use.client import ComputerUseClient
+from computer_use.protocol import ComputerUseProtocolError
+from computer_use.transport import (
     ComputerUseTransport,
     ReverseRequestHandler,
 )
 from qwenpaw.app.computer_use import set_current_computer_use_turn_id
 
 
-class _StallingTransport(ComputerUseTransport):
-    """A transport whose reply never arrives until the connection is closed.
-
-    Stands in for the helper blocked mid-action -- including blocked on a
-    person answering an approval prompt, which is the unbounded case.
-    """
+class _ControlledTransport(ComputerUseTransport):
+    """Hold ordinary requests until the test chooses their native outcome."""
 
     def __init__(self) -> None:
         self.closed = False
-        self.in_flight = asyncio.Event()
-        self._pending: list[asyncio.Future[dict[str, Any]]] = []
+        self.requests: list[dict[str, Any]] = []
+        self._pending: list[
+            tuple[dict[str, Any], asyncio.Future[dict[str, Any]]]
+        ] = []
 
     async def connect(self) -> None:
         return None
 
     async def request(self, message: Mapping[str, Any]) -> dict[str, Any]:
         payload = dict(message)
-        if payload["method"] == "hello":
-            return {
-                "request_id": payload["request_id"],
-                "ok": True,
-                "result": {"protocol_version": 1},
-            }
+        self.requests.append(payload)
+        if payload["method"] == "end_turn":
+            return self._response(payload, {})
         future: asyncio.Future[
             dict[str, Any]
         ] = asyncio.get_running_loop().create_future()
-        self._pending.append(future)
-        self.in_flight.set()
+        self._pending.append((payload, future))
         return await future
 
     async def close(self) -> None:
         self.closed = True
-        # Closing rejects whatever was still waiting, the way both real
-        # transports do; without that a stop could not end a stalled action.
-        for future in self._pending:
+        for _, future in self._pending:
             if not future.done():
                 future.set_exception(
                     ComputerUseProtocolError(
@@ -78,84 +62,136 @@ class _StallingTransport(ComputerUseTransport):
     ) -> None:
         return None
 
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending)
+
+    def complete_next(self, result: dict[str, Any] | None = None) -> None:
+        payload, future = self._pending.pop(0)
+        future.set_result(self._response(payload, result or {}))
+
+    @staticmethod
+    def _response(
+        request: Mapping[str, Any],
+        result: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "protocol_version": request["protocol_version"],
+            "request_id": request["request_id"],
+            "ok": True,
+            "result": dict(result),
+        }
+
 
 @pytest.mark.asyncio
-async def test_stop_lands_while_an_action_is_still_waiting() -> None:
-    """A stop must not wait for the action it is interrupting."""
-    transport = _StallingTransport()
+async def test_stop_marks_before_waiting_for_the_current_action() -> None:
+    transport = _ControlledTransport()
     client = ComputerUseClient("session-stop", lambda: transport)
     set_current_computer_use_turn_id("turn-stop")
     try:
         action = asyncio.create_task(client.execute("observe_window", {}))
-        await asyncio.wait_for(transport.in_flight.wait(), timeout=2)
+        await wait_for_pending(transport)
 
-        stopped = await asyncio.wait_for(client.stop_turn(), timeout=2)
-        assert stopped is True
+        stopping = asyncio.create_task(client.stop_turn())
+        await asyncio.sleep(0)
+        assert client._stopped_turn == "turn-stop"
+        assert (
+            not stopping.done()
+        ), "stop should let the dispatched action settle"
 
+        transport.complete_next()
         with pytest.raises(ComputerUseProtocolError) as failure:
-            await asyncio.wait_for(action, timeout=2)
-        assert failure.value.code == "runtime_disconnected"
-        assert transport.closed is True
+            await action
+        assert failure.value.code == "turn_stopped"
+        assert await stopping is True
+        assert transport.closed is False
+        assert [request["method"] for request in transport.requests] == [
+            "observe_window",
+            "end_turn",
+        ]
     finally:
         set_current_computer_use_turn_id(None)
 
 
 @pytest.mark.asyncio
-async def test_a_stopped_turn_stays_stopped_on_a_fresh_connection() -> None:
-    """Stopping drops the connection, so the refusal cannot live only there."""
-    first = _StallingTransport()
-    second = _StallingTransport()
-    handed_out = iter((first, second))
-    client = ComputerUseClient("session-stop-2", lambda: next(handed_out))
-    set_current_computer_use_turn_id("turn-stop-2")
+async def test_a_request_queued_before_stop_cannot_cross_the_lock() -> None:
+    transport = _ControlledTransport()
+    client = ComputerUseClient("session-queued", lambda: transport)
+    set_current_computer_use_turn_id("turn-queued")
     try:
-        action = asyncio.create_task(client.execute("observe_window", {}))
-        await asyncio.wait_for(transport_ready(first), timeout=2)
-        await client.stop_turn()
-        with pytest.raises(ComputerUseProtocolError):
-            await asyncio.wait_for(action, timeout=2)
+        current = asyncio.create_task(client.execute("observe_window", {}))
+        await wait_for_pending(transport)
+        queued = asyncio.create_task(client.execute("list_windows", {}))
+        stopping = asyncio.create_task(client.stop_turn())
+        await asyncio.sleep(0)
 
-        # Same turn, new transport: the helper it would connect to knows
-        # nothing about the stop, so the client has to refuse this itself.
-        with pytest.raises(ComputerUseProtocolError) as failure:
-            await client.execute("observe_window", {})
-        assert failure.value.code == "turn_stopped"
-        assert second.closed is False
+        transport.complete_next()
+        for task in (current, queued):
+            with pytest.raises(ComputerUseProtocolError) as failure:
+                await task
+            assert failure.value.code == "turn_stopped"
+        assert await stopping is True
+        assert [request["method"] for request in transport.requests] == [
+            "observe_window",
+            "end_turn",
+        ]
+    finally:
+        set_current_computer_use_turn_id(None)
+
+
+@pytest.mark.asyncio
+async def test_stopping_one_client_does_not_close_another_connection() -> None:
+    first_transport = _ControlledTransport()
+    second_transport = _ControlledTransport()
+    first = ComputerUseClient("session-a", lambda: first_transport)
+    second = ComputerUseClient("session-b", lambda: second_transport)
+    set_current_computer_use_turn_id("turn-shared")
+    try:
+        first_action = asyncio.create_task(first.execute("observe_window", {}))
+        second_action = asyncio.create_task(
+            second.execute("observe_window", {}),
+        )
+        await wait_for_pending(first_transport)
+        await wait_for_pending(second_transport)
+
+        stopping = asyncio.create_task(first.stop_turn())
+        first_transport.complete_next()
+        with pytest.raises(ComputerUseProtocolError):
+            await first_action
+        assert await stopping is True
+
+        second_transport.complete_next({"observation_id": "observation-b"})
+        assert await second_action == {}
+        assert first_transport.closed is False
+        assert second_transport.closed is False
     finally:
         set_current_computer_use_turn_id(None)
 
 
 @pytest.mark.asyncio
 async def test_a_later_turn_is_not_refused_by_an_earlier_stop() -> None:
-    """The refusal is scoped to the turn that was stopped, not the session."""
-    transport = _StallingTransport()
-    replacement = _StallingTransport()
-    handed_out = iter((transport, replacement))
-    client = ComputerUseClient("session-stop-3", lambda: next(handed_out))
+    transport = _ControlledTransport()
+    client = ComputerUseClient("session-later", lambda: transport)
     set_current_computer_use_turn_id("turn-a")
     try:
         action = asyncio.create_task(client.execute("observe_window", {}))
-        await asyncio.wait_for(transport_ready(transport), timeout=2)
-        await client.stop_turn()
+        await wait_for_pending(transport)
+        stopping = asyncio.create_task(client.stop_turn())
+        transport.complete_next()
         with pytest.raises(ComputerUseProtocolError):
-            await asyncio.wait_for(action, timeout=2)
+            await action
+        assert await stopping is True
 
         set_current_computer_use_turn_id("turn-b")
         following = asyncio.create_task(client.execute("observe_window", {}))
-        # It reaches the transport rather than being refused outright.
-        await asyncio.wait_for(transport_ready(replacement), timeout=2)
-        following.cancel()
+        await wait_for_pending(transport)
+        transport.complete_next({"observation_id": "observation-b"})
+        assert await following == {}
     finally:
         set_current_computer_use_turn_id(None)
 
 
 def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
-    """The host calls stop from the HTTP loop, not the workspace's own.
-
-    The transport's streams, its reader task and the client's lock all belong
-    to the loop that built them, so the stop has to run there. Without that the
-    await either blocks on a lock the other loop owns or touches its objects.
-    """
     owner_loop = asyncio.new_event_loop()
     ready = threading.Event()
 
@@ -168,7 +204,7 @@ def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
     thread.start()
     ready.wait(timeout=5)
 
-    transport = _StallingTransport()
+    transport = _ControlledTransport()
     client = ComputerUseClient("session-cross", lambda: transport)
 
     async def start_action() -> asyncio.Task[Any]:
@@ -179,25 +215,35 @@ def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
         start_action(),
         owner_loop,
     ).result(5)
-    assert asyncio.run_coroutine_threadsafe(
-        transport_ready(transport),
+    asyncio.run_coroutine_threadsafe(
+        wait_for_pending(transport),
         owner_loop,
     ).result(5)
 
-    # A second loop, standing in for the HTTP server's.
     caller_loop = asyncio.new_event_loop()
+    released = threading.Event()
+
+    def release_after_stop_mark() -> None:
+        for _ in range(5_000):
+            if client._stopped_turn == "turn-cross":
+                owner_loop.call_soon_threadsafe(transport.complete_next)
+                released.set()
+                return
+            threading.Event().wait(0.001)
+
+    releaser = threading.Thread(target=release_after_stop_mark, daemon=True)
+    releaser.start()
     try:
-        # Bounded on both sides: a stop that has to wait for the action would
-        # otherwise hang the suite rather than report a failure.
         stopped = caller_loop.run_until_complete(
             asyncio.wait_for(client.stop_turn(), timeout=5),
         )
         assert stopped is True
-        assert transport.closed is True
+        assert released.wait(timeout=5)
+        with pytest.raises(ComputerUseProtocolError):
+            action.result()
+        assert transport.closed is False
     finally:
-        owner_loop.call_soon_threadsafe(action.cancel)
-        # Drain whatever the cancelled action leaves behind before stopping the
-        # loop, so a failure above cannot leave this thread alive.
+        releaser.join(timeout=5)
         owner_loop.call_soon_threadsafe(owner_loop.stop)
         thread.join(timeout=5)
         caller_loop.close()
@@ -205,7 +251,9 @@ def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
         set_current_computer_use_turn_id(None)
 
 
-async def transport_ready(transport: _StallingTransport) -> bool:
-    """Wait until the transport is holding a request open."""
-    await transport.in_flight.wait()
-    return True
+async def wait_for_pending(transport: _ControlledTransport) -> None:
+    for _ in range(1_000):
+        if transport.pending_count:
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("transport did not receive a request")

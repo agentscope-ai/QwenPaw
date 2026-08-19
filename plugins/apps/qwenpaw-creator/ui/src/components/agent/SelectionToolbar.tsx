@@ -5,6 +5,8 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 import {
   useAgentDockUiStore,
   type SelectionAttachment,
@@ -54,11 +56,14 @@ function locateField(element: Element | null): {
   const region = element?.closest?.(
     "[data-creator-field]",
   ) as HTMLElement | null;
-  if (!region) return { field: null, path: null, label: "页面选中文本" };
+  if (!region)
+    return { field: null, path: null, label: i18n.t("lib.pageSelectedText") };
   return {
     field: region.getAttribute("data-creator-field"),
     path: region.getAttribute("data-creator-path"),
-    label: region.getAttribute("data-creator-field-label") || "选中文本",
+    label:
+      region.getAttribute("data-creator-field-label") ||
+      i18n.t("lib.selectedText"),
   };
 }
 
@@ -71,6 +76,7 @@ function shouldIgnoreSelectionIn(element: Element | null): boolean {
 }
 
 export default function SelectionToolbar() {
+  const { t } = useTranslation();
   const [state, setState] = useState<ToolbarState | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -124,7 +130,8 @@ export default function SelectionToolbar() {
           const field = region?.getAttribute("data-creator-field") ?? null;
           const path = region?.getAttribute("data-creator-path") ?? null;
           const label =
-            region?.getAttribute("data-creator-field-label") || "选中文本";
+            region?.getAttribute("data-creator-field-label") ||
+            t("lib.selectedText");
           if (!region || !field) return null;
           if (
             !region.contains(range.startContainer) ||
@@ -267,7 +274,7 @@ export default function SelectionToolbar() {
         className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
       >
         <MessageSquarePlus className="h-3.5 w-3.5" />
-        添加到对话
+        {t("lib.addToConversation")}
       </button>
     </div>
   );

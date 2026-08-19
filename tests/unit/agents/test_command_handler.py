@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+import json
+import logging
 from types import SimpleNamespace
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,12 +11,18 @@ from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
+from qwenpaw.agents.middlewares import auto_memory_turn_state
 
 
 def _make_agent():
     """Build a minimal fake agent satisfying CommandHandler's expectations."""
     agent = MagicMock()
-    agent.state = SimpleNamespace(context=[], session_id="session-1")
+    agent.state = SimpleNamespace(
+        context=[],
+        summary="",
+        session_id="session-1",
+        middle_context={},
+    )
     agent.memory_manager = None
     return agent
 
@@ -30,6 +39,32 @@ def _msg(role: str, text: str, *, name: str | None = None, msg_id: str = ""):
 
 
 @pytest.mark.asyncio
+async def test_agent_config_load_runs_in_worker_thread(monkeypatch) -> None:
+    """Async command handlers must not read config on the event loop."""
+    event_loop_thread = threading.get_ident()
+    load_threads = []
+
+    def load_config(agent_id: str):
+        load_threads.append((agent_id, threading.get_ident()))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.command_handler.load_agent_config",
+        load_config,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        state=SimpleNamespace(context=[]),
+        agent_id="agent-1",
+    )
+
+    await handler._get_agent_config_async()
+
+    assert load_threads[0][0] == "agent-1"
+    assert load_threads[0][1] != event_loop_thread
+
+
+@pytest.mark.asyncio
 async def test_process_clear_returns_clear_history_metadata() -> None:
     agent = _make_agent()
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
@@ -37,6 +72,48 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
     msg = await handler.handle_command("/clear")
 
     assert msg.metadata == {"clear_history": True, "clear_plan": True}
+
+
+@pytest.mark.asyncio
+async def test_clear_discards_pending_auto_memory_snapshots() -> None:
+    agent = _make_agent()
+    agent.state.context = [_msg("user", "private", msg_id="turn-1")]
+    state = auto_memory_turn_state(agent.state)
+    state["pending"] = ["turn-1"]
+    state["snapshots"] = {"turn-1": [{"private": "payload"}]}
+    state["search"] = {"turn_marker": "turn-1", "messages": []}
+
+    await CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+    ).handle_command("/clear")
+
+    assert not agent.state.context
+    assert auto_memory_turn_state(agent.state)["pending"] == []
+    assert auto_memory_turn_state(agent.state)["snapshots"] == {}
+    assert auto_memory_turn_state(agent.state)["search"] == {}
+
+
+@pytest.mark.asyncio
+async def test_new_discards_auto_memory_state_after_summary_is_accepted() -> (
+    None
+):
+    agent = _make_agent()
+    agent.state.context = [_msg("user", "old turn", msg_id="turn-1")]
+    auto_memory_turn_state(agent.state)["pending"] = ["turn-1"]
+    memory_manager = MagicMock()
+    memory_manager.enabled = True
+    memory_manager.add_summarize_task = MagicMock()
+
+    await CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    ).handle_command("/new")
+
+    memory_manager.add_summarize_task.assert_called_once()
+    assert not agent.state.context
+    assert auto_memory_turn_state(agent.state)["pending"] == []
 
 
 @pytest.mark.asyncio
@@ -121,6 +198,46 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
 
     mode.on_conversation_reset.assert_awaited_once_with(ctx)
     assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_load_history_discards_previous_auto_memory_state(
+    tmp_path,
+) -> None:
+    agent = _make_agent()
+    old_msg = _msg("user", "old turn", msg_id="old-turn")
+    agent.state.context = [old_msg]
+    state = auto_memory_turn_state(agent.state)
+    state["pending"] = ["old-turn"]
+    state["snapshots"] = {
+        "old-turn": [old_msg.model_dump(mode="json")],
+    }
+    state["seen"] = {"old-turn": None}
+    state["search"] = {
+        "turn_marker": "old-turn",
+        "messages": [old_msg.model_dump(mode="json")],
+    }
+
+    loaded_msg = _msg("user", "loaded turn", msg_id="loaded-turn")
+    history_file = tmp_path / "debug_history.jsonl"
+    history_file.write_text(
+        json.dumps(loaded_msg.to_dict(), ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: SimpleNamespace(
+        workspace_dir=str(tmp_path),
+    )
+
+    result = await handler.handle_command("/load_history")
+
+    assert "History Loaded" in result.get_text_content()
+    assert [msg.id for msg in agent.state.context] == ["loaded-turn"]
+    loaded_state = auto_memory_turn_state(agent.state)
+    assert loaded_state["pending"] == []
+    assert loaded_state["snapshots"] == {}
+    assert loaded_state["seen"] == {}
+    assert loaded_state["search"] == {}
 
 
 @pytest.mark.asyncio
@@ -382,7 +499,6 @@ def _make_config(
     *,
     compact_enabled: bool = True,
     reserve_ratio: float = 0.1,
-    summarize_when_compact: bool = True,
     strategy: str = "scroll",
 ):
     return SimpleNamespace(
@@ -393,9 +509,6 @@ def _make_config(
                     enabled=compact_enabled,
                     reserve_threshold_ratio=reserve_ratio,
                 ),
-            ),
-            reme_light_memory_config=SimpleNamespace(
-                summarize_when_compact=summarize_when_compact,
             ),
         ),
     )
@@ -577,12 +690,14 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
 
 
 @pytest.mark.asyncio
-async def test_compact_forwards_one_shot_redacted_instruction() -> None:
-    captured = {}
+async def test_compact_forwards_one_shot_redacted_instruction(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    captured_instructions = []
 
     async def _compress_context(context_config=None, instructions=None):
-        captured["context_config"] = context_config
-        captured["instructions"] = instructions
+        del context_config
+        captured_instructions.append(instructions)
         agent.state.summary = "summary"
 
     agent = _make_agent()
@@ -598,13 +713,22 @@ async def test_compact_forwards_one_shot_redacted_instruction() -> None:
         strategy="native",
     )
 
-    await handler.handle_command(
-        "/compact prioritize failures token=hint-secret-123",
-    )
+    with caplog.at_level(
+        logging.INFO,
+        logger="qwenpaw.agents.command_handler",
+    ):
+        await handler.handle_command(
+            "/compact prioritize failures sk-ctx15fake9876543210ab",
+        )
+        await handler.handle_command("/compact")
 
-    instructions = captured["instructions"]
+    instructions = captured_instructions[0]
     assert isinstance(instructions, HintBlock)
     assert instructions.source == "user"
     assert "prioritize failures" in instructions.hint
-    assert "hint-secret-123" not in instructions.hint
+    assert "sk-ctx15fake9876543210ab" not in instructions.hint
     assert "[secret redacted]" in instructions.hint
+    assert captured_instructions[1] is None
+    assert "Processing command: compact" in caplog.text
+    assert "prioritize failures" not in caplog.text
+    assert "sk-ctx15fake9876543210ab" not in caplog.text

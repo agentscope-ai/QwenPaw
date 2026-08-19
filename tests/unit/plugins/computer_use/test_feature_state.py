@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-import computer_use_tool.dispatch as dispatch_module
-from computer_use_tool.dispatch import computer_use
-from computer_use_tool.feature_state import ComputerUseFeatureState
+import computer_use.dispatch as dispatch_module
+from computer_use.dispatch import computer_use
+from computer_use.feature_state import ComputerUseFeatureState
 
 
 def test_a_fresh_installation_starts_from_the_default(tmp_path: Path) -> None:

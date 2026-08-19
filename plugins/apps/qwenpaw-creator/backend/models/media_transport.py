@@ -20,11 +20,17 @@ from models import config as model_config
 from services.runtime_files.safe_remote_download import safe_download_bytes
 from utils.paths import local_path_from_file_url, media_path_from_url
 
-
 OSS_POLICY_URL = "https://dashscope.aliyuncs.com/api/v1/uploads"
 DEFAULT_CREATOR_MEDIA_BUCKET = "creator-store"
 WAN_MEDIA_PREFIX = "wan_media"
 SD2_MEDIA_PREFIX = "sd2_media"
+GROUNDING_LENS_MEDIA_PREFIX = "grounding_lens"
+UGUU_UPLOAD_URL = "https://uguu.se/upload"
+UGUU_UPLOAD_MAX_ATTEMPTS = 5
+UGUU_RETRY_BACKOFF_CAP_SECONDS = 10.0
+# When configured, Creator OSS keeps Lens media private behind a short-lived
+# signed URL; callers use Uguu only when OSS configuration is entirely absent.
+GROUNDING_LENS_SIGNED_URL_EXPIRES_SECONDS = 15 * 60
 DASHSCOPE_TEMP_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
 DASHSCOPE_TEMP_UPLOAD_CACHE_SECONDS = 47 * 60 * 60
 # Ark (Volcengine) Seedance accepts Base64 data URLs for reference images:
@@ -392,10 +398,17 @@ def _creator_media_public_base_url() -> str:
 
 
 def creator_oss_readiness() -> dict:
-    """Return configuration readiness for creator-store public uploads."""
+    """Return explicit absent/ready/invalid Creator OSS readiness."""
     access_key_id = model_config.get_oss_access_key_id()
     access_key_secret = model_config.get_oss_access_key_secret()
     endpoint = model_config.get_oss_endpoint()
+    configured = bool(
+        access_key_id
+        or access_key_secret
+        or endpoint
+        or model_config.get_oss_bucket("")
+        or _creator_media_public_base_url(),
+    )
     blockers = []
     if not access_key_id:
         blockers.append(
@@ -410,7 +423,9 @@ def creator_oss_readiness() -> dict:
             "creator_media_oss.endpoint or OSS_ENDPOINT is required",
         )
     return {
-        "status": "ready" if not blockers else "blocked",
+        "status": (
+            "ready" if not blockers else "invalid" if configured else "absent"
+        ),
         "bucket": _creator_media_bucket(),
         "endpoint_set": bool(endpoint),
         "access_key_set": bool(access_key_id and access_key_secret),
@@ -490,6 +505,127 @@ async def upload_reference_media_to_creator_oss(
         file_content,
         filename,
         backend,
+    )
+
+
+def _presign_upload_with_oss2(
+    file_content: bytes,
+    filename: str,
+    expires_seconds: int,
+) -> str:
+    try:
+        import oss2  # type: ignore
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "oss2 package is required for creator-media uploads",
+        ) from exc
+
+    access_key_id = model_config.get_oss_access_key_id()
+    access_key_secret = model_config.get_oss_access_key_secret()
+    endpoint = model_config.get_oss_endpoint()
+    if not access_key_id or not access_key_secret or not endpoint:
+        readiness = creator_oss_readiness()
+        raise RuntimeError("; ".join(readiness["blockers"]))
+
+    bucket_name = _creator_media_bucket()
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    key = (
+        f"{GROUNDING_LENS_MEDIA_PREFIX}/{date}/"
+        f"{uuid.uuid4().hex}-{_safe_filename(filename)}"
+    )
+    content_type = (
+        mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    )
+    auth = oss2.Auth(access_key_id, access_key_secret)
+    bucket = oss2.Bucket(auth, endpoint, bucket_name)
+    # Keep the bucket default (private) ACL: the object is only reachable
+    # through the expiring signed URL below.
+    bucket.put_object(
+        key,
+        file_content,
+        headers={"Content-Type": content_type},
+    )
+    return bucket.sign_url("GET", key, expires_seconds)
+
+
+async def upload_image_for_temporary_public_url(
+    file_content: bytes,
+    filename: str,
+    *,
+    expires_seconds: int = GROUNDING_LENS_SIGNED_URL_EXPIRES_SECONDS,
+) -> str:
+    """Upload an image privately and return a short-lived presigned URL."""
+    return await asyncio.to_thread(
+        _presign_upload_with_oss2,
+        file_content,
+        filename,
+        expires_seconds,
+    )
+
+
+def _is_retryable_upload_response(response: httpx.Response) -> bool:
+    return response.status_code == 429 or response.status_code >= 500
+
+
+async def upload_image_to_uguu_for_temporary_public_url(
+    file_content: bytes,
+    filename: str,
+    *,
+    max_attempts: int = UGUU_UPLOAD_MAX_ATTEMPTS,
+) -> str:
+    """Upload one validated image to Uguu and return its temporary URL."""
+    attempts = max(1, int(max_attempts))
+    media_type = (
+        mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    )
+    last_error: Exception | None = None
+    async with httpx.AsyncClient(
+        timeout=60.0,
+        follow_redirects=True,
+    ) as client:
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await client.post(
+                    UGUU_UPLOAD_URL,
+                    files={
+                        "files[]": (filename, file_content, media_type),
+                    },
+                )
+                if _is_retryable_upload_response(response):
+                    response.raise_for_status()
+                response.raise_for_status()
+                payload = response.json()
+                files = (
+                    payload.get("files") if isinstance(payload, dict) else None
+                )
+                public_url = (
+                    str(files[0].get("url") or "").strip()
+                    if isinstance(files, list)
+                    and files
+                    and isinstance(files[0], dict)
+                    else ""
+                )
+                if not public_url.startswith("https://"):
+                    raise RuntimeError(
+                        "Uguu upload response did not contain a public HTTPS URL",
+                    )
+                return public_url
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_error = exc
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if not _is_retryable_upload_response(exc.response):
+                    raise
+            if attempt >= attempts:
+                break
+            await asyncio.sleep(
+                min(
+                    UGUU_RETRY_BACKOFF_CAP_SECONDS,
+                    float(2 ** (attempt - 1)),
+                ),
+            )
+    raise RuntimeError(
+        f"Uguu upload failed after {attempts} attempts: {last_error}",
     )
 
 

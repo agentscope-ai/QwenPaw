@@ -58,8 +58,6 @@ class ExecutionAuthorizationView(StrictModel):
     authorization_token: str = Field(alias="authorizationToken")
     provider: str
     model: str
-    estimated_cost: float | None = Field(None, alias="estimatedCost")
-    currency: str | None = None
     max_candidates: int = Field(alias="maxCandidates", ge=1)
     created_at: str = Field(alias="createdAt")
 

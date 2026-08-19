@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
@@ -103,8 +104,95 @@ def project_etag(project: Project) -> str:
     return f"sha256:{digest}"
 
 
-def load_project_json(payload: bytes | str) -> Project:
-    """Parse one strict Project, rejecting duplicate JSON object keys."""
+def _source_document_data(value: Any, model_value: Any) -> Any:
+    """Order a historical document as its matching Project model did.
+
+    Migrations intentionally add fields only in memory.  ETags recorded by an
+    older Runtime therefore need the source schema's field set and values, but
+    the declared Project field order rather than alphabetically sorted object
+    keys.  Walking the validated current model supplies that stable order while
+    the raw document decides which historical fields were present.
+    """
+
+    if isinstance(value, Mapping):
+        if isinstance(model_value, BaseModel):
+            fields = type(model_value).model_fields
+            ordered = {
+                name: _source_document_data(
+                    value[name],
+                    getattr(model_value, name),
+                )
+                for name in fields
+                if name in value
+            }
+            # Current migrations do not remove Project fields.  Retaining any
+            # legacy-only key here still makes the hash deterministic if a
+            # future migration deliberately consumes one before validation.
+            ordered.update(
+                (name, _source_document_data(value[name], None))
+                for name in sorted(set(value) - set(fields))
+            )
+            return ordered
+        if isinstance(model_value, Mapping):
+            return {
+                name: _source_document_data(value[name], model_value.get(name))
+                for name in sorted(value)
+            }
+        return {
+            name: _source_document_data(value[name], None)
+            for name in sorted(value)
+        }
+    if isinstance(value, list):
+        model_items = (
+            model_value if isinstance(model_value, (list, tuple)) else ()
+        )
+        return [
+            _source_document_data(
+                item,
+                model_items[index] if index < len(model_items) else None,
+            )
+            for index, item in enumerate(value)
+        ]
+    return value
+
+
+def project_document_etag(
+    document: Mapping[str, Any],
+    *,
+    project: Project | None = None,
+) -> str:
+    """Hash a validated Project using the schema persisted in *document*.
+
+    This keeps a Project ETag stable across an in-memory schema migration, so
+    historical commit journals and the current authority remain comparable.
+    New writes still use :func:`project_etag` for the current schema.
+    """
+
+    validated = project or load_project_document(document)
+    source_data = _source_document_data(document, validated)
+    payload = json.dumps(
+        source_data,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def load_project_document(raw: Mapping[str, Any]) -> Project:
+    """Migrate and validate one already-parsed Project document."""
+
+    try:
+        migrated = migrate_project_document(raw)
+        return Project.model_validate(migrated)
+    except (ProjectMigrationError, ValidationError) as exc:
+        raise CanonicalJsonError(
+            "project.json does not match the Project schema",
+        ) from exc
+
+
+def _parse_project_json(payload: bytes | str) -> dict[str, Any]:
+    """Parse one Project JSON object, rejecting ambiguous JSON input."""
 
     if isinstance(payload, bytes):
         try:
@@ -126,7 +214,7 @@ def load_project_json(payload: bytes | str) -> Project:
         raw = json.loads(
             text,
             object_pairs_hook=unique_object,
-            parse_constant=lambda value: (_raise_invalid_constant(value)),
+            parse_constant=lambda value: _raise_invalid_constant(value),
         )
     except CanonicalJsonError:
         raise
@@ -134,13 +222,24 @@ def load_project_json(payload: bytes | str) -> Project:
         raise CanonicalJsonError("project.json is not valid JSON") from exc
     if not isinstance(raw, dict):
         raise CanonicalJsonError("project.json root must be an object")
-    try:
-        migrated = migrate_project_document(raw)
-        return Project.model_validate(migrated)
-    except (ProjectMigrationError, ValidationError) as exc:
-        raise CanonicalJsonError(
-            "project.json does not match the Project schema",
-        ) from exc
+    return raw
+
+
+def load_project_json_with_etag(
+    payload: bytes | str,
+) -> tuple[Project, str]:
+    """Parse a Project and retain the persisted schema's semantic ETag."""
+
+    raw = _parse_project_json(payload)
+    project = load_project_document(raw)
+    return project, project_document_etag(raw, project=project)
+
+
+def load_project_json(payload: bytes | str) -> Project:
+    """Parse one strict Project, rejecting duplicate JSON object keys."""
+
+    project, _etag = load_project_json_with_etag(payload)
+    return project
 
 
 def _raise_invalid_constant(value: str) -> None:
@@ -151,7 +250,10 @@ __all__ = [
     "CanonicalJsonError",
     "canonical_data",
     "canonical_json_bytes",
+    "load_project_document",
     "load_project_json",
+    "load_project_json_with_etag",
+    "project_document_etag",
     "project_etag",
     "project_file_bytes",
 ]

@@ -8,6 +8,7 @@ Injects per-request ContextVars before agent execution so that tools
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import uuid
 
 from ..base import LifecycleHook
@@ -24,8 +25,12 @@ class ContextVarsSetupHook(LifecycleHook):
     name = "contextvars_setup"
     priority = 10
 
-    async def run(self, ctx: HookContext) -> HookResult:
+    async def run(  # pylint: disable=too-many-statements
+        self,
+        ctx: HookContext,
+    ) -> HookResult:
         from ...config.context import (
+            set_current_project_dir,
             set_current_workspace_dir,
             set_current_session_id,
             set_current_recent_max_bytes,
@@ -81,7 +86,7 @@ class ContextVarsSetupHook(LifecycleHook):
             )
         set_current_approval_route(approval_route)
 
-        coding_project_dir = None
+        agent_project_dir = None
         try:
             from ...config.config import load_agent_config
 
@@ -97,13 +102,7 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_shell_command_executable(
                 running.shell_command_executable or None,
             )
-            _cm = getattr(cfg, "coding_mode", None)
-            if (
-                _cm
-                and getattr(_cm, "enabled", False)
-                and getattr(_cm, "project_dir", None)
-            ):
-                coding_project_dir = _cm.project_dir
+            agent_project_dir = cfg.project_dir
         except Exception:
             logger.warning(
                 "contextvars_setup: config-derived vars failed; "
@@ -113,19 +112,48 @@ class ContextVarsSetupHook(LifecycleHook):
 
         # Forked subagents must resolve relative file/shell paths against
         # the worktree, not the parent workspace.
+        from ...constant import WORKING_DIR
+
+        workspace_dir = ctx.workspace_dir or Path(WORKING_DIR)
         fork_dir = None
         if isinstance(request_context, dict):
             from ...agents.fork_project import resolve_allowed_fork_project_dir
 
             fork_dir = resolve_allowed_fork_project_dir(
                 request_context.get("fork_project_dir"),
-                workspace_dir=ctx.workspace_dir,
-                coding_project_dir=coding_project_dir,
+                workspace_dir=workspace_dir,
+                coding_project_dir=agent_project_dir,
             )
-        if fork_dir is not None:
-            set_current_workspace_dir(fork_dir)
-        elif ctx.workspace_dir is not None:
-            set_current_workspace_dir(ctx.workspace_dir)
+        from ...services.project_directory import (
+            resolve_effective_project_dir,
+        )
+
+        trusted_override = None
+        if isinstance(request_context, dict):
+            value = request_context.get("project_dir")
+            if isinstance(value, str):
+                trusted_override = value
+        active_mode_override = None
+        mode_state = getattr(ctx, "mode_state", {}) or {}
+        mission_state = mode_state.get("mission", {})
+        if isinstance(mission_state, dict) and mission_state.get("active"):
+            loop_dir = mission_state.get("loop_dir")
+            if isinstance(loop_dir, str) and loop_dir:
+                from ...modes.mission.state import read_loop_config
+
+                mission_config = read_loop_config(Path(loop_dir))
+                value = mission_config.get("source_project_dir")
+                if isinstance(value, str) and value:
+                    active_mode_override = value
+        project_dir, _source = resolve_effective_project_dir(
+            workspace_dir,
+            agent_project_dir=agent_project_dir,
+            trusted_override=trusted_override,
+            active_mode_override=active_mode_override,
+            fork_project_dir=str(fork_dir) if fork_dir else None,
+        )
+        set_current_workspace_dir(workspace_dir)
+        set_current_project_dir(project_dir)
         return HookResult()
 
 

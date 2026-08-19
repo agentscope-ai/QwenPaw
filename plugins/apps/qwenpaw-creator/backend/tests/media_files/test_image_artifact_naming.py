@@ -16,6 +16,7 @@ from services.project_files.store import ProjectSnapshot
 
 def _snapshot(*, variants: dict | None) -> ProjectSnapshot:
     now = datetime.now(timezone.utc).isoformat()
+    variant_collection = variants or {"items": {}, "order": []}
     project = Project.model_validate(
         {
             "project_id": "project-naming",
@@ -30,7 +31,10 @@ def _snapshot(*, variants: dict | None) -> ProjectSnapshot:
                             "kind": "character",
                             "name": "Erling Haaland (Pixar卡通版)",
                             "description": "Pixar 风格哈兰德",
-                            "variants": variants or {"items": {}, "order": []},
+                            "required_variant_ids": list(
+                                variant_collection["order"],
+                            ),
+                            "variants": variant_collection,
                         },
                     },
                     "order": ["char:haaland"],
@@ -44,7 +48,7 @@ def _snapshot(*, variants: dict | None) -> ProjectSnapshot:
 def test_generate_asset_artifact_name_includes_the_variant_id(
     tmp_path,
 ) -> None:
-    """Stage variants share one slot; titles must tell them apart."""
+    """Stage variants have independent slots and distinguishable titles."""
 
     snapshot = _snapshot(
         variants={
@@ -72,6 +76,9 @@ def test_generate_asset_artifact_name_includes_the_variant_id(
         "Erling Haaland (Pixar卡通版)（haaland-idol）视觉图"
     )
     assert resolved.variant_id == "var:haaland-idol"
+    assert resolved.slot_id == (
+        "asset:char:haaland:variant:var:haaland-idol:image"
+    )
 
     with pytest.raises(ValidationError, match="必须提供 variantId"):
         _resolve_request(

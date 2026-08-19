@@ -64,3 +64,28 @@ export interface ProjectListResponse {
   limit: number;
   offset: number;
 }
+
+/** One OSS-hosted inspiration example backed by a built-in Project. */
+export interface InspirationExampleSummary {
+  id: string;
+  title: string;
+  description: string;
+  projectId: string;
+  installed: boolean;
+}
+
+export interface InspirationExampleListResponse {
+  items: InspirationExampleSummary[];
+}
+
+export interface InspirationExampleOpenResponse {
+  projectId: string;
+  installed: boolean;
+}
+
+/** Polled download progress while an example archive streams in from OSS. */
+export interface InspirationExampleOpenProgress {
+  state: "installed" | "downloading" | "idle";
+  receivedBytes?: number;
+  totalBytes?: number | null;
+}

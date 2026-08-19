@@ -548,6 +548,64 @@ def test_candidate_cannot_change_runtime_metadata(tmp_path) -> None:
         )
 
 
+def test_character_voice_binding_is_runtime_only(tmp_path) -> None:
+    """Only Runtime tasks may write voice bindings; agents cannot fabricate
+    a voice_id through generic JSON edits after a failed enrollment."""
+
+    store, base = _store(tmp_path)
+    seeded = base.project.model_dump(mode="json")
+    seeded["visual"]["entities"]["items"]["char:hero"] = {
+        "entity_id": "char:hero",
+        "kind": "character",
+        "name": "Hero",
+        "description": "",
+        "continuity": "",
+        "required_variant_ids": [],
+        "variants": {"items": {}, "order": []},
+        "selected_artifact_version_id": None,
+        "voice": None,
+    }
+    seeded["visual"]["entities"]["order"] = ["char:hero"]
+    base = (
+        ProjectCommitBoundary(store)
+        .commit(
+            base=base,
+            candidate=seeded,
+            origin="runtime_task",
+        )
+        .snapshot
+    )
+
+    candidate = base.project.model_dump(mode="json")
+    binding = {
+        "voice_id": "fabricated-voice-001",
+        "target_model": "qwen3-tts-vc",
+        "preferred_name": "hero",
+        "sample_source_version_id": None,
+        "enrollment_key": "k",
+        "created_at": "2026-07-30T00:00:00Z",
+    }
+    candidate["visual"]["entities"]["items"]["char:hero"]["voice"] = binding
+
+    for origin in ("agentdock_interrupt", "frontend_edit"):
+        with pytest.raises(ProtectedFieldError):
+            ProjectCommitBoundary(store).commit(
+                base=base,
+                candidate=candidate,
+                origin=origin,
+            )
+
+    # The enrollment executor path (a Runtime task) stays allowed.
+    result = ProjectCommitBoundary(store).commit(
+        base=base,
+        candidate=candidate,
+        origin="runtime_task",
+    )
+    written = result.snapshot.project.visual.entities.items["char:hero"]
+    assert written.voice is not None
+    assert written.voice.voice_id == "fabricated-voice-001"
+
+
 def test_commit_ids_cannot_escape_runtime_directories(tmp_path) -> None:
     store, base = _store(tmp_path)
     candidate = base.project.model_dump(mode="json")

@@ -7,7 +7,6 @@
 export type ToolCallStatus = "calling" | "done" | "error";
 
 export interface ToolInputProgress {
-  characterCount: number;
   preview: string;
   truncated: boolean;
 }

@@ -13,21 +13,20 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
 
 type ChartDataItem = {
   date: string;
-  displayDate: string;
   chats: number;
   activeSessions: number;
   userMessages: number;
   assistantMessages: number;
-  totalMessages: number;
-  promptTokens: number;
-  completionTokens: number;
-  llmCalls: number;
   toolCalls: number;
+  agentPromptTokens: number;
+  agentCompletionTokens: number;
+  agentLlmCalls: number;
 };
 
 interface ColumnSeries {
@@ -99,7 +98,11 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
-  const { selectedAgent } = useAgentStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
+  const agentName = selectedAgentInfo
+    ? getAgentDisplayName(selectedAgentInfo, t)
+    : selectedAgent;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AgentStatsSummary | null>(null);
@@ -149,16 +152,14 @@ function AgentStatsPage() {
     if (!data?.by_date) return [];
     return data.by_date.map((d) => ({
       date: d.date,
-      displayDate: dayjs(d.date).format("MM-DD"),
       chats: d.chats,
       activeSessions: d.active_sessions,
       userMessages: d.user_messages,
       assistantMessages: d.assistant_messages,
-      totalMessages: d.total_messages,
-      promptTokens: d.prompt_tokens,
-      completionTokens: d.completion_tokens,
-      llmCalls: d.llm_calls,
       toolCalls: d.tool_calls,
+      agentPromptTokens: d.agent_prompt_tokens ?? 0,
+      agentCompletionTokens: d.agent_completion_tokens ?? 0,
+      agentLlmCalls: d.agent_llm_calls ?? 0,
     }));
   }, [data?.by_date]);
 
@@ -166,8 +167,8 @@ function AgentStatsPage() {
     data &&
     ((data.total_active_sessions ?? 0) > 0 ||
       (data.total_messages ?? 0) > 0 ||
-      (data.total_llm_calls ?? 0) > 0 ||
-      (data.total_tool_calls ?? 0) > 0);
+      (data.total_tool_calls ?? 0) > 0 ||
+      (data.agent_llm_calls ?? 0) > 0);
 
   const messageColumnConfig = useMemo(
     () =>
@@ -202,13 +203,16 @@ function AgentStatsPage() {
     [chartData, t, isDarkMode, crossesYear],
   );
 
-  const tokenColumnConfig = useMemo(
+  const agentTokenColumnConfig = useMemo(
     () =>
       getColumnConfig(
         chartData,
         [
-          { key: "promptTokens", label: t("agentStats.promptTokens") },
-          { key: "completionTokens", label: t("agentStats.completionTokens") },
+          { key: "agentPromptTokens", label: t("agentStats.promptTokens") },
+          {
+            key: "agentCompletionTokens",
+            label: t("agentStats.completionTokens"),
+          },
         ],
         ["#8b5cf6", "#10b981"],
         isDarkMode,
@@ -226,7 +230,10 @@ function AgentStatsPage() {
       getColumnConfig(
         chartData,
         [
-          { key: "llmCalls", label: t("agentStats.llmCalls") },
+          {
+            key: "agentLlmCalls",
+            label: t("agentStats.currentAgentLlmCalls"),
+          },
           { key: "toolCalls", label: t("agentStats.toolCalls") },
         ],
         ["#ec4899", "#14b8a6"],
@@ -315,6 +322,9 @@ function AgentStatsPage() {
 
             {hasData ? (
               <>
+                <div className={styles.currentAgentSectionTitle}>
+                  {agentName}
+                </div>
                 <div className={styles.summaryCards}>
                   <SummaryCard
                     value={data.total_active_sessions}
@@ -327,19 +337,21 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.totalMessagesTooltip")}
                   />
                   <SummaryCard
-                    value={data.total_prompt_tokens}
+                    value={data.agent_prompt_tokens ?? 0}
                     label={t("agentStats.promptTokens")}
-                    tooltip={t("agentStats.promptTokensTooltip")}
+                    tooltip={t("agentStats.currentAgentPromptTokensTooltip")}
                   />
                   <SummaryCard
-                    value={data.total_completion_tokens}
+                    value={data.agent_completion_tokens ?? 0}
                     label={t("agentStats.completionTokens")}
-                    tooltip={t("agentStats.completionTokensTooltip")}
+                    tooltip={t(
+                      "agentStats.currentAgentCompletionTokensTooltip",
+                    )}
                   />
                   <SummaryCard
-                    value={data.total_llm_calls}
-                    label={t("agentStats.llmCalls")}
-                    tooltip={t("agentStats.llmCallsTooltip")}
+                    value={data.agent_llm_calls ?? 0}
+                    label={t("agentStats.currentAgentLlmCalls")}
+                    tooltip={t("agentStats.currentAgentLlmCallsTooltip")}
                   />
                   <SummaryCard
                     value={data.total_tool_calls}
@@ -389,7 +401,7 @@ function AgentStatsPage() {
                     className={styles.chartCard}
                     title={
                       <Tooltip
-                        title={t("agentStats.tokenTrendTooltip")}
+                        title={t("agentStats.currentAgentTokenTrendTooltip")}
                         placement="bottom"
                       >
                         <span className={styles.chartTitle}>
@@ -399,7 +411,7 @@ function AgentStatsPage() {
                     }
                   >
                     <div className={styles.chartContainerShort}>
-                      <Column {...tokenColumnConfig} />
+                      <Column {...agentTokenColumnConfig} />
                     </div>
                   </Card>
 

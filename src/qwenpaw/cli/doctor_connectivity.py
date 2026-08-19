@@ -30,6 +30,7 @@ from ..config.config import (
     XiaoYiConfig,
     WeChatConfig,
 )
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from .doctor_checks import _effective_channels_mcp, _read_workspace_agent_json
 
 ChannelProbe = Callable[[str, Any, float], list[str]]
@@ -121,17 +122,29 @@ def _probe_onebot(
     cfg: OneBotConfig,
     timeout: float,
 ) -> list[str]:
-    host = (cfg.ws_host or "127.0.0.1").strip()
+    # Mirrors OneBotChannel: a blank ws_host falls back to loopback,
+    # IPv6 brackets are dropped, and a whitespace token counts as unset.
+    configured_host = (cfg.ws_host or "").strip().strip("[]") or "127.0.0.1"
     port = int(cfg.ws_port or 6199)
-    if host in ("0.0.0.0", ""):
-        host = "127.0.0.1"
+    access_token = (cfg.access_token or "").strip()
+    notes: list[str] = []
+    if not is_loopback_host(configured_host) and not access_token:
+        notes.append(
+            f"{agent_id}: onebot: ws_host {configured_host} is reachable "
+            "from the network but access_token is empty — every "
+            "connection is rejected. Set access_token, or bind ws_host "
+            "to 127.0.0.1.",
+        )
+    # A wildcard bind address is not a connectable target; probe the
+    # loopback address of the same family instead.
+    host = probe_host_for_bind_host(configured_host)
     err = _tcp_check(host, port, timeout)
     if err:
-        return [
+        notes.append(
             f"{agent_id}: onebot: TCP {host}:{port} — {err} "
             "(is the reverse WebSocket server running?)",
-        ]
-    return []
+        )
+    return notes
 
 
 def _probe_feishu(

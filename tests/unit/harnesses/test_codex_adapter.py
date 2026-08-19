@@ -211,6 +211,36 @@ def test_passes_manual_binary_to_app_server(tmp_path: Path) -> None:
     client_class.assert_called_once_with(binary="/custom/bin/codex")
 
 
+def test_capabilities_explain_when_codex_cli_is_missing(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    client.installed = False
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+
+    assert adapter.capability_unavailable_message == (
+        "Codex runtime not found. Install qwenpaw[codex] or provide a "
+        "standalone Codex CLI."
+    )
+
+
+@pytest.mark.asyncio
+async def test_status_explains_how_to_install_missing_codex_cli(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    client.installed = False
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+
+    status = await adapter.status()
+
+    assert status.installed is False
+    assert status.error == (
+        "Codex runtime not found. Install qwenpaw[codex] or provide a "
+        "standalone Codex CLI."
+    )
+
+
 @pytest.mark.asyncio
 async def test_status_and_login_use_app_server(tmp_path: Path) -> None:
     client = FakeCodexClient()

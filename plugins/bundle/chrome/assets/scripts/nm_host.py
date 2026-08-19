@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -166,10 +167,51 @@ def run_probe(
     stdin: BinaryIO | None = None,
     stdout: BinaryIO | None = None,
 ) -> int:
-    """Echo one Native Messaging frame without starting the bridge."""
+    """Echo one frame without loading config or third-party runtime."""
     payload = read_nm_frame(stdin or sys.stdin.buffer)
     if payload is not None:
         write_nm_frame(stdout or sys.stdout.buffer, payload)
+    return 0
+
+
+def _load_websockets() -> Any:
+    """Import the runtime dependency through one testable boundary."""
+    import websockets
+
+    return websockets
+
+
+def validate_runtime() -> None:
+    """Reject a missing or API-incompatible WebSocket runtime."""
+    websockets = _load_websockets()
+    connect = getattr(websockets, "connect", None)
+    if not callable(connect):
+        raise RuntimeError("websockets.connect is unavailable")
+    try:
+        parameters = inspect.signature(connect).parameters
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "websockets.connect has an unreadable signature",
+        ) from exc
+    if "additional_headers" not in parameters:
+        version = str(getattr(websockets, "__version__", "unknown"))
+        raise RuntimeError(
+            f"incompatible websockets {version}: connect() must support "
+            "additional_headers",
+        )
+
+
+def run_runtime_check() -> int:
+    """Check third-party runtime APIs without reading bridge state."""
+    try:
+        validate_runtime()
+    except Exception as exc:
+        diagnostic = (
+            "Native Messaging host runtime check failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        print(diagnostic, file=sys.stderr)
+        return 1
     return 0
 
 
@@ -201,7 +243,7 @@ async def connect_websocket(
             additional_headers=headers,
             max_size=NM_MAX_OUTBOUND_BYTES,
         )
-    import websockets
+    websockets = _load_websockets()
 
     # Fast exit relies on websockets' default ping/pong keepalive (20-second
     # interval and timeout) to end iteration on a half-open peer; never disable
@@ -426,10 +468,21 @@ def main() -> int:
     _set_binary_stdio()
     if sys.argv[1:] == ["--probe"]:
         return run_probe()
+    if sys.argv[1:] == ["--check-runtime"]:
+        return run_runtime_check()
     try:
+        validate_runtime()
         asyncio.run(run_bridge(terminate=os._exit))
     except HandshakePermanentError as exc:
         diagnostic = exc.advice or str(exc)
+        print(diagnostic, file=sys.stderr)
+        log_diagnostic(diagnostic)
+        return 1
+    except Exception as exc:
+        diagnostic = (
+            "Native Messaging host startup failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
         print(diagnostic, file=sys.stderr)
         log_diagnostic(diagnostic)
         return 1

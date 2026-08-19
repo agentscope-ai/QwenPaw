@@ -64,15 +64,26 @@ class LazyGroup(click.Group):
         self.lazy_subcommands = lazy_subcommands or {}
 
     def parse_args(self, ctx, args):
-        """Treat ``qwenpaw .`` as bare TUI launch with a project dir."""
+        """Treat the first positional path as a bare TUI project directory."""
         args = list(args)
-        # Registered commands win; otherwise path-like first tokens launch TUI.
+        # Click 8.x exposes this parser; pyproject.toml pins Click below 9
+        # until a public replacement is available.
+        parser = self.make_parser(ctx)
+        _, remaining_args, _ = parser.parse_args(args=list(args))
+        # Group parsing stops at the first positional argument because
+        # allow_interspersed_args is False, so remaining_args is a suffix of
+        # the original argument list.
+        project_index = len(args) - len(remaining_args)
+        project = remaining_args[0] if remaining_args else None
+
+        # Registered commands win; otherwise the first positional path starts
+        # the TUI, even when global options appear before it.
         if (
-            args
-            and args[0] not in self.list_commands(ctx)
-            and _looks_like_project_path(args[0])
+            project is not None
+            and project not in self.list_commands(ctx)
+            and _looks_like_project_path(project)
         ):
-            ctx.meta["tui_project"] = args.pop(0)
+            ctx.meta["tui_project"] = args.pop(project_index)
         return super().parse_args(ctx, args)
 
     def list_commands(self, ctx):

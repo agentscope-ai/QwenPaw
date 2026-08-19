@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 from pydantic import ValidationError
 from qwenpaw.config.config import OneBotConfig
 from qwenpaw.schemas import (
@@ -14,6 +17,7 @@ from qwenpaw.schemas import (
     TextContent,
 )
 
+from qwenpaw.app.channels.onebot import channel as onebot_channel_module
 from qwenpaw.app.channels.onebot.channel import (
     OneBotChannel,
     _normalize_media_ref_sync,
@@ -34,7 +38,7 @@ def _make_channel(**overrides: Any) -> OneBotChannel:
     defaults = {
         "process": _noop_process,
         "enabled": True,
-        "ws_host": "0.0.0.0",
+        "ws_host": "127.0.0.1",
         "ws_port": 6199,
         "access_token": "",
         "bot_prefix": "",
@@ -63,6 +67,37 @@ def test_media_base64_config():
     assert ch._media_base64_max_bytes == 3_000_000
     with pytest.raises(ValidationError):
         OneBotConfig(media_base64_max_mb=0)
+
+
+def test_media_download_max_mb_config():
+    """Inbound download limit is independent of the base64 limit."""
+
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    config = OneBotConfig(enabled=True, media_download_max_mb=5)
+    ch = OneBotChannel.from_config(_noop_process, config)
+
+    assert OneBotConfig().model_dump()["media_download_max_mb"] == 50
+    assert config.model_dump()["media_download_max_mb"] == 5
+    assert ch._inbound_media._max_download_bytes == 5_000_000
+    assert ch._inbound_media._max_download_bytes != ch._media_base64_max_bytes
+    with pytest.raises(ValidationError):
+        OneBotConfig(media_download_max_mb=0)
+
+
+def test_media_dir_config(tmp_path):
+    async def _noop_process(_request):
+        yield  # pragma: no cover
+
+    explicit = tmp_path / "onebot-media"
+    config = OneBotConfig(enabled=True, media_dir=str(explicit))
+    ch = OneBotChannel.from_config(_noop_process, config)
+    assert ch._media_dir == explicit
+
+    workspace = tmp_path / "workspace"
+    ch = _make_channel(workspace_dir=workspace)
+    assert ch._media_dir == workspace / "media"
 
 
 def _make_message_event(
@@ -99,24 +134,25 @@ def _make_message_event(
 class TestParseMessageSegments:
     def test_text_only(self):
         ch = _make_channel()
-        parts, mentioned = ch._parse_message_segments(
+        parts, mentioned, media_segments = ch._parse_message_segments(
             [{"type": "text", "data": {"text": "hello world"}}],
         )
         assert len(parts) == 1
         assert parts[0].type == ContentType.TEXT
         assert parts[0].text == "hello world"
         assert mentioned is False
+        assert not media_segments
 
     def test_empty_text_skipped(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [{"type": "text", "data": {"text": "  "}}],
         )
         assert len(parts) == 0
 
     def test_image_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, media_segments = ch._parse_message_segments(
             [
                 {
                     "type": "image",
@@ -127,10 +163,11 @@ class TestParseMessageSegments:
         assert len(parts) == 1
         assert parts[0].type == ContentType.IMAGE
         assert parts[0].image_url == "https://img.example.com/1.jpg"
+        assert media_segments[0]["type"] == "image"
 
     def test_image_file_fallback(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [{"type": "image", "data": {"file": "file:///tmp/1.jpg"}}],
         )
         assert len(parts) == 1
@@ -138,7 +175,7 @@ class TestParseMessageSegments:
 
     def test_record_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {
                     "type": "record",
@@ -151,7 +188,7 @@ class TestParseMessageSegments:
 
     def test_video_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {
                     "type": "video",
@@ -164,7 +201,7 @@ class TestParseMessageSegments:
 
     def test_file_segment(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {
                     "type": "file",
@@ -181,7 +218,7 @@ class TestParseMessageSegments:
     def test_at_bot_detected(self):
         ch = _make_channel()
         ch._self_id = 99999
-        parts, mentioned = ch._parse_message_segments(
+        parts, mentioned, _ = ch._parse_message_segments(
             [
                 {"type": "at", "data": {"qq": "99999"}},
                 {"type": "text", "data": {"text": "hello bot"}},
@@ -194,7 +231,7 @@ class TestParseMessageSegments:
     def test_at_other_user_not_mentioned(self):
         ch = _make_channel()
         ch._self_id = 99999
-        _, mentioned = ch._parse_message_segments(
+        _, mentioned, _ = ch._parse_message_segments(
             [
                 {"type": "at", "data": {"qq": "11111"}},
                 {"type": "text", "data": {"text": "hello"}},
@@ -204,7 +241,7 @@ class TestParseMessageSegments:
 
     def test_mixed_segments(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [
                 {"type": "text", "data": {"text": "look at this"}},
                 {
@@ -221,10 +258,91 @@ class TestParseMessageSegments:
 
     def test_unknown_segment_ignored(self):
         ch = _make_channel()
-        parts, _ = ch._parse_message_segments(
+        parts, _, _ = ch._parse_message_segments(
             [{"type": "unknown_type", "data": {}}],
         )
         assert len(parts) == 0
+
+    def test_media_segments_only_include_created_parts(self):
+        ch = _make_channel()
+        valid_file = {
+            "type": "file",
+            "data": {"file": "report.pdf", "file_id": "file-id"},
+        }
+
+        parts, _, media_segments = ch._parse_message_segments(
+            [
+                {"type": "image", "data": {}},
+                valid_file,
+            ],
+        )
+
+        assert len(parts) == 1
+        assert parts[0].type == ContentType.FILE
+        assert media_segments == [valid_file]
+
+    def test_normalize_cq_code_message(self):
+        segments = OneBotChannel._normalize_onebot_segments(
+            "hello [CQ:image,file=pic.jpg,"
+            "url=https://img.example.com/pic.jpg]",
+        )
+
+        assert segments == [
+            {"type": "text", "data": {"text": "hello"}},
+            {
+                "type": "image",
+                "data": {
+                    "file": "pic.jpg",
+                    "url": "https://img.example.com/pic.jpg",
+                },
+            },
+        ]
+
+    def test_normalize_cq_code_decodes_escaped_parameters(self):
+        segments = OneBotChannel._normalize_onebot_segments(
+            "[CQ:image,file=a&#44;b&#91;c&#93;.jpg,"
+            "title=&lt;literal&gt;,"
+            "url=https://cdn.example/a?x=1&#38;y=2]",
+        )
+
+        assert segments == [
+            {
+                "type": "image",
+                "data": {
+                    "file": "a,b[c].jpg",
+                    "title": "&lt;literal&gt;",
+                    "url": "https://cdn.example/a?x=1&y=2",
+                },
+            },
+        ]
+
+    def test_message_preview_bounds_fields_before_serializing(
+        self,
+        monkeypatch,
+    ):
+        captured: list = []
+        real_dumps = onebot_channel_module.json.dumps
+
+        def capture_dumps(value, *args, **kwargs):
+            captured.append(value)
+            return real_dumps(value, *args, **kwargs)
+
+        monkeypatch.setattr(onebot_channel_module.json, "dumps", capture_dumps)
+        preview = OneBotChannel._message_preview(
+            [
+                {
+                    "type": "image",
+                    "data": {
+                        "url": "x" * 1_000_000,
+                        "nested": {"payload": "y" * 1_000_000},
+                    },
+                },
+            ],
+        )
+
+        assert len(preview) <= 200
+        assert len(captured[0][0]["data"]["url"]) == 80
+        assert captured[0][0]["data"]["nested"] == "<dict>"
 
 
 # ===================================================================
@@ -242,10 +360,11 @@ class TestHandleMessageEvent:
         await ch._handle_message_event(event)
 
         assert len(enqueued) == 1
-        req = enqueued[0]
-        assert req.session_id == "onebot:12345"
-        assert req.channel_meta["message_type"] == "private"
-        assert req.channel_meta["sender_id"] == "12345"
+        native = enqueued[0]
+        assert native["session_id"] == "onebot:12345"
+        assert native["acl_sender_id"] == "12345"
+        assert native["meta"]["message_type"] == "private"
+        assert native["meta"]["sender_id"] == "12345"
 
     async def test_group_message_enqueues(self):
         ch = _make_channel()
@@ -260,10 +379,11 @@ class TestHandleMessageEvent:
         await ch._handle_message_event(event)
 
         assert len(enqueued) == 1
-        req = enqueued[0]
-        assert req.session_id == "onebot:67890:12345"
-        assert req.channel_meta["is_group"] is True
-        assert req.channel_meta["group_id"] == "67890"
+        native = enqueued[0]
+        assert native["session_id"] == "onebot:67890:12345"
+        assert native["acl_sender_id"] == "12345"
+        assert native["meta"]["is_group"] is True
+        assert native["meta"]["group_id"] == "67890"
 
     async def test_empty_message_ignored(self):
         ch = _make_channel()
@@ -320,6 +440,28 @@ class TestHandleMessageEvent:
         await ch._handle_message_event(event)
         assert len(enqueued) == 0
 
+    async def test_require_mention_blocks_before_remote_image_download(self):
+        ch = _make_channel(require_mention=True, media_base64=True)
+        ch._self_id = 99999
+        ch._inbound_media.resolve = AsyncMock()
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {
+                    "type": "image",
+                    "data": {"url": "https://img.example.com/pic.png"},
+                },
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert len(enqueued) == 0
+        ch._inbound_media.resolve.assert_not_awaited()
+
     async def test_require_mention_allows_with_at(self):
         ch = _make_channel(require_mention=True)
         ch._self_id = 99999
@@ -336,6 +478,316 @@ class TestHandleMessageEvent:
         )
         await ch._handle_message_event(event)
         assert len(enqueued) == 1
+
+    async def test_require_mention_allows_with_event_self_id(self):
+        ch = _make_channel(require_mention=True)
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "hello"}},
+            ],
+        )
+        event["self_id"] = 99999
+        await ch._handle_message_event(event)
+
+        assert len(enqueued) == 1
+        assert ch._self_id == 99999
+
+    async def test_quoted_text_is_fetched_after_mention(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": [
+                        {"type": "text", "data": {"text": "quoted text"}},
+                    ],
+                },
+            },
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "please answer"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        ch._call_api.assert_awaited_once_with("get_msg", {"message_id": 321})
+        assert len(enqueued) == 1
+        content = enqueued[0]["content_parts"]
+        assert len(content) == 1
+        assert content[0].text == (
+            "[Quoted message]\nquoted text\n\n"
+            "[Current message]\nplease answer"
+        )
+
+    async def test_quoted_cq_image_is_marked_as_quoted_content(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": (
+                        "[CQ:image,file=pic.jpg,"
+                        "url=https://img.example.com/pic.jpg]"
+                    ),
+                },
+            },
+        )
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-pic.jpg",
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "describe it"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        content = enqueued[0]["content_parts"]
+        assert content[0].text == "[Quoted message]"
+        assert content[1].text == "[Quoted image message]"
+        assert content[2].type == ContentType.IMAGE
+        assert content[2].image_url == "C:/media/quoted-pic.jpg"
+        assert content[3].text == "[Current message]"
+        assert content[4].text == "describe it"
+
+    async def test_quoted_raw_message_is_used_when_message_is_text(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": "[图片]",
+                    "raw_message": (
+                        "[CQ:image,file=pic.jpg,"
+                        "url=https://img.example.com/pic.jpg]"
+                    ),
+                },
+            },
+        )
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-raw-pic.jpg",
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "describe it"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        content = enqueued[0]["content_parts"]
+        assert content[0].text == "[Quoted message]"
+        assert content[1].text == "[Quoted image message]"
+        assert content[2].type == ContentType.IMAGE
+        assert content[2].image_url == "C:/media/quoted-raw-pic.jpg"
+        assert content[3].text == "[Current message]"
+        assert content[4].text == "describe it"
+
+    async def test_quoted_record_is_marked_as_voice_content(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            return_value={
+                "data": {
+                    "message": [
+                        {
+                            "type": "record",
+                            "data": {
+                                "file": "voice.amr",
+                                "url": (
+                                    "https://qq.example/" "download?file=voice"
+                                ),
+                            },
+                        },
+                    ],
+                },
+            },
+        )
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-voice.amr",
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {"type": "text", "data": {"text": "what is it"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        content = enqueued[0]["content_parts"]
+        assert content[1].text == "[Quoted voice message]"
+        assert content[2].type == ContentType.AUDIO
+        assert content[2].data == "C:/media/quoted-voice.amr"
+        assert content[3].text == "[Current message]"
+        assert content[4].text == "what is it"
+
+    async def test_quoted_file_uses_existing_file_url_resolution(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            side_effect=[
+                {
+                    "data": {
+                        "message": [
+                            {
+                                "type": "file",
+                                "data": {
+                                    "file": "doc.pdf",
+                                    "file_id": "quoted-file-id",
+                                    "name": "doc.pdf",
+                                },
+                            },
+                        ],
+                    },
+                },
+                {"data": {"url": "https://files.example.com/doc.pdf"}},
+            ],
+        )
+        ch._inbound_media._call_api = ch._call_api
+        ch._inbound_media.download = AsyncMock(
+            return_value="C:/media/quoted-doc.pdf",
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert ch._call_api.await_args_list[0].args == (
+            "get_msg",
+            {"message_id": 321},
+        )
+        assert ch._call_api.await_args_list[1].args == (
+            "get_group_file_url",
+            {"group_id": 67890, "file_id": "quoted-file-id"},
+        )
+        assert len(enqueued) == 1
+        assert enqueued[0]["content_parts"][2].file_url == (
+            "C:/media/quoted-doc.pdf"
+        )
+        assert enqueued[0]["content_parts"][1].text == (
+            "[Quoted file message: doc.pdf]"
+        )
+
+    async def test_quoted_and_current_files_keep_their_own_file_ids(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock(
+            side_effect=[
+                {
+                    "data": {
+                        "message": [
+                            {
+                                "type": "file",
+                                "data": {
+                                    "file": "quoted.pdf",
+                                    "file_id": "quoted-file-id",
+                                    "name": "quoted.pdf",
+                                },
+                            },
+                        ],
+                    },
+                },
+                {"data": {"url": "https://files.example/quoted.pdf"}},
+                {"data": {"url": "https://files.example/current.pdf"}},
+            ],
+        )
+        ch._inbound_media._call_api = ch._call_api
+        ch._inbound_media.download = AsyncMock(
+            side_effect=[
+                "C:/media/quoted.pdf",
+                "C:/media/current.pdf",
+            ],
+        )
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[
+                {"type": "reply", "data": {"id": "321"}},
+                {"type": "at", "data": {"qq": "99999"}},
+                {
+                    "type": "file",
+                    "data": {
+                        "file": "current.pdf",
+                        "file_id": "current-file-id",
+                        "name": "current.pdf",
+                    },
+                },
+            ],
+        )
+        await ch._handle_message_event(event)
+
+        assert ch._call_api.await_args_list[1].args == (
+            "get_group_file_url",
+            {"group_id": 67890, "file_id": "quoted-file-id"},
+        )
+        assert ch._call_api.await_args_list[2].args == (
+            "get_group_file_url",
+            {"group_id": 67890, "file_id": "current-file-id"},
+        )
+        content = enqueued[0]["content_parts"]
+        assert content[2].file_url == "C:/media/quoted.pdf"
+        assert content[4].file_url == "C:/media/current.pdf"
+
+    async def test_unmentioned_reply_does_not_call_get_msg(self):
+        ch = _make_channel(require_mention=True)
+        ch._self_id = 99999
+        ch._call_api = AsyncMock()
+        enqueued: list = []
+        ch._enqueue = enqueued.append
+
+        event = _make_message_event(
+            message_type="group",
+            group_id=67890,
+            segments=[{"type": "reply", "data": {"id": "321"}}],
+        )
+        await ch._handle_message_event(event)
+
+        ch._call_api.assert_not_awaited()
+        assert not enqueued
 
 
 # ===================================================================
@@ -836,6 +1288,44 @@ class TestHandleEvent:
         assert len(enqueued) == 0
 
 
+class TestSessionMessageOrdering:
+    async def test_worker_preserves_order_and_cleans_up(self):
+        ch = _make_channel()
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        handled: list[int] = []
+
+        async def handle(data):
+            if data["message_id"] == 1:
+                first_started.set()
+                await release_first.wait()
+            handled.append(data["message_id"])
+
+        ch._handle_message_event = handle
+        first = _make_message_event(message_id=1)
+        second = _make_message_event(message_id=2)
+
+        ch._dispatch_message_event(first)
+        worker = next(iter(ch._session_workers.values()))
+        await first_started.wait()
+        ch._dispatch_message_event(second)
+        release_first.set()
+        await worker
+
+        assert handled == [1, 2]
+        assert not ch._session_workers
+        assert not ch._session_queues
+
+    def test_dispatch_drops_events_while_stopping(self):
+        ch = _make_channel()
+        ch._stopping = True
+
+        ch._dispatch_message_event(_make_message_event())
+
+        assert not ch._session_workers
+        assert not ch._session_queues
+
+
 # ===================================================================
 # build_agent_request_from_native
 # ===================================================================
@@ -856,6 +1346,8 @@ class TestBuildAgentRequest:
         assert req.session_id == "onebot:12345"
         assert req.user_id == "12345"
         assert req.channel == "onebot"
+        assert req.channel_meta == {"is_group": False}
+        assert req.acl_sender_id == "12345"
         assert len(req.input) == 1
         assert req.input[0].content[0].text == "hi"
 
@@ -1083,3 +1575,166 @@ class TestPortBindGracefulDegradation:
                 assert False, "Should have raised RuntimeError"
             except RuntimeError:
                 pass
+
+
+class _ReachedAccept(Exception):
+    """Sentinel proving a handshake passed every authentication guard."""
+
+
+class TestConnectionAuth:
+    """Tests for reverse WebSocket handshake authentication."""
+
+    @staticmethod
+    def _request(path: str = "/ws", authorization: str | None = None):
+        headers = (
+            {} if authorization is None else {"Authorization": authorization}
+        )
+        return make_mocked_request("GET", path, headers=headers)
+
+    @staticmethod
+    def _sentinel_prepare():
+        """Patch ``prepare`` so reaching it raises :class:`_ReachedAccept`.
+
+        ``prepare`` runs right after the authentication guards, so the
+        sentinel distinguishes "accepted" from "rejected" without a real
+        WebSocket upgrade.
+        """
+        from unittest.mock import patch
+
+        async def _prepare(_self, _request):
+            raise _ReachedAccept
+
+        return patch.object(web.WebSocketResponse, "prepare", _prepare)
+
+    async def test_non_loopback_without_token_rejects_connection(
+        self,
+        caplog,
+    ):
+        """The server keeps listening but refuses every client."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="")
+
+        with caplog.at_level(logging.ERROR):
+            resp = await ch._handle_ws_connection(self._request())
+
+        assert resp.status == 401
+        assert not ch._connections
+        assert "access_token is empty" in caplog.text
+
+    async def test_loopback_without_token_accepts_connection(self):
+        """Existing local setups keep working without a token."""
+        ch = _make_channel(ws_host="127.0.0.1", access_token="")
+
+        with self._sentinel_prepare():
+            with pytest.raises(_ReachedAccept):
+                await ch._handle_ws_connection(self._request())
+
+    async def test_non_loopback_with_valid_token_accepts_connection(self):
+        """Exposing the port is allowed once a token is configured."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="s3cret-token")
+        request = self._request(authorization="Bearer s3cret-token")
+
+        with self._sentinel_prepare():
+            with pytest.raises(_ReachedAccept):
+                await ch._handle_ws_connection(request)
+
+    @pytest.mark.parametrize(
+        "authorization",
+        [
+            "Bearer s3cret-token",
+            "Token s3cret-token",
+            "bearer s3cret-token",
+        ],
+    )
+    def test_accepted_authorization_schemes(self, authorization: str):
+        """Bearer and Token are accepted, case-insensitively."""
+        ch = _make_channel(access_token="s3cret-token")
+        request = self._request(authorization=authorization)
+        assert ch._token_authorized(request) is True
+
+    @pytest.mark.parametrize(
+        "authorization",
+        [
+            "Bearer wrong-token",
+            "Basic s3cret-token",
+            "s3cret-token",
+            "Bearer",
+            "",
+        ],
+    )
+    def test_rejected_authorization_headers(self, authorization: str):
+        ch = _make_channel(access_token="s3cret-token")
+        request = self._request(authorization=authorization)
+        assert ch._token_authorized(request) is False
+
+    async def test_query_parameter_rejection_logs_migration_hint(
+        self,
+        caplog,
+    ):
+        """Query tokens are not accepted; the log explains the migration."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="s3cret-token")
+        request = self._request(path="/ws?access_token=s3cret-token")
+
+        with caplog.at_level(logging.WARNING):
+            resp = await ch._handle_ws_connection(request)
+
+        assert resp.status == 401
+        assert "Authorization header" in caplog.text
+
+    def test_non_ascii_token_is_supported(self):
+        """compare_digest requires bytes for non-ASCII tokens."""
+        token = "密钥-abc"
+        ch = _make_channel(access_token=token)
+        request = self._request(authorization=f"Bearer {token}")
+        assert ch._token_authorized(request) is True
+
+    async def test_rejection_log_stays_on_one_line(self, caplog):
+        """A forged newline must not become a second log record."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="")
+        request = self._request().clone(
+            remote="1.2.3.4\nINFO onebot: client connected from 1.2.3.4",
+        )
+
+        with caplog.at_level(logging.ERROR):
+            resp = await ch._handle_ws_connection(request)
+
+        assert resp.status == 401
+        assert len(caplog.records) == 1
+        assert "\n" not in caplog.records[0].getMessage()
+
+
+class TestDefaultBindAddress:
+    """Tests for the loopback-by-default listen address."""
+
+    def test_config_default_is_loopback(self):
+        assert OneBotConfig().ws_host == "127.0.0.1"
+
+    def test_channel_default_is_loopback(self):
+        async def _noop_process(_request):
+            yield  # pragma: no cover
+
+        ch = OneBotChannel(process=_noop_process, enabled=True)
+
+        assert ch._ws_host == "127.0.0.1"
+        assert ch._auth_required is False
+
+    @pytest.mark.parametrize("ws_host", ["", "   "])
+    def test_blank_host_normalizes_to_loopback(self, ws_host: str):
+        """A blank host must not fall through to every interface."""
+        ch = _make_channel(ws_host=ws_host)
+
+        assert ch._ws_host == "127.0.0.1"
+        assert ch._auth_required is False
+
+    def test_bracketed_ipv6_host_is_unwrapped(self):
+        """Brackets are URL notation and make getaddrinfo fail."""
+        ch = _make_channel(ws_host="[::1]")
+
+        assert ch._ws_host == "::1"
+        assert ch._auth_required is False
+
+    def test_whitespace_token_counts_as_unset(self):
+        """A whitespace token could never match a stripped request token."""
+        ch = _make_channel(ws_host="0.0.0.0", access_token="   ")
+
+        assert ch._access_token == ""
+        assert ch._auth_required is True

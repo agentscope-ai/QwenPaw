@@ -54,8 +54,28 @@ def project(api: CreatorApiClient):
 
 @pytest.fixture()
 def browser_context_args(browser_context_args, base_url):
+    # Mark every onboarding tour as done: the tour mask intercepts pointer
+    # events and would break real interaction-driven assertions.
+    onboarding = (
+        '{"homeTourDone":true,"projectTourDone":true,'
+        '"assetsTourDone":true,"hints":{}}'
+    )
     return {
         **browser_context_args,
         "viewport": {"width": 1440, "height": 1000},
         "base_url": base_url,
+        "storage_state": {
+            "cookies": [],
+            "origins": [
+                {
+                    "origin": base_url,
+                    "localStorage": [
+                        {
+                            "name": "qwenpaw-creator:onboarding:v2",
+                            "value": onboarding,
+                        },
+                    ],
+                },
+            ],
+        },
     }

@@ -13,7 +13,6 @@ import LanguageSwitcher, {
   LANGUAGE_LIST,
 } from "../components/LanguageSwitcher/index";
 import ThemeToggleButton from "../components/ThemeToggleButton";
-import CodingModeToggle from "../components/CodingModeToggle";
 import { useTranslation } from "react-i18next";
 import { Button, Modal } from "@agentscope-ai/design";
 import styles from "./index.module.less";
@@ -208,6 +207,11 @@ export default function Header() {
       label: t("header.faq"),
       onClick: () => handleNavClick(getFaqUrl(i18n.language)),
     },
+  ];
+
+  // The standalone GitHub button is hidden on mobile, so the entry is only
+  // surfaced inside the mobile menu to avoid a duplicated link on desktop.
+  const githubMenuItem: MenuProps["items"] = [
     {
       key: "github",
       icon: <GithubOutlined />,
@@ -252,6 +256,7 @@ export default function Header() {
     },
     { type: "divider" },
     ...resourcesMenuItems,
+    ...githubMenuItem,
   ];
 
   const handleOpenUpdateModal = () => {
@@ -448,10 +453,6 @@ export default function Header() {
               {t("header.github")}
             </Button>
           </Tooltip>
-          <div className={styles.headerDivider} />
-          <span className={styles.hideOnMobile}>
-            <CodingModeToggle />
-          </span>
           <div className={styles.headerDivider} />
           <span className={styles.hideOnMobile}>
             <LanguageSwitcher />

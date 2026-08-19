@@ -36,6 +36,8 @@ pub(super) fn resolve_launch_target(
         .to_string();
     let target = WindowInfo {
         hwnd: 0,
+        #[cfg(target_os = "macos")]
+        owner_pid: 0,
         app_id: app_id_from_path(&path),
         display_name,
         title: String::new(),

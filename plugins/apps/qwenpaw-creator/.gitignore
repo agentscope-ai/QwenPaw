@@ -8,4 +8,9 @@ __pycache__/
 data/
 generated/
 backend/data/
+# manual_real acceptance outputs (open the rendered pages by hand)
+backend/tests/manual/.manual-doc-reader/
+backend/tests/manual/fixtures/
 backend/generated/
+# local-only eval media for the manual render-review eval (never commit)
+backend/tests/fixtures/render_review/

@@ -32,6 +32,7 @@ import { useParams } from "@/routing/navigation";
 import logoGlyphOrange from "@/assets/design/logo-glyph-orange.png";
 import logoGlyphWhite from "@/assets/design/logo-mark-plain.png";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
+import { useCreatorEditBufferStore } from "@/store/creatorEditBufferStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import {
   useCreatorSessionStore,
@@ -40,10 +41,14 @@ import {
   type SubagentStreamTool,
 } from "@/store/creatorSessionStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { useWorkGraphStore } from "@/store/workGraphStore";
+import WorkGraphPanel from "@/components/agent/WorkGraphPanel";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
+import SourceCacheGate from "@/components/creator/SourceCacheGate";
+import { useSourceCache } from "@/lib/sourceCache";
 import {
   creatorEventLabel,
   creatorRoleLabel,
@@ -71,16 +76,22 @@ import DecisionTray from "./DecisionTray";
 import MentionInput, { type MentionInputHandle } from "./MentionInput";
 import { reviewPendingUnits } from "./FileProjectReviewPanel";
 import OnboardingHint from "@/components/onboarding/OnboardingHint";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 
 interface DockSize {
   width: number;
   height: number;
 }
 
-const DOCK_MIN_WIDTH = 440;
+const DOCK_MIN_WIDTH = 240;
 const DOCK_MIN_HEIGHT = 420;
 const DOCK_DEFAULT_SIZE: DockSize = { width: 440, height: 620 };
 const DOCK_SIZE_STORAGE_KEY = "agentDock.size.v1";
+// The workspace keeps at least this many pixels no matter how wide the dock
+// is dragged; below that width its container queries switch to the drawer
+// layout, so the pages stay usable instead of being squeezed out.
+const WORKSPACE_MIN_WIDTH = 360;
 
 // "Stoppable" check consistent with the global hard-stop (the stop button
 // migrated here from the former AgentStatusBar).
@@ -105,7 +116,7 @@ const STOPPABLE_SESSION_STATUSES = [
 function dockMaxSize(): DockSize {
   if (typeof window === "undefined") return { width: 960, height: 1200 };
   return {
-    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - 40),
+    width: Math.max(DOCK_MIN_WIDTH, window.innerWidth - WORKSPACE_MIN_WIDTH),
     height: Math.max(DOCK_MIN_HEIGHT, window.innerHeight - 40),
   };
 }
@@ -286,6 +297,7 @@ function MessageParts({
   parts: CreatorContentPart[];
   richText?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       {parts.map((part, index) => {
@@ -306,7 +318,7 @@ function MessageParts({
                 part.image_url.url,
                 part.attachment?.assetVersionRef,
               )}
-              alt="消息图片"
+              alt={t("agent.messageImage")}
               className="mt-1 max-h-40 rounded object-contain"
             />
           );
@@ -331,12 +343,16 @@ function MessageParts({
             className="mt-1 block rounded bg-[var(--color-bg-secondary)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)]"
           >
             {part.type === "audio"
-              ? "音频附件"
+              ? t("agent.audioAttachment")
               : part.type === "document"
-              ? "文档附件"
+              ? t("agent.documentAttachment")
               : part.type}{" "}
             ·{" "}
-            {String(part.attachment.name || part.attachment.filename || "附件")}
+            {String(
+              part.attachment.name ||
+                part.attachment.filename ||
+                t("agent.attachment"),
+            )}
           </span>
         );
       })}
@@ -364,6 +380,7 @@ function ThinkingDisclosure({
   children: string;
   active: boolean;
 }) {
+  const { t } = useTranslation();
   const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const { expanded, setExpanded } = useLiveDisclosure(active);
@@ -389,7 +406,11 @@ function ThinkingDisclosure({
           ) : (
             <CircleCheck className="h-3 w-3" />
           )}
-          {isReplaying ? "思考完成" : active ? "思考中" : "思考完成"}
+          {isReplaying
+            ? t("agent.thinkingDone")
+            : active
+            ? t("agent.thinking")
+            : t("agent.thinkingDone")}
         </span>
         {allowExpand && (
           <button
@@ -397,7 +418,7 @@ function ThinkingDisclosure({
             onClick={() => setExpanded((value) => !value)}
             className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
           >
-            {expanded ? "收起" : "详情"}
+            {expanded ? t("agent.collapse") : t("agent.details")}
           </button>
         )}
       </div>
@@ -421,7 +442,7 @@ function extractErrorMessage(error: string): string {
     const type = parsed.error?.type || "";
     const message = parsed.error?.message || parsed.message || error;
     const errorMap: Record<string, string> = {
-      AgentProjectBaseRequired: "项目状态已过期，请重试",
+      AgentProjectBaseRequired: i18n.t("agent.errorProjectBase"),
     };
     if (errorMap[type]) return errorMap[type];
     return message;
@@ -430,21 +451,20 @@ function extractErrorMessage(error: string): string {
   }
 }
 
-const ERROR_MESSAGE_MAP: Record<string, string> = {
-  AgentProjectBaseRequired: "项目状态已过期，请重试",
-  "R2V ArtifactSlot 归属冲突": "视频生成失败，请重试",
-  "exceeded 16 model turns": "Agent 执行超时，请重试",
-  "retryable: false": "执行失败，无法自动重试",
-};
-
 function simplifyErrorMessage(text: string): string {
   if (!text) return "";
-  for (const [key, value] of Object.entries(ERROR_MESSAGE_MAP)) {
+  const errorMap: Record<string, string> = {
+    AgentProjectBaseRequired: i18n.t("agent.projectExpired"),
+    "R2V ArtifactSlot 归属冲突": i18n.t("agent.r2vSlotConflict"),
+    "exceeded 16 model turns": i18n.t("agent.agentTimeout"),
+    "retryable: false": i18n.t("agent.notRetryable"),
+  };
+  for (const [key, value] of Object.entries(errorMap)) {
     if (text.includes(key)) return value;
   }
   const firstLine = text.split("\n")[0].trim();
   const firstSentence = firstLine.split("。")[0].split(". ")[0];
-  return firstSentence || "执行失败，请重试";
+  return firstSentence || i18n.t("agent.executionFailed");
 }
 
 function actionReason(envelope: CreatorActionEnvelope): string {
@@ -460,24 +480,29 @@ function actionReason(envelope: CreatorActionEnvelope): string {
 }
 
 function waitingActionTitle(reason: string): string {
-  const subject = reason || "执行结果";
-  const prefixed = /^(?:正在)?等待/.test(subject) ? subject : `等待${subject}`;
-  return prefixed.endsWith("中") ? prefixed : `${prefixed}中`;
+  if (!reason) return i18n.t("agent.waitingProcessing");
+  return i18n.t("agent.waitingInProgress", { subject: reason });
 }
 
 function actionTitle(envelope: CreatorActionEnvelope, active: boolean): string {
   if (envelope.action === "tool_call") {
     const label = creatorToolLabel(envelope.tool || "");
-    return active ? `${label}中` : `${label}完成`;
+    return active
+      ? i18n.t("agent.toolCallActive", { tool: label })
+      : i18n.t("agent.toolCallDone", { tool: label });
   }
   if (envelope.action === "yield_until_runtime_event") {
     return waitingActionTitle(actionReason(envelope));
   }
   if (envelope.action === "complete_current_change")
-    return active ? "完成检查中" : "完成检查已提交";
-  if (envelope.action === "plan") return active ? "制定计划中" : "计划已生成";
-  if (envelope.action === "final") return active ? "整理回复中" : "回复已生成";
-  return active ? "处理中…" : "处理完成";
+    return active
+      ? i18n.t("agent.checkingChanges")
+      : i18n.t("agent.checkingDone");
+  if (envelope.action === "plan")
+    return active ? i18n.t("agent.planning") : i18n.t("agent.planGenerated");
+  if (envelope.action === "final")
+    return active ? i18n.t("agent.finalizing") : i18n.t("agent.replyGenerated");
+  return active ? i18n.t("agent.processing") : i18n.t("agent.completed");
 }
 
 function ActionDisclosure({
@@ -487,6 +512,7 @@ function ActionDisclosure({
   envelope: CreatorActionEnvelope;
   active: boolean;
 }) {
+  const { t } = useTranslation();
   const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const { expanded, setExpanded } = useLiveDisclosure(active);
@@ -526,7 +552,7 @@ function ActionDisclosure({
             onClick={() => setExpanded((value) => !value)}
             className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
           >
-            {expanded ? "收起" : "详情"}
+            {expanded ? t("agent.collapse") : t("agent.details")}
           </button>
         )}
       </div>
@@ -544,6 +570,7 @@ function ActionDisclosure({
 }
 
 function ConversationMessage({ item }: { item: CreatorMessage }) {
+  const { t } = useTranslation();
   if (isReviewFeedbackMessage(item)) {
     return <ReviewFeedbackCard item={item} />;
   }
@@ -599,7 +626,7 @@ function ConversationMessage({ item }: { item: CreatorMessage }) {
       {streaming && !thinking && (
         <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-secondary)]">
           <Loader2 className="h-3 w-3 animate-spin" />
-          <span>处理中</span>
+          <span>{t("agent.processing")}</span>
         </div>
       )}
       {thinking && (
@@ -639,6 +666,7 @@ function feedbackText(feedback: Record<string, unknown>): string {
 }
 
 function ReviewFeedbackCard({ item }: { item: CreatorMessage }) {
+  const { t } = useTranslation();
   const feedback = recordValue(item.metadata.rejectionFeedback) ?? {};
   const regenerate = feedback.action === "UNDO_AND_REGENERATE";
   const note = feedbackText(feedback);
@@ -668,24 +696,23 @@ function ReviewFeedbackCard({ item }: { item: CreatorMessage }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium leading-5 text-[var(--color-text-primary)]">
-            {regenerate ? "已撤销并安排重做" : "已撤销"}
+            {regenerate ? t("agent.undoneAndRedo") : t("agent.undone")}
           </div>
           <div className="leading-4 text-[var(--color-text-tertiary)]">
-            {regenerate
-              ? "Agent 将按反馈重新生成，不会恢复被撤销的版本。"
-              : "内容已移除，Agent 不会自行重新生成。"}
+            {regenerate ? t("agent.undoAndRedoDesc") : t("agent.undoneDesc")}
           </div>
         </div>
       </div>
       {targetLabels.length > 0 && (
         <div className="mt-2 truncate text-[10px] text-[var(--color-text-tertiary)]">
-          对象：{targetLabels.join("、")}
+          {t("agent.targets")}
+          {targetLabels.join("、")}
         </div>
       )}
       {note && (
         <div className="mt-2 rounded-lg bg-[var(--color-bg-card)] px-2.5 py-2 leading-4 text-[var(--color-text-secondary)]">
           <span className="font-medium text-[var(--color-text-primary)]">
-            反馈：
+            {t("agent.feedback")}
           </span>
           {note}
         </div>
@@ -709,12 +736,12 @@ function roleDisplayName(
     activity?.role || (typeof args?.role === "string" ? args.role : "");
   if (raw) {
     const label = creatorRoleLabel(raw);
-    if (label !== "专业制作") return label;
+    if (label !== i18n.t("presentation.specialistProduction")) return label;
   }
   const displayName =
     activity?.roleDisplayName ||
     (typeof args?.roleDisplayName === "string" ? args.roleDisplayName : "");
-  return displayName || "专业制作";
+  return displayName || i18n.t("presentation.specialistProduction");
 }
 
 function delegationText(
@@ -767,45 +794,48 @@ function subagentThinkingText(item: SubagentStreamMessage): string {
   return item.completedThinking ?? orderedDeltas(item.thinkingDeltas);
 }
 
-const SPECIALIST_OUTCOME_META: Record<
-  SpecialistOutcome,
-  { label: string; tone: string }
-> = {
-  SUCCESS: {
-    label: "已完成",
-    tone: "bg-[var(--color-success-soft)] text-[var(--color-success)]",
-  },
-  BLOCKED: {
-    label: "受阻",
-    tone: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
-  },
-  FAILED: {
-    label: "失败",
-    tone: "bg-[var(--color-danger-soft)] text-[var(--color-danger)]",
-  },
-};
+function specialistOutcomeMeta(outcome: SpecialistOutcome): {
+  label: string;
+  tone: string;
+} {
+  const tones: Record<SpecialistOutcome, string> = {
+    SUCCESS: "bg-[var(--color-success-soft)] text-[var(--color-success)]",
+    BLOCKED: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
+    FAILED: "bg-[var(--color-danger-soft)] text-[var(--color-danger)]",
+  };
+  const labels: Record<SpecialistOutcome, string> = {
+    SUCCESS: i18n.t("agent.completed"),
+    BLOCKED: i18n.t("agent.blocked"),
+    FAILED: i18n.t("agent.failed"),
+  };
+  return { label: labels[outcome], tone: tones[outcome] };
+}
 
-const SUBAGENT_TERMINAL_META: Record<
-  NonNullable<SubagentActivity["terminalKind"]>,
-  { label: string; tone: string }
-> = {
-  SUCCESS: SPECIALIST_OUTCOME_META.SUCCESS,
-  BLOCKED: SPECIALIST_OUTCOME_META.BLOCKED,
-  FAILED: SPECIALIST_OUTCOME_META.FAILED,
-  STALE: {
-    label: "已失效",
-    tone: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
-  },
-  CANCELLED: {
-    label: "已取消",
-    tone: "bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)]",
-  },
-};
+function subagentTerminalMeta(
+  kind: NonNullable<SubagentActivity["terminalKind"]>,
+): { label: string; tone: string } {
+  switch (kind) {
+    case "SUCCESS":
+      return specialistOutcomeMeta("SUCCESS");
+    case "BLOCKED":
+      return specialistOutcomeMeta("BLOCKED");
+    case "FAILED":
+      return specialistOutcomeMeta("FAILED");
+    case "STALE":
+      return {
+        label: i18n.t("agent.stale"),
+        tone: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
+      };
+    case "CANCELLED":
+      return {
+        label: i18n.t("agent.cancelled"),
+        tone: "bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)]",
+      };
+  }
+}
 
-const SUBAGENT_RUNNING_META = {
-  label: "运行中",
-  tone: "bg-[var(--color-warning-soft)] text-[var(--color-warning)]",
-};
+const SUBAGENT_RUNNING_META_TONE =
+  "bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
 
 function SubagentMessageBubble({
   item,
@@ -814,6 +844,7 @@ function SubagentMessageBubble({
   item: SubagentStreamMessage;
   materializedTool: boolean;
 }) {
+  const { t } = useTranslation();
   const body = subagentMessageText(item);
   const thinking = subagentThinkingText(item);
   const envelope = actionEnvelopeFromStreamText(body);
@@ -841,7 +872,7 @@ function SubagentMessageBubble({
         <div className="mb-1 flex items-center gap-1.5">
           <span className="flex items-center gap-1 text-[9px] text-[var(--color-text-tertiary)]">
             <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--color-warning)]" />
-            实时输出中
+            {t("agent.realtimeOutput")}
           </span>
         </div>
       )}
@@ -862,7 +893,13 @@ function SubagentMessageBubble({
   );
 }
 
+function formatToolArgumentBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+}
+
 function NestedSubagentToolCard({ item }: { item: SubagentStreamTool }) {
+  const { t } = useTranslation();
   const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const session = useCreatorSessionStore((state) => state.session);
@@ -880,13 +917,9 @@ function NestedSubagentToolCard({ item }: { item: SubagentStreamTool }) {
       : item.status;
   const active = resolvedStatus === "started";
   const { expanded, setExpanded } = useLiveDisclosure(active);
-  const rawArguments = Object.entries(item.argumentDeltas ?? {})
-    .sort(([left], [right]) => Number(left) - Number(right))
-    .map(([, value]) => value)
-    .join("");
   const renderedArguments = item.arguments
     ? JSON.stringify(item.arguments, null, 2)
-    : rawArguments;
+    : "";
   const hasArgs = Boolean(renderedArguments);
   const hasResult = item.result !== undefined && item.result !== null;
   const hasOutputEvents = item.outputEvents.length > 0;
@@ -920,11 +953,17 @@ function NestedSubagentToolCard({ item }: { item: SubagentStreamTool }) {
             {isReplaying
               ? ""
               : active
-              ? "中"
+              ? t("agent.processing")
               : resolvedStatus === "succeeded"
-              ? "完成"
-              : "失败"}
+              ? t("agent.completed")
+              : t("agent.failed")}
           </span>
+          {active && item.receivedBytes !== undefined && (
+            <span className="text-[9px] text-[var(--color-text-tertiary)]">
+              {i18n.t("lib.arguments")}
+              {formatToolArgumentBytes(item.receivedBytes)}
+            </span>
+          )}
         </span>
         {hasDetails && allowExpand && (
           <button
@@ -932,7 +971,7 @@ function NestedSubagentToolCard({ item }: { item: SubagentStreamTool }) {
             onClick={() => setExpanded((value) => !value)}
             className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
           >
-            {expanded ? "收起" : "详情"}
+            {expanded ? t("agent.collapse") : t("agent.details")}
           </button>
         )}
       </div>
@@ -975,6 +1014,7 @@ function NestedSubagentToolCard({ item }: { item: SubagentStreamTool }) {
 }
 
 function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
+  const { t } = useTranslation();
   const tools = Object.values(activity.tools);
   const items = [
     ...Object.values(activity.messages).map((item) => ({
@@ -989,14 +1029,17 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
     })),
   ].sort((left, right) => left.order - right.order);
   const terminal = activity.terminalKind
-    ? SUBAGENT_TERMINAL_META[activity.terminalKind]
+    ? subagentTerminalMeta(activity.terminalKind)
     : null;
   const activityStatus = activity.waitingReview
     ? {
-        label: "等待审阅",
+        label: t("agent.waitingReview"),
         tone: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
       }
-    : terminal ?? SUBAGENT_RUNNING_META;
+    : terminal ?? {
+        label: t("agent.processing"),
+        tone: SUBAGENT_RUNNING_META_TONE,
+      };
   return (
     <div
       data-subagent-activity={activity.parentActionId}
@@ -1017,7 +1060,7 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
         </div>
         {activity.runId && (
           <span className="shrink-0 font-mono text-[9px] text-[var(--color-text-tertiary)]">
-            运行 #{activity.runId.slice(0, 8)}
+            {t("agent.runId", { id: activity.runId.slice(0, 8) })}
           </span>
         )}
       </div>
@@ -1064,7 +1107,7 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
               activity.completed ? "" : "animate-pulse"
             } text-[10px] text-[var(--color-text-tertiary)]`}
           >
-            {activity.completed ? "已完成" : "等待输出中"}
+            {activity.completed ? t("agent.done") : t("agent.waitingOutput")}
           </p>
         )}
       </div>
@@ -1073,6 +1116,7 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
 }
 
 function ToolCallCard({ data }: { data: ToolCallPresentation }) {
+  const { t } = useTranslation();
   const allowExpand = useAgentDockUiStore((state) => state.allowExpandDetails);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const session = useCreatorSessionStore((state) => state.session);
@@ -1166,7 +1210,7 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
     if (activeTool) {
       subLabel = creatorToolLabel(activeTool.tool);
     }
-    displayLabel = role || "专业制作";
+    displayLabel = role || t("presentation.specialistProduction");
   } else {
     displayLabel = creatorToolLabel(tool);
   }
@@ -1206,14 +1250,14 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
             {isReplaying
               ? ""
               : active
-              ? "中"
+              ? t("agent.processing")
               : resolvedStatus === "succeeded"
-              ? "完成"
+              ? t("agent.completed")
               : resolvedStatus === "cancelled"
-              ? "已中止"
+              ? t("agent.cancelled")
               : resolvedStatus === "waiting_review"
-              ? " · 等待审阅"
-              : "失败"}
+              ? ` · ${t("agent.waitingReview")}`
+              : t("agent.failed")}
           </span>
           {subLabel && active && (
             <span className="text-[10px] text-[var(--color-text-tertiary)]">
@@ -1225,13 +1269,19 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
               {estimatedDuration}
             </span>
           )}
+          {active && data.receivedBytes !== undefined && (
+            <span className="text-[10px] text-[var(--color-text-tertiary)]">
+              {i18n.t("lib.arguments")}
+              {formatToolArgumentBytes(data.receivedBytes)}
+            </span>
+          )}
         </span>
         {hasDetails && allowExpand && (
           <button
             onClick={() => setExpanded((e) => !e)}
             className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
           >
-            {expanded ? "收起" : "详情"}
+            {expanded ? t("agent.collapse") : t("agent.details")}
           </button>
         )}
       </div>
@@ -1260,7 +1310,7 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
               )}
               {targets.length > 0 && (
                 <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
-                  目标：
+                  {t("agent.targetsLabel")}
                   {targets.map((ref) => creatorTargetLabel(ref)).join("、")}
                 </p>
               )}
@@ -1319,10 +1369,11 @@ function planPresentation(message: CreatorMessage): PlanPresentation | null {
 }
 
 function PlanCard({ data }: { data: PlanPresentation }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-lg border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-3 text-[11px] leading-5 text-[var(--color-text-primary)]">
       <b className="block text-[var(--color-accent)]">
-        执行计划：{data.summary}
+        {t("agent.executionPlan", { summary: data.summary })}
       </b>
       {data.steps.length > 0 && (
         <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[var(--color-text-secondary)]">
@@ -1333,7 +1384,7 @@ function PlanCard({ data }: { data: PlanPresentation }) {
       )}
       {Boolean(data.scope) && (
         <p className="mt-1 text-[var(--color-text-tertiary)]">
-          范围：
+          {t("agent.scope")}
           {(Array.isArray(data.scope) ? data.scope : [data.scope])
             .map((ref) => creatorTargetLabel(String(ref)))
             .join("、")}
@@ -1343,16 +1394,15 @@ function PlanCard({ data }: { data: PlanPresentation }) {
   );
 }
 
-const REF_TYPE_LABELS: Record<RefSearchItem["type"], string> = {
-  timeline: "主时间轴",
-  element: "时间线内容",
-  asset: "素材",
-  artifact: "生成产物",
-  visual: "视觉设定",
-};
-
 function refTypeLabel(type: RefSearchItem["type"]): string {
-  return REF_TYPE_LABELS[type] ?? "";
+  const labels: Record<RefSearchItem["type"], string> = {
+    timeline: i18n.t("agent.mainTimeline"),
+    element: i18n.t("agent.elementType"),
+    asset: i18n.t("common.content"),
+    artifact: i18n.t("agent.artifactType"),
+    visual: i18n.t("common.setting"),
+  };
+  return labels[type] ?? "";
 }
 
 function fallbackRefName(ref: string): string {
@@ -1380,7 +1430,7 @@ function projectRefItems(
   if (timeline) {
     items.push({
       ref: `timeline:${timeline.timeline_id}`,
-      name: "主时间轴",
+      name: i18n.t("agent.mainTimeline"),
       type: "timeline",
       uiLocator: { page: "plan" },
     });
@@ -1401,9 +1451,20 @@ function projectRefItems(
       ref: `visual-entity:${entity.entity_id}`,
       name: entity.name || entity.entity_id,
       type: "visual",
-      thumbnailUrl: entity.selected_artifact_version_id
-        ? getArtifactVersionMediaUrl(entity.selected_artifact_version_id)
-        : undefined,
+      thumbnailUrl:
+        entity.variants.order.length === 1
+          ? (() => {
+              const variant = entity.variants.items[entity.variants.order[0]];
+              return variant?.selected_artifact_version_id
+                ? getArtifactVersionMediaUrl(
+                    variant.selected_artifact_version_id,
+                  )
+                : undefined;
+            })()
+          : entity.variants.order.length === 0 &&
+            entity.selected_artifact_version_id
+          ? getArtifactVersionMediaUrl(entity.selected_artifact_version_id)
+          : undefined,
       uiLocator: { page: "assets", assetId: entity.entity_id },
     }),
   );
@@ -1451,11 +1512,13 @@ function projectRefItems(
 }
 
 function WorkspacePanel() {
+  const { t } = useTranslation();
   const session = useCreatorSessionStore((state) => state.session);
   const status = useCreatorSessionStore((state) => state.agentStatusBar);
   const events = useCreatorSessionStore((state) => state.events);
   const runs = useCreatorTaskViewStore((state) => state.runs);
   const tasks = useCreatorTaskViewStore((state) => state.tasks);
+  const workGraph = useWorkGraphStore((state) => state.graph);
   const project = useProjectSnapshotStore((state) => state.project);
   const timeline = selectPrimaryTimeline(project);
   const sourceCount = project
@@ -1482,39 +1545,42 @@ function WorkspacePanel() {
     <div className="space-y-2.5 text-[10px] leading-4">
       <div>
         <p className="font-semibold text-[var(--color-text-secondary)]">
-          当前任务
+          {t("agent.currentTask")}
         </p>
         <p className="text-[var(--color-text-tertiary)]">
-          阶段{" "}
+          {t("agent.phase")}{" "}
           <b className="text-[var(--color-text-primary)]">
             {status?.progress.label || "—"}
           </b>
-          {" · "}状态{" "}
+          {" · "}
+          {t("agent.statusLabel")}{" "}
           <b className="text-[var(--color-text-primary)]">
             {creatorStatusLabel(session?.status)}
           </b>
         </p>
         {status?.progress.latestMilestone && (
           <p className="line-clamp-2 text-[var(--color-text-secondary)]">
-            目标：{status.progress.latestMilestone}
+            {t("agent.goal", { goal: status.progress.latestMilestone })}
           </p>
         )}
       </div>
 
       <div>
         <p className="font-semibold text-[var(--color-text-secondary)]">
-          素材概况（{materialCount}）
+          {t("agent.materialOverview", { count: materialCount })}
         </p>
         <div className="mt-0.5 flex flex-wrap gap-1">
           {!project ? (
-            <span className="text-[var(--color-text-tertiary)]">暂无素材</span>
+            <span className="text-[var(--color-text-tertiary)]">
+              {t("agent.noMaterials")}
+            </span>
           ) : (
             <>
               <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">
-                源素材: {sourceCount}
+                {t("agent.sourceMaterials", { count: sourceCount })}
               </span>
               <span className="rounded bg-[var(--color-bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">
-                生成产物: {artifactCount}
+                {t("agent.artifacts", { count: artifactCount })}
               </span>
             </>
           )}
@@ -1523,57 +1589,64 @@ function WorkspacePanel() {
 
       <div>
         <p className="font-semibold text-[var(--color-text-secondary)]">
-          主时间轴
+          {t("agent.mainTimeline")}
         </p>
         <p className="text-[var(--color-text-tertiary)]">
-          {elementCount} 项内容
+          {t("agent.elementCount", { count: elementCount })}
         </p>
       </div>
 
-      {(runs.length > 0 || tasks.length > 0) && (
-        <div>
-          <p className="font-semibold text-[var(--color-text-secondary)]">
-            专业制作进度
-          </p>
-          <ul className="mt-0.5 space-y-0.5">
-            {runs.slice(0, 4).map((run) => (
-              <li
-                key={run.id}
-                className="flex items-center gap-1.5 text-[var(--color-text-tertiary)]"
-              >
-                <span className="min-w-0 flex-1 truncate text-[var(--color-text-secondary)]">
-                  {run.displayName} ·{" "}
-                  {run.targetRefs
-                    .map((ref) => creatorTargetLabel(ref, project))
-                    .join("、") || "当前项目"}
-                </span>
-                <span className="shrink-0 text-[9px]">
-                  {creatorStatusLabel(run.status)}
-                </span>
-              </li>
-            ))}
-            {tasks
-              .filter(
-                (task) => task.status === "QUEUED" || task.status === "RUNNING",
-              )
-              .slice(0, 3)
-              .map((task) => (
+      {project && workGraph && workGraph.nodes.length > 0 ? (
+        // The derived work graph supersedes the flat specialist list: the
+        // production DAG with per-node status, dependencies and actions.
+        <WorkGraphPanel projectId={project.project_id} />
+      ) : (
+        (runs.length > 0 || tasks.length > 0) && (
+          <div>
+            <p className="font-semibold text-[var(--color-text-secondary)]">
+              {t("agent.specialistProgress")}
+            </p>
+            <ul className="mt-0.5 space-y-0.5">
+              {runs.slice(0, 4).map((run) => (
                 <li
-                  key={task.id}
-                  className="truncate text-[var(--color-text-tertiary)]"
+                  key={run.id}
+                  className="flex items-center gap-1.5 text-[var(--color-text-tertiary)]"
                 >
-                  {taskKindLabel(task.kind)} →{" "}
-                  {creatorTargetLabel(task.targetRef, project)}
+                  <span className="min-w-0 flex-1 truncate text-[var(--color-text-secondary)]">
+                    {run.displayName} ·{" "}
+                    {run.targetRefs
+                      .map((ref) => creatorTargetLabel(ref, project))
+                      .join("、") || t("agent.currentProject")}
+                  </span>
+                  <span className="shrink-0 text-[9px]">
+                    {creatorStatusLabel(run.status)}
+                  </span>
                 </li>
               ))}
-          </ul>
-        </div>
+              {tasks
+                .filter(
+                  (task) =>
+                    task.status === "QUEUED" || task.status === "RUNNING",
+                )
+                .slice(0, 3)
+                .map((task) => (
+                  <li
+                    key={task.id}
+                    className="truncate text-[var(--color-text-tertiary)]"
+                  >
+                    {taskKindLabel(task.kind)} →{" "}
+                    {creatorTargetLabel(task.targetRef, project)}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )
       )}
 
       {recentWrites.length > 0 && (
         <div>
           <p className="font-semibold text-[var(--color-text-secondary)]">
-            最近写入
+            {t("agent.recentWrites")}
           </p>
           <ul className="mt-0.5 space-y-0.5">
             {recentWrites.map((event) => (
@@ -1597,6 +1670,7 @@ function WorkspacePanel() {
 }
 
 export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
+  const { t } = useTranslation();
   const { id: projectId = "" } = useParams();
   const open = useAgentDockUiStore((state) => state.open);
   const tab = useAgentDockUiStore((state) => state.tab);
@@ -1635,6 +1709,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const stopping = useCreatorSessionStore((state) => state.stopping);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
   const stopAllAgents = useCreatorSessionStore((state) => state.stopAllAgents);
+  const rateLimitRetry = useCreatorSessionStore(
+    (state) => state.rateLimitRetry,
+  );
   const subagentActivities = useCreatorSessionStore(
     (state) => state.subagentActivities,
   );
@@ -1652,10 +1729,20 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   );
   const interactionPanel = useCreatorInteractionStore((state) => state.panel);
   const extraRefs = useCreatorInteractionStore((state) => state.extraRefs);
+  const pendingEditCount = useCreatorEditBufferStore((state) =>
+    state.projectId === projectId ? state.entries.length : 0,
+  );
 
   const project = useProjectSnapshotStore((state) =>
     state.projectId === projectId ? state.project : null,
   );
+  const builtinExample = useProjectSnapshotStore((state) =>
+    state.projectId === projectId ? state.builtinExample : false,
+  );
+  // Bundled examples ship trimmed clips only; follow-up agent questions need
+  // the full originals cached locally, so gate sending until they land.
+  const sourceCache = useSourceCache(projectId, builtinExample);
+  const originalsGate = builtinExample && sourceCache.originalsMissing;
   const timeline = selectPrimaryTimeline(project);
 
   const streaming = Boolean(
@@ -1670,6 +1757,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
 
   const [removedContextRefs, setRemovedContextRefs] = useState<string[]>([]);
   const [canSend, setCanSend] = useState(false);
+  const [rateLimitResuming, setRateLimitResuming] = useState(false);
   const [inlineRefs, setInlineRefs] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionOptions, setMentionOptions] = useState<RefSearchItem[]>([]);
@@ -1717,11 +1805,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   name: item.toolCall.name,
                   ...(item.toolCall.arguments
                     ? { arguments: item.toolCall.arguments }
-                    : {
-                        argumentsDelta: orderedDeltas(
-                          item.toolCall.argumentDeltas,
-                        ),
-                      }),
+                    : {}),
                 },
                 actionId: item.toolCall.id,
               }
@@ -1772,7 +1856,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   );
 
   // Live status row above the input: derived purely on the frontend, no data
-  // structures are mutated.
+  // structures are mutated. `t` must stay in the deps: the labels come from
+  // the global i18n singleton, so a runtime language switch has to recompute
+  // them even when the agent state itself did not change.
   const liveStatus = useMemo(
     () =>
       deriveAgentLiveStatus({
@@ -1785,6 +1871,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
         toolCalls,
         tasks,
         project,
+        rateLimitRetry,
       }),
     [
       session,
@@ -1796,8 +1883,25 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
       toolCalls,
       tasks,
       project,
+      rateLimitRetry,
+      t,
     ],
   );
+
+  // A throttled run stops with the full conversation still intact; the
+  // continue control re-submits a resume request so the Agent picks the
+  // same task back up on the previous messages.
+  const resumeAfterRateLimit = async () => {
+    if (rateLimitResuming) return;
+    setRateLimitResuming(true);
+    try {
+      await sendMessage({ message: t("agent.rateLimitResumeMessage") });
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setRateLimitResuming(false);
+    }
+  };
 
   const contextChips = useMemo(() => {
     const chips: RefSearchItem[] = [];
@@ -1824,7 +1928,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
       } else if (selectedRef.startsWith("timeline:")) {
         item = {
           ref: selectedRef,
-          name: "主时间轴",
+          name: i18n.t("agent.mainTimeline"),
           type: "timeline",
           uiLocator: { page: "plan" },
         };
@@ -2102,6 +2206,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   };
 
   const submit = async () => {
+    if (originalsGate) return;
     const content = inputRef.current?.getContent() ?? {
       text: "",
       refs: [],
@@ -2116,6 +2221,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
       ]),
     ];
     const submittedExtraRefs = extraRefs;
+    // Manual project.json edits accumulated since the previous message ride
+    // along as context so the agent can re-evaluate dependent plan pieces.
+    const userEdits = useCreatorEditBufferStore
+      .getState()
+      .consumeContext(projectId);
     try {
       const pending = sendMessage({
         message: text,
@@ -2136,6 +2246,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
             : undefined,
           selections: content.selections,
           extraRefs: allRefs,
+          userEdits: userEdits ?? undefined,
         },
       });
       inputRef.current?.clear();
@@ -2145,6 +2256,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
       setMentionQuery(null);
       useCreatorInteractionStore.getState().setExtraRefs([]);
       await pending;
+      if (userEdits) {
+        useCreatorEditBufferStore
+          .getState()
+          .markFlushed(projectId, userEdits.lastEntryAt);
+      }
     } catch (error) {
       if (!inputRef.current?.getContent().text.trim()) {
         inputRef.current?.setText(text);
@@ -2167,11 +2283,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           className={`fixed right-0 top-20 z-40 flex ${
             decisionCount > 0 ? "h-[96px]" : "h-[76px]"
           } w-7 flex-col items-center justify-center rounded-l-xl border border-r-0 border-[var(--color-border)] bg-[var(--color-bg-card)]/92 text-[var(--color-text-tertiary)] shadow-lg backdrop-blur-xl transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`}
-          aria-label="打开 Agent"
+          aria-label={t("agent.assistant")}
           title={
             decisionCount > 0
-              ? "展开 Agent 面板，处理待决策项"
-              : "展开 Agent 面板"
+              ? t("agent.expandForDecisions")
+              : t("agent.expandPanel")
           }
         >
           <PanelRightOpen className="h-3.5 w-3.5 shrink-0" />
@@ -2183,7 +2299,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   : "text-[var(--color-text-secondary)]"
               }`}
             >
-              待决策
+              {t("agent.decisionsPending")}
             </span>
           )}
           {decisionCount > 0 && (
@@ -2202,7 +2318,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               data-agent-dock-handle-toast
               className="agent-dock-handle-toast pointer-events-none absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-full bg-[var(--color-warning)] px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg"
             >
-              {pendingAuthorizationCount} 项生产确认待处理
+              {t("agent.productionConfirmPending", {
+                count: pendingAuthorizationCount,
+              })}
               <span className="absolute left-full top-1/2 -translate-y-1/2 border-[5px] border-transparent border-l-[var(--color-warning)]" />
             </span>
           )}
@@ -2217,7 +2335,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
           style={sidebar ? { width, flexShrink: 0 } : panelStyle}
           className={
             sidebar
-              ? "relative flex h-full flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
+              ? "relative flex min-h-0 flex-1 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-card)]"
               : "agent-dock-enter fixed bottom-5 right-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/92 shadow-2xl backdrop-blur-xl"
           }
         >
@@ -2226,23 +2344,28 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               <div
                 onPointerDown={beginResize("y")}
                 className="absolute inset-x-4 top-0 z-20 h-1.5 cursor-ns-resize"
-                title="拖拽调整高度"
+                title={t("agent.dragHeight")}
               />
             )}
             <div
               onPointerDown={beginResize("x")}
               className={
                 sidebar
-                  ? "absolute inset-y-0 left-0 z-20 w-1 cursor-ew-resize hover:bg-[var(--color-accent)]/20"
+                  ? "group absolute inset-y-0 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20"
                   : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
               }
-              title="拖拽调整宽度"
-            />
+              title={t("agent.dragWidth")}
+            >
+              {/* Always-visible grip so the resizable edge is discoverable. */}
+              {sidebar && (
+                <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+              )}
+            </div>
             {!sidebar && (
               <div
                 onPointerDown={beginResize("xy")}
                 className="group absolute left-0 top-0 z-20 h-4 w-4 cursor-nwse-resize"
-                title="拖拽调整大小"
+                title={t("agent.dragSize")}
               >
                 <span className="pointer-events-none absolute left-1 top-1 h-1.5 w-1.5 rounded-tl-sm border-l-2 border-t-2 border-[var(--color-border-strong)] transition-colors group-hover:border-[var(--color-accent)]" />
               </div>
@@ -2264,11 +2387,11 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               />
               <div className="min-w-0">
                 <b className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
-                  创作助手
+                  {t("agent.assistant")}
                 </b>
                 {contextChips.length > 0 && (
                   <span className="block truncate text-[10px] text-[var(--color-text-tertiary)]">
-                    已关联 {contextChips.length} 项引用
+                    {t("agent.relatedRefs", { count: contextChips.length })}
                   </span>
                 )}
               </div>
@@ -2285,16 +2408,16 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   />
                 }
                 onClick={toggleWorkspace}
-                title="工作区事实"
-                aria-label="工作区事实"
+                title={t("agent.workspaceFacts")}
+                aria-label={t("agent.workspaceFacts")}
               />
               <Button
                 type="text"
                 size="small"
                 icon={<PanelRightClose className="h-3.5 w-3.5" />}
                 onClick={() => setOpen(false)}
-                title="收起 Agent 面板"
-                aria-label="收起 Agent 面板"
+                title={t("agent.collapsePanel")}
+                aria-label={t("agent.collapsePanel")}
               />
             </div>
           </div>
@@ -2320,7 +2443,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     onClick={() => void loadOlderMessages()}
                     className="w-full text-center text-[10px] text-[var(--color-text-tertiary)]"
                   >
-                    加载更多消息
+                    {t("agent.loadMoreMessages")}
                   </button>
                 )}
                 {orderedMessages.length === 0 &&
@@ -2329,9 +2452,9 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                 tasks.length === 0 &&
                 toolCalls.length === 0 ? (
                   <p className="py-6 text-center text-[11px] leading-5 text-[var(--color-text-tertiary)]">
-                    描述你的修改意图，Agent 会给出执行计划并调度生成工具。
+                    {t("agent.emptyHint")}
                     <br />
-                    当前选中的对象会自动带入上下文。
+                    {t("agent.emptyHint2")}
                   </p>
                 ) : (
                   conversationFlow.orphanMessages.map((item) => (
@@ -2396,6 +2519,34 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     )}
                   </div>
                 ))}
+                {session?.status === "ERROR" && session?.error?.message && (
+                  <div className="mx-3 my-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--color-danger)]">
+                    {session.error.code === "MODEL_RATE_LIMITED" ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span>
+                          {t("agent.rateLimitExhausted", {
+                            retries: Number.isFinite(
+                              Number(session.error.details?.retryCount),
+                            )
+                              ? Number(session.error.details?.retryCount)
+                              : rateLimitRetry?.maxAttempts ?? 5,
+                          })}
+                        </span>
+                        <Button
+                          size="small"
+                          type="primary"
+                          danger
+                          loading={rateLimitResuming}
+                          onClick={() => void resumeAfterRateLimit()}
+                        >
+                          {t("agent.rateLimitContinue")}
+                        </Button>
+                      </div>
+                    ) : (
+                      session.error.message
+                    )}
+                  </div>
+                )}
               </div>
               {showJump && (
                 <button
@@ -2403,7 +2554,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   onClick={jumpToBottom}
                   className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-[11px] text-[var(--color-text-secondary)] shadow-md transition-colors hover:text-[var(--color-accent)]"
                 >
-                  回到底部 ↓
+                  {t("agent.scrollToBottom")}
                 </button>
               )}
             </div>
@@ -2453,6 +2604,16 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   </span>
                 )}
               </div>
+              {pendingEditCount > 0 && (
+                <div
+                  data-agent-edit-buffer
+                  title={t("timeline.editBufferTooltip")}
+                  className="mb-2 flex items-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 px-2 py-1 text-[10px] text-[var(--color-text-secondary)]"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-accent)]" />
+                  {t("timeline.pendingEditCount", { count: pendingEditCount })}
+                </div>
+              )}
               {visibleChips.length > 0 && (
                 <div className="mb-2 flex flex-wrap items-center gap-1">
                   {visibleChips.map((chip) => {
@@ -2471,8 +2632,8 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                           chip.thumbnailUrl
                             ? undefined
                             : manual
-                            ? "手动引用"
-                            : "自动带入的上下文"
+                            ? t("agent.manualRef")
+                            : t("agent.autoContext")
                         }
                       >
                         @{chip.name}
@@ -2480,7 +2641,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                           type="button"
                           onClick={() => removeChip(chip)}
                           className="text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]"
-                          aria-label={`移除 ${chip.name}`}
+                          aria-label={t("agent.removeRef", { name: chip.name })}
                         >
                           ×
                         </button>
@@ -2506,10 +2667,10 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     type="button"
                     onClick={clearContext}
                     className="flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
-                    title="清空全部引用、划选文本与输入框内的 @ 引用"
+                    title={t("agent.clearAll")}
                   >
                     <Eraser className="h-3 w-3" />
-                    清空
+                    {t("agent.clear")}
                   </button>
                 </div>
               )}
@@ -2517,7 +2678,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               {mentionOptions.length > 0 && (
                 <div
                   role="listbox"
-                  aria-label="引用对象补全"
+                  aria-label={t("agent.inputPlaceholder")}
                   className="absolute bottom-full left-3 right-3 mb-1 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-lg"
                 >
                   {mentionOptions.map((item, index) => (
@@ -2558,13 +2719,17 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               )}
 
               <OnboardingHint hintKey="mention" className="mb-2">
-                输入 @
-                可引用分镜、素材等对象作为上下文；当前选中的对象也会自动带入对话。
+                {t("agent.mentionHint")}
               </OnboardingHint>
+              {originalsGate && (
+                <div className="mb-2">
+                  <SourceCacheGate status={sourceCache} compact />
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <MentionInput
                   ref={inputRef}
-                  placeholder="输入修改意图，@ 可引用对象…"
+                  placeholder={t("agent.inputPlaceholder")}
                   onQueryChange={setMentionQuery}
                   onChange={handleInputChange}
                   onSubmit={() => void submit()}
@@ -2577,12 +2742,12 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                   <Button
                     type="primary"
                     danger
-                    aria-label="停止所有 Agent"
+                    aria-label={t("agent.stopAllAgents")}
                     icon={<Square className="h-3 w-3 fill-current" />}
                     disabled={stopping}
                     onClick={() =>
                       void stopAllAgents()
-                        .then(() => message.success("已停止所有 Agent 活动"))
+                        .then(() => message.success(t("agent.stopAllSuccess")))
                         .catch((error) =>
                           message.error((error as Error).message),
                         )
@@ -2590,16 +2755,16 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
                     className="agent-dock-stop-glow !flex !h-8 !w-8 !items-center !justify-center !p-0"
                     title={
                       session?.status === "INTERRUPT_REQUESTED"
-                        ? "停止请求已发送，点击再次停止"
-                        : "立即停止当前项目的主 Agent、子 Agent 与未完成任务"
+                        ? t("agent.stopRequested")
+                        : t("agent.stopDescription")
                     }
                   />
                 ) : (
                   <Button
                     type="primary"
-                    aria-label="发送"
+                    aria-label={t("common.send")}
                     icon={<ArrowUpOutlined />}
-                    disabled={!canSend}
+                    disabled={!canSend || originalsGate}
                     onClick={() => void submit()}
                     className="!flex !h-8 !w-8 !items-center !justify-center !p-0"
                   />

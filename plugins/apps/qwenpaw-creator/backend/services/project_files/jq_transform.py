@@ -15,7 +15,20 @@ from services.runtime_files.runtime_dependencies import resolve_jq
 
 
 class JqTransformError(ValueError):
-    pass
+    """Structured, model-actionable failure from the bounded jq process."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "JQ_EXECUTION_FAILED",
+        retryable: bool = False,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.details = dict(details or {})
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,9 +58,15 @@ class JqProjectTransformer:
         json_args: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not self.executable:
-            raise JqTransformError("jq executable is not available")
+            raise JqTransformError(
+                "jq executable is not available",
+                code="JQ_UNAVAILABLE",
+            )
         if not isinstance(program, str) or not program.strip():
-            raise JqTransformError("jq program must be non-empty")
+            raise JqTransformError(
+                "jq program must be non-empty",
+                code="JQ_PROGRAM_EMPTY",
+            )
 
         jq_command = [self.executable, "--compact-output", "--exit-status"]
         normalized_string_args = dict(string_args or {})
@@ -114,7 +133,12 @@ class JqProjectTransformer:
                     },
                 )
             except subprocess.TimeoutExpired as exc:
-                raise JqTransformError("jq transform timed out") from exc
+                raise JqTransformError(
+                    "jq transform timed out",
+                    code="JQ_TIMEOUT",
+                    retryable=True,
+                    details={"timeoutSeconds": self.limits.timeout_seconds},
+                ) from exc
             stdout.seek(0, os.SEEK_END)
             output_size = stdout.tell()
             stdout.seek(0)
@@ -124,11 +148,31 @@ class JqProjectTransformer:
         if output_size > self.limits.max_output_bytes:
             raise JqTransformError(
                 "jq output exceeds the configured Project limit",
+                code="JQ_OUTPUT_LIMIT",
+                details={
+                    "outputBytes": output_size,
+                    "maxOutputBytes": self.limits.max_output_bytes,
+                },
             )
         if completed.returncode != 0:
             message = error_output.decode("utf-8", errors="replace").strip()
+            code = "JQ_EXECUTION_FAILED"
+            details: dict[str, Any] = {"exitCode": completed.returncode}
+            if (
+                "Cannot use null (null) as object key" in message
+                and "from_entries" in program
+            ):
+                code = "JQ_ARGUMENT_TYPE_MISMATCH"
+                details["operation"] = "from_entries"
+                message += (
+                    ". Hint: from_entries expects an array of {key,value} "
+                    "entries; a jsonArgs object is already a jq object and "
+                    "should be assigned or merged directly"
+                )
             raise JqTransformError(
                 f"jq transform failed: {message or completed.returncode}",
+                code=code,
+                details=details,
             )
         try:
             values = [
@@ -137,7 +181,19 @@ class JqProjectTransformer:
                 if line.strip()
             ]
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise JqTransformError("jq returned invalid JSON") from exc
+            raise JqTransformError(
+                "jq returned invalid JSON",
+                code="JQ_OUTPUT_INVALID_JSON",
+            ) from exc
         if len(values) != 1 or not isinstance(values[0], dict):
-            raise JqTransformError("jq must return exactly one JSON object")
+            raise JqTransformError(
+                "jq must return exactly one JSON object",
+                code="JQ_RESULT_NOT_PROJECT_ROOT",
+                details={
+                    "resultCount": len(values),
+                    "resultType": (
+                        type(values[0]).__name__ if len(values) == 1 else None
+                    ),
+                },
+            )
         return values[0]

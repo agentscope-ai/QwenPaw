@@ -150,6 +150,7 @@ def build_transition_filter_chain(
             filters.append(
                 f"[{i}:a]aresample=44100,"
                 "aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                f"apad=whole_dur={clip.duration_seconds:.6f},"
                 f"asetpts=PTS-STARTPTS[ai{i}]",
             )
         else:

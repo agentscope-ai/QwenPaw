@@ -15,6 +15,7 @@ import httpx
 from typing import Optional
 from models.concurrency import model_slot
 from models import config as model_config
+from models.provider_tasks import note_provider_task
 from models.media_transport import (
     DASHSCOPE_TEMP_UPLOAD_MAX_BYTES,
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
@@ -28,7 +29,10 @@ from models.video_capabilities import (
     HAPPYHORSE_MIN_DURATION_SECONDS,
     HAPPYHORSE_RATIOS,
     HAPPYHORSE_RESOLUTIONS,
-    is_happyhorse_model,
+    HAPPYHORSE_VIDEO_EDIT_MAX_REFERENCE_IMAGES,
+    effective_video_model_name,
+    validate_video_mode,
+    video_backend_key,
 )
 from services.runtime_files.safe_remote_download import safe_download_to_file
 from utils.paths import media_path_from_url
@@ -255,6 +259,48 @@ def _validate_happyhorse_request(
     return normalized_resolution
 
 
+def _validate_happyhorse_mode_parameters(
+    *,
+    mode: str,
+    resolution: str,
+    ratio: str,
+    duration: int,
+    model_name: str,
+) -> str:
+    """Validate the HappyHorse t2v/i2v/video_edit parameter contract.
+
+    Returns the normalized resolution. t2v documents
+    resolution/ratio/duration; i2v follows the input image so ratio is not
+    sent; video_edit follows the input video so neither ratio nor duration
+    is sent (only resolution applies).
+    """
+
+    normalized_resolution = (resolution or "720P").upper()
+    if normalized_resolution not in HAPPYHORSE_RESOLUTIONS:
+        raise ModelError(
+            f"HappyHorse {mode} resolution must be one of "
+            f"{sorted(HAPPYHORSE_RESOLUTIONS)}, got {resolution!r}",
+            model_name=model_name,
+        )
+    if mode == "t2v" and ratio not in HAPPYHORSE_RATIOS:
+        raise ModelError(
+            f"HappyHorse t2v ratio must be one of "
+            f"{sorted(HAPPYHORSE_RATIOS)}, got {ratio!r}",
+            model_name=model_name,
+        )
+    if mode in {"t2v", "i2v"} and (
+        duration < HAPPYHORSE_MIN_DURATION_SECONDS
+        or duration > HAPPYHORSE_MAX_DURATION_SECONDS
+    ):
+        raise ModelError(
+            f"HappyHorse {mode} duration must be an integer between "
+            f"{HAPPYHORSE_MIN_DURATION_SECONDS} and "
+            f"{HAPPYHORSE_MAX_DURATION_SECONDS} seconds, got {duration}",
+            model_name=model_name,
+        )
+    return normalized_resolution
+
+
 async def submit_video_task(
     prompt: str,
     reference_image_url: Optional[str] = None,
@@ -264,8 +310,17 @@ async def submit_video_task(
     resolution: str = "720p",
     watermark: bool = False,
     generate_audio: bool = True,
+    mode: str = "r2v",
+    first_frame_url: Optional[str] = None,
+    video_url: Optional[str] = None,
 ) -> str:
-    """Submit a Wan2.7 reference-to-video task. Returns task_id."""
+    """Submit a video generation task and return its task_id.
+
+    ``mode`` selects the generation family per the capability matrix:
+    ``r2v`` (default, unchanged), ``t2v`` (text only), ``i2v``
+    (``first_frame_url`` required) and ``video_edit`` (``video_url``
+    required, HappyHorse only; inputs 3-60s, >15s keeps the first 15s).
+    """
     api_key = model_config.get_video_api_key()
     model_name = model_config.get_video_model_name()
     if not api_key:
@@ -274,22 +329,81 @@ async def submit_video_task(
             model_name=model_name,
         )
 
+    uses_seedance = _uses_seedance_protocol()
+    backend_key = video_backend_key(
+        model_name,
+        "seedance2" if uses_seedance else "",
+    )
+    try:
+        normalized_mode = validate_video_mode(backend_key, model_name, mode)
+    except ValueError as exc:
+        raise ModelError(str(exc), model_name=model_name) from exc
+
     media = []
     all_images = []
     if reference_image_url:
         all_images.append(reference_image_url)
     if reference_image_url_list:
         all_images.extend(reference_image_url_list)
-    uses_seedance = _uses_seedance_protocol()
     upload_backend = "seedance2" if uses_seedance else "wan"
     unique_references = [
         item.strip()
         for item in dict.fromkeys(all_images)
         if item and item.strip()
     ]
-    uses_happyhorse = not uses_seedance and is_happyhorse_model(model_name)
+    uses_happyhorse = not uses_seedance and backend_key == "happyhorse"
+
+    # Mode-specific input contract, checked before any provider-bound
+    # upload so violations fail fast without wasting reference transport.
+    if normalized_mode == "t2v" and (
+        unique_references or first_frame_url or video_url
+    ):
+        raise ModelError(
+            "t2v mode is text-only: remove reference media, firstFrameRef "
+            "and videoRef, or use mode=r2v/i2v instead",
+            model_name=model_name,
+        )
+    if normalized_mode == "i2v":
+        if not first_frame_url:
+            raise ModelError(
+                "i2v mode requires firstFrameRef (the first-frame image)",
+                model_name=model_name,
+            )
+        if unique_references or video_url:
+            raise ModelError(
+                "i2v mode only accepts the first-frame image; remove other "
+                "reference media or use mode=r2v",
+                model_name=model_name,
+            )
+    if normalized_mode == "video_edit":
+        if not video_url:
+            raise ModelError(
+                "video_edit mode requires videoRef (the input video)",
+                model_name=model_name,
+            )
+        if first_frame_url:
+            raise ModelError(
+                "video_edit mode does not accept firstFrameRef",
+                model_name=model_name,
+            )
+        if len(unique_references) > HAPPYHORSE_VIDEO_EDIT_MAX_REFERENCE_IMAGES:
+            raise ModelError(
+                "video_edit accepts at most "
+                f"{HAPPYHORSE_VIDEO_EDIT_MAX_REFERENCE_IMAGES} reference "
+                f"images, got {len(unique_references)}",
+                model_name=model_name,
+            )
+    # HappyHorse names models per mode: derive from the configured base or
+    # full name (decided upstream-compatible naming). Wan follows the same
+    # rule for the new modes while r2v keeps the configured name untouched.
+    effective_model = effective_video_model_name(
+        model_name,
+        normalized_mode,
+        backend_key if not uses_seedance else "seedance2",
+    )
+
     happyhorse_resolution = ""
-    if uses_happyhorse:
+    if uses_happyhorse and normalized_mode == "r2v":
         # Validate before any provider-bound upload so contract violations
         # fail fast without wasting reference transport.
         happyhorse_resolution = _validate_happyhorse_request(
@@ -297,30 +411,74 @@ async def submit_video_task(
             resolution=resolution,
             ratio=ratio,
             duration=duration,
-            model_name=model_name,
+            model_name=effective_model,
         )
-    for img_url in unique_references:
-        resolved_url, media_kind = await _resolve_reference_media_url(
-            img_url,
+    elif uses_happyhorse:
+        happyhorse_resolution = _validate_happyhorse_mode_parameters(
+            mode=normalized_mode,
+            resolution=resolution,
+            ratio=ratio,
+            duration=duration,
+            model_name=effective_model,
+        )
+
+    if normalized_mode == "i2v":
+        resolved_first_frame, frame_kind = await _resolve_reference_media_url(
+            first_frame_url,
             upload_backend,
         )
-        if uses_happyhorse and media_kind == "video":
+        if frame_kind != "image":
             raise ModelError(
-                "HappyHorse r2v only accepts image references; replace the "
-                f"video reference ({img_url[:120]}) with images or switch "
-                "the video model to a Wan r2v model",
-                model_name=model_name,
+                f"i2v first frame must be an image: {first_frame_url[:120]}",
+                model_name=effective_model,
             )
-        media.append(
-            {
-                "type": (
-                    "reference_video"
-                    if media_kind == "video"
-                    else "reference_image"
-                ),
-                "url": resolved_url,
-            },
+        media.append({"type": "first_frame", "url": resolved_first_frame})
+    elif normalized_mode == "video_edit":
+        resolved_video, video_kind = await _resolve_reference_media_url(
+            video_url,
+            upload_backend,
         )
+        if video_kind != "video":
+            raise ModelError(
+                f"video_edit input must be a video file: {video_url[:120]}",
+                model_name=effective_model,
+            )
+        media.append({"type": "video", "url": resolved_video})
+        for img_url in unique_references:
+            resolved_url, media_kind = await _resolve_reference_media_url(
+                img_url,
+                upload_backend,
+            )
+            if media_kind != "image":
+                raise ModelError(
+                    "video_edit reference media must be images: "
+                    f"{img_url[:120]}",
+                    model_name=effective_model,
+                )
+            media.append({"type": "reference_image", "url": resolved_url})
+    elif normalized_mode == "r2v":
+        for img_url in unique_references:
+            resolved_url, media_kind = await _resolve_reference_media_url(
+                img_url,
+                upload_backend,
+            )
+            if uses_happyhorse and media_kind == "video":
+                raise ModelError(
+                    "HappyHorse r2v only accepts image references; replace the "
+                    f"video reference ({img_url[:120]}) with images or switch "
+                    "the video model to a Wan r2v model",
+                    model_name=effective_model,
+                )
+            media.append(
+                {
+                    "type": (
+                        "reference_video"
+                        if media_kind == "video"
+                        else "reference_image"
+                    ),
+                    "url": resolved_url,
+                },
+            )
 
     url = model_config.get_video_submit_url()
     submit_timeout = model_config.get_video_submit_timeout()
@@ -357,29 +515,77 @@ async def submit_video_task(
             "audio": bool(generate_audio),
         }
     else:
-        parameters: dict = {
-            "resolution": resolution.upper() if resolution else "720P",
-            "ratio": ratio,
-            "prompt_extend": False,
-            "watermark": watermark,
-            "duration": duration,
-        }
-        if uses_happyhorse:
-            # HappyHorse documents resolution/ratio/duration/watermark/seed
-            # only; Wan-specific fields would risk InvalidParameter.
-            parameters["resolution"] = happyhorse_resolution
-            parameters.pop("prompt_extend")
-        body = {
-            "model": model_name,
-            "input": {
-                "prompt": prompt,
-                "media": media,
-            },
-            "parameters": parameters,
-        }
+        default_resolution = resolution.upper() if resolution else "720P"
+        active_resolution = happyhorse_resolution or default_resolution
+        if normalized_mode == "t2v":
+            # wan2.7 t2v documents resolution/ratio/duration (plus
+            # prompt_extend/watermark); happyhorse t2v matches upstream.
+            parameters = {
+                "resolution": active_resolution,
+                "ratio": ratio,
+                "watermark": watermark,
+                "duration": duration,
+            }
+            if not uses_happyhorse:
+                parameters["prompt_extend"] = False
+            body = {
+                "model": effective_model,
+                "input": {"prompt": prompt},
+                "parameters": parameters,
+            }
+        elif normalized_mode == "i2v":
+            # The output ratio follows the first frame, so no ratio is sent
+            # (per the wan2.7 i2v reference and upstream happyhorse.py).
+            parameters = {
+                "resolution": active_resolution,
+                "watermark": watermark,
+                "duration": duration,
+            }
+            if not uses_happyhorse:
+                parameters["prompt_extend"] = False
+            body = {
+                "model": effective_model,
+                "input": {"prompt": prompt, "media": media},
+                "parameters": parameters,
+            }
+        elif normalized_mode == "video_edit":
+            # Duration/ratio follow the input video; audio_setting maps
+            # generateAudio onto "auto" (regenerate) vs "origin" (keep).
+            parameters = {
+                "resolution": active_resolution,
+                "watermark": watermark,
+                "audio_setting": "auto" if generate_audio else "origin",
+            }
+            body = {
+                "model": effective_model,
+                "input": {"prompt": prompt, "media": media},
+                "parameters": parameters,
+            }
+        else:
+            parameters = {
+                "resolution": default_resolution,
+                "ratio": ratio,
+                "prompt_extend": False,
+                "watermark": watermark,
+                "duration": duration,
+            }
+            if uses_happyhorse:
+                # HappyHorse documents resolution/ratio/duration/watermark/seed
+                # only; Wan-specific fields would risk InvalidParameter.
+                parameters["resolution"] = happyhorse_resolution
+                parameters.pop("prompt_extend")
+            body = {
+                "model": effective_model,
+                "input": {
+                    "prompt": prompt,
+                    "media": media,
+                },
+                "parameters": parameters,
+            }
     logger.info(
-        f"Submitting video task | model={model_name}, prompt_length={len(prompt)}, "
-        f"ratio={ratio}, duration={duration}s, media={len(media)}, protocol={'seedance' if uses_seedance else 'wan'}",
+        f"Submitting video task | model={effective_model}, mode={normalized_mode}, "
+        f"prompt_length={len(prompt)}, ratio={ratio}, duration={duration}s, "
+        f"media={len(media)}, protocol={'seedance' if uses_seedance else 'wan'}",
     )
 
     try:
@@ -427,6 +633,13 @@ async def submit_video_task(
                 model_name=model_name,
             )
 
+        # The provider bills on acceptance; record the id before returning so
+        # an interrupted poll leaves a retrievable reference.
+        note_provider_task(
+            provider_task_id=str(task_id),
+            model=effective_model,
+            kind=f"video_{normalized_mode}",
+        )
         logger.info(f"Video task submitted successfully | task_id={task_id}")
         return task_id
 
@@ -440,6 +653,20 @@ async def submit_video_task(
         logger.error(
             f"Video task submission HTTP error: {e.response.status_code} - {e.response.text[:500]}",
         )
+        if (
+            "model not exist" in e.response.text.casefold()
+            and effective_model != model_name
+        ):
+            # The mode-derived name was rejected: the configured family has no
+            # model for this mode (e.g. happyhorse-1.1 has no -video-edit).
+            # Say so instead of leaking the bare provider message.
+            raise ModelError(
+                f"视频模型 `{effective_model}` 不存在：mode={normalized_mode} 的模型名"
+                f"由已配置模型 `{model_name}` 派生而来，但该模型族在当前 endpoint "
+                "上没有这个模式。请把 creator_video_model.model 换成支持该模式的"
+                "模型族（可先用零成本健康检查确认模型名可用），或改用其他 mode",
+                model_name=effective_model,
+            )
         # Keep a long enough response body: error codes such as content
         # moderation appear after ~200 characters, and truncating too short
         # prevents callers from recognising the error type (end-to-end Run

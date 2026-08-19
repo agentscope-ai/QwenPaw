@@ -118,3 +118,53 @@ def test_pet_os_png_uses_the_element_anchor_box(tmp_path) -> None:
     left, top, right, bottom = alpha_bounds
     assert 1037 <= left < right <= 1268
     assert 17 <= top < bottom <= 399
+
+
+def test_pet_os_fallback_paints_bubble_before_caption_copy(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from PIL import ImageDraw
+
+    calls: list[str] = []
+    original_rectangle = ImageDraw.ImageDraw.rounded_rectangle
+    original_text = ImageDraw.ImageDraw.multiline_text
+
+    def record_rectangle(self, *args, **kwargs):
+        calls.append("bubble")
+        return original_rectangle(self, *args, **kwargs)
+
+    def record_text(self, *args, **kwargs):
+        calls.append("copy")
+        return original_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        ImageDraw.ImageDraw,
+        "rounded_rectangle",
+        record_rectangle,
+    )
+    monkeypatch.setattr(
+        ImageDraw.ImageDraw,
+        "multiline_text",
+        record_text,
+    )
+    output = tmp_path / "safe-caption.png"
+
+    assert overlay_tools._render_pet_os_png(
+        "这红色是什么？",
+        "curious",
+        1280,
+        720,
+        output,
+        location={
+            "x": 0.5,
+            "y": 0.88,
+            "width": 0.8,
+            "height": 0.18,
+            "anchor_x": 0.5,
+            "anchor_y": 0.5,
+            "opacity": 1,
+        },
+    )
+
+    assert calls.index("bubble") < calls.index("copy")

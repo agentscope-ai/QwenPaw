@@ -16,7 +16,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ..agent_context import get_agent_for_request, get_coding_dir
+from ..agent_context import (
+    get_agent_for_request,
+    get_project_dir_for_request,
+)
 from ..utils import safe_join
 from ...utils.command_runner import run_command_async
 
@@ -293,7 +296,7 @@ async def git_status(request: Request) -> GitStatus:
     workspace is opened if it does not already have one.
     """
     workspace = await get_agent_for_request(request)
-    cwd = get_coding_dir(workspace)
+    cwd = await get_project_dir_for_request(request, workspace)
 
     branch, needs_init = await _resolve_branch(cwd)
     if needs_init:
@@ -364,8 +367,9 @@ async def git_status(request: Request) -> GitStatus:
 )
 async def list_branches(request: Request) -> list[BranchInfo]:
     workspace = await get_agent_for_request(request)
+    cwd = await get_project_dir_for_request(request, workspace)
     rc, out, err = await _git(
-        get_coding_dir(workspace),
+        cwd,
         "branch",
         "-a",
         "--format=%(refname:short)|%(HEAD)",
@@ -387,12 +391,13 @@ async def list_branches(request: Request) -> list[BranchInfo]:
 @router.post("/checkout", summary="Switch (or create) branch")
 async def checkout_branch(body: CheckoutRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
+    cwd = await get_project_dir_for_request(request, workspace)
     args = ["checkout"]
     if body.create:
         args += ["-b", body.branch]
     else:
         args.append(body.branch)
-    rc, _, err = await _git(get_coding_dir(workspace), *args)
+    rc, _, err = await _git(cwd, *args)
     if rc != 0:
         raise HTTPException(status_code=400, detail=err.strip())
     return {"branch": body.branch}
@@ -410,7 +415,7 @@ async def get_diff(
 ) -> dict:
     """Return unified diff text."""
     workspace = await get_agent_for_request(request)
-    cwd = get_coding_dir(workspace)
+    cwd = await get_project_dir_for_request(request, workspace)
 
     if path and untracked:
         safe_join(cwd, path)
@@ -442,8 +447,9 @@ async def get_diff(
 @router.post("/stage", summary="Stage files (git add)")
 async def stage_files(body: StageRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
+    cwd = await get_project_dir_for_request(request, workspace)
     paths = body.paths if body.paths else ["."]
-    rc, _, err = await _git(get_coding_dir(workspace), "add", "--", *paths)
+    rc, _, err = await _git(cwd, "add", "--", *paths)
     if rc != 0:
         raise HTTPException(status_code=400, detail=err.strip())
     return {"staged": paths}
@@ -452,9 +458,10 @@ async def stage_files(body: StageRequest, request: Request) -> dict:
 @router.post("/unstage", summary="Unstage files (git restore --staged)")
 async def unstage_files(body: UnstageRequest, request: Request) -> dict:
     workspace = await get_agent_for_request(request)
+    cwd = await get_project_dir_for_request(request, workspace)
     paths = body.paths if body.paths else ["."]
     rc, _, err = await _git(
-        get_coding_dir(workspace),
+        cwd,
         "restore",
         "--staged",
         "--",
@@ -473,8 +480,9 @@ async def commit_changes(body: CommitRequest, request: Request) -> dict:
             detail="Commit message cannot be empty",
         )
     workspace = await get_agent_for_request(request)
+    cwd = await get_project_dir_for_request(request, workspace)
     rc, out, err = await _git(
-        get_coding_dir(workspace),
+        cwd,
         *_GIT_IDENTITY_ARGS,
         "commit",
         "-m",
@@ -495,7 +503,7 @@ async def discard_changes(body: DiscardRequest, request: Request) -> dict:
     Pass an empty ``paths`` list to discard **all** changes.
     """
     workspace = await get_agent_for_request(request)
-    cwd = get_coding_dir(workspace)
+    cwd = await get_project_dir_for_request(request, workspace)
     targets = body.paths if body.paths else ["."]
     # restore may fail for untracked files — that is expected
     rc_r, _, err_r = await _git(cwd, "restore", "--", *targets)
@@ -512,7 +520,7 @@ async def discard_changes(body: DiscardRequest, request: Request) -> dict:
 async def get_commit_diff(request: Request, commit_hash: str) -> dict:
     """Return ``git show`` output (stat + unified patch) for *commit_hash*."""
     workspace = await get_agent_for_request(request)
-    cwd = get_coding_dir(workspace)
+    cwd = await get_project_dir_for_request(request, workspace)
     rc, out, err = await _git(cwd, "show", "--stat", "--patch", commit_hash)
     if rc != 0:
         raise HTTPException(status_code=400, detail=err.strip())
@@ -529,7 +537,7 @@ async def revert_commit(body: RevertRequest, request: Request) -> dict:
     Creates a new commit that reverses the changes introduced by *hash*.
     """
     workspace = await get_agent_for_request(request)
-    cwd = get_coding_dir(workspace)
+    cwd = await get_project_dir_for_request(request, workspace)
     rc, out, err = await _git(
         cwd,
         *_GIT_IDENTITY_ARGS,
@@ -549,9 +557,10 @@ async def revert_commit(body: RevertRequest, request: Request) -> dict:
 )
 async def get_log(request: Request, limit: int = 20) -> list[CommitInfo]:
     workspace = await get_agent_for_request(request)
+    cwd = await get_project_dir_for_request(request, workspace)
     fmt = "%H|%an|%ad|%s"
     rc, out, err = await _git(
-        get_coding_dir(workspace),
+        cwd,
         "log",
         f"-{limit}",
         f"--format={fmt}",

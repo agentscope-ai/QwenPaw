@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { message } from "antd";
 import { Check, FileDiff, Undo2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type {
   FileProjectReviewOperation,
   FileProjectReviewRejectionFeedback,
@@ -126,6 +127,7 @@ export function matchReviewOperations(
 }
 
 export default function InlineReviewDiff({ pointer }: { pointer: string }) {
+  const { t } = useTranslation();
   const projectId = useFileProjectReviewStore((state) => state.projectId);
   const reviews = useFileProjectReviewStore((state) => state.reviews);
   const decide = useFileProjectReviewStore((state) => state.decide);
@@ -164,10 +166,10 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
       }
       message.success(
         decision === "ACCEPT"
-          ? "已保留该修改"
+          ? t("inlineReview.kept")
           : rejectionFeedback?.action === "UNDO_AND_REGENERATE"
-          ? "已撤销该修改，Agent 将按反馈重做"
-          : "已撤销该修改",
+          ? t("inlineReview.undoneRedo")
+          : t("inlineReview.undone"),
       );
       return true;
     } catch (error) {
@@ -189,7 +191,7 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
           <div className="flex items-center justify-between gap-2">
             <p className="flex min-w-0 items-center gap-1 text-[10px] font-semibold text-[var(--color-accent)]">
               <FileDiff className="h-3 w-3 shrink-0" />
-              待审修改
+              {t("inlineReview.pendingChange")}
               {match.subPath && (
                 <span
                   className="truncate font-mono font-normal text-[var(--color-text-tertiary)]"
@@ -202,23 +204,23 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
             <div className="flex shrink-0 gap-1">
               <button
                 type="button"
-                aria-label="保留该修改"
+                aria-label={t("inlineReview.keepChange")}
                 disabled={busy}
                 onClick={() => void submit(match, "ACCEPT")}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
               >
                 <Check className="h-3 w-3" />
-                保留
+                {t("inlineReview.keep")}
               </button>
               <button
                 type="button"
-                aria-label="撤销该修改"
+                aria-label={t("inlineReview.undoChange")}
                 disabled={busy}
                 onClick={() => setPendingRejection(match)}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)] disabled:opacity-50"
               >
                 <Undo2 className="h-3 w-3" />
-                撤销
+                {t("inlineReview.undo")}
               </button>
             </div>
           </div>
@@ -227,7 +229,7 @@ export default function InlineReviewDiff({ pointer }: { pointer: string }) {
           </div>
           {match.relation === "ancestor" && (
             <p className="mt-1 text-[9px] text-[var(--color-text-tertiary)]">
-              该决策将作用于本次修改覆盖的完整范围。
+              {t("inlineReview.decisionScope")}
             </p>
           )}
         </div>

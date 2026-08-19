@@ -49,6 +49,10 @@ CWS_URL = (
     "https://chromewebstore.google.com/detail/"
     f"qwenpaw-chrome/{CWS_EXTENSION_ID}"
 )
+CWS_COMING_SOON_MESSAGE = (
+    "cws install mode is coming soon and not supported in this "
+    "Developer Preview"
+)
 DEFAULT_WS_URL = "ws://127.0.0.1:8088/api/ws/chrome"
 CHROME_EXTENSIONS_URL = "chrome://extensions"
 LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
@@ -195,6 +199,16 @@ def _resolve_host_interpreter() -> str:
     )
 
 
+def _windows_batch_path_literal(value: str) -> str:
+    """Return a cmd.exe-safe literal path for a generated batch file."""
+    normalized = value
+    if value.upper().startswith("\\\\?\\UNC\\"):
+        normalized = "\\\\" + value[len("\\\\?\\UNC\\") :]
+    elif value.startswith("\\\\?\\"):
+        normalized = value[len("\\\\?\\") :]
+    return normalized.replace("%", "%%")
+
+
 def native_host_launcher_path(
     qwenpaw_home: Path,
     *,
@@ -257,6 +271,10 @@ def resolve_default_ws_url() -> str:
 
 class BridgeEndpointUnavailable(RuntimeError):
     """Raised when the local API bind cannot safely host the bridge token."""
+
+
+class InstallModeError(ValueError):
+    """Raised when the requested extension install mode cannot be used."""
 
 
 def require_bridge_endpoint() -> str:
@@ -370,12 +388,43 @@ def _read_install_mode_state(qwenpaw_home: Path) -> str | None:
     return install_mode if install_mode in {"unpacked", "cws"} else None
 
 
+def _check_native_host_runtime(
+    launcher: Path,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, str | bool] | None:
+    """Return a probe failure when the host runtime is unusable."""
+    try:
+        runtime_check = subprocess.run(
+            [str(launcher), "--check-runtime"],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {"ok": False, "stage": "timeout", "detail": str(exc)}
+    except OSError as exc:
+        return {"ok": False, "stage": "launch", "detail": str(exc)}
+    if runtime_check.returncode != 0:
+        detail = runtime_check.stderr.decode("utf-8", "replace").strip()
+        return {
+            "ok": False,
+            "stage": "runtime",
+            "detail": detail or f"exit code {runtime_check.returncode}",
+        }
+    return None
+
+
 def _probe_native_host(
     launcher: Path,
     *,
     timeout: float = 5.0,
 ) -> dict[str, str | bool]:
-    """Start a launcher once and verify an unmodified NM frame."""
+    """Validate the host runtime, then verify an unmodified NM frame."""
+    runtime_failure = _check_native_host_runtime(launcher, timeout=timeout)
+    if runtime_failure is not None:
+        return runtime_failure
+
     payload = {"probe": "qwenpaw"}
     raw_payload = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     frame = struct.pack("<I", len(raw_payload)) + raw_payload
@@ -405,6 +454,17 @@ def _probe_native_host(
             "detail": "Native Messaging probe frame did not round-trip",
         }
     return {"ok": True, "stage": "", "detail": ""}
+
+
+def _native_host_repair_instruction(probe: dict[str, object]) -> str:
+    """Return a bounded, actionable repair message for a failed probe."""
+    stage = str(probe.get("stage") or "unknown")
+    prefix = f"Native host self-check failed during {stage}."
+    if stage == "runtime":
+        detail = " ".join(str(probe.get("detail") or "").split())[:500]
+        if detail:
+            prefix = f"{prefix} {detail}"
+    return f"{prefix} {NATIVE_HOST_REPAIR_INSTRUCTION}"
 
 
 def _read_existing_nm_token(qwenpaw_home: Path) -> str | None:
@@ -444,12 +504,14 @@ def _write_host(
     host = native_host_launcher_path(qwenpaw_home, platform=platform)
     interpreter = _resolve_host_interpreter()
     if platform == "win32":
+        interpreter = _windows_batch_path_literal(interpreter)
+        host_impl_literal = _windows_batch_path_literal(str(host_impl))
         # cmd.exe reads batch files through the current OEM code page. This
         # ASCII-only line switches decoding to UTF-8 before paths are read.
         host.write_text(
             "@echo off\n"
             "chcp 65001 >nul\n"
-            f'"{interpreter}" "{host_impl}" %*\n',
+            f'"{interpreter}" "{host_impl_literal}" %*\n',
             encoding="utf-8",
         )
     else:
@@ -518,6 +580,11 @@ def setup_extension_files(
     registry: object | None = None,
 ) -> dict[str, str | bool]:
     """Install extension files and Native Messaging registration."""
+    if install_mode == "cws":
+        raise InstallModeError(CWS_COMING_SOON_MESSAGE)
+    if install_mode != "unpacked":
+        raise InstallModeError("install_mode must be 'unpacked'")
+
     home = home or Path.home()
     platform = platform or sys.platform
     native_host_registry = _native_host_registry(platform, registry)
@@ -530,14 +597,6 @@ def setup_extension_files(
             platform=platform,
             registry=native_host_registry,
         )
-
-    if install_mode == "cws":
-        raise ValueError(
-            "cws install mode is coming soon and not supported in this "
-            "Developer Preview",
-        )
-    if install_mode != "unpacked":
-        raise ValueError("install_mode must be 'unpacked'")
 
     token = None if reset else _read_existing_nm_token(qwenpaw_home)
     token = token or secrets.token_urlsafe(32)
@@ -572,8 +631,7 @@ def setup_extension_files(
         "manifest_configured": True,
         "native_host_repair_required": not native_host_probe["ok"],
         "native_host_repair_instruction": (
-            "Native host self-check failed during "
-            f"{native_host_probe['stage']}. {NATIVE_HOST_REPAIR_INSTRUCTION}"
+            _native_host_repair_instruction(native_host_probe)
             if not native_host_probe["ok"]
             else ""
         ),
@@ -652,12 +710,7 @@ def extension_install_status(
     )
     if isinstance(probe, dict) and probe.get("ok") is False:
         repair_required = True
-        installed = False
-        stage = str(probe.get("stage") or "unknown")
-        repair_instruction = (
-            f"Native host self-check failed during {stage}. "
-            f"{NATIVE_HOST_REPAIR_INSTRUCTION}"
-        )
+        repair_instruction = _native_host_repair_instruction(probe)
     else:
         repair_instruction = ""
     return {
@@ -728,6 +781,50 @@ def open_extension_folder(
     return {"opened": False, "path": str(target), "error": last_error}
 
 
+def _find_windows_chrome_executable() -> Path | None:
+    """Return a registered or standard-install Google Chrome executable."""
+    candidates: list[Path] = []
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+
+    if winreg is not None:
+        app_paths_key = (
+            r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
+        )
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, app_paths_key) as key:
+                    value, _ = winreg.QueryValueEx(key, "")
+            except OSError:
+                continue
+            candidate = str(value).strip().strip('"')
+            if candidate:
+                candidates.append(Path(candidate))
+
+    for env_name in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+        root = os.environ.get(env_name)
+        if root:
+            candidates.append(
+                Path(root)
+                / "Google"
+                / "Chrome"
+                / "Application"
+                / "chrome.exe",
+            )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(str(candidate))
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def open_chrome_extensions_page(
     *,
     platform: str | None = None,
@@ -739,9 +836,26 @@ def open_chrome_extensions_page(
     if platform == "darwin":
         commands.append(["open", "-a", "Google Chrome", CHROME_EXTENSIONS_URL])
     elif platform == "win32":
-        commands.append(
-            ["cmd", "/c", "start", "", "chrome", CHROME_EXTENSIONS_URL],
-        )
+        chrome_executable = _find_windows_chrome_executable()
+        if chrome_executable is None:
+            return {
+                "opened": False,
+                "url": CHROME_EXTENSIONS_URL,
+                "error": "Google Chrome executable was not found.",
+            }
+        try:
+            subprocess.Popen(  # pylint: disable=consider-using-with
+                [str(chrome_executable), CHROME_EXTENSIONS_URL],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            return {
+                "opened": False,
+                "url": CHROME_EXTENSIONS_URL,
+                "error": f"Could not start Google Chrome: {exc}",
+            }
+        return {"opened": True, "url": CHROME_EXTENSIONS_URL}
     else:
         commands.extend(
             [

@@ -14,6 +14,7 @@ import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
   BuiltinUpdateNotice,
+  PoolSkillDetail,
   PoolSkillSpec,
   WorkspaceSkillSummary,
 } from "../../../api/types";
@@ -90,7 +91,10 @@ export function useSkillPool() {
   );
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<PoolMode | null>(null);
-  const [activeSkill, setActiveSkill] = useState<PoolSkillSpec | null>(null);
+  const [activeSkill, setActiveSkill] = useState<PoolSkillDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailSkillName, setDetailSkillName] = useState("");
+  const detailRequestIdRef = useRef(0);
   const [broadcastInitialNames, setBroadcastInitialNames] = useState<string[]>(
     [],
   );
@@ -255,13 +259,21 @@ export function useSkillPool() {
   }, [loadData]);
 
   const closeModal = () => {
+    detailRequestIdRef.current += 1;
     setMode(null);
+    setActiveSkill(null);
+    setDetailLoading(false);
+    setDetailSkillName("");
     setBroadcastInitialNames([]);
     setConfigText("{}");
   };
 
   const openCreate = () => {
+    detailRequestIdRef.current += 1;
     setMode("create");
+    setActiveSkill(null);
+    setDetailLoading(false);
+    setDetailSkillName("");
     setDrawerContent("");
     setConfigText("{}");
     setAutoUpdateEnabled(false);
@@ -332,23 +344,47 @@ export function useSkillPool() {
     [t],
   );
 
-  const openEdit = (skill: PoolSkillSpec) => {
+  const openEdit = async (skill: PoolSkillSpec) => {
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
     setMode("edit");
-    setActiveSkill(skill);
-    setDrawerContent(skill.content);
-    setConfigText(JSON.stringify(skill.config || {}, null, 2));
-    setAutoUpdateEnabled(Boolean(skill.auto_update));
-    setAutoUpdateTargets(skill.auto_update_targets ?? []);
-    form.setFieldsValue({
-      name: skill.name,
-      content: skill.content,
-      tags: skill.tags || [],
-    });
+    setActiveSkill(null);
+    setDetailSkillName(skill.name);
+    setDetailLoading(true);
+    form.resetFields();
+    try {
+      const detail = await api.getPoolSkill(skill.name);
+      if (detailRequestIdRef.current !== requestId) return;
+      setActiveSkill(detail);
+      setDrawerContent(detail.content);
+      setConfigText(JSON.stringify(detail.config || {}, null, 2));
+      setAutoUpdateEnabled(Boolean(detail.auto_update));
+      setAutoUpdateTargets(detail.auto_update_targets ?? []);
+      form.setFieldsValue({
+        name: detail.name,
+        content: detail.content,
+        tags: detail.tags || [],
+      });
+    } catch (error) {
+      if (detailRequestIdRef.current !== requestId) return;
+      message.error(
+        error instanceof Error ? error.message : t("skills.loadFailed"),
+      );
+      setMode(null);
+      setDetailSkillName("");
+    } finally {
+      if (detailRequestIdRef.current === requestId) {
+        setDetailLoading(false);
+      }
+    }
   };
 
   const closeDrawer = useCallback(() => {
+    detailRequestIdRef.current += 1;
     setMode(null);
     setActiveSkill(null);
+    setDetailLoading(false);
+    setDetailSkillName("");
   }, []);
 
   const handleDrawerContentChange = (content: string) => {
@@ -634,7 +670,7 @@ export function useSkillPool() {
   };
 
   const handleBuiltinLanguageSwitch = useCallback(
-    async (skill: PoolSkillSpec, language: string) => {
+    async (skill: PoolSkillDetail, language: string) => {
       const normalized = language === "zh" ? "zh" : "en";
       if (skill.builtin_language === normalized) return;
       const confirmed = await confirmOverwrite(
@@ -734,7 +770,7 @@ export function useSkillPool() {
           : null;
       const affected = workspaces.filter(
         (ws) =>
-          (ws.skills || []).some((s) => s.name === oldName) &&
+          (ws.skill_names || []).includes(oldName) &&
           (!pinned || pinned.has(ws.agent_id)),
       );
       if (affected.length > 0) {
@@ -1090,6 +1126,8 @@ export function useSkillPool() {
     workspaces,
     mode,
     activeSkill,
+    detailLoading,
+    detailSkillName,
     broadcastInitialNames,
     configText,
     zipInputRef,

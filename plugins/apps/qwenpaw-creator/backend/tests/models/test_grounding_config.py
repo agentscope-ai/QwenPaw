@@ -22,6 +22,43 @@ def test_persisted_grounding_disabled_wins_over_enabled_environment(
         config._clear_user_config_cache()
 
 
+def test_runtime_reads_decrypt_persisted_search_provider_keys(
+    tmp_path,
+    monkeypatch,
+):
+    """Encrypted-at-rest search keys must decrypt on the runtime read path."""
+    config_path = tmp_path / "model_config.json"
+    config_path.write_text(
+        '{"grounding":{'
+        '"tavily_api_key":"ENC:tvly",'
+        '"serper_api_key":"ENC:serper"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("WEB_GROUNDING_TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.delenv("WEB_GROUNDING_SERPER_API_KEY", raising=False)
+    monkeypatch.setattr(config, "_SECRET_STORE_AVAILABLE", True)
+    monkeypatch.setattr(
+        config,
+        "_secret_is_encrypted",
+        lambda value: value.startswith("ENC:"),
+    )
+    monkeypatch.setattr(
+        config,
+        "_secret_decrypt",
+        lambda value: f"decrypted-{value.removeprefix('ENC:')}",
+    )
+    config._clear_user_config_cache()
+
+    try:
+        assert config.get_web_grounding_tavily_api_key() == "decrypted-tvly"
+        assert config.get_web_grounding_serper_api_key() == "decrypted-serper"
+    finally:
+        config._clear_user_config_cache()
+
+
 def test_grounding_request_config_preserves_explicit_disabled(monkeypatch):
     monkeypatch.setenv("WEB_GROUNDING_ENABLED", "1")
     token = config.set_request_tool_configs(

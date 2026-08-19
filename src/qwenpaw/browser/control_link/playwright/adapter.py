@@ -19,6 +19,7 @@ from ....config.context import get_current_workspace_dir
 from ....constant import WORKING_DIR
 from ....utils.io_utils import make_dirs_async
 from ...errors import BrowserError, ErrorCategory, ErrorCause, fatal as _fatal
+from ...runtime.managed_playwright import start_managed_chromium_download
 from ...sdk.contracts import LocatorStep
 from ...runtime.links import register_local
 from ...runtime.ports import EventSink
@@ -384,6 +385,20 @@ class PlaywrightControlLink:
                     "context": context_kind,
                 }
             await self._m_close_session(params, timeout=timeout)
+        ready, detail = start_managed_chromium_download()
+        if not ready:
+            raise BrowserError(
+                category=ErrorCategory.RETRYABLE,
+                cause=ErrorCause.TIMING,
+                suggested_action=(
+                    "Wait for QwenPaw Desktop to prepare Chromium, then retry."
+                ),
+                reason=(
+                    "Managed Playwright Chromium is downloading in the "
+                    "background."
+                ),
+                detail=detail,
+            )
         if self._pw is None:
             async with self._pw_lock:
                 if self._pw is None:

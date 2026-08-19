@@ -6,11 +6,13 @@ import {
   newClientId,
   patchProject,
 } from "@/api/creator";
+import { useCreatorEditBufferStore } from "@/store/creatorEditBufferStore";
 import type {
   ProjectDocument,
   ProjectPatchResponse,
   ProjectServerSyncStatus,
 } from "@/contracts/creator";
+import i18n from "@/i18n";
 
 export type ProjectSnapshotSyncStatus =
   | "idle"
@@ -45,6 +47,8 @@ export interface ProjectSnapshotState {
   syncStatus: ProjectSnapshotSyncStatus;
   syncError: string | null;
   lastGoodAt: string | null;
+  /** Bundled inspiration example (needs remote original footage on demand). */
+  builtinExample: boolean;
   requestInFlight: boolean;
   polling: boolean;
   consecutiveFailures: number;
@@ -97,6 +101,7 @@ const snapshotBase = (projectId: string | null = null) => ({
   syncStatus: "idle" as ProjectSnapshotSyncStatus,
   syncError: null,
   lastGoodAt: null,
+  builtinExample: false,
   requestInFlight: false,
   polling: false,
   consecutiveFailures: 0,
@@ -274,6 +279,7 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
               generation: result.generation,
               etag: result.etag,
               syncStatus: result.syncStatus,
+              builtinExample: result.builtinExample === true,
               syncError:
                 result.syncStatus === "healthy" ? null : state.syncError,
               lastGoodAt: new Date().toISOString(),
@@ -338,10 +344,10 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
       ensureProject(projectId);
       const state = get();
       if (!state.project || state.generation === null || !state.etag) {
-        throw new Error("Project 快照尚未加载");
+        throw new Error(i18n.t("store.snapshotNotLoad"));
       }
       if (!edits.length) {
-        throw new Error("没有需要应用的 Project 修改");
+        throw new Error(i18n.t("store.noOpsToApply"));
       }
       set({ patching: true, patchError: null });
       try {
@@ -363,6 +369,14 @@ export const useProjectSnapshotStore = create<ProjectSnapshotState>(
           baseGeneration: state.generation,
           baseEtag: state.etag,
           operations,
+        });
+        // Every successful frontend patch is a manual user edit; buffer it so
+        // the next AgentDock message can carry the change history as context.
+        useCreatorEditBufferStore.getState().recordPatch({
+          projectId,
+          projectBefore: state.project,
+          operations: edits,
+          generation: response.generation,
         });
         set((current) => {
           if (current.projectId !== projectId) return {};

@@ -6,6 +6,7 @@ const FAST_RECONNECT_DEBOUNCE_MS = 10 * 1000;
 const DEGRADE_AFTER_DISCONNECT_MS = 60 * 1000;
 const CONTROL_TAB_GROUP_TITLE = "QwenPaw";
 const CONTROL_TAB_GROUP_COLOR = "blue";
+const EXTENSIONS_MANAGER_URL = "chrome://extensions";
 const PROTECTED_BROWSER_SCHEMES = new Set([
   "brave:",
   "chrome:",
@@ -506,6 +507,19 @@ async function createTab(params) {
   };
 }
 
+async function openExtensionsManager() {
+  // This must remain separate from createTab(): the extensions manager is a
+  // user-owned Chrome page, not a QwenPaw-controlled browser session tab.
+  const tab = await chrome.tabs.create({
+    url: EXTENSIONS_MANAGER_URL,
+    active: true,
+  });
+  return {
+    opened: true,
+    tabId: tab && tab.id !== undefined ? tab.id : null,
+  };
+}
+
 async function commitTabMetadata(params) {
   const tabId = params && params.tabId;
   if (tabId === undefined || tabId === null) {
@@ -928,6 +942,8 @@ async function handleMessage(message) {
         return jsonRpcResult(id, await closeTab(params));
       case "tab.create":
         return jsonRpcResult(id, await createTab(params));
+      case "extension.open_extensions_manager":
+        return jsonRpcResult(id, await openExtensionsManager());
       case "tab.metadata.commit":
         return jsonRpcResult(id, await commitTabMetadata(params));
       case "banner.show":
@@ -997,10 +1013,11 @@ function connectNative() {
   });
 
   port.onDisconnect.addListener(async () => {
+    // runtime.lastError only exists in the synchronous callback scope.
+    const disconnectReason = runtimeLastErrorMessage();
     // Defensive: connectNative is already queued behind ready, but future
     // callers must not bypass the gate.
     await ready;
-    const disconnectReason = runtimeLastErrorMessage();
     if (disconnectReason) {
       console.warn("Native host disconnected", disconnectReason);
     }

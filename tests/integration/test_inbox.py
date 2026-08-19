@@ -187,6 +187,41 @@ def test_inbox_list_events_filter_by_source_type(app_server) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.p1
+def test_inbox_list_events_multiple_sources_and_counts(app_server) -> None:
+    """Multiple source filters return exact totals before pagination."""
+    seeded = [
+        make_event(event_id="evt-cron-01", source_type="cron", read=False),
+        make_event(
+            event_id="evt-heartbeat-01",
+            source_type="heartbeat",
+            read=True,
+        ),
+        make_event(event_id="evt-memory-01", source_type="memory", read=False),
+        make_event(event_id="evt-manual-01", source_type="manual", read=False),
+    ]
+    seed_inbox_events(app_server.working_dir, seeded)
+
+    resp = app_server.api_request(
+        "GET",
+        "/api/console/inbox/events",
+        params=[
+            ("source_types", "cron"),
+            ("source_types", "heartbeat"),
+            ("source_types", "memory"),
+            ("limit", "1"),
+        ],
+        timeout=_INBOX_HTTP_TIMEOUT,
+    )
+
+    assert resp.status_code == 200, app_server.logs_tail()
+    payload = resp.json()
+    assert len(payload["events"]) == 1
+    assert payload["total"] == 3
+    assert payload["unread_count"] == 2
+
+
+@pytest.mark.integration
 @pytest.mark.p2
 def test_inbox_list_events_unread_only_filter(app_server) -> None:
     """Test purpose:
@@ -216,12 +251,15 @@ def test_inbox_list_events_unread_only_filter(app_server) -> None:
         timeout=_INBOX_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
-    events = resp.json().get("events")
+    payload = resp.json()
+    events = payload.get("events")
     assert {event["id"] for event in events} == {
         "evt-unread-01",
         "evt-unread-02",
     }
     assert all(event["read"] is False for event in events)
+    assert payload["total"] == 2
+    assert payload["unread_count"] == 2
 
 
 @pytest.mark.integration

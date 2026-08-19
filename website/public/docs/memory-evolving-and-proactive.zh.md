@@ -1,319 +1,266 @@
-# 智能体记忆进化与主动交互（Beta）
+# 记忆自进化与主动交互（Beta）
 
-> **Beta 功能**：QwenPaw 的 ReMeLight memory manager 会把 [ReMe](https://github.com/agentscope-ai/ReMe) 作为进程内应用嵌入。Auto Memory、Auto Resource、Auto Dream、搜索，以及 ReMe 底层的 proactive topic 读取能力都是 ReMe job。QwenPaw 的 `/proactive` 命令是另一条运行时逻辑，它读取近期 chat session 和可选屏幕上下文。
+> 本文承接[长期记忆](./memory)，只讲那篇没有展开的两件事：**同一条长期知识如何随时间被改写**，以及 **`/proactive` 主动交互到底怎样工作**。记忆目录、文件格式、索引原理、检索机制和完整配置都在[长期记忆](./memory)中。
 
-QwenPaw 将记忆保存为 agent workspace 下的文件。对话先保存为 JSONL 来源日志，有价值的对话事实写入 daily Markdown note，资源可以转换成 daily note，Auto Dream 再定期把可复用抽象整合进 digest 记忆。
+QwenPaw 里有两条相关但目前**各自独立**的链路：
+
+| 链路         | 数据来源                    | 产出                                  |
+| ------------ | --------------------------- | ------------------------------------- |
+| 记忆自进化   | `memory/` 每日记忆          | `digest/` 长期知识 + `interests.yaml` |
+| `/proactive` | 近期聊天会话 + 可选桌面截图 | 一条以 `[PROACTIVE]` 开头的主动消息   |
+
+`/proactive` 目前**不读取** `digest/` 和 `interests.yaml`。这一点在文末「当前边界」中会再说明。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw 长期记忆从捕获、整理到检索与发现的全景" />
+</p>
 
 ---
 
-## 核心理念：自进化的个人知识库
+## 一、记忆怎样“进化”
 
-ReMe 的目标不是给聊天模型挂一个黑盒向量库，而是基于 **Memory as File, File as Memory** 原则，长出一个**自进化的个人知识库**：每个工作记忆或长期记忆节点都是一份可以直接打开、阅读、编辑、移动、删除的 Markdown 文件，同时又是一个可索引、可链接的节点；原始来源与派生系统状态则使用适合各自职责的格式。
+静态记忆只能追加和检索。自进化记忆要回答一个更难的问题：**新证据会怎样改变已经知道的事情？**
 
-因为记忆以文件而非不透明的数据库记录形式存在，长期记忆获得了黑盒存储无法提供的特性：
+### 一条结论被改写四次
 
-| 特性   | 实际意义                                                           |
-| ------ | ------------------------------------------------------------------ |
-| 可读   | 打开 workspace，像普通 Markdown 一样阅读 daily note 和 digest 节点 |
-| 可编辑 | 用普通文件编辑就能纠正、扩展、移动、删除记忆，无需专用客户端       |
-| 可追溯 | 每条长期结论都通过 `derived_from:: [[...]]` 链接回它的来源         |
-| 可迁移 | workspace 就是一个普通目录，可以备份、同步，或用 git 做版本管理    |
-| 可协作 | 你负责判断与纠正，agent 负责整理、链接、检索——都在同一批文件上     |
+假设上周你告诉 QwenPaw：“生产发布前先验证 staging，发布说明要写清风险和回滚步骤。”几天后团队又补了一条例外：“紧急 hotfix 经负责人批准可以先发布，但事后必须补做检查。”
 
-### 记忆分层
+这些话散落在不同日期的对话里。Auto-Dream 每天运行时，不会为每句话新建一个文件，而是找到**同一个**长期节点，并只选一种动作改写它（四种动作的定义见[长期记忆](./memory)）：
 
-workspace 把记忆从"原始证据"到"可复用知识"组织为四层：
+| 时间     | 动作          | 节点发生了什么变化               |
+| -------- | ------------- | -------------------------------- |
+| 第 1 天  | `CREATE`      | 建立“生产前验证 staging”这条流程 |
+| 第 3 天  | `CORROBORATE` | 另一次发布再次确认，可信度提高   |
+| 第 8 天  | `REFINE`      | 补上发布说明、风险与回滚步骤     |
+| 第 20 天 | `CORRECT`     | 加入经批准的紧急 hotfix 例外     |
+
+到第 20 天，`digest/procedure/production-release.md` 已经变成这样：
+
+```markdown
+---
+name: 生产发布流程
+description: 常规发布必须验证 staging；紧急 hotfix 使用经批准的例外流程。
+---
+
+# 生产发布
+
+## 常规流程
+
+1. 在 staging 验证版本。
+2. 编写发布说明，并列出风险和回滚步骤。
+3. 验证通过后才能进入生产环境。
+
+## 紧急 hotfix 例外
+
+只有取得事故负责人批准后才可跳过完整 staging；必须记录原因，并在事后补做检查。
+
+relates_to:: [[digest/personal/release-communication-preference.md]]
+depends_on:: [[digest/procedure/rollback-verification.md]]
+
+## Sources
+
+- [[memory/2026-08-01/release-planning.md]]
+- [[memory/2026-08-08/release-notes.md]]
+- [[memory/2026-08-20/hotfix-retrospective.md]]
+```
+
+关键不是文件变长了，而是四件事同时成立：
+
+- **重复变成了可信度**，而不是四条互相矛盾的记录；
+- **细节变成了可执行步骤**，下次可以直接照着做；
+- **冲突变成了有适用范围的例外**，而不是把旧结论一笔删掉；
+- **每条结论都还能回到来源**，`## Sources` 保留了它是怎么形成的。
+
+除了 `[[...]]`，节点还可以用 `relates_to::`、`depends_on::` 这类带语义的关系字段说明“它和谁有关、依赖谁”，检索命中一个节点后就能顺着这些关系继续展开。
+
+### 每次进化只看必要的输入
+
+Auto-Dream 不会每天从头重读整个 `memory/`：
+
+- **扫描窗口**：只看目标日期及其**前一天**发生过变化的每日记忆；
+- **单次上限**：一轮最多抽取 5 个记忆单元，宁可分几天慢慢沉淀，也不会一次塞满 `digest/`；
+- **断点记录**：成功处理过的输入会写入 dream catalog，下次不再重复整合；
+- **失败可重试**：失败的路径**不会**被标记完成，所以下一次运行还会再试一遍；
+- **只写 `digest/`**：`memory/` 永远保留“当时看到了什么、怎么判断的”，Auto-Dream 从不回头改写它。
+
+这也是为什么长期记忆可以一直修正而不丢历史：结论可变，现场不可变。
+
+### 顺手产出的兴趣主题
+
+整合长期节点时，Auto-Dream 还会从近期证据里挑出少量、互不重复的兴趣主题，默认最多 3 个，写入 `memory/<date>/interests.yaml`：
+
+```yaml
+- title: 验证紧急回滚流程
+  reason: 已增加 hotfix 例外，但尚未记录事后补做的检查。
+  evidence:
+    - hotfix 复盘中讨论了跳过 staging 的情况。
+  keywords: [hotfix, rollback, release]
+  paths:
+    - memory/2026-08-20/hotfix-retrospective.md
+```
+
+每个主题都带上原因、证据、关键词和相关路径——也就是说，它不只说“你可能关心 X”，还能说清“我为什么这么认为”。生成时会参考近 7 天已经出过的主题做去重，避免天天推荐同一件事。ReMe 提供一个底层 `proactive` job 读取该文件，供其他集成消费；文件不存在时返回 skipped，不会报错。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream 的整合结果与兴趣主题摘要" />
+</p>
+
+---
+
+## 二、`/proactive`：让 Agent 先开口
+
+前面讲的都是“你问它才答”。`/proactive` 反过来：**在你没提问的时候，判断有没有一件事值得现在主动告诉你。**
+
+打开它之后，会发生这样的事：你昨天和今天都在查某个框架的迁移方案，然后离开工位去开会。半小时后回到电脑前，聊天里多了一条消息：
+
+> **[PROACTIVE]** 我注意到你这两天在看 xxx 的迁移方案，刚查到官方上周发布了 3.0 的迁移指南，其中 API 变更部分和你昨天遇到的报错相关……
+
+这条消息不是模板，而是它**真的去搜了一遍、拿到结果之后**才发出来的。下面按顺序拆开这个过程。
+
+<p align="center">
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01bGrMQC1kGxdbG4IDT_!!6000000004657-55-tps-1200-640.svg" alt="主动模式根据近期信号发现下一步并在行动前询问用户" />
+</p>
+
+### 第 1 步：什么时候才算“该出手了”
+
+`/proactive` 会在后台起一个循环，**每 30 秒**检查一次。要真正触发，下面几个条件必须同时满足——它们的作用几乎都是“避免打扰”：
+
+| 检查项       | 规则                                             | 为什么需要                 |
+| ------------ | ------------------------------------------------ | -------------------------- |
+| Agent 空闲   | 当前没有正在执行的任务                           | 你正在用它干活时不插话     |
+| 空闲够久     | 距最后一次活动 ≥ 空闲阈值（默认 30 分钟）        | 只在你离开时才考虑主动     |
+| 开启也够久   | 距 `/proactive` 打开的时刻同样 ≥ 空闲阈值        | 刚打开就弹一条会很突然     |
+| 冷却         | 距上一次尝试 > 60 秒                             | 条件持续满足时不会连发     |
+| 无并发       | 上一轮主动任务已经结束                           | 同一时间只跑一个           |
+| 上一条已回应 | 若最后一条消息是未被回应的 `[PROACTIVE]`，则跳过 | 你没理它，就不该继续追着说 |
+
+这里的“最后一次活动”取的是**当前 workspace 里所有聊天中最新的 `updated_at`**，不是只看你输入 `/proactive` 的那个聊天。所以你在另一个聊天里干活，也算你还在忙。
+
+### 第 2 步：它凭什么了解你在做什么
+
+条件满足后，它会先拼出一份上下文，只有两部分：
+
+**① 屏幕（可选）**——只有当前模型支持多模态时才会发生：截一张桌面截图，让模型描述“用户现在在用什么应用、在做什么活动”，结果作为 `[SCREEN CONTEXT]`。不支持多模态时这一段直接跳过。
+
+**② 近期会话**——`[SESSION CONTEXT]`，构建规则很具体：
+
+- 列出当前 workspace 的所有聊天，筛出**最近 7 天**更新过的；
+- 如果不足 5 个，就退回取**最新的 5 个**，保证总有素材可用；
+- 逐个读取会话内容，**丢掉 system 消息**、丢掉非文本内容（图片、工具结果等）；
+- 按时间**从新到旧**排列，最多 **100 条消息**、**50,000 字符**，超出即截断；
+- 跳过所有由主动模式自己发起的请求消息，**避免它把自己的输出当成你的输入**。
+
+换句话说，它看到的是“你最近一周说过的话”的一份精简摘录，而不是完整历史。**它不读 `digest/`，也不读 `interests.yaml`。**
+
+### 第 3 步：从“你在做什么”推出“什么帮得上”
+
+拿到上下文后，它让模型输出 1–3 个候选，每个候选包含三个字段：
+
+```json
+{
+  "tasks": [
+    {
+      "task": "你可能正在推进的目标",
+      "query": "一条具体的、能往前推一步的新查询",
+      "why": "为什么判断这是你的目标，以及这条查询为什么有用"
+    }
+  ]
+}
+```
+
+推断规则里有几条约束值得注意：
+
+- 候选按**优先级**排序，依据是“提到得多”和“提到得近”；
+- `query` 必须是**新的**，不能是你已经执行过的命令或搜过的东西；
+- 目标只能来自你**说过的话**，不允许只凭截图猜——截图只是辅助；
+- 不能重复此前已经发过的 `[PROACTIVE]` 消息；
+- 这一步不许调用工具，直接想清楚再回答。
+
+### 第 4 步：先自己做一遍，再决定要不要说
+
+这是 `/proactive` 和“猜你想问”最大的区别：**它不会把猜测直接抛给你**，而是先动手验证。
+
+它会初始化一个独立的 `ProactiveAssistant`，复用当前 Agent 的模型，带一套工具，并按轻量优先的顺序使用：
+
+1. `web_search` 搜信息；
+2. `web_fetch` 读已知网址；
+3. `browser` 只用于需要交互的场景（登录、点击、重 JS 页面）；
+4. `read_file`、`execute_shell_command` 仅在必要时使用；
+5. 多模态模型下额外提供 `desktop_screenshot`。
+
+然后它按优先级依次执行**最多 3 个**候选的 `query`，每次执行完要求模型在答案末尾给出 `[SUCCESS]` 或 `[FAILURE]` 自评。**第一个既成功、又确实拿到内容的候选就会中止后续尝试**——够用即止，不会把三件事全跑一遍。
+
+如果三个都失败，这一轮就没有产出，也不会发消息。
+
+### 第 5 步：消息去哪了
+
+有结果之后，它把结果交给模型，按当前 Agent 配置的语言写成一段面向你的话，措辞倾向于“我注意到你一直在关注 X，所以查了一下……”这种表述——先说明为什么提起，再给结论。生成的内容**必须以 `[PROACTIVE] ` 开头**，这个标记同时被用于第 1 步的“上一条是否已回应”判断。
+
+发送方式是回调 QwenPaw 自己的 API（`POST /api/console/chat`），会话固定为 `proactive_mode:<agentId>`，超时 300 秒。也就是说，**主动消息进入一个专属会话，不会插进你正在进行的对话中间。**
+
+### 随时可以打断
+
+整个过程在三处检查点会问一句“用户回来了吗”：构建完上下文之后、每个候选执行之前、以及执行完成之后。判断依据有两个：Agent 是否又开始忙，以及**是否有任何聊天的更新时间晚于本轮开始时刻**。一旦命中，本轮立即放弃，不会发出半成品消息。
+
+### 隐私与安全边界
+
+这是全文最需要认真读的一段。开启 `/proactive` 意味着：
+
+- 它会**读取历史聊天**（最近 7 天，或最新 5 个会话）；
+- 模型支持多模态时，它可能**截取你的桌面**；
+- 它启动的助手带有网页搜索/抓取、浏览器、文件读取和 Shell 命令能力；
+- 该助手以 **bypass 权限**运行，即**绕过常规的工具授权确认**。
+
+`/proactive` 在开启时会显示这条警告。只在这些访问确实合适时才开启，随时可以用 `/proactive off` 停掉。另外，监控配置**只存在于进程内存中**，QwenPaw 重启后需要重新开启。
+
+### 当前边界
+
+`/proactive` 的触发和任务推断**只来自近期会话与可选屏幕**，不读取 `interests.yaml`、也不读取 `digest/`。所以本文前后两半目前是两条独立的路径：记忆进化让知识越用越准，主动交互则完全基于近期活动。把两者打通仍在进行中。
+
+---
+
+## 三、配置与命令
+
+### `/proactive` 命令
+
+Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用范围是当前 Agent：
 
 ```text
-原始输入   → mem_session/ + resource/   原始对话与外部资料
-工作记忆   → memory/                     daily note：事实、决策、资源解读
-长期记忆   → digest/                     可复用知识：personal / procedure / wiki
-系统状态   → mem_metadata/               索引、wikilink 图、catalog（不手工编辑）
+/proactive           # 开启，默认空闲 30 分钟后触发
+/proactive on        # 同上
+/proactive 45        # 改为空闲 45 分钟后触发（须为正整数分钟）
+/proactive off       # 停止主动监控
 ```
 
-QwenPaw 的目录名与 ReMe 上游默认值不同，但每层的职责一致：`mem_session/` 对应 ReMe `session/`，`memory/` 对应 `daily/`，`mem_metadata/` 对应 `metadata/`；`resource/` 和 `digest/` 保持同名。
+开启后会返回当前空闲阈值和上面那条安全警告。参数写错时会提示用法。重启 QwenPaw 后配置丢失，需要重新执行。
 
-### 知识库如何进化
-
-知识库通过持续的 **capture → index → consolidate → recall** 闭环生长：
-
-1. **Capture（捕获）** — Auto Memory 把对话蒸馏成 daily note，Auto Resource 把 `resource/` 下的文件转成 daily note，同时保留原始对话作为证据。
-2. **Index（索引）** — 后台 job 通过 BM25 关键词索引、可选向量、以及 wikilink 图，让 `memory/` 和 `digest/` 始终可检索。
-3. **Consolidate（整合）** — Auto Dream 读取近期 daily note，整合进长期 `digest/` 节点。这一步才是记忆真正**进化**的地方：它不是复制文本，而是把每个抽取出的 unit 合并进已有节点或创建新节点，并织入来源与关系 wikilink。
-4. **Recall（召回）** — `memory_search` 召回最相关的片段并沿 wikilink 图展开；interest topics 和 QwenPaw 的 `/proactive` 主动浮现值得关注的内容。
-
-digest 层刻意**不是只追加**的。当新素材与已有节点重复、细化或冲突时，Auto Dream 会对其 corroborate、refine 或 correct（见下文整合动作）。再配合让节点保持连通、可追溯的 wikilink 图，知识库会随时间变得更密、更准，而不只是变得更大。
-
----
-
-## 实际流程
-
-```mermaid
-graph LR
-    A[Conversation turns] --> B[MemoryMiddleware]
-    B --> C[ReMe auto_memory job]
-    C --> D[mem_session/dialog/*.jsonl]
-    C --> E[memory/<date>/<note>.md]
-    R[resource/<date>/*] --> S[resource_watch_loop]
-    S --> T[ReMe auto_resource job]
-    T --> E
-    E --> U[ReMe auto_dream job]
-    U --> V["digest/personal | procedure | wiki/*.md"]
-    U --> W[memory/<date>/interests.yaml]
-```
-
-| 能力                 | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
-| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
-| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
-| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
-| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
-| ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
-| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
-
-关键边界：`memory/<date>/interests.yaml` 由 Auto Dream 生成，也可以被 ReMe 的 `proactive` job 读取；但 QwenPaw 当前 `/proactive` 实现不会调用这个 job，也不会直接消费 `interests.yaml`。
-
----
-
-## 文件布局
-
-嵌入式 ReMe 配置来自 `src/qwenpaw/agents/memory/reme_config.py`，面向用户的默认值来自 `ReMeLightMemoryConfig`。
+### Auto-Dream 手动运行
 
 ```text
-<workspace>/
-├── mem_metadata/   # ReMe 持久状态、索引、catalog
-├── mem_session/    # Auto Memory 使用的来源对话日志
-│   └── dialog/
-│       └── <session_id>.jsonl
-├── mem_agent/      # ReMe 内部 memory-agent session
-├── resource/       # Auto Resource 监听的外部资料
-│   └── YYYY-MM-DD/
-│       └── <resource>.<ext>
-├── memory/         # Daily memory notes 和 day index
-│   ├── YYYY-MM-DD.md
-│   └── YYYY-MM-DD/
-│       ├── <note>.md
-│       └── interests.yaml
-└── digest/         # 长期 digest 记忆
-    ├── personal/
-    ├── procedure/
-    └── wiki/
+/dream             # 立即执行一次 Auto-Dream
+/dream <提示信息>  # 带提示执行一次，例如指定关注方向
 ```
 
-默认目录名可通过 `metadata_dir`、`session_dir`、`mem_session_dir`、`resource_dir`、`daily_dir`、`digest_dir` 配置。
+平时不需要手动跑：Auto-Dream 默认每天定时执行一次。
+
+### 与本页相关的配置项
+
+以下几项位于 `agent.json` 的 `running.reme_light_memory_config`。完整配置（目录、Embedding、Daily Paper、索引维护、其他 Backend）见[长期记忆](./memory)。
+
+| 配置项                              | 默认值         | 说明                                         |
+| ----------------------------------- | -------------- | -------------------------------------------- |
+| `dream_cron_enabled`                | `true`         | 是否定时运行 Auto-Dream                      |
+| `dream_cron`                        | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动 |
+| `auto_dream_inbox_push_enabled`     | `true`         | 将 Auto-Dream 的成功或失败摘要推送到 Inbox   |
+| `auto_memory_interval`              | `5`            | 每累计 N 个用户回合运行 Auto-Memory          |
+| `auto_memory_search_config.enabled` | `false`        | 是否在每个普通用户请求前自动检索记忆         |
+
+Auto-Memory 间隔越小，进入 Auto-Dream 的素材越新，但模型调用和 Token 消耗也越高。
 
 ---
 
-## Auto Memory
-
-Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运行。Middleware 会：
-
-- 跳过来源为 `cron` 或 `heartbeat` 的自动化请求；
-- 当 `auto_memory_search_config.enabled` 为 true 时，在模型调用前注入自动记忆搜索上下文；
-- 在回复后收集 user-turn marker；
-- 累计到 `auto_memory_interval` 个用户轮次后 flush；
-- 当 `summarize_when_compact` 为 true 且即将压缩上下文时，也会先 flush pending turns。
-
-`auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
-
-Flush 时，QwenPaw 调用 ReMe 的 `auto_memory` job，并传入：
-
-| 字段          | 来源                              |
-| ------------- | --------------------------------- |
-| `messages`    | pending user turns 对应的会话消息 |
-| `session_id`  | Agent session id                  |
-| `memory_hint` | 调用方可选提示                    |
-
-ReMe 的 `AutoMemoryStep` 随后会：
-
-1. 校验 `session_id` 存在且合法；
-2. 将清洗后的来源消息保存或追加到 `mem_session/dialog/<session_id>.jsonl`；
-3. 从保存的来源日志中移除 tool-result block 和 base64 data block；
-4. 从显式 date、消息时间戳或配置时区的当前日期中选择 note date；
-5. 查找 frontmatter 中 `session_id` 或 `source_conversation` 匹配的已有 daily note；
-6. 新 session 最多创建一条 note，已有 session 更新同一条 note；
-7. 确保 frontmatter 包含 `session_id` 和 `source_conversation`；
-8. 可能根据 frontmatter `name` 重命名 note；
-9. 刷新 `memory/<date>.md` day index；
-10. 返回 `date`、`path`、`created`、`modified`、`n_messages`、`source_conversation`、`index` 等 metadata。
-
-如果 job 成功但没有实际修改 note，QwenPaw 不会为 `auto_memory` 推送 inbox event。否则会推送标题为 `Auto-memory result` 的 inbox event。
-
----
-
-## Auto Resource
-
-QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `resource_dir`，并把变更批次派发给 `auto_resource`。
-
-监听的后缀是：
-
-```text
-md, txt, json, jsonl, csv, yaml, html
-```
-
-文件可以直接放在 `resource_dir` 根目录，此时使用 QwenPaw 配置的时区确定当天；也可放在
-`resource_dir/YYYY-MM-DD/` 下，此时使用路径中的日期。日期目录之后可以继续嵌套子目录。新增或修改资源时，
-ReMe 按 UTF-8 文本读取内容，由 memory agent 生成或更新 daily note；删除资源时也会删除对应的来源链接 note。
-
-PDF、Word、Excel、图片等二进制文件不会被自动解析。`yml` 后缀也不在默认白名单中；需要先转换为受支持的文本格式。
-
-每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，QwenPaw 才会推送 `Auto-resource result` inbox event。
-
----
-
-## Auto Dream
-
-QwenPaw 通过以下入口暴露 Auto Dream：
-
-- `/dream [hint]`，由 `CommandHandler._process_dream()` 处理；
-- `dream_cron_enabled` 为 true 时按 `dream_cron` 配置调度，默认 `0 23 * * *`；定时触发后会随机延迟 0–60 秒启动，以避免集中调用；
-- `ReMeLightMemoryManager.dream(date="", hint="")`。
-
-QwenPaw 运行名为 `auto_dream` 的 ReMe job，并设置 `needs_llm=True`，因此嵌入式 ReMe 会在 job 运行前用 QwenPaw 当前 active model 刷新自己的 LLM component。
-
-嵌入式 job 配置使用这些默认值：
-
-| 参数                   | 默认值 | 含义                              |
-| ---------------------- | -----: | --------------------------------- |
-| `date`                 |   `""` | 空值表示配置时区里的今天          |
-| `hint`                 |   `""` | 可选用户/操作者提示               |
-| `scan_days`            |    `2` | 扫描目标日期及最近日期            |
-| `max_units`            |    `5` | 最多抽取的可复用 memory units     |
-| `topic_count`          |    `3` | 最多最终 interest topics          |
-| `topic_diversity_days` |    `7` | 避免重复最近几天已经出现的 topics |
-
-Auto Dream 运行四个 ReMe steps：
-
-| Step                   | 实际行为                                                                                                                                              |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dream_extract_step`   | 刷新 day indexes，对比 daily files 和 dream catalog，删除缺失的 catalog entries，只从变化的 daily 输入中抽取可复用 memory units 和 topic candidates。 |
-| `dream_integrate_step` | 将每个抽取出的 unit 整合进一个 digest node。会使用 `node_search`、`read`、`frontmatter_read`、`write`、`edit`、`frontmatter_update`。                 |
-| `dream_topics_step`    | 选择并去重 interest topics，写入 `memory/<date>/interests.yaml`，并刷新 day index。                                                                   |
-| `dream_finish_step`    | 将成功处理的 changed paths、interest files 和 day indexes upsert 到 dream catalog，持久化 catalog，并返回 summary。                                   |
-
-如果没有变化的 daily 输入，extract 会以 no-change 响应结束。如果 LLM 不可用，extract 或 integrate 会失败，因为这些 step 需要 LLM。
-
-Digest node 按 bucket 存储：
-
-| Bucket       | 存什么                                                     |
-| ------------ | ---------------------------------------------------------- |
-| `personal/`  | 用户、团队或项目身份、偏好、约定、约束、avoid-rules        |
-| `procedure/` | How-to 工作流、runbook、recipe、方法、可执行模式           |
-| `wiki/`      | 定义、原则、观察、作为先例的决策、事实 claim，以及兜底知识 |
-
-Integration action 包括 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT`。正是这四个动作让知识库"自进化"：与已有节点匹配的 unit 不会被当作重复内容追加，而是合并进该节点——用新来源 corroborate、用新边界 refine、或在冲突时 correct。
-
-| Action        | 含义                                           |
-| ------------- | ---------------------------------------------- |
-| `CREATE`      | 尚不存在等价抽象，创建新的 digest 节点         |
-| `CORROBORATE` | 同一记忆再次出现，追加来源并强化描述           |
-| `REFINE`      | 新素材补充边界、步骤、前置条件、适用范围或细节 |
-| `CORRECT`     | 新素材纠正已有节点中的错误、遗漏或冲突         |
-
-**通过 wikilink 构建知识图谱。** ReMe 的 wikilink 整合逻辑运行在 `dream_integrate_step` 中。写入前它先用 `node_search` 召回相似或相关的 digest 节点，在上述动作间做出决策，然后向节点正文织入两类 workspace-relative wikilink：
-
-- **来源边** — `derived_from:: [[memory/<date>/<note>.md]]`，让每个 digest 结论都能追溯回它来自的 daily note 或资源。
-- **关系边** — `relates_to:: [[digest/wiki/...]]`、`depends_on:: [[digest/procedure/...]]` 等 typed link，把节点连接到相邻概念、前置条件和流程。
-
-更新是增量式的：已有 wikilink 和 `derived_from` 会被保留，图因此持续生长而不丢边。`memory_search` 之后会沿这些链接展开——这正是召回不仅能给出匹配片段、还能带出它连接的长期节点与来源的原因。
-
-Auto Dream 完成后，QwenPaw 会推送标题为 `Auto-dream result` 的 inbox event。
-
----
-
-## Interest Topics 和 ReMe Proactive Job
-
-`dream_topics_step` 写入：
-
-```text
-memory/<date>/interests.yaml
-```
-
-YAML payload 包含：
-
-| 字段             | 含义                                                                   |
-| ---------------- | ---------------------------------------------------------------------- |
-| `date`           | 目标日期                                                               |
-| `topic_count`    | 请求的最大 topic 数                                                    |
-| `diversity_days` | 最近日期去重窗口                                                       |
-| `topics`         | 选出的 topics，包含 `title`、`reason`、`evidence`、`keywords`、`paths` |
-
-ReMe 还定义了一个由 `proactive_step` 实现的 `proactive` job。这个 job 只读取 `memory/<date>/interests.yaml`。它接受：
-
-| 参数              | 默认值 | 含义                             |
-| ----------------- | -----: | -------------------------------- |
-| `date`            |   `""` | 空值表示今天                     |
-| `include_content` | `true` | 在 metadata 中包含原始 YAML 文本 |
-
-如果 interests 文件不存在，ReMe proactive job 会返回正常的 skipped result。
-
----
-
-## QwenPaw `/proactive`
-
-QwenPaw 当前 `/proactive` 命令实现位于 `src/qwenpaw/agents/memory/proactive`，它和 ReMe 的 `proactive` job 是两套逻辑。
-
-命令行为：
-
-```text
-/proactive           # 使用默认 30 分钟空闲阈值启用
-/proactive on        # 使用默认 30 分钟空闲阈值启用
-/proactive 45        # 使用 45 分钟空闲阈值启用
-/proactive off       # 取消后台 monitoring task
-```
-
-启用后，QwenPaw 会为 session 保存一个内存态 `ProactiveConfig`，并启动后台循环。该循环会：
-
-- 每 30 秒 wake 一次；
-- agent 有 active tasks 时跳过；
-- 读取最新 chat update time；
-- 等待 session 空闲达到配置分钟数；
-- 60 秒内不重复尝试；
-- 如果最后一条消息已经是未回应的 `[PROACTIVE]` 消息，则跳过；
-- 运行 proactive responder。
-
-Responder 构造上下文时读取近期 chat sessions，而不是读取 `interests.yaml`：
-
-- 通过 `workspace.chat_manager` 读取 chat metadata；
-- 保留最近 7 天更新过的 sessions；如果不足 5 个，则取最新 5 个 sessions；
-- 加载最多 100 条近期文本消息，总字符上限 50,000；
-- 过滤 system messages、非文本 blocks，以及之前 proactive helper 发出的请求；
-- 当 active model 支持多模态时，可选分析桌面截图。
-
-随后它让临时 `ProactiveAssistant` agent 从上下文中抽取 1 到 3 个可能任务，最多执行前 3 个任务 query，并通过以下接口发送面向用户的 proactive request：
-
-```text
-POST <agent-api-base>/api/console/chat
-session_id = proactive_mode:<active_agent_id>
-text starts with "[Agent proactive_helper requesting]"
-```
-
-最终面向用户的 prompt 要求 agent 回复以 `[PROACTIVE]` 开头。
-
-命令中的 warning 与代码一致：proactive mode 可能读取历史 session memory，并且在多模态屏幕分析可用时可能截图。Proactive agent 通过自己的临时 agent/tool setup 使用 tool protection bypass mode。
-
----
-
-## 搜索与索引
-
-嵌入式 ReMe app 会启动 `index_update_loop` 后台 job。搜索索引监听：
-
-| 索引目录                  | 后缀 |
-| ------------------------- | ---- |
-| `daily_dir`、`digest_dir` | `md` |
-
-QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `query`、`limit`、`min_score`。该 job 配置为 hybrid workspace search，包含向量召回、BM25 keyword 召回、RRF 融合和 wikilink expansion。QwenPaw 嵌入式 ReMe 配置里的存储后端是 local。
-
----
-
-## 当前状态
-
-本文档描述当前代码路径：
-
-- ReMeLight 由 `ReMeLightMemoryManager` 和嵌入式 `get_reme_app_config()` 实现；
-- Auto Memory 基于用户轮次数触发，默认每 5 个用户轮次一次；
-- Auto Dream 通过 `/dream` 或 `dream_cron` 运行；
-- ReMe 会写入 `interests.yaml`，也有读取它的底层 job；
-- QwenPaw `/proactive` 当前使用近期 chat/session/screen context，而不是 ReMe interest topics；
-- Auto Memory、Auto Resource、Auto Dream 产生可报告输出时，可能投递到 inbox。
-
-该能力仍处于 Beta 阶段，但以上行为与当前代码实现一致。
+## 相关页面
+
+- [长期记忆](./memory) — 目录结构、文件格式、索引与检索原理、完整配置
+- [向量模型](./embedding) — 配置向量检索后，语义相近的记忆才能被找回
+- [控制台](./console) — 查看后台任务与 Inbox 结果

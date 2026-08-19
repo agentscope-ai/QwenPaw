@@ -1,18 +1,10 @@
-export type SessionRouteMode = "chat" | "coding";
-
 export function getSessionIdFromPath(pathname: string): string | undefined {
-  const match = pathname.match(/^\/(?:chat|coding)\/(.+)$/);
+  const match = pathname.match(/^\/chat\/(.+)$/);
   return match?.[1];
 }
 
-export function buildBasePath(mode: SessionRouteMode): string {
-  return `/${mode}`;
-}
+export const CHAT_BASE_PATH = "/chat";
 
-export function buildSessionPath(
-  mode: SessionRouteMode,
-  sessionId?: string | null,
-): string {
-  const basePath = buildBasePath(mode);
-  return sessionId ? `${basePath}/${sessionId}` : basePath;
+export function buildChatPath(sessionId?: string | null): string {
+  return sessionId ? `${CHAT_BASE_PATH}/${sessionId}` : CHAT_BASE_PATH;
 }

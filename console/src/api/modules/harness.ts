@@ -100,17 +100,17 @@ export const harnessApi = {
       timeout: 60_000,
     }),
   listModels: (providerId: string) =>
-    request<{ models: HarnessModel[] }>(
+    request<{ models: HarnessModel[]; message?: string }>(
       `/harnesses/${encodeURIComponent(providerId)}/models`,
       { timeout: 60_000 },
     ),
   listMCP: (providerId: string) =>
-    request<{ servers: HarnessDiscoveredMCPServer[] }>(
+    request<{ servers: HarnessDiscoveredMCPServer[]; message?: string }>(
       `/harnesses/${encodeURIComponent(providerId)}/mcp`,
       { timeout: 60_000 },
     ),
   listSkills: (providerId: string) =>
-    request<{ skills: HarnessDiscoveredSkill[] }>(
+    request<{ skills: HarnessDiscoveredSkill[]; message?: string }>(
       `/harnesses/${encodeURIComponent(providerId)}/skills`,
       { timeout: 60_000 },
     ),

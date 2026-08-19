@@ -21,6 +21,11 @@ current_workspace_dir: ContextVar[Path | None] = ContextVar(
     default=None,
 )
 
+current_project_dir: ContextVar[Path | None] = ContextVar(
+    "current_project_dir",
+    default=None,
+)
+
 
 def get_current_workspace_dir() -> Path | None:
     """Get the current agent's workspace directory from context.
@@ -38,6 +43,16 @@ def set_current_workspace_dir(workspace_dir: Path | None) -> None:
         workspace_dir: Path to the agent's workspace directory.
     """
     current_workspace_dir.set(workspace_dir)
+
+
+def get_current_project_dir() -> Path | None:
+    """Get the effective project directory for the current turn."""
+    return current_project_dir.get()
+
+
+def set_current_project_dir(project_dir: Path | None) -> None:
+    """Set the immutable effective project directory for the current turn."""
+    current_project_dir.set(project_dir)
 
 
 # Context variable to store the recent_max_bytes limit

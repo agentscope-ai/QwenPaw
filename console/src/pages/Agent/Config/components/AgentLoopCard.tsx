@@ -651,12 +651,16 @@ function PerToolLimits({
   const entries = Object.entries(value);
   const updateName = (oldName: string, nextName: string) => {
     const normalized = nextName.trim();
-    if (!normalized || (normalized !== oldName && normalized in value)) return;
+    if (!normalized || (normalized !== oldName && normalized in value)) {
+      return false;
+    }
+    if (normalized === oldName) return true;
     const next = { ...value };
     const limit = next[oldName];
     delete next[oldName];
     next[normalized] = limit;
     onChange?.(next);
+    return true;
   };
   const updateLimit = (name: string, limit: number | null) =>
     onChange?.({ ...value, [name]: limit || 1 });
@@ -675,12 +679,14 @@ function PerToolLimits({
       {entries.map(([name, limit]) => (
         <div className={loopStyles.toolLimitRow} key={name}>
           <Input
-            value={name}
+            defaultValue={name}
             aria-label={t("agentConfig.loopMode.toolName", "Tool name")}
-            onBlur={(event) => updateName(name, event.target.value)}
-            onPressEnter={(event) =>
-              updateName(name, event.currentTarget.value)
-            }
+            onBlur={(event) => {
+              if (!updateName(name, event.target.value)) {
+                event.target.value = name;
+              }
+            }}
+            onPressEnter={(event) => event.currentTarget.blur()}
           />
           <InputNumber
             min={1}

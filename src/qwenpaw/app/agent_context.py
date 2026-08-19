@@ -3,6 +3,7 @@
 
 Provides utilities to get the correct agent instance for each request.
 """
+import asyncio
 from contextvars import ContextVar
 from contextlib import contextmanager
 from pathlib import Path
@@ -136,25 +137,77 @@ async def get_agent_for_request(
         ) from e
 
 
-def get_coding_dir(workspace: "Workspace") -> Path:
-    """Return the active coding project directory for *workspace*.
+def get_agent_project_dir(workspace: "Workspace") -> Path:
+    """Return the agent's default project directory.
 
-    If the agent has set a ``coding_mode.project_dir`` in its config, that
-    path is returned.  Otherwise the agent's default ``workspace_dir`` is used.
+    The Coding tools switch does not participate in directory resolution.
     """
     from ..config.config import load_agent_config
+    from ..services.project_directory import resolve_effective_project_dir
 
     try:
         config = load_agent_config(workspace.agent_id)
-        project_dir = (
-            config.coding_mode.project_dir if config.coding_mode else None
-        )
+        project_dir = config.project_dir
     except Exception:
         project_dir = None
 
-    if project_dir:
-        return Path(project_dir).expanduser().resolve()
-    return workspace.workspace_dir
+    return resolve_effective_project_dir(
+        workspace.workspace_dir,
+        agent_project_dir=project_dir,
+    )[0]
+
+
+async def get_project_dir_for_request(
+    request: Request,
+    workspace: "Workspace",
+) -> Path:
+    """Resolve the effective project directory for a Files API request."""
+    from ..config.config import load_agent_config
+    from ..services.project_directory import (
+        resolve_effective_project_dir,
+        session_project_dir,
+    )
+
+    session_override = None
+    pending_override = None
+    chat_id = request.headers.get("X-Chat-Id")
+    if chat_id:
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Chat not found")
+        session_override = session_project_dir(chat.meta)
+    else:
+        pending_override = request.headers.get("X-Session-Project-Dir")
+
+    def _resolve() -> Path:
+        try:
+            config = load_agent_config(workspace.agent_id)
+            agent_project_dir = config.project_dir
+        except Exception:
+            agent_project_dir = None
+        resolved_override = session_override
+        if not chat_id and pending_override:
+            pending_path = Path(pending_override).expanduser().resolve()
+            if not pending_path.is_dir():
+                raise NotADirectoryError(str(pending_path))
+            resolved_override = str(pending_path)
+        return resolve_effective_project_dir(
+            workspace.workspace_dir,
+            agent_project_dir=agent_project_dir,
+            session_override=resolved_override,
+        )[0]
+
+    try:
+        return await asyncio.to_thread(_resolve)
+    except NotADirectoryError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
 
 
 def get_active_agent_id() -> str:

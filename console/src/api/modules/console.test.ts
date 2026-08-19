@@ -41,10 +41,11 @@ describe("consoleApi", () => {
       limit: 200,
       offset: 10,
       source_type: "cron",
+      source_types: ["heartbeat", "memory"],
       unread_only: true,
     });
     expect(request).toHaveBeenCalledWith(
-      "/console/inbox/events?limit=200&offset=10&source_type=cron&unread_only=true",
+      "/console/inbox/events?limit=200&offset=10&source_type=cron&source_types=heartbeat&source_types=memory&unread_only=true",
     );
     expect(result).toEqual(data);
   });

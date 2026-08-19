@@ -6,10 +6,10 @@
 
 import threading
 
-from computer_use_tool import access as access_module
-from computer_use_tool import client as client_module
-from computer_use_tool import dispatch
-from computer_use_tool.protocol import ComputerUseProtocolError
+from computer_use import access as access_module
+from computer_use import client as client_module
+from computer_use import dispatch
+from computer_use.protocol import ComputerUseProtocolError
 
 
 def test_the_rate_limit_cap_holds_under_concurrent_callers():

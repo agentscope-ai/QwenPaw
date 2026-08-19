@@ -10,14 +10,15 @@ import { Attachments } from "@agentscope-ai/chat";
 import { Audio, Video } from "@agentscope-ai/design";
 import { Image, ConfigProvider, Alert } from "antd";
 import type { Locale } from "antd/es/locale";
-import { DownloadOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MediaInfo } from "./utils";
-import { openExternalLink } from "../../../../utils/openExternalLink";
+import { filePathFromPreviewUrl } from "../../../../features/files-workspace/internalFileLinks";
+import { AudioDownload } from "../../MediaDownload";
 import styles from "./toolCards.module.less";
 
 export interface MediaPreviewProps {
   media: MediaInfo;
+  onFileOpen?: (trigger: HTMLElement) => void;
 }
 
 /** Fetch the preview URL and return the HTTP status code + detail code. */
@@ -34,7 +35,7 @@ async function fetchPreviewError(
   }
 }
 
-const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
+const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onFileOpen }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
 
@@ -115,30 +116,44 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
         </div>
       )}
       {media.type === "audio" && (
-        <div className={styles.bubbleAudio}>
-          <Audio src={media.url} onError={handleMediaError} />
-        </div>
+        <AudioDownload url={media.url} filename={media.name}>
+          <div className={styles.bubbleAudio}>
+            <Audio src={media.url} onError={handleMediaError} />
+          </div>
+        </AudioDownload>
       )}
       {media.type === "file" && (
-        <div className={styles.bubbleFile}>
-          <Attachments.FileCard
-            item={
-              {
-                uid: media.name,
-                name: media.name,
-                url: media.url,
-                status: "done",
-              } as any
+        <div
+          className={styles.bubbleFile}
+          onClickCapture={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (onFileOpen) {
+              onFileOpen(event.currentTarget);
+              return;
             }
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:open-file-preview", {
+                detail: {
+                  target: {
+                    source: "attachment",
+                    path: filePathFromPreviewUrl(media.url) || media.name,
+                    artifactUrl: media.url,
+                  },
+                  trigger: event.currentTarget,
+                },
+              }),
+            );
+          }}
+        >
+          <Attachments.FileCard
+            item={{
+              uid: media.name,
+              name: media.name,
+              url: media.url,
+              status: "done",
+            }}
           />
-          {media.url && (
-            <div
-              className={styles.bubbleFileDownload}
-              onClick={() => openExternalLink(media.url)}
-            >
-              <DownloadOutlined />
-            </div>
-          )}
         </div>
       )}
     </div>

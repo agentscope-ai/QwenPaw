@@ -417,6 +417,7 @@ def _render_placed_pet_os_box(
     padding = 5
     box_width = 1
     box_height = 1
+    bubble_body_height = 1
 
     while font_size >= 10:
         try:
@@ -441,15 +442,15 @@ def _render_placed_pet_os_box(
         text_w = bounds[2] - bounds[0]
         text_h = bounds[3] - bounds[1]
         box_width = min(text_w + padding * 2 + border * 2, max_bubble_w)
-        box_height = (
-            text_h
-            + padding * 2
-            + border * 2
-            + tail_height
-            + emoji_size
-            + emoji_gap
+        bubble_body_height = text_h + padding * 2 + border * 2
+        box_height = bubble_body_height + max(
+            tail_height,
+            emoji_size + emoji_gap,
         )
-        if box_width <= max_bubble_w:
+        if (
+            text_w + padding * 2 + border * 2 <= max_bubble_w
+            and box_height <= max_box_h
+        ):
             break
         font_size -= 1
 
@@ -462,31 +463,11 @@ def _render_placed_pet_os_box(
     bubble_x = 0
     bubble_y = 0
 
-    text_h = bounds[3] - bounds[1]
-    text_area_h = (
-        box_height
-        - tail_height
-        - emoji_size
-        - emoji_gap
-        - border
-        - padding * 2
-    )
-    text_y = (
-        bubble_y + border + padding + (text_area_h - text_h) / 2 - bounds[1]
-    )
-    draw.multiline_text(
-        (bubble_x + border + padding, text_y),
-        display_text,
-        font=font,
-        spacing=2,
-        fill="#111111",
-    )
-
-    bubble_bottom = bubble_y + box_height - border
+    bubble_bottom = bubble_y + bubble_body_height - border / 2
     bubble_right = bubble_x + box_width - border
     bubble_radius = max(
         5,
-        round(min(box_width, box_height - tail_height) * 0.09),
+        round(min(box_width, bubble_body_height) * 0.09),
     )
     draw.rounded_rectangle(
         (
@@ -529,6 +510,24 @@ def _render_placed_pet_os_box(
         width=border,
     )
 
+    # The filled bubble must be painted before its copy.  Otherwise the white
+    # rectangle covers the glyphs and the fallback renders as an empty card.
+    text_area_h = bubble_body_height - border * 2 - padding * 2
+    text_y = (
+        bubble_y
+        + border
+        + padding
+        + max(0, (text_area_h - text_h) / 2)
+        - bounds[1]
+    )
+    draw.multiline_text(
+        (bubble_x + border + padding, text_y),
+        display_text,
+        font=font,
+        spacing=2,
+        fill="#111111",
+    )
+
     emoji_font_path = _find_emoji_font()
     try:
         bitmap_sizes = [160, 96, 64, 48, 40, 32, 20]
@@ -561,7 +560,10 @@ def _render_placed_pet_os_box(
                     tail_tip[0] - emoji_size // 2,
                 ),
             )
-            emoji_y = min(box_height - emoji_size, tail_tip[1] + emoji_gap)
+            emoji_y = min(
+                box_height - emoji_size,
+                round(bubble_bottom + emoji_gap),
+            )
             layer.alpha_composite(emoji_image, (emoji_x, emoji_y))
     except Exception:
         logger.debug("emoji font rendering unavailable", exc_info=True)

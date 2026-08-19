@@ -22,6 +22,212 @@ import { request } from "../request";
 import { workspaceApi } from "./workspace";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 
+describe("workspaceApi.listDirectory", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("selects the agent configuration directory explicitly", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "",
+      undefined,
+      200,
+      undefined,
+      "workspace",
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=&limit=200&root=workspace",
+      { headers: {} },
+    );
+  });
+
+  it("sends a validated pending directory for a new Session", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "",
+      undefined,
+      200,
+      undefined,
+      "project",
+      "/projects/session",
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=&limit=200&root=project",
+      {
+        headers: {
+          "X-Session-Project-Dir": "/projects/session",
+        },
+      },
+    );
+  });
+
+  it("prefers a persisted Chat id over a pending directory header", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "",
+      undefined,
+      200,
+      "chat-1",
+      "project",
+      "/projects/pending",
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=&limit=200&root=project",
+      {
+        headers: {
+          "X-Chat-Id": "chat-1",
+        },
+      },
+    );
+  });
+});
+
+describe("workspaceApi.getWatchUrl", () => {
+  it("selects the watched directory root", () => {
+    expect(workspaceApi.getWatchUrl("project")).toBe(
+      "/api/workspace/watch?root=project",
+    );
+    expect(workspaceApi.getWatchUrl("workspace")).toBe(
+      "/api/workspace/watch?root=workspace",
+    );
+  });
+});
+
+describe("workspaceApi.loadFileText", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns a stable ETag with the assembled content", async () => {
+    vi.mocked(request)
+      .mockResolvedValueOnce({
+        content: "first",
+        offset: 0,
+        limit: 5,
+        next_offset: 5,
+        eof: false,
+        truncated: true,
+        encoding: "utf-8",
+        etag: "v1",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: " second",
+        offset: 5,
+        limit: 7,
+        next_offset: 12,
+        eof: true,
+        truncated: false,
+        encoding: "utf-8",
+        etag: "v1",
+        path: "notes.md",
+      });
+
+    await expect(workspaceApi.loadFileText("notes.md")).resolves.toEqual({
+      content: "first second",
+      etag: "v1",
+    });
+  });
+
+  it("restarts once when the file changes between chunks", async () => {
+    vi.mocked(request)
+      .mockResolvedValueOnce({
+        content: "old",
+        offset: 0,
+        limit: 3,
+        next_offset: 3,
+        eof: false,
+        truncated: true,
+        encoding: "utf-8",
+        etag: "v1",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: " version",
+        offset: 3,
+        limit: 8,
+        next_offset: 11,
+        eof: true,
+        truncated: false,
+        encoding: "utf-8",
+        etag: "v2",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: "new",
+        offset: 0,
+        limit: 3,
+        next_offset: 3,
+        eof: false,
+        truncated: true,
+        encoding: "utf-8",
+        etag: "v2",
+        path: "notes.md",
+      })
+      .mockResolvedValueOnce({
+        content: " version",
+        offset: 3,
+        limit: 8,
+        next_offset: 11,
+        eof: true,
+        truncated: false,
+        encoding: "utf-8",
+        etag: "v2",
+        path: "notes.md",
+      });
+
+    await expect(workspaceApi.loadFileText("notes.md")).resolves.toEqual({
+      content: "new version",
+      etag: "v2",
+    });
+  });
+});
+
+describe("workspaceApi.saveFileContent", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("sends the editor ETag with the save request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ path: "notes.md", size: 5, etag: "v2" }),
+      } as unknown as Response),
+    );
+
+    await workspaceApi.saveFileContent("notes.md", "after", "v1");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/workspace/file-content?path=notes.md&root=project",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({ "If-Match": "v1" }),
+      }),
+    );
+  });
+});
+
 describe("workspaceApi.listFiles", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -123,6 +329,55 @@ describe("workspaceApi.uploadFile", () => {
   });
 });
 
+describe("workspaceApi.uploadFiles", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("does not send a conflict policy before a conflict occurs", async () => {
+    const mockFile = new File(["content"], "report.txt");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ files: [] }),
+      } as unknown as Response),
+    );
+
+    await workspaceApi.uploadFiles([mockFile]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/workspace/file-upload?path=&root=project",
+      expect.anything(),
+    );
+  });
+
+  it("exposes conflicting filenames from a 409 response", async () => {
+    const mockFile = new File(["content"], "report.txt");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () =>
+          Promise.resolve({
+            detail: {
+              code: "upload_conflict",
+              files: ["report.txt"],
+            },
+          }),
+      } as unknown as Response),
+    );
+
+    await expect(workspaceApi.uploadFiles([mockFile])).rejects.toMatchObject({
+      name: "UploadConflictError",
+      files: ["report.txt"],
+    });
+  });
+});
+
 describe("workspaceApi.listDailyMemory", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -138,6 +393,36 @@ describe("workspaceApi.listDailyMemory", () => {
 
     expect(request).toHaveBeenCalledWith("/workspace/memory");
     expect(result[0].date).toBe("session");
+  });
+});
+
+describe("workspaceApi sectioned memory files", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("lists files from the selected memory section", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await workspaceApi.listMemoryFiles("digest");
+    expect(request).toHaveBeenCalledWith("/workspace/memory?section=digest");
+  });
+
+  it("loads a nested file from the selected memory section", async () => {
+    vi.mocked(request).mockResolvedValue({ content: "knowledge" });
+    await workspaceApi.loadMemoryFile("wiki/topic.md", "digest");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/wiki/topic.md?section=digest",
+    );
+  });
+
+  it("saves a nested file to the selected memory section", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    await workspaceApi.saveMemoryFile("2026/08/05.md", "today", "daily");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/2026/08/05.md?section=daily",
+      {
+        method: "PUT",
+        body: JSON.stringify({ content: "today" }),
+      },
+    );
   });
 });
 

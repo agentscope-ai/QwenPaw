@@ -72,6 +72,7 @@ class HookRegistration:
     hook_name: str
     callback: Callable
     priority: int = 100
+    reload_safe: bool = False
 
 
 @dataclass
@@ -593,6 +594,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         hook_name: str,
         callback: Callable,
         priority: int = 100,
+        reload_safe: bool = False,
     ):
         """Register a hook that fires when a new workspace is created.
 
@@ -605,12 +607,16 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             callback: Sync or async callback function.
                 Signature: ``(workspace_info: dict) -> None``
             priority: Priority (lower = earlier execution)
+            reload_safe: Whether the callback only restores in-memory state
+                and may run for a replacement workspace during reload. Such
+                callbacks must not perform workspace filesystem provisioning.
         """
         hook = HookRegistration(
             plugin_id=plugin_id,
             hook_name=hook_name,
             callback=callback,
             priority=priority,
+            reload_safe=reload_safe,
         )
         self._workspace_created_hooks.append(hook)
         self._workspace_created_hooks.sort(key=lambda h: h.priority)
@@ -626,6 +632,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             List of HookRegistration
         """
         return self._workspace_created_hooks.copy()
+
+    def get_workspace_setup_hooks(self) -> List[HookRegistration]:
+        """Get in-memory workspace setup hooks sorted by priority."""
+        return [
+            hook for hook in self._workspace_created_hooks if hook.reload_safe
+        ]
 
     def remove_hooks_by_name(
         self,

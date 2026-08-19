@@ -10,26 +10,27 @@ use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::string::CFString;
 use core_graphics::window::{
     copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
-    kCGWindowListOptionOnScreenOnly, kCGWindowName, kCGWindowNumber, kCGWindowOwnerName,
-    kCGWindowOwnerPID,
+    kCGWindowListOptionAll, kCGWindowName, kCGWindowNumber, kCGWindowOwnerName, kCGWindowOwnerPID,
 };
+use objc2_app_kit::NSWorkspace;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 use super::super::state::{merge_app_list, InstalledApp, WindowInfo};
-use super::accessibility_tree::find_ax_window;
-use super::{dict_i64, dict_string, window_owner_pid};
+use super::accessibility_tree::{find_ax_window, focused_window_id};
+use super::{dict_i64, dict_string};
 
 /// Directories a macOS application bundle is normally installed into.
 ///
 /// Only one level is scanned, plus the Utilities folders Apple ships, because
 /// a full recursive walk would pick up the many nested helper bundles inside
 /// each application.
-const APP_SEARCH_DIRS: [&str; 4] = [
+const APP_SEARCH_DIRS: [&str; 5] = [
     "/Applications",
     "/Applications/Utilities",
     "/System/Applications",
     "/System/Applications/Utilities",
+    "/System/Library/CoreServices",
 ];
 
 // A close request is asynchronous: wait briefly for the window to go away
@@ -37,15 +38,33 @@ const APP_SEARCH_DIRS: [&str; 4] = [
 const CLOSE_POLL_ATTEMPTS: u32 = 40;
 const CLOSE_POLL_INTERVAL_MS: u64 = 50;
 
-pub(crate) fn list_windows() -> Vec<Value> {
+pub(crate) fn list_windows(app: Option<&str>) -> Vec<Value> {
     enumerate_windows()
         .into_iter()
+        .filter(|window| app.is_none_or(|value| window.matches_app(value)))
         .map(|window| window.to_json())
         .collect()
 }
 
 pub(crate) fn list_apps() -> Vec<Value> {
     merge_app_list(installed_apps(), enumerate_windows())
+}
+
+/// The focused window of the application macOS currently considers frontmost.
+pub(crate) fn active_window() -> Option<WindowInfo> {
+    let pid = NSWorkspace::sharedWorkspace()
+        .frontmostApplication()?
+        .processIdentifier();
+    let windows = enumerate_windows();
+    let focused = focused_window_id(&AXUIElement::application(pid));
+    focused
+        .and_then(|id| {
+            windows
+                .iter()
+                .find(|window| window.hwnd == id as isize)
+                .cloned()
+        })
+        .or_else(|| windows.into_iter().find(|window| window.owner_pid == pid))
 }
 
 /// Applications installed in the usual locations, whether running or not.
@@ -111,11 +130,11 @@ pub(crate) fn is_forbidden(window: &WindowInfo) -> bool {
         || name.contains("keychain access")
 }
 
-/// Enumerate on-screen, normal-layer application windows via the CoreGraphics
-/// window list. Titles require Screen Recording permission; without it the
-/// window still lists but its title may be empty.
+/// Enumerate normal-layer application windows across Spaces via CoreGraphics.
+/// Titles require Screen Recording permission; without it the window still
+/// lists but its title may be empty.
 fn enumerate_windows() -> Vec<WindowInfo> {
-    let option = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    let option = kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements;
     let Some(list) = copy_window_info(option, kCGNullWindowID) else {
         return Vec::new();
     };
@@ -142,6 +161,7 @@ fn enumerate_windows() -> Vec<WindowInfo> {
         let title = dict_string(&dict, unsafe { kCGWindowName }).unwrap_or_default();
         windows.push(WindowInfo {
             hwnd: number as isize,
+            owner_pid: pid as i32,
             app_id: app_id_for_pid(pid as i32, &owner),
             display_name: owner.clone(),
             title,
@@ -225,10 +245,8 @@ fn bundle_root(path: &Path) -> Option<PathBuf> {
 /// path and may answer with a "save changes?" sheet instead of closing. A
 /// window that is still present is therefore a legitimate outcome reported as
 /// `closed: false`, never an error, and the process is never terminated.
-pub(crate) fn close_window(
-    window: &WindowInfo,
-) -> Result<Value, (&'static str, String)> {
-    let pid = window_owner_pid(window.hwnd as i64).ok_or((
+pub(crate) fn close_window(window: &WindowInfo) -> Result<Value, (&'static str, String)> {
+    let pid = (window.owner_pid > 0).then_some(window.owner_pid).ok_or((
         "window_not_found",
         "Could not resolve the window's process.".to_string(),
     ))?;
@@ -262,12 +280,10 @@ pub(crate) fn close_window(
             )
         })?;
     for _ in 0..CLOSE_POLL_ATTEMPTS {
-        if window_owner_pid(window.hwnd as i64).is_none() {
+        if resolve_window(&window.hwnd.to_string()).is_err() {
             return Ok(json!({"closed": true}));
         }
-        std::thread::sleep(std::time::Duration::from_millis(
-            CLOSE_POLL_INTERVAL_MS,
-        ));
+        std::thread::sleep(std::time::Duration::from_millis(CLOSE_POLL_INTERVAL_MS));
     }
     Ok(json!({"closed": false}))
 }

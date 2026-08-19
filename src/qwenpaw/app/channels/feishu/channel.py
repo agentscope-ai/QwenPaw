@@ -251,7 +251,12 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
-        self.domain = domain if domain in ("feishu", "lark") else "feishu"
+        # "feishu" / "lark", or a full http(s) base URL for custom /
+        # private gateways (e.g. a local mock in tests).
+        if domain in ("feishu", "lark") or str(domain).startswith("http"):
+            self.domain = domain
+        else:
+            self.domain = "feishu"
         self.share_session_in_group = share_session_in_group
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
@@ -293,6 +298,14 @@ class FeishuChannel(BaseChannel):
         # All interactive-card logic (outbound rendering + inbound
         # card.action.trigger dispatch) lives in the card handler.
         self._card_handler = FeishuCardHandler(self)
+
+    def _sdk_domain(self) -> str:
+        """SDK base URL: custom http(s) gateway, or the lark/feishu enum."""
+        if str(self.domain).startswith("http"):
+            return str(self.domain)
+        return (
+            lark.LARK_DOMAIN if self.domain == "lark" else lark.FEISHU_DOMAIN
+        )
 
     @classmethod
     def from_env(
@@ -502,11 +515,7 @@ class FeishuChannel(BaseChannel):
             if not token:
                 logger.warning("feishu: failed to get access token")
                 return None
-            base_url = (
-                "https://open.larksuite.com"
-                if self.domain == "lark"
-                else "https://open.feishu.cn"
-            )
+            base_url = self._sdk_domain()
             url = f"{base_url}/open-apis/bot/v3/info"
             response = await self._http_client.get(
                 url,
@@ -2532,11 +2541,7 @@ class FeishuChannel(BaseChannel):
                     self.app_secret,
                     event_handler=event_handler,
                     log_level=lark.LogLevel.INFO,
-                    domain=(
-                        lark.LARK_DOMAIN
-                        if self.domain == "lark"
-                        else lark.FEISHU_DOMAIN
-                    ),
+                    domain=self._sdk_domain(),
                 )
 
                 # Patch SDK to track last-received timestamp for
@@ -2757,9 +2762,7 @@ class FeishuChannel(BaseChannel):
         self._http_client = httpx.AsyncClient(
             timeout=30.0,
         )
-        sdk_domain = (
-            lark.LARK_DOMAIN if self.domain == "lark" else lark.FEISHU_DOMAIN
-        )
+        sdk_domain = self._sdk_domain()
         self._client = (
             lark.Client.builder()
             .app_id(self.app_id)

@@ -56,6 +56,26 @@ async def test_auto_snapshot_requires_successfully_persisted_session(
     ]
 
 
+async def test_auto_snapshot_skips_slash_like_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scheduled = False
+
+    async def schedule(*_args, **_kwargs) -> None:
+        nonlocal scheduled
+        scheduled = True
+
+    monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
+    ctx = _ctx(persisted=True)
+    ctx.input_msgs = [
+        SimpleNamespace(get_text_content=lambda: "  /help"),
+    ]
+
+    await CheckpointAutoSnapshotHook().run(ctx)
+
+    assert scheduled is False
+
+
 @pytest.mark.parametrize(
     ("persisted", "ephemeral"),
     [

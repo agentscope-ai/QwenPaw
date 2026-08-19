@@ -38,7 +38,7 @@ from acp.schema import (
 
 from ....agents.acp.meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
-    ACP_CODING_PROJECT_META_KEY,
+    ACP_PROJECT_DIR_META_KEY,
     ACP_EPHEMERAL_META_KEY,
 )
 from ..__version__ import __version__
@@ -402,7 +402,7 @@ class AcpTransport:
     def _session_kwargs(self) -> dict[str, str]:
         if not self._project_dir:
             return {}
-        return {ACP_CODING_PROJECT_META_KEY: self._project_dir}
+        return {ACP_PROJECT_DIR_META_KEY: self._project_dir}
 
     async def start(self) -> Connected:
         self._stack = AsyncExitStack()

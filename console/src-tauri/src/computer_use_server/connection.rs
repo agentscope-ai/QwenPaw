@@ -86,6 +86,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         .map_err(|error| format!("failed to bind Computer Use socket: {error}"))?;
     std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))
         .map_err(|error| format!("failed to secure Computer Use socket: {error}"))?;
+    let pid_path = std::path::Path::new(&socket_path).with_extension("pid");
+    std::fs::write(&pid_path, std::process::id().to_string())
+        .map_err(|error| format!("failed to publish Computer Use helper pid: {error}"))?;
+    std::fs::set_permissions(&pid_path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("failed to secure Computer Use helper pid: {error}"))?;
     // macOS has no Job Object; exit when the desktop parent goes away so the
     // helper is reaped on host crash or force-quit.
     super::platform_macos::spawn_parent_death_watch();

@@ -18,6 +18,7 @@ from agentscope.message import Msg, TextBlock, URLSource
 from ...app.channels.utils import file_url_to_local_path
 from ...config import load_config
 from .file_handling import download_file_from_base64, download_file_from_url
+from .image_freezing import freeze_local_images_async
 
 logger = logging.getLogger(__name__)
 
@@ -544,6 +545,8 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                     i + 1,
                     TextBlock(type="text", text=text),
                 )
+
+    await freeze_local_images_async(messages)
 
 
 def is_first_user_interaction(messages: list) -> bool:

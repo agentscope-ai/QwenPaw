@@ -10,13 +10,15 @@ use windows::Graphics::Imaging::{
     BitmapTypedValue,
 };
 use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
+use windows::Win32::Foundation::HWND;
 
 use super::super::state::{
-    next_id, Observation, ServerState, WindowInfo, BMP_HEADER_BYTES, SCREENSHOT_JPEG_QUALITY,
-    SCREENSHOT_MAX_EDGE,
+    accessibility_revision, next_id, Observation, ServerState, WindowInfo, BMP_HEADER_BYTES,
+    SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
 };
 use super::uia::collect_accessibility;
-use super::wgc::{capture_window, CaptureArgs};
+use super::wgc::{capture_window, CaptureArgs, CaptureInfo};
+use super::window::get_visible_window_rect;
 
 pub(crate) fn observe_window(
     state: &mut ServerState,
@@ -26,10 +28,85 @@ pub(crate) fn observe_window(
     let capture = capture_window(CaptureArgs {
         hwnd: window.hwnd,
         timeout: Duration::from_millis(2500),
-    })
-    .map_err(|error| ("capture_failed", error))?;
-    let bytes = capture.bitmap;
+    });
+    let accessibility = collect_accessibility(window);
+    require_observation_source(&capture, &accessibility)?;
+    let (accessibility, elements) = match accessibility {
+        Ok(result) => result,
+        Err(message) => (
+            json!({"available": false, "reason": message, "elements": []}),
+            Default::default(),
+        ),
+    };
+    let accessibility_revision = accessibility_revision(&accessibility);
+    let (bounds, display_width, display_height, visual, screenshots) =
+        capture_parts(capture, window);
+    state.observations.insert(
+        observation_id.clone(),
+        Observation {
+            window: window.clone(),
+            bounds,
+            display_width,
+            display_height,
+            accessibility_revision,
+            elements,
+        },
+    );
+    Ok(json!({
+        "observation_id": observation_id,
+        "window": window.to_json(),
+        "viewport": {"width": display_width, "height": display_height},
+        "visual": visual,
+        "accessibility": accessibility,
+        "screenshots": screenshots,
+    }))
+}
+
+fn require_observation_source<C, A>(
+    capture: &Result<C, String>,
+    accessibility: &Result<A, String>,
+) -> Result<(), (&'static str, String)> {
+    if let (Err(capture_error), Err(accessibility_error)) = (capture, accessibility) {
+        return Err((
+            "capture_failed",
+            format!("{capture_error} Accessibility was also unavailable: {accessibility_error}"),
+        ));
+    }
+    Ok(())
+}
+
+type CaptureParts = ([i32; 4], u32, u32, Value, Value);
+
+fn capture_parts(capture: Result<CaptureInfo, String>, window: &WindowInfo) -> CaptureParts {
+    match capture {
+        Ok(capture) => captured_parts(capture),
+        Err(reason) => {
+            let bounds = get_visible_window_rect(HWND(window.hwnd as _))
+                .map(|rect| {
+                    [
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                    ]
+                })
+                .unwrap_or_default();
+            (
+                bounds,
+                0,
+                0,
+                json!({"available": false, "reason": reason}),
+                json!([]),
+            )
+        }
+    }
+}
+
+fn captured_parts(capture: CaptureInfo) -> CaptureParts {
+    let [left, top, right, bottom] = capture.window_rect;
+    let bounds = [left, top, right - left, bottom - top];
     let (display_width, display_height) = bounded_dimensions(capture.width, capture.height);
+    let bytes = capture.bitmap;
     let (media_type, image_bytes) = match encode_screenshot_jpeg(
         &bytes,
         capture.width,
@@ -45,32 +122,12 @@ pub(crate) fn observe_window(
             ("image/bmp", bytes)
         }
     };
-    // Observations record origin plus size, while the capture reports edges.
-    let [left, top, right, bottom] = capture.window_rect;
-    let bounds = [left, top, right - left, bottom - top];
-    let (accessibility, elements) = match collect_accessibility(window) {
-        Ok((description, elements)) => (description, elements),
-        Err(message) => (
-            json!({"available": false, "reason": message, "elements": []}),
-            Default::default(),
-        ),
-    };
-    state.observations.insert(
-        observation_id.clone(),
-        Observation {
-            window: window.clone(),
-            bounds,
-            display_width,
-            display_height,
-            elements,
-        },
-    );
-    Ok(json!({
-        "observation_id": observation_id,
-        "window": window.to_json(),
-        "viewport": {"width": display_width, "height": display_height},
-        "accessibility": accessibility,
-        "screenshots": [{
+    (
+        bounds,
+        display_width,
+        display_height,
+        json!({"available": true}),
+        json!([{
             "url": format!(
                 "data:{media_type};base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(image_bytes),
@@ -81,8 +138,8 @@ pub(crate) fn observe_window(
             "height": display_height,
             "z_index": 0,
             "kind": "main",
-        }],
-    }))
+        }]),
+    )
 }
 
 /// Compute the delivered screenshot size, downscaling proportionally when
@@ -184,4 +241,30 @@ fn encode_screenshot_jpeg(
         .ReadBytes(&mut encoded)
         .map_err(|error| format!("read encoded stream: {error}"))?;
     Ok(encoded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_observation_source;
+
+    #[test]
+    fn accessibility_keeps_an_observation_alive_when_capture_fails() {
+        let capture: Result<(), String> = Err("capture unavailable".to_string());
+        let accessibility: Result<(), String> = Ok(());
+
+        require_observation_source(&capture, &accessibility)
+            .expect("accessibility-only observations must remain usable");
+    }
+
+    #[test]
+    fn observation_fails_when_both_sources_fail() {
+        let capture: Result<(), String> = Err("capture unavailable".to_string());
+        let accessibility: Result<(), String> = Err("UIA unavailable".to_string());
+
+        let error = require_observation_source(&capture, &accessibility)
+            .expect_err("an observation needs at least one source");
+        assert_eq!(error.0, "capture_failed");
+        assert!(error.1.contains("capture unavailable"));
+        assert!(error.1.contains("UIA unavailable"));
+    }
 }

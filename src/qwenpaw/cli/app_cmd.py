@@ -155,6 +155,8 @@ def app_cmd(
         reload=reload,
         workers=1,
         log_level=log_level,
+        # Bound shutdown so workspace SSE connections cannot block exit.
+        timeout_graceful_shutdown=5,
         # Chrome Native Messaging inbound limit; this server-wide value is a
         # protocol fact rather than a user-configurable WebSocket capacity.
         ws_max_size=NM_MAX_INBOUND_BYTES,

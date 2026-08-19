@@ -9,6 +9,7 @@ import {
   listFileExecutionAuthorizations,
   newClientId,
 } from "@/api/creator";
+import i18n from "@/i18n";
 
 const actionRetryIds = new Map<string, string>();
 
@@ -88,7 +89,7 @@ export const useExecutionAuthorizationStore =
       },
       approve: async (authorizationId, request) => {
         const { projectId } = get();
-        if (!projectId) throw new Error("当前没有活动 Project");
+        if (!projectId) throw new Error(i18n.t("store.noActiveProject"));
         const signature = JSON.stringify({
           projectId,
           authorizationId,
@@ -115,7 +116,7 @@ export const useExecutionAuthorizationStore =
       },
       decline: async (authorizationId, authorizationToken) => {
         const { projectId } = get();
-        if (!projectId) throw new Error("当前没有活动 Project");
+        if (!projectId) throw new Error(i18n.t("store.noActiveProject"));
         const request = { authorizationToken };
         const signature = JSON.stringify({
           projectId,

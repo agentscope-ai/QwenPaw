@@ -148,6 +148,13 @@ def _is_dashscope_provider(base_url: str) -> bool:
     return "dashscope" in host
 
 
+def uses_dashscope_transport() -> bool:
+    """True when the configured VLM transports local media through the
+    DashScope model-bound temporary OSS upload (48h TTL, <=1GB) instead
+    of inline Base64 data URLs."""
+    return _is_dashscope_provider(model_config.get_vlm_base_url())
+
+
 async def _transport_local_media_part(
     part: dict,
     api_key: str,

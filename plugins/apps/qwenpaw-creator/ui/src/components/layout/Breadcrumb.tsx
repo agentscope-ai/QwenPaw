@@ -7,6 +7,7 @@ import {
 } from "@/routing/navigation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
+import { useTranslation } from "react-i18next";
 
 interface Crumb {
   label: string;
@@ -14,6 +15,7 @@ interface Crumb {
 }
 
 export function useBreadcrumbs(): Crumb[] {
+  const { t } = useTranslation();
   const { id: projectId } = useParams();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -25,7 +27,9 @@ export function useBreadcrumbs(): Crumb[] {
   const parts = pathname.split("/").filter(Boolean);
   const routeSection = parts[2] || "";
   if (routeSection === "plan") {
-    const crumbs: Crumb[] = [{ label: "视频方案", path: `${base}/plan` }];
+    const crumbs: Crumb[] = [
+      { label: t("nav.videoPlan"), path: `${base}/plan` },
+    ];
     if (parts[3] === "element" && parts[4]) {
       // R2V workbench: /project/:id/plan/element/:elementId
       const elementId = decodeURIComponent(parts[4]);
@@ -34,7 +38,7 @@ export function useBreadcrumbs(): Crumb[] {
         label: element?.label || elementId,
         path: `${base}/plan?element=${encodeURIComponent(elementId)}`,
       });
-      crumbs.push({ label: "制作工作台" });
+      crumbs.push({ label: t("nav.productionWorkbench") });
       return crumbs;
     }
     const elementId = searchParams.get("element");
@@ -46,7 +50,9 @@ export function useBreadcrumbs(): Crumb[] {
   }
 
   if (routeSection === "assets") {
-    const crumbs: Crumb[] = [{ label: "资产库", path: `${base}/assets` }];
+    const crumbs: Crumb[] = [
+      { label: t("nav.assets"), path: `${base}/assets` },
+    ];
     const selectedId = searchParams.get("select") || searchParams.get("asset");
     if (selectedId) {
       const selected =
@@ -61,13 +67,14 @@ export function useBreadcrumbs(): Crumb[] {
 }
 
 export default function Breadcrumb() {
+  const { t } = useTranslation();
   const crumbs = useBreadcrumbs();
   if (crumbs.length === 0) return null;
 
   return (
     <nav
       className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--color-text-secondary)]"
-      aria-label="面包屑"
+      aria-label={t("nav.breadcrumb")}
     >
       {crumbs.map((crumb, index) => {
         const isLast = index === crumbs.length - 1;

@@ -2,7 +2,10 @@
 """Chat management API."""
 
 from __future__ import annotations
+
+import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -15,17 +18,31 @@ from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
     BatchArchiveResult,
+    ChatGroup,
+    ChatGroupCreate,
+    ChatGroupOrderUpdate,
+    ChatGroupUpdate,
     ChatSpec,
     ChatUpdate,
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from ...services.project_directory import (
+    resolve_effective_project_dir,
+    session_project_dir,
+)
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+def _is_app_owned_chat(chat: ChatSpec) -> bool:
+    """Return whether a chat belongs to a PawApp-owned dialogue surface."""
+    owner = chat.meta.get("pawapp") if isinstance(chat.meta, dict) else None
+    return isinstance(owner, dict) and bool(owner.get("app_id"))
 
 
 async def get_workspace(request: Request):
@@ -71,6 +88,33 @@ async def get_session(
     return workspace.session
 
 
+class ProjectDirectoryUpdate(BaseModel):
+    """Controlled Session project directory update."""
+
+    project_dir: str
+
+
+async def _project_directory_response(chat: ChatSpec, workspace) -> dict:
+    """Build the effective Session project directory response."""
+    from ...config.config import load_agent_config
+
+    def _build() -> dict:
+        agent_config = load_agent_config(workspace.agent_id)
+        project_dir, source = resolve_effective_project_dir(
+            workspace.workspace_dir,
+            agent_project_dir=agent_config.project_dir,
+            session_override=session_project_dir(chat.meta),
+        )
+        return {
+            "project_dir": str(project_dir),
+            "source": source,
+            "agent_project_dir": agent_config.project_dir,
+            "exists": project_dir.is_dir(),
+        }
+
+    return await asyncio.to_thread(_build)
+
+
 @router.get("", response_model=list[ChatSpec])
 async def list_chats(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
@@ -81,6 +125,13 @@ async def list_chats(
             "Filter by archived status. "
             "false=active only, true=archived only, "
             "null/omit=all (default)"
+        ),
+    ),
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Include PawApp-owned chats. Administrative and legacy callers "
+            "keep the full catalog by default; the main Chat surface opts out."
         ),
     ),
     mgr: ChatManager = Depends(get_chat_manager),
@@ -97,6 +148,8 @@ async def list_chats(
         channel=channel,
         archived=archived,
     )
+    if not include_app_owned:
+        chats = [chat for chat in chats if not _is_app_owned_chat(chat)]
     tracker = workspace.task_tracker
     result = []
     for spec in chats:
@@ -129,8 +182,85 @@ async def create_chat(
         user_id=request.user_id,
         channel=request.channel,
         meta=request.meta,
+        source=request.source,
+        group_id=request.group_id,
+        parent_session_id=request.parent_session_id,
+        root_session_id=request.root_session_id,
     )
-    return await mgr.create_chat(spec)
+    try:
+        return await mgr.create_chat(spec)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ----- Chat group endpoints -----
+
+
+@router.get("/groups", response_model=list[ChatGroup])
+async def list_chat_groups(
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """List built-in and custom groups in display order."""
+    return await mgr.list_groups()
+
+
+@router.post("/groups", response_model=ChatGroup)
+async def create_chat_group(
+    payload: ChatGroupCreate,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Create a custom chat group."""
+    try:
+        return await mgr.create_group(payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/groups/order", response_model=list[ChatGroup])
+async def reorder_chat_groups(
+    payload: ChatGroupOrderUpdate,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Replace the complete chat-group display order."""
+    try:
+        return await mgr.reorder_groups(payload.group_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/groups/{group_id}", response_model=ChatGroup)
+async def update_chat_group(
+    group_id: str,
+    payload: ChatGroupUpdate,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Rename or pin a mutable chat group."""
+    try:
+        group = await mgr.update_group(
+            group_id,
+            name=payload.name,
+            pinned=payload.pinned,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if group is None:
+        raise HTTPException(status_code=404, detail="Chat group not found")
+    return group
+
+
+@router.delete("/groups/{group_id}", response_model=dict)
+async def delete_chat_group(
+    group_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+):
+    """Delete a custom group and re-home its chats."""
+    try:
+        deleted = await mgr.delete_group(group_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Chat group not found")
+    return {"success": True, "group_id": group_id}
 
 
 @router.post("/batch-delete", response_model=dict)
@@ -239,12 +369,73 @@ async def unarchive_chat(
     return result
 
 
+@router.get("/{chat_id}/project-dir")
+async def get_chat_project_dir(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Return the Session override and effective project directory."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return await _project_directory_response(chat, workspace)
+
+
+@router.put("/{chat_id}/project-dir")
+async def set_chat_project_dir(
+    chat_id: str,
+    body: ProjectDirectoryUpdate,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Persist a validated Session project directory override."""
+
+    def _resolve_target() -> Path:
+        target = Path(body.project_dir).expanduser().resolve()
+        if not target.is_dir():
+            raise NotADirectoryError(str(target))
+        return target
+
+    try:
+        target = await asyncio.to_thread(_resolve_target)
+    except NotADirectoryError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
+    chat = await mgr.set_project_dir(chat_id, str(target))
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return await _project_directory_response(chat, workspace)
+
+
+@router.delete("/{chat_id}/project-dir")
+async def clear_chat_project_dir(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Clear the override and inherit the Agent default project directory."""
+    chat = await mgr.set_project_dir(chat_id, None)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return await _project_directory_response(chat, workspace)
+
+
 # ----- Existing CRUD endpoints -----
 
 
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,
+    include_app_owned: bool = Query(
+        True,
+        description=(
+            "Allow reading PawApp-owned chat history. The main Chat surface "
+            "opts out so app dialogues stay inside their owning app."
+        ),
+    ),
     mgr: ChatManager = Depends(get_chat_manager),
     session: SafeJSONSession = Depends(get_session),
     workspace=Depends(get_workspace),
@@ -265,6 +456,11 @@ async def get_chat(
     """
     chat_spec = await mgr.get_chat(chat_id)
     if not chat_spec:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    if not include_app_owned and _is_app_owned_chat(chat_spec):
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
@@ -344,7 +540,10 @@ async def update_chat(
     Raises:
         HTTPException: If chat not found (404)
     """
-    updated = await mgr.patch_chat(chat_id, spec)
+    try:
+        updated = await mgr.patch_chat(chat_id, spec)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(
             status_code=404,

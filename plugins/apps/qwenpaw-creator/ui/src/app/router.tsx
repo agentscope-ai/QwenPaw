@@ -5,6 +5,7 @@ import {
   type RouteObject,
 } from "react-router-dom";
 import { Suspense, lazy } from "react";
+import { useTranslation } from "react-i18next";
 import ProjectLayout from "@/components/layout/ProjectLayout";
 import PageSkeleton from "@/components/PageSkeleton";
 import { loadWithChunkRecovery } from "@/lib/lazyWithChunkRecovery";
@@ -47,14 +48,15 @@ function RouteRuntime() {
 }
 
 export function NotFoundPage({ projectId }: { projectId?: string }) {
+  const { t } = useTranslation();
   return (
     <div className="flex h-full min-h-[60vh] items-center justify-center bg-[var(--color-bg-layout)] px-6">
       <div className="max-w-sm text-center">
         <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-          页面未找到
+          {t("router.notFound")}
         </p>
         <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-          当前地址没有对应的 Creator 页面。
+          {t("router.notFoundDesc")}
         </p>
         <button
           type="button"
@@ -63,7 +65,7 @@ export function NotFoundPage({ projectId }: { projectId?: string }) {
           }
           className="mt-4 rounded border border-[var(--color-border)] bg-white px-3 py-1.5 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)]"
         >
-          返回
+          {t("router.back")}
         </button>
       </div>
     </div>

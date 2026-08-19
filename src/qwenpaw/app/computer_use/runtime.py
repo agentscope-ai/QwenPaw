@@ -211,10 +211,24 @@ def _control_endpoint() -> _ControlEndpoint | None:
 
 
 def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
-    request = {
-        "token": control.token,
-        "action": "acquire",
-    }
+    response = _request_control(control, {"action": "acquire"})
+    if response is None or response.get("ok") is not True:
+        return None
+    pipe_name = response.get("pipe_name")
+    secret = response.get("capability")
+    if not isinstance(pipe_name, str) or not isinstance(secret, str):
+        return None
+    if not pipe_name or not secret:
+        return None
+    return RuntimeCapability(pipe_name, secret, COMPUTER_USE_PROTOCOL_VERSION)
+
+
+def _request_control(
+    control: _ControlEndpoint,
+    fields: dict[str, object],
+) -> dict[str, object] | None:
+    """Exchange one bounded request with the authenticated desktop host."""
+    request = {"token": control.token, **fields}
     try:
         with socket.create_connection(
             (control.host, control.port),
@@ -233,15 +247,9 @@ def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
         response = json.loads(payload)
     except (OSError, ValueError):
         return None
-    if not isinstance(response, dict) or response.get("ok") is not True:
+    if not isinstance(response, dict):
         return None
-    pipe_name = response.get("pipe_name")
-    secret = response.get("capability")
-    if not isinstance(pipe_name, str) or not isinstance(secret, str):
-        return None
-    if not pipe_name or not secret:
-        return None
-    return RuntimeCapability(pipe_name, secret, COMPUTER_USE_PROTOCOL_VERSION)
+    return response
 
 
 def set_current_computer_use_turn_id(turn_id: str | None) -> None:

@@ -34,6 +34,7 @@ class CreatorSessionView(StrictModel):
         ge=0,
     )
     last_event_seq: int = Field(alias="lastEventSeq", ge=0)
+    error: dict[str, Any] | None = None
 
 
 class CreatorSessionResponse(StrictModel):

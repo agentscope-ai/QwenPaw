@@ -23,6 +23,15 @@ export interface MarketPluginEntry {
   is_featured?: boolean;
 }
 
+/** Return whether a marketplace entry is classified as an app. */
+export function isMarketPluginApp(entry: MarketPluginEntry): boolean {
+  return Object.values(entry.locales ?? {}).some(
+    (locale) =>
+      typeof locale?.category === "string" &&
+      locale.category.trim().toLowerCase() === "app",
+  );
+}
+
 export type MarketPluginSortBy = "downloads" | "updated_time" | "fauvarate";
 
 interface MarketPluginListResponse {

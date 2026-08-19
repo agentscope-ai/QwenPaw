@@ -26,7 +26,10 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
-from ...config.context import get_current_workspace_dir
+from ...config.context import (
+    get_current_project_dir,
+    get_current_workspace_dir,
+)
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
@@ -83,7 +86,7 @@ def is_ast_grep_available() -> bool:
 
 def _resolve_root() -> Path:
     """Resolve the search base directory."""
-    workspace = get_current_workspace_dir()
+    workspace = get_current_project_dir() or get_current_workspace_dir()
     if workspace is not None:
         return workspace
     return WORKING_DIR

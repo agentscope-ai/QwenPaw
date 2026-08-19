@@ -32,6 +32,12 @@ def test_tool_description_is_bounded_and_keeps_execution_contract():
         "LIMIT ? OFFSET ?",
         "ms.expand(lo, hi)",
         "ms.search(query",
+        "include_turn=True",
+        "complete user-bounded `turn`",
+        "created_on=None",
+        "date-only recall",
+        "ms.days_between(d1, d2",
+        "Signed calendar-day difference",
         "ms.recall_tool(tool_call_id",
         "ms.sql_query(sql, params)",
     ):
@@ -125,3 +131,12 @@ async def test_successful_output_carries_no_banner(run):
     text = _text(chunk)
     assert "RECALL FAILED" not in text
     assert "hit: flight AA231" in text
+
+
+async def test_python_tool_exposes_signed_days_between(run):
+    chunk = await run(
+        'print(ms.days_between("2024-12-16", "2024-11-01"))',
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert _text(chunk).strip().endswith("-45")

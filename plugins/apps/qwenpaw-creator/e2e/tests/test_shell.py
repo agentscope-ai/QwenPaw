@@ -34,15 +34,18 @@ def test_model_config_values_are_visible_without_legacy_surfaces(page, api):
     assert set(config) == {
         "llm",
         "vlm",
+        "grounding",
         "asr",
+        "tts",
         "image",
         "video",
         "oss",
+        "creationCheckpoints",
         "executionAuthorization",
     }
     HomePage(page).open().open_model_config()
     modal = page.locator(".model-config-modal")
-    expect(modal.locator("button.segmented-tab")).to_have_count(6)
+    expect(modal.locator("button.segmented-tab")).to_have_count(7)
 
 
 def test_create_snapshot_and_delete_project(api):
@@ -52,7 +55,7 @@ def test_create_snapshot_and_delete_project(api):
     try:
         snapshot = api.project_snapshot(project_id)
         assert snapshot["projectId"] == project_id
-        assert snapshot["project"]["schema_version"] == 2
+        assert snapshot["project"]["schema_version"] == 4
         assert snapshot["project"]["timelines"]["order"] == ["timeline:main"]
         session = api.get(f"/projects/{project_id}/session")
         assert session.status_code == 200

@@ -133,14 +133,12 @@ Do NOT read or write here unless the user explicitly asks.
 
 
 def _project_dir_from_config(agent_config: object | None) -> str | None:
-    """Extract a configured Coding Mode project dir from an agent config."""
+    """Extract the mode-independent project dir from an agent config."""
     if agent_config is None:
         return None
     if isinstance(agent_config, dict):
-        cm_dict = agent_config.get("coding_mode") or {}
-        return cm_dict.get("project_dir") or None
-    cm_obj = getattr(agent_config, "coding_mode", None)
-    return getattr(cm_obj, "project_dir", None) or None
+        return agent_config.get("project_dir") or None
+    return getattr(agent_config, "project_dir", None) or None
 
 
 class CodingModeMixin:
@@ -179,9 +177,8 @@ class CodingModeMixin:
 
         try:
             config = load_agent_config(agent_id)
-            cm = config.coding_mode
-            if cm and cm.project_dir:
-                return cm.project_dir
+            if config.project_dir:
+                return config.project_dir
         except Exception:
             logger.debug(
                 "Failed to reload agent config for Coding Mode project",
@@ -287,7 +284,8 @@ def collect_coding_tools(
         return []
 
     project_dir = Path(
-        getattr(cm, "project_dir", None) or str(workspace_dir or WORKING_DIR),
+        getattr(agent_config, "project_dir", None)
+        or str(workspace_dir or WORKING_DIR),
     )
     result: list = []
 

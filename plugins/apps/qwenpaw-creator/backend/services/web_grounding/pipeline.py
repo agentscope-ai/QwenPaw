@@ -60,7 +60,9 @@ verify_visual_grounding_with_vlm = (
     verification.verify_visual_grounding_with_vlm
 )
 search_visual_refs = provider_search.search_visual_refs
+search_visual_refs_by_image = provider_search.search_visual_refs_by_image
 search_web = provider_search.search_web
+extract_web_pages = provider_search.extract_web_pages
 _dedupe_sources = provider_search._dedupe_sources
 _dedupe_visual_sources = provider_search._dedupe_visual_sources
 _dedupe_visual_sources_with_query_coverage = (
@@ -145,19 +147,25 @@ async def ground_prompt_context(
             ],
         }
     effective_visual_search_timeout = float(
-        visual_search_timeout
-        if visual_search_timeout is not None
-        else model_config.get_web_grounding_visual_search_timeout_seconds(),
+        (
+            visual_search_timeout
+            if visual_search_timeout is not None
+            else model_config.get_web_grounding_visual_search_timeout_seconds()
+        ),
     )
     effective_image_download_timeout = float(
-        image_download_timeout
-        if image_download_timeout is not None
-        else model_config.get_web_grounding_image_download_timeout_seconds(),
+        (
+            image_download_timeout
+            if image_download_timeout is not None
+            else model_config.get_web_grounding_image_download_timeout_seconds()
+        ),
     )
     effective_verification_timeout = float(
-        verification_timeout
-        if verification_timeout is not None
-        else model_config.get_web_grounding_verification_timeout_seconds(),
+        (
+            verification_timeout
+            if verification_timeout is not None
+            else model_config.get_web_grounding_verification_timeout_seconds()
+        ),
     )
     logger.info(
         "Ground prompt context started prompt_len=%d requested_queries=%d force=%s detect_only=%s include_visuals=%s detector=%s",
@@ -306,6 +314,11 @@ async def ground_prompt_context(
         "status": "skipped",
         "detail": "no strict identity retry needed",
     }
+    identity_confirmation: dict[str, Any] = {
+        "status": "skipped",
+        "detail": "no Lens identity candidate required confirmation",
+        "candidates": [],
+    }
     issues: list[str] = list(analysis.get("detector_issues") or [])
 
     async def _safe_search_web(query: str) -> dict[str, Any]:
@@ -332,12 +345,50 @@ async def ground_prompt_context(
 
     async def _safe_search_visual_refs(job: dict[str, Any]) -> dict[str, Any]:
         query = str(job.get("query") or "")
+        reference_image = str(job.get("reference_image") or "").strip()
+        reference_bbox = job.get("reference_bbox")
         try:
+            lens_issues: list[str] = []
+            lens_attempted: list[str] = []
+            if reference_image:
+                # Serper Lens reverse image search runs first when the entity
+                # carries a reference image; text search remains the fallback.
+                lens_kwargs: dict[str, Any] = {
+                    "query": query,
+                    "max_sources": min(
+                        DEFAULT_VISUAL_RESULTS_PER_JOB,
+                        max_sources,
+                    ),
+                    "timeout": effective_visual_search_timeout,
+                }
+                if isinstance(reference_bbox, (list, tuple)):
+                    lens_kwargs["bbox"] = list(reference_bbox)
+                lens_result = await search_visual_refs_by_image(
+                    reference_image,
+                    **lens_kwargs,
+                )
+                if lens_result.get("visual_sources"):
+                    lens_result["visual_job"] = job
+                    return lens_result
+                lens_issues = list(lens_result.get("issues") or [])
+                lens_attempted = list(
+                    lens_result.get("providers_attempted") or [],
+                )
             result = await search_visual_refs(
                 query,
                 max_sources=min(DEFAULT_VISUAL_RESULTS_PER_JOB, max_sources),
                 timeout=effective_visual_search_timeout,
             )
+            if lens_issues:
+                result["issues"] = [
+                    *lens_issues,
+                    *(result.get("issues") or []),
+                ]
+            if lens_attempted:
+                result["providers_attempted"] = [
+                    *lens_attempted,
+                    *(result.get("providers_attempted") or []),
+                ]
             result["visual_job"] = job
             return result
         except (
@@ -409,6 +460,82 @@ async def ground_prompt_context(
         )
         visual_search_trace.append(result_trace)
 
+    lens_candidates: list[str] = []
+    for source in all_visual_sources:
+        if source.get("provider") != "serper_lens" or not source.get(
+            "strict_identity",
+        ):
+            continue
+        candidate = _clean_text(source.get("title"), max_chars=140)
+        if candidate and candidate.casefold() not in {
+            "match",
+            "lens match",
+            "untitled",
+        }:
+            lens_candidates.append(candidate)
+    lens_candidates = list(dict.fromkeys(lens_candidates))[:2]
+    if lens_candidates:
+        confirmation_sources: list[dict[str, Any]] = []
+        confirmation_trace: list[dict[str, Any]] = []
+        for candidate in lens_candidates:
+            confirmation_query = f"{candidate} official identity"
+            search_result = await _safe_search_web(confirmation_query)
+            candidate_sources = list(search_result.get("sources") or [])
+            issues.extend(search_result.get("issues") or [])
+            trace_item: dict[str, Any] = {
+                "candidate": candidate,
+                "query": confirmation_query,
+                "search_sources": len(candidate_sources),
+                "extracted_sources": 0,
+                "status": "insufficient_evidence",
+            }
+            if candidate_sources:
+                extraction = await extract_web_pages(
+                    [str(candidate_sources[0].get("url") or "")],
+                    goal=f"Confirm the specific identity and facts for {candidate}",
+                    timeout=timeout,
+                )
+                extracted_sources = list(extraction.get("sources") or [])
+                confirmation_sources.extend(extracted_sources)
+                confirmation_sources.extend(candidate_sources)
+                issues.extend(extraction.get("issues") or [])
+                trace_item["extracted_sources"] = len(extracted_sources)
+                candidate_key = candidate.casefold()
+                candidate_supported = any(
+                    candidate_key
+                    in " ".join(
+                        (
+                            str(source.get("title") or ""),
+                            str(source.get("content") or ""),
+                            str(source.get("snippet") or ""),
+                        ),
+                    ).casefold()
+                    for source in extracted_sources
+                )
+                trace_item["status"] = (
+                    "confirmed"
+                    if candidate_supported
+                    else (
+                        "conflicting_or_thin_evidence"
+                        if extracted_sources
+                        else "search_only"
+                    )
+                )
+            confirmation_trace.append(trace_item)
+        all_sources = [*confirmation_sources, *all_sources]
+        identity_confirmation = {
+            "status": (
+                "confirmed"
+                if any(
+                    item["status"] == "confirmed"
+                    for item in confirmation_trace
+                )
+                else "insufficient_evidence"
+            ),
+            "detail": "Lens candidates were cross-checked with web search and page extraction",
+            "candidates": confirmation_trace,
+        }
+
     sources = _dedupe_sources(all_sources, max_sources=max_sources)
     for index, source in enumerate(sources, start=1):
         source["index"] = index
@@ -444,9 +571,11 @@ async def ground_prompt_context(
     else:
         visual_download = {
             "status": "skipped",
-            "detail": "visual grounding not requested"
-            if not effective_include_visuals
-            else "no visual search candidates",
+            "detail": (
+                "visual grounding not requested"
+                if not effective_include_visuals
+                else "no visual search candidates"
+            ),
             "downloaded_count": 0,
             "failed_count": 0,
         }
@@ -652,9 +781,11 @@ async def ground_prompt_context(
     else:
         visual_verification = {
             "status": "skipped",
-            "detail": "visual grounding not requested"
-            if not effective_include_visuals
-            else "visual verification disabled",
+            "detail": (
+                "visual grounding not requested"
+                if not effective_include_visuals
+                else "visual verification disabled"
+            ),
         }
     missing_strict_jobs = (
         _strict_identity_jobs_without_accepted_refs(
@@ -727,6 +858,7 @@ async def ground_prompt_context(
                 "entity_type": job.get("entity_type") or "",
                 "usage": job.get("usage") or "context",
                 "strict_identity": bool(job.get("strict_identity")),
+                "reference_bbox": job.get("reference_bbox"),
             }
             for job in planned_visual_jobs
         ],
@@ -734,6 +866,7 @@ async def ground_prompt_context(
         "sources": sources,
         "visual_sources": visual_sources,
         "visual_search_trace": visual_search_trace,
+        "identity_confirmation": identity_confirmation,
         "visual_download": visual_download,
         "visual_verification": visual_verification,
         "grounded_context": _render_grounded_context(

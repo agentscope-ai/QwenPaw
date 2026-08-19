@@ -106,6 +106,7 @@ export function PetOsBubble({
     let padding = 5;
     let bubbleW = 0;
     let bubbleH = 0;
+    let bubbleBodyH = 0;
 
     while (fontSize >= 10) {
       border = Math.max(2, Math.round(containerH * 0.018));
@@ -115,9 +116,13 @@ export function PetOsBubble({
       textW = Math.max(...lines.map((l) => measureWidth(l, fontSize)), 1);
       textH = lines.length * lineHeightOf(fontSize) - 2;
       bubbleW = Math.min(textW + padding * 2 + border * 2, maxBubbleW);
-      bubbleH =
-        textH + padding * 2 + border * 2 + tailHeight + emojiSize + emojiGap;
-      if (bubbleW <= maxBubbleW) break;
+      bubbleBodyH = textH + padding * 2 + border * 2;
+      bubbleH = bubbleBodyH + Math.max(tailHeight, emojiSize + emojiGap);
+      if (
+        textW + padding * 2 + border * 2 <= maxBubbleW &&
+        bubbleH <= containerH
+      )
+        break;
       fontSize -= 1;
     }
 
@@ -126,16 +131,15 @@ export function PetOsBubble({
 
     const lineHeight = lineHeightOf(fontSize);
     const actualTextH = lines.length * lineHeight - 2;
-    const textAreaH =
-      bubbleH - tailHeight - emojiSize - emojiGap - border - padding * 2;
+    const textAreaH = bubbleBodyH - border * 2 - padding * 2;
     const textTop =
       bubbleY + border + padding + Math.max(0, (textAreaH - actualTextH) / 2);
 
-    const bubbleBottom = bubbleY + bubbleH - border;
+    const bubbleBottom = bubbleY + bubbleBodyH - border / 2;
     const bubbleRight = bubbleX + bubbleW - border;
     const radius = Math.max(
       5,
-      Math.round(Math.min(bubbleW, bubbleH - tailHeight) * 0.09),
+      Math.round(Math.min(bubbleW, bubbleBodyH) * 0.09),
     );
 
     const tailRelX = Math.min(
@@ -155,7 +159,7 @@ export function PetOsBubble({
         tailTip[0] - Math.floor(emojiSize / 2),
       ),
     );
-    const emojiY = Math.min(containerH - emojiSize, tailTip[1] + emojiGap);
+    const emojiY = Math.min(containerH - emojiSize, bubbleBottom + emojiGap);
 
     content = (
       <svg
@@ -168,7 +172,7 @@ export function PetOsBubble({
           x={bubbleX + border / 2}
           y={bubbleY + border / 2}
           width={bubbleW - border}
-          height={bubbleBottom - bubbleY - border}
+          height={bubbleBodyH - border}
           rx={radius}
           fill="#ffffff"
           fillOpacity={238 / 255}

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
+import { useTranslation } from "react-i18next";
 import { useParams, usePathname } from "@/routing/navigation";
+import LaunchUploadProgressCard from "@/components/creator/LaunchUploadProgressCard";
 import { navigateToLocator } from "@/routing/locators";
 import type { FileProjectReviewOperation } from "@/contracts/creator";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
@@ -14,6 +16,7 @@ import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useNavigationStore } from "@/store/navigationStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import TopNav from "./TopNav";
 import ReturnBanner from "@/components/creator/ReturnBanner";
@@ -135,6 +138,7 @@ function LayoutSkeleton() {
 }
 
 export default function ProjectLayout() {
+  const { t } = useTranslation();
   const { id = "" } = useParams();
   const pathname = usePathname();
   const bootstrap = useCreatorSessionStore((state) => state.bootstrap);
@@ -151,6 +155,15 @@ export default function ProjectLayout() {
     ),
   );
   const refreshTasks = useCreatorTaskViewStore((state) => state.refresh);
+  // Scheduler-owned production keeps mutating tasks and the work graph
+  // after the agent run ends, so "session is idle" must not mean "stop
+  // watching": running nodes are in flight and ready nodes may be
+  // admitted on the next tick.
+  const workGraphActive = useWorkGraphStore((state) => {
+    const counts = state.graph?.counts;
+    if (!counts) return false;
+    return (counts.running ?? 0) > 0 || (counts.ready ?? 0) > 0;
+  });
   const startProjectSnapshotPolling = useProjectSnapshotStore(
     (state) => state.startPolling,
   );
@@ -165,9 +178,7 @@ export default function ProjectLayout() {
   const startFileReviewPolling = useFileProjectReviewStore(
     (state) => state.startPolling,
   );
-  const activeFileReview = useFileProjectReviewStore(
-    (state) => state.reviews[0] ?? null,
-  );
+  const fileReviews = useFileProjectReviewStore((state) => state.reviews);
   const fileReviewSyncStatus = useFileProjectReviewStore(
     (state) => state.syncStatus,
   );
@@ -229,7 +240,14 @@ export default function ProjectLayout() {
       useAgentDockUiStore.getState().reset();
       useNavigationStore.getState().clear();
     }
-    void Promise.all([bootstrap(id), refreshTasks(id)]).catch(() => undefined);
+    void Promise.all([
+      bootstrap(id),
+      refreshTasks(id),
+      // Load the graph eagerly: the DAG panel only renders once nodes
+      // exist, and its own mount-refresh cannot break that chicken-and-egg
+      // after a page reload on a scheduler-driven project.
+      useWorkGraphStore.getState().refresh(id),
+    ]).catch(() => undefined);
     return () => disconnect();
   }, [bootstrap, disconnect, id, refreshTasks]);
 
@@ -250,6 +268,20 @@ export default function ProjectLayout() {
     }, 750);
     return () => window.clearInterval(timer);
   }, [id, refreshTasks, sessionStatus]);
+
+  useEffect(() => {
+    if (!id || !workGraphActive) return;
+    // Scheduler-driven production runs with no live agent session and no
+    // SSE stream: without this poll the dock and timeline freeze on the
+    // last mid-flight snapshot (perpetual "waiting for result" rows and
+    // generating stripes on finished elements). Polling stops by itself
+    // once every node is terminal.
+    const timer = window.setInterval(() => {
+      void refreshTasks(id).catch(() => undefined);
+      void useWorkGraphStore.getState().refresh(id);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [id, refreshTasks, workGraphActive]);
 
   useEffect(() => {
     let panel: CreatorPanel = "other";
@@ -297,6 +329,8 @@ export default function ProjectLayout() {
       )
     ) {
       void refreshTasks(id);
+      // Task/subagent lifecycle changes move work-graph node states too.
+      void useWorkGraphStore.getState().refresh(id);
     }
     if (
       pendingEvents.some(
@@ -317,14 +351,19 @@ export default function ProjectLayout() {
   }, [events, id, refreshSession, refreshTasks]);
 
   useEffect(() => {
-    if (
-      !pendingReviewNavigation?.ready ||
-      fileReviewSyncStatus !== "healthy" ||
-      activeFileReview?.review_id !== pendingReviewNavigation.reviewId
-    )
+    if (!pendingReviewNavigation?.ready || fileReviewSyncStatus !== "healthy")
       return;
+    // Batched specialist work leaves several PENDING Reviews at once, so
+    // the freshly completed one is not necessarily the head of the list —
+    // requiring reviews[0] to match swallowed the popup whenever older
+    // Reviews were still open (哈兰勇闯偶综, 2026-08-05: six pending, zero
+    // popups). Find the target anywhere in the pending list instead.
+    const targetReview = fileReviews.find(
+      (review) => review.review_id === pendingReviewNavigation.reviewId,
+    );
+    if (!targetReview) return;
     setPendingReviewNavigation(null);
-    const locator = primaryReviewLocator(activeFileReview.operations);
+    const locator = primaryReviewLocator(targetReview.operations);
     if (!locator) return;
     if (locator.elementId) {
       useCreatorInteractionStore
@@ -334,9 +373,9 @@ export default function ProjectLayout() {
     navigateToLocator(id, locator, {
       review: true,
       field: locator.field ?? undefined,
-      description: "审阅 / 查看修改",
+      description: t("lib.reviewOrViewChanges"),
     });
-  }, [activeFileReview, fileReviewSyncStatus, id, pendingReviewNavigation]);
+  }, [fileReviews, fileReviewSyncStatus, id, pendingReviewNavigation]);
 
   // A background Header revalidation must not unmount the active route.  The
   // initial skeleton is only needed before the first authoritative Header is
@@ -363,9 +402,24 @@ export default function ProjectLayout() {
             className="panel-enter relative min-h-0 flex-1 overflow-hidden"
           >
             <Outlet />
+            <LaunchUploadProgressCard />
           </main>
         </div>
-        <AgentDock sidebar />
+        {/* Right rail: the dock keeps the top; on narrow workspaces the pages
+            portal their detail panel into the slot below, so dock and detail
+            split the rail vertically instead of fighting for width. */}
+        <div className="flex min-h-0 shrink-0 flex-col">
+          <div className="flex min-h-0 flex-1">
+            <AgentDock sidebar />
+          </div>
+          {/* No left border here: the workspace background flows into the
+              rail so the detail card reads as part of the workspace, while a
+              strong top rule cleanly ends the dock above it. */}
+          <div
+            data-detail-rail
+            className="hidden min-h-0 shrink-0 basis-1/2 flex-col overflow-hidden border-t-2 border-[var(--color-border-strong)] bg-[var(--color-bg-layout)] [&:not(:empty)]:flex"
+          />
+        </div>
       </div>
       <SelectionToolbar />
       <ProjectTour />

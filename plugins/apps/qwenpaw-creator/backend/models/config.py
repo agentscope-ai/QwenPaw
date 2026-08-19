@@ -34,11 +34,26 @@ CREATOR_VIDEO_CONFIG_TOOL = "creator_video_model"
 CREATOR_VLM_CONFIG_TOOL = "creator_vlm_model"
 CREATOR_GROUNDING_CONFIG_TOOL = "creator_web_grounding"
 CREATOR_ASR_CONFIG_TOOL = "creator_asr_model"
+CREATOR_TTS_CONFIG_TOOL = "creator_tts_model"
+CREATOR_S2V_CONFIG_TOOL = "creator_s2v_model"
+CREATOR_EMBEDDING_CONFIG_TOOL = "creator_embedding_model"
 CREATOR_OSS_CONFIG_TOOL = "creator_media_oss"
 EXECUTION_AUTHORIZATION_REQUIRED = "required"
 EXECUTION_AUTHORIZATION_ALLOW_ALL = "allow_all"
 CREATION_CHECKPOINT_REQUIRED = "required"
 CREATION_CHECKPOINT_SKIP = "skip"
+
+# Upstream video-edit governance modes ("how much to ask mid-flight").
+EXECUTION_MODE_DELEGATED = "delegated"
+EXECUTION_MODE_CO_CREATION = "co_creation"
+EXECUTION_MODE_FINE_TUNING = "fine_tuning"
+_EXECUTION_MODES = (
+    EXECUTION_MODE_DELEGATED,
+    EXECUTION_MODE_CO_CREATION,
+    EXECUTION_MODE_FINE_TUNING,
+)
+MEDIA_REVIEW_REQUIRED = "required"
+MEDIA_REVIEW_AUTO_APPROVE = "auto_approve"
 CREATOR_CONFIG_TOOLS = (
     CREATOR_TEXT_CONFIG_TOOL,
     CREATOR_IMAGE_CONFIG_TOOL,
@@ -46,6 +61,9 @@ CREATOR_CONFIG_TOOLS = (
     CREATOR_VLM_CONFIG_TOOL,
     CREATOR_GROUNDING_CONFIG_TOOL,
     CREATOR_ASR_CONFIG_TOOL,
+    CREATOR_TTS_CONFIG_TOOL,
+    CREATOR_S2V_CONFIG_TOOL,
+    CREATOR_EMBEDDING_CONFIG_TOOL,
     CREATOR_OSS_CONFIG_TOOL,
 )
 
@@ -257,7 +275,15 @@ def _clear_user_config_cache():
     _USER_CONFIG_CACHE_FINGERPRINT = None
 
 
-_SECRET_FIELDS = ("api_key", "access_key_secret", "policy_api_key")
+# Mirrors api.model_routes._SECRET_FIELDS so runtime reads of
+# model_config.json can decrypt every field the API layer encrypts.
+_SECRET_FIELDS = (
+    "api_key",
+    "access_key_secret",
+    "policy_api_key",
+    "tavily_api_key",
+    "serper_api_key",
+)
 
 
 def _decrypt_config_secrets(data: dict) -> dict:
@@ -301,12 +327,156 @@ def get_creation_checkpoint_mode() -> str:
     return CREATION_CHECKPOINT_REQUIRED
 
 
+def get_execution_mode() -> str:
+    """Return the mid-flight governance mode (upstream three modes).
+
+    Ladder consistency: ``creation_checkpoints.mode=skip`` (the YOLO
+    ladder stop) already means "no mid-flight gates", so it forces
+    ``delegated`` regardless of the stored ``execution_mode`` — the two
+    knobs can never contradict each other.
+    """
+
+    if get_creation_checkpoint_mode() == CREATION_CHECKPOINT_SKIP:
+        return EXECUTION_MODE_DELEGATED
+    section = _get_user_config().get("creation_checkpoints")
+    value = (
+        section.get("execution_mode") if isinstance(section, dict) else None
+    )
+    if value in _EXECUTION_MODES:
+        return value
+    return EXECUTION_MODE_CO_CREATION
+
+
+def get_media_review_mode() -> str:
+    """Return the persisted mode for generated-media reviews.
+
+    ``auto_approve`` is the last gate of the fully unattended (YOLO)
+    ladder: generated media is accepted straight into the Project without
+    a pending Review. Until VLM quality checks land, this trades quality
+    control for wall time, so the safe default stays ``required``.
+    """
+
+    section = _get_user_config().get("media_review")
+    value = section.get("mode") if isinstance(section, dict) else None
+    if value == MEDIA_REVIEW_AUTO_APPROVE:
+        return MEDIA_REVIEW_AUTO_APPROVE
+    return MEDIA_REVIEW_REQUIRED
+
+
+DEFAULT_MAINLINE_MAX_MODEL_TURNS = 24
+DEFAULT_SPECIALIST_MAX_MODEL_TURNS = 16
+DEFAULT_MEDIA_PARALLELISM = 5
+DEFAULT_MEDIA_CALL_BUDGET = 200
+
+
+def get_media_call_budget() -> int:
+    """Per-project cap on billable media generation calls.
+
+    The wallet fuse for unattended operation: call counts are the honest
+    spend metric (local price tables were removed — they go stale and
+    mislead). The default is deliberately loose; it exists to stop a
+    runaway project, not to police normal use.
+    """
+
+    section = _get_user_config().get("agent_runtime")
+    value = (
+        section.get("media_call_budget")
+        if isinstance(
+            section,
+            dict,
+        )
+        else None
+    )
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return DEFAULT_MEDIA_CALL_BUDGET
+
+
+def get_media_parallelism() -> int:
+    """Per-project cap on concurrently dispatched media tasks.
+
+    The work-graph scheduler fans out READY media nodes up to this many
+    at once; the global model_slot semaphores still bound each provider
+    kind underneath, so this is the coarse project-level knob.
+    """
+
+    section = _get_user_config().get("agent_runtime")
+    value = (
+        section.get("media_parallelism")
+        if isinstance(
+            section,
+            dict,
+        )
+        else None
+    )
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return DEFAULT_MEDIA_PARALLELISM
+
+
+def _turn_limit(section: dict | None, key: str, default: int) -> int:
+    value = section.get(key) if isinstance(section, dict) else None
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return default
+
+
+def get_mainline_max_model_turns() -> int:
+    """Per-run model turn budget for the mainline Creator Agent loop.
+
+    A runaway guard, not a latency control: pathological loops are stopped
+    earlier by the repeated-deterministic-failure guard, so this cap only
+    decides whether long-but-healthy runs (one timeline element per
+    jq_project call) can finish. Override via the ``agent_runtime`` config
+    section; YOLO-style modes are expected to raise it.
+    """
+
+    return _turn_limit(
+        _get_user_config().get("agent_runtime"),
+        "mainline_max_model_turns",
+        DEFAULT_MAINLINE_MAX_MODEL_TURNS,
+    )
+
+
+def get_specialist_max_model_turns() -> int:
+    """Per-run model turn budget for one specialist (subagent) loop."""
+
+    return _turn_limit(
+        _get_user_config().get("agent_runtime"),
+        "specialist_max_model_turns",
+        DEFAULT_SPECIALIST_MAX_MODEL_TURNS,
+    )
+
+
+# One element consumes several mainline turns (create, delegate, resume),
+# so a fixed cap misfires on large projects: the scaled floor keeps the
+# runaway guard while letting long-but-healthy runs finish. Baseline covers
+# read/ground/strategy/entities; the per-element share covers structure
+# authoring plus delegation.
+TURN_SCALING_BASELINE = 8
+TURN_SCALING_PER_ELEMENT = 3
+
+
+def scale_mainline_max_model_turns(base: int, element_count: int) -> int:
+    """Raise the mainline budget for element-heavy projects, never lower it."""
+
+    if element_count <= 0:
+        return base
+    return max(
+        base,
+        TURN_SCALING_BASELINE + TURN_SCALING_PER_ELEMENT * element_count,
+    )
+
+
 def _map_tool_to_section(tool_name: str) -> str:
     return {
         CREATOR_TEXT_CONFIG_TOOL: "llm",
         CREATOR_VLM_CONFIG_TOOL: "vlm",
         CREATOR_GROUNDING_CONFIG_TOOL: "grounding",
         CREATOR_ASR_CONFIG_TOOL: "asr",
+        CREATOR_TTS_CONFIG_TOOL: "tts",
+        CREATOR_S2V_CONFIG_TOOL: "s2v",
+        CREATOR_EMBEDDING_CONFIG_TOOL: "embedding",
         CREATOR_IMAGE_CONFIG_TOOL: "image",
         CREATOR_VIDEO_CONFIG_TOOL: "video",
     }.get(tool_name, "")
@@ -388,6 +558,48 @@ ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "")
 ASR_TIMEOUT_SECONDS = _positive_int_env("ASR_TIMEOUT_SECONDS", 1800)
 
 
+# ── TTS Model (DashScope Qwen3-TTS) ─────────────────────────────────────────
+TTS_BASE_URL = os.environ.get(
+    "TTS_BASE_URL",
+    "https://dashscope.aliyuncs.com/api/v1",
+)
+TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
+TTS_MODEL_NAME = os.environ.get("TTS_MODEL_NAME", "qwen3-tts-flash")
+TTS_VOICE = os.environ.get("TTS_VOICE", "Cherry")
+# Voice-cloned synthesis requires a dedicated VC model; enrollment binds the
+# custom voice to this model and synthesis with a voice_id must reuse it.
+TTS_VC_MODEL_NAME = os.environ.get(
+    "TTS_VC_MODEL_NAME",
+    "qwen3-tts-vc-2026-01-22",
+)
+TTS_TIMEOUT_SECONDS = _positive_int_env("TTS_TIMEOUT_SECONDS", 300)
+
+
+# ── S2V Digital-Human Model (DashScope Wan2.2-S2V) ─────────────────────────
+S2V_BASE_URL = os.environ.get(
+    "S2V_BASE_URL",
+    "https://dashscope.aliyuncs.com/api/v1",
+)
+S2V_API_KEY = os.environ.get("S2V_API_KEY", "")
+S2V_MODEL_NAME = os.environ.get("S2V_MODEL_NAME", "wan2.2-s2v")
+# The face-detect companion is free and always runs before submission.
+S2V_DETECT_MODEL_NAME = os.environ.get(
+    "S2V_DETECT_MODEL_NAME",
+    "wan2.2-s2v-detect",
+)
+S2V_TIMEOUT_SECONDS = _positive_int_env("S2V_TIMEOUT_SECONDS", 120)
+# ── Embedding Model (DashScope native multimodal-embedding) ─────────────────
+EMBEDDING_BASE_URL = os.environ.get(
+    "EMBEDDING_BASE_URL",
+    "https://dashscope.aliyuncs.com/api/v1",
+)
+EMBEDDING_API_KEY = os.environ.get("EMBEDDING_API_KEY", "")
+EMBEDDING_MODEL_NAME = os.environ.get(
+    "EMBEDDING_MODEL_NAME",
+    "qwen3-vl-embedding",
+)
+
+
 # ── Image Model ──────────────────────────────────────────────────────────────
 # Two independent providers, each with its own variable prefix (DASHSCOPE_IMAGE_*
 # / OPENAI_IMAGE_*). ``IMAGE_MODEL`` picks the active provider: ``DASHSCOPE``
@@ -405,7 +617,6 @@ VIDEO_BASE_URL = os.environ.get(
 )
 VIDEO_API_KEY = os.environ.get("VIDEO_API_KEY", "")
 VIDEO_MODEL_NAME = os.environ.get("VIDEO_MODEL_NAME", "wan2.7-r2v")
-VIDEO_CONCURRENCY = _positive_int_env("VIDEO_CONCURRENCY", 1)
 
 
 # ── Dynamic request-scoped getters ───────────────────────────────────────────
@@ -436,7 +647,20 @@ def get_text_model_name() -> str:
     )
 
 
+def _vlm_use_llm() -> bool:
+    """Return True when the persisted VLM section reuses the text model.
+
+    ``use_llm`` means full reuse (key, endpoint, model). Any explicit values
+    left over in the VLM section are stale configuration and must not win,
+    otherwise requests go to a mismatched endpoint/key pair.
+    """
+    section = _get_user_config().get("vlm")
+    return bool(isinstance(section, dict) and section.get("use_llm"))
+
+
 def get_vlm_api_key() -> str:
+    if _vlm_use_llm():
+        return get_text_api_key()
     return (
         _explicit_configured_value(
             CREATOR_VLM_CONFIG_TOOL,
@@ -448,6 +672,8 @@ def get_vlm_api_key() -> str:
 
 
 def get_vlm_base_url() -> str:
+    if _vlm_use_llm():
+        return get_text_base_url()
     return (
         _explicit_configured_value(
             CREATOR_VLM_CONFIG_TOOL,
@@ -459,6 +685,8 @@ def get_vlm_base_url() -> str:
 
 
 def get_vlm_model_name() -> str:
+    if _vlm_use_llm():
+        return get_text_model_name()
     return (
         _explicit_configured_value(
             CREATOR_VLM_CONFIG_TOOL,
@@ -590,6 +818,13 @@ def get_web_grounding_tavily_api_key() -> str:
     return _grounding_explicit(
         "tavily_api_key",
         ("TAVILY_API_KEY", "WEB_GROUNDING_TAVILY_API_KEY"),
+    )
+
+
+def get_web_grounding_serper_api_key() -> str:
+    return _grounding_explicit(
+        "serper_api_key",
+        ("SERPER_API_KEY", "WEB_GROUNDING_SERPER_API_KEY"),
     )
 
 
@@ -814,6 +1049,62 @@ def get_asr_timeout_seconds() -> int:
     )
 
 
+def get_embedding_api_key() -> str:
+    """Embedding key: explicit value first, else optionally reuse VLM."""
+
+    configured = _explicit_configured_value(
+        CREATOR_EMBEDDING_CONFIG_TOOL,
+        "api_key",
+        ("EMBEDDING_API_KEY",),
+    )
+    if configured:
+        return configured
+    section = _get_user_config().get("embedding", {})
+    reuse = not isinstance(section, dict) or section.get(
+        "reuse_vlm_key",
+        True,
+    )
+    return get_vlm_api_key() if reuse else ""
+
+
+def get_embedding_base_url() -> str:
+    return _configured_value(
+        CREATOR_EMBEDDING_CONFIG_TOOL,
+        ("base_url", "endpoint"),
+        "EMBEDDING_BASE_URL",
+        EMBEDDING_BASE_URL,
+    )
+
+
+def get_embedding_model_name() -> str:
+    return _configured_value(
+        CREATOR_EMBEDDING_CONFIG_TOOL,
+        "model",
+        "EMBEDDING_MODEL_NAME",
+        EMBEDDING_MODEL_NAME,
+    )
+
+
+def is_embedding_enabled() -> bool:
+    if get_request_tool_config(CREATOR_EMBEDDING_CONFIG_TOOL):
+        return True
+    section = _get_user_config().get("embedding")
+    if isinstance(section, dict) and section.get("enabled") is True:
+        return True
+    return os.environ.get("EMBEDDING_ENABLED", "").casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def is_embedding_configured() -> bool:
+    """Memory builds require an enabled section with a resolvable key."""
+
+    return is_embedding_enabled() and bool(get_embedding_api_key())
+
+
 def is_asr_enabled() -> bool:
     if get_request_tool_config(CREATOR_ASR_CONFIG_TOOL):
         return True
@@ -826,6 +1117,255 @@ def is_asr_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def get_tts_api_key() -> str:
+    configured = _explicit_configured_value(
+        CREATOR_TTS_CONFIG_TOOL,
+        "api_key",
+        ("TTS_API_KEY",),
+    )
+    if configured:
+        return configured
+    # Speech synthesis runs on the same DashScope credential as the text
+    # model, so reuse it by default instead of asking for the key twice.
+    section = _get_user_config().get("tts", {})
+    reuse = not isinstance(section, dict) or section.get(
+        "reuse_llm_key",
+        True,
+    )
+    return get_text_api_key() if reuse else ""
+
+
+def get_tts_base_url() -> str:
+    return _configured_value(
+        CREATOR_TTS_CONFIG_TOOL,
+        ("base_url", "endpoint"),
+        "TTS_BASE_URL",
+        TTS_BASE_URL,
+    )
+
+
+def get_tts_model_name() -> str:
+    return _configured_value(
+        CREATOR_TTS_CONFIG_TOOL,
+        "model",
+        "TTS_MODEL_NAME",
+        TTS_MODEL_NAME,
+    )
+
+
+def get_tts_voice() -> str:
+    return _configured_value(
+        CREATOR_TTS_CONFIG_TOOL,
+        "voice",
+        "TTS_VOICE",
+        TTS_VOICE,
+    )
+
+
+def get_tts_vc_model_name() -> str:
+    """Model that cloned voices bind to, derived from the synthesis model.
+
+    Voice cloning/design run on companion models the user should never have to
+    name: the capability table maps each synthesis model to its own, so the
+    configuration surface stays "key + model".
+    """
+
+    from models.tts_capabilities import require_capability
+
+    override = _configured_value(
+        CREATOR_TTS_CONFIG_TOOL,
+        "vc_model",
+        "TTS_VC_MODEL_NAME",
+        "",
+    )
+    if override:
+        return override
+    return require_capability(get_tts_model_name()).clone_model()
+
+
+def get_tts_vd_model_name() -> str:
+    """Model that designed voices bind to, derived the same way."""
+
+    from models.tts_capabilities import require_capability
+
+    return require_capability(get_tts_model_name()).design_model()
+
+
+def tts_has_system_voices() -> bool:
+    """False when the configured model can only speak with created voices."""
+
+    from models.tts_capabilities import require_capability
+
+    return require_capability(get_tts_model_name()).has_system_voices
+
+
+def get_tts_timeout_seconds() -> int:
+    return _configured_int(
+        CREATOR_TTS_CONFIG_TOOL,
+        "timeout_seconds",
+        "TTS_TIMEOUT_SECONDS",
+        TTS_TIMEOUT_SECONDS,
+    )
+
+
+def is_tts_configured() -> bool:
+    """True when TTS synthesis can run: an API key is resolvable.
+
+    Gates the TTS specialist tools and the TTS prompt sections, so an
+    unconfigured deployment exposes neither.
+    """
+
+    return bool(get_tts_api_key())
+
+
+def get_s2v_api_key() -> str:
+    configured = _explicit_configured_value(
+        CREATOR_S2V_CONFIG_TOOL,
+        "api_key",
+        ("S2V_API_KEY",),
+    )
+    if configured:
+        return configured
+    # wan2.2-s2v runs on the same DashScope credential as the text model,
+    # so reuse it by default instead of asking for the key twice.
+    section = _get_user_config().get("s2v", {})
+    reuse = not isinstance(section, dict) or section.get(
+        "reuse_llm_key",
+        True,
+    )
+    return get_text_api_key() if reuse else ""
+
+
+def get_s2v_base_url() -> str:
+    return _configured_value(
+        CREATOR_S2V_CONFIG_TOOL,
+        ("base_url", "endpoint"),
+        "S2V_BASE_URL",
+        S2V_BASE_URL,
+    )
+
+
+def get_s2v_model_name() -> str:
+    return _configured_value(
+        CREATOR_S2V_CONFIG_TOOL,
+        "model",
+        "S2V_MODEL_NAME",
+        S2V_MODEL_NAME,
+    )
+
+
+def get_s2v_detect_model_name() -> str:
+    """Free face-detect companion model.
+
+    Both spellings are accepted: the plugin-host tool config uses
+    ``detect_model`` (plugin.json field name) while the persisted Creator
+    config and the frontend contract use ``detect_model_name``
+    (``S2vConfig`` field name).
+    """
+
+    return _configured_value(
+        CREATOR_S2V_CONFIG_TOOL,
+        ("detect_model", "detect_model_name"),
+        "S2V_DETECT_MODEL_NAME",
+        S2V_DETECT_MODEL_NAME,
+    )
+
+
+def get_s2v_timeout_seconds() -> int:
+    return _configured_int(
+        CREATOR_S2V_CONFIG_TOOL,
+        "timeout_seconds",
+        "S2V_TIMEOUT_SECONDS",
+        S2V_TIMEOUT_SECONDS,
+    )
+
+
+def is_s2v_configured() -> bool:
+    """True when the digital-human provider can run: a key is resolvable.
+
+    Gates the s2v specialist tool the same way ``is_tts_configured`` gates
+    the TTS tools, so an unconfigured deployment never exposes it.
+    """
+
+    return bool(get_s2v_api_key())
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    return raw.casefold() in {"1", "true", "yes", "on"}
+
+
+# Review tiers resolve at decision time through the ``is_*_review_enabled()``
+# functions below: an explicitly set environment variable wins (CI and
+# emergency override), otherwise the persisted ``self_review`` section of
+# model_config.json (settings center) decides. The former module-level
+# startup snapshots were removed: nothing imported them, and a stale
+# snapshot diverging from the runtime getters was a latent trap.
+
+
+def _review_tier_enabled(env_name: str, config_key: str) -> bool:
+    """Resolve one review tier: explicit env wins, else persisted config.
+
+    An explicitly set environment variable (even ``0``/``false``) keeps
+    full control so existing deployments behave exactly as before; only
+    when it is absent does the ``self_review`` section of the user's
+    model_config.json decide, defaulting to off.
+    """
+    raw = os.environ.get(env_name, "").strip()
+    if raw:
+        return raw.casefold() in {"1", "true", "yes", "on"}
+    section = _get_user_config().get("self_review")
+    if isinstance(section, dict):
+        return bool(section.get(config_key, False))
+    return False
+
+
+def is_self_review_enabled() -> bool:
+    """Final-cut render review (tier 3): env override, else user config."""
+    return _review_tier_enabled(
+        "CREATOR_SELF_REVIEW_ENABLED",
+        "render_enabled",
+    )
+
+
+_REVIEW_TIER_ENV_VARS = (
+    "CREATOR_SYNC_REVIEW_ENABLED",
+    "CREATOR_MEDIA_REVIEW_ENABLED",
+    "CREATOR_SELF_REVIEW_ENABLED",
+)
+
+
+def forced_review_env_overrides() -> dict[str, str]:
+    """Review tier env vars that are explicitly set and shadow the UI.
+
+    The settings center owns these switches when the environment stays
+    silent; an explicitly set variable takes full control, which is easy
+    to forget (field incident: review ran with the UI toggled off).
+    Startup logs this map so the override is loud instead of a ghost.
+    """
+
+    return {
+        name: os.environ[name].strip()
+        for name in _REVIEW_TIER_ENV_VARS
+        if os.environ.get(name, "").strip()
+    }
+
+
+def is_sync_review_enabled() -> bool:
+    """In-run synchronous review of low-cost text/motion artifacts."""
+    return _review_tier_enabled("CREATOR_SYNC_REVIEW_ENABLED", "sync_enabled")
+
+
+def is_media_review_enabled() -> bool:
+    """Async bypass review of generated image/video artifacts."""
+    return _review_tier_enabled(
+        "CREATOR_MEDIA_REVIEW_ENABLED",
+        "media_enabled",
+    )
 
 
 def _image_provider():
@@ -857,13 +1397,48 @@ def get_image_concurrency() -> int:
     return _image_provider().concurrency
 
 
-def get_video_api_key() -> str:
+def get_image_translate_model_name() -> str:
+    """Model used by image_generation mode=translate (Bailian qwen-mt-image).
+
+    Optional field on the image config tree; no dedicated tree is needed
+    because translation always rides the DashScope image credential.
+    """
+
     return _configured_value(
+        CREATOR_IMAGE_CONFIG_TOOL,
+        "translate_model",
+        "IMAGE_TRANSLATE_MODEL_NAME",
+        "qwen-mt-image",
+    )
+
+
+def get_video_api_key() -> str:
+    """Video credential: explicit value first, else optionally reuse LLM.
+
+    Bailian video generation runs on the same DashScope credential as the
+    text model, so when no video-specific key is configured and the
+    persisted ``video.reuse_llm_key`` flag (default on) allows it, the text
+    key is reused — mirroring the tts/s2v sections.
+    """
+
+    configured = _configured_value(
         CREATOR_VIDEO_CONFIG_TOOL,
         "api_key",
         "VIDEO_API_KEY",
         VIDEO_API_KEY,
     )
+    if configured:
+        return configured
+    # Reuse only applies to the DashScope (wan/happyhorse) backend: a
+    # Volcano Engine deployment has its own credential namespace.
+    if get_video_backend() != "wan":
+        return ""
+    section = _get_user_config().get("video", {})
+    reuse = not isinstance(section, dict) or section.get(
+        "reuse_llm_key",
+        True,
+    )
+    return get_text_api_key() if reuse else ""
 
 
 def get_video_base_url() -> str:
@@ -881,6 +1456,23 @@ def get_video_model_name() -> str:
         "model",
         "VIDEO_MODEL_NAME",
         VIDEO_MODEL_NAME,
+    )
+
+
+def get_video_concurrency() -> int:
+    """Semaphore cap for model_slot("video").
+
+    Defaults to the scheduler's dispatch cap so the provider semaphore
+    never silently serializes renders behind a parallel-looking work
+    graph (same coupling as the image providers); explicit env/config
+    still wins.
+    """
+
+    return _configured_int(
+        CREATOR_VIDEO_CONFIG_TOOL,
+        "concurrency",
+        "VIDEO_CONCURRENCY",
+        get_media_parallelism(),
     )
 
 
@@ -1048,3 +1640,141 @@ def get_video_task_url(task_id: str) -> str:
     suffix = "/services/aigc/video-generation/video-synthesis"
     api_root = base[: -len(suffix)] if base.endswith(suffix) else base
     return f"{api_root}/tasks/{task_id}"
+
+
+# ── External skills config (from skills_config.json) ────────────────────────────
+
+
+def _get_skills_config_path() -> Path:
+    configured = os.environ.get("CREATOR_SKILLS_CONFIG_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve(strict=False)
+    data_root = os.environ.get("CREATOR_DATA_ROOT", "").strip()
+    if data_root:
+        return (
+            Path(data_root).expanduser().resolve(strict=False)
+            / "config"
+            / "skills_config.json"
+        )
+    # Read-only sentinel: skill configuration has no source-tree fallback.
+    return Path("/__qwenpaw_creator_unconfigured__/skills_config.json")
+
+
+_SKILLS_CONFIG_CACHE: tuple[list, list] | None = None
+_SKILLS_CONFIG_CACHE_PATH: Path | None = None
+_SKILLS_CONFIG_CACHE_FINGERPRINT: tuple[int, int, int] | None = None
+
+
+def _issue_entry_name(raw: object, index: int) -> str:
+    if isinstance(raw, Mapping):
+        name = str(raw.get("name") or "").strip()
+        if name:
+            return name
+    return f"entry-{index}"
+
+
+def _load_skills_config_document() -> tuple[list, list]:
+    """Return ``(valid SkillEntry items, diagnostics)`` from disk/cache.
+
+    Mirrors the ``_get_user_config`` fingerprint cache. The file holds no
+    secrets (key-like values are referenced indirectly via env variable
+    names), so nothing is decrypted. Any read/parse/validation failure is
+    isolated — never raised — but stays observable: broken documents and
+    rejected entries are reported as diagnostics
+    ``{"name", "path", "reason"}`` so callers can surface an unavailable
+    skill with a readable reason.
+    """
+
+    global _SKILLS_CONFIG_CACHE
+    global _SKILLS_CONFIG_CACHE_PATH, _SKILLS_CONFIG_CACHE_FINGERPRINT
+    from schemas.skills import SkillEntry
+
+    path = _get_skills_config_path()
+    fingerprint = _user_config_fingerprint(path)
+    if (
+        _SKILLS_CONFIG_CACHE is not None
+        and _SKILLS_CONFIG_CACHE_PATH == path
+        and _SKILLS_CONFIG_CACHE_FINGERPRINT == fingerprint
+    ):
+        entries, issues = _SKILLS_CONFIG_CACHE
+        return list(entries), list(issues)
+    if fingerprint is None:
+        return [], []
+    entries: list[SkillEntry] = []
+    issues: list[dict] = []
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        raw_items = (
+            document.get("skills") if isinstance(document, dict) else None
+        )
+        if not isinstance(raw_items, list):
+            issues.append(
+                {
+                    "name": "skills-config",
+                    "path": str(path),
+                    "reason": 'document must be {"skills": [...]}',
+                },
+            )
+            raw_items = []
+        seen_names: set[str] = set()
+        for index, raw in enumerate(raw_items):
+            try:
+                entry = SkillEntry.model_validate(raw)
+            except Exception as exc:
+                issues.append(
+                    {
+                        "name": _issue_entry_name(raw, index),
+                        "path": str(
+                            raw.get("path", "")
+                            if isinstance(raw, Mapping)
+                            else "",
+                        ),
+                        "reason": f"schema validation failed: {exc}"[:400],
+                    },
+                )
+                continue
+            if entry.name in seen_names:
+                issues.append(
+                    {
+                        "name": entry.name,
+                        "path": entry.path,
+                        "reason": "duplicate skill name; first entry wins",
+                    },
+                )
+                continue
+            seen_names.add(entry.name)
+            entries.append(entry)
+    except Exception as exc:
+        return [], [
+            {
+                "name": "skills-config",
+                "path": str(path),
+                "reason": f"document parse failed: {exc}"[:400],
+            },
+        ]
+    _SKILLS_CONFIG_CACHE = (entries, issues)
+    _SKILLS_CONFIG_CACHE_PATH = path
+    _SKILLS_CONFIG_CACHE_FINGERPRINT = fingerprint
+    return list(entries), list(issues)
+
+
+def load_skills_config() -> list:
+    """Return the validated ``SkillEntry`` items from skills_config.json."""
+
+    entries, _issues = _load_skills_config_document()
+    return entries
+
+
+def load_skills_config_issues() -> list:
+    """Return diagnostics for configuration entries that were rejected."""
+
+    _entries, issues = _load_skills_config_document()
+    return issues
+
+
+def _clear_skills_config_cache():
+    global _SKILLS_CONFIG_CACHE
+    global _SKILLS_CONFIG_CACHE_PATH, _SKILLS_CONFIG_CACHE_FINGERPRINT
+    _SKILLS_CONFIG_CACHE = None
+    _SKILLS_CONFIG_CACHE_PATH = None
+    _SKILLS_CONFIG_CACHE_FINGERPRINT = None

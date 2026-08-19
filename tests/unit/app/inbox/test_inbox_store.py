@@ -200,6 +200,38 @@ async def test_list_events_pagination(inbox_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_query_events_returns_filtered_counts(inbox_path: Path):
+    await _seed_events(inbox_path)
+    newest = await inbox_store.list_events(limit=1)
+    await inbox_store.mark_read([newest[0]["id"]])
+
+    events, total, unread_count = await inbox_store.query_events(
+        source_types={"cron", "manual"},
+        limit=1,
+    )
+
+    assert len(events) == 1
+    assert total == 3
+    assert unread_count == 2
+
+
+@pytest.mark.asyncio
+async def test_query_events_total_respects_unread_filter(inbox_path: Path):
+    await _seed_events(inbox_path)
+    newest = await inbox_store.list_events(limit=1)
+    await inbox_store.mark_read([newest[0]["id"]])
+
+    events, total, unread_count = await inbox_store.query_events(
+        unread_only=True,
+        limit=1,
+    )
+
+    assert len(events) == 1
+    assert total == 2
+    assert unread_count == 2
+
+
+@pytest.mark.asyncio
 async def test_list_events_empty_when_no_file(inbox_path: Path):
     events = await inbox_store.list_events()
     assert events == []

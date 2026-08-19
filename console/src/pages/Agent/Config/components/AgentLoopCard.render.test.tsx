@@ -6,7 +6,7 @@ import { Form } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
 import type { CustomLoopModeConfig } from "@/api/types";
 import { renderWithProviders } from "@/test/common_setup";
-import { AgentLoopCard } from "./AgentLoopCard";
+import { AgentLoopCard, buildCustomLoopMode } from "./AgentLoopCard";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
@@ -116,5 +116,38 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(
       mission.getByText("Default test command (optional)"),
     ).toBeInTheDocument();
+  }, 15_000);
+
+  it("updates a per-tool call limit name", async () => {
+    let form: FormInstance | undefined;
+    const mode = buildCustomLoopMode([], "Research", "research", "research", 1);
+    const budget = mode.gates.find((gate) => gate.type === "tool_call_budget");
+    if (!budget) throw new Error("Research mode must include a tool budget");
+    budget.params.per_tool = { "tool-name": 3 };
+
+    renderWithProviders(
+      <LoopForm modes={[mode]} onForm={(next) => (form = next)} />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Research" }));
+    fireEvent.click(await screen.findByText("Tool-call budget"));
+    const toolName = screen.getByLabelText("Tool name");
+    fireEvent.change(toolName, { target: { value: "search" } });
+
+    expect(toolName).toHaveValue("search");
+
+    fireEvent.blur(toolName);
+
+    expect(
+      form?.getFieldValue([
+        "loop",
+        "custom_modes",
+        0,
+        "gates",
+        2,
+        "params",
+        "per_tool",
+      ]),
+    ).toEqual({ search: 3 });
   }, 15_000);
 });

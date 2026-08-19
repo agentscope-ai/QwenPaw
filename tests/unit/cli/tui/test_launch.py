@@ -16,6 +16,7 @@ import sys
 
 import pytest
 
+from click import get_current_context
 from click.testing import CliRunner
 
 from qwenpaw.cli.tui import launch
@@ -303,6 +304,58 @@ def test_bare_qwenpaw_project_launches_tui(monkeypatch):
     assert result.exit_code == 0
     assert launched["called"] is True
     assert launched["kwargs"]["project"] == "."
+
+
+@pytest.mark.parametrize(
+    ("cli_args", "expected_project"),
+    [
+        (["--port", "6066", "."], "."),
+        (["--port=6066", "."], "."),
+        ([".", "--port", "6066"], "."),
+        (["--port", "6066", "tui"], None),
+    ],
+)
+def test_project_path_with_global_port_launches_tui(
+    monkeypatch,
+    cli_args,
+    expected_project,
+):
+    """A global port option does not hide the implicit project path."""
+    from qwenpaw.cli.main import cli
+
+    launched = {}
+
+    def fake_run_tui(*args, **kwargs):
+        launched["port"] = get_current_context().obj["port"]
+        launched["project"] = kwargs["project"]
+
+    monkeypatch.setattr("qwenpaw.cli.tui.launch.run_tui", fake_run_tui)
+    result = CliRunner().invoke(cli, cli_args)
+    assert result.exit_code == 0
+    assert launched == {
+        "port": 6066,
+        "project": expected_project,
+    }
+
+
+def test_path_like_global_option_value_is_not_project(monkeypatch, tmp_path):
+    """A path-like option value is skipped when locating the project."""
+    from qwenpaw.cli.main import cli
+
+    launched = {}
+
+    def fake_run_tui(*args, **kwargs):
+        launched["host"] = get_current_context().obj["host"]
+        launched["project"] = kwargs["project"]
+
+    monkeypatch.setattr("qwenpaw.cli.tui.launch.run_tui", fake_run_tui)
+    host = str(tmp_path)
+    result = CliRunner().invoke(cli, ["--host", host, "."])
+    assert result.exit_code == 0
+    assert launched == {
+        "host": host,
+        "project": ".",
+    }
 
 
 def test_bare_qwenpaw_unknown_command_still_errors(monkeypatch):

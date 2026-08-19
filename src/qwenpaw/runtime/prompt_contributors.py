@@ -67,10 +67,15 @@ def _read_prompt_file(workspace_dir: Path, filename: str) -> str | None:
             return None
 
         from ..agents.utils.file_handling import (
-            read_text_file_with_encoding_fallback,
+            decode_text_bytes_with_encoding_fallback,
         )
+        from ..utils.file_snapshot_cache import get_file_snapshot_cache
 
-        content = read_text_file_with_encoding_fallback(path).strip()
+        snapshot = get_file_snapshot_cache().get_bytes(path)
+        content = decode_text_bytes_with_encoding_fallback(
+            snapshot.data,
+            file_name=path.name,
+        ).strip()
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
@@ -289,8 +294,7 @@ class CodingModeContributor(SyncPromptContributor):
     @staticmethod
     def _resolve_project_dir(agent_config: Any) -> str | None:
         """Prefer request config, then reload disk config for API switches."""
-        cm_obj = getattr(agent_config, "coding_mode", None)
-        project_dir = getattr(cm_obj, "project_dir", None)
+        project_dir = getattr(agent_config, "project_dir", None)
         if project_dir:
             return project_dir
 
@@ -301,9 +305,8 @@ class CodingModeContributor(SyncPromptContributor):
             return None
         try:
             fresh = load_agent_config(agent_id)
-            cm = fresh.coding_mode
-            if cm and cm.project_dir:
-                return cm.project_dir
+            if fresh.project_dir:
+                return fresh.project_dir
         except Exception:
             logger.debug(
                 "Failed to reload agent config for Coding Mode prompt",

@@ -38,7 +38,7 @@ jobs:
       inputs.platforms == 'all' ||
       inputs.platforms == 'tauri-only' ||
       inputs.platforms == 'macos-only'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout

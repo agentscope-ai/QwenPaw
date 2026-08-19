@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from agentscope.message import Msg, SystemMsg, TextBlock, UserMsg
+from agentscope.model import FinishedReason
 
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
@@ -1004,16 +1005,29 @@ class ScrollContextManager:
             disable_thinking=True,
         )
         if not inspect.isasyncgen(response):
+            self._raise_if_summary_interrupted(response)
             return self._response_text(response)
         deltas: list[str] = []
         final = ""
         async for chunk in response:
+            self._raise_if_summary_interrupted(chunk)
             text = self._response_text(chunk)
             if getattr(chunk, "is_last", False):
                 final = text
             elif text:
                 deltas.append(text)
         return final or "".join(deltas).strip()
+
+    @staticmethod
+    def _raise_if_summary_interrupted(response: Any) -> None:
+        """Preserve cancellation converted into an AgentScope response."""
+        finished_reason = (
+            response.get("finished_reason")
+            if isinstance(response, dict)
+            else getattr(response, "finished_reason", None)
+        )
+        if finished_reason == FinishedReason.INTERRUPTED:
+            raise asyncio.CancelledError()
 
     @staticmethod
     def _summary_messages(prompt: str, language: str) -> list[Msg]:
@@ -1627,6 +1641,7 @@ class ScrollContextManager:
                             name=entry.name,
                             tool_state=entry.tool_state,
                             tool_input=entry.tool_input,
+                            metadata=entry.metadata,
                         )
                         self._model_turn_nblk[mid] = nblk
                         if new_headline:
@@ -1731,7 +1746,7 @@ class ScrollContextManager:
         tail: list[Msg],
         active_ids: set[str],
     ) -> tuple[list[Msg], list[Msg]]:
-        """Avoid evicting only the user half of a completed exchange.
+        """Avoid evicting only the user boundary of a completed turn.
 
         AgentScope's token split optimizes for a recent-tail token budget, so
         it can place a user request at the end of ``middle`` while keeping the
@@ -1740,7 +1755,7 @@ class ScrollContextManager:
         index must call the model to label a user-only span, and the live
         window keeps an answer whose question was just archived. Pull the
         leading non-user reply block(s) into ``middle`` unless they belong to
-        the active turn, preserving completed exchanges as the unit of
+        the active turn, preserving completed turns as the unit of
         eviction. ``reserve`` is a soft target; semantic boundaries win.
         """
         if not middle or not tail:

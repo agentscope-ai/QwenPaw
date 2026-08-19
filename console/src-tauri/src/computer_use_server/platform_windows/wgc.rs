@@ -65,8 +65,7 @@ pub(super) fn capture_window(args: CaptureArgs) -> Result<CaptureInfo, String> {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     unsafe {
-        RoInitialize(RO_INIT_MULTITHREADED)
-            .map_err(|err| format!("RoInitialize failed: {err}"))?;
+        RoInitialize(RO_INIT_MULTITHREADED).map_err(|err| format!("RoInitialize failed: {err}"))?;
     }
     let result = capture_window_inner(args);
     unsafe {
@@ -184,8 +183,7 @@ fn create_capture_item(hwnd: HWND) -> Result<GraphicsCaptureItem, String> {
     let interop: IGraphicsCaptureItemInterop =
         factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
             .map_err(|err| format!("GraphicsCaptureItem factory failed: {err}"))?;
-    unsafe { interop.CreateForWindow(hwnd) }
-        .map_err(|err| format!("CreateForWindow failed: {err}"))
+    unsafe { interop.CreateForWindow(hwnd) }.map_err(|err| format!("CreateForWindow failed: {err}"))
 }
 
 fn wait_for_frame(
@@ -345,8 +343,7 @@ fn write_bmp(
     let base = data as *const u8;
     let row_len = row_bytes as usize;
     for y in 0..height as usize {
-        let row =
-            unsafe { std::slice::from_raw_parts(base.add(y * row_pitch as usize), row_len) };
+        let row = unsafe { std::slice::from_raw_parts(base.add(y * row_pitch as usize), row_len) };
         writer.write_all(row).map_err(|err| err.to_string())?;
     }
     Ok(writer)

@@ -39,6 +39,51 @@ def test_append_assigns_increasing_seq_and_counts(store: HistoryStore):
     assert store.count("other") == 0
 
 
+def test_created_at_index_exists_for_date_filtered_recall(
+    store: HistoryStore,
+):
+    indexes = {
+        row["name"]
+        for row in store._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'",
+        )
+    }
+
+    assert "ch_created_at" in indexes
+
+
+def test_created_at_index_migrates_existing_populated_store(
+    tmp_path: Path,
+):
+    """An upgrade backfills the new index without losing legacy rows."""
+    db_path = tmp_path / "history.db"
+    legacy = HistoryStore(db_path)
+    with legacy._conn:
+        legacy._conn.execute("DROP INDEX ch_created_at")
+        legacy._conn.executemany(
+            "INSERT INTO conversation_history"
+            "(session_id, kind, created_at) VALUES (?, ?, ?)",
+            [
+                ("legacy", "model_turn", f"2024-01-{(i % 28) + 1:02d}")
+                for i in range(5000)
+            ],
+        )
+    legacy.close()
+
+    migrated = HistoryStore(db_path)
+    try:
+        indexes = {
+            row["name"]
+            for row in migrated._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'",
+            )
+        }
+        assert "ch_created_at" in indexes
+        assert migrated.count("legacy") == 5000
+    finally:
+        migrated.close()
+
+
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
     """A second append of the same (session, dedup_key) is a no-op that
     returns the existing seq — the resume/migration safety net."""

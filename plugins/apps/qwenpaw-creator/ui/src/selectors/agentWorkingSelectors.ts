@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import i18n from "@/i18n";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 
 // Same "working" criteria as AgentStatusBar's active check; additionally
@@ -39,7 +40,8 @@ export function useAgentWorkingState(): AgentWorkingState {
       .filter((item) => !item.completed)
       .sort((left, right) => right.firstEventSeq - left.firstEventSeq)[0];
     if (activity) {
-      const task = activity.delegationText || "执行委派任务中";
+      const task =
+        activity.delegationText || i18n.t("store.executingDelegatedTask");
       return {
         working: true,
         hint: activity.roleDisplayName

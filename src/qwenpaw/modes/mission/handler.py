@@ -15,6 +15,7 @@ from .prompts import build_master_prompt
 from .state import (
     create_loop_dir,
     detect_git_context,
+    ensure_mission_git_exclude,
     get_active_loop_dir,
     init_progress_txt,
     list_loop_dirs,
@@ -94,12 +95,12 @@ def parse_mission_args(
 
 
 def format_status(
-    workspace_dir: Path,
+    project_dir: Path,
     session_id: str,
 ) -> str:
     """Return status text for ``/mission status``."""
     loop_dir = get_active_loop_dir(
-        workspace_dir,
+        project_dir,
         session_id,
     )
     if loop_dir is None:
@@ -136,9 +137,9 @@ def format_status(
     return "\n".join(lines)
 
 
-def format_list(workspace_dir: Path) -> str:
+def format_list(project_dir: Path) -> str:
     """Return list text for ``/mission list``."""
-    loops = list_loop_dirs(workspace_dir)
+    loops = list_loop_dirs(project_dir)
     if not loops:
         return "**Mission Mode**: No missions found."
     lines = ["**Missions**\n"]
@@ -193,9 +194,9 @@ def is_meta_question(task_text: str) -> bool:
     return any(kw in lower for kw in _META_KEYWORDS)
 
 
-def _create_mission_files(workspace_dir: Path, task_text: str) -> Path:
+def _create_mission_files(project_dir: Path, task_text: str) -> Path:
     """Create one mission directory and its initial atomic state files."""
-    loop_dir = create_loop_dir(workspace_dir)
+    loop_dir = create_loop_dir(project_dir)
     write_task_md(loop_dir, task_text)
     init_progress_txt(loop_dir)
     return loop_dir
@@ -203,7 +204,8 @@ def _create_mission_files(workspace_dir: Path, task_text: str) -> Path:
 
 async def start_mission(
     task_text: str,
-    workspace_dir: Path,
+    project_dir: Path,
+    agent_workspace_dir: Path,
     agent_id: str,
     session_id: str,
     verify_commands: str,
@@ -219,11 +221,16 @@ async def start_mission(
     """
     loop_dir = await asyncio.to_thread(
         _create_mission_files,
-        workspace_dir,
+        project_dir,
         task_text,
     )
 
-    git_ctx = await detect_git_context(workspace_dir)
+    git_ctx = await detect_git_context(project_dir)
+    git_exclude_ready = await asyncio.to_thread(
+        ensure_mission_git_exclude,
+        project_dir,
+        git_ctx,
+    )
 
     loop_config: dict[str, Any] = {
         "git_installed": git_ctx["git_installed"],
@@ -234,7 +241,11 @@ async def start_mission(
         ),
         "branch_name": "",
         "repo_root": git_ctx.get("repo_root", ""),
-        "workspace_dir": str(workspace_dir),
+        "workspace_dir": str(agent_workspace_dir),
+        "source_project_dir": str(project_dir),
+        "mission_state_dir": str(loop_dir.relative_to(project_dir)),
+        "mission_run_dir": str(project_dir),
+        "git_exclude_ready": git_exclude_ready,
         "max_iterations": max_iterations,
         "current_phase": "prd_generation",
         "session_id": session_id,
@@ -260,7 +271,7 @@ async def start_mission(
         verification_instructions=verification_instructions,
         max_retries_per_story=max_retries_per_story,
         git_context=git_ctx,
-        workspace_dir=str(workspace_dir),
+        source_project_dir=str(project_dir),
     )
 
     prompt = (
@@ -269,7 +280,7 @@ async def start_mission(
         f"> {task_text}\n\n"
         f"{master_prompt}\n\n"
         f"**Phase 1 \u2014 Task Decomposition:**\n"
-        f"Explore the workspace and generate prd.json.\n"
+        f"Explore the project directory and generate prd.json.\n"
         f"After writing prd.json, report to the user "
         f"and wait for confirmation. Then update "
         f"`{loop_dir}/loop_config.json` setting "

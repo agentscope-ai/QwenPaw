@@ -103,6 +103,7 @@ echo ""
 BACKEND_DIR="${DIST}/pyinstaller/qwenpaw-backend"
 BACKEND_EXE="${BACKEND_DIR}/qwenpaw-backend"
 CLI_EXE="${BACKEND_DIR}/qwenpaw"
+MODEL_CATALOG="${BACKEND_DIR}/_internal/qwenpaw/providers/data/model_catalog.json"
 if [ ! -d "${BACKEND_DIR}" ]; then
     echo "ERROR: Backend bundle directory not found at ${BACKEND_DIR}"
     exit 1
@@ -113,6 +114,10 @@ if [ ! -f "${BACKEND_EXE}" ]; then
 fi
 if [ ! -f "${CLI_EXE}" ]; then
     echo "ERROR: CLI executable not found at ${CLI_EXE}"
+    exit 1
+fi
+if [ ! -f "${MODEL_CATALOG}" ]; then
+    echo "ERROR: Model catalog not found at ${MODEL_CATALOG}"
     exit 1
 fi
 
@@ -142,6 +147,19 @@ echo ""
 echo "== Staging bundled Python runtime =="
 "$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
     --dest "${BINARIES_DIR}/python-runtime"
+
+# The Chrome Native Messaging host runs under this standalone interpreter,
+# outside the PyInstaller backend, so its dependencies must be installed here.
+NATIVE_HOST_PYTHON="${BINARIES_DIR}/python-runtime/python/bin/python3"
+"$NATIVE_HOST_PYTHON" -m pip install \
+    --disable-pip-version-check \
+    --no-input \
+    --no-deps \
+    --only-binary=:all: \
+    -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
+"$NATIVE_HOST_PYTHON" \
+    "${REPO_ROOT}/plugins/bundle/chrome/assets/scripts/nm_host.py" \
+    --check-runtime
 echo ""
 
 echo "== Staging bundled Node runtime =="

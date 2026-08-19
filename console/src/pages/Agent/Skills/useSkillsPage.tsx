@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
-import type { PoolSkillSpec, SkillSpec } from "../../../api/types";
+import type { PoolSkillSpec, SkillDetail, SkillSpec } from "../../../api/types";
 import type { SkillDrawerFormValues } from "./components";
 import { useConflictRenameModal } from "./components";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
@@ -75,7 +75,10 @@ export function useSkillsPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [editingSkill, setEditingSkill] = useState<SkillSpec | null>(null);
+  const [editingSkill, setEditingSkill] = useState<SkillDetail | null>(null);
+  const [editingSkillName, setEditingSkillName] = useState("");
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  const detailRequestIdRef = useRef(0);
   const [form] = Form.useForm<SkillDrawerFormValues>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
@@ -210,7 +213,10 @@ export function useSkillsPage() {
   // ── Create / Edit / Delete ──────────────────────────────────────────────
 
   const handleCreate = () => {
+    detailRequestIdRef.current += 1;
     setEditingSkill(null);
+    setEditingSkillName("");
+    setDrawerLoading(false);
     form.resetFields();
     form.setFieldsValue({ enabled: false, channels: ["all"], tags: [] });
     setDrawerOpen(true);
@@ -247,16 +253,30 @@ export function useSkillsPage() {
     }
   };
 
-  const handleEdit = (skill: SkillSpec) => {
-    setEditingSkill(skill);
-    form.setFieldsValue({
-      name: skill.name,
-      description: skill.description,
-      content: skill.content,
-      enabled: skill.enabled,
-      channels: skill.channels,
-    });
+  const handleEdit = async (skill: SkillSpec) => {
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
+    setEditingSkill(null);
+    setEditingSkillName(skill.name);
+    setDrawerLoading(true);
+    form.resetFields();
     setDrawerOpen(true);
+    try {
+      const detail = await api.getSkill(skill.name, selectedAgent);
+      if (detailRequestIdRef.current !== requestId) return;
+      setEditingSkill(detail);
+    } catch (error) {
+      if (detailRequestIdRef.current !== requestId) return;
+      message.error(
+        error instanceof Error ? error.message : t("skills.loadFailed"),
+      );
+      setDrawerOpen(false);
+      setEditingSkillName("");
+    } finally {
+      if (detailRequestIdRef.current === requestId) {
+        setDrawerLoading(false);
+      }
+    }
   };
 
   const handleToggleEnabled = async (skill: SkillSpec, e: React.MouseEvent) => {
@@ -271,13 +291,16 @@ export function useSkillsPage() {
   };
 
   const handleDrawerClose = () => {
+    detailRequestIdRef.current += 1;
     setDrawerOpen(false);
     setEditingSkill(null);
+    setEditingSkillName("");
+    setDrawerLoading(false);
   };
 
   // ── Drawer submit ───────────────────────────────────────────────────────
 
-  const handleSubmit = async (values: SkillSpec) => {
+  const handleSubmit = async (values: SkillDetail) => {
     if (editingSkill) {
       const sourceName = editingSkill.name;
       const targetName = values.name;
@@ -692,6 +715,8 @@ export function useSkillsPage() {
     uploading,
     importing,
     drawerOpen,
+    drawerLoading,
+    editingSkillName,
     importModalOpen,
     setImportModalOpen,
     editingSkill,

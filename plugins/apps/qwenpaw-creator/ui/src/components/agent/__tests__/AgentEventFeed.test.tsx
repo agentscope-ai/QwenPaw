@@ -93,7 +93,7 @@ describe("AgentEventFeed", () => {
         {
           eventId: "e3b",
           seq: 4,
-          type: "subagent.tool_delta",
+          type: "subagent.tool_progress",
           projectId: "p1",
           creatorSessionId: "s1",
           at: "now",
@@ -103,8 +103,9 @@ describe("AgentEventFeed", () => {
             role: "visual_development_agent",
             toolCallId: "t1",
             tool: "read_file",
-            deltaIndex: 0,
-            argumentsDelta: '{"path":"story/',
+            receivedBytes: 2048,
+            providerChunkCount: 16,
+            complete: false,
           },
         },
         {

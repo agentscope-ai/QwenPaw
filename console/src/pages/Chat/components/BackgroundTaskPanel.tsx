@@ -1,12 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useTheme } from "../../../contexts/ThemeContext";
 import {
   selectTasksForSession,
@@ -19,10 +21,31 @@ import {
 } from "../../../hooks/useBackgroundTaskWatcher";
 import { message } from "antd";
 
+/** ~3 collapsed rows (bordered ~36px + 6px gaps) so 1–3 items do not overflow. */
+const LIST_MAX_HEIGHT_PX = 120;
+const SCROLL_EDGE_PX = 1;
+
+function measureListOverflow(el: HTMLElement): {
+  canScrollUp: boolean;
+  canScrollDown: boolean;
+} {
+  const { scrollTop, clientHeight, scrollHeight } = el;
+  return {
+    canScrollUp: scrollTop > SCROLL_EDGE_PX,
+    canScrollDown: scrollTop + clientHeight < scrollHeight - SCROLL_EDGE_PX,
+  };
+}
+
 interface BackgroundTaskPanelProps {
   sessionId: string;
   /** When true, omit outer chrome/title (used inside ChatSenderTabsPanel). */
   embedded?: boolean;
+  /** When set (embedded), parent owns the finished-task filter. */
+  showFinished?: boolean;
+}
+
+function isFinished(task: BackgroundTask): boolean {
+  return task.status === "done" || task.status === "cancelled";
 }
 
 function formatDuration(startTime: number, endTime: number | null): string {
@@ -37,13 +60,13 @@ function formatDuration(startTime: number, endTime: number | null): string {
 export default function BackgroundTaskPanel({
   sessionId,
   embedded = false,
+  showFinished: showFinishedProp,
 }: BackgroundTaskPanelProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const tasks = useBackgroundTasksStore((s) => s.tasks);
   const removeTask = useBackgroundTasksStore((s) => s.removeTask);
   const removeTasks = useBackgroundTasksStore((s) => s.removeTasks);
-  const dismissHint = useBackgroundTasksStore((s) => s.dismissHint);
 
   const sessionTasks = useMemo(
     () => selectTasksForSession(tasks, sessionId),
@@ -53,8 +76,27 @@ export default function BackgroundTaskPanel({
   const [collapsed, setCollapsed] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
+  const [localShowFinished, setLocalShowFinished] = useState(false);
+  const [listOverflow, setListOverflow] = useState({
+    canScrollUp: false,
+    canScrollDown: false,
+  });
+  const listRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState(0);
   const showBody = embedded || !collapsed;
+  const showFinished = showFinishedProp ?? localShowFinished;
+
+  const syncListOverflow = useCallback(() => {
+    const el = listRef.current;
+    if (!el) {
+      setListOverflow({
+        canScrollUp: false,
+        canScrollDown: false,
+      });
+      return;
+    }
+    setListOverflow(measureListOverflow(el));
+  }, []);
 
   useEffect(() => {
     if (!sessionTasks.some((t) => t.status === "running")) return;
@@ -66,6 +108,31 @@ export default function BackgroundTaskPanel({
     () => sessionTasks.filter((t) => t.status === "running"),
     [sessionTasks],
   );
+  const finishedTasks = useMemo(
+    () => sessionTasks.filter(isFinished),
+    [sessionTasks],
+  );
+  const visibleTasks = showFinished ? sessionTasks : runningTasks;
+  const expandedTask = visibleTasks.find(
+    (task) => task.toolCallId === expandedId,
+  );
+
+  useEffect(() => {
+    if (expandedId && !expandedTask) setExpandedId(null);
+  }, [expandedId, expandedTask]);
+
+  useLayoutEffect(() => {
+    if (!showBody) return;
+    syncListOverflow();
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => syncListOverflow());
+    observer.observe(el);
+    for (const child of Array.from(el.children)) {
+      observer.observe(child);
+    }
+    return () => observer.disconnect();
+  }, [showBody, visibleTasks, showFinished, syncListOverflow]);
 
   const handleClose = useCallback(
     async (task: BackgroundTask) => {
@@ -106,27 +173,16 @@ export default function BackgroundTaskPanel({
     }
   }, [runningTasks, batchBusy, t]);
 
-  const handleClearAll = useCallback(async () => {
-    if (sessionTasks.length === 0 || batchBusy) return;
-    setBatchBusy(true);
-    try {
-      // Cancel running tools first, then remove every entry in this session.
-      await Promise.allSettled(
-        runningTasks.map((task) =>
-          cancelBackgroundTask(task.sessionId, task.toolCallId),
-        ),
-      );
-      for (const task of sessionTasks) {
-        stopBackgroundTaskWatcher(task.toolCallId);
-      }
-      removeTasks(sessionTasks.map((task) => task.toolCallId));
-      message.info(
-        t("tool.control.bgQueue.clearAllDone", "Cleared background task list"),
-      );
-    } finally {
-      setBatchBusy(false);
+  const handleClearFinished = useCallback(() => {
+    if (finishedTasks.length === 0 || batchBusy) return;
+    for (const task of finishedTasks) {
+      stopBackgroundTaskWatcher(task.toolCallId);
     }
-  }, [sessionTasks, runningTasks, batchBusy, removeTasks, t]);
+    removeTasks(finishedTasks.map((task) => task.toolCallId));
+    message.info(
+      t("tool.control.bgQueue.clearAllDone", "Cleared completed tasks"),
+    );
+  }, [finishedTasks, batchBusy, removeTasks, t]);
 
   if (sessionTasks.length === 0) return null;
 
@@ -140,6 +196,19 @@ export default function BackgroundTaskPanel({
     ? "rgba(114,46,209,0.25)"
     : "rgba(114,46,209,0.12)";
   const badgeColor = hasRunning ? "#d48806" : "#722ed1";
+  const badgeCount = hasRunning
+    ? runningTasks.length
+    : showFinished
+    ? finishedTasks.length
+    : 0;
+  const listMask =
+    listOverflow.canScrollUp && listOverflow.canScrollDown
+      ? "linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 28px), transparent)"
+      : listOverflow.canScrollDown
+      ? "linear-gradient(to bottom, #000 0, #000 calc(100% - 28px), transparent)"
+      : listOverflow.canScrollUp
+      ? "linear-gradient(to bottom, transparent, #000 20px, #000 100%)"
+      : undefined;
   const actionBtnStyle: CSSProperties = {
     border: `1px solid ${borderColor}`,
     background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
@@ -152,8 +221,34 @@ export default function BackgroundTaskPanel({
     opacity: batchBusy ? 0.5 : 1,
   };
 
+  const showFinishedToggle = (
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 11,
+        color: isDark ? "#bbb" : "#555",
+        cursor: "pointer",
+        userSelect: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={showFinished}
+        onChange={(e) => setLocalShowFinished(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+      />
+      {t("tool.control.bgQueue.showFinished", "Show completed")}
+    </label>
+  );
+
   const batchActions = (
-    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+    <div
+      style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}
+    >
+      {showFinishedToggle}
       <button
         type="button"
         disabled={batchBusy || runningTasks.length === 0}
@@ -172,14 +267,19 @@ export default function BackgroundTaskPanel({
       </button>
       <button
         type="button"
-        disabled={batchBusy || sessionTasks.length === 0}
+        disabled={batchBusy || finishedTasks.length === 0}
         onClick={(e) => {
           e.stopPropagation();
-          void handleClearAll();
+          handleClearFinished();
         }}
-        style={actionBtnStyle}
+        style={{
+          ...actionBtnStyle,
+          opacity: batchBusy || finishedTasks.length === 0 ? 0.4 : 1,
+          cursor:
+            batchBusy || finishedTasks.length === 0 ? "not-allowed" : "pointer",
+        }}
       >
-        {t("tool.control.bgQueue.clearAll", "Clear all")}
+        {t("tool.control.bgQueue.clearAll", "Clear completed")}
       </button>
     </div>
   );
@@ -228,17 +328,19 @@ export default function BackgroundTaskPanel({
             }}
           >
             <span>{t("tool.control.bgQueue.title", "Background tasks")}</span>
-            <span
-              style={{
-                fontSize: 11,
-                padding: "0 6px",
-                borderRadius: 10,
-                background: badgeBg,
-                color: badgeColor,
-              }}
-            >
-              {sessionTasks.length}
-            </span>
+            {badgeCount > 0 && (
+              <span
+                style={{
+                  fontSize: 11,
+                  padding: "0 6px",
+                  borderRadius: 10,
+                  background: badgeBg,
+                  color: badgeColor,
+                }}
+              >
+                {badgeCount}
+              </span>
+            )}
             <span
               style={{
                 marginLeft: "auto",
@@ -258,199 +360,225 @@ export default function BackgroundTaskPanel({
         </div>
       )}
 
-      {showBody &&
-        sessionTasks.map((task) => {
-          const body =
-            task.status === "running"
-              ? task.liveOutput
-              : task.result || task.liveOutput;
-          const isExpanded = expandedId === task.toolCallId;
-          const isRunning = task.status === "running";
-          return (
-            <div key={task.toolCallId}>
-              {task.hintVisible && (
+      {showBody && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ position: "relative" }}>
+            <div
+              ref={listRef}
+              onScroll={syncListOverflow}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                maxHeight: LIST_MAX_HEIGHT_PX,
+                overflowY: "auto",
+                WebkitMaskImage: listMask,
+                maskImage: listMask,
+              }}
+            >
+              {visibleTasks.length === 0 && (
                 <div
                   style={{
-                    borderLeft: "3px solid #722ed1",
-                    padding: "6px 10px",
-                    marginBottom: 4,
                     fontSize: 12,
-                    background: isDark
-                      ? "rgba(114,46,209,0.12)"
-                      : "rgba(114,46,209,0.06)",
-                    color: isDark ? "#d3adf7" : "#531dab",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 8,
+                    color: isDark ? "#888" : "#999",
+                    padding: "6px 8px",
                   }}
                 >
-                  <span>
-                    {task.status === "cancelled"
-                      ? t("tool.control.hint.cancelled", {
-                          tool: task.toolName,
-                          defaultValue: `Tool ${task.toolName} cancelled`,
-                        })
-                      : t("tool.control.hint.completed", {
-                          tool: task.toolName,
-                          defaultValue: `Tool ${task.toolName} completed in background`,
-                        })}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => dismissHint(task.toolCallId)}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      cursor: "pointer",
-                      color: "inherit",
-                      opacity: 0.7,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      padding: 0,
-                    }}
-                    aria-label={t("common.close", "Close")}
-                  >
-                    <X size={14} aria-hidden />
-                  </button>
+                  {!showFinished && finishedTasks.length > 0
+                    ? t("tool.control.bgQueue.emptyHiddenFinished", {
+                        count: finishedTasks.length,
+                        defaultValue: "{{count}} completed (hidden)",
+                      })
+                    : t(
+                        "tool.control.bgQueue.emptyRunning",
+                        "No running tasks",
+                      )}
                 </div>
               )}
+              {visibleTasks.map((task) => {
+                const isExpanded = expandedId === task.toolCallId;
+                const isRunning = task.status === "running";
+                const duration = formatDuration(task.startTime, task.endTime);
+                const statusText = isRunning
+                  ? `${t(
+                      "tool.control.bgQueue.running",
+                      "Running",
+                    )} ${duration}`
+                  : task.status === "cancelled"
+                  ? `${t("tool.control.bgQueue.cancelled", "Cancelled")} · ${t(
+                      "tool.control.bgQueue.totalDuration",
+                      "Total",
+                    )} ${duration}`
+                  : `${t(
+                      "tool.control.bgQueue.doneLabel",
+                      "Task completed",
+                    )} · ${t(
+                      "tool.control.bgQueue.totalDuration",
+                      "Total",
+                    )} ${duration}`;
+                return (
+                  <div
+                    key={task.toolCallId}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      setExpandedId((id) =>
+                        id === task.toolCallId ? null : task.toolCallId,
+                      )
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setExpandedId((id) =>
+                          id === task.toolCallId ? null : task.toolCallId,
+                        );
+                      }
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: `2px solid ${
+                        isExpanded
+                          ? isDark
+                            ? "rgba(179,127,235,0.7)"
+                            : "rgba(179,127,235,0.85)"
+                          : "transparent"
+                      }`,
+                      background: isExpanded
+                        ? isDark
+                          ? "rgba(114,46,209,0.16)"
+                          : "rgba(114,46,209,0.06)"
+                        : isDark
+                        ? "rgba(255,255,255,0.04)"
+                        : "rgba(0,0,0,0.02)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: isRunning
+                          ? "#722ed1"
+                          : task.status === "cancelled"
+                          ? "#8c8c8c"
+                          : "#52c41a",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        color: isDark ? "#ddd" : "#333",
+                      }}
+                      title={task.toolName}
+                    >
+                      {task.toolName}
+                    </span>
+                    <span
+                      style={{
+                        color: isDark ? "#888" : "#999",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {statusText}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleClose(task);
+                      }}
+                      style={{
+                        border: `1px solid ${
+                          isRunning
+                            ? isDark
+                              ? "rgba(255,77,79,0.45)"
+                              : "rgba(255,77,79,0.35)"
+                            : borderColor
+                        }`,
+                        background: "transparent",
+                        cursor: "pointer",
+                        color: isRunning
+                          ? isDark
+                            ? "#ff7875"
+                            : "#cf1322"
+                          : isDark
+                          ? "#aaa"
+                          : "#666",
+                        fontSize: 11,
+                        padding: "1px 8px",
+                        borderRadius: 4,
+                        flexShrink: 0,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {isRunning
+                        ? t("tool.control.bgQueue.cancel", "Cancel")
+                        : t("tool.control.bgQueue.remove", "Remove")}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {listOverflow.canScrollDown && (
               <div
-                role="button"
-                tabIndex={0}
-                onClick={() =>
-                  setExpandedId((id) =>
-                    id === task.toolCallId ? null : task.toolCallId,
-                  )
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setExpandedId((id) =>
-                      id === task.toolCallId ? null : task.toolCallId,
-                    );
-                  }
-                }}
                 style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
-                  padding: "6px 8px",
-                  borderRadius: 6,
+                  justifyContent: "center",
+                  gap: 4,
+                  height: 28,
+                  fontSize: 11,
+                  color: isDark ? "#bbb" : "#666",
+                  pointerEvents: "none",
                   background: isDark
-                    ? "rgba(255,255,255,0.04)"
-                    : "rgba(0,0,0,0.02)",
-                  cursor: "pointer",
-                  fontSize: 12,
+                    ? "linear-gradient(to top, rgba(20,20,20,0.92), rgba(20,20,20,0.45), transparent)"
+                    : "linear-gradient(to top, rgba(255,255,255,0.96), rgba(255,255,255,0.55), transparent)",
                 }}
               >
-                <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: isRunning
-                      ? "#722ed1"
-                      : task.status === "cancelled"
-                      ? "#8c8c8c"
-                      : "#52c41a",
-                    flexShrink: 0,
-                  }}
-                />
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    color: isDark ? "#ddd" : "#333",
-                  }}
-                  title={task.toolName}
-                >
-                  {task.toolName}
-                </span>
-                <span
-                  style={{
-                    color: isDark ? "#888" : "#999",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {isRunning
-                    ? `${t(
-                        "tool.control.bgQueue.running",
-                        "Running",
-                      )} ${formatDuration(task.startTime, null)}`
-                    : task.status === "cancelled"
-                    ? `${t(
-                        "tool.control.bgQueue.cancelled",
-                        "Cancelled",
-                      )} · ${t(
-                        "tool.control.bgQueue.totalDuration",
-                        "Total",
-                      )} ${formatDuration(task.startTime, task.endTime)}`
-                    : `${t(
-                        "tool.control.bgQueue.totalDuration",
-                        "Total",
-                      )} ${formatDuration(task.startTime, task.endTime)}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleClose(task);
-                  }}
-                  style={{
-                    border: `1px solid ${
-                      isRunning
-                        ? isDark
-                          ? "rgba(255,77,79,0.45)"
-                          : "rgba(255,77,79,0.35)"
-                        : borderColor
-                    }`,
-                    background: "transparent",
-                    cursor: "pointer",
-                    color: isRunning
-                      ? isDark
-                        ? "#ff7875"
-                        : "#cf1322"
-                      : isDark
-                      ? "#aaa"
-                      : "#666",
-                    fontSize: 11,
-                    padding: "1px 8px",
-                    borderRadius: 4,
-                    flexShrink: 0,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {isRunning
-                    ? t("tool.control.bgQueue.cancel", "Cancel")
-                    : t("tool.control.bgQueue.remove", "Remove")}
-                </button>
+                <ChevronDown size={12} aria-hidden />
+                {t("tool.control.bgQueue.scrollMore", "Scroll to view more")}
               </div>
-              {isExpanded && (
-                <pre
-                  style={{
-                    margin: "4px 0 0",
-                    padding: 8,
-                    maxHeight: 160,
-                    overflow: "auto",
-                    fontSize: 11,
-                    fontFamily:
-                      "ui-monospace, SFMono-Regular, Menlo, monospace",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    background: isDark ? "#141414" : "#fafafa",
-                    border: `1px solid ${borderColor}`,
-                    borderRadius: 6,
-                    color: isDark ? "#ccc" : "#333",
-                  }}
-                >
-                  {body || t("tool.control.bgQueue.noOutput", "No output yet")}
-                </pre>
-              )}
-            </div>
-          );
-        })}
+            )}
+          </div>
+          {expandedTask && (
+            <pre
+              style={{
+                margin: 0,
+                padding: 8,
+                maxHeight: 160,
+                overflow: "auto",
+                fontSize: 11,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                background: isDark ? "#141414" : "#fafafa",
+                border: `1px solid ${borderColor}`,
+                borderRadius: 6,
+                color: isDark ? "#ccc" : "#333",
+              }}
+            >
+              {(expandedTask.status === "running"
+                ? expandedTask.liveOutput
+                : expandedTask.result || expandedTask.liveOutput) ||
+                t("tool.control.bgQueue.noOutput", "No output yet")}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }

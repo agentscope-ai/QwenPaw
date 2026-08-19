@@ -49,6 +49,9 @@ export default function HarnessModelSelector({
       .then((result) => {
         if (!cancelled) {
           setCatalog({ providerId, models: result.models });
+          if (result.message) {
+            message.warning(result.message);
+          }
         }
       })
       .catch((error) => {
@@ -69,9 +72,12 @@ export default function HarnessModelSelector({
     async (nextModel?: HarnessModel, nextEffort?: string) => {
       setSaving(true);
       try {
+        // Send explicit nulls: the PATCH endpoint only touches fields
+        // present in the body, and JSON.stringify drops undefined -- an
+        // omitted field would silently keep the old server-side value.
         await agentsApi.updateBackendSettings(selectedAgent, {
-          model: nextModel?.id,
-          reasoning_effort: nextEffort,
+          model: nextModel?.id ?? null,
+          reasoning_effort: nextEffort ?? null,
         });
         updateAgent(selectedAgent, {
           backend_model: nextModel?.id ?? null,

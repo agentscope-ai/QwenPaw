@@ -123,15 +123,12 @@ def _select_latest_version(
     include_prerelease: bool,
 ) -> str:
     """Return the newest published version from PyPI metadata."""
-    if include_prerelease:
-        version = str(data.get("info", {}).get("version", "")).strip()
-        if not version:
-            raise click.ClickException(
-                "Unable to determine the latest QwenPaw version.",
-            )
-        return version
-
     releases = data.get("releases") or {}
+    if not isinstance(releases, dict):
+        raise click.ClickException(
+            "Received an invalid response from PyPI when checking for the "
+            "latest QwenPaw version.",
+        )
     candidates: list[Version] = []
     for version_str, files in releases.items():
         if not files:
@@ -140,7 +137,7 @@ def _select_latest_version(
             parsed = Version(version_str)
         except InvalidVersion:
             continue
-        if parsed.is_prerelease:
+        if parsed.is_prerelease and not include_prerelease:
             continue
         candidates.append(parsed)
 

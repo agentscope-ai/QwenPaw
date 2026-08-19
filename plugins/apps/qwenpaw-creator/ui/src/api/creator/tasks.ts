@@ -10,6 +10,7 @@ import type {
   TaskView,
 } from "@/contracts/creator";
 import { creatorRequest, jsonBody, newClientId } from "./client";
+import i18n from "@/i18n";
 
 const project = (id: string) => `/projects/${encodeURIComponent(id)}`;
 
@@ -53,7 +54,7 @@ export function cancelTask(
     {
       method: "POST",
       headers: { "Idempotency-Key": id },
-      body: jsonBody({ reason: "用户取消" }),
+      body: jsonBody({ reason: i18n.t("api.userCancel") }),
     },
   );
 }

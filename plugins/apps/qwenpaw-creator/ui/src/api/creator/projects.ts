@@ -1,4 +1,7 @@
 import type {
+  InspirationExampleListResponse,
+  InspirationExampleOpenProgress,
+  InspirationExampleOpenResponse,
   ProjectCreateRequest,
   ProjectCreateResponse,
   ProjectListResponse,
@@ -15,6 +18,7 @@ import {
   jsonBody,
   newClientId,
 } from "./client";
+import i18n from "@/i18n";
 
 function syncStatus(
   value: unknown,
@@ -90,7 +94,7 @@ export async function getProjectSnapshot(
         message:
           typeof body.message === "string"
             ? body.message
-            : "project.json 未通过校验",
+            : i18n.t("api.projectValidationFailed"),
       };
     }
     throw new CreatorHttpError(response.status, {
@@ -142,6 +146,7 @@ export async function getProjectSnapshot(
       body.syncStatus ?? body.sync_status,
       responseSyncStatus,
     ),
+    builtinExample: body.builtinExample === true,
     project: project as ProjectSnapshotEnvelope["project"],
   };
 }
@@ -172,6 +177,33 @@ export function deleteProject(projectId: string): Promise<void> {
     method: "DELETE",
     headers: { "Idempotency-Key": newClientId("delete-project") },
   });
+}
+
+/** OSS-hosted inspiration examples shown under the home composer. */
+export function listInspirationExamples(): Promise<InspirationExampleListResponse> {
+  return creatorRequest("/examples");
+}
+
+/** Download (if needed) a hosted example and return its project id. */
+export function openInspirationExample(
+  exampleId: string,
+): Promise<InspirationExampleOpenResponse> {
+  return creatorRequest(
+    `/examples/${encodeURIComponent(exampleId)}/open`,
+    { method: "POST" },
+    // First open downloads the archive from OSS (tens of MB), so this call
+    // gets a much longer budget than regular API requests.
+    { timeoutMs: 300_000 },
+  );
+}
+
+/** Polled archive download progress for one example (while open runs). */
+export function getInspirationExampleOpenProgress(
+  exampleId: string,
+): Promise<InspirationExampleOpenProgress> {
+  return creatorRequest(
+    `/examples/${encodeURIComponent(exampleId)}/open-progress`,
+  );
 }
 
 function sortJson(value: unknown): unknown {

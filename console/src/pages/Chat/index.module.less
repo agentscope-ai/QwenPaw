@@ -4,6 +4,105 @@
   width: 100%;
   display: flex;
   flex-direction: row;
+  position: relative;
+  overflow: hidden;
+
+  :global {
+    [class$="-bubble-files-download"] {
+      opacity: 1 !important;
+      background: transparent !important;
+
+      svg {
+        display: none;
+      }
+    }
+
+    [class$="-sender-content-bottom"] {
+      align-items: center;
+      column-gap: 8px;
+    }
+
+    [class$="-sender-actions-list"] {
+      align-items: center;
+      column-gap: 8px;
+    }
+  }
+}
+
+.filesPreviewOpen,
+.filesWorkspaceOpen {
+  .chatMainArea {
+    min-width: 420px;
+    transition:
+      width 330ms cubic-bezier(0.22, 0.78, 0.24, 1),
+      opacity 220ms ease;
+  }
+}
+
+.filesWorkspaceOpen {
+  .chatMainArea {
+    :global {
+      [class$="-sender-content"] {
+        padding: 6px;
+      }
+
+      [class$="-sender-content-bottom"] {
+        min-width: 0;
+        align-items: center;
+        column-gap: 4px;
+      }
+
+      [class$="-sender-prefix"] {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      [class$="-sender-actions-list"] {
+        min-width: 0;
+        align-items: center;
+        column-gap: 4px;
+      }
+
+      [class$="-sender-actions-list-length"] {
+        display: none;
+      }
+
+      [class$="-sender-actions-list-presets"] {
+        flex: 0 0 auto;
+      }
+    }
+  }
+}
+
+.compactSenderAffix {
+  min-width: 0;
+  flex: 0 1 auto;
+  gap: 4px;
+}
+
+.senderActionAffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 1024px) {
+  .filesPreviewOpen,
+  .filesWorkspaceOpen {
+    .chatMainArea {
+      min-width: 300px;
+      opacity: 0.7;
+    }
+  }
+}
+
+@media (max-width: 720px) {
+  .filesPreviewOpen,
+  .filesWorkspaceOpen {
+    .chatMainArea {
+      visibility: hidden;
+    }
+  }
 }
 
 /* Main chat area (left of history panel) */
@@ -13,6 +112,13 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatMainArea {
+    will-change: auto;
+  }
 }
 
 /* Chat messages scrollable area */
@@ -210,6 +316,67 @@
     word-break: normal;
   }
 }
+
+/* Fix #6852: Preserve source newlines for the vendor Raw fallback and for
+ * leaf text blocks produced by XMarkdown. Applying pre-wrap to the Markdown
+ * root also renders inter-block whitespace and caused the #5596 regression.
+ * Keep code blocks and tables bounded with their own horizontal scroll.
+ */
+.chatMessagesArea :global {
+  [class*="bubble-start"] [class*="markdown"]:not(.x-markdown),
+  [class*="bubble-assistant"] [class*="markdown"]:not(.x-markdown),
+  [class*="bubble-start"] .x-markdown p,
+  [class*="bubble-start"] .x-markdown li,
+  [class*="bubble-assistant"] .x-markdown p,
+  [class*="bubble-assistant"] .x-markdown li {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  [class*="bubble-start"] .x-markdown pre,
+  [class*="bubble-start"] .x-markdown table,
+  [class*="bubble-assistant"] .x-markdown pre,
+  [class*="bubble-assistant"] .x-markdown table {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  [class*="bubble-start"] .x-markdown pre,
+  [class*="bubble-assistant"] .x-markdown pre {
+    white-space: pre;
+  }
+}
+/* End #6852 */
+
+/* Fix #6583: Keep enough attachment cards visible to verify a multi-file
+ * selection, while bounding very large drops to three scrollable rows. */
+.chatMessagesArea :global {
+  .qwenpaw-sender-header .qwenpaw-attachment {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .qwenpaw-sender-header .qwenpaw-attachment-list {
+    flex-wrap: wrap;
+    align-content: flex-start;
+    max-height: 208px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
+@media (max-width: 600px) {
+  .chatMessagesArea :global {
+    .qwenpaw-sender-header .qwenpaw-attachment-list {
+      column-gap: 8px;
+      padding-inline: 6px;
+    }
+  }
+}
+/* End #6583 */
 
 /* ---- Rate-limit guidance banner ---- */
 .rateLimitBanner {

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -10,12 +11,17 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
 
+from agentscope.message import ToolCallBlock
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
 
 from qwenpaw.local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
+)
+from qwenpaw.utils.tool_call_extra import (
+    attach_transient_tool_call_extra,
+    collect_transient_tool_call_extras,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,6 +168,7 @@ class _SanitizedStream:
         self._stream = stream
         self._ctx_stream: Any | None = None
         self.extra_contents: dict[str, Any] = {}
+        self._tool_call_ids: dict[int, str] = {}
 
     async def __aenter__(self) -> "_SanitizedStream":
         self._ctx_stream = await self._stream.__aenter__()
@@ -195,6 +202,11 @@ class _SanitizedStream:
                 continue
             for tc in getattr(delta, "tool_calls", None) or []:
                 tc_id = getattr(tc, "id", None)
+                index = getattr(tc, "index", None)
+                if tc_id and isinstance(index, int):
+                    self._tool_call_ids[index] = tc_id
+                elif not tc_id and isinstance(index, int):
+                    tc_id = self._tool_call_ids.get(index)
                 if not tc_id:
                     continue
                 extra = getattr(tc, "extra_content", None)
@@ -627,8 +639,10 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay.
 
-    Accepts two extra constructor kwargs that ``OpenAIChatModel`` does not:
+    Accepts extra constructor kwargs that ``OpenAIChatModel`` does not:
 
+    * ``provider_id`` — canonical QwenPaw provider identity used to scope
+      persisted tool-call metadata.
     * ``default_headers`` — injected as ``extra_headers`` on every API call
       (used for DashScope tracking headers, etc.).
     * ``extra_generate_kwargs`` — merged into every ``_call_api`` invocation
@@ -638,6 +652,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     def __init__(
         self,
         *,
+        provider_id: str | None = None,
         default_headers: dict[str, str] | None = None,
         extra_generate_kwargs: dict[str, Any] | None = None,
         output_token_param: str = "max_tokens",
@@ -647,6 +662,36 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._output_token_param = output_token_param
         super().__init__(**kwargs)
+        credential_id = str(getattr(self.credential, "id", "") or "")
+        credential_provider_id = credential_id.removeprefix("qwenpaw-")
+        if (
+            provider_id
+            and credential_provider_id
+            and provider_id != credential_provider_id
+        ):
+            logger.warning(
+                "Explicit provider id %r differs from credential-derived "
+                "id %r; using the explicit id for tool-call metadata.",
+                provider_id,
+                credential_provider_id,
+            )
+        self._qwenpaw_provider_id = provider_id or credential_provider_id
+
+    @property
+    def qwenpaw_provider_id(self) -> str:
+        """Canonical provider ID used for provider-scoped metadata."""
+        return self._qwenpaw_provider_id
+
+    def bind_qwenpaw_provider_id(self, provider_id: str) -> None:
+        """Bind the provider identity resolved by ``ProviderManager``.
+
+        Credential-derived IDs are only a fallback for models constructed
+        outside QwenPaw's factory.  Inside the factory, the resolved provider
+        instance is authoritative for metadata, accounting, and retry keys.
+        """
+        if not provider_id:
+            raise ValueError("provider_id must not be empty")
+        self._qwenpaw_provider_id = provider_id
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
         try:
@@ -665,7 +710,42 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     "langfuse generation kwargs failed",
                     exc_info=True,
                 )
-        return await super().__call__(*args, **kwargs)
+        response = await super().__call__(*args, **kwargs)
+        if not inspect.isasyncgen(response):
+            return response
+        return self._relay_stream_tool_call_extras(response)
+
+    async def _relay_stream_tool_call_extras(
+        self,
+        response: AsyncGenerator[ChatResponse, None],
+    ) -> AsyncGenerator[ChatResponse, None]:
+        """Carry delta-only tool metadata onto the accumulated response.
+
+        AgentScope copies ``model_extra`` while merging an existing
+        ``ToolCallBlock``, but QwenPaw's transient attribute intentionally is
+        not a Pydantic field. Keep a sidecar local to this model call and
+        reattach its records to the final accumulated response.
+        """
+        extras: dict[str, dict[str, Any]] = {}
+        try:
+            async for chunk in response:
+                extras.update(
+                    collect_transient_tool_call_extras(chunk.content),
+                )
+                if chunk.is_last and extras:
+                    for block in chunk.content:
+                        tool_id = _battr(block, "id")
+                        record = extras.get(tool_id)
+                        if not record:
+                            continue
+                        attach_transient_tool_call_extra(
+                            block,
+                            provider_id=str(record.get("provider_id") or ""),
+                            extra_content=record["extra_content"],
+                        )
+                yield chunk
+        finally:
+            await response.aclose()
 
     async def _call_api(
         self,
@@ -733,9 +813,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         response: Any,
     ) -> AsyncGenerator[ChatResponse, None]:
         sanitized_response = _SanitizedStream(response)
-
-        _think_tool_calls: dict[str, dict] = {}
-        _text_tool_calls: dict[str, dict] = {}
+        next_think_tool_call_id = 0
+        next_text_tool_call_id = 0
 
         async for parsed in super()._parse_stream_response(
             start_datetime=start_datetime,
@@ -792,10 +871,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                         continue
                     ec = sanitized_response.extra_contents.get(tool_id)
                     if ec:
-                        if isinstance(block, dict):
-                            block["extra_content"] = ec
-                        else:
-                            block.extra_content = ec
+                        attach_transient_tool_call_extra(
+                            block,
+                            provider_id=self._qwenpaw_provider_id,
+                            extra_content=ec,
+                        )
 
             has_tool_use = any(
                 (
@@ -807,10 +887,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 for b in parsed.content
             )
 
-            if has_tool_use:
-                _think_tool_calls.clear()
-                _text_tool_calls.clear()
-            else:
+            recovered_tool_calls: list[ToolCallBlock] = []
+            if not has_tool_use:
                 # --- 1. Scan thinking blocks ---
                 for block in parsed.content:
                     btype = _battr(block, "type")
@@ -826,16 +904,15 @@ class OpenAIChatModelCompat(OpenAIChatModel):
 
                     _bset(block, "thinking", think_parsed.text_before.strip())
 
-                    _think_tool_calls = {
-                        f"thinking_{i}": {
-                            "type": "tool_use",
-                            "id": f"think_call_{i}",
-                            "name": ptc.name,
-                            "input": ptc.arguments,
-                            "raw_input": ptc.raw_arguments,
-                        }
-                        for i, ptc in enumerate(think_parsed.tool_calls)
-                    }
+                    for tool_call in think_parsed.tool_calls:
+                        recovered_tool_calls.append(
+                            ToolCallBlock(
+                                id=f"think_call_{next_think_tool_call_id}",
+                                name=tool_call.name,
+                                input=tool_call.raw_arguments,
+                            ),
+                        )
+                        next_think_tool_call_id += 1
 
                 # --- 2. Scan text/content blocks ---
                 new_content: list | None = None
@@ -851,16 +928,15 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     _bset(block, "text", clean_text)
 
                     if text_parsed.tool_calls:
-                        _text_tool_calls = {
-                            f"text_{j}": {
-                                "type": "tool_use",
-                                "id": f"text_call_{j}",
-                                "name": ptc.name,
-                                "input": ptc.arguments,
-                                "raw_input": ptc.raw_arguments,
-                            }
-                            for j, ptc in enumerate(text_parsed.tool_calls)
-                        }
+                        for tool_call in text_parsed.tool_calls:
+                            recovered_tool_calls.append(
+                                ToolCallBlock(
+                                    id=f"text_call_{next_text_tool_call_id}",
+                                    name=tool_call.name,
+                                    input=tool_call.raw_arguments,
+                                ),
+                            )
+                            next_text_tool_call_id += 1
 
                     # If the text block is now empty, mark it for removal.
                     if not clean_text:
@@ -871,10 +947,9 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 if new_content is not None:
                     parsed.content = [b for b in new_content if b is not None]
 
-                extra = list(_think_tool_calls.values()) + list(
-                    _text_tool_calls.values(),
-                )
-                if extra:
-                    parsed.content = list(parsed.content) + extra
+                if recovered_tool_calls:
+                    parsed.content = (
+                        list(parsed.content) + recovered_tool_calls
+                    )
 
             yield parsed

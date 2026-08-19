@@ -43,6 +43,11 @@ from .store import ProjectSnapshot, ProjectStore
 logger = logging.getLogger(__name__)
 
 
+def _log_safe(value: object) -> str:
+    """Neutralise CR/LF so user-provided values cannot forge log lines."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 @dataclass(slots=True)
 class CreatorFileServices:
     root: Path
@@ -195,12 +200,110 @@ class CreatorFileServices:
     ) -> ReviewRejectionAction | None:
         """Append one idempotent Runtime continuation for a Review decision."""
 
+        auto_continued = await self._auto_continue_storyboard_videos(
+            project_id=project_id,
+            review_id=review_id,
+            decision_id=decision_id,
+        )
         return await asyncio.to_thread(
             self._publish_review_followup,
             project_id=project_id,
             review_id=review_id,
             decision_id=decision_id,
+            auto_continued=auto_continued,
         )
+
+    async def _auto_continue_storyboard_videos(
+        self,
+        *,
+        project_id: str,
+        review_id: str,
+        decision_id: str,
+    ) -> list[str]:
+        """Start video generation for approved storyboards, when safe.
+
+        The Runtime never auto-resumed a paused specialist: after approval
+        the mainline had to re-delegate, and models routinely skipped that
+        step while claiming the video was already running. Only fires when
+        execution authorization is allow_all — otherwise dispatching here
+        would bypass the cost-approval gate — and only for approved
+        storyboard artifacts whose element has no main output yet. Failures
+        never block the follow-up message; the mainline instruction remains
+        the fallback.
+        """
+
+        from models.config import (
+            EXECUTION_AUTHORIZATION_ALLOW_ALL,
+            get_execution_authorization_mode,
+        )
+
+        if (
+            get_execution_authorization_mode()
+            != EXECUTION_AUTHORIZATION_ALLOW_ALL
+        ):
+            return []
+        try:
+            journal = await asyncio.to_thread(
+                self.reviews.get_decision_journal,
+                project_id,
+                review_id,
+                decision_id,
+            )
+        except Exception:
+            return []
+        if (
+            journal.state is not ReviewDecisionJournalState.FINALIZED
+            or journal.rejection_feedback is not None
+            or not all(item.decision == "ACCEPT" for item in journal.decisions)
+        ):
+            return []
+        targets = self._accepted_artifact_targets(journal)
+        if not targets:
+            return []
+        snapshot = await asyncio.to_thread(self.projects.read, project_id)
+        project = snapshot.project
+        continued: list[str] = []
+        for item in targets:
+            target_ref = str(item.get("target_ref") or "")
+            version_id = str(item.get("artifact_version_id") or "")
+            if not target_ref.startswith("element:"):
+                continue
+            artifact = project.assets.artifact_versions_by_id.get(version_id)
+            if artifact is None or artifact.kind != "r2v_storyboard_image":
+                continue
+            element_id = target_ref.removeprefix("element:")
+            element = None
+            for timeline in project.timelines.items.values():
+                element = timeline.elements_by_id.get(element_id)
+                if element is not None:
+                    break
+            if element is None or "main" in element.outputs:
+                continue
+            digest = sha256(
+                f"{project_id}\0{review_id}\0{decision_id}\0"
+                f"{target_ref}".encode("utf-8"),
+            ).hexdigest()
+            try:
+                from services.media_files.r2v_execution import (
+                    execute_file_r2v_command,
+                )
+
+                await execute_file_r2v_command(
+                    self,
+                    project_id=project_id,
+                    target_ref=target_ref,
+                    arguments={},
+                    idempotency_key=f"review-auto-continue-{digest}",
+                )
+            except Exception:
+                logger.exception(
+                    "auto-continue video failed for %s in Project %s",
+                    _log_safe(target_ref),
+                    _log_safe(project_id),
+                )
+                continue
+            continued.append(target_ref)
+        return continued
 
     async def publish_review_rejection_feedback(
         self,
@@ -303,6 +406,8 @@ class CreatorFileServices:
         self,
         project_id: str,
         journal: Any,
+        *,
+        auto_continued: list[str] | None = None,
     ) -> str | None:
         """Render the follow-up text, or ``None`` when none is warranted."""
 
@@ -320,7 +425,10 @@ class CreatorFileServices:
         # multi-image approval does not fan out into duplicate Agent runs.
         if self.reviews.active(project_id) is not None:
             return None
-        return self._render_review_approval_message(accepted_targets)
+        return self._render_review_approval_message(
+            accepted_targets,
+            auto_continued=auto_continued or [],
+        )
 
     def _publish_review_followup(
         self,
@@ -328,6 +436,7 @@ class CreatorFileServices:
         project_id: str,
         review_id: str,
         decision_id: str,
+        auto_continued: list[str] | None = None,
     ) -> ReviewRejectionAction | None:
         """Synchronous implementation shared by HTTP and startup recovery."""
 
@@ -337,7 +446,11 @@ class CreatorFileServices:
             decision_id,
         )
         feedback = journal.rejection_feedback
-        text = self._followup_message_text(project_id, journal)
+        text = self._followup_message_text(
+            project_id,
+            journal,
+            auto_continued=auto_continued,
+        )
         if text is None:
             return None
         try:
@@ -470,12 +583,20 @@ class CreatorFileServices:
     @staticmethod
     def _render_review_approval_message(
         targets: list[dict[str, str]],
+        *,
+        auto_continued: list[str] | None = None,
     ) -> str:
         lines = [
             "【系统自动消息 · 审阅已通过】",
             (
                 "用户已通过以下产物。请从原任务的下一个未完成步骤自动继续；"
                 "不要重新生成已通过产物，也不要要求用户输入 continue。"
+            ),
+            (
+                "若通过的产物是某 R2V Element 的分镜图，其视频不会自动开始："
+                "请立即对该 Element 重新委派 R2V 生成 Director 以继续生成视频；"
+                "这不算重新生成已通过产物。其他被暂停的 Specialist 同理，"
+                "需重新委派同一目标才会继续后续步骤。"
             ),
             "已通过产物：",
         ]
@@ -484,6 +605,12 @@ class CreatorFileServices:
             f"{item['artifact_version_id']}）"
             for item in targets
         )
+        if auto_continued:
+            lines.append(
+                "以下 Element 的视频已由 Runtime 自动开始生成，"
+                "请勿重新委派这些 Element，继续其他未完成步骤即可：",
+            )
+            lines.extend(f"- {target}" for target in auto_continued)
         return "\n".join(lines)
 
 

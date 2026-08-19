@@ -4,6 +4,7 @@
 from types import SimpleNamespace
 
 import pytest
+from agentscope.model import ChatResponse
 
 from qwenpaw.utils.model_response import (
     consume_model_response,
@@ -55,6 +56,16 @@ def test_extract_response_text(response, expected):
 async def test_consume_non_streaming():
     async def model(messages, **kw):
         return SimpleNamespace(text="done")
+
+    assert await consume_model_response(model, []) == "done"
+
+
+async def test_consume_agentscope_chat_response():
+    async def model(messages, **kw):
+        return ChatResponse(
+            content=[{"type": "text", "text": "done"}],
+            is_last=True,
+        )
 
     assert await consume_model_response(model, []) == "done"
 

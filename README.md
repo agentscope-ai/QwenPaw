@@ -37,7 +37,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 | **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
 | **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, Skill Scanner, and Access Policy. Dangerous commands are blocked before they run.                                                                   |
 | **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
-| **Coding Mode**                         | Three-panel Web IDE with file tree, diff preview, and chat. Jump-to-definition, find-references, and structural code search built in.                                              |
+| **File workspace**                      | Unified file navigation, preview, editing, diffs, upload, and download across project and Agent files.                                                                            |
 | **Extensible**                          | Skills for scheduling, documents, browser, news, and more. Plugin architecture with a marketplace. MCP integration for external tools. Combine them into purpose-built workflows.  |
 | **Reachable anywhere**                  | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — one instance, all channels. Console, TUI, and desktop app for direct access.                                            |
 | **Yours, not ours**                     | Deploy locally — data stays on your machine. No third-party hosting, no data upload.                                                                                               |
@@ -48,7 +48,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 <br>
 
 - **Automation & scheduling**: Set up recurring tasks — news digests, report generation, multi-channel broadcasting — all on your schedule.
-- **Code & development**: Read, edit, review, and test code in your projects; Coding Mode helps you quickly find and understand code.
+- **Code & development**: Read, edit, review, and test code in your projects with the unified file workspace.
 - **Document processing**: Read, write, and convert PDF, Word, Excel, and PowerPoint files.
 - **Information gathering**: Search the web, follow subscriptions, summarize videos, and find what you need in your personal knowledge base.
 - **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per channel.
@@ -59,6 +59,8 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 ---
 
 ## News
+
+- [2026-08-13] **v2.1.0** | QwenPaw OS Shell, unified Files workspace, QwenPaw Creator, Codex/Qoder Agent integration, Browser-use, Computer-use, workspace checkpoints, and long-running conversation continuity. [v2.1.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, [ReMe](https://github.com/agentscope-ai/ReMe) memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
@@ -334,7 +336,6 @@ After installation, configure your model in **Console → Settings → Models**,
 - [Add Skills](https://qwenpaw.agentscope.io/docs/skills) to extend capabilities (PDF, Office, browser, news, etc.)
 - [Set up Channels](https://qwenpaw.agentscope.io/docs/channels) for DingTalk, Lark, Discord, and more
 - [Configure Cron](https://qwenpaw.agentscope.io/docs/cron) for scheduled tasks and automation
-- [Try Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode) for IDE-style code collaboration
 - See the full [Quick Start guide](https://qwenpaw.agentscope.io/docs/quickstart) for all options and verification steps
 
 ---
@@ -407,7 +408,6 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Desktop App](https://qwenpaw.agentscope.io/docs/desktop)               | Desktop application installation and usage       |
 | [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
 | [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Lark, QQ, Discord, iMessage, and more |
-| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | Three-panel Web IDE for code-centric tasks       |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
 | [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system and Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
@@ -441,20 +441,27 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 ## Roadmap
 
-| Area                     | Item                                                                                         | Status               |
-| ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
-| **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
-| **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Models**               | Multi-model switching                                                                         | In Progress          |
-| **Browser-use**   | Support Chrome extension                                                             | In Progress          |
-| **Long-term Memory**   | Personal knowledge base                                                             | In Progress          |
-| **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
-|                          | QwenPaw Insight                                           | In Progress              |
-| **Multi-agent**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
-|          | Group chat                                                                                   | Planned              |
-|                          | Subagent visualization                                                                                 | Planned              |
+| Area                            | Item                                                                   | Status               |
+| ------------------------------- | ---------------------------------------------------------------------- | -------------------- |
+| **Horizontal Expansion**        | More channels, models, skills, and MCPs                                | Seeking Contributors |
+| **Existing Feature Extension**  | Display, download, and Windows improvements                            | Seeking Contributors |
+| **Models**                      | Multi-model switching                                                  | In Progress          |
+| **Safety & Approval**           | Batch preview and approval                                              | In Progress          |
+| **Automation**                  | Automated tasks                                                         | In Progress          |
+| **Agent Interaction**           | Agent task handoff                                                      | In Progress          |
+|                                 | Running task steering                                                   | In Progress          |
+| **Workspaces**                  | Multiple workspaces                                                    | In Progress          |
+| **Context**                     | System prompt compression                                               | In Progress          |
+| **Tooling**                     | Multi-location file changes                                             | In Progress          |
+|                                 | Persistent terminals and background tasks                              | In Progress          |
+| **Computer-use**                | On-screen target detection and actions                                  | In Progress          |
+| **Voice Interaction**           | Real-time voice tasks                                                   | In Progress          |
+| **Context Management & Memory** | Hot-swappable vector models and storage                                 | In Progress          |
+|                                 | Personal knowledge base                                                 | In Progress          |
+| **QwenPaw Applications**        | QwenPaw Insight                                                        | In Progress          |
+|                                 | QwenPaw Mail                                                           | In Progress          |
 
-_Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
+_Status:_ **In Progress** — actively being worked on; **Seeking Contributors** — we strongly encourage community contributions.
 
 ---
 

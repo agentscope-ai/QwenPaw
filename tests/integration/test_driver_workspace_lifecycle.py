@@ -31,6 +31,7 @@ async def _active_driver_names(manager) -> list[str]:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+@pytest.mark.p1
 async def test_driver_manager_uses_per_workspace_storage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

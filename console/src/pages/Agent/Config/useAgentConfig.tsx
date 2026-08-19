@@ -12,7 +12,9 @@ import {
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
-export function useAgentConfig() {
+export function useAgentConfig(
+  onConfigLoaded?: (config: AgentsRunningConfig) => void,
+) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
@@ -86,6 +88,7 @@ export function useAgentConfig() {
 
       // Store original config for complete save
       originalConfigRef.current = config;
+      onConfigLoaded?.(config);
 
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
@@ -96,7 +99,7 @@ export function useAgentConfig() {
     } finally {
       setLoading(false);
     }
-  }, [form, t, selectedAgent]);
+  }, [form, t, selectedAgent, onConfigLoaded]);
 
   useEffect(() => {
     fetchConfig();
@@ -168,12 +171,16 @@ export function useAgentConfig() {
           formValues.auto_title_config,
         ) as typeof original.auto_title_config,
         approval_level: approvalLevel,
+        // Keep legacy max_iters aligned with the UI-bound iteration limit.
+        max_iters:
+          formValues.loop?.iteration?.max_iterations ?? original.max_iters,
       };
 
-      await api.updateAgentRunningConfig(configToSave);
+      const savedConfig = await api.updateAgentRunningConfig(configToSave);
 
       // Update original config after successful save
-      originalConfigRef.current = configToSave;
+      originalConfigRef.current = savedConfig;
+      onConfigLoaded?.(savedConfig);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
@@ -183,7 +190,7 @@ export function useAgentConfig() {
     } finally {
       setSaving(false);
     }
-  }, [form, t, selectedAgent, approvalLevel]);
+  }, [form, t, selectedAgent, approvalLevel, onConfigLoaded]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {

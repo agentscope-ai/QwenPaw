@@ -117,6 +117,7 @@ EXTENSION_COMMANDS = frozenset(
         "file.upload",
         "download.read",
         "dialog.set",
+        "extension.open_extensions_manager",
         "status.get",
         "bridge.connect",
         "extension.reload",

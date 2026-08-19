@@ -91,8 +91,13 @@ describe("R2V Workbench page", () => {
     const { container } = renderWorkbench();
 
     expect(
-      screen.getByText("视频方案 / 午饭名场面 / 制作工作台"),
+      screen.getByText(/视频方案 \/ 午饭名场面 \/ 制作工作台/),
     ).toBeInTheDocument();
+    // The legacy fixture has no generation_mode, so the badge reads as the
+    // historical r2v default.
+    expect(
+      container.querySelector('[data-generation-mode="r2v"]'),
+    ).toHaveTextContent("参考生视频");
     expect(screen.getByText("Shot 列表（1）")).toBeInTheDocument();
     expect(screen.getByDisplayValue("橘猫隔窗看向午饭")).toBeInTheDocument();
     expect(screen.getByDisplayValue("暖色餐厅窗外的橘猫")).toBeInTheDocument();
@@ -113,9 +118,47 @@ describe("R2V Workbench page", () => {
     // "character" and "character anchor image".
     expect(screen.queryByText("@橘猫角色锚点")).toBeNull();
     expect(screen.getByText("资产绑定")).toBeInTheDocument();
+    expect(screen.getByText("视觉 Variant")).toBeInTheDocument();
+    expect(
+      screen.getByText("圆润体型、橘色毛发、红色项圈"),
+    ).toBeInTheDocument();
     expect(useCreatorInteractionStore.getState().selectedRef).toBe(
       "element:r2v-window",
     );
+  });
+
+  it("presents an s2v element as the digital-human workbench, not r2v", () => {
+    const project = cloneProject();
+    const element =
+      project.timelines.items["timeline:main"].elements_by_id["r2v-window"];
+    element.creation = {
+      type: "s2v",
+      intent: "口播开场",
+      character_ref: "cat",
+      portrait_version_id: "sb-window-v1",
+      script: "大家好，欢迎收看。",
+      audio_version_id: null,
+      recipe: null,
+    };
+    seedProject(project);
+
+    const { container } = renderWorkbench();
+
+    expect(
+      container.querySelector('[data-mode-workbench="s2v"]'),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-generation-mode="s2v"]'),
+    ).toHaveTextContent("数字人口播");
+    // The s2v surface models exactly the provider inputs…
+    expect(screen.getByText("人物图（s2v 参考）")).toBeInTheDocument();
+    expect(screen.getByText("台词")).toBeInTheDocument();
+    expect(screen.getByText("驱动音频")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("大家好，欢迎收看。")).toBeInTheDocument();
+    // …and none of the r2v shot/storyboard machinery.
+    expect(screen.queryByText(/Shot 列表/)).toBeNull();
+    expect(screen.queryByText("分镜Prompt与分镜图")).toBeNull();
+    expect(screen.queryByText("资产绑定")).toBeNull();
   });
 
   it("shows the runtime-resolved video model instead of creation.recipe.model", async () => {
@@ -134,6 +177,68 @@ describe("R2V Workbench page", () => {
     await waitFor(() =>
       expect(screen.getByText("happyhorse-1.1-r2v")).toBeInTheDocument(),
     );
+  });
+
+  it("persists the Element-to-Variant binding selected in the workbench", async () => {
+    const project = cloneProject();
+    const cat = project.visual.entities.items.cat;
+    cat.variants.items["variant:cat:winter"] = {
+      variant_id: "variant:cat:winter",
+      requirements: "冬季围巾造型",
+      prompt: "圆润大橘猫，佩戴红色围巾",
+      reference_asset_version_ids: [],
+      reference_artifact_version_ids: [],
+      generated_artifact_version_ids: [],
+      selected_artifact_version_id: null,
+    };
+    cat.variants.order.push("variant:cat:winter");
+    seedProject(project);
+    const updated = structuredClone(project);
+    updated.generation = 4;
+    const updatedCreation =
+      updated.timelines.items["timeline:main"].elements_by_id["r2v-window"]
+        .creation;
+    if (updatedCreation.type !== "r2v") {
+      throw new Error("fixture R2V Element missing");
+    }
+    updatedCreation.visual_variant_refs.cat = "variant:cat:winter";
+    const { calls } = installMockFetch([
+      {
+        match: "/projects/p1/project",
+        method: "PATCH",
+        response: {
+          json: {
+            projectId: "p1",
+            generation: 4,
+            etag: '"sha256:g4"',
+            changedPointers: [
+              "/timelines/items/timeline:main/elements_by_id/r2v-window/creation/visual_variant_refs/cat",
+            ],
+            project: updated,
+          },
+        },
+      },
+    ]);
+    renderWorkbench();
+
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", { name: "圆润大橘猫 Variant" }),
+    );
+    fireEvent.click(screen.getByText("冬季围巾造型"));
+    fireEvent.click(screen.getByRole("button", { name: "应用修改（1）" }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PATCH")).toBe(true),
+    );
+    expect(calls.find((call) => call.method === "PATCH")?.body).toMatchObject({
+      operations: [
+        {
+          op: "replace",
+          path: "/timelines/items/timeline:main/elements_by_id/r2v-window/creation/visual_variant_refs/cat",
+          value: "variant:cat:winter",
+        },
+      ],
+    });
   });
 
   it("returns to the Plan page with the Element selected", async () => {
@@ -172,15 +277,17 @@ describe("R2V Workbench page", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "进入 R2V 工作台" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /进入制作工作台（参考生视频）/ }),
+    );
     await waitFor(() =>
       expect(
-        screen.getByText("视频方案 / 午饭名场面 / 制作工作台"),
+        screen.getByText(/视频方案 \/ 午饭名场面 \/ 制作工作台/),
       ).toBeInTheDocument(),
     );
   });
 
-  it("commits prompt edits through the schema-v2 Project CAS Patch endpoint", async () => {
+  it("commits prompt edits through the Project CAS Patch endpoint", async () => {
     const updated = cloneProject();
     updated.generation = 4;
     const creation =
@@ -226,7 +333,7 @@ describe("R2V Workbench page", () => {
     });
   });
 
-  it("commits shot edits through the schema-v2 Project CAS Patch endpoint", async () => {
+  it("commits shot edits through the Project CAS Patch endpoint", async () => {
     const updated = cloneProject();
     updated.generation = 4;
     const creation =

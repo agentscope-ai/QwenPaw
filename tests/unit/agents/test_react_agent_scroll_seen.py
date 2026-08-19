@@ -11,6 +11,16 @@ from agentscope.model import FinishedReason
 
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
+from qwenpaw.providers.model_capability_cache import get_capability_cache
+
+
+_AUDIO_MODAL_ERROR = (
+    "Error code: 400 - {'error': {'message': '<400> "
+    "InternalError.Algo.InvalidParameter: An incorrect modal `audio` was "
+    "entered, which may not be supported by the model or was placed in the "
+    "wrong position (e.g., in system/assistant).', "
+    "'type': 'invalid_request_error'}}"
+)
 
 
 class SeenTracker:
@@ -145,3 +155,57 @@ async def test_compress_context_forwards_one_shot_instructions():
     await agent.compress_context(config, instructions=instructions)
 
     assert tracker.calls == [(agent, config, instructions)]
+
+
+@pytest.mark.asyncio
+async def test_audio_modal_error_strips_audio_and_retries_once(
+    monkeypatch,
+) -> None:
+    _skip_media_strip(monkeypatch)
+    cache = get_capability_cache()
+    cache.clear()
+    agent = make_agent(SeenTracker())
+    agent.model = SimpleNamespace(model_key="dashscope:qwen3.7-plus")
+    agent._uses_request_time_media_normalization = lambda: True
+    agent.formatter = SimpleNamespace(
+        _qwenpaw_last_wire_media_count=1,
+        _qwenpaw_last_wire_audio_count=1,
+        _qwenpaw_force_strip_media=False,
+        _qwenpaw_force_strip_audio=False,
+    )
+    calls = 0
+
+    async def provider_reasoning(self, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError(_AUDIO_MODAL_ERROR)
+        assert agent.formatter._qwenpaw_force_strip_audio is True
+        assert agent.formatter._qwenpaw_force_strip_media is False
+        yield Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(type="text", text="done")],
+        )
+
+    monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
+
+    try:
+        events = [event async for event in agent._reasoning()]
+        next_events = [event async for event in agent._reasoning()]
+
+        assert calls == 3
+        assert isinstance(events[-1], Msg)
+        assert isinstance(next_events[-1], Msg)
+        assert (
+            cache.get(
+                "dashscope:qwen3.7-plus",
+                "rejects_audio",
+                False,
+            )
+            is True
+        )
+        assert agent.formatter._qwenpaw_force_strip_audio is False
+        assert agent.formatter._qwenpaw_force_strip_media is False
+    finally:
+        cache.clear()

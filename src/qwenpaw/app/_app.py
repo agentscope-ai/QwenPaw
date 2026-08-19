@@ -30,6 +30,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -42,6 +43,7 @@ from .auth import (
     auto_register_from_env,
     check_proxy_config_sanity,
 )
+from .exception_handlers import register_exception_handlers
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
@@ -73,6 +75,16 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+
+
+async def _sync_scroll_history_on_startup() -> None:
+    """Run the composed legacy-history migration outside the event loop."""
+    try:
+        from ..agents.context.scroll.sync import sync_all_scroll_agents
+
+        await run_sync_io(sync_all_scroll_agents)
+    except Exception:  # noqa: BLE001 - session sync must never block startup
+        logger.warning("session-sync: import/launch failed", exc_info=True)
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -109,6 +121,11 @@ async def _stop_browser_runtime(app: FastAPI) -> None:
             await browser_kernel.discard_all_workers()
         except Exception:
             logger.error("Error shutting down browser workers", exc_info=True)
+    from ..browser.runtime.managed_playwright import (
+        stop_managed_chromium_download,
+    )
+
+    await stop_managed_chromium_download()
 
 
 @asynccontextmanager
@@ -170,16 +187,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     #
     # Note: being pure backfill, this could later run asynchronously (off the
     # boot path) to speed up startup.
-    try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
+    await _sync_scroll_history_on_startup()
 
-        sync_all_scroll_agents()
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
-
-    # Create core managers (instant — no I/O)
-    provider_manager = ProviderManager.get_instance()
-    local_model_manager = LocalModelManager.get_instance()
+    # Provider initialization scans and may migrate persisted configuration.
+    provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
+    local_model_manager = await asyncio.to_thread(
+        LocalModelManager.get_instance,
+    )
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None
@@ -286,130 +300,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
 
-        # --- Built-in slash commands (daemon, control, conversation) ---
-        try:
-            from ..runtime.builtin_commands import (
-                collect_builtin_command_specs,
-                get_skill_fallback_handler,
-            )
-
-            _api_action_command_specs.extend(collect_builtin_command_specs())
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_fallback_handler"
-            ] = get_skill_fallback_handler()
-            logger.debug("Built-in slash commands collected")
-        except Exception:
-            logger.debug(
-                "Built-in slash command collection skipped",
-                exc_info=True,
-            )
-
-        # --- Built-in lifecycle hooks ---
-        try:
-            from ..hooks.bootstrap.bootstrap_hook import BootstrapHook
-            from ..hooks.cron.cron_hook import (
-                CronContextHook,
-                CronMemoryIsolateHook,
-                CronMemoryRestoreHook,
-            )
-            from ..hooks.error.error_hook import (
-                CancelCleanupHook,
-                ErrorNormalizeHook,
-            )
-            from ..hooks.request_setup.contextvars_hook import (
-                ContextVarsSetupHook,
-            )
-            from ..hooks.request_setup.media_hook import MediaProcessHook
-            from ..hooks.session.session_hook import (
-                SessionLoadHook,
-                SessionSaveHook,
-            )
-            from ..hooks.skill_env.skill_env_hook import (
-                SkillEnvCleanupHook,
-                SkillEnvHook,
-            )
-
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
-                CronContextHook,
-                CronMemoryIsolateHook,
-                CronMemoryRestoreHook,
-                SessionLoadHook,
-                SessionSaveHook,
-                BootstrapHook,
-                SkillEnvHook,
-                SkillEnvCleanupHook,
-                ContextVarsSetupHook,
-                MediaProcessHook,
-                ErrorNormalizeHook,
-                CancelCleanupHook,
-            ]
-
-            try:
-                from ..hooks.observability.langfuse_hook import (
-                    LangfuseTraceCleanupHook,
-                    LangfuseTraceHook,
-                )
-
-                # pylint: disable=protected-access
-                workspace_registry._bootstrap_kwargs.setdefault(
-                    "builtin_hook_clses",
-                    [],
-                ).extend([LangfuseTraceHook, LangfuseTraceCleanupHook])
-            except Exception:
-                logger.debug(
-                    "Langfuse hooks not available",
-                    exc_info=True,
-                )
-
-            logger.debug("Built-in lifecycle hooks collected")
-        except Exception:
-            logger.debug(
-                "Built-in lifecycle hook collection skipped",
-                exc_info=True,
-            )
-
-        # --- Built-in prompt contributors ---
-        try:
-            from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
-
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_contributor_clses"
-            ] = _ALL_CONTRIBUTORS
-            logger.debug("Built-in prompt contributors collected")
-        except Exception:
-            logger.debug(
-                "Built-in prompt contributor collection skipped",
-                exc_info=True,
-            )
-
-        # --- Built-in modes (CodingMode, MissionMode) ---
-        try:
-            from ..modes.coding import CodingMode
-            from ..modes.goal import GoalMode
-            from ..modes.mission import MissionMode
-
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
-                CodingMode,
-                MissionMode,
-                GoalMode,
-            ]
-            logger.debug("Built-in modes collected")
-        except Exception:
-            logger.debug(
-                "Built-in mode collection skipped",
-                exc_info=True,
-            )
-
-        if _api_action_command_specs:
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_command_specs"
-            ] = _api_action_command_specs
-
     except Exception:
         logger.debug(
             "Runtime infrastructure init skipped",
@@ -451,6 +341,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         get_default_kernel_manager(),
         max(0.1, browser_config.idle_ttl_seconds),
     )
+    if browser_config.experimental:
+        from ..browser.runtime.managed_playwright import (
+            start_managed_chromium_download,
+        )
+
+        start_managed_chromium_download()
     try:
         from ..browser.control_link.chrome.ws_handler import prime_bridge_token
 
@@ -530,6 +426,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
+            startup_provider_ids = (
+                provider_manager.prepare_startup_provider_model_sync()
+            )
+            asyncio.create_task(
+                provider_manager.sync_startup_provider_models(
+                    startup_provider_ids,
+                ),
+                name="qwenpaw-provider-model-sync",
+            )
+            asyncio.create_task(
+                provider_manager.sync_remote_catalogs(),
+                name="qwenpaw-provider-catalog-sync",
+            )
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
@@ -550,7 +459,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 provider_id,
                 provider_reg,
             ) in plugin_loader.registry.get_all_providers().items():
-                provider_manager.register_plugin_provider(
+                await provider_manager.register_plugin_provider_async(
                     provider_id=provider_id,
                     provider_class=provider_reg.provider_class,
                     label=provider_reg.label,
@@ -791,6 +700,7 @@ app = FastAPI(
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
+register_exception_handlers(app)
 
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)

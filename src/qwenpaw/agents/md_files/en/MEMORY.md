@@ -1,26 +1,26 @@
 ---
-summary: "Agent long-term memory — tool setup and lessons learned"
+summary: "The agent's core long-term memory, maintained by the user and agent"
 read_when:
-  - Bootstrapping a workspace manually
+  - Long-lived preferences, decisions, tool setup, or lessons are needed
 ---
+
+## Core Long-Term Memory
+
+This is the agent's core long-term memory file. Both the user and the agent may read, edit, and update it.
+
+Record selected information that remains useful across sessions, such as:
+
+- Stable user preferences and ways of working
+- Important decisions, durable constraints, and ongoing goals
+- Tool setup such as SSH hosts, aliases, and local device details
+- Lessons worth retaining for the long term
+
+Do not copy daily activity logs or complete conversations here; those belong in the personal knowledge base's daily notes. Unless the user explicitly asks, do not store passwords, tokens, or other sensitive information. Read the existing content before updating it, preserve valid information written by the user or other sessions, and merge without duplication.
 
 ## Tool Setup
 
-Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
+<!-- Record durable, workspace-specific tool setup here. -->
 
-### What Goes Here
+## Important Decisions and Lessons
 
-Add whatever helps you do your job. This is your cheat sheet.
-
-Things like:
-
-- SSH hosts and aliases
-- Other user-related settings when executing skills
-
-### Examples
-
-```markdown
-### SSH
-
-- home-server → 192.168.1.100, user: admin
-```
+<!-- Record decisions, constraints, and lessons that must persist across sessions here. -->

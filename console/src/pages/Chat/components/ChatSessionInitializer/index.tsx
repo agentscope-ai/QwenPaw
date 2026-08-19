@@ -3,10 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
 import {
-  buildSessionPath,
+  buildChatPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
-import { useCodingMode } from "../../../../stores/codingModeStore";
 import {
   useSessionListStore,
   type ExtendedSession,
@@ -16,8 +15,7 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
  *
- * Extracts sessionId from both `/chat/<id>` and `/coding/<id>` URLs so that
- * Coding mode sessions survive page refreshes (issue #5142).
+ * Extracts the session ID from the canonical `/chat/<id>` URL.
  *
  * Only reacts to URL or session list changes. currentSessionId is read via ref
  * to avoid triggering the effect when the context changes from the other direction
@@ -34,10 +32,6 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 const ChatSessionInitializer: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { codingMode } = useCodingMode();
-
-  // Issue #5142: Match both /chat/<id> and /coding/<id> so that Coding mode
-  // sessions are restored from the URL on page refresh, just like Chat mode.
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
@@ -64,9 +58,6 @@ const ChatSessionInitializer: React.FC = () => {
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
-
-  const codingModeRef = useRef(codingMode);
-  codingModeRef.current = codingMode;
 
   const createNewSessionRef = useRef(createNewSession);
   createNewSessionRef.current = createNewSession;
@@ -98,13 +89,6 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    // If we already applied this exact chatId and the context is in sync, skip.
-    // This prevents the polling-triggered sessions refresh (pinned drawer)
-    // from re-calling setCurrentSessionId and causing circular getSession loops.
-    if (chatId === lastAppliedChatIdRef.current) {
-      return;
-    }
-
     // Match by multiple criteria in order of specificity:
     // 1) Library id (localId or UUID)
     let matching = sessions.find((s) => s.id === chatId);
@@ -120,6 +104,17 @@ const ChatSessionInitializer: React.FC = () => {
       matching = sessions.find(
         (s) => (s as ExtendedSession).sessionId === chatId,
       );
+    }
+
+    // If we already applied this exact chatId and the context is in sync, skip.
+    // Comparing both values lets a blank new chat reopen the same URL later,
+    // while still ignoring polling-only session list updates.
+    if (
+      matching &&
+      chatId === lastAppliedChatIdRef.current &&
+      currentSessionIdRef.current === matching.id
+    ) {
+      return;
     }
 
     if (matching && currentSessionIdRef.current !== matching.id) {
@@ -147,7 +142,6 @@ const ChatSessionInitializer: React.FC = () => {
         .sessionId;
       if (!sessionId) return;
 
-      const mode = codingModeRef.current ? "coding" : "chat";
       const currentSessions = sessionsRef.current;
       const matching = currentSessions.find((s) => s.id === sessionId);
 
@@ -166,7 +160,7 @@ const ChatSessionInitializer: React.FC = () => {
               sessionId,
               realId,
             );
-            const targetUrl = buildSessionPath(mode, effectiveId);
+            const targetUrl = buildChatPath(effectiveId);
             sessionApi.trackNavigatedSession(effectiveId);
             sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });

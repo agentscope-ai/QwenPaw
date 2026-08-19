@@ -426,3 +426,53 @@ def test_non_frontend_commit_keeps_unrelated_edits_and_drops_overlap(tmp_path):
     )
     assert removed is None
     assert store.read(PROJECT_ID) is None
+
+
+def test_forward_generation_gap_restarts_buffer_instead_of_failing(tmp_path):
+    """The Project can advance past the Buffer head while the Buffer machinery
+    is offline (upgrade/crash). Stale entries no longer describe a
+    user-authored baseline-to-current value, so the Buffer restarts."""
+
+    _root, store = _store(tmp_path)
+    store.record_frontend_commit(
+        PROJECT_ID,
+        base_generation=0,
+        head_generation=1,
+        changes=[
+            _change("/name", "sha256:a", "sha256:b", before="A", after="B"),
+        ],
+    )
+
+    fresh = store.record_frontend_commit(
+        PROJECT_ID,
+        base_generation=5,
+        head_generation=6,
+        changes=[
+            _change("/name", "sha256:x", "sha256:y", before="X", after="Y"),
+        ],
+    )
+    assert fresh is not None
+    assert fresh.base_generation == 5
+    assert fresh.head_generation == 6
+    assert [item.before_hash for item in fresh.changes] == ["sha256:x"]
+
+
+def test_reconcile_forward_generation_gap_drops_stale_buffer(tmp_path):
+    _root, store = _store(tmp_path)
+    store.record_frontend_commit(
+        PROJECT_ID,
+        base_generation=0,
+        head_generation=1,
+        changes=[
+            _change("/name", "sha256:a", "sha256:b", before="A", after="B"),
+        ],
+    )
+
+    result = store.reconcile_non_frontend_commit(
+        PROJECT_ID,
+        base_generation=5,
+        head_generation=6,
+        changes=[],
+    )
+    assert result is None
+    assert store.read(PROJECT_ID) is None
