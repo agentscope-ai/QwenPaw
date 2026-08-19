@@ -149,13 +149,18 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             encoding="utf-8",
             buffering=1,
         )
+        bind_host = (
+            "0.0.0.0"
+            if self._isolator.name == "windows-appcontainer"
+            else record.host
+        )
         command = [
             sys.executable,
             "-m",
             "qwenpaw",
             "app",
             "--host",
-            record.host,
+            bind_host,
             "--port",
             str(port),
         ]

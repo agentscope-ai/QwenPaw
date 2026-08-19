@@ -58,6 +58,13 @@ class _Process:
         return 0
 
 
+class _Broker(_Process):
+    stopped = False
+
+    def terminate(self) -> None:
+        self.stopped = True
+
+
 class _Sandbox:
     instances: list["_Sandbox"] = []
 
@@ -91,9 +98,10 @@ class _Sandbox:
 def _mock_windows_boundary(
     monkeypatch: pytest.MonkeyPatch,
     isolator: WindowsAppContainerIsolator,
-) -> list[tuple[str, bool]]:
+) -> tuple[list[tuple[str, bool]], _Broker]:
     _Sandbox.instances.clear()
     loopback_calls: list[tuple[str, bool]] = []
+    broker = _Broker()
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(
         "qwenpaw.hub.windows_process_isolation.is_windows_admin",
@@ -114,8 +122,13 @@ def _mock_windows_boundary(
         loopback_calls.append((container_sid, enabled))
 
     monkeypatch.setattr(isolator, "_set_loopback_exemption", set_loopback)
+    monkeypatch.setattr(
+        isolator,
+        "_start_inbound_loopback_broker",
+        lambda _sid: broker,
+    )
     monkeypatch.setattr(isolator, "_probe", lambda *_args: None)
-    return loopback_calls
+    return loopback_calls, broker
 
 
 def test_windows_boundary_is_fail_closed_without_admin(
@@ -139,7 +152,7 @@ def test_windows_boundary_uses_private_writable_mounts(
 ) -> None:
     record = _record(tmp_path)
     isolator = WindowsAppContainerIsolator()
-    loopback_calls = _mock_windows_boundary(monkeypatch, isolator)
+    loopback_calls, broker = _mock_windows_boundary(monkeypatch, isolator)
 
     launch = isolator.prepare(record, ["python", "-m", "qwenpaw"], {})
 
@@ -160,6 +173,7 @@ def test_windows_boundary_uses_private_writable_mounts(
     isolator.release(record.runtime_id)
 
     assert sandbox.stopped is True
+    assert broker.stopped is True
     assert loopback_calls == [
         ("S-1-15-2-123", True),
         ("S-1-15-2-123", False),

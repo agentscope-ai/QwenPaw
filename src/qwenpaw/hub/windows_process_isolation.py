@@ -32,6 +32,7 @@ from .process_isolation import (
     _runtime_root,
 )
 
+_BROKER_START_TIMEOUT_SECONDS = 5.0
 _PROBE_TIMEOUT_SECONDS = 10.0
 
 
@@ -39,6 +40,7 @@ _PROBE_TIMEOUT_SECONDS = 10.0
 class _WindowsRuntimeBoundary:
     sandbox: WindowsAppContainerSandbox
     loopback_sid: str
+    loopback_broker: subprocess.Popen[bytes]
 
 
 class WindowsAppContainerIsolator(ProcessIsolator):
@@ -89,18 +91,25 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             ),
         )
         loopback_enabled = False
+        broker: subprocess.Popen[bytes] | None = None
         try:
             asyncio.run(sandbox.__aenter__())
             self._set_loopback_exemption(sandbox.container_sid, enabled=True)
             loopback_enabled = True
+            broker = self._start_inbound_loopback_broker(
+                sandbox.container_sid,
+            )
             boundary = _WindowsRuntimeBoundary(
                 sandbox,
                 sandbox.container_sid,
+                broker,
             )
             with self._lock:
                 self._boundaries[record.runtime_id] = boundary
             self._probe(record, runtime_root, sandbox)
         except Exception as exc:
+            if broker is not None:
+                self._stop_broker(broker)
             if loopback_enabled:
                 self._set_loopback_exemption(
                     sandbox.container_sid,
@@ -130,6 +139,10 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             raise ProcessIsolationError(
                 f"Windows boundary is not prepared: {record.runtime_id}",
             )
+        if boundary.loopback_broker.poll() is not None:
+            raise ProcessIsolationError(
+                "Windows inbound loopback broker exited before launch.",
+            )
         return boundary.sandbox.spawn_process(
             launch.command,
             cwd=str(record.working_dir),
@@ -144,6 +157,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         if boundary is None:
             return
         asyncio.run(boundary.sandbox.stop())
+        self._stop_broker(boundary.loopback_broker)
         self._set_loopback_exemption(
             boundary.loopback_sid,
             enabled=False,
@@ -191,6 +205,44 @@ class WindowsAppContainerIsolator(ProcessIsolator):
                 "Windows loopback exemption failed with code "
                 f"{result.returncode}: {detail}",
             )
+
+    def _start_inbound_loopback_broker(
+        self,
+        container_sid: str,
+    ) -> subprocess.Popen[bytes]:
+        command = [
+            self._checknetisolation_path(),
+            "LoopbackExempt",
+            "-is",
+            f"-p={container_sid}",
+        ]
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        # pylint: disable-next=consider-using-with
+        broker = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creation_flags,
+        )
+        time.sleep(min(0.25, _BROKER_START_TIMEOUT_SECONDS))
+        if broker.poll() is not None:
+            raise ProcessIsolationError(
+                "Windows inbound loopback broker exited with code "
+                f"{broker.returncode}.",
+            )
+        return broker
+
+    @staticmethod
+    def _stop_broker(broker: subprocess.Popen[bytes]) -> None:
+        if broker.poll() is not None:
+            return
+        broker.terminate()
+        try:
+            broker.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            broker.kill()
+            broker.wait(timeout=5)
 
     def _probe(
         self,
@@ -282,7 +334,7 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             "import socket; "
             "server=socket.socket(); "
             "server.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); "
-            f"server.bind(('127.0.0.1',{record.port})); "
+            f"server.bind(('0.0.0.0',{record.port})); "
             "server.listen(1); connection,_=server.accept(); "
             "connection.sendall(b'ok'); connection.close(); server.close()"
         )
