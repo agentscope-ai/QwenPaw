@@ -323,18 +323,21 @@ export default function ModelSelector({
     });
   };
 
-  // Display label for trigger button
-  const activeModelName = (() => {
-    if (!activeProviderId || !activeModelId)
-      return t("modelSelector.selectModel");
-    for (const p of eligibleProviders) {
-      if (p.id === activeProviderId) {
-        const m = p.models.find((m) => m.id === activeModelId);
-        if (m) return m.name || m.id;
-      }
-    }
-    return activeModelId;
+  // Display the active model metadata in the trigger button.
+  const activeModel = (() => {
+    if (!activeProviderId || !activeModelId) return null;
+    const provider = eligibleProviders.find(
+      (item) => item.id === activeProviderId,
+    );
+    return (
+      provider?.models.find((model) => model.id === activeModelId) ?? null
+    );
   })();
+  const activeModelName =
+    activeModel?.name ||
+    activeModelId ||
+    t("modelSelector.selectModel");
+  const activeModelIsFree = Boolean(activeModel?.is_free);
 
   const showActiveProviderIcon = Boolean(activeProviderId);
 
@@ -1084,6 +1087,11 @@ export default function ModelSelector({
                 activeModelName
               )}
             </span>
+            {activeModelIsFree && (
+              <span className={styles.freeTag}>
+                {t("modelSelector.free")}
+              </span>
+            )}
             {/* Hidden span used to measure intrinsic text width. Placed
                 outside .triggerName so it does not duplicate text for
                 screen readers or testing-library queries. */}

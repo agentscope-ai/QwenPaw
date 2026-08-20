@@ -218,6 +218,32 @@ describe("ModelSelector", () => {
     expect((await screen.findAllByText("GPT-4"))[0]).toBeInTheDocument();
   });
 
+  it("marks the active free model on the trigger button", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        models: [{ ...mockProvider.models[0], is_free: true }],
+      },
+    ]);
+    renderWithProviders(<ModelSelector />);
+
+    const trigger = await screen.findByRole("button", {
+      name: "chat.modelSelectTooltip",
+    });
+    expect(trigger).toHaveTextContent("modelSelector.free");
+    expect(trigger.querySelector('[class*="freeTag"]')).toBeInTheDocument();
+  });
+
+  it("does not mark a paid active model as free", async () => {
+    renderWithProviders(<ModelSelector />);
+
+    const trigger = await screen.findByRole("button", {
+      name: "chat.modelSelectTooltip",
+    });
+    expect(trigger).not.toHaveTextContent("modelSelector.free");
+    expect(trigger.querySelector('[class*="freeTag"]')).toBeNull();
+  });
+
   it("keeps advanced model controls out of the release UI", async () => {
     const candidate = {
       ...mockProvider.models[0],

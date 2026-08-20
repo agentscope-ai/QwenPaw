@@ -133,6 +133,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                     "name": "Packaged",
                     "max_tokens": 100,
                     "supports_image": False,
+                    "is_free": True,
                 },
             ],
         },
@@ -158,6 +159,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                     "id": "model-a",
                     "name": "Local",
                     "supports_image": True,
+                    "is_free": False,
                 },
             ],
         },
@@ -169,39 +171,21 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].name == "Local"
     assert models[0].max_tokens == 200
     assert models[0].supports_image is True
+    assert models[0].is_free is False
 
 
-def test_free_provider_ids_use_overlay_priority(tmp_path: Path) -> None:
+def test_legacy_provider_free_list_is_ignored(tmp_path: Path) -> None:
     packaged = tmp_path / "packaged.json"
-    ota = tmp_path / "ota.json"
-    local = tmp_path / "local.json"
-    _write_catalog(packaged, {},)
-    ota.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "catalog_version": "ota",
-                "free_provider_ids": ["opencode"],
-                "providers": {},
-            },
-        ),
-        encoding="utf-8",
-    )
-    local.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "catalog_version": "local",
-                "free_provider_ids": ["kilo"],
-                "providers": {},
-            },
-        ),
-        encoding="utf-8",
-    )
+    _write_catalog(packaged, {"MODELS": []})
+    payload = json.loads(packaged.read_text(encoding="utf-8"))
+    payload["free_provider_ids"] = ["opencode"]
+    packaged.write_text(json.dumps(payload), encoding="utf-8")
 
-    assert model_catalog.load_free_provider_ids(packaged, ota, local) == {
-        "kilo",
-    }
+    assert model_catalog.load_model_catalog(
+        packaged,
+        tmp_path / "missing-ota.json",
+        tmp_path / "missing-local.json",
+    ) == {"MODELS": []}
 
 
 @pytest.mark.parametrize(

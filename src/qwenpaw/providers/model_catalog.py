@@ -34,13 +34,19 @@ class CatalogDocument(BaseModel):
     schema_version: int = Field(default=CATALOG_SCHEMA_VERSION)
     catalog_version: str
     published_at: str | None = None
-    free_provider_ids: list[str] = Field(default_factory=list)
     providers: dict[str, list[ModelInfo]] = Field(default_factory=dict)
+
+
+def _validate_document(payload: dict[str, Any]) -> CatalogDocument:
+    """Validate a catalog while accepting the removed legacy field."""
+    payload = dict(payload)
+    payload.pop("free_provider_ids", None)
+    return CatalogDocument.model_validate(payload)
 
 
 def _read_document(path: Path) -> CatalogDocument:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    document = CatalogDocument.model_validate(payload)
+    document = _validate_document(payload)
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",
@@ -87,31 +93,6 @@ def load_model_catalog(
             continue
         catalog = _merge_models(catalog, overlay.providers)
     return catalog
-
-
-def load_free_provider_ids(
-    packaged_path: Path = PACKAGED_CATALOG_PATH,
-    ota_path: Path = OTA_CATALOG_PATH,
-    local_path: Path = LOCAL_CATALOG_PATH,
-) -> set[str]:
-    """Load provider IDs marked as offering free models.
-
-    Optional overlays replace the provider-level list when they define it,
-    matching the catalog's existing priority model while keeping the legacy
-    model-only return value of :func:`load_model_catalog` unchanged.
-    """
-    document = _read_document(packaged_path)
-    free_provider_ids = set(document.free_provider_ids)
-    for overlay_path in (ota_path, local_path):
-        if not overlay_path.is_file():
-            continue
-        try:
-            overlay = _read_document(overlay_path)
-        except (OSError, ValueError, json.JSONDecodeError):
-            continue
-        if "free_provider_ids" in overlay.model_fields_set:
-            free_provider_ids = set(overlay.free_provider_ids)
-    return free_provider_ids
 
 
 def models_for_catalog_key(catalog_key: str) -> list[ModelInfo]:
@@ -210,7 +191,7 @@ def update_model_catalog(
     digest = expected_sha256 or EnvVarLoader.get_str(CATALOG_SHA256_ENV)
     payload = _download_bytes(resolved_url, timeout)
     verify_catalog_hash(payload, digest, label="Model catalog")
-    document = CatalogDocument.model_validate_json(payload)
+    document = _validate_document(json.loads(payload.decode("utf-8")))
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",
@@ -230,13 +211,11 @@ def catalog_payload(
     *,
     version: str,
     published_at: str | None = None,
-    free_provider_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build a JSON-serializable catalog payload."""
     document = CatalogDocument(
         catalog_version=version,
         published_at=published_at,
-        free_provider_ids=free_provider_ids or [],
         providers=providers,
     )
     return document.model_dump(mode="json", exclude_none=True)

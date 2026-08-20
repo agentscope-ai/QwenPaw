@@ -142,6 +142,24 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
         assert len(model_ids) == len(set(model_ids))
 
 
+def test_builtin_restore_preserves_catalog_free_flags() -> None:
+    builtin = OpenAIProvider(
+        id="catalog-provider",
+        name="Catalog Provider",
+        models=[
+            ModelInfo(id="free-model", name="Free", is_free=True),
+            ModelInfo(id="paid-model", name="Paid", is_free=False),
+        ],
+    )
+    stored = builtin.model_copy(deep=True)
+    stored.models[0].is_free = False
+    stored.models[1].is_free = True
+
+    ProviderManager._restore_builtin_provider(builtin, stored)
+
+    assert [model.is_free for model in builtin.models] == [True, False]
+
+
 async def test_add_custom_provider_and_reload_from_storage(
     isolated_secret_dir,
 ) -> None:

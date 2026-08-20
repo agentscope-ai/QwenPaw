@@ -1126,6 +1126,12 @@ class ProviderManagerPersistenceMixin(
         builtin.removed_model_ids = list(provider.removed_model_ids)
         builtin.generate_kwargs.update(provider.generate_kwargs)
 
+        # Catalog model metadata is authoritative. Persisted model state can
+        # contain an older is_free value from before the catalog was updated.
+        catalog_free_flags = {
+            model.id: model.is_free for model in builtin.models
+        }
+
         stored_model_config = {
             model.id: serialize_model_state(model) for model in provider.models
         }
@@ -1139,3 +1145,5 @@ class ProviderManagerPersistenceMixin(
             config = stored_model_config.get(model.id)
             if config:
                 restore_model_state(model, config)
+            if model.id in catalog_free_flags:
+                model.is_free = catalog_free_flags[model.id]
