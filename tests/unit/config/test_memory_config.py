@@ -21,7 +21,7 @@ def test_adbpg_auto_memory_search_defaults():
 
 def test_powercontext_memory_defaults():
     cfg = PowerContextMemoryConfig()
-    assert cfg.scope_id == "workspace:qwenpaw"
+    assert cfg.scope_id == ""
     assert cfg.auto_memory_search_config.enabled is True
 
 
@@ -37,6 +37,12 @@ def test_powercontext_memory_rejects_more_than_fifty_auto_results():
         PowerContextMemoryConfig(
             auto_memory_search_config={"enabled": True, "max_results": 51},
         )
+
+
+@pytest.mark.parametrize("scope_id", ["   ", "scope-" + "x" * 256])
+def test_powercontext_memory_rejects_invalid_explicit_scope(scope_id):
+    with pytest.raises(ValidationError):
+        PowerContextMemoryConfig(scope_id=scope_id)
 
 
 def test_reme_light_job_notifications_default_to_enabled():

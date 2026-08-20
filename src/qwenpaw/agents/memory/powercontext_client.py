@@ -9,6 +9,9 @@ from typing import Any
 import httpx
 
 MAX_MEMORY_TEXT_BYTES = 8000
+MAX_SCOPE_ID_LENGTH = 256
+MAX_MEMORY_KIND_LENGTH = 128
+MAX_SEARCH_QUERY_LENGTH = 8192
 MIN_SEARCH_RESULTS = 1
 MAX_SEARCH_RESULTS = 50
 
@@ -34,11 +37,53 @@ def bound_search_limit(limit: int) -> int:
     return min(MAX_SEARCH_RESULTS, max(MIN_SEARCH_RESULTS, limit))
 
 
+class PowerContextRequestValidationError(ValueError):
+    """Safe local validation error for a PowerContext request field."""
+
+
+def _validate_scope_id(scope_id: str) -> str:
+    normalized = scope_id.strip()
+    if not normalized:
+        raise PowerContextRequestValidationError(
+            "PowerContext scope_id must not be blank.",
+        )
+    if len(normalized) > MAX_SCOPE_ID_LENGTH:
+        raise PowerContextRequestValidationError(
+            "PowerContext scope_id must not exceed 256 characters.",
+        )
+    return normalized
+
+
+def _validate_kind(kind: str) -> str:
+    normalized = kind.strip()
+    if not normalized:
+        raise PowerContextRequestValidationError(
+            "PowerContext kind must not be blank.",
+        )
+    if len(normalized) > MAX_MEMORY_KIND_LENGTH:
+        raise PowerContextRequestValidationError(
+            "PowerContext kind must not exceed 128 characters.",
+        )
+    return normalized
+
+
+def _validate_query(query: str) -> str:
+    if not query:
+        raise PowerContextRequestValidationError(
+            "PowerContext query must not be empty.",
+        )
+    if len(query) > MAX_SEARCH_QUERY_LENGTH:
+        raise PowerContextRequestValidationError(
+            "PowerContext query must not exceed 8192 characters.",
+        )
+    return query
+
+
 @dataclass(frozen=True)
 class PowerContextConfig:
     base_url: str
     token: str = ""
-    scope_id: str = "workspace:qwenpaw"
+    scope_id: str = ""
     timeout: float = 10.0
 
 
@@ -138,11 +183,14 @@ class PowerContextMemoryClient:
         text: str,
         scope_id: str | None = None,
     ) -> dict[str, Any]:
+        resolved_scope_id = _validate_scope_id(
+            scope_id or self.config.scope_id,
+        )
         response = await self._http.post(
             "/v1/memory/remember",
             json={
-                "scope_id": scope_id or self.config.scope_id,
-                "kind": kind,
+                "scope_id": resolved_scope_id,
+                "kind": _validate_kind(kind),
                 "text": truncate_utf8_text(text),
             },
         )
@@ -156,11 +204,14 @@ class PowerContextMemoryClient:
         limit: int = 5,
         scope_id: str | None = None,
     ) -> list[dict[str, Any]]:
+        resolved_scope_id = _validate_scope_id(
+            scope_id or self.config.scope_id,
+        )
         response = await self._http.post(
             "/v1/memory/search",
             json={
-                "scope_id": scope_id or self.config.scope_id,
-                "query": query,
+                "scope_id": resolved_scope_id,
+                "query": _validate_query(query),
                 "limit": bound_search_limit(limit),
             },
         )

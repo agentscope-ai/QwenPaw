@@ -26,7 +26,7 @@ uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/pow
 powercontext server run
 ```
 
-在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时和自动检索结果数量。保存后重启 QwenPaw，后端切换才会生效。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。
+在 **Agent Config** 中选择 **PowerContext** 后，填写服务地址、可选 Bearer Token、记忆作用域、超时和自动检索结果数量。保存后重启 QwenPaw，后端切换才会生效。启用后，QwenPaw 会把当前回合经过长度限制的任务状态发送到所配置的服务，并在后续回合前检索相关记忆。该服务地址和作用域是数据边界，应只配置适合保存当前对话数据的服务和作用域。记忆作用域留空时，QwenPaw 会使用隔离的默认值 `agent:<agent_id>`；只有希望多个 Agent 共享记忆时，才应填写相同的显式作用域。
 
 ## 先理解它怎样工作
 

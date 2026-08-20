@@ -33,7 +33,9 @@ and restart QwenPaw for the backend change to take effect. When selected,
 QwenPaw sends the current turn's bounded task state to that configured service
 and retrieves relevant memories before later turns. Treat the endpoint and
 scope as a data boundary: choose a service and scope that are appropriate for
-the conversation data you intend to persist.
+the conversation data you intend to persist. Leave the memory scope empty to
+use an isolated default of `agent:<agent_id>`; enter the same explicit scope
+for multiple agents only when you intend to share their memories.
 
 ## Understand the Memory Loop First
 

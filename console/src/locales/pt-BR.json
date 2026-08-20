@@ -2752,6 +2752,8 @@
       "baseUrl": "Server URL",
       "token": "Bearer Token",
       "scopeId": "Memory Scope",
+      "scopeIdPlaceholder": "Deixe vazio para usar o escopo privado deste Agent",
+      "scopeIdInvalid": "O escopo de memória não pode conter apenas espaços.",
       "timeout": "Request Timeout"
     },
     "dialogPath": "Dialog Storage Caminho",

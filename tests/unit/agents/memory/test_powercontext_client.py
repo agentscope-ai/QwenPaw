@@ -11,6 +11,7 @@ from qwenpaw.agents.memory.powercontext_client import (
     PowerContextHTTPError,
     PowerContextMemoryClient,
     PowerContextProtocolError,
+    PowerContextRequestValidationError,
 )
 
 
@@ -66,7 +67,9 @@ async def test_client_bounds_utf8_text_and_search_limit():
         payloads.append(json.loads(request.content))
         return httpx.Response(200, json={"hits": []})
 
-    client = PowerContextMemoryClient(PowerContextConfig("http://pc"))
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
     await client._http.aclose()
     client._http = httpx.AsyncClient(
         transport=httpx.MockTransport(handler),
@@ -83,8 +86,36 @@ async def test_client_bounds_utf8_text_and_search_limit():
 
 
 @pytest.mark.asyncio
+async def test_client_rejects_invalid_request_fields_before_network_io():
+    def fail_if_called(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(fail_if_called),
+        base_url="http://pc",
+    )
+
+    with pytest.raises(PowerContextRequestValidationError, match="scope_id"):
+        await client.search(query="x", scope_id="   ")
+    with pytest.raises(PowerContextRequestValidationError, match="scope_id"):
+        await client.search(query="x", scope_id="s" * 257)
+    with pytest.raises(PowerContextRequestValidationError, match="kind"):
+        await client.remember(kind="k" * 129, text="memory")
+    with pytest.raises(PowerContextRequestValidationError, match="query"):
+        await client.search(query="x" * 8193)
+
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_success_response_without_hits():
-    client = PowerContextMemoryClient(PowerContextConfig("http://pc"))
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
     await client._http.aclose()
     client._http = httpx.AsyncClient(
         transport=httpx.MockTransport(
@@ -102,7 +133,9 @@ async def test_client_reports_safe_http_error_summary_without_headers():
     transport = httpx.MockTransport(
         lambda request: httpx.Response(503, json={"error": "down"}),
     )
-    client = PowerContextMemoryClient(PowerContextConfig("http://pc"))
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
     await client._http.aclose()
     client._http = httpx.AsyncClient(transport=transport, base_url="http://pc")
     with pytest.raises(PowerContextHTTPError) as error:
@@ -120,7 +153,7 @@ async def test_client_redacts_token_if_server_echoes_it():
         lambda request: httpx.Response(503, json={"message": token}),
     )
     client = PowerContextMemoryClient(
-        PowerContextConfig("http://pc", token=token),
+        PowerContextConfig("http://pc", token=token, scope_id="agent:test"),
     )
     await client._http.aclose()
     client._http = httpx.AsyncClient(

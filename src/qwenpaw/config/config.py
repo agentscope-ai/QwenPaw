@@ -858,7 +858,7 @@ class PowerContextMemoryConfig(BaseModel):
 
     base_url: str = ""
     token: str = ""
-    scope_id: str = "workspace:qwenpaw"
+    scope_id: str = Field(default="", max_length=256)
     timeout: float = Field(default=10.0, ge=1.0)
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=lambda: AutoMemorySearchConfig(
@@ -876,6 +876,15 @@ class PowerContextMemoryConfig(BaseModel):
                 "less than or equal to 50",
             )
         return self
+
+    @field_validator("scope_id")
+    @classmethod
+    def validate_powercontext_scope_id(cls, scope_id: str) -> str:
+        """Allow an empty auto scope, but reject invalid explicit scopes."""
+        normalized = scope_id.strip()
+        if scope_id and not normalized:
+            raise ValueError("PowerContext scope_id must not be blank")
+        return normalized
 
 
 class ReMeLightMemoryConfig(BaseModel):

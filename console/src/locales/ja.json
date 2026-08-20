@@ -2524,6 +2524,8 @@
       "baseUrl": "サーバー URL",
       "token": "Bearer トークン",
       "scopeId": "メモリスコープ",
+      "scopeIdPlaceholder": "空欄の場合はこの Agent のプライベートスコープを使用します",
+      "scopeIdInvalid": "メモリスコープを空白文字だけにすることはできません。",
       "timeout": "リクエストタイムアウト"
     },
     "adbpgConfig": {

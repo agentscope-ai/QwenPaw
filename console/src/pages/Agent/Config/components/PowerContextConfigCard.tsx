@@ -29,9 +29,30 @@ export function PowerContextConfigCard() {
       <Form.Item
         name={["powercontext_memory_config", "scope_id"]}
         label={t("agentConfig.powercontextConfig.scopeId", "Memory scope")}
-        initialValue="workspace:qwenpaw"
+        rules={[
+          { max: 256 },
+          {
+            validator: (_, value) =>
+              !value || value.trim().length > 0
+                ? Promise.resolve()
+                : Promise.reject(
+                    new Error(
+                      t(
+                        "agentConfig.powercontextConfig.scopeIdInvalid",
+                        "Memory scope must not contain only whitespace.",
+                      ),
+                    ),
+                  ),
+          },
+        ]}
       >
-        <Input placeholder="project:my-project" />
+        <Input
+          placeholder={t(
+            "agentConfig.powercontextConfig.scopeIdPlaceholder",
+            "Leave empty to use this agent's private scope",
+          )}
+          maxLength={256}
+        />
       </Form.Item>
       <Form.Item
         name={["powercontext_memory_config", "timeout"]}

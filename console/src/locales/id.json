@@ -3383,6 +3383,8 @@
       "baseUrl": "URL Server",
       "token": "Token Bearer",
       "scopeId": "Ruang Lingkup Memori",
+      "scopeIdPlaceholder": "Kosongkan untuk memakai ruang lingkup pribadi Agent ini",
+      "scopeIdInvalid": "Ruang lingkup memori tidak boleh hanya berisi spasi.",
       "timeout": "Batas Waktu Permintaan"
     },
     "adbpgConfig": {

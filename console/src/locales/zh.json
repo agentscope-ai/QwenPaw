@@ -3020,6 +3020,8 @@
       "baseUrl": "服务地址",
       "token": "Bearer Token",
       "scopeId": "记忆作用域",
+      "scopeIdPlaceholder": "留空以使用当前 Agent 的私有作用域",
+      "scopeIdInvalid": "记忆作用域不能只包含空白字符。",
       "timeout": "请求超时"
     },
     "adbpgConfig": {

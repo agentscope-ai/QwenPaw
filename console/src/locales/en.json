@@ -3162,6 +3162,8 @@
       "baseUrl": "Server URL",
       "token": "Bearer Token",
       "scopeId": "Memory Scope",
+      "scopeIdPlaceholder": "Leave empty to use this agent's private scope",
+      "scopeIdInvalid": "Memory scope must not contain only whitespace.",
       "timeout": "Request Timeout"
     },
     "adbpgConfig": {

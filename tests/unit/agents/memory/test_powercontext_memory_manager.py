@@ -55,6 +55,66 @@ async def test_auto_search_injects_powercontext_result(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_default_scope_is_resolved_per_agent(tmp_path, monkeypatch):
+    def load_config(agent_id):
+        del agent_id
+        return SimpleNamespace(
+            running=SimpleNamespace(
+                powercontext_memory_config=PowerContextMemoryConfig(
+                    base_url="http://pc",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
+        load_config,
+    )
+    first = PowerContextMemoryManager(str(tmp_path), "agent-a")
+    second = PowerContextMemoryManager(str(tmp_path), "agent-b")
+
+    await first.start()
+    await second.start()
+
+    assert first._client.config.scope_id == "agent:agent-a"
+    assert second._client.config.scope_id == "agent:agent-b"
+    await first.close()
+    await second.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_scope_remains_shared_across_agents(
+    tmp_path,
+    monkeypatch,
+):
+    def load_config(agent_id):
+        del agent_id
+        return SimpleNamespace(
+            running=SimpleNamespace(
+                powercontext_memory_config=PowerContextMemoryConfig(
+                    base_url="http://pc",
+                    scope_id="project:shared",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
+        load_config,
+    )
+    first = PowerContextMemoryManager(str(tmp_path), "agent-a")
+    second = PowerContextMemoryManager(str(tmp_path), "agent-b")
+
+    await first.start()
+    await second.start()
+
+    assert first._client.config.scope_id == "project:shared"
+    assert second._client.config.scope_id == "project:shared"
+    await first.close()
+    await second.close()
+
+
+@pytest.mark.asyncio
 async def test_auto_search_skips_backend_error(tmp_path):
     manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
     manager._client = object()

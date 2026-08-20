@@ -1785,6 +1785,8 @@
       "baseUrl": "URL máy chủ",
       "token": "Bearer Token",
       "scopeId": "Phạm vi bộ nhớ",
+      "scopeIdPlaceholder": "Để trống để dùng phạm vi riêng của Agent này",
+      "scopeIdInvalid": "Phạm vi bộ nhớ không được chỉ chứa khoảng trắng.",
       "timeout": "Thời gian chờ yêu cầu"
     },
     "maxIters": "Số vòng lặp tối đa",
