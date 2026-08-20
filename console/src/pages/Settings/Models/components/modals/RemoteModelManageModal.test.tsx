@@ -21,6 +21,16 @@ vi.mock("../../../../../contexts/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
 }));
 
+const messageMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn(),
+}));
+
+vi.mock("../../../../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: messageMock }),
+}));
+
 const provider = {
   id: "siliconflow",
   name: "SiliconFlow",
@@ -86,6 +96,37 @@ describe("RemoteModelManageModal", () => {
       expect.objectContaining({ id: "ready", name: "Ready" }),
     );
     expect(onSaved).toHaveBeenCalledOnce();
+  });
+
+  it("does not save when adding discovered models fails", async () => {
+    vi.mocked(api.addModel)
+      .mockClear()
+      .mockRejectedValue(new Error("add failed"));
+    messageMock.error.mockClear();
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <RemoteModelManageModal
+        provider={provider}
+        open
+        onClose={vi.fn()}
+        onSaved={onSaved}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /Add all available/,
+      }),
+    );
+
+    await waitFor(() => expect(api.addModel).toHaveBeenCalledOnce());
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(messageMock.error).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("button", { name: /Add all available/ }),
+    ).toBeInTheDocument();
   });
 
   it("hides and restores configured models on the Models page", async () => {

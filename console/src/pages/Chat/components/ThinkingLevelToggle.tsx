@@ -3,6 +3,7 @@ import { Button, Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import { Brain, Check, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import sessionApi from "../sessionApi";
 
 import styles from "./ThinkingLevelToggle.module.less";
@@ -14,29 +15,26 @@ const LEVELS: SessionThinkingLevel[] = ["off", "low", "medium", "high"];
 interface ThinkingLevelToggleProps {
   sessionId: string;
   compact?: boolean;
+  supportsThinking?: boolean;
   onChange?: (level: SessionThinkingLevel | null) => void;
 }
 
 export default function ThinkingLevelToggle({
   sessionId,
   compact = false,
+  supportsThinking = false,
   onChange,
 }: ThinkingLevelToggleProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [level, setLevel] = useState<SessionThinkingLevel>("medium");
-  const [supportsThinking, setSupportsThinking] = useState(false);
   const onChangeRef = useRef(onChange);
+  const saveRequestRef = useRef(0);
   onChangeRef.current = onChange;
 
   useEffect(() => {
-    const supported = (
-      window as Window & { __qwenpawModelSupportsThinking?: boolean }
-    ).__qwenpawModelSupportsThinking;
-    if (supported === true) {
-      setSupportsThinking(true);
-      onChangeRef.current?.(level);
-    }
-  }, [level]);
+    onChangeRef.current?.(supportsThinking ? level : null);
+  }, [level, supportsThinking]);
 
   useEffect(() => {
     let active = true;
@@ -52,7 +50,6 @@ export default function ThinkingLevelToggle({
         ? (saved as SessionThinkingLevel)
         : "medium";
       setLevel(next);
-      onChangeRef.current?.(next);
     };
     void load();
     return () => {
@@ -60,26 +57,9 @@ export default function ThinkingLevelToggle({
     };
   }, [sessionId]);
 
-  useEffect(() => {
-    const handleModelSwitch = (event: Event) => {
-      const detail = (event as CustomEvent<{ supportsThinking?: boolean }>)
-        .detail;
-      const supported = detail?.supportsThinking === true;
-      setSupportsThinking(supported);
-      onChangeRef.current?.(supported ? level : null);
-    };
-    window.addEventListener(
-      "model-thinking-support-changed",
-      handleModelSwitch,
-    );
-    return () =>
-      window.removeEventListener(
-        "model-thinking-support-changed",
-        handleModelSwitch,
-      );
-  }, [level]);
-
   const handleSelect = async (next: SessionThinkingLevel) => {
+    const previousLevel = level;
+    const requestId = ++saveRequestRef.current;
     setLevel(next);
     onChangeRef.current?.(next);
     const meta = sessionApi.getSessionMeta(sessionId);
@@ -88,8 +68,13 @@ export default function ThinkingLevelToggle({
         ...meta,
         thinking_level: next,
       });
-    } catch {
-      // The next chat request persists the selected Session value.
+    } catch (error) {
+      if (requestId !== saveRequestRef.current) return;
+      setLevel(previousLevel);
+      onChangeRef.current?.(supportsThinking ? previousLevel : null);
+      message.error(
+        error instanceof Error ? error.message : t("sessions.saveFailed"),
+      );
     }
   };
 

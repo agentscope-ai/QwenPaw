@@ -1568,6 +1568,7 @@ export default function ChatPage() {
     }
   }, [queueSessionId, scheduleNextSend]);
   const [chatLoading, setChatLoading] = useState<boolean | string>(false);
+  const [supportsThinking, setSupportsThinking] = useState(false);
   const chatLoadingRef = useRef<boolean | string>(false);
   chatLoadingRef.current = chatLoading;
   const prevChatLoadingRef = useRef<boolean | string>(false);
@@ -3166,7 +3167,7 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             {usesQwenPawBackend ? (
-              <ModelSelector />
+              <ModelSelector onThinkingSupportChange={setSupportsThinking} />
             ) : backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
@@ -3267,6 +3268,7 @@ export default function ChatPage() {
                 <ThinkingLevelToggle
                   sessionId={queueSessionId}
                   compact={compactSender}
+                  supportsThinking={supportsThinking}
                   onChange={(level) => {
                     sessionThinkingLevelRef.current = level;
                   }}
@@ -3566,6 +3568,7 @@ export default function ChatPage() {
     backendCommands,
     approvalPresets,
     usesQwenPawBackend,
+    supportsThinking,
     supportsAttachments,
     runningConfigApprovalLevel,
     queueSessionId,

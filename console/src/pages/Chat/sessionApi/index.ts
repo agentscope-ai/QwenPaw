@@ -1090,15 +1090,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     libraryId: string,
     meta: Record<string, unknown>,
   ): Promise<void> {
-    const existing = this.findSession(libraryId);
-    const backendId =
-      existing?.realId ?? (isLocalTimestamp(libraryId) ? null : libraryId);
-    if (!backendId) {
-      if (existing) {
-        (existing as ExtendedSession).meta = { ...meta };
-      }
-      return;
-    }
     const level = meta.thinking_level;
     if (
       level !== "off" &&
@@ -1106,6 +1097,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       level !== "medium" &&
       level !== "high"
     ) {
+      throw new Error("Invalid session thinking level");
+    }
+    const existing = this.findSession(libraryId);
+    const backendId =
+      existing?.realId ?? (isLocalTimestamp(libraryId) ? null : libraryId);
+    if (!backendId) {
+      if (existing) {
+        (existing as ExtendedSession).meta = { ...meta };
+      }
       return;
     }
     const updated = await api.updateSession(backendId, {

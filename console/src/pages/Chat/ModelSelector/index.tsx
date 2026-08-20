@@ -61,6 +61,10 @@ const RECOMMENDED_LIMIT = 6;
 const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
+interface ModelSelectorProps {
+  onThinkingSupportChange?: (supported: boolean) => void;
+}
+
 function readStoredModelKeys(key: string): string[] {
   try {
     const value = JSON.parse(localStorage.getItem(key) || "[]");
@@ -72,7 +76,9 @@ function readStoredModelKeys(key: string): string[] {
   }
 }
 
-export default function ModelSelector() {
+export default function ModelSelector({
+  onThinkingSupportChange,
+}: ModelSelectorProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
@@ -251,18 +257,10 @@ export default function ModelSelector() {
   }, [activeModelId, activeProviderId, providers]);
 
   useEffect(() => {
-    const supportsThinking = activeModelInfo?.supports_agent_thinking === true;
-    (
-      window as Window & { __qwenpawModelSupportsThinking?: boolean }
-    ).__qwenpawModelSupportsThinking = supportsThinking;
-    window.dispatchEvent(
-      new CustomEvent("model-thinking-support-changed", {
-        detail: {
-          supportsThinking,
-        },
-      }),
+    onThinkingSupportChange?.(
+      activeModelInfo?.supports_agent_thinking === true,
     );
-  }, [activeModelInfo]);
+  }, [activeModelInfo, onThinkingSupportChange]);
 
   const rankModels = useCallback(
     (
