@@ -191,8 +191,7 @@ class _NonCooperativeStreamModel:
             except asyncio.CancelledError:
                 await self.release.wait()
                 raise
-            if False:
-                yield SimpleNamespace(content="unreachable")
+            yield SimpleNamespace(content="unreachable")
         finally:
             self.active -= 1
             self.closed.set()
