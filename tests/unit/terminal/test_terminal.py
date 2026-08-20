@@ -153,7 +153,68 @@ async def test_interactive_child_receives_write_stdin_not_protocol(tmp_path):
 
         assert final.running is False
         assert final.exit_code == 0
-        assert first.output + final.output == "name: hello QwenPaw"
+        assert first.output + final.output == "name: hello QwenPaw\r\n"
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
+async def test_interactive_input_fragments_are_withheld_until_newline(
+    tmp_path,
+):
+    manager = TerminalSessionManager(tmp_path)
+    program = 'value=input("name: "); print("hello " + value, flush=True)'
+    command = f"{shlex.quote(sys.executable)} -u -c {shlex.quote(program)}"
+    first = await manager.execute(
+        command,
+        session_id=None,
+        shell="/bin/sh",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        tty=True,
+        persistent=True,
+        timeout=5,
+        yield_time=0.1,
+        max_output_bytes=64 * 1024,
+    )
+    try:
+        partial_preview = await manager.preview_input(first.session_id, "Qwen")
+        await manager.authorize_input(
+            first.session_id,
+            "Qwen",
+            partial_preview,
+        )
+        partial = await manager.interact(
+            first.session_id,
+            "Qwen",
+            yield_time=2,
+            max_output_bytes=64 * 1024,
+            terminate=False,
+        )
+        assert partial.running is True
+        assert partial.output == ""
+
+        final_preview = await manager.preview_input(
+            first.session_id,
+            "Paw\n",
+        )
+        assert final_preview == "QwenPaw\n"
+        await manager.authorize_input(
+            first.session_id,
+            "Paw\n",
+            final_preview,
+        )
+        final = await manager.interact(
+            first.session_id,
+            "Paw\n",
+            yield_time=2,
+            max_output_bytes=64 * 1024,
+            terminate=False,
+        )
+        assert final.running is False
+        assert final.exit_code == 0
+        assert first.output + final.output == "name: hello QwenPaw\r\n"
     finally:
         await manager.shutdown()
 
@@ -236,6 +297,150 @@ async def test_nonpersistent_session_stays_until_output_is_drained(tmp_path):
         assert manager.active_sessions == 0
     finally:
         await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_output_bytes", [1, 2, 3, 5])
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
+async def test_output_reconstructs_utf8_ansi_and_crlf_across_chunks(
+    tmp_path,
+    max_output_bytes,
+):
+    manager = TerminalSessionManager(tmp_path)
+    raw_output = "\x1b[31m输入🙂\x1b[0m\n".encode("utf-8")
+    program = (
+        f"import sys; sys.stdout.buffer.write({raw_output!r}); "
+        "sys.stdout.buffer.flush()"
+    )
+    command = f"{shlex.quote(sys.executable)} -u -c {shlex.quote(program)}"
+    result = await manager.execute(
+        command,
+        session_id=None,
+        shell="/bin/sh",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        tty=True,
+        persistent=True,
+        timeout=5,
+        yield_time=2,
+        max_output_bytes=max_output_bytes,
+    )
+    outputs = [result.output]
+    delivered_bytes = result.output_bytes
+    omitted_bytes = result.omitted_bytes
+    previous_cursor = result.next_cursor
+    try:
+        while not result.output_drained:
+            result = await manager.interact(
+                result.session_id,
+                "",
+                yield_time=0,
+                max_output_bytes=max_output_bytes,
+                terminate=False,
+            )
+            assert result.next_cursor >= previous_cursor
+            previous_cursor = result.next_cursor
+            outputs.append(result.output)
+            delivered_bytes += result.output_bytes
+            omitted_bytes += result.omitted_bytes
+
+        expected = "输入🙂\r\n"
+        assert "".join(outputs) == expected
+        assert delivered_bytes == len(expected.encode("utf-8"))
+        assert omitted_bytes == 0
+        assert result.pending_bytes == 0
+        assert result.exit_code == 0
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
+async def test_cancelling_reused_execute_recovers_session(tmp_path):
+    manager = TerminalSessionManager(tmp_path)
+    first = await manager.execute(
+        "true",
+        session_id=None,
+        shell="/bin/sh",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        tty=True,
+        persistent=True,
+        timeout=5,
+        yield_time=2,
+        max_output_bytes=1024,
+    )
+    task = asyncio.create_task(
+        manager.execute(
+            "sleep 30",
+            session_id=first.session_id,
+            shell="/bin/sh",
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            tty=True,
+            persistent=True,
+            timeout=60,
+            yield_time=30,
+            max_output_bytes=1024,
+        ),
+    )
+    # Wait until this task owns a running command before cancelling it.
+    # pylint: disable=protected-access
+    session = manager._sessions[first.session_id]
+    for _ in range(100):
+        if session.state.value == "running":
+            break
+        await asyncio.sleep(0.01)
+    # pylint: enable=protected-access
+    task.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        follow_up = await manager.execute(
+            "printf recovered",
+            session_id=first.session_id,
+            shell="/bin/sh",
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            tty=True,
+            persistent=True,
+            timeout=5,
+            yield_time=2,
+            max_output_bytes=1024,
+        )
+        assert follow_up.output == "recovered"
+        assert follow_up.exit_code == 0
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
+async def test_cancelling_new_execute_removes_session(tmp_path):
+    manager = TerminalSessionManager(tmp_path)
+    task = asyncio.create_task(
+        manager.execute(
+            "sleep 30",
+            session_id=None,
+            shell="/bin/sh",
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            tty=True,
+            persistent=True,
+            timeout=60,
+            yield_time=30,
+            max_output_bytes=1024,
+        ),
+    )
+    for _ in range(100):
+        if manager.active_sessions == 1:
+            break
+        await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert manager.active_sessions == 0
+    await manager.shutdown()
 
 
 @pytest.mark.asyncio

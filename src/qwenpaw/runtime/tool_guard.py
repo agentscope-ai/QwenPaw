@@ -127,7 +127,68 @@ def _with_no_retry_instruction(body: str) -> str:
     return body + _NO_RETRY_INSTRUCTION
 
 
-# pylint: disable=too-many-return-statements
+async def _stateful_terminal_guard_input(
+    tool_name: str,
+    input_data: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[str, str, str] | None]:
+    """Expand terminal fragments to the full pending line for guardians."""
+    if tool_name != "write_stdin" or input_data.get("terminate"):
+        return input_data, None
+
+    from ..terminal.input_policy import normalize_terminal_input
+
+    chars = normalize_terminal_input(
+        str(input_data.get("chars") or ""),
+        interrupt=bool(input_data.get("interrupt")),
+    )
+    if not chars or chars == "\x03":
+        return input_data, None
+
+    from ..config.context import get_current_terminal_manager
+
+    manager = get_current_terminal_manager()
+    session_id = str(input_data.get("session_id") or "")
+    if manager is None or not session_id:
+        return input_data, None
+
+    combined = await manager.preview_input(session_id, chars)
+    guarded_input = dict(input_data)
+    guarded_input["chars"] = combined
+    return guarded_input, (session_id, chars, combined)
+
+
+async def _authorize_terminal_input(
+    proposal: tuple[str, str, str] | None,
+) -> None:
+    """Bind an approved input snapshot to its next session write."""
+    if proposal is None:
+        return
+
+    from ..config.context import get_current_terminal_manager
+
+    manager = get_current_terminal_manager()
+    if manager is None:
+        raise RuntimeError("terminal manager is unavailable")
+    await manager.authorize_input(*proposal)
+
+
+async def _discard_denied_terminal_input(
+    tool_name: str,
+    input_data: dict[str, Any],
+) -> None:
+    """Remove fragments retained before a denied write_stdin call."""
+    if tool_name != "write_stdin":
+        return
+
+    from ..config.context import get_current_terminal_manager
+
+    manager = get_current_terminal_manager()
+    session_id = str(input_data.get("session_id") or "")
+    if manager is not None and session_id:
+        await manager.discard_input(session_id)
+
+
+# pylint: disable=too-many-return-statements,too-many-branches
 async def _guarded_tool_check_permissions(
     self: Any,
     input_data: dict[str, Any] | None = None,
@@ -185,19 +246,37 @@ async def _guarded_tool_check_permissions(
             message=f"Tool guard {exec_level.value.upper()} — allowed.",
         )
 
+    try:
+        (
+            guarded_input,
+            terminal_proposal,
+        ) = await _stateful_terminal_guard_input(
+            tool_name,
+            input_data,
+        )
+    except (KeyError, RuntimeError, ValueError) as exc:
+        await _discard_denied_terminal_input(tool_name, input_data)
+        return PermissionDecision(
+            behavior=PermissionBehavior.DENY,
+            message=_with_no_retry_instruction(
+                f"Terminal input policy rejected this call: {exc}",
+            ),
+        )
+
     # Denied list (applies to every mode).
     if engine.is_denied(tool_name):
         # Offload: guardians may do sync Path.resolve() I/O.
         denied_result = await asyncio.to_thread(
             engine.guard,
             tool_name,
-            input_data,
+            guarded_input,
         )
         body = (
             f"Tool '{tool_name}' is permanently blocked by the denied-list."
             if denied_result is None or not denied_result.findings
             else _format_guard_message(tool_name, denied_result)
         )
+        await _discard_denied_terminal_input(tool_name, input_data)
         return PermissionDecision(
             behavior=PermissionBehavior.DENY,
             message=_with_no_retry_instruction(body),
@@ -210,62 +289,77 @@ async def _guarded_tool_check_permissions(
         guard_result = await asyncio.to_thread(
             engine.guard,
             tool_name,
-            input_data,
+            guarded_input,
             only_always_run=False,
         )
         if guard_result is None or not guard_result.findings:
-            guard_result = _strict_info_guard_result(tool_name, input_data)
+            guard_result = _strict_info_guard_result(
+                tool_name,
+                guarded_input,
+            )
     else:
         guarded = engine.is_guarded(tool_name)
         guard_result = await asyncio.to_thread(
             engine.guard,
             tool_name,
-            input_data,
+            guarded_input,
             only_always_run=not guarded,
         )
 
-    # No findings on AUTO/SMART → allow.
     if guard_result is None or not guard_result.findings:
-        return PermissionDecision(
+        decision = PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="Tool guard: no findings.",
         )
+    else:
+        from ..security.tool_guard.utils import log_findings
 
-    # Log findings so test assertions and operators can observe them.
-    from ..security.tool_guard.utils import log_findings
-
-    log_findings(tool_name, guard_result)
-
-    # Auto-deny rules (HIGH-RISK rules flagged by config).
-    if engine.should_auto_deny_result(guard_result):
-        return PermissionDecision(
-            behavior=PermissionBehavior.DENY,
-            message=_format_guard_message(tool_name, guard_result),
-        )
-
-    # SMART: skip approval for low-risk findings.
-    if exec_level.is_smart_mode():
-        max_sev = guard_result.max_severity
-        if max_sev in (GuardSeverity.INFO, GuardSeverity.LOW):
+        log_findings(tool_name, guard_result)
+        if engine.should_auto_deny_result(guard_result):
+            await _discard_denied_terminal_input(tool_name, input_data)
             return PermissionDecision(
+                behavior=PermissionBehavior.DENY,
+                message=_format_guard_message(tool_name, guard_result),
+            )
+
+        max_sev = guard_result.max_severity
+        if exec_level.is_smart_mode() and max_sev in (
+            GuardSeverity.INFO,
+            GuardSeverity.LOW,
+        ):
+            decision = PermissionDecision(
                 behavior=PermissionBehavior.ALLOW,
                 message=(
                     "Tool guard SMART: auto-allowed low-risk "
                     f"({max_sev.value})."
                 ),
             )
+        else:
+            agent_id = self._qp_agent_id  # pylint: disable=protected-access
+            request_context = getattr(self, "_qp_request_context", None) or {}
+            decision = await _ask_user_approval(
+                agent_id=agent_id,
+                tool_name=tool_name,
+                input_data=guarded_input,
+                guard_result=guard_result,
+                request_context=request_context,
+            )
 
-    # Anything left needs the user.
-    agent_id = self._qp_agent_id  # pylint: disable=protected-access
-    request_context = getattr(self, "_qp_request_context", None) or {}
-    decision = await _ask_user_approval(
-        agent_id=agent_id,
-        tool_name=tool_name,
-        input_data=input_data,
-        guard_result=guard_result,
-        request_context=request_context,
-    )
-    return decision
+    if decision.behavior is PermissionBehavior.DENY:
+        await _discard_denied_terminal_input(tool_name, input_data)
+        return decision
+
+    try:
+        await _authorize_terminal_input(terminal_proposal)
+        return decision
+    except (KeyError, RuntimeError, ValueError) as exc:
+        await _discard_denied_terminal_input(tool_name, input_data)
+        return PermissionDecision(
+            behavior=PermissionBehavior.DENY,
+            message=_with_no_retry_instruction(
+                f"Terminal input authorization failed: {exc}",
+            ),
+        )
 
 
 def _strict_info_guard_result(

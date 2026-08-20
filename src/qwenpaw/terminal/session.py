@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import locale
 import re
 import secrets
 import shlex
@@ -12,21 +11,18 @@ import sys
 import time
 
 from .backends.base import TerminalBackend
+from .input_policy import TerminalInputBuffer
 from .models import SessionResult, SessionState
-
-_ANSI_RE = re.compile(
-    rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
-)
+from .shells import shell_kind
+from .text_stream import TerminalTextStream
 
 
-def _decode(data: bytes) -> str:
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return data.decode(
-            locale.getpreferredencoding(False) or "utf-8",
-            errors="replace",
-        )
+class CancellationRecovery:
+    """Outcomes when cleaning up a cancelled execute call."""
+
+    RECOVERED = "recovered"
+    NOT_OWNER = "not_owner"
+    FAILED = "failed"
 
 
 class TerminalSession:
@@ -52,6 +48,11 @@ class TerminalSession:
         self._command_started_at = 0.0
         self._timeout_task: asyncio.Task[None] | None = None
         self._timed_out = False
+        self._input_buffer = TerminalInputBuffer()
+        self._input_guard_required = False
+        self._authorized_input: tuple[str, str] | None = None
+        self._text_stream = TerminalTextStream()
+        self._command_owner: asyncio.Task[object] | None = None
 
     @property
     def tty(self) -> bool:
@@ -62,12 +63,7 @@ class TerminalSession:
         return self.backend.degraded
 
     def _shell_kind(self) -> str:
-        name = self.shell.replace("\\", "/").rsplit("/", 1)[-1].lower()
-        if name in {"cmd", "cmd.exe"}:
-            return "cmd"
-        if name in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
-            return "powershell"
-        return "posix"
+        return shell_kind(self.shell)
 
     def _wrap_command(self, command: str, token: str) -> bytes:
         marker = f"QWENPAW_DONE_{token}"
@@ -117,6 +113,11 @@ class TerminalSession:
             self._exit_code = None
             self._marker_span = None
             self._timed_out = False
+            self._input_buffer.clear()
+            self._input_guard_required = False
+            self._authorized_input = None
+            self._text_stream.reset()
+            self._command_owner = asyncio.current_task()
             self._command_started_at = time.monotonic()
             self.state = SessionState.RUNNING
             await self.backend.write(self._wrap_command(command, token))
@@ -140,12 +141,14 @@ class TerminalSession:
                 retained_start + match.end(),
             )
             self.state = SessionState.IDLE
+            self._command_owner = None
             if self._timeout_task is not None:
                 self._timeout_task.cancel()
                 self._timeout_task = None
         elif self.backend.supervisor.returncode is not None:
             self._exit_code = self.backend.supervisor.returncode
             self.state = SessionState.CLOSED
+            self._command_owner = None
 
     async def _enforce_timeout(self, timeout: float) -> None:
         try:
@@ -269,8 +272,6 @@ class TerminalSession:
                 data = data[:prefix_at]
                 next_cursor = chunk_start + prefix_at
         self._public_cursor = next_cursor
-        data = _ANSI_RE.sub(b"", data)
-        output = _decode(data).strip("\r\n")
         running = self.state in {
             SessionState.RUNNING,
             SessionState.INTERRUPTING,
@@ -283,6 +284,12 @@ class TerminalSession:
             chunk.original_bytes - self._command_started - marker_bytes,
         )
         pending_bytes = max(0, self.backend.capture.end_cursor - next_cursor)
+        if chunk.omitted_bytes:
+            self._text_stream.discard_pending()
+        output = self._text_stream.feed(
+            data,
+            final=not running and pending_bytes == 0,
+        )
         elapsed = int((time.monotonic() - self._command_started_at) * 1000)
         self.last_activity = time.monotonic()
         return SessionResult(
@@ -326,17 +333,83 @@ class TerminalSession:
                     "execute_shell_command and its session_id",
                 )
             if chars == "\x03" and self.state is SessionState.RUNNING:
+                self._input_buffer.clear()
+                self._authorized_input = None
                 self.state = SessionState.INTERRUPTING
                 await self._send_interrupt_probe()
             elif chars:
-                await self.backend.write(chars.encode("utf-8"))
+                combined = self._input_buffer.preview(chars)
+                if self._input_guard_required:
+                    if self._authorized_input != (chars, combined):
+                        raise PermissionError(
+                            "terminal input changed after its security check",
+                        )
+                    self._authorized_input = None
+                ready = self._input_buffer.commit(chars)
+                if not ready:
+                    return self._make_result(max_output_bytes)
+                await self.backend.write(ready.encode("utf-8"))
             return await self._wait_and_poll(yield_time, max_output_bytes)
+
+    async def preview_input(self, chars: str) -> str:
+        """Preview accumulated input for a pre-execution security check."""
+        async with self.interaction_lock:
+            self._refresh_state()
+            if self.state is not SessionState.RUNNING:
+                raise RuntimeError(
+                    "terminal input can only be written to a running command",
+                )
+            self._input_guard_required = True
+            return self._input_buffer.preview(chars)
+
+    async def authorize_input(self, chars: str, combined: str) -> None:
+        """Authorize one exact pending-input snapshot for delivery."""
+        async with self.interaction_lock:
+            if self._input_buffer.preview(chars) != combined:
+                raise RuntimeError(
+                    "terminal input changed while approval was pending",
+                )
+            self._authorized_input = (chars, combined)
+
+    async def discard_input(self) -> None:
+        """Discard buffered fragments after a denied input operation."""
+        async with self.interaction_lock:
+            self._input_buffer.clear()
+            self._input_guard_required = False
+            self._authorized_input = None
 
     async def interrupt(self) -> None:
         async with self.interaction_lock:
             if self.state is SessionState.RUNNING:
                 self.state = SessionState.INTERRUPTING
                 await self._send_interrupt_probe()
+
+    async def recover_cancelled_execution(
+        self,
+        owner: asyncio.Task[object] | None,
+        *,
+        timeout: float = 1.5,
+    ) -> str:
+        """Recover a command owned by a cancelled execute task."""
+        async with self.interaction_lock:
+            self._refresh_state()
+            if self.state is SessionState.IDLE:
+                return CancellationRecovery.RECOVERED
+            if self._command_owner is not owner:
+                return CancellationRecovery.NOT_OWNER
+            if self.state not in {
+                SessionState.RUNNING,
+                SessionState.INTERRUPTING,
+            }:
+                return CancellationRecovery.FAILED
+            self.state = SessionState.INTERRUPTING
+            await self._send_interrupt_probe()
+            await self._wait_for_interrupt_marker(timeout)
+            self._refresh_state()
+            if self.state is SessionState.IDLE:
+                self.last_activity = time.monotonic()
+                return CancellationRecovery.RECOVERED
+            return CancellationRecovery.FAILED
 
     async def close(self) -> None:
         if self.state is SessionState.CLOSED:
@@ -349,5 +422,9 @@ class TerminalSession:
         ):
             self._timeout_task.cancel()
         self._timeout_task = None
+        self._input_buffer.clear()
+        self._input_guard_required = False
+        self._authorized_input = None
+        self._command_owner = None
         await self.backend.close()
         self.state = SessionState.CLOSED

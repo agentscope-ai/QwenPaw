@@ -35,6 +35,7 @@ from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
 from ...terminal import SessionResult, TerminalSessionManager
+from ...terminal.input_policy import normalize_terminal_input
 from ...terminal.manager import UnknownSessionError
 
 _logger = logging.getLogger(__name__)
@@ -467,26 +468,6 @@ def _bounded_tool_int(
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be an integer") from exc
     return max(minimum, min(parsed, maximum))
-
-
-_CTRL_C_INPUT_ALIASES = frozenset(
-    {
-        "\x03",
-        r"\u0003",
-        r"\x03",
-        "&#3;",
-        "&#x3;",
-        "&#x03;",
-    },
-)
-
-
-def _normalize_terminal_input(chars: str, *, interrupt: bool) -> str:
-    """Turn whole-value Ctrl-C representations into one ETX character."""
-    value = chars or ""
-    if interrupt or value.strip().lower() in _CTRL_C_INPUT_ALIASES:
-        return "\x03"
-    return value
 
 
 async def _drain_output_snapshot(
@@ -1333,8 +1314,10 @@ async def execute_shell_command(
             Maximum incremental bytes returned by this call. Numeric strings
             are accepted for model-provider compatibility.
         tty (`bool`):
-            Request a PTY. Windows uses ConPTY when available and explicitly
-            reports a degraded pipe fallback otherwise.
+            Request a PTY. Native TTY support is limited to sh/bash/zsh on
+            POSIX and cmd/PowerShell/pwsh on Windows. Other shells explicitly
+            use the degraded pipe backend. Windows also degrades when ConPTY
+            is unavailable.
 
     Returns:
         `ToolChunk`:
@@ -1738,7 +1721,7 @@ async def write_stdin(
     ``output_drained=false``. A completed process can still have bounded
     captured output waiting to be delivered.
     """
-    chars = _normalize_terminal_input(chars, interrupt=interrupt)
+    chars = normalize_terminal_input(chars, interrupt=interrupt)
     if chars and _is_dangerous_self_kill(chars):
         return ToolChunk(
             is_last=True,

@@ -12,14 +12,20 @@ import sys
 from ..utils.io_utils import run_sync_io
 
 
-def _taskkill(pid: int) -> None:
-    subprocess.run(
-        ["taskkill", "/F", "/T", "/PID", str(pid)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=10,
-        check=False,
-    )
+def terminate_windows_process_tree(pid: int) -> None:
+    """Synchronously terminate a Windows PID and all its descendants."""
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # Lifecycle cleanup still has a direct-process fallback at each
+        # backend. A missing or timed-out taskkill must not skip that path.
+        pass
 
 
 class ProcessSupervisor:
@@ -57,7 +63,10 @@ class ProcessSupervisor:
                 return
             if self.process.returncode is None:
                 if sys.platform == "win32":
-                    await run_sync_io(_taskkill, self.pid)
+                    await run_sync_io(
+                        terminate_windows_process_tree,
+                        self.pid,
+                    )
                 else:
                     try:
                         os.killpg(self.pid, signal.SIGTERM)
@@ -67,7 +76,10 @@ class ProcessSupervisor:
                     await asyncio.wait_for(self.process.wait(), timeout=grace)
                 except asyncio.TimeoutError:
                     if sys.platform == "win32":
-                        await run_sync_io(_taskkill, self.pid)
+                        await run_sync_io(
+                            terminate_windows_process_tree,
+                            self.pid,
+                        )
                     else:
                         try:
                             os.killpg(self.pid, signal.SIGKILL)

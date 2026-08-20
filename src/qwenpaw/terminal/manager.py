@@ -11,9 +11,10 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from ..utils.io_utils import run_async_to_completion
 from .backends import spawn_terminal_backend
 from .models import SessionResult, SessionState
-from .session import TerminalSession
+from .session import CancellationRecovery, TerminalSession
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,7 @@ class TerminalSessionManager:
                 if session is None:
                     raise UnknownSessionError(session_id)
                 self._cancel_expiry(session_id)
+        owner = asyncio.current_task()
         try:
             result = await session.execute(
                 command,
@@ -215,6 +217,15 @@ class TerminalSessionManager:
                 yield_time=yield_time,
                 max_output_bytes=max_output_bytes,
             )
+        except asyncio.CancelledError:
+            await run_async_to_completion(
+                self._cleanup_cancelled_execute(
+                    session,
+                    owner,
+                    created=session_id is None,
+                ),
+            )
+            raise
         except BaseException:
             if session_id is None:
                 await self.remove(session.session_id)
@@ -225,6 +236,30 @@ class TerminalSessionManager:
         if not result.running:
             self._schedule_expiry(session)
         return result
+
+    async def _cleanup_cancelled_execute(
+        self,
+        session: TerminalSession,
+        owner: asyncio.Task[object] | None,
+        *,
+        created: bool,
+    ) -> None:
+        """Finish cancellation cleanup before it can reach the caller."""
+        if created:
+            await self.remove(session.session_id)
+            return
+        try:
+            recovery = await session.recover_cancelled_execution(owner)
+        except Exception:  # noqa: BLE001
+            recovery = CancellationRecovery.FAILED
+        if recovery == CancellationRecovery.RECOVERED:
+            async with self._lock:
+                retained = self._sessions.get(session.session_id) is session
+            if retained:
+                self._schedule_expiry(session)
+            return
+        if recovery == CancellationRecovery.FAILED:
+            await self.remove(session.session_id)
 
     async def interact(
         self,
@@ -271,6 +306,34 @@ class TerminalSessionManager:
         if not result.running:
             self._schedule_expiry(session)
         return result
+
+    async def preview_input(self, session_id: str, chars: str) -> str:
+        """Preview stateful input without sending bytes to the terminal."""
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise UnknownSessionError(session_id)
+        return await session.preview_input(chars)
+
+    async def discard_input(self, session_id: str) -> None:
+        """Discard buffered input for a denied terminal operation."""
+        async with self._lock:
+            session = self._sessions.get(session_id)
+        if session is not None:
+            await session.discard_input()
+
+    async def authorize_input(
+        self,
+        session_id: str,
+        chars: str,
+        combined: str,
+    ) -> None:
+        """Authorize one reviewed input snapshot for a session."""
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise UnknownSessionError(session_id)
+        await session.authorize_input(chars, combined)
 
     async def remove(self, session_id: str) -> None:
         async with self._lock:

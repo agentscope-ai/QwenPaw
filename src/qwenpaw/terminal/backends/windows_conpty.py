@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
 
 from ...utils.io_utils import run_sync_io
 from ..capture import BackgroundCapture
+from ..process_tree import terminate_windows_process_tree
 
 
 def _basename(shell: str) -> str:
@@ -59,6 +61,11 @@ class _WinPtySupervisor:
             if self._closed:
                 return
             self._closed = True
+            if self.pid > 0 and sys.platform == "win32":
+                await run_sync_io(
+                    terminate_windows_process_tree,
+                    self.pid,
+                )
             try:
                 await run_sync_io(self.process.close, True)
             except TypeError:
