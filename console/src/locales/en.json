@@ -1942,8 +1942,6 @@
     "addAndUse": "Add and use",
     "availableToAdd": "Available to add",
     "addFailed": "Failed to add model",
-    "showAll": "Show all models",
-    "showRecommended": "Show recommendations",
     "hideModel": "Hide model",
     "hiddenModels": "Hidden models ({{count}})",
     "restoreModel": "Restore model",

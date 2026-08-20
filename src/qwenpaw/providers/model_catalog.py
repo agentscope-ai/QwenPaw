@@ -37,16 +37,9 @@ class CatalogDocument(BaseModel):
     providers: dict[str, list[ModelInfo]] = Field(default_factory=dict)
 
 
-def _validate_document(payload: dict[str, Any]) -> CatalogDocument:
-    """Validate a catalog while accepting the removed legacy field."""
-    payload = dict(payload)
-    payload.pop("free_provider_ids", None)
-    return CatalogDocument.model_validate(payload)
-
-
 def _read_document(path: Path) -> CatalogDocument:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    document = _validate_document(payload)
+    document = CatalogDocument.model_validate(payload)
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",
@@ -191,7 +184,7 @@ def update_model_catalog(
     digest = expected_sha256 or EnvVarLoader.get_str(CATALOG_SHA256_ENV)
     payload = _download_bytes(resolved_url, timeout)
     verify_catalog_hash(payload, digest, label="Model catalog")
-    document = _validate_document(json.loads(payload.decode("utf-8")))
+    document = CatalogDocument.model_validate_json(payload)
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",

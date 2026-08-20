@@ -1083,7 +1083,7 @@ describe("ModelSelector", () => {
       },
     });
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
+    renderWithProviders(<ModelSelector />);
     await user.click(
       await screen.findByRole("button", {
         name: "chat.modelSelectTooltip",

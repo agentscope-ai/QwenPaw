@@ -1854,8 +1854,6 @@
     "addAndUse": "添加并使用",
     "availableToAdd": "可添加模型",
     "addFailed": "添加模型失败",
-    "showAll": "显示全部模型",
-    "showRecommended": "只看推荐",
     "hideModel": "隐藏模型",
     "hiddenModels": "已隐藏模型（{{count}}）",
     "restoreModel": "恢复模型",

@@ -174,20 +174,6 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].is_free is False
 
 
-def test_legacy_provider_free_list_is_ignored(tmp_path: Path) -> None:
-    packaged = tmp_path / "packaged.json"
-    _write_catalog(packaged, {"MODELS": []})
-    payload = json.loads(packaged.read_text(encoding="utf-8"))
-    payload["free_provider_ids"] = ["opencode"]
-    packaged.write_text(json.dumps(payload), encoding="utf-8")
-
-    assert model_catalog.load_model_catalog(
-        packaged,
-        tmp_path / "missing-ota.json",
-        tmp_path / "missing-local.json",
-    ) == {"MODELS": []}
-
-
 @pytest.mark.parametrize(
     "content",
     [b"not-json", b'{"schema_version": 2}'],
