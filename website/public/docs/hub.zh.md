@@ -6,7 +6,7 @@ Hub 不会替代或改变原有的单机 QwenPaw App。个人设备仍然可以�
 
 > **重要安全边界：当前 Hub 不提供每个用户独立的内核。** Linux Local 使用 Bubblewrap namespace，macOS Local 使用 Seatbelt，Windows Local 使用 AppContainer 和 Job Object；三者都是共享宿主机内核的进程沙箱。Docker 使用容器隔离，所有 Hub 容器共享 Docker Engine 所使用的 Linux 内核。在 Windows 或 macOS 的 Docker Desktop/虚拟机环境中，这通常是 Docker Linux VM 的内核，而不是 Windows 或 macOS 宿主内核，但仍不是一租户一内核。以上机制可以限制文件、进程权限和运行环境访问范围，却不能等同于每个用户一台虚拟机或 MicroVM。对于彼此不信任的用户或更高风险的多租户部署，应在 Hub 外增加独立虚拟机、专用节点或其他更强的基础设施隔离。
 
-> **图片占位：Hub 登录页与用户条款弹窗，待替换为真实截图。**
+![Hub 登录页与用户条款弹窗](https://img.alicdn.com/imgextra/i2/O1CN01hhIGAbMm89B6lBsc_!!6000000006867-2-tps-3330-1772.png)
 
 ## Hub 与单机 App 的区别
 
@@ -153,7 +153,7 @@ control_plane:
 
 普通用户不能选择运行环境后端、Docker 镜像或资源上限。这些策略由管理员统一设置。
 
-> **图片占位：普通用户的个人运行环境状态与重启入口，待替换为真实截图。**
+![普通用户的个人运行环境状态与重启入口](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
 
 ## 运行环境模型
 
@@ -183,7 +183,7 @@ Windows AppContainer 默认不能直接连接宿主机 loopback。Hub 会在运�
 
 这属于**进程和文件系统访问控制**，不是内核隔离。所有 Local 运行环境仍使用宿主机内核，不能视为虚拟机、MicroVM 或针对恶意租户的强安全边界。
 
-> **图片占位：系统设置中的 Local/Docker 后端选择，待替换为真实截图。**
+![系统设置中的 Local/Docker 后端选择](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
 
 ## Docker 后端：容器级隔离
 
@@ -236,7 +236,7 @@ Docker 运行环境创建后会记录实际镜像 ID/digest，避免同名 Tag �
 
 CPU、内存和 PID 留空表示不设置对应限制。调整限制后，应重启或重建相关运行环境。`capacity.max_running_runtimes` 控制整个 Hub 同时运行的环境数量，并不是为一个租户创建多个环境。
 
-> **图片占位：Docker 镜像详情、立即拉取和资源限制，待替换为真实截图。**
+![Docker 镜像详情、立即拉取和资源限制](https://img.alicdn.com/imgextra/i2/O1CN01M5zUCZUwvZG6nhyY_!!6000000002043-2-tps-3350-1784.png)
 
 ## 数据目录与持久化
 

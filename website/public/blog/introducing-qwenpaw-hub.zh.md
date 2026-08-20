@@ -23,7 +23,7 @@ QwenPaw Hub 就是对这些问题的回答。它是面向团队自托管场景�
 
 先说明它的安全边界：当前 Hub 不为每个用户提供独立内核。Linux Local 使用 Bubblewrap namespace，macOS Local 使用 Seatbelt，Windows Local 使用 AppContainer 和 Job Object；三者都共享各自的宿主机内核。Docker 使用容器隔离，所有 Hub 容器共享 Docker Engine 所使用的 Linux 内核。在 Windows 或 macOS 的 Docker Desktop 环境中，这通常是 Docker Linux VM 的内核，但仍不是一租户一内核。这里的“独立运行环境”指独立的数据目录、凭据、进程或容器和生命周期管理，不代表每个用户拥有独立虚拟机或 MicroVM。
 
-> **图片占位：QwenPaw Hub 登录页与管理中心概览，待替换为真实截图。**
+![QwenPaw Hub 登录页与管理中心概览](https://img.alicdn.com/imgextra/i3/O1CN01pmq9btaadNF6mRvU_!!6000000004218-2-tps-3340-1772.png)
 
 ## 从一个应用到一组个人运行环境
 
@@ -114,7 +114,7 @@ Docker 提供进程、文件系统和资源层面的容器边界，但同一个 
 
 每个容器还可以统一设置 CPU、内存、PID 和共享内存上限。整个 Hub 则可以设置同时运行的环境数量，避免新用户或异常访问无限消耗宿主机资源。
 
-> **图片占位：运行环境设置中的后端、镜像与资源策略，待替换为真实截图。**
+![运行环境设置中的后端、镜像与资源策略](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
 
 ## 容器会变，用户数据不会跟着消失
 
