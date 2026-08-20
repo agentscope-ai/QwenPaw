@@ -268,9 +268,11 @@ class OAuth2AuthCodeProvider(CredentialProvider):
             if not values.get("refresh_token"):
                 raise OAuthRequiredError(self._ref)
             values["ref"] = self._ref
-            token, expires_in, rotated_refresh_token = (
-                await self._exchanger.exchange(values)
-            )
+            (
+                token,
+                expires_in,
+                rotated_refresh_token,
+            ) = await self._exchanger.exchange(values)
             public = dict(record.public)
             secrets = dict(record.secrets)
             public["expires_at"] = time.time() + expires_in
