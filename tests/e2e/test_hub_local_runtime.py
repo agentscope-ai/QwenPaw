@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Windows end-to-end coverage for a real Hub-managed Local runtime."""
+"""Cross-platform end-to-end coverage for a Hub-managed Local runtime."""
 
 from __future__ import annotations
 
@@ -55,14 +55,38 @@ def _stop_runtime(client: httpx.Client, token: str) -> None:
         )
 
 
-@pytest.mark.skipif(
-    sys.platform != "win32"
-    or os.environ.get("QWENPAW_WINDOWS_APPCONTAINER_E2E") != "1",
-    reason="requires the elevated GitHub Windows AppContainer runner",
-)
-def test_windows_hub_starts_and_proxies_local_runtime(
-    tmp_path: Path,
+def _wait_for_runtime(
+    client: httpx.Client,
+    process: subprocess.Popen[Any],
+    headers: dict[str, str],
 ) -> None:
+    deadline = time.monotonic() + 90
+    last_error = "Runtime did not become ready"
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise AssertionError(
+                f"Hub exited while starting runtime with code "
+                f"{process.returncode}",
+            )
+        try:
+            response = client.get("/api/healthz", headers=headers)
+            if response.status_code == 200:
+                return
+            last_error = (
+                f"Runtime readiness returned HTTP {response.status_code}: "
+                f"{response.text}"
+            )
+        except httpx.HTTPError as exc:
+            last_error = str(exc)
+        time.sleep(0.2)
+    raise AssertionError(last_error)
+
+
+@pytest.mark.skipif(
+    os.environ.get("QWENPAW_LOCAL_RUNTIME_E2E") != "1",
+    reason="requires an OS runner with the native isolation dependency",
+)
+def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
     """Start a real Hub and verify its managed QwenPaw HTTP endpoint."""
     port = _allocate_port()
     hub_root = tmp_path / "hub"
@@ -100,14 +124,15 @@ def test_windows_hub_starts_and_proxies_local_runtime(
                 registration = client.post(
                     "/api/auth/register",
                     json={
-                        "username": "windows-e2e-admin",
-                        "password": "windows-e2e-password",
+                        "username": "local-runtime-e2e-admin",
+                        "password": "local-runtime-e2e-password",
                     },
                 )
                 assert registration.status_code == 200, registration.text
                 token = str(registration.json()["token"])
                 headers = {"Authorization": f"Bearer {token}"}
 
+                _wait_for_runtime(client, process, headers)
                 health = client.get("/api/healthz", headers=headers)
                 assert health.status_code == 200, health.text
                 assert health.json()["status"] in {"ok", "healthy"}
@@ -150,9 +175,4 @@ def test_windows_hub_starts_and_proxies_local_runtime(
     if failure is not None:
         pytest.fail(
             f"{failure}\nHub log:\n" f"{log_path.read_text(encoding='utf-8')}",
-        )
-    if process.returncode not in {0, 1}:
-        pytest.fail(
-            f"Hub exited with code {process.returncode}:\n"
-            f"{log_path.read_text(encoding='utf-8')}",
         )

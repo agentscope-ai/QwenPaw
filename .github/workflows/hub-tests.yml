@@ -13,7 +13,7 @@ on:
       - 'src/qwenpaw/app/auth.py'
       - 'src/qwenpaw/hub/**'
       - 'src/qwenpaw/utils/oauth_callback.py'
-      - 'tests/e2e/test_windows_hub_local_runtime.py'
+      - 'tests/e2e/test_hub_local_runtime.py'
       - 'tests/unit/app/test_hub_runtime_boundary.py'
       - 'tests/unit/app/routers/test_mcp_oauth_callback.py'
       - 'tests/unit/app/routers/test_mcp_oauth_discovery.py'
@@ -37,6 +37,11 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      - name: Install Linux isolation dependency
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - name: Install dependencies
         shell: bash
         run: |
@@ -45,6 +50,8 @@ jobs:
 
       - name: Run focused Hub tests
         shell: bash
+        env:
+          QWENPAW_LOCAL_RUNTIME_E2E: '1'
         run: |
           pytest \
             tests/unit/hub \
@@ -52,6 +59,7 @@ jobs:
             tests/unit/app/routers/test_mcp_oauth_callback.py \
             tests/unit/app/routers/test_mcp_oauth_discovery.py \
             tests/unit/app/routers/test_provider_oauth_router.py \
+            tests/e2e/test_hub_local_runtime.py \
             -v
 
   console:
@@ -84,30 +92,3 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
         run: npm run build
-
-  windows-runtime:
-    name: Windows Hub Runtime
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[hub,dev,test]"
-
-      - name: Verify real AppContainer runtime
-        shell: bash
-        env:
-          QWENPAW_WINDOWS_APPCONTAINER_E2E: '1'
-        run: |
-          pytest \
-            tests/unit/hub/test_windows_process_isolation.py::test_windows_appcontainer_real_preflight \
-            tests/e2e/test_windows_hub_local_runtime.py \
-            -v

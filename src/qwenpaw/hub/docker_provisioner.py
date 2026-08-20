@@ -248,6 +248,8 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
 
     def close(self) -> None:
         """Stop containers owned by this Hub instance."""
+        if self._client is None:
+            return
         for container in self._containers(all_containers=True):
             self._stop_and_remove(container)
 

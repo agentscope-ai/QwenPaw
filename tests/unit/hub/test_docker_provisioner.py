@@ -140,6 +140,18 @@ def _configure(provisioner: DockerRuntimeProvisioner) -> None:
     )
 
 
+def test_close_does_not_connect_to_unused_docker_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_client() -> None:
+        raise AssertionError("close initialized the Docker client")
+
+    monkeypatch.setattr("docker.from_env", unexpected_client)
+
+    DockerRuntimeProvisioner(tmp_path).close()
+
+
 def test_container_launch_applies_persistence_security_and_limits(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
