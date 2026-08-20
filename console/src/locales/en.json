@@ -1954,6 +1954,7 @@
     "loadingAgentSettings": "Loading agent model settings",
     "agentSettingsSaveFailed": "Failed to save agent model settings",
     "agentSettingsSaved": "Agent model settings saved",
+    "saveAgentSettings": "Save routing settings",
     "thinkingLevel": "Thinking level",
     "thinkingUnsupported": "The active model does not advertise configurable thinking.",
     "thinking": {

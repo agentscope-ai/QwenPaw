@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,7 +46,17 @@ describe("ThinkingLevelToggle", () => {
     const trigger = await screen.findByLabelText("chat.thinkingLevelTitle");
     expect(trigger).toHaveTextContent("modelSelector.thinking.high");
     await user.click(trigger);
-    await user.click(await screen.findByText("modelSelector.thinking.low"));
+    const selectedItem = screen.getByRole("menuitem", {
+      name: "modelSelector.thinking.high",
+    });
+    const selectedContent = within(selectedItem).getByText(
+      "modelSelector.thinking.high",
+    ).parentElement;
+    expect(selectedContent?.lastElementChild).toHaveClass("lucide-check");
+
+    await user.click(
+      screen.getByRole("menuitem", { name: "modelSelector.thinking.low" }),
+    );
 
     expect(sessionApiMock.updateSessionMeta).toHaveBeenCalledWith("chat-1", {
       thinking_level: "low",

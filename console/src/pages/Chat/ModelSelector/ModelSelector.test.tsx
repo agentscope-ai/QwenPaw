@@ -950,6 +950,7 @@ describe("ModelSelector", () => {
         name: /modelSelector.agentModelSettings/,
       }),
     );
+    await user.click(screen.getByText("modelSelector.freeModelsOnly"));
     await user.click(
       screen.getByRole("combobox", {
         name: "modelSelector.subagentModel",
@@ -967,7 +968,11 @@ describe("ModelSelector", () => {
     await user.click(
       screen.getByRole("button", { name: "modelSelector.addFallback" }),
     );
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -978,7 +983,7 @@ describe("ModelSelector", () => {
         fallback_models: [{ provider_id: "openai", model: "gpt-3.5-turbo" }],
         fallback_policy: {
           enabled: true,
-          target_scope: "configured",
+          target_scope: "free_only",
         },
         subagent_model: {
           provider_id: "openai",
@@ -1018,7 +1023,11 @@ describe("ModelSelector", () => {
         activeModelId="gpt-3.5-turbo"
       />,
     );
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -1063,7 +1072,11 @@ describe("ModelSelector", () => {
       }),
     );
     await screen.findByText("removed-provider:removed-model");
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -1181,7 +1194,11 @@ describe("ModelSelector", () => {
       }),
     );
     await screen.findByLabelText("modelSelector.enableFallback");
-    await user.click(screen.getByRole("button", { name: /common.save/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "modelSelector.saveAgentSettings",
+      }),
+    );
 
     view.rerender(<AgentModelSettings agentId="agent-b" {...settingsProps} />);
     await user.click(

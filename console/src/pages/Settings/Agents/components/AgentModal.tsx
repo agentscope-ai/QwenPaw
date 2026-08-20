@@ -312,6 +312,7 @@ export function AgentModal({
           />
         </Form.Item>
         <Form.Item
+          className={styles.modelFormItem}
           hidden={selectedBackend !== "qwenpaw"}
           label={t("agent.model")}
           help={t("agent.modelHelp")}
@@ -375,7 +376,7 @@ export function AgentModal({
           </Space.Compact>
         </Form.Item>
         {editingAgent && selectedBackend === "qwenpaw" && (
-          <Form.Item label={t("modelSelector.agentModelSettings")}>
+          <Form.Item className={styles.agentRoutingFormItem}>
             <AgentModelSettings
               agentId={editingAgent.id}
               providers={eligibleProviders}

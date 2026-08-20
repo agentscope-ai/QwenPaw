@@ -8,7 +8,7 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
-import { Select } from "antd";
+import { Segmented, Select } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { agentsApi } from "@/api/modules/agents";
@@ -74,7 +74,6 @@ export function AgentModelSettings({
   agentIdRef.current = agentId;
   const bodyId = useId();
   const subagentSelectId = `${bodyId}-subagent-model`;
-  const fallbackScopeSelectId = `${bodyId}-fallback-scope`;
   const fallbackSelectId = `${bodyId}-fallback-model`;
 
   const options = useMemo<ModelOption[]>(
@@ -310,137 +309,155 @@ export function AgentModelSettings({
             </div>
           ) : (
             <>
-              <label className={styles.settingsRow} htmlFor={subagentSelectId}>
-                <span>{t("modelSelector.subagentModel")}</span>
-                <Select
-                  id={subagentSelectId}
-                  aria-label={t("modelSelector.subagentModel")}
-                  className={styles.agentSelect}
-                  classNames={{
-                    popup: { root: styles.agentSelectDropdown },
-                  }}
-                  value={subagentKey}
-                  options={subagentOptions}
-                  showSearch
-                  optionFilterProp="label"
-                  listHeight={280}
-                  popupMatchSelectWidth={320}
-                  onChange={setSubagentKey}
-                />
-              </label>
-              <label className={styles.settingsCheckRow}>
-                <input
-                  type="checkbox"
-                  checked={fallbackEnabled}
-                  onChange={(event) => setFallbackEnabled(event.target.checked)}
-                />
-                <span>{t("modelSelector.enableFallback")}</span>
-              </label>
-              {fallbackEnabled && (
-                <>
-                  <label
-                    className={styles.settingsRow}
-                    htmlFor={fallbackScopeSelectId}
-                  >
-                    <span>{t("modelSelector.fallbackScope")}</span>
-                    <Select
-                      id={fallbackScopeSelectId}
-                      aria-label={t("modelSelector.fallbackScope")}
-                      className={styles.agentSelect}
-                      classNames={{
-                        popup: { root: styles.agentSelectDropdown },
-                      }}
-                      value={fallbackScope}
-                      options={[
-                        {
-                          label: t("modelSelector.configuredModels"),
-                          value: "configured",
-                        },
-                        {
-                          label: t("modelSelector.freeModelsOnly"),
-                          value: "free_only",
-                        },
-                      ]}
-                      onChange={(value) =>
-                        setFallbackScope(value as typeof fallbackScope)
-                      }
-                    />
-                  </label>
-                  <div className={styles.fallbackComposer}>
-                    <label className={styles.srOnly} htmlFor={fallbackSelectId}>
-                      {t("modelSelector.chooseFallback")}
-                    </label>
-                    <Select
-                      id={fallbackSelectId}
-                      aria-label={t("modelSelector.chooseFallback")}
-                      className={styles.agentSelect}
-                      classNames={{
-                        popup: { root: styles.agentSelectDropdown },
-                      }}
-                      value={pendingFallback}
-                      options={fallbackOptions}
-                      showSearch
-                      optionFilterProp="label"
-                      listHeight={280}
-                      popupMatchSelectWidth={320}
-                      onChange={setPendingFallback}
-                    />
-                    <button
-                      type="button"
-                      aria-label={t("modelSelector.addFallback")}
-                      disabled={!pendingFallback}
-                      onClick={addFallback}
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                  <div className={styles.fallbackList}>
-                    {fallbackKeys.map((key, index) => (
-                      <div key={key}>
-                        <span title={optionByKey.get(key)?.label ?? key}>
-                          {optionByKey.get(key)?.label ?? key}
-                        </span>
+              <div className={styles.settingsSection}>
+                <div className={styles.settingsSectionHeader}>
+                  <span className={styles.settingsSectionTitle}>
+                    {t("modelSelector.subagentModel")}
+                  </span>
+                </div>
+                <label
+                  className={styles.settingsControl}
+                  htmlFor={subagentSelectId}
+                >
+                  <Select
+                    id={subagentSelectId}
+                    aria-label={t("modelSelector.subagentModel")}
+                    className={styles.agentSelect}
+                    classNames={{
+                      popup: { root: styles.agentSelectDropdown },
+                    }}
+                    value={subagentKey}
+                    options={subagentOptions}
+                    showSearch
+                    optionFilterProp="label"
+                    listHeight={280}
+                    popupMatchSelectWidth={320}
+                    onChange={setSubagentKey}
+                  />
+                </label>
+              </div>
+              <div className={styles.settingsSection}>
+                <label className={styles.settingsCheckRow}>
+                  <input
+                    type="checkbox"
+                    checked={fallbackEnabled}
+                    onChange={(event) =>
+                      setFallbackEnabled(event.target.checked)
+                    }
+                  />
+                  <span>{t("modelSelector.enableFallback")}</span>
+                </label>
+                {fallbackEnabled && (
+                  <div className={styles.fallbackSettings}>
+                    <div className={styles.settingsField}>
+                      <span className={styles.settingsFieldLabel}>
+                        {t("modelSelector.fallbackScope")}
+                      </span>
+                      <Segmented
+                        aria-label={t("modelSelector.fallbackScope")}
+                        className={styles.fallbackScope}
+                        block
+                        value={fallbackScope}
+                        options={[
+                          {
+                            label: t("modelSelector.configuredModels"),
+                            value: "configured",
+                          },
+                          {
+                            label: t("modelSelector.freeModelsOnly"),
+                            value: "free_only",
+                          },
+                        ]}
+                        onChange={(value) =>
+                          setFallbackScope(value as typeof fallbackScope)
+                        }
+                      />
+                    </div>
+                    <div className={styles.settingsField}>
+                      <span className={styles.settingsFieldLabel}>
+                        {t("modelSelector.chooseFallback")}
+                      </span>
+                      <div className={styles.fallbackComposer}>
+                        <label
+                          className={styles.srOnly}
+                          htmlFor={fallbackSelectId}
+                        >
+                          {t("modelSelector.chooseFallback")}
+                        </label>
+                        <Select
+                          id={fallbackSelectId}
+                          aria-label={t("modelSelector.chooseFallback")}
+                          className={styles.agentSelect}
+                          classNames={{
+                            popup: { root: styles.agentSelectDropdown },
+                          }}
+                          value={pendingFallback}
+                          options={fallbackOptions}
+                          showSearch
+                          optionFilterProp="label"
+                          listHeight={280}
+                          popupMatchSelectWidth={320}
+                          onChange={setPendingFallback}
+                        />
                         <button
                           type="button"
-                          aria-label={t("modelSelector.moveFallbackUp", {
-                            model: optionByKey.get(key)?.label ?? key,
-                          })}
-                          disabled={index === 0}
-                          onClick={() => moveFallback(index, -1)}
+                          aria-label={t("modelSelector.addFallback")}
+                          disabled={!pendingFallback}
+                          onClick={addFallback}
                         >
-                          <ChevronUp size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.moveFallbackDown", {
-                            model: optionByKey.get(key)?.label ?? key,
-                          })}
-                          disabled={index === fallbackKeys.length - 1}
-                          onClick={() => moveFallback(index, 1)}
-                        >
-                          <ChevronDown size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.removeFallback", {
-                            model: optionByKey.get(key)?.label ?? key,
-                          })}
-                          onClick={() =>
-                            setFallbackKeys((current) =>
-                              current.filter((item) => item !== key),
-                            )
-                          }
-                        >
-                          <Trash2 size={13} />
+                          <Plus size={14} />
                         </button>
                       </div>
-                    ))}
+                    </div>
+                    <div className={styles.fallbackList}>
+                      {fallbackKeys.map((key, index) => (
+                        <div key={key}>
+                          <span title={optionByKey.get(key)?.label ?? key}>
+                            {optionByKey.get(key)?.label ?? key}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={t("modelSelector.moveFallbackUp", {
+                              model: optionByKey.get(key)?.label ?? key,
+                            })}
+                            disabled={index === 0}
+                            onClick={() => moveFallback(index, -1)}
+                          >
+                            <ChevronUp size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={t("modelSelector.moveFallbackDown", {
+                              model: optionByKey.get(key)?.label ?? key,
+                            })}
+                            disabled={index === fallbackKeys.length - 1}
+                            onClick={() => moveFallback(index, 1)}
+                          >
+                            <ChevronDown size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={t("modelSelector.removeFallback", {
+                              model: optionByKey.get(key)?.label ?? key,
+                            })}
+                            onClick={() =>
+                              setFallbackKeys((current) =>
+                                current.filter((item) => item !== key),
+                              )
+                            }
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </>
-              )}
+                )}
+              </div>
               <button
                 type="button"
                 className={styles.saveAgentSettings}
+                aria-label={t("modelSelector.saveAgentSettings")}
                 disabled={saving}
                 onClick={save}
               >
@@ -449,7 +466,7 @@ export function AgentModelSettings({
                 ) : (
                   <Save size={14} />
                 )}
-                {t("common.save")}
+                {t("modelSelector.saveAgentSettings")}
               </button>
             </>
           )}

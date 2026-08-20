@@ -80,6 +80,14 @@ describe.each(["personal", "dedicated"] as const)(
 );
 
 describe("AgentModal dedicated mailbox credential", () => {
+  it("shows a single model routing heading", () => {
+    render(<Harness mailMode="dedicated" />);
+
+    expect(
+      screen.getAllByText("modelSelector.agentModelSettings"),
+    ).toHaveLength(1);
+  });
+
   it("shows one optional provider credential and no registration secrets", async () => {
     render(<Harness mailMode="dedicated" />);
 

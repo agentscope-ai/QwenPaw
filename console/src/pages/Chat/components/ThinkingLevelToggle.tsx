@@ -5,6 +5,8 @@ import { Brain, Check, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import sessionApi from "../sessionApi";
 
+import styles from "./ThinkingLevelToggle.module.less";
+
 export type SessionThinkingLevel = "off" | "low" | "medium" | "high";
 
 const LEVELS: SessionThinkingLevel[] = ["off", "low", "medium", "high"];
@@ -93,8 +95,12 @@ export default function ThinkingLevelToggle({
 
   const menuItems: MenuProps["items"] = LEVELS.map((item) => ({
     key: item,
-    label: t(`modelSelector.thinking.${item}`),
-    icon: item === level ? <Check size={14} /> : undefined,
+    label: (
+      <span className={styles.menuItem}>
+        <span>{t(`modelSelector.thinking.${item}`)}</span>
+        {item === level && <Check size={14} aria-hidden="true" />}
+      </span>
+    ),
     onClick: () => void handleSelect(item),
   }));
 

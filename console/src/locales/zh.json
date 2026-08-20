@@ -1866,11 +1866,12 @@
     "loadingAgentSettings": "正在加载 Agent 模型设置",
     "agentSettingsSaveFailed": "保存 Agent 模型设置失败",
     "agentSettingsSaved": "Agent 模型设置已保存",
+    "saveAgentSettings": "保存路由设置",
     "thinkingLevel": "思考深度",
     "thinkingUnsupported": "当前模型未声明可配置的思考能力。",
     "thinking": {
       "inherit": "模型默认",
-      "off": "无",
+      "off": "关闭",
       "low": "低",
       "medium": "中",
       "high": "高"

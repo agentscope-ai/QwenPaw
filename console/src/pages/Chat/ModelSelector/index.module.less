@@ -243,9 +243,10 @@
 }
 
 .agentModelSettings {
-  margin: 8px;
+  margin: 0;
   border: 1px solid var(--ms-border);
-  border-radius: 9px;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .agentSettingsToggle {
@@ -253,12 +254,14 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  padding: 9px 10px;
+  min-height: 44px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 8px;
-  color: var(--ms-text-muted);
+  border-radius: 0;
+  color: var(--ms-text);
   background: transparent;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 
   &:hover:not(:disabled) {
@@ -268,6 +271,10 @@
 
   &:disabled {
     cursor: default;
+  }
+
+  &[aria-expanded="true"] {
+    border-bottom: 1px solid var(--ms-border);
   }
 }
 
@@ -292,24 +299,60 @@
 .agentSettingsBody {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 4px 10px 10px;
+  padding: 0 14px 12px;
 }
 
-.settingsRow {
-  display: grid;
-  grid-template-columns: 102px minmax(0, 1fr);
-  align-items: center;
+.settingsSection {
+  padding: 10px 0;
+  border-top: 1px solid var(--ms-border);
+}
+
+.settingsSection:first-child {
+  border-top: 0;
+}
+
+.settingsSectionHeader {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.settingsSectionTitle,
+.settingsFieldLabel {
+  color: var(--ms-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingsControl {
+  display: block;
+}
+
+.fallbackSettings {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  margin-top: 8px;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settingsFieldLabel {
   color: var(--ms-text-muted);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .agentSelect {
   width: 100%;
   min-width: 0;
 
-  :global(.ant-select-selector) {
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector) {
     min-height: 36px;
     padding: 0 11px !important;
     border-color: var(--ms-border) !important;
@@ -324,56 +367,71 @@
   }
 
   :global(.ant-select-selection-item),
-  :global(.ant-select-selection-placeholder) {
+  :global(.ant-select-selection-placeholder),
+  :global(.qwenpaw-select-selection-item),
+  :global(.qwenpaw-select-selection-placeholder) {
     padding-right: 12px !important;
     color: var(--ms-text) !important;
     font-size: 12px;
     line-height: 34px !important;
   }
 
-  :global(.ant-select-selection-search-input) {
+  :global(.ant-select-selection-search-input),
+  :global(.qwenpaw-select-selection-search-input) {
     height: 34px !important;
     color: var(--ms-text);
     font-size: 12px;
   }
 
-  :global(.ant-select-arrow) {
+  :global(.ant-select-arrow),
+  :global(.qwenpaw-select-arrow) {
     color: var(--ms-text-faint);
     transition:
       color 0.18s ease,
       transform 0.18s ease;
   }
 
-  &:hover:not(:global(.ant-select-disabled)) {
-    :global(.ant-select-selector) {
+  &:hover:not(:global(.ant-select-disabled)):not(
+      :global(.qwenpaw-select-disabled)
+    ) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       border-color: var(--ms-border-strong) !important;
       background: var(--ms-surface) !important;
     }
   }
 
   &:global(.ant-select-focused),
-  &:global(.ant-select-open) {
-    :global(.ant-select-selector) {
+  &:global(.ant-select-open),
+  &:global(.qwenpaw-select-focused),
+  &:global(.qwenpaw-select-open) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       border-color: var(--ms-accent) !important;
       box-shadow: 0 0 0 3px var(--ms-accent-soft) !important;
     }
 
-    :global(.ant-select-arrow) {
+    :global(.ant-select-arrow),
+    :global(.qwenpaw-select-arrow) {
       color: var(--ms-accent-strong);
     }
   }
 
-  &:global(.ant-select-open) :global(.ant-select-arrow) {
+  &:global(.ant-select-open) :global(.ant-select-arrow),
+  &:global(.qwenpaw-select-open) :global(.qwenpaw-select-arrow) {
     transform: rotate(180deg);
   }
 
-  &:global(.ant-select-disabled) {
-    :global(.ant-select-selector) {
+  &:global(.ant-select-disabled),
+  &:global(.qwenpaw-select-disabled) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       color: var(--ms-text-faint) !important;
       background: var(--ms-surface-muted) !important;
     }
 
-    :global(.ant-select-selection-item) {
+    :global(.ant-select-selection-item),
+    :global(.qwenpaw-select-selection-item) {
       color: var(--ms-text-faint) !important;
     }
   }
@@ -387,7 +445,8 @@
   background: var(--ms-surface);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14);
 
-  :global(.ant-select-item) {
+  :global(.ant-select-item),
+  :global(.qwenpaw-select-item) {
     min-height: 34px;
     padding: 7px 9px;
     border-radius: 7px;
@@ -396,21 +455,30 @@
     line-height: 20px;
   }
 
+  :global(.ant-select-item-option-active:not(.ant-select-item-option-disabled)),
   :global(
-      .ant-select-item-option-active:not(.ant-select-item-option-disabled)
+      .qwenpaw-select-item-option-active:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     background: var(--ms-surface-muted);
   }
 
   :global(
       .ant-select-item-option-selected:not(.ant-select-item-option-disabled)
+    ),
+  :global(
+      .qwenpaw-select-item-option-selected:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     color: var(--ms-accent);
     font-weight: 600;
     background: var(--ms-accent-soft);
   }
 
-  :global(.ant-select-item-option-content) {
+  :global(.ant-select-item-option-content),
+  :global(.qwenpaw-select-item-option-content) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -421,12 +489,66 @@
   }
 }
 
+.fallbackScope {
+  width: 100%;
+  min-height: 36px;
+  padding: 3px;
+  border: 1px solid var(--ms-border);
+  border-radius: 8px;
+  color: var(--ms-text-muted);
+  background: var(--ms-surface);
+
+  :global(.ant-segmented-group),
+  :global(.qwenpaw-segmented-group) {
+    gap: 3px;
+  }
+
+  :global(.ant-segmented-item),
+  :global(.qwenpaw-segmented-item) {
+    min-height: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--ms-text-muted);
+    font-size: 12px;
+    line-height: 28px;
+  }
+
+  :global(.ant-segmented-item-label),
+  :global(.qwenpaw-segmented-item-label) {
+    min-height: 28px;
+    line-height: 28px;
+  }
+
+  :global(.ant-segmented-item-selected),
+  :global(.qwenpaw-segmented-item-selected) {
+    border-color: color-mix(in srgb, var(--ms-accent) 36%, transparent);
+    color: var(--ms-accent-text);
+    font-weight: 600;
+    background: var(--ms-accent-soft);
+    box-shadow: none;
+  }
+
+  :global(.ant-segmented-thumb),
+  :global(.qwenpaw-segmented-thumb) {
+    border: 1px solid color-mix(in srgb, var(--ms-accent) 36%, transparent);
+    border-radius: 6px;
+    background: var(--ms-accent-soft);
+    box-shadow: none;
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--ms-focus);
+    outline-offset: 2px;
+  }
+}
+
 .settingsCheckRow {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--ms-text-muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
 
   input {
     width: 15px;
@@ -446,7 +568,7 @@
     padding: 0;
     border: 1px solid var(--ms-border);
     border-radius: 8px;
-    color: var(--ms-text);
+    color: var(--ms-accent-text);
     background: var(--ms-surface);
   }
 
@@ -455,6 +577,11 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+
+    &:hover:not(:disabled) {
+      border-color: color-mix(in srgb, var(--ms-accent) 48%, transparent);
+      background: var(--ms-accent-soft);
+    }
 
     &:disabled {
       cursor: not-allowed;
@@ -501,7 +628,9 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 10px;
+  align-self: flex-end;
+  min-width: 132px;
+  padding: 7px 14px;
   border: 0;
   border-radius: 7px;
   color: #fff;
@@ -618,10 +747,12 @@
 .panel,
 .trigger,
 .oauthModalContent,
+.agentModelSettings,
 .agentSelectDropdown {
   --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
   --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
   --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
+  --ms-accent-text: var(--qwenpaw-color-primary-active, #b84f00);
   --ms-accent-soft: var(
     --qwenpaw-color-primary-bg,
     var(--colorPrimaryBg, rgba(255, 127, 22, 0.08))
@@ -878,7 +1009,7 @@
 
 .agentModelSettings {
   border-color: var(--ms-border);
-  background: var(--ms-surface-muted);
+  background: var(--ms-surface);
   box-shadow: none;
 }
 
@@ -907,10 +1038,6 @@
     box-shadow: none;
     opacity: 0.55;
   }
-}
-
-.agentSettingsToggle {
-  min-height: 40px;
 }
 
 .agentSettingsToggle:focus-visible {
@@ -1055,9 +1182,12 @@
     max-width: 68px;
   }
 
-  .settingsRow {
-    grid-template-columns: 1fr;
-    gap: 4px;
+  .fallbackSettings {
+    margin-top: 8px;
+  }
+
+  .saveAgentSettings {
+    width: 100%;
   }
 }
 
@@ -1086,10 +1216,12 @@
   .panel,
   .trigger,
   .oauthModalContent,
+  .agentModelSettings,
   .agentSelectDropdown {
     --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
     --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
     --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
+    --ms-accent-text: var(--qwenpaw-color-primary-active, #ffb067);
     --ms-accent-soft: var(--qwenpaw-color-primary-bg, rgba(255, 127, 22, 0.14));
     --ms-surface: var(--qwenpaw-color-bg-container, #1f1f1f);
     --ms-surface-muted: var(--qwenpaw-color-fill-quaternary, #262626);
@@ -1117,7 +1249,7 @@
   }
 
   .agentModelSettings {
-    background: var(--ms-surface-muted);
+    background: var(--ms-surface);
   }
 
   .modelItem:hover,
@@ -1126,7 +1258,6 @@
   }
 
   .agentSettingsToggle,
-  .settingsRow,
   .settingsCheckRow,
   .fallbackList span {
     color: var(--ms-text-muted);
@@ -1138,21 +1269,27 @@
   }
 
   .agentSelect {
-    :global(.ant-select-selector) {
+    :global(.ant-select-selector),
+    :global(.qwenpaw-select-selector) {
       color: var(--ms-text) !important;
       background: var(--ms-surface) !important;
       border-color: var(--ms-border) !important;
     }
 
-    &:hover:not(:global(.ant-select-disabled)) {
-      :global(.ant-select-selector) {
+    &:hover:not(:global(.ant-select-disabled)):not(
+        :global(.qwenpaw-select-disabled)
+      ) {
+      :global(.ant-select-selector),
+      :global(.qwenpaw-select-selector) {
         background: var(--ms-surface-muted) !important;
         border-color: var(--ms-border-strong) !important;
       }
     }
 
     :global(.ant-select-selection-item),
-    :global(.ant-select-selection-search-input) {
+    :global(.ant-select-selection-search-input),
+    :global(.qwenpaw-select-selection-item),
+    :global(.qwenpaw-select-selection-search-input) {
       color: var(--ms-text) !important;
     }
   }
@@ -1161,6 +1298,17 @@
     color: var(--ms-text);
     background: var(--ms-surface);
     border-color: var(--ms-border);
+  }
+
+  .fallbackScope {
+    background: var(--ms-surface);
+
+    :global(.ant-segmented-item-selected),
+    :global(.qwenpaw-segmented-item-selected) {
+      color: var(--ms-accent-text);
+      background: var(--ms-accent-soft);
+      box-shadow: none;
+    }
   }
 
   .fallbackList > div {
@@ -1185,18 +1333,27 @@
   background: var(--ms-surface);
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
 
-  :global(.ant-select-item) {
+  :global(.ant-select-item),
+  :global(.qwenpaw-select-item) {
     color: var(--ms-text);
   }
 
+  :global(.ant-select-item-option-active:not(.ant-select-item-option-disabled)),
   :global(
-      .ant-select-item-option-active:not(.ant-select-item-option-disabled)
+      .qwenpaw-select-item-option-active:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     background: var(--ms-surface-muted);
   }
 
   :global(
       .ant-select-item-option-selected:not(.ant-select-item-option-disabled)
+    ),
+  :global(
+      .qwenpaw-select-item-option-selected:not(
+          .qwenpaw-select-item-option-disabled
+        )
     ) {
     color: var(--ms-accent);
     background: var(--ms-accent-soft);
