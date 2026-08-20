@@ -3,12 +3,11 @@ import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Button as AntButton } from "antd";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useAgentStore } from "../../../stores/agentStore";
 import { useMarketSearch } from "./useMarketSearch";
-import {
-  useMarketInstall,
-  type InstallTarget,
-  type InstallQueueItem,
+import type {
+  InstallTarget,
+  InstallQueueItem,
+  MarketInstallController,
 } from "./useMarketInstall";
 import type { MarketResult } from "../../../api/modules/market";
 import { ResultCard, DetailDrawer, QueueItem, EmptyState } from "./components";
@@ -19,7 +18,7 @@ function getCardKey(item: MarketResult) {
 }
 
 /** Memoized install queue panel — only re-renders when queue changes */
-const InstallQueuePanel = memo(function InstallQueuePanel({
+export const InstallQueuePanel = memo(function InstallQueuePanel({
   queue,
   onClearCompleted,
   onCancel,
@@ -237,26 +236,14 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
  */
 export function MarketPanel({
   installTarget,
-  onInstalled,
+  install,
 }: {
   installTarget: InstallTarget;
-  onInstalled?: () => void;
+  install: MarketInstallController;
 }) {
   const { t } = useTranslation();
-  const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const market = useMarketSearch();
   const [detailItem, setDetailItem] = useState<MarketResult | null>(null);
-  const onInstalledRef = useRef(onInstalled);
-  onInstalledRef.current = onInstalled;
-
-  const handleInstalled = useCallback(() => {
-    onInstalledRef.current?.();
-  }, []);
-
-  const install = useMarketInstall({
-    selectedAgent,
-    onSuccess: handleInstalled,
-  });
 
   const onInstall = useCallback(
     (item: MarketResult) => {
@@ -406,15 +393,6 @@ export function MarketPanel({
           </>
         )}
       </div>
-
-      {install.queue.length > 0 && (
-        <InstallQueuePanel
-          queue={install.queue}
-          onClearCompleted={install.clearFinished}
-          onCancel={install.cancel}
-          onRetry={install.retry}
-        />
-      )}
 
       <DetailDrawer
         item={detailItem}
