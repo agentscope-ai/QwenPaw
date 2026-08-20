@@ -1,7 +1,7 @@
 {
   "id": "datapaw",
   "name": "QwenPaw-Data",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "app",
   "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
   "description_i18n": {
