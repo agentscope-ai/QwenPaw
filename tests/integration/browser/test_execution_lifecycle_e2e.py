@@ -54,15 +54,16 @@ async def test_sibling_sessions_run_without_serializing() -> None:
     total span of two overlapping tasks:
 
     - a long task sleeps 3.0 s in session A, started first;
-    - a short task sleeps 1.0 s in session B, started while A is still
+    - a short task sleeps 2.0 s in session B, started while A is still
       running.
 
     If the sessions run in parallel the span is ~3.0 s (the longer of
-    the two); if they are wrongly serialized it is ~4.0 s (3 + 1).  A
-    bound of 3.5 s sits in the middle with ~0.5 s margin on each side,
-    so normal runner jitter cannot flip the verdict.  Both workers are
-    warmed up first so subprocess spawn cost stays out of the timed
-    span.
+    the two); if they are wrongly serialized it is ~5.0 s (3 + 2).  A
+    bound of 4.5 s leaves ~1.5 s of headroom for runner jitter on the
+    parallel side while the serialized case still overshoots it by
+    ~0.5 s, so normal runner jitter cannot flip the verdict.  Both
+    workers are warmed up first so subprocess spawn cost stays out of
+    the timed span.
     """
     plane = SubprocessPlane()
     runtime = KernelRuntime(plane=plane)
@@ -74,7 +75,7 @@ async def test_sibling_sessions_run_without_serializing() -> None:
     short_request = _request(
         "short",
         "sibling-b",
-        "import asyncio\nawait asyncio.sleep(1.0)\nreturn 'short'",
+        "import asyncio\nawait asyncio.sleep(2.0)\nreturn 'short'",
     )
     try:
         # Warm up both workers so spawn cost is outside the timed span.
@@ -94,9 +95,9 @@ async def test_sibling_sessions_run_without_serializing() -> None:
         elapsed = time.monotonic() - started
 
         assert long_result.value == "long"
-        # Parallel ≈ 3.0 s; a serialized implementation would need ≈ 4.0 s.
+        # Parallel ≈ 3.0 s; a serialized implementation would need ≈ 5.0 s.
         assert (
-            elapsed < 3.5
+            elapsed < 4.5
         ), f"sibling sessions appear serialized: took {elapsed:.2f}s"
     finally:
         await plane.discard_all_workers()
