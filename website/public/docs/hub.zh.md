@@ -10,14 +10,14 @@ Hub 不会替代或改变原有的单机 QwenPaw App。个人设备仍然可以�
 
 ## Hub 与单机 App 的区别
 
-| 能力 | `qwenpaw app` | `qwenpaw hub` |
-| --- | --- | --- |
-| 使用场景 | 个人设备、单用户 | 自托管、多用户 |
-| 登录身份 | 当前 QwenPaw 实例的本地认证 | Hub 统一账户 |
-| 运行环境 | 一个本机进程 | 每个账户一个独立运行环境 |
-| 数据目录 | 默认 `~/.qwenpaw` | Hub 根目录下按运行环境隔离 |
-| 运维入口 | QwenPaw Console | Hub 管理中心与个人 QwenPaw |
-| 运行方式 | 本机进程或手工部署的容器 | 管理员统一选择 Local 或 Docker |
+| 能力     | `qwenpaw app`               | `qwenpaw hub`                  |
+| -------- | --------------------------- | ------------------------------ |
+| 使用场景 | 个人设备、单用户            | 自托管、多用户                 |
+| 登录身份 | 当前 QwenPaw 实例的本地认证 | Hub 统一账户                   |
+| 运行环境 | 一个本机进程                | 每个账户一个独立运行环境       |
+| 数据目录 | 默认 `~/.qwenpaw`           | Hub 根目录下按运行环境隔离     |
+| 运维入口 | QwenPaw Console             | Hub 管理中心与个人 QwenPaw     |
+| 运行方式 | 本机进程或手工部署的容器    | 管理员统一选择 Local 或 Docker |
 
 登录 Hub 后，普通用户会被转发到自己的 QwenPaw Console。管理员还可以进入 Hub 管理中心，管理账户、运行环境、访问安全和 Docker 策略。
 
@@ -171,10 +171,10 @@ control_plane:
 
 Local 后端在宿主机上启动 QwenPaw 进程，但不会在隔离能力缺失时退化成普通进程。启动前会执行隔离探测，失败时拒绝启动运行环境。
 
-| 平台 | 隔离方式 | 要求 |
-| --- | --- | --- |
-| Linux | Bubblewrap | 已安装并可执行 `bwrap`，内核允许所需 namespace |
-| macOS | Seatbelt | 系统提供可用的 `sandbox-exec` |
+| 平台    | 隔离方式                  | 要求                                                                                                             |
+| ------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Linux   | Bubblewrap                | 已安装并可执行 `bwrap`，内核允许所需 namespace                                                                   |
+| macOS   | Seatbelt                  | 系统提供可用的 `sandbox-exec`                                                                                    |
 | Windows | AppContainer + Job Object | Windows 10 1507（build 10240）或更高版本；Hub 以管理员权限运行；系统提供 `icacls.exe` 和 `CheckNetIsolation.exe` |
 
 三个平台都采用默认拒绝的文件系统边界，只开放运行所需的只读系统路径和当前运行环境的数据目录。Windows 还使用 Job Object 管理完整进程树，确保停止运行环境时一并终止子进程。
@@ -199,11 +199,11 @@ Docker 提供容器级进程、文件系统和资源隔离，但同一个 Docker
 
 ### 镜像来源
 
-| 来源 | 镜像仓库 |
-| --- | --- |
-| Docker Hub 官方源 | `docker.io/agentscope/qwenpaw` |
-| 阿里云官方源 | `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` |
-| 自定义镜像 | 管理员填写完整镜像引用 |
+| 来源              | 镜像仓库                                                                |
+| ----------------- | ----------------------------------------------------------------------- |
+| Docker Hub 官方源 | `docker.io/agentscope/qwenpaw`                                          |
+| 阿里云官方源      | `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` |
+| 自定义镜像        | 管理员填写完整镜像引用                                                  |
 
 官方源支持对应仓库的发布 Tag。自定义镜像既可以来自远程仓库，也可以使用宿主机已经存在的本地镜像 Tag，例如：
 
@@ -215,11 +215,11 @@ qwenpaw-hub-custom:2026-08
 
 ### 拉取策略
 
-| 策略 | 行为 |
-| --- | --- |
-| `always` | 使用前始终拉取 |
+| 策略             | 行为                         |
+| ---------------- | ---------------------------- |
+| `always`         | 使用前始终拉取               |
 | `if_not_present` | 本地存在时直接使用，否则拉取 |
-| `never` | 只使用宿主机已有镜像 |
+| `never`          | 只使用宿主机已有镜像         |
 
 系统设置会展示最终使用的完整镜像引用、仓库、Tag、本地状态以及 digest 或镜像 ID。管理员可以在镜像详情中立即拉取，并查看任务进度。
 
@@ -227,12 +227,12 @@ Docker 运行环境创建后会记录实际镜像 ID/digest，避免同名 Tag �
 
 ### 资源限制
 
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `cpu_limit` | `2.0` | 每个容器的 CPU 配额 |
-| `memory_limit_mb` | `4096` | 内存上限，最小 256 MiB |
-| `pids_limit` | `1024` | 进程数量上限，最小 64 |
-| `shm_size_mb` | `512` | `/dev/shm` 大小，最小 64 MiB |
+| 字段              | 默认值 | 说明                         |
+| ----------------- | ------ | ---------------------------- |
+| `cpu_limit`       | `2.0`  | 每个容器的 CPU 配额          |
+| `memory_limit_mb` | `4096` | 内存上限，最小 256 MiB       |
+| `pids_limit`      | `1024` | 进程数量上限，最小 64        |
+| `shm_size_mb`     | `512`  | `/dev/shm` 大小，最小 64 MiB |
 
 CPU、内存和 PID 留空表示不设置对应限制。调整限制后，应重启或重建相关运行环境。`capacity.max_running_runtimes` 控制整个 Hub 同时运行的环境数量，并不是为一个租户创建多个环境。
 
@@ -256,10 +256,10 @@ Hub 根目录默认位于 `<QWENPAW_WORKING_DIR>/hub/`。如果没有设置 `QWE
 
 管理界面显示的 `/mnt/.../hub/runtimes/.../working` 一类路径，是宿主机上的真实持久化路径。Docker 后端按以下方式挂载：
 
-| 宿主机目录 | 容器内目录 |
-| --- | --- |
-| `working/` | `/app/working` |
-| `secret/` | `/app/working.secret` |
+| 宿主机目录 | 容器内目录             |
+| ---------- | ---------------------- |
+| `working/` | `/app/working`         |
+| `secret/`  | `/app/working.secret`  |
 | `backups/` | `/app/working.backups` |
 
 停止、重启、容器重建或 Local/Docker 切换不会主动删除这些目录。删除运行环境只退休注册记录，也会保留磁盘数据，避免一次管理误操作造成不可恢复的数据丢失。
@@ -268,14 +268,14 @@ Hub 根目录默认位于 `<QWENPAW_WORKING_DIR>/hub/`。如果没有设置 `QWE
 
 Hub 分别记录观察状态、期望状态和启动权限，避免用户访问或自动恢复覆盖管理员操作。
 
-| 操作 | 结果 | 用户能否自行启动 |
-| --- | --- | --- |
-| 停止 | 物理停止进程或容器 | 可以 |
-| 禁止启动 | 停止并改为仅管理员可启动 | 不可以 |
-| 用户重启 | 按当前全局后端策略重新启动 | 仅未被禁止时可以 |
-| 管理员启动/重启 | 按当前全局策略启动 | 可以 |
-| Docker 重建 | 按当前镜像策略重建容器 | 仅管理员 |
-| 删除 | 删除注册记录，保留磁盘数据 | 不适用 |
+| 操作            | 结果                       | 用户能否自行启动 |
+| --------------- | -------------------------- | ---------------- |
+| 停止            | 物理停止进程或容器         | 可以             |
+| 禁止启动        | 停止并改为仅管理员可启动   | 不可以           |
+| 用户重启        | 按当前全局后端策略重新启动 | 仅未被禁止时可以 |
+| 管理员启动/重启 | 按当前全局策略启动         | 可以             |
+| Docker 重建     | 按当前镜像策略重建容器     | 仅管理员         |
+| 删除            | 删除注册记录，保留磁盘数据 | 不适用           |
 
 运行环境失败时，个人账户页面会提供重启入口。管理员执行“禁止启动”后，用户刷新页面或继续使用都不会让运行环境自动恢复。
 
@@ -297,23 +297,23 @@ Hub 分别记录观察状态、期望状态和启动权限，避免用户访问�
 
 ## 配置字段总览
 
-| 字段 | 说明 |
-| --- | --- |
-| `version` | 配置结构版本，当前必须为 `1` |
-| `control_plane.public_base_url` | 浏览器实际访问地址和 OAuth 回调基址 |
-| `control_plane.registration.enabled` | 是否允许自助注册 |
-| `control_plane.registration.default_role` | 注册账户角色，当前固定为 `user` |
-| `control_plane.security.ip_blacklist` | IP 地址或 CIDR 黑名单 |
-| `control_plane.security.trusted_proxy_ips` | 可以提供真实客户端地址的代理 |
-| `control_plane.security.login_rate_limit` | 登录失败限流 |
-| `control_plane.security.registration_rate_limit` | 注册限流 |
-| `runtime.provisioner` | `local` 或 `docker` |
-| `runtime.docker.source` | `docker_hub`、`aliyun_acr` 或 `custom` |
-| `runtime.docker.image` | 完整镜像引用 |
-| `runtime.docker.pull_policy` | `always`、`if_not_present` 或 `never` |
-| `runtime.docker.*_limit` | 容器 CPU、内存和 PID 上限 |
-| `runtime.docker.shm_size_mb` | 容器共享内存大小 |
-| `capacity.max_running_runtimes` | Hub 全局并发运行数量上限 |
+| 字段                                             | 说明                                   |
+| ------------------------------------------------ | -------------------------------------- |
+| `version`                                        | 配置结构版本，当前必须为 `1`           |
+| `control_plane.public_base_url`                  | 浏览器实际访问地址和 OAuth 回调基址    |
+| `control_plane.registration.enabled`             | 是否允许自助注册                       |
+| `control_plane.registration.default_role`        | 注册账户角色，当前固定为 `user`        |
+| `control_plane.security.ip_blacklist`            | IP 地址或 CIDR 黑名单                  |
+| `control_plane.security.trusted_proxy_ips`       | 可以提供真实客户端地址的代理           |
+| `control_plane.security.login_rate_limit`        | 登录失败限流                           |
+| `control_plane.security.registration_rate_limit` | 注册限流                               |
+| `runtime.provisioner`                            | `local` 或 `docker`                    |
+| `runtime.docker.source`                          | `docker_hub`、`aliyun_acr` 或 `custom` |
+| `runtime.docker.image`                           | 完整镜像引用                           |
+| `runtime.docker.pull_policy`                     | `always`、`if_not_present` 或 `never`  |
+| `runtime.docker.*_limit`                         | 容器 CPU、内存和 PID 上限              |
+| `runtime.docker.shm_size_mb`                     | 容器共享内存大小                       |
+| `capacity.max_running_runtimes`                  | Hub 全局并发运行数量上限               |
 
 配置采用严格校验，未知字段会导致启动或保存失败，避免拼写错误被静默忽略。Local 模式不会应用 Docker 设置，但会保留它们，方便之后切换回 Docker。
 

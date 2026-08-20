@@ -120,11 +120,11 @@ Docker 提供进程、文件系统和资源层面的容器边界，但同一个 
 
 无论使用 Local 还是 Docker，用户数据都保存在 Hub 宿主机上的稳定目录中。Docker 只是把这些目录挂载到容器里的标准位置：
 
-| 数据 | 宿主机 | 容器内 |
-| --- | --- | --- |
-| 工作区 | 运行环境的 `working/` | `/app/working` |
-| 私密配置 | 运行环境的 `secret/` | `/app/working.secret` |
-| 备份 | 运行环境的 `backups/` | `/app/working.backups` |
+| 数据     | 宿主机                | 容器内                 |
+| -------- | --------------------- | ---------------------- |
+| 工作区   | 运行环境的 `working/` | `/app/working`         |
+| 私密配置 | 运行环境的 `secret/`  | `/app/working.secret`  |
+| 备份     | 运行环境的 `backups/` | `/app/working.backups` |
 
 所以停止、重启、容器重建以及 Local/Docker 切换都不需要复制用户工作区。即使管理员删除运行环境注册，Hub 也会保留磁盘数据，避免一次误操作直接变成数据事故。
 

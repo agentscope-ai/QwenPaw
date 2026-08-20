@@ -10,14 +10,14 @@ Hub does not replace or alter the single-user QwenPaw App. Personal devices can 
 
 ## Hub and the single-user App
 
-| Capability | `qwenpaw app` | `qwenpaw hub` |
-| --- | --- | --- |
-| Use case | Personal device, one user | Self-hosted, multiple users |
-| Identity | Local instance authentication | Central Hub accounts |
-| Runtime | One local process | One managed runtime per account |
-| Data | `~/.qwenpaw` by default | Separate runtime directories under the Hub root |
-| Operations | QwenPaw Console | Hub admin center and personal Console |
-| Backend | Local process or manually operated container | Administrator-selected Local or Docker backend |
+| Capability | `qwenpaw app`                                | `qwenpaw hub`                                   |
+| ---------- | -------------------------------------------- | ----------------------------------------------- |
+| Use case   | Personal device, one user                    | Self-hosted, multiple users                     |
+| Identity   | Local instance authentication                | Central Hub accounts                            |
+| Runtime    | One local process                            | One managed runtime per account                 |
+| Data       | `~/.qwenpaw` by default                      | Separate runtime directories under the Hub root |
+| Operations | QwenPaw Console                              | Hub admin center and personal Console           |
+| Backend    | Local process or manually operated container | Administrator-selected Local or Docker backend  |
 
 After signing in, a regular user is proxied to their own QwenPaw Console. Administrators can also manage accounts, runtimes, access security, and Docker policy.
 
@@ -137,11 +137,11 @@ Changing the global backend does not interrupt a running runtime. Restarting a r
 
 Local starts QwenPaw on the host but never falls back to an ordinary unsandboxed process. It performs platform isolation probes first and refuses startup when the required boundary is unavailable.
 
-| Platform | Isolation | Requirements |
-| --- | --- | --- |
-| Linux | Bubblewrap | Executable `bwrap` and the required kernel namespaces |
-| macOS | Seatbelt | A working system `sandbox-exec` |
-| Windows | AppContainer + Job Object | Windows 10 1507/build 10240 or newer; Hub runs as Administrator; `icacls.exe` and `CheckNetIsolation.exe` are available |
+| Platform | Isolation                 | Requirements                                                                                                            |
+| -------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Linux    | Bubblewrap                | Executable `bwrap` and the required kernel namespaces                                                                   |
+| macOS    | Seatbelt                  | A working system `sandbox-exec`                                                                                         |
+| Windows  | AppContainer + Job Object | Windows 10 1507/build 10240 or newer; Hub runs as Administrator; `icacls.exe` and `CheckNetIsolation.exe` are available |
 
 All platforms use a deny-by-default filesystem boundary and expose only required read-only runtime dependencies plus the current tenant's data. Windows uses a kill-on-close Job Object for the complete process tree.
 
@@ -165,30 +165,30 @@ Containers share the Linux kernel used by the Engine. Container escape risks, Li
 
 ### Images and pull policy
 
-| Source | Repository |
-| --- | --- |
-| Docker Hub official | `docker.io/agentscope/qwenpaw` |
+| Source                 | Repository                                                              |
+| ---------------------- | ----------------------------------------------------------------------- |
+| Docker Hub official    | `docker.io/agentscope/qwenpaw`                                          |
 | Alibaba Cloud official | `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` |
-| Custom | A complete administrator-provided image reference |
+| Custom                 | A complete administrator-provided image reference                       |
 
 Custom images may be remote or an existing local tag such as `qwenpaw-hub-custom:2026-08`. Select `never` for a local-only tag.
 
-| Pull policy | Behavior |
-| --- | --- |
-| `always` | Pull before use |
+| Pull policy      | Behavior                                   |
+| ---------------- | ------------------------------------------ |
+| `always`         | Pull before use                            |
 | `if_not_present` | Pull only when the image is absent locally |
-| `never` | Use only an existing local image |
+| `never`          | Use only an existing local image           |
 
 The settings page shows the effective image reference, repository, tag, local status, and digest or image ID. Administrators can pull from the image-detail card and follow task progress. A created runtime records its actual image ID/digest so a mutable tag cannot silently change during an ordinary restart. Rebuild clears the pin and applies the current image policy while preserving user data.
 
 ### Resource limits
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `cpu_limit` | `2.0` | CPU quota per container |
-| `memory_limit_mb` | `4096` | Memory limit, minimum 256 MiB |
-| `pids_limit` | `1024` | Process limit, minimum 64 |
-| `shm_size_mb` | `512` | `/dev/shm`, minimum 64 MiB |
+| Field             | Default | Meaning                       |
+| ----------------- | ------- | ----------------------------- |
+| `cpu_limit`       | `2.0`   | CPU quota per container       |
+| `memory_limit_mb` | `4096`  | Memory limit, minimum 256 MiB |
+| `pids_limit`      | `1024`  | Process limit, minimum 64     |
+| `shm_size_mb`     | `512`   | `/dev/shm`, minimum 64 MiB    |
 
 Empty CPU, memory, or PID values mean no corresponding limit. `capacity.max_running_runtimes` limits concurrent runtimes across the Hub; it does not create multiple runtimes for one tenant.
 
@@ -218,14 +218,14 @@ Stopping, restarting, rebuilding, switching backends, or retiring a runtime regi
 
 Hub records observed state, desired state, and start permission separately.
 
-| Action | Result | User can start it |
-| --- | --- | --- |
-| Stop | Physically stops the process or container | Yes |
-| Disable start | Stops it and reserves startup for administrators | No |
-| User restart | Starts with the current global policy | Only when not disabled |
-| Admin start/restart | Starts with the current global policy | Yes |
-| Docker rebuild | Recreates it with current image policy | Administrator only |
-| Delete | Retires registration and preserves disk data | Not applicable |
+| Action              | Result                                           | User can start it      |
+| ------------------- | ------------------------------------------------ | ---------------------- |
+| Stop                | Physically stops the process or container        | Yes                    |
+| Disable start       | Stops it and reserves startup for administrators | No                     |
+| User restart        | Starts with the current global policy            | Only when not disabled |
+| Admin start/restart | Starts with the current global policy            | Yes                    |
+| Docker rebuild      | Recreates it with current image policy           | Administrator only     |
+| Delete              | Retires registration and preserves disk data     | Not applicable         |
 
 Failed runtimes expose a restart action on the personal page. A user refresh cannot override an administrator's “Disable start” decision.
 
