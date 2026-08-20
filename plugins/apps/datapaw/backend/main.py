@@ -70,6 +70,7 @@ _context_service = app.managed_service(
     health_path="/api/health",
     cwd=context_working_dir(),
     env={
+        **os.environ,
         "DATAPAW_API_TOKEN": _context_token,
         "DATAPAW_CLIENT_API_TOKEN": _context_token,
     },
