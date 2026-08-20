@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 # Compatibility alias used by the agent router for provider validation.
 ENTERPRISE_MAIL_PROVIDERS = ENTERPRISE_PROVIDERS
 
+_MAIL_MCP_MODULE_ARGS = ["-m", "qwenpawmail_mcp"]
+_INTERNAL_MAIL_MCP_ARGS = ["--internal-mail-mcp"]
+
 
 def is_managed_qwenpawmail_card(path: Path) -> bool:
     """Return whether *path* is a QwenPaw-generated mail DriverCard."""
@@ -50,17 +53,26 @@ def is_managed_qwenpawmail_card(path: Path) -> bool:
     )
 
 
-def resolve_qwenpawmail_command() -> str:
-    """Resolve the interpreter used to launch the qwenpawmail MCP server."""
+def resolve_qwenpawmail_endpoint() -> tuple[str, list[str]]:
+    """Resolve the command and arguments for the qwenpawmail MCP server."""
     override = os.environ.get("QWENPAWMAIL_PYTHON", "").strip()
     if override:
-        return override
+        return override, list(_MAIL_MCP_MODULE_ARGS)
+    if getattr(sys, "frozen", False):
+        executable = Path(sys.executable)
+        cli_executable = executable.with_name(f"qwenpaw{executable.suffix}")
+        return str(cli_executable), list(_INTERNAL_MAIL_MCP_ARGS)
     try:
         if importlib.util.find_spec("qwenpawmail_mcp") is not None:
-            return sys.executable
+            return sys.executable, list(_MAIL_MCP_MODULE_ARGS)
     except (ImportError, ValueError):
         pass
-    return "python"
+    return "python", list(_MAIL_MCP_MODULE_ARGS)
+
+
+def resolve_qwenpawmail_command() -> str:
+    """Resolve the executable used to launch the qwenpawmail MCP server."""
+    return resolve_qwenpawmail_endpoint()[0]
 
 
 def _load_managed_qwenpawmail_card(path: Path) -> DriverCard | None:
@@ -126,6 +138,7 @@ def generate_qwenpawmail_driver_card(
         (workspace_dir / "mail_state").mkdir(parents=True, exist_ok=True)
         save_agent_mail_credentials(workspace_dir, mail)
         env = build_qwenpawmail_env(mail, workspace_dir)
+        command, args = resolve_qwenpawmail_endpoint()
         has_runtime_mail_credential = bool(
             mail is not None
             and not mail.is_new_account
@@ -137,8 +150,8 @@ def generate_qwenpawmail_driver_card(
             protocol="mcp",
             endpoint={
                 "transport": "stdio",
-                "command": resolve_qwenpawmail_command(),
-                "args": ["-m", "qwenpawmail_mcp"],
+                "command": command,
+                "args": args,
                 "env": env,
             },
             credentials=(

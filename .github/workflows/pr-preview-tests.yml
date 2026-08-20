@@ -53,7 +53,22 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          # Pin setuptools <82 on EVERY platform. setuptools >= 82 removes
+          # pkg_resources entirely, and lark-oapi's namespace packages still
+          # call pkg_resources.declare_namespace at import time. On a fresh
+          # install the resulting ImportError falls through lark-oapi's
+          # pkgutil fallback and works, but the macOS runners upgrade the
+          # legacy setuptools (65.5.0) in-place, leaving a half-removed
+          # pkg_resources (module present, declare_namespace gone) that
+          # raises AttributeError the fallback does not catch — crashing the
+          # Feishu mock IM integration tests. Pinning everywhere removes
+          # that failure mode and future-proofs the other platforms too
+          # (they already resolved to 84.0.0 with all tests green in the
+          # verification run). The pin must ride in the SAME pip command as
+          # the install: a separate `pip install "setuptools<82"` step
+          # beforehand gets upgraded away by this resolution again
+          # (reproduced with pip 26.2.1; see CI run 31571533395).
+          pip install -e ".[dev,test,full]" "setuptools<82"
 
       - name: Run unit tests
         shell: bash
@@ -87,7 +102,22 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          # Pin setuptools <82 on EVERY platform. setuptools >= 82 removes
+          # pkg_resources entirely, and lark-oapi's namespace packages still
+          # call pkg_resources.declare_namespace at import time. On a fresh
+          # install the resulting ImportError falls through lark-oapi's
+          # pkgutil fallback and works, but the macOS runners upgrade the
+          # legacy setuptools (65.5.0) in-place, leaving a half-removed
+          # pkg_resources (module present, declare_namespace gone) that
+          # raises AttributeError the fallback does not catch — crashing the
+          # Feishu mock IM integration tests. Pinning everywhere removes
+          # that failure mode and future-proofs the other platforms too
+          # (they already resolved to 84.0.0 with all tests green in the
+          # verification run). The pin must ride in the SAME pip command as
+          # the install: a separate `pip install "setuptools<82"` step
+          # beforehand gets upgraded away by this resolution again
+          # (reproduced with pip 26.2.1; see CI run 31571533395).
+          pip install -e ".[dev,test,full]" "setuptools<82"
 
       - name: Run contract tests
         shell: bash
@@ -121,7 +151,22 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          # Pin setuptools <82 on EVERY platform. setuptools >= 82 removes
+          # pkg_resources entirely, and lark-oapi's namespace packages still
+          # call pkg_resources.declare_namespace at import time. On a fresh
+          # install the resulting ImportError falls through lark-oapi's
+          # pkgutil fallback and works, but the macOS runners upgrade the
+          # legacy setuptools (65.5.0) in-place, leaving a half-removed
+          # pkg_resources (module present, declare_namespace gone) that
+          # raises AttributeError the fallback does not catch — crashing the
+          # Feishu mock IM integration tests. Pinning everywhere removes
+          # that failure mode and future-proofs the other platforms too
+          # (they already resolved to 84.0.0 with all tests green in the
+          # verification run). The pin must ride in the SAME pip command as
+          # the install: a separate `pip install "setuptools<82"` step
+          # beforehand gets upgraded away by this resolution again
+          # (reproduced with pip 26.2.1; see CI run 31571533395).
+          pip install -e ".[dev,test,full]" "setuptools<82"
 
       # Upstream gates the integrated tier with `-m "integration and p0"` for
       # pull_request events (fast feedback). Fork pushes are not PR events, but

@@ -1,11 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { Button, Empty, Spin, Table, Tabs } from "antd";
-import { ExternalLink, Package, Plus } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { Button, Tabs } from "antd";
+import { ExternalLink, Plus } from "lucide-react";
+import { MarketplaceHeader } from "@/pages/Market/components/MarketplaceHeader";
 import { usePluginManager } from "./hooks/usePluginManager";
-import { usePluginColumns } from "./hooks/usePluginColumns";
 import { useInstallModal } from "./hooks/useInstallModal";
 import { InstallPluginModal } from "./components/InstallPluginModal";
+import { InstalledPluginList } from "./components/InstalledPluginList";
 import { OfficialPluginList } from "./components/OfficialPluginList";
 import { MarketPluginList } from "./components/MarketPluginList";
 import styles from "./index.module.less";
@@ -18,33 +18,18 @@ export default function PluginManagerPage() {
 
   const installModal = useInstallModal(refresh);
 
-  const columns = usePluginColumns({
-    uninstallingId,
-    onUninstall: handleUninstall,
-  });
-
   const tabItems = [
     {
       key: "installed",
       label: t("pluginManager.installed"),
       children: (
-        <Spin spinning={loading}>
-          {!loading && (!plugins || plugins.length === 0) ? (
-            <Empty
-              image={<Package size={48} strokeWidth={1} />}
-              description={t("pluginManager.noPlugins")}
-              style={{ marginTop: 24 }}
-            />
-          ) : (
-            <Table
-              dataSource={plugins}
-              columns={columns}
-              rowKey="id"
-              pagination={false}
-              className={styles.table}
-            />
-          )}
-        </Spin>
+        <InstalledPluginList
+          plugins={plugins}
+          loading={loading}
+          uninstallingId={uninstallingId}
+          onRefresh={refresh}
+          onUninstall={handleUninstall}
+        />
       ),
     },
     {
@@ -61,11 +46,10 @@ export default function PluginManagerPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader
-        parent={t("nav.settings")}
-        current={t("nav.pluginManager")}
+      <MarketplaceHeader
+        activeSection="plugins"
         extra={
-          <>
+          <div className={styles.headerActions}>
             <Button
               icon={<ExternalLink size={16} />}
               onClick={() =>
@@ -81,7 +65,7 @@ export default function PluginManagerPage() {
             >
               {t("pluginManager.installBtn")}
             </Button>
-          </>
+          </div>
         }
       />
 
