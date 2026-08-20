@@ -47,10 +47,13 @@ async def generate_proactive_response(
     workspace: "Workspace",
 ) -> Optional[Msg]:
     """Main function to generate proactive response based on memory."""
-    from ....app.agent_context import get_current_agent_id
+    from ....app.agent_context import set_current_agent_id
+    from ....config.context import set_current_workspace_dir
 
+    set_current_agent_id(workspace.agent_id)
+    set_current_workspace_dir(workspace.workspace_dir)
     baseline_timestamp = datetime.now(timezone.utc)  # Use UTC time directly
-    active_agent_id = get_current_agent_id()
+    active_agent_id = workspace.agent_id
 
     agent = await _initialize_single_proactive_agent(
         active_agent_id,

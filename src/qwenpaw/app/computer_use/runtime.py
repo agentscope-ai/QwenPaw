@@ -24,7 +24,7 @@ _CONTROL_HOST_ENV = "QWENPAW_COMPUTER_USE_CONTROL_HOST"
 _CONTROL_PORT_ENV = "QWENPAW_COMPUTER_USE_CONTROL_PORT"
 _CONTROL_TOKEN_ENV = "QWENPAW_COMPUTER_USE_CONTROL_TOKEN"
 # Request/response contract shared by the plugin and native helper.
-COMPUTER_USE_PROTOCOL_VERSION = 1
+COMPUTER_USE_PROTOCOL_VERSION = 2
 _CONTROL_MAX_MESSAGE_BYTES = 4096
 # The desktop host answers acquire only after it has spawned the helper
 # process; the first spawn after an install or update can be slowed by

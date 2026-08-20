@@ -11,6 +11,7 @@ from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 
 from .model_error_policy import classify_model_error, is_fallback_eligible
+from .stream_progress import has_meaningful_stream_content
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +237,9 @@ class FallbackChatModel(ChatModelBase):
                 fallback_error: Exception | None = None
                 try:
                     async for chunk in current:
-                        emitted = emitted or bool(chunk.content)
+                        emitted = emitted or has_meaningful_stream_content(
+                            chunk.content,
+                        )
                         yield self._annotate_response(
                             chunk,
                             fallback_events,

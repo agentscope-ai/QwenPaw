@@ -94,6 +94,13 @@ class CreateProjectRequest(BaseModel):
     name: str
 
 
+class CreateDirectoryRequest(BaseModel):
+    """Body for POST /browse-dirs/create."""
+
+    parent: str
+    name: str
+
+
 class CloneProjectRequest(BaseModel):
     url: str
     name: str | None = None  # defaults to repo basename
@@ -768,6 +775,98 @@ async def browse_dirs(
         }
 
     return await asyncio.to_thread(_scan)
+
+
+def _validate_directory_name(name: str) -> str:
+    """Return a portable direct-child directory name."""
+    normalized = name.strip()
+    if not normalized:
+        raise HTTPException(
+            status_code=400,
+            detail="Directory name cannot be empty",
+        )
+    if normalized in {".", ".."}:
+        raise HTTPException(
+            status_code=400,
+            detail="Directory name must be a direct child name",
+        )
+    invalid_chars = set('<>:"/\\|?*')
+    if any(char in invalid_chars or ord(char) < 32 for char in normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="Directory name contains invalid characters",
+        )
+    if normalized.endswith((" ", ".")):
+        raise HTTPException(
+            status_code=400,
+            detail="Directory name cannot end with a space or dot",
+        )
+    reserved = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
+    if normalized.split(".", maxsplit=1)[0].upper() in reserved:
+        raise HTTPException(
+            status_code=400,
+            detail="Directory name is reserved",
+        )
+    return normalized
+
+
+@router.post(
+    "/browse-dirs/create",
+    status_code=201,
+    summary="Create a child directory in the directory browser",
+)
+async def create_browsed_directory(
+    body: CreateDirectoryRequest,
+    request: Request,
+) -> dict:
+    """Create one direct child under an existing browsed directory."""
+    name = _validate_directory_name(body.name)
+    await get_agent_for_request(request)
+    if sys.platform == "win32" and body.parent in ("/", "\\"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot create a directory under the virtual drive root",
+        )
+    parent = await asyncio.to_thread(
+        lambda: Path(body.parent).expanduser().resolve(),
+    )
+    if not parent.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path does not exist: {parent}",
+        )
+    if not parent.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not a directory: {parent}",
+        )
+
+    target = parent / name
+    try:
+        await asyncio.to_thread(target.mkdir)
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Directory already exists: {target}",
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied: {target}",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create directory: {target}",
+        ) from exc
+    return {"path": str(target), "name": name}
 
 
 @router.get("/list", summary="List all project directorys for this agent")

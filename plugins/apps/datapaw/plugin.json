@@ -22,7 +22,12 @@
   "pack_exclude": [
     ".venv-datapaw",
     ".datapaw-dev",
-    "ui/public/context-console"
+    "ui/public",
+    "ui/src",
+    "ui/package.json",
+    "ui/package-lock.json",
+    "ui/tsconfig.json",
+    "ui/vite.config.ts"
   ],
   "dependencies": [],
   "qwenpaw_version": {

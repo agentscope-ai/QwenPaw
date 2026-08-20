@@ -34,6 +34,20 @@ export interface SandboxStatusResponse {
   reason: string | null;
 }
 
+// ── Deny Paths Protection types ──────────────────────────────
+
+export interface DenyPathsProtectionSetting {
+  enabled: boolean;
+}
+
+export interface DenyPathsProtectionResponse {
+  active: boolean;
+  protected_paths: string[];
+  failed_paths: string[];
+  platform_supported: boolean;
+  message: string | null;
+}
+
 // ── File Guard types ──────────────────────────────────────────────
 
 export interface FileGuardResponse {
@@ -128,6 +142,22 @@ export const securityApi = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+
+  // ── Deny Paths Protection ───────────────────────────
+
+  getDenyPathsProtection: () =>
+    request<DenyPathsProtectionResponse>(
+      "/config/security/sandbox/deny-paths-protection",
+    ),
+
+  updateDenyPathsProtection: (body: DenyPathsProtectionSetting) =>
+    request<DenyPathsProtectionResponse>(
+      "/config/security/sandbox/deny-paths-protection",
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
 
   // ── File Guard ─────────────────────────────────────────────────
 

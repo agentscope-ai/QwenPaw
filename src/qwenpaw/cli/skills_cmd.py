@@ -11,13 +11,14 @@ from ..agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
     SkillService,
+    get_skill_pool_dir,
     get_workspace_skills_dir,
     read_skill_pool_manifest,
     read_skill_manifest,
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
+    resolve_pool_skill_dir,
 )
-from ..agents.skill_system.registry import list_workspaces
 from ..agents.skill_system.store import validate_skill_content
 from ..agents.skill_system.hub import (
     aclose_hub_client,
@@ -26,39 +27,30 @@ from ..agents.skill_system.hub import (
 )
 from ..agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..config import load_config
-from ..constant import WORKING_DIR
 from ..exceptions import SkillsError
 from ..security.skill_scanner import SkillScanError, scan_skill_directory
 from .utils import prompt_checkbox, prompt_confirm
 
 
 def _get_agent_workspace(agent_id: str) -> Path:
-    """Get agent workspace directory."""
-    try:
-        config = load_config()
-        if agent_id in config.agents.profiles:
-            ref = config.agents.profiles[agent_id]
-            workspace_dir = Path(ref.workspace_dir).expanduser()
-            return workspace_dir
-    except Exception:
-        pass
-    return WORKING_DIR
-
-
-def _require_agent_workspace(agent_id: str) -> Path:
+    """Resolve an agent workspace without falling back to another scope."""
     normalized_agent_id = str(agent_id or "").strip()
     if not normalized_agent_id:
         raise click.ClickException("Agent ID cannot be empty.")
-    workspaces = list_workspaces()
-    for workspace in workspaces:
-        if workspace.get("agent_id") == normalized_agent_id:
-            return Path(str(workspace["workspace_dir"])).expanduser()
 
-    available_agents = sorted(
-        str(workspace.get("agent_id") or "")
-        for workspace in workspaces
-        if str(workspace.get("agent_id") or "")
-    )
+    try:
+        config = load_config()
+    except Exception as exc:
+        raise click.ClickException(
+            f"Failed to load agent configuration: {exc}",
+        ) from exc
+
+    profiles = config.agents.profiles
+    ref = profiles.get(normalized_agent_id)
+    if ref is not None:
+        return Path(ref.workspace_dir).expanduser()
+
+    available_agents = sorted(str(name) for name in profiles)
     if available_agents:
         raise click.ClickException(
             "Agent "
@@ -126,13 +118,39 @@ def _validate_skill_frontmatter(skill_dir: Path) -> None:
         ) from exc
 
 
-def _resolve_skill_test_dir(skill: str, agent_id: str) -> Path:
+def _resolve_scope(
+    agent_id: str | None,
+    pool: bool,
+    *,
+    default_pool: bool = False,
+) -> str | None:
+    """Return an agent ID, or ``None`` for the shared skill pool."""
+    normalized_agent_id = str(agent_id or "").strip()
+    if pool and normalized_agent_id:
+        raise click.ClickException(
+            "--pool and --agent-id are mutually exclusive.",
+        )
+    if pool or (default_pool and not normalized_agent_id):
+        return None
+    return normalized_agent_id or "default"
+
+
+def _resolve_skill_test_dir(
+    skill: str,
+    agent_id: str | None,
+    *,
+    pool: bool = False,
+) -> Path:
     """Resolve a skill argument as a path first, then workspace skill name."""
     candidate = Path(skill).expanduser()
     if candidate.exists():
         return candidate.resolve()
 
-    working_dir = _get_agent_workspace(agent_id)
+    if pool:
+        reconcile_pool_manifest()
+        return resolve_pool_skill_dir(skill) or get_skill_pool_dir() / skill
+
+    working_dir = _get_agent_workspace(agent_id or "default")
     return get_workspace_skills_dir(working_dir) / skill
 
 
@@ -160,59 +178,116 @@ def _run_skill_test(skill_dir: Path) -> str:
     return skill_name
 
 
+def _install_selected_skills(
+    pool_service: SkillPoolService | None,
+    working_dir: Path,
+    to_install: set[str],
+    installed_names: set[str],
+) -> tuple[set[str], list[str]]:
+    """Install selected pool entries and return installed names + failures."""
+    installed_now = set(installed_names)
+    failures: list[str] = []
+    if pool_service is None:
+        for name in sorted(to_install):
+            failure = f"install {name} (pool unavailable)"
+            failures.append(failure)
+            click.echo(click.style(f"  ✗ Failed to {failure}", fg="red"))
+        return installed_now, failures
+
+    for name in sorted(to_install):
+        try:
+            result = pool_service.download_to_workspace(
+                name,
+                working_dir,
+                overwrite=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - report every item
+            result = {"success": False, "reason": str(exc)}
+        if result.get("success"):
+            installed_now.add(name)
+            click.echo(f"  ✓ Installed: {name}")
+            continue
+        reason = str(result.get("reason") or "operation failed")
+        failures.append(f"install {name} ({reason})")
+        click.echo(
+            click.style(
+                f"  ✗ Failed to install: {name} ({reason})",
+                fg="red",
+            ),
+        )
+    return installed_now, failures
+
+
+def _apply_skill_state_changes(
+    skill_service: SkillService,
+    skill_names: set[str],
+    *,
+    enabled: bool,
+) -> list[str]:
+    """Apply one state to exact skill names and return failure summaries."""
+    failures: list[str] = []
+    action = "enable" if enabled else "disable"
+    past_tense = "Enabled" if enabled else "Disabled"
+
+    for name in sorted(skill_names):
+        try:
+            result = (
+                skill_service.enable_skill(name)
+                if enabled
+                else skill_service.disable_skill(name)
+            )
+        except Exception as exc:  # noqa: BLE001 - report every item
+            result = {"success": False, "reason": str(exc)}
+        if result.get("success"):
+            click.echo(f"  ✓ {past_tense}: {name}")
+            continue
+        reason = str(result.get("reason") or "operation failed")
+        failures.append(f"{action} {name} ({reason})")
+        click.echo(
+            click.style(
+                f"  ✗ Failed to {action}: {name} ({reason})",
+                fg="red",
+            ),
+        )
+    return failures
+
+
 def _apply_skill_changes(
     skill_service: SkillService,
     pool_service: SkillPoolService | None,
     working_dir: Path,
+    *,
     to_install: set[str],
     to_enable: set[str],
     to_disable: set[str],
     installed_names: set[str],
 ) -> None:
     """Install from pool, enable, and disable skills."""
-    installed_now = set(installed_names)
-    if to_install and pool_service is not None:
-        for name in sorted(to_install):
-            result = pool_service.download_to_workspace(
-                name,
-                working_dir,
-                overwrite=False,
-            )
-            if result.get("success"):
-                installed_now.add(name)
-                click.echo(f"  ✓ Installed: {name}")
-            else:
-                click.echo(
-                    click.style(
-                        f"  ✗ Failed to install: {name}",
-                        fg="red",
-                    ),
-                )
+    installed_now, failures = _install_selected_skills(
+        pool_service,
+        working_dir,
+        to_install,
+        installed_names,
+    )
+    failures.extend(
+        _apply_skill_state_changes(
+            skill_service,
+            (to_enable | to_install) & installed_now,
+            enabled=True,
+        ),
+    )
+    failures.extend(
+        _apply_skill_state_changes(
+            skill_service,
+            to_disable,
+            enabled=False,
+        ),
+    )
 
-    for name in sorted((to_enable | to_install) & installed_now):
-        result = skill_service.enable_skill(name)
-        if result.get("success"):
-            click.echo(f"  ✓ Enabled: {name}")
-        else:
-            click.echo(
-                click.style(
-                    f"  ✗ Failed to enable: {name}",
-                    fg="red",
-                ),
-            )
-
-    for name in sorted(to_disable):
-        result = skill_service.disable_skill(name)
-        if result.get("success"):
-            click.echo(f"  ✓ Disabled: {name}")
-        else:
-            click.echo(
-                click.style(
-                    f"  ✗ Failed to disable: {name}",
-                    fg="red",
-                ),
-            )
-
+    if failures:
+        raise click.ClickException(
+            f"{len(failures)} skill change(s) failed: " + "; ".join(failures),
+        )
     click.echo("\n✓ Skills configuration updated!")
 
 
@@ -254,8 +329,7 @@ def configure_skills_interactive(
     }
     installed_names = set(installed_by_name)
     candidate_names = installed_names | set(pool_candidates)
-
-    default_checked = enabled if enabled else candidate_names
+    default_checked = enabled
 
     options: list[tuple[str, str]] = []
     for skill_name in sorted(candidate_names):
@@ -269,13 +343,17 @@ def configure_skills_interactive(
         options.append((label, skill.name))
 
     click.echo("\n=== Skills Configuration ===")
-    click.echo("Use ↑/↓ to move, <space> to toggle, <enter> to confirm.\n")
+    click.echo(
+        "Type to filter, use ↑/↓ to move, <space> to toggle, "
+        "<enter> to confirm.\n",
+    )
 
     selected = prompt_checkbox(
         "Select skills to enable:",
         options=options,
         checked=default_checked,
         select_all_option=False,
+        searchable=True,
     )
 
     if selected is None:
@@ -302,29 +380,63 @@ def configure_skills_interactive(
         skill_service,
         pool_service,
         working_dir,
-        to_install,
-        to_enable,
-        to_disable,
-        installed_names,
+        to_install=to_install,
+        to_enable=to_enable,
+        to_disable=to_disable,
+        installed_names=installed_names,
     )
 
 
 @click.group("skills")
 def skills_group() -> None:
-    """Manage skills (list / configure)."""
+    """Manage workspace and skill-pool skills."""
 
 
 @skills_group.command("list")
 @click.option(
     "--agent-id",
-    default="default",
-    help="Agent ID (defaults to 'default')",
+    default=None,
+    help="Target agent ID (defaults to 'default').",
 )
-def list_cmd(agent_id: str) -> None:
-    """Show all skills and their enabled/disabled status."""
-    working_dir = _get_agent_workspace(agent_id)
+@click.option(
+    "--pool",
+    is_flag=True,
+    help="List the shared skill pool instead of an agent workspace.",
+)
+@click.option(
+    "--status",
+    type=click.Choice(["all", "enabled", "disabled"], case_sensitive=False),
+    default="all",
+    show_default=True,
+    help="Filter by enabled status.",
+)
+def list_cmd(agent_id: str | None, pool: bool, status: str) -> None:
+    """Show skills in an agent workspace or the shared pool."""
+    scope = _resolve_scope(agent_id, pool)
+    if scope is None:
+        if status.lower() != "all":
+            raise click.ClickException(
+                "--status is not supported with --pool; pool skills have no "
+                "enabled state.",
+            )
+        reconcile_pool_manifest()
+        all_skills = SkillPoolService().list_all_skills()
+        click.echo("Skills in shared pool:\n")
+        if not all_skills:
+            click.echo("No skills found.")
+            return
+        click.echo(f"{'─' * 50}")
+        click.echo(f"  {'Skill Name':<30s} Source")
+        click.echo(f"{'─' * 50}")
+        for skill in sorted(all_skills, key=lambda item: item.name):
+            click.echo(f"  {skill.name:<30s} {skill.source}")
+        click.echo(f"{'─' * 50}")
+        click.echo(f"  Total: {len(all_skills)} skills\n")
+        return
 
-    click.echo(f"Skills for agent: {agent_id}\n")
+    working_dir = _get_agent_workspace(scope)
+
+    click.echo(f"Skills for agent: {scope}\n")
 
     reconcile_workspace_manifest(working_dir)
     skill_service = SkillService(working_dir)
@@ -341,11 +453,25 @@ def list_cmd(agent_id: str) -> None:
         click.echo("No skills found.")
         return
 
+    normalized_status = status.lower()
+    visible_skills = []
+    for skill in all_skills:
+        is_enabled = skill.name in enabled
+        if normalized_status == "enabled" and not is_enabled:
+            continue
+        if normalized_status == "disabled" and is_enabled:
+            continue
+        visible_skills.append(skill)
+
+    if not visible_skills:
+        click.echo("No skills match the current filters.")
+        return
+
     click.echo(f"\n{'─' * 50}")
     click.echo(f"  {'Skill Name':<30s} {'Source':<12s} Status")
     click.echo(f"{'─' * 50}")
 
-    for skill in sorted(all_skills, key=lambda s: s.name):
+    for skill in sorted(visible_skills, key=lambda s: s.name):
         status = (
             click.style("✓ enabled", fg="green")
             if skill.name in enabled
@@ -354,11 +480,11 @@ def list_cmd(agent_id: str) -> None:
         click.echo(f"  {skill.name:<30s} {skill.source:<12s} {status}")
 
     click.echo(f"{'─' * 50}")
-    enabled_count = sum(1 for s in all_skills if s.name in enabled)
+    enabled_count = sum(1 for s in visible_skills if s.name in enabled)
     click.echo(
-        f"  Total: {len(all_skills)} skills, "
+        f"  Showing: {len(visible_skills)} of {len(all_skills)} skills, "
         f"{enabled_count} enabled, "
-        f"{len(all_skills) - enabled_count} disabled\n",
+        f"{len(visible_skills) - enabled_count} disabled\n",
     )
 
 
@@ -373,19 +499,140 @@ def configure_cmd(agent_id: str) -> None:
     configure_skills_interactive(agent_id=agent_id)
 
 
-@skills_group.command("info")
-@click.argument("skill_name", required=True)
+def _set_skills_enabled(
+    skill_names: tuple[str, ...],
+    agent_id: str,
+    *,
+    enabled: bool,
+) -> None:
+    """Set exact workspace skill names and report every failure."""
+    working_dir = _get_agent_workspace(agent_id)
+    manifest = reconcile_workspace_manifest(working_dir).get("skills", {})
+    service = SkillService(working_dir)
+    action = "enable" if enabled else "disable"
+    past_tense = "Enabled" if enabled else "Disabled"
+    failures: list[str] = []
+    seen: set[str] = set()
+
+    for raw_name in skill_names:
+        name = str(raw_name or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if name not in manifest:
+            failures.append(f"{name} (not found)")
+            click.echo(
+                click.style(
+                    f"  ✗ Failed to {action}: {name} (not found)",
+                    fg="red",
+                ),
+            )
+            continue
+
+        try:
+            result = (
+                service.enable_skill(name)
+                if enabled
+                else service.disable_skill(name)
+            )
+        except Exception as exc:  # noqa: BLE001 - continue batch reporting
+            result = {"success": False, "reason": str(exc)}
+
+        if result.get("success"):
+            click.echo(f"  ✓ {past_tense}: {name}")
+            continue
+
+        reason = str(result.get("reason") or "operation failed")
+        failures.append(f"{name} ({reason})")
+        click.echo(
+            click.style(
+                f"  ✗ Failed to {action}: {name} ({reason})",
+                fg="red",
+            ),
+        )
+
+    if failures:
+        raise click.ClickException(
+            f"Failed to {action} {len(failures)} skill(s): "
+            + "; ".join(failures),
+        )
+
+
+@skills_group.command("enable")
+@click.argument("skill_names", nargs=-1, required=True)
 @click.option(
     "--agent-id",
     default="default",
     help="Agent ID (defaults to 'default')",
 )
+def enable_cmd(skill_names: tuple[str, ...], agent_id: str) -> None:
+    """Enable one or more exact workspace skill names."""
+    _set_skills_enabled(skill_names, agent_id, enabled=True)
+
+
+@skills_group.command("disable")
+@click.argument("skill_names", nargs=-1, required=True)
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def disable_cmd(skill_names: tuple[str, ...], agent_id: str) -> None:
+    """Disable one or more exact workspace skill names."""
+    _set_skills_enabled(skill_names, agent_id, enabled=False)
+
+
+@skills_group.command("info")
+@click.argument("skill_name", required=True)
+@click.option(
+    "--agent-id",
+    default=None,
+    help="Target agent ID (defaults to 'default').",
+)
+@click.option(
+    "--pool",
+    is_flag=True,
+    help="Inspect the skill in the shared pool.",
+)
 def info_cmd(
     skill_name: str,
-    agent_id: str,
+    agent_id: str | None,
+    pool: bool,
 ) -> None:
-    """Show local details for a specific workspace skill."""
-    working_dir = _get_agent_workspace(agent_id)
+    """Show local details for a workspace or pool skill."""
+    scope = _resolve_scope(agent_id, pool)
+    if scope is None:
+        reconcile_pool_manifest()
+        skill_map = {
+            skill.name: skill for skill in SkillPoolService().list_all_skills()
+        }
+        skill = skill_map.get(skill_name)
+        if skill is None:
+            raise click.ClickException(
+                f"Skill '{skill_name}' was not found in the skill pool.",
+            )
+        entry = (
+            read_skill_pool_manifest()
+            .get("skills", {})
+            .get(
+                skill_name,
+                {},
+            )
+        )
+        skill_dir = resolve_pool_skill_dir(skill_name) or (
+            get_skill_pool_dir() / skill_name
+        )
+        click.echo(f"Skill: {skill.name}")
+        click.echo("Scope: pool")
+        click.echo(f"Source: {skill.source}")
+        click.echo(f"Path: {skill_dir}")
+        click.echo(f"Description: {skill.description or 'No description.'}")
+        tags = entry.get("tags") or []
+        if tags:
+            click.echo(f"Tags: {', '.join(str(tag) for tag in tags)}")
+        return
+
+    working_dir = _get_agent_workspace(scope)
     reconcile_workspace_manifest(working_dir)
 
     skill_service = SkillService(working_dir)
@@ -396,7 +643,7 @@ def info_cmd(
     skill = skill_map.get(skill_name)
     if skill is None:
         raise click.ClickException(
-            f"Skill '{skill_name}' was not found for agent '{agent_id}'.",
+            f"Skill '{skill_name}' was not found for agent '{scope}'.",
         )
 
     entry = manifest.get(skill_name, {})
@@ -423,6 +670,11 @@ def info_cmd(
     help="Install directly into the given agent workspace.",
 )
 @click.option(
+    "--pool",
+    is_flag=True,
+    help="Install into the shared skill pool (the default for compatibility).",
+)
+@click.option(
     "--enable/--no-enable",
     default=True,
     help="Enable after import when installing into an agent workspace.",
@@ -430,6 +682,7 @@ def info_cmd(
 def install_cmd(
     bundle_url: str,
     agent_id: str,
+    pool: bool,
     enable: bool,
 ) -> None:
     """Install a skill from a URL.
@@ -437,9 +690,18 @@ def install_cmd(
     Without ``--agent-id``, the skill is imported into the local skill pool.
     With ``--agent-id``, the skill is imported directly into that workspace.
     """
-    normalized_agent_id = str(agent_id or "").strip()
+    normalized_agent_id = _resolve_scope(
+        agent_id,
+        pool,
+        default_pool=True,
+    )
+    if normalized_agent_id is None and not enable:
+        raise click.ClickException(
+            "--no-enable is only supported with --agent-id; "
+            "pool skills have no enabled state.",
+        )
     workspace_dir = (
-        _require_agent_workspace(normalized_agent_id)
+        _get_agent_workspace(normalized_agent_id)
         if normalized_agent_id
         else None
     )
@@ -487,20 +749,30 @@ def install_cmd(
     default="",
     help="Remove the skill from the given agent workspace.",
 )
+@click.option(
+    "--pool",
+    is_flag=True,
+    help="Remove from the shared skill pool (the default for compatibility).",
+)
 def uninstall_cmd(
     skill_name: str,
     agent_id: str,
+    pool: bool,
 ) -> None:
     """Uninstall a skill from the skill pool or one agent workspace."""
     normalized_skill_name = str(skill_name or "").strip()
     if not normalized_skill_name:
         raise click.ClickException("Skill name cannot be empty.")
 
-    normalized_agent_id = str(agent_id or "").strip()
+    normalized_agent_id = _resolve_scope(
+        agent_id,
+        pool,
+        default_pool=True,
+    )
 
     try:
         if normalized_agent_id:
-            workspace_dir = _require_agent_workspace(normalized_agent_id)
+            workspace_dir = _get_agent_workspace(normalized_agent_id)
             manifest = read_skill_manifest(workspace_dir).get("skills", {})
             if normalized_skill_name not in manifest:
                 raise click.ClickException(
@@ -560,12 +832,22 @@ def uninstall_cmd(
 @click.argument("skill", required=True)
 @click.option(
     "--agent-id",
-    default="default",
-    help="Agent ID (defaults to 'default')",
+    default=None,
+    help="Target agent ID (defaults to 'default').",
 )
-def test_cmd(skill: str, agent_id: str) -> None:
-    """Validate a workspace skill or local skill directory."""
-    skill_dir = _resolve_skill_test_dir(skill, agent_id)
+@click.option(
+    "--pool",
+    is_flag=True,
+    help="Resolve the skill name from the shared pool.",
+)
+def test_cmd(skill: str, agent_id: str | None, pool: bool) -> None:
+    """Validate a workspace skill, pool skill, or local skill directory."""
+    scope = _resolve_scope(agent_id, pool)
+    skill_dir = _resolve_skill_test_dir(
+        skill,
+        scope,
+        pool=scope is None,
+    )
     skill_name = _run_skill_test(skill_dir)
     click.echo(f"Skill test passed: {skill_name}")
     click.echo(f"Path: {skill_dir}")

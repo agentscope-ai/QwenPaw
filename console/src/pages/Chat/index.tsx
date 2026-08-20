@@ -133,6 +133,8 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
+  // One-line rationale the agent emitted before requesting this tool call.
+  reasoning?: string;
   // Approval-scope choice (console-only). When isGeneralized is true the
   // card offers Approve Pattern (similar) vs Approve Exact (exact).
   isGeneralized?: boolean;
@@ -1720,6 +1722,7 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
+        reasoning: approval.reasoning,
         isGeneralized: approval.is_generalized,
         exactTarget: approval.exact_target,
         similarTarget: approval.similar_target,
@@ -3692,6 +3695,7 @@ export default function ChatPage() {
               findingsCount={request.findingsCount}
               findingsSummary={request.findingsSummary}
               toolParams={request.toolParams}
+              reasoning={request.reasoning}
               createdAt={request.createdAt}
               timeoutSeconds={request.timeoutSeconds}
               sessionId={request.sessionId}
