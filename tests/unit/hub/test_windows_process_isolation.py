@@ -12,7 +12,6 @@ from typing import IO, Any
 import pytest
 
 from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
-from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
     ProcessIsolationError,
@@ -20,25 +19,7 @@ from qwenpaw.hub.process_isolation import (
 from qwenpaw.hub.windows_process_isolation import (
     WindowsAppContainerIsolator,
 )
-
-
-def _record(tmp_path: Path) -> RuntimeRecord:
-    root = tmp_path / "runtimes" / "runtime-a"
-    for name in ("working", "secrets", "backups", "logs"):
-        (root / name).mkdir(parents=True)
-    return RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=root / "working",
-        secret_dir=root / "secrets",
-        backup_dir=root / "backups",
-        log_file=root / "logs" / "app.log",
-    )
+from tests.unit.hub.factories import runtime_record as _record
 
 
 class _Process:

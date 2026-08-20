@@ -121,6 +121,7 @@ def _read_roots() -> list[Path]:
     }
     if source_root.name == "src":
         repository_root = source_root.parent
+        roots.add(repository_root / "packages" / "qwenpawmail-mcp" / "src")
         roots.add(repository_root / "website" / "public" / "docs")
         roots.add(repository_root / "console" / "dist")
     return sorted((path for path in roots if path.exists()), key=str)

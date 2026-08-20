@@ -173,6 +173,29 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      - name: Verify managed runtime boundary version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          version_source = Path("src/qwenpaw/__version__.py").read_text()
+          dockerfile = Path("deploy/Dockerfile").read_text()
+          version = re.search(r'__version__ = "([^"]+)"', version_source)
+          boundary = re.search(
+              r'ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="([^"]+)"',
+              dockerfile,
+          )
+          if version is None or boundary is None:
+              raise SystemExit("Unable to read runtime boundary versions")
+          if version.group(1) != boundary.group(1):
+              raise SystemExit(
+                  f"Runtime boundary version mismatch: "
+                  f"{boundary.group(1)} != {version.group(1)}",
+              )
+          PY
+
       - name: Log in to Aliyun ACR (when credentials available)
         if: env.ACR_USERNAME != ''
         uses: docker/login-action@v3

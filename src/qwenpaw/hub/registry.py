@@ -296,7 +296,7 @@ class RuntimeRegistry:
             port=int(endpoint["port"]),
             desired_state=RuntimeState(str(row["desired_state"])),
             start_policy=RuntimeStartPolicy(
-                str(config.get("start_policy", "owner_allowed")),
+                str(config["start_policy"]),
             ),
             state=RuntimeState(str(row["observed_state"])),
             pid=(

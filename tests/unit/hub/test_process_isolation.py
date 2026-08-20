@@ -18,25 +18,7 @@ from qwenpaw.hub.process_isolation import (
     ProcessIsolator,
     UnsupportedProcessIsolator,
 )
-
-
-def _record(tmp_path: Path) -> RuntimeRecord:
-    root = tmp_path / "runtimes" / "runtime-a"
-    for name in ("working", "secrets", "backups", "logs"):
-        (root / name).mkdir(parents=True)
-    return RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=root / "working",
-        secret_dir=root / "secrets",
-        backup_dir=root / "backups",
-        log_file=root / "logs" / "app.log",
-    )
+from tests.unit.hub.factories import runtime_record as _record
 
 
 class _RecordingIsolator(ProcessIsolator):
@@ -162,8 +144,17 @@ def test_linux_command_mounts_only_runtime_root_writable(
 
     args = launch.command
     bind_index = args.index("--bind")
+    read_only_sources = {
+        args[index + 1]
+        for index, value in enumerate(args)
+        if value == "--ro-bind"
+    }
+    repository = Path(__file__).parents[3]
     assert args[bind_index + 1] == str(record.working_dir.parent)
     assert str(record.working_dir.parent.parent) not in args
+    assert str(repository / "packages" / "qwenpawmail-mcp" / "src") in (
+        read_only_sources
+    )
     assert ("/etc", "/etc") not in {
         (args[index + 1], args[index + 2])
         for index, value in enumerate(args)

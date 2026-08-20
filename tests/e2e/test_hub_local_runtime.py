@@ -55,6 +55,23 @@ def _stop_runtime(client: httpx.Client, token: str) -> None:
         )
 
 
+def _runtime_logs(hub_root: Path) -> str:
+    logs: list[str] = []
+    for log_path in sorted((hub_root / "runtimes").glob("*/logs/app.log")):
+        logs.append(
+            f"--- {log_path.relative_to(hub_root)} ---\n"
+            f"{log_path.read_text(encoding='utf-8')}",
+        )
+    return "\n".join(logs) or "No runtime log was created."
+
+
+def _hub_environment(hub_root: Path) -> dict[str, str]:
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    environment["QWENPAW_HUB_DIR"] = str(hub_root)
+    return environment
+
+
 def _wait_for_runtime(
     client: httpx.Client,
     process: subprocess.Popen[Any],
@@ -90,9 +107,9 @@ def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
     """Start a real Hub and verify its managed QwenPaw HTTP endpoint."""
     port = _allocate_port()
     hub_root = tmp_path / "hub"
+    hub_root.mkdir(parents=True)
     log_path = tmp_path / "hub.log"
-    environment = dict(os.environ)
-    environment["QWENPAW_HUB_DIR"] = str(hub_root)
+    environment = _hub_environment(hub_root)
     command = [
         sys.executable,
         "-m",
@@ -114,6 +131,7 @@ def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
             env=environment,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
+            cwd=hub_root,
         )
         try:
             with httpx.Client(
@@ -174,5 +192,7 @@ def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
 
     if failure is not None:
         pytest.fail(
-            f"{failure}\nHub log:\n" f"{log_path.read_text(encoding='utf-8')}",
+            f"{failure}\n"
+            f"Hub log:\n{log_path.read_text(encoding='utf-8')}\n"
+            f"Runtime logs:\n{_runtime_logs(hub_root)}",
         )

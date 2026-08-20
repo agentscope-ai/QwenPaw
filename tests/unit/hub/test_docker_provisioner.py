@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
 """Tests for the Docker Hub runtime backend."""
 
-import re
 import threading
 import time
 import urllib.error
 import urllib.request
 from email.message import Message
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.__version__ import __version__
 from qwenpaw.hub.docker_images import DockerImagePullStore
 from qwenpaw.hub.docker_provisioner import DockerRuntimeProvisioner
-from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from tests.unit.hub.factories import runtime_record
+
+_record = partial(runtime_record, provisioner="docker", port=0)
 
 
 class _FakeImage:
@@ -27,18 +28,6 @@ class _FakeImage:
         "Size": 123,
         "Created": "2026-08-19T00:00:00Z",
     }
-
-
-def test_docker_boundary_label_default_matches_qwenpaw_version() -> None:
-    dockerfile = Path(__file__).parents[3] / "deploy" / "Dockerfile"
-    content = dockerfile.read_text(encoding="utf-8")
-    match = re.search(
-        r'ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="([^"]+)"',
-        content,
-    )
-
-    assert match is not None
-    assert match.group(1) == __version__
 
 
 class _FakeContainer:
@@ -106,24 +95,6 @@ class _FakeClient:
 
     def info(self) -> dict[str, str]:
         return {"OSType": "linux"}
-
-
-def _record(tmp_path: Path, metadata: dict | None = None) -> RuntimeRecord:
-    root = tmp_path / "runtimes" / "runtime-a"
-    return RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="docker",
-        host="127.0.0.1",
-        port=0,
-        state=RuntimeState.CREATED,
-        working_dir=root / "working",
-        secret_dir=root / "secrets",
-        backup_dir=root / "backups",
-        log_file=root / "logs" / "app.log",
-        metadata=metadata or {},
-    )
 
 
 def _configure(provisioner: DockerRuntimeProvisioner) -> None:

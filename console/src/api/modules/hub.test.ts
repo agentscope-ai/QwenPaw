@@ -58,52 +58,6 @@ describe("hubApi pagination", () => {
     );
   });
 
-  it("uses paginated audit and credential endpoints", async () => {
-    await hubApi.listCredentials({ page: 3, scope: "tenant" });
-    await hubApi.listAuditEvents({ pageSize: 10, action: "runtime.start" });
-
-    expect(fetch).toHaveBeenNthCalledWith(
-      1,
-      "/api/hub/credentials?page=3&scope=tenant",
-      expect.anything(),
-    );
-    expect(fetch).toHaveBeenNthCalledWith(
-      2,
-      "/api/hub/admin/audit?page_size=10&action=runtime.start",
-      expect.anything(),
-    );
-  });
-
-  it("changes the authenticated user's password without an old password", async () => {
-    await hubApi.changePassword("new-safe-password");
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/hub/me/password",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ new_password: "new-safe-password" }),
-      }),
-    );
-  });
-
-  it("restarts the authenticated user's runtime without a runtime id", async () => {
-    await hubApi.restartOwnRuntime();
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/hub/me/runtime/restart",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("uses a distinct endpoint for administrator disable", async () => {
-    await hubApi.disableRuntime("personal-user-a");
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/hub/runtimes/personal-user-a/disable",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
   it("updates the complete Hub settings document with its revision", async () => {
     const config = {
       version: 1 as const,

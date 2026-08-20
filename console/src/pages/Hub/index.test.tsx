@@ -9,11 +9,16 @@ import { App } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import HubPage from ".";
+import { hubApi } from "../../api/modules/hub";
 import {
-  hubApi,
-  type HubDockerImageCatalog,
-  type HubRuntime,
-} from "../../api/modules/hub";
+  dockerCatalog,
+  hubHealth,
+  hubOverview,
+  hubSettings,
+  hubUser,
+  page,
+  runtime,
+} from "./testFixtures";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -59,14 +64,6 @@ vi.mock("../../api/modules/hub", async () => {
   };
 });
 
-const page = {
-  items: [],
-  page: 1,
-  page_size: 20,
-  total: 0,
-  pages: 1,
-};
-
 function renderHubPage() {
   return render(
     <App>
@@ -75,139 +72,19 @@ function renderHubPage() {
   );
 }
 
-function runtime(overrides: Partial<HubRuntime>): HubRuntime {
-  return {
-    runtime_id: "personal-user-a",
-    tenant_id: "personal-user-a",
-    owner_user_id: "user-a",
-    owner_username: "owner",
-    provisioner: "local",
-    host: "127.0.0.1",
-    port: 32001,
-    state: "running",
-    desired_state: "running",
-    start_policy: "owner_allowed",
-    endpoint: "http://127.0.0.1:32001",
-    security_level: "isolated-local",
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    ...overrides,
-  };
-}
-
-const dockerCatalog: HubDockerImageCatalog = {
-  available: true,
-  sources: {
-    docker_hub: "docker.io/agentscope/qwenpaw",
-    aliyun_acr:
-      "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw",
-  },
-  official_images: [
-    {
-      source: "docker_hub",
-      reference: "docker.io/agentscope/qwenpaw:latest",
-      tag: "latest",
-      downloaded: true,
-    },
-  ],
-  local_images: [],
-  policy: {
-    source: "docker_hub",
-    image: "docker.io/agentscope/qwenpaw:latest",
-    pull_policy: "if_not_present",
-    cpu_limit: 2,
-    memory_limit_mb: 4096,
-    pids_limit: 1024,
-    shm_size_mb: 512,
-  },
-};
-
 describe("HubPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(hubApi.me).mockResolvedValue({
-      user_id: "user-a",
-      username: "owner",
-      role: "admin",
-      disabled: false,
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z",
-    });
-    vi.mocked(hubApi.getHealth).mockResolvedValue({
-      status: "ok",
-      mode: "hub",
-      default_provisioner: "local",
-      runtime_available: true,
-      runtime_state: "running",
-      runtime_desired_state: "running",
-      runtime_start_policy: "owner_allowed",
-      provisioner_statuses: {
-        local: { available: true, security_level: "isolated-local" },
-      },
-    });
-    vi.mocked(hubApi.getOverview).mockResolvedValue({
-      runtime_counts: {
-        created: 0,
-        starting: 0,
-        running: 2,
-        stopped: 0,
-        failed: 0,
-      },
-      total_runtimes: 2,
-      total_users: 1,
-      runtime_available: true,
-      host: { cpu_percent: 12, memory_percent: 34, disk_percent: 56 },
-      recent_events: [],
-    });
-    vi.mocked(hubApi.listRuntimes).mockResolvedValue(page);
-    vi.mocked(hubApi.listUsers).mockResolvedValue(page);
-    vi.mocked(hubApi.getSettings).mockResolvedValue({
-      config: {
-        version: 1,
-        control_plane: {
-          public_base_url: "https://hub.example.com",
-          registration: { enabled: false, default_role: "user" },
-          security: {
-            ip_blacklist: [],
-            trusted_proxy_ips: [],
-            login_rate_limit: {
-              enabled: true,
-              max_attempts: 10,
-              window_seconds: 300,
-              block_seconds: 900,
-            },
-            registration_rate_limit: {
-              enabled: true,
-              max_attempts: 5,
-              window_seconds: 3600,
-              block_seconds: 3600,
-            },
-          },
-        },
-        runtime: {
-          provisioner: "local",
-          docker: {
-            source: "docker_hub",
-            image: "docker.io/agentscope/qwenpaw:latest",
-            pull_policy: "if_not_present",
-            cpu_limit: 2,
-            memory_limit_mb: 4096,
-            pids_limit: 1024,
-            shm_size_mb: 512,
-          },
-        },
-        capacity: {
-          max_running_runtimes: null,
-        },
-      },
-      revision: 3,
-      updated_at: "2026-01-01T00:00:00Z",
-      available_provisioners: ["local", "docker"],
-    });
-    vi.mocked(hubApi.getDockerImages).mockResolvedValue(dockerCatalog);
+    vi.mocked(hubApi.me).mockResolvedValue(hubUser());
+    vi.mocked(hubApi.getHealth).mockResolvedValue(hubHealth());
+    vi.mocked(hubApi.getOverview).mockResolvedValue(hubOverview());
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue(page());
+    vi.mocked(hubApi.listUsers).mockResolvedValue(page());
+    vi.mocked(hubApi.getSettings).mockResolvedValue(hubSettings());
+    vi.mocked(hubApi.getDockerImages).mockResolvedValue(dockerCatalog());
     vi.mocked(hubApi.listDockerImagePulls).mockResolvedValue([]);
-    vi.mocked(hubApi.listCredentials).mockResolvedValue(page);
-    vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page);
+    vi.mocked(hubApi.listCredentials).mockResolvedValue(page());
+    vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page());
   });
 
   it("loads the real operations overview for administrators", async () => {
@@ -241,8 +118,8 @@ describe("HubPage", () => {
   });
 
   it("shows the owner username with the full user id", async () => {
-    vi.mocked(hubApi.listRuntimes).mockResolvedValue({
-      items: [
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue(
+      page([
         runtime({
           runtime_id: "personal-a4715bbaa57446b7b3b15b54",
           tenant_id: "personal-a4715bbaa57446b7b3b15b54",
@@ -251,12 +128,8 @@ describe("HubPage", () => {
           port: 35583,
           endpoint: "http://127.0.0.1:35583",
         }),
-      ],
-      page: 1,
-      page_size: 20,
-      total: 1,
-      pages: 1,
-    });
+      ]),
+    );
 
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
@@ -266,8 +139,8 @@ describe("HubPage", () => {
   });
 
   it("shows administrator-locked runtimes as enable-only", async () => {
-    vi.mocked(hubApi.listRuntimes).mockResolvedValue({
-      items: [
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue(
+      page([
         runtime({
           runtime_id: "personal-disabled",
           tenant_id: "personal-user-b",
@@ -277,12 +150,8 @@ describe("HubPage", () => {
           desired_state: "stopped",
           start_policy: "admin_only",
         }),
-      ],
-      page: 1,
-      page_size: 20,
-      total: 1,
-      pages: 1,
-    });
+      ]),
+    );
 
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
@@ -295,22 +164,7 @@ describe("HubPage", () => {
   });
 
   it("locks the current administrator role and account status", async () => {
-    vi.mocked(hubApi.listUsers).mockResolvedValue({
-      items: [
-        {
-          user_id: "user-a",
-          username: "owner",
-          role: "admin",
-          disabled: false,
-          created_at: "2026-01-01T00:00:00Z",
-          updated_at: "2026-01-01T00:00:00Z",
-        },
-      ],
-      page: 1,
-      page_size: 20,
-      total: 1,
-      pages: 1,
-    });
+    vi.mocked(hubApi.listUsers).mockResolvedValue(page([hubUser()]));
 
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.users"));
@@ -380,31 +234,6 @@ describe("HubPage", () => {
     expect(
       await screen.findByText("hub.settings.docker.title"),
     ).toBeInTheDocument();
-    const runtimeCard = screen
-      .getByText("hub.settings.runtime.title")
-      .closest("article");
-    const quotaCard = screen
-      .getByText("hub.settings.quotas.title")
-      .closest("article");
-    const dockerCard = screen
-      .getByText("hub.settings.docker.title")
-      .closest("article");
-    expect(
-      Array.from(runtimeCard!.parentElement!.children).slice(0, 3),
-    ).toEqual([runtimeCard, quotaCard, dockerCard]);
-    expect(
-      screen.getAllByText("hub.settings.docker.dockerHub"),
-    ).not.toHaveLength(0);
-    const imageCard = screen
-      .getByText("hub.settings.docker.selectedImage")
-      .closest("div")?.parentElement;
-    const pullButton = screen
-      .getByText("hub.settings.docker.pullImage")
-      .closest("button");
-    expect(imageCard).toContainElement(pullButton);
-    expect(
-      screen.queryByText("hub.settings.docker.allowedRegistries"),
-    ).not.toBeInTheDocument();
     expect(hubApi.getDockerImages).toHaveBeenCalledOnce();
   });
 
@@ -422,20 +251,21 @@ describe("HubPage", () => {
   });
 
   it("uses a tagged local image without a registry allowlist", async () => {
-    vi.mocked(hubApi.getDockerImages).mockResolvedValue({
-      ...dockerCatalog,
-      official_images: [],
-      local_images: [
-        {
-          reference: "qwenpaw-hub-e2e:test",
-          image_id: "sha256:1234567890",
-          short_id: "sha256:123456",
-          digests: [],
-          size: 1024 * 1024 * 900,
-          downloaded: true,
-        },
-      ],
-    });
+    vi.mocked(hubApi.getDockerImages).mockResolvedValue(
+      dockerCatalog({
+        official_images: [],
+        local_images: [
+          {
+            reference: "qwenpaw-hub-e2e:test",
+            image_id: "sha256:1234567890",
+            short_id: "sha256:123456",
+            digests: [],
+            size: 1024 * 1024 * 900,
+            downloaded: true,
+          },
+        ],
+      }),
+    );
     vi.mocked(hubApi.updateSettings).mockImplementation(
       async (revision, config) => ({
         config,

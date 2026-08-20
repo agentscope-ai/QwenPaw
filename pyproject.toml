@@ -154,7 +154,7 @@ qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
 full = [
-    "qwenpaw[local,whisper,codex,qoder]",
+    "qwenpaw[hub,local,whisper,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

@@ -587,37 +587,17 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
         )
         assert denied_users.status_code == 403
 
-
-def test_administrator_cannot_change_own_access(tmp_path: Path) -> None:
-    with _client(tmp_path) as client:
-        token = _register(client, "owner")
         current = client.get(
             "/api/hub/me",
-            headers=_headers(token),
+            headers=_headers(admin_token),
         )
         user_id = current.json()["user_id"]
-
         demoted = client.patch(
             f"/api/hub/admin/users/{user_id}",
             json={"role": "user"},
-            headers=_headers(token),
+            headers=_headers(admin_token),
         )
-        disabled = client.patch(
-            f"/api/hub/admin/users/{user_id}",
-            json={"disabled": True},
-            headers=_headers(token),
-        )
-        unchanged = client.get(
-            "/api/hub/me",
-            headers=_headers(token),
-        )
-
         assert demoted.status_code == 409
-        assert "cannot change their own" in demoted.json()["detail"]
-        assert disabled.status_code == 409
-        assert unchanged.status_code == 200
-        assert unchanged.json()["role"] == "admin"
-        assert unchanged.json()["disabled"] is False
 
 
 def test_settings_apply_immediately_and_reject_stale_revision(

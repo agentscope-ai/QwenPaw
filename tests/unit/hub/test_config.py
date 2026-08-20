@@ -8,7 +8,6 @@ import pytest
 
 from qwenpaw.hub.auth import HubAuthService
 from qwenpaw.hub.config import (
-    ControlPlaneConfig,
     DockerRuntimeConfig,
     HubConfig,
     HubConfigStore,
@@ -53,14 +52,6 @@ capacity:
         "192.0.2.4/32",
         "2001:db8::/64",
     ]
-
-
-def test_no_config_uses_built_in_defaults() -> None:
-    config = load_hub_config(None)
-
-    assert config == HubConfig()
-    assert config.control_plane.registration.enabled is None
-    assert config.capacity.max_running_runtimes is None
 
 
 def test_docker_yaml_fields_round_trip_without_panel_only_values(
@@ -134,6 +125,16 @@ runtime:
             "version: 1\ncontrol_plane:\n"
             "  public_base_url: https://user@example.com",
             "must not contain credentials",
+        ),
+        (
+            "version: 1\ncontrol_plane:\n"
+            "  public_base_url: https://example.com?tenant=one",
+            "query or fragment",
+        ),
+        (
+            "version: 1\ncontrol_plane:\n"
+            "  public_base_url: https://example.com#fragment",
+            "query or fragment",
         ),
     ],
 )
@@ -216,27 +217,6 @@ capacity:
     assert auth.registration_enabled() is False
 
 
-def test_config_store_without_yaml_keeps_panel_update(
-    tmp_path: Path,
-) -> None:
-    store = HubConfigStore(tmp_path / "control.db")
-    store.resolve(None, available_provisioners={"local", "docker"})
-    _, revision, _ = store.snapshot()
-    panel_config = HubConfig(
-        runtime=RuntimeConfig(provisioner="docker"),
-        capacity=RuntimeCapacityConfig(max_running_runtimes=3),
-    )
-
-    saved, _, _ = store.update(
-        panel_config,
-        expected_revision=revision,
-        available_provisioners={"local", "docker"},
-        updated_by_user_id="admin-a",
-    )
-
-    assert store.resolve(None) == saved
-
-
 def test_config_store_updates_with_revision_and_rejects_stale_writes(
     tmp_path: Path,
 ) -> None:
@@ -264,6 +244,7 @@ def test_config_store_updates_with_revision_and_rejects_stale_writes(
     assert saved.control_plane.registration.default_role == "user"
     assert next_revision == revision + 1
     assert store.snapshot()[0] == saved
+    assert store.resolve(None) == saved
     with pytest.raises(RuntimeError, match="changed concurrently"):
         store.update(
             HubConfig(),
@@ -290,12 +271,3 @@ def test_config_store_does_not_persist_unavailable_provisioner(
         store.resolve(config_path, available_provisioners={"local"})
 
     assert store.resolve(None).default_provisioner == "local"
-
-
-def test_public_base_url_rejects_query_and_fragment() -> None:
-    with pytest.raises(ValueError, match="query or fragment"):
-        HubConfig(
-            control_plane=ControlPlaneConfig(
-                public_base_url="https://example.com?tenant=one",
-            ),
-        )

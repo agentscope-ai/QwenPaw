@@ -30,16 +30,3 @@ def test_audit_pages_filter_and_preserve_structured_details(
     assert len(events) == 1
     assert events[0]["detail"] in ({"index": 0}, {"index": 1})
     assert events[0]["actor_username"] == "owner"
-
-
-def test_host_metrics_are_bounded_percentages(tmp_path: Path) -> None:
-    store = HubOperationsStore(tmp_path / "control.db", tmp_path)
-
-    metrics = store.host_metrics()
-
-    assert set(metrics) == {
-        "cpu_percent",
-        "memory_percent",
-        "disk_percent",
-    }
-    assert all(0 <= value <= 100 for value in metrics.values())

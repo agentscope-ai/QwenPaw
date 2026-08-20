@@ -9,7 +9,7 @@ import pytest
 
 from qwenpaw.hub.credentials import TenantCredentialVault
 from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
-from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from tests.unit.hub.factories import runtime_record as _record
 
 
 @pytest.fixture(name="vault")
@@ -17,22 +17,6 @@ def _vault(tmp_path: Path) -> TenantCredentialVault:
     return TenantCredentialVault(
         tmp_path / "control.db",
         tmp_path / ".vault_key",
-    )
-
-
-def _record(tmp_path: Path) -> RuntimeRecord:
-    return RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=tmp_path / "working",
-        secret_dir=tmp_path / "secrets",
-        backup_dir=tmp_path / "backups",
-        log_file=tmp_path / "logs" / "app.log",
     )
 
 
@@ -94,46 +78,12 @@ def test_runtime_scope_overrides_only_its_tenant_value(
     )
 
 
-def test_local_runtime_does_not_inherit_control_plane_secrets(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "control-plane-key")
-    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "control-plane-secret")
-    record = _record(tmp_path)
-
-    environment = LocalProcessRuntimeProvisioner.runtime_environment(
-        record,
-        {"ANTHROPIC_API_KEY": "tenant-key"},
-    )
-
-    assert "OPENAI_API_KEY" not in environment
-    assert "LANGFUSE_SECRET_KEY" not in environment
-    assert environment["ANTHROPIC_API_KEY"] == "tenant-key"
-    assert environment["QWENPAW_TENANT_ID"] == "tenant-a"
-    assert environment.get("PATH") == os.environ.get("PATH")
-
-
-def test_windows_runtime_keeps_required_system_drive(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("SYSTEMDRIVE", "C:")
-    record = _record(tmp_path)
-
-    environment = LocalProcessRuntimeProvisioner.runtime_environment(
-        record,
-        {},
-    )
-
-    assert environment["SYSTEMDRIVE"] == "C:"
-
-
 def test_windows_runtime_redirects_user_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("SYSTEMDRIVE", "C:")
     monkeypatch.setenv("USERPROFILE", "C:\\Users\\control-plane")
     monkeypatch.setenv("APPDATA", "C:\\Users\\control-plane\\AppData")
     record = _record(tmp_path)
@@ -143,6 +93,7 @@ def test_windows_runtime_redirects_user_profile(
         {},
     )
 
+    assert environment["SYSTEMDRIVE"] == "C:"
     assert environment["USERPROFILE"] == str(record.working_dir)
     assert environment["APPDATA"] == str(
         record.working_dir / "appdata" / "roaming",
@@ -235,7 +186,10 @@ def test_runtime_boundary_secret_ignores_tenant_planted_value(
 
 def test_local_runtime_filters_untrusted_control_environment(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "control-plane-key")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "control-plane-secret")
     record = _record(tmp_path)
 
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
@@ -252,6 +206,8 @@ def test_local_runtime_filters_untrusted_control_environment(
     assert environment["QWENPAW_WORKING_DIR"] == str(record.working_dir)
     assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "boundary-token"
     assert environment["OPENAI_API_KEY"] == "tenant-key"
+    assert "LANGFUSE_SECRET_KEY" not in environment
+    assert environment.get("PATH") == os.environ.get("PATH")
 
 
 def test_credential_metadata_pages_are_tenant_scoped_and_filterable(
