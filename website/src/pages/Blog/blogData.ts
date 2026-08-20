@@ -7,6 +7,11 @@ export type BlogPostMeta = {
 /** Display order is determined by frontmatter `date` (newest first). */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
+    slug: "creator-install-guide",
+    cover:
+      "https://img.alicdn.com/imgextra/i4/6000000000246/O1CN01Ic1vFhQin1E6mS1k_!!6000000000246-0-tbvideo.jpg",
+  },
+  {
     slug: "qwenpaw-long-term-memory",
     cover:
       "https://img.alicdn.com/imgextra/i3/O1CN01IvOZgheUdXK3OTaP_!!6000000004070-2-tps-1672-941.png",

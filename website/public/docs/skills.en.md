@@ -224,15 +224,28 @@ CLI supports the same URL-based import flow:
 **Workspace targeting:** use `--agent-id` when targeting a single agent workspace; without it, `install` / `uninstall` act on the skill pool.
 
 ```bash
-qwenpaw skills install <skill_url>
+qwenpaw skills install <skill_url> --pool
 qwenpaw skills install <skill_url> --agent-id <agent_id>
 ```
 
 CLI also supports uninstalling from the shared pool or one workspace:
 
 ```bash
-qwenpaw skills uninstall <skill_name>
+qwenpaw skills uninstall <skill_name> --pool
 qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
+```
+
+Workspace skills can be enabled or disabled directly by exact name, or managed
+in a checkbox UI with immediate text filtering. The Pool is a separate shared
+scope selected with `--pool` on commands that support it. Because Pool skills
+have no enabled state, `config`, `enable`, and `disable` are workspace-only:
+
+```bash
+qwenpaw skills enable <skill_name>... --agent-id <agent_id>
+qwenpaw skills disable <skill_name>... --agent-id <agent_id>
+qwenpaw skills list --status enabled --agent-id <agent_id>
+qwenpaw skills list --pool
+qwenpaw skills info <skill_name> --pool
 ```
 
 #### Steps

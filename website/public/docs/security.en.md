@@ -432,6 +432,36 @@ Sandbox configuration is compiled automatically by the governance policy engine.
 | `writable`   | bool   | `false` | Allow write access                    |
 | `executable` | bool   | `true`  | Allow executing binaries (macOS only) |
 
+#### Granting a path outside the workspace
+
+There is no `mounts` field to edit directly. The list is derived from your
+`policy.yaml` rules: a `Write(...)` rule becomes a writable mount and a
+`Read(...)` rule a read-only one, with the workspace always writable. So the
+way to let a sandboxed command write outside the workspace is to add the
+rule, not to hand-write a mount.
+
+This matters for tools that keep a cache in the home directory. `uv`, `pip`
+and `npm` all fail under the sandbox until their cache directory is granted:
+
+```yaml
+# policy.yaml — let uv populate its cache
+user_rules:
+  - match: Write(~/.cache/uv/**)
+    action: allow
+    reason: uv build cache
+```
+
+The path may use `~` or `$VAR`; both are expanded when the mount is
+compiled. Two behaviours to keep in mind:
+
+- **A path is bound only if it exists when the sandbox starts.** An absent
+  path is skipped and reported at `WARNING` as not bound. A cache directory
+  usually does not exist before its tool first runs, so create it once
+  (`mkdir -p ~/.cache/uv`) if the very first sandboxed run must write there.
+- **`mode=none` ignores mounts entirely**, so inside a container without a
+  kernel backend the grant is irrelevant — nothing is restricted to begin
+  with.
+
 ### Violation detection
 
 When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. QwenPaw detects these violations by matching stderr patterns:

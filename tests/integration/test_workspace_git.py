@@ -496,3 +496,212 @@ def test_commit_diff_bad_hash_returns_400(app_server) -> None:
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 400, app_server.logs_tail()
+
+
+# ================================================================== #
+# F — discard / revert (scoped to this test's own files)
+# ================================================================== #
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_discard_removes_untracked_file(app_server) -> None:
+    """POST /discard on an explicit path removes that untracked file.
+
+    Test purpose:
+      - Cover discard_changes' ``git clean -fd`` arm. The request names
+        one file this test created, so nothing else in the shared
+        working tree is touched.
+
+    Test flow:
+      1. Seed a uniquely named untracked file and see it in /status.
+      2. POST /discard with only that path.
+      3. Assert the file is gone from disk and from /status.
+
+    API endpoints:
+      - GET  /api/workspace/git/status
+      - POST /api/workspace/git/discard
+    """
+    _ensure_repo(app_server)
+    name = _seed_file(app_server, "integ-git-discard-untracked.txt")
+    assert name in _paths_in_status(_status(app_server))
+
+    resp = app_server.api_request(
+        "POST",
+        f"{_GIT}/discard",
+        json={"paths": [name]},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, resp.text
+    assert not (
+        _workspace_dir(app_server) / name
+    ).exists(), "discard left the untracked file on disk"
+    assert name not in _paths_in_status(_status(app_server))
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Product bug Aone #84580657: this test seeds its fixture through "
+        "POST /commit, which omits the -c user.email/user.name identity "
+        "injection that init-commit and revert use, so on hosts without a "
+        "global git identity (CI runners, Docker) it returns 400 "
+        "'Author identity unknown'. Remove this marker once the upstream "
+        "fix lands."
+    ),
+)
+def test_discard_restores_tracked_modification(app_server) -> None:
+    """POST /discard on a tracked file restores its committed content.
+
+    Test purpose:
+      - Cover discard_changes' ``git restore`` arm, which is a different
+        code path from cleaning an untracked file.
+
+    Test flow:
+      1. Seed, stage and commit a file with known content.
+      2. Modify it on disk and confirm /status reports the change.
+      3. POST /discard for that path and assert the committed content is
+         back.
+
+    API endpoints:
+      - POST /api/workspace/git/stage
+      - POST /api/workspace/git/commit
+      - POST /api/workspace/git/discard
+    """
+    _ensure_repo(app_server)
+    name = _seed_file(
+        app_server,
+        "integ-git-discard-tracked.txt",
+        content="committed content\n",
+    )
+    staged = app_server.api_request(
+        "POST",
+        f"{_GIT}/stage",
+        json={"paths": [name]},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert staged.status_code == 200, staged.text
+    committed = app_server.api_request(
+        "POST",
+        f"{_GIT}/commit",
+        json={"message": "integ: seed discard-tracked fixture"},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert committed.status_code == 200, committed.text
+
+    target = _workspace_dir(app_server) / name
+    target.write_text("locally modified\n", encoding="utf-8")
+    assert name in _paths_in_status(_status(app_server))
+
+    resp = app_server.api_request(
+        "POST",
+        f"{_GIT}/discard",
+        json={"paths": [name]},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (
+        target.read_text(encoding="utf-8") == "committed content\n"
+    ), "discard did not restore the committed content"
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Product bug Aone #84580657: this test seeds its fixture through "
+        "POST /commit, which omits the -c user.email/user.name identity "
+        "injection that init-commit and revert use, so on hosts without a "
+        "global git identity (CI runners, Docker) it returns 400 "
+        "'Author identity unknown'. Remove this marker once the upstream "
+        "fix lands."
+    ),
+)
+def test_revert_commit_undoes_its_change(app_server) -> None:
+    """POST /revert creates a commit that undoes the named commit.
+
+    Test purpose:
+      - Cover revert_commit including its explicit identity injection
+        (``-c user.email`` / ``-c user.name``), which is what lets the
+        revert commit succeed in an environment with no global git
+        identity.
+
+    Test flow:
+      1. Commit a new file and capture the commit hash from /log.
+      2. POST /revert with that hash.
+      3. Assert the file is gone, i.e. the revert really applied.
+
+    API endpoints:
+      - POST /api/workspace/git/stage
+      - POST /api/workspace/git/commit
+      - GET  /api/workspace/git/log
+      - POST /api/workspace/git/revert
+    """
+    _ensure_repo(app_server)
+    name = _seed_file(
+        app_server,
+        "integ-git-revert-target.txt",
+        content="added by the commit under test\n",
+    )
+    app_server.api_request(
+        "POST",
+        f"{_GIT}/stage",
+        json={"paths": [name]},
+        timeout=_HTTP_TIMEOUT,
+    )
+    committed = app_server.api_request(
+        "POST",
+        f"{_GIT}/commit",
+        json={"message": "integ: add revert target"},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert committed.status_code == 200, committed.text
+    assert (_workspace_dir(app_server) / name).exists()
+
+    log_resp = app_server.api_request(
+        "GET",
+        f"{_GIT}/log",
+        params={"limit": 5},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert log_resp.status_code == 200, log_resp.text
+    entries = log_resp.json()
+    assert entries, "log returned no commits after a successful commit"
+    commit_hash = entries[0]["hash"]
+
+    resp = app_server.api_request(
+        "POST",
+        f"{_GIT}/revert",
+        json={"commit_hash": commit_hash},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["reverted"] == commit_hash, resp.json()
+    assert not (
+        _workspace_dir(app_server) / name
+    ).exists(), "revert did not undo the committed file addition"
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_revert_bad_hash_returns_400(app_server) -> None:
+    """POST /revert with an unknown hash is a 400.
+
+    Test purpose:
+      - Cover revert_commit's non-zero-exit branch, which surfaces git's
+        stderr rather than raising.
+
+    API endpoints:
+      - POST /api/workspace/git/revert
+    """
+    _ensure_repo(app_server)
+    resp = app_server.api_request(
+        "POST",
+        f"{_GIT}/revert",
+        json={"commit_hash": "0000000000000000000000000000000000000000"},
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 400, resp.text

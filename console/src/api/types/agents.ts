@@ -40,6 +40,37 @@ export interface ReorderAgentsResponse {
   agent_ids: string[];
 }
 
+export interface AgentMailCredential {
+  name: string;
+  domain: string;
+  // "" for whitelisted domains; enterprise provider id
+  // (tencent_exmail / aliyun_qiye / netease_qiye) for custom domains.
+  provider?: string;
+  // Write-only: GET /agents/{id} intentionally omits mailbox secrets.
+  auth_code?: string;
+}
+
+export interface AgentMailPushRule {
+  // "subject" is a legacy alias of "content" (kept for old configs)
+  field: "from" | "subject" | "content" | "keyword"; // default "from"
+  contains: string;
+  action: "mark_read" | "move" | "notify" | "wake_agent"; // default "notify"
+  param: string;
+}
+
+export interface AgentMailPushConfig {
+  mode: "off" | "rules_only" | "rules_then_agent" | "agent_all"; // default "off"
+  rules: AgentMailPushRule[];
+  poll_interval_seconds?: number; // default 120
+  access_control_enabled?: boolean; // default false
+}
+
+export interface AgentMailConfig {
+  is_new_account: boolean;
+  credential: AgentMailCredential;
+  push?: AgentMailPushConfig | null;
+}
+
 export interface MemoryGraphNode {
   id: string;
   path: string;
@@ -77,6 +108,13 @@ export interface AgentProfileConfig {
   };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model?: ModelSlotConfig | null;
+  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -85,6 +123,17 @@ export interface AgentProfileConfig {
   system_prompt_files?: string[];
   tools?: unknown;
   security?: unknown;
+  mail?: AgentMailConfig | null;
+}
+
+export interface AgentModelSettingsPatch {
+  fallback_models?: ModelSlotConfig[];
+  fallback_policy?: {
+    enabled: boolean;
+    target_scope: "configured" | "free_only";
+  };
+  subagent_model?: ModelSlotConfig | null;
+  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
 }
 
 export interface CreateAgentRequest {
@@ -95,6 +144,7 @@ export interface CreateAgentRequest {
   language?: string;
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
+  mail?: AgentMailConfig | null;
   backend?: AgentBackend;
   backend_settings?: {
     binary?: string;

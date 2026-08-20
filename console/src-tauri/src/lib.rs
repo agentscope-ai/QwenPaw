@@ -10,6 +10,8 @@ mod external_link;
 mod runtime_env;
 mod tray;
 mod updates;
+#[cfg(windows)]
+mod webview_recovery;
 
 use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
 
@@ -57,6 +59,12 @@ pub fn run() {
         .setup(|app| {
             backend::setup(app)?;
             tray::setup(app)?;
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(err) = webview_recovery::install(&window) {
+                    log::error!("[webview] failed to install browser-process recovery: {err}");
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -77,6 +85,12 @@ pub fn run() {
                 // Alt+F4. Programmatic exits from `quit_app` carry a `code` and
                 // fall through to the normal shutdown path below.
                 RunEvent::ExitRequested { api, code, .. } => {
+                    #[cfg(windows)]
+                    if code.is_none() && webview_recovery::is_active() {
+                        api.prevent_exit();
+                        log::warn!("[webview] keeping the app alive while the main window recovers");
+                        return;
+                    }
                     #[cfg(target_os = "macos")]
                     if code.is_none() {
                         api.prevent_exit();

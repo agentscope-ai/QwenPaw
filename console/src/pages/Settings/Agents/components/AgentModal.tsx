@@ -5,7 +5,9 @@ import {
   Input,
   Button,
   Select,
+  Radio,
   Space,
+  Switch,
   Typography,
   Empty,
   Spin,
@@ -21,8 +23,53 @@ import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
+import {
+  MAIL_DOMAIN_PICKER_DOMAINS,
+  MAIL_DOMAIN_WHITELIST,
+  MAIL_ENTERPRISE_SERVICE_DOMAINS,
+} from "./mailDomains";
 
 const { Text } = Typography;
+
+const MAIL_DOMAIN_OPTIONS = MAIL_DOMAIN_PICKER_DOMAINS.map((domain) => ({
+  value: domain,
+  label: domain,
+}));
+
+// Domains whose credential is a 16-char authorization code.
+const MAIL_AUTH_CODE_DOMAINS = [
+  "163.com",
+  "126.com",
+  "yeah.net",
+  "qq.com",
+  "foxmail.com",
+  "sina.com",
+  "sina.cn",
+  "gmail.com",
+];
+
+const MAIL_PROVIDER_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: "tencent_exmail", labelKey: "agent.mailProviderTencentExmail" },
+  { value: "aliyun_qiye", labelKey: "agent.mailProviderAliyunQiye" },
+  { value: "netease_qiye", labelKey: "agent.mailProviderNeteaseQiye" },
+];
+
+const MAIL_DOMAIN_PATTERN =
+  /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/;
+
+const MAIL_PUSH_MODE_DESC_KEYS: Record<string, string> = {
+  off: "agent.mailPushModeOffDesc",
+  rules_only: "agent.mailPushModeRulesOnlyDesc",
+  rules_then_agent: "agent.mailPushModeRulesThenAgentDesc",
+  agent_all: "agent.mailPushModeAgentAllDesc",
+};
+
+// 0.2.0: rule-based modes are hidden from the UI but kept on the backend.
+// A legacy value is only shown (read-only choice) while it is the current one.
+const LEGACY_MAIL_PUSH_MODE_LABEL_KEYS: Record<string, string> = {
+  rules_only: "agent.mailPushModeRulesOnly",
+  rules_then_agent: "agent.mailPushModeRulesThenAgent",
+};
 
 interface EligibleProvider {
   id: string;
@@ -60,7 +107,37 @@ export function AgentModal({
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
+  const mailMode = Form.useWatch("mail_mode", form);
+  const mailPushMode = Form.useWatch(["mail_push", "mode"], form);
+  const mailDomain = Form.useWatch(["mail_credential", "domain"], form);
+  const mailCredential = Form.useWatch(["mail_credential", "auth_code"], form);
   const selectedBackend = Form.useWatch("backend", form) ?? "qwenpaw";
+
+  const isCustomMailDomain =
+    !!mailDomain && !MAIL_DOMAIN_WHITELIST.includes(mailDomain);
+
+  // Whitelisted domains must submit an empty provider.
+  useEffect(() => {
+    if (
+      !isCustomMailDomain &&
+      form.getFieldValue(["mail_credential", "provider"])
+    ) {
+      form.setFieldValue(["mail_credential", "provider"], "");
+    }
+  }, [isCustomMailDomain, form]);
+
+  const isAuthCodeDomain = MAIL_AUTH_CODE_DOMAINS.includes(mailDomain ?? "");
+  const mailCredentialHintKey = useMemo(() => {
+    if (
+      isCustomMailDomain ||
+      MAIL_ENTERPRISE_SERVICE_DOMAINS.includes(mailDomain ?? "")
+    ) {
+      return "agent.mailCredentialHintEnterprise";
+    }
+    if (mailDomain === "gmail.com") return "agent.mailCredentialHintGmail";
+    if (mailDomain === "aliyun.com") return "agent.mailCredentialHintAliyun";
+    return "agent.mailCredentialHintAuthCode";
+  }, [mailDomain, isCustomMailDomain]);
 
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
     return providers
@@ -306,6 +383,200 @@ export function AgentModal({
             disabled={!!editingAgent}
           />
         </Form.Item>
+        <Form.Item
+          name="mail_mode"
+          label={t("agent.mailManagement")}
+          initialValue="none"
+          hidden={selectedBackend !== "qwenpaw"}
+        >
+          <Radio.Group>
+            <Radio value="none">{t("agent.mailModeNone")}</Radio>
+            <Radio value="personal">{t("agent.mailModePersonal")}</Radio>
+            <Radio value="dedicated">{t("agent.mailModeDedicated")}</Radio>
+          </Radio.Group>
+        </Form.Item>
+        {selectedBackend === "qwenpaw" && mailMode === "personal" && (
+          <>
+            <Form.Item
+              name={["mail_credential", "name"]}
+              label={t("agent.mailName")}
+              rules={[{ required: true, message: t("agent.mailNameRequired") }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name={["mail_credential", "domain"]}
+              label={t("agent.mailDomain")}
+              initialValue="163.com"
+              rules={[
+                { required: true, message: t("agent.mailDomainRequired") },
+                {
+                  pattern: MAIL_DOMAIN_PATTERN,
+                  message: t("agent.mailDomainInvalid"),
+                },
+              ]}
+            >
+              <Select
+                options={MAIL_DOMAIN_OPTIONS}
+                placeholder={t("agent.mailDomainPlaceholder")}
+              />
+            </Form.Item>
+            {isCustomMailDomain && (
+              <Form.Item
+                name={["mail_credential", "provider"]}
+                label={t("agent.mailProvider")}
+                rules={[
+                  { required: true, message: t("agent.mailProviderRequired") },
+                ]}
+              >
+                <Select
+                  placeholder={t("agent.mailProviderPlaceholder")}
+                  options={MAIL_PROVIDER_OPTIONS.map(({ value, labelKey }) => ({
+                    value,
+                    label: t(labelKey),
+                  }))}
+                />
+              </Form.Item>
+            )}
+            <Form.Item
+              name={["mail_credential", "auth_code"]}
+              label={
+                isAuthCodeDomain
+                  ? t("agent.mailAuthCode")
+                  : t("agent.mailCredentialLabel")
+              }
+              extra={t(mailCredentialHintKey)}
+              rules={[
+                {
+                  required: !editingAgent,
+                  message: isAuthCodeDomain
+                    ? t("agent.mailAuthCodeRequired")
+                    : t("agent.mailCredentialRequired"),
+                },
+                ...(isAuthCodeDomain
+                  ? [{ len: 16, message: t("agent.mailAuthCodeLength") }]
+                  : []),
+              ]}
+            >
+              <Input.Password placeholder={t(mailCredentialHintKey)} />
+            </Form.Item>
+          </>
+        )}
+        {selectedBackend === "qwenpaw" && mailMode === "dedicated" && (
+          <>
+            <Form.Item
+              name={["mail_credential", "name"]}
+              label={t("agent.mailNameDedicated")}
+              rules={[
+                {
+                  required: !!mailCredential,
+                  message: t("agent.mailNameRequired"),
+                },
+              ]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name={["mail_credential", "domain"]}
+              label={t("agent.mailDomain")}
+              initialValue="163.com"
+              rules={[
+                { required: true, message: t("agent.mailDomainRequired") },
+                {
+                  pattern: MAIL_DOMAIN_PATTERN,
+                  message: t("agent.mailDomainInvalid"),
+                },
+              ]}
+            >
+              <Select
+                options={MAIL_DOMAIN_OPTIONS}
+                placeholder={t("agent.mailDomainPlaceholder")}
+              />
+            </Form.Item>
+            {isCustomMailDomain && (
+              <Form.Item
+                name={["mail_credential", "provider"]}
+                label={t("agent.mailProvider")}
+                rules={[
+                  { required: true, message: t("agent.mailProviderRequired") },
+                ]}
+              >
+                <Select
+                  placeholder={t("agent.mailProviderPlaceholder")}
+                  options={MAIL_PROVIDER_OPTIONS.map(({ value, labelKey }) => ({
+                    value,
+                    label: t(labelKey),
+                  }))}
+                />
+              </Form.Item>
+            )}
+            <Form.Item
+              name={["mail_credential", "auth_code"]}
+              label={
+                isAuthCodeDomain
+                  ? t("agent.mailAuthCodeOptional")
+                  : t("agent.mailCredentialOptional")
+              }
+              extra={t("agent.mailDedicatedCredentialHint", {
+                credentialHint: t(mailCredentialHintKey),
+              })}
+              rules={[
+                ...(isAuthCodeDomain
+                  ? [{ len: 16, message: t("agent.mailAuthCodeLength") }]
+                  : []),
+              ]}
+            >
+              <Input.Password placeholder={t(mailCredentialHintKey)} />
+            </Form.Item>
+          </>
+        )}
+        {selectedBackend === "qwenpaw" && mailMode && mailMode !== "none" && (
+          <Form.Item
+            name={["mail_push", "mode"]}
+            label={t("agent.mailPushTitle")}
+            initialValue="off"
+            extra={t(MAIL_PUSH_MODE_DESC_KEYS[mailPushMode || "off"])}
+          >
+            <Select
+              options={[
+                { value: "off", label: t("agent.mailPushModeOff") },
+                {
+                  value: "agent_all",
+                  label: t("agent.mailPushModeAgentAll"),
+                },
+                // Keep the legacy value selectable only while it is the
+                // current one, so old configs don't show a bare value.
+                // Once the user switches away it can't be selected back.
+                ...(mailPushMode &&
+                LEGACY_MAIL_PUSH_MODE_LABEL_KEYS[mailPushMode]
+                  ? [
+                      {
+                        value: mailPushMode,
+                        label: `${t(
+                          LEGACY_MAIL_PUSH_MODE_LABEL_KEYS[mailPushMode],
+                        )}${t("agent.mailPushModeLegacySuffix")}`,
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </Form.Item>
+        )}
+        {selectedBackend === "qwenpaw" &&
+          mailMode &&
+          mailMode !== "none" &&
+          mailPushMode &&
+          mailPushMode !== "off" && (
+            <Form.Item
+              label={t("agent.mailAccessControl")}
+              name={["mail_push", "access_control_enabled"]}
+              valuePropName="checked"
+              initialValue={false}
+              extra={t("agent.mailAccessControlTip")}
+            >
+              <Switch />
+            </Form.Item>
+          )}
       </Form>
 
       <div

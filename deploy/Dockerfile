@@ -92,6 +92,7 @@ ENV PATH="/app/venv/bin:$PATH"
 
 COPY pyproject.toml setup.py README.md ./
 COPY src ./src
+COPY packages/qwenpawmail-mcp/src/qwenpawmail_mcp ./packages/qwenpawmail-mcp/src/qwenpawmail_mcp
 COPY website/public/docs/ ./src/qwenpaw/docs/
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/

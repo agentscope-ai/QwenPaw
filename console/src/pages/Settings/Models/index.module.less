@@ -4,6 +4,441 @@
   gap: 4px;
 }
 
+/* ---- Provider visual refresh -------------------------------------------- */
+.settingsPage {
+  --models-bg: transparent;
+  --models-surface: var(--qwenpaw-color-bg-container, #ffffff);
+  --models-surface-muted: var(--qwenpaw-color-fill-quaternary, #f5f5f5);
+  --models-border: var(--qwenpaw-color-border-secondary, #e8e8e8);
+  --models-border-strong: var(--qwenpaw-color-border, #d9d9d9);
+  --models-text: var(--qwenpaw-color-text, #1f1f1f);
+  --models-text-muted: var(--qwenpaw-color-text-secondary, rgba(0, 0, 0, 0.65));
+  --models-text-faint: var(--qwenpaw-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  --models-accent: var(--qwenpaw-color-primary, #ff7f16);
+  --models-accent-strong: var(--qwenpaw-color-primary, #ff7f16);
+  --models-accent-soft: var(
+    --qwenpaw-color-primary-bg,
+    rgba(255, 127, 22, 0.08)
+  );
+  --models-positive: #3f7450;
+  --models-positive-soft: #edf5ee;
+  background: var(--models-bg);
+  color: var(--models-text);
+}
+
+.settingsPage .content {
+  background: var(--models-bg);
+}
+
+.settingsPage .pageHeader {
+  padding: 18px 24px;
+  border-bottom-color: var(--models-border);
+  background: var(--models-bg);
+}
+
+.settingsPage .breadcrumbParent {
+  color: var(--models-text-faint);
+}
+
+.settingsPage .breadcrumbSeparator {
+  color: var(--models-border-strong);
+}
+
+.settingsPage .breadcrumbCurrent {
+  color: var(--models-text);
+}
+
+.settingsPage .providersBlock {
+  margin-top: 0;
+}
+
+.settingsPage .sectionHeaderRow {
+  align-items: center;
+  padding: 18px 24px 14px;
+  background: var(--models-bg);
+}
+
+.settingsPage .providersPageHeader {
+  padding: 0;
+}
+
+.settingsPage .headerRight {
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settingsPage .searchRow {
+  margin: 0;
+  gap: 8px;
+}
+
+.settingsPage .searchInput {
+  width: 230px;
+  max-width: 230px;
+}
+
+.settingsPage .searchBtn,
+.settingsPage .addProviderBtn {
+  margin: 0;
+}
+
+.settingsPage .llmPill {
+  min-height: 36px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  background: var(--models-surface);
+  border: 1px solid var(--models-border);
+  box-shadow: none;
+}
+
+.settingsPage .llmPillOn {
+  border-color: rgba(63, 116, 80, 0.32);
+  background: var(--models-positive-soft);
+}
+
+.settingsPage .llmPillOff {
+  border-color: var(--models-border);
+  background: var(--models-surface);
+}
+
+.settingsPage .llmPillLabel {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .llmPillValue {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--models-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsPage .llmPillEdit {
+  color: var(--models-accent-strong);
+}
+
+.settingsPage .tabsNav {
+  margin: 0 24px 16px;
+  border-bottom: 1px solid var(--models-border);
+}
+
+.settingsPage .tabItem {
+  padding: 11px 14px;
+  color: var(--models-text-muted);
+}
+
+.settingsPage .tabItem:hover {
+  color: var(--models-text);
+}
+
+.settingsPage .tabItemActive {
+  color: var(--models-accent-strong);
+  border-bottom-color: var(--models-accent);
+}
+
+.settingsPage .panelSection,
+.settingsPage .panelSectionDashed {
+  margin: 0 24px 18px;
+  padding: 18px;
+  border-radius: 10px;
+}
+
+.settingsPage .panelSection {
+  background: var(--models-surface-muted);
+  border-color: var(--models-border);
+}
+
+.settingsPage .panelSectionDashed {
+  background: var(--models-surface);
+  border: 1px dashed var(--models-border-strong);
+}
+
+.settingsPage .panelTitle {
+  margin-bottom: 14px;
+  color: var(--models-text-muted);
+}
+
+.settingsPage .panelDotGreen {
+  background: var(--models-positive);
+}
+
+.settingsPage .panelDotGray {
+  background: var(--models-text-faint);
+}
+
+.settingsPage .panelCount {
+  color: var(--models-positive);
+}
+
+.settingsPage .providerCards {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  margin-bottom: 0;
+}
+
+.settingsPage .groupCardGlass,
+.settingsPage .providerCard {
+  border: 1px solid var(--models-border);
+  border-radius: 10px;
+  background: var(--models-surface);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.05);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.settingsPage .groupCardGlass:hover,
+.settingsPage .providerCard:hover {
+  border-color: var(--models-border-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.settingsPage .groupCardName,
+.settingsPage .cardName {
+  color: var(--models-text);
+}
+
+.settingsPage .groupCardLiveBadge {
+  color: var(--models-positive);
+}
+
+.settingsPage .groupCardPulse {
+  background: var(--models-positive);
+}
+
+.settingsPage .groupSegmented {
+  background: var(--models-surface-muted);
+}
+
+.settingsPage .groupSegBtn {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .groupSegBtn:hover {
+  color: var(--models-text);
+}
+
+.settingsPage .groupSegBtnActive {
+  color: var(--models-accent-strong);
+  background: var(--models-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.settingsPage .groupSegDotOn {
+  background: var(--models-positive);
+}
+
+.settingsPage .groupSegDotOff {
+  background: var(--models-text-faint);
+}
+
+.settingsPage .groupCardFieldLabel,
+.settingsPage .infoLabel {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .groupCardFieldValue,
+.settingsPage .infoValue {
+  color: var(--models-text);
+}
+
+.settingsPage .groupCardMono {
+  color: var(--models-text-muted);
+  background: var(--models-surface-muted);
+  border-color: var(--models-border);
+}
+
+.settingsPage .groupCardChangeBtn,
+.settingsPage .availableItemAction {
+  color: var(--models-accent-strong);
+}
+
+.settingsPage .groupCardChangeBtn:hover,
+.settingsPage .availableItemAction:hover {
+  color: var(--models-accent);
+}
+
+.settingsPage .groupCardActions {
+  border-top-color: var(--models-border);
+}
+
+.settingsPage .groupCardActBtn {
+  min-height: 34px;
+  padding: 7px 12px;
+  border-color: var(--models-border);
+  color: var(--models-text-muted);
+  background: var(--models-surface);
+}
+
+.settingsPage .groupCardActBtn:hover {
+  border-color: rgba(194, 101, 47, 0.42);
+  color: var(--models-accent-strong);
+  background: var(--models-accent-soft);
+}
+
+.settingsPage .groupCardActBtnDanger {
+  color: #a34e4e;
+  border-color: rgba(163, 78, 78, 0.24);
+}
+
+.settingsPage .groupCardActBtnDanger:hover {
+  color: #8d3d3d;
+  border-color: rgba(163, 78, 78, 0.42);
+  background: rgba(163, 78, 78, 0.07);
+}
+
+.settingsPage .builtinTag {
+  color: var(--models-text-muted);
+  background: var(--models-surface-muted);
+}
+
+.settingsPage .customTag {
+  color: var(--models-accent-strong);
+  background: var(--models-accent-soft);
+  border-color: rgba(194, 101, 47, 0.22);
+}
+
+.settingsPage .freeTag {
+  color: var(--models-positive);
+  background: var(--models-positive-soft);
+  background-image: none;
+}
+
+.settingsPage .localTag {
+  color: #55736b;
+  background: #edf4f1;
+}
+
+.settingsPage .availableGrid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.settingsPage .availableItem {
+  min-height: 50px;
+  padding: 10px 12px;
+  border-color: var(--models-border);
+  border-radius: 8px;
+  background: var(--models-surface);
+}
+
+.settingsPage .availableItem:hover {
+  border-color: rgba(194, 101, 47, 0.42);
+  background: var(--models-accent-soft);
+  box-shadow: none;
+}
+
+.settingsPage .availableItemName {
+  color: var(--models-text);
+}
+
+.settingsPage .emptyConfigured {
+  padding: 40px 24px;
+  border-color: var(--models-border-strong);
+}
+
+.settingsPage .emptyConfigured p {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .variantItem {
+  background: var(--models-surface-muted);
+}
+
+.settingsPage .variantItem:hover {
+  background: var(--models-accent-soft);
+}
+
+@media (max-width: 900px) {
+  .settingsPage .sectionHeaderRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settingsPage .headerRight {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .settingsPage .pageHeader {
+    padding: 14px 16px;
+  }
+
+  .settingsPage .sectionHeaderRow {
+    padding: 14px 16px 12px;
+  }
+
+  .settingsPage .headerRight {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settingsPage .llmPill,
+  .settingsPage .searchRow,
+  .settingsPage .searchInput,
+  .settingsPage .addProviderBtn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .settingsPage .tabsNav,
+  .settingsPage .panelSection,
+  .settingsPage .panelSectionDashed {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .settingsPage .providerCards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+:global(.dark-mode) .settingsPage {
+  --models-bg: transparent;
+  --models-surface: var(--qwenpaw-color-bg-container, #1f1f1f);
+  --models-surface-muted: var(--qwenpaw-color-fill-quaternary, #262626);
+  --models-border: var(
+    --qwenpaw-color-border-secondary,
+    rgba(255, 255, 255, 0.12)
+  );
+  --models-border-strong: var(--qwenpaw-color-border, rgba(255, 255, 255, 0.2));
+  --models-text: var(--qwenpaw-color-text, rgba(255, 255, 255, 0.88));
+  --models-text-muted: var(
+    --qwenpaw-color-text-secondary,
+    rgba(255, 255, 255, 0.65)
+  );
+  --models-text-faint: var(
+    --qwenpaw-color-text-tertiary,
+    rgba(255, 255, 255, 0.45)
+  );
+  --models-accent: var(--qwenpaw-color-primary, #ff9d4d);
+  --models-accent-strong: var(--qwenpaw-color-primary, #ff9d4d);
+  --models-accent-soft: var(
+    --qwenpaw-color-primary-bg,
+    rgba(255, 127, 22, 0.14)
+  );
+  --models-positive: #8ec49a;
+  --models-positive-soft: rgba(76, 175, 96, 0.14);
+}
+
+:global(.dark-mode) .settingsPage .groupCardActBtnDanger {
+  color: #e89a9a;
+  border-color: rgba(232, 154, 154, 0.24);
+}
+
+:global(.dark-mode) .settingsPage .groupCardActBtnDanger:hover {
+  color: #f0b0b0;
+  border-color: rgba(232, 154, 154, 0.44);
+  background: rgba(232, 154, 154, 0.09);
+}
+
+:global(.dark-mode) .settingsPage .localTag {
+  color: #a3c8be;
+  background: rgba(90, 144, 128, 0.14);
+}
+
 .localAdvancedConfigLabelRow {
   display: flex;
   align-items: center;
@@ -1617,11 +2052,33 @@
 .modelListItemActions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.modelListActionButton {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+
+  :global(.ant-btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :global(svg) {
+    width: 18px !important;
+    height: 18px !important;
+  }
 }
 
 .modelListItemStatusButton {
@@ -2693,10 +3150,24 @@
   }
 
   .modelListItemActions {
-    gap: 4px;
+    gap: 8px;
     flex-shrink: 0;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .modelListActionButton {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+  }
+
+  .modelListItemActionDivider {
+    flex-basis: 100%;
+    width: 100% !important;
+    height: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
   }
 
   .modelListItemStatusButton {
@@ -2720,4 +3191,103 @@
       }
     }
   }
+}
+
+/* Keep the refreshed dark surfaces after the legacy theme rules above. */
+:global(.dark-mode) .settingsPage {
+  background: var(--models-bg);
+}
+
+:global(.dark-mode) .settingsPage .pageHeader {
+  background: var(--models-bg);
+}
+
+:global(.dark-mode) .settingsPage .sectionHeaderRow,
+:global(.dark-mode) .settingsPage .content {
+  background: var(--models-bg);
+}
+
+:global(.dark-mode) .settingsPage .panelSection,
+:global(.dark-mode) .settingsPage .panelSectionDashed,
+:global(.dark-mode) .settingsPage .groupCardGlass,
+:global(.dark-mode) .settingsPage .providerCard,
+:global(.dark-mode) .settingsPage .availableItem,
+:global(.dark-mode) .settingsPage .llmPill {
+  background: var(--models-surface);
+  border-color: var(--models-border);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+}
+
+:global(.dark-mode) .settingsPage .panelSection {
+  background: var(--models-surface-muted);
+}
+
+:global(.dark-mode) .settingsPage .groupSegmented,
+:global(.dark-mode) .settingsPage .groupCardMono,
+:global(.dark-mode) .settingsPage .variantItem {
+  background: var(--models-surface-muted);
+  border-color: var(--models-border);
+}
+
+:global(.dark-mode) .settingsPage .groupSegBtnActive,
+:global(.dark-mode) .settingsPage .availableItem:hover,
+:global(.dark-mode) .settingsPage .groupCardActBtn:hover,
+:global(.dark-mode) .settingsPage .variantItem:hover {
+  background: var(--models-accent-soft);
+}
+
+:global(.dark-mode) .settingsPage .groupCardActBtn {
+  color: var(--models-text-muted);
+  background: var(--models-surface);
+  border-color: var(--models-border);
+}
+
+:global(.dark-mode) .settingsPage .tabItemActive,
+:global(.dark-mode) .settingsPage .groupSegBtnActive {
+  color: var(--models-accent-strong);
+  border-bottom-color: var(--models-accent);
+}
+
+:global(.dark-mode) .settingsPage .groupSegBtn,
+:global(.dark-mode) .settingsPage .groupCardFieldLabel,
+:global(.dark-mode) .settingsPage .infoLabel,
+:global(.dark-mode) .settingsPage .panelTitle {
+  color: var(--models-text-muted);
+}
+
+:global(.dark-mode) .settingsPage .groupCardFieldValue,
+:global(.dark-mode) .settingsPage .groupCardName,
+:global(.dark-mode) .settingsPage .cardName,
+:global(.dark-mode) .settingsPage .availableItemName {
+  color: var(--models-text);
+}
+
+:global(.dark-mode) .settingsPage .groupCardMono {
+  color: var(--models-text-muted);
+}
+
+:global(.dark-mode) .settingsPage .groupSegDotOff {
+  background: var(--models-text-faint);
+}
+
+:global(.dark-mode) .settingsPage .availableItemAction,
+:global(.dark-mode) .settingsPage .groupCardChangeBtn {
+  color: var(--models-accent-strong);
+}
+
+:global(.dark-mode) .settingsPage .freeTag {
+  color: var(--models-positive);
+  background: var(--models-positive-soft);
+  background-image: none;
+}
+
+:global(.dark-mode) .settingsPage .customTag {
+  color: var(--models-accent-strong);
+  background: var(--models-accent-soft);
+  border-color: rgba(237, 146, 93, 0.24);
+}
+
+:global(.dark-mode) .settingsPage .localTag {
+  color: #a3c8be;
+  background: rgba(90, 144, 128, 0.14);
 }

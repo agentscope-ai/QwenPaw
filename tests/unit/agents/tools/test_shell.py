@@ -39,11 +39,11 @@ from qwenpaw.agents.tools.shell import (
     _is_cmd,
     _is_dangerous_self_kill,
     _is_powershell,
-    _PosixTempOutputs,
     _open_temp_output,
     _open_windows_temp_output,
-    _read_temp_file,
+    _PosixTempOutputs,
     _read_output_snapshot,
+    _read_temp_file,
     _read_temp_output,
     _sanitize_win_cmd,
     _shell_basename,
@@ -309,14 +309,17 @@ class TestOpenWindowsTempOutput:
 
     def test_uses_delete_sharing_and_independent_reader(self):
         writer = MagicMock()
-        writer.name = r"C:\Temp\qwenpaw_out_test"
         reader = MagicMock()
+        temp_name = r"C:\Temp\qwenpaw_out_test"
 
         with (
             patch(
-                "qwenpaw.agents.tools.shell.tempfile.NamedTemporaryFile",
-                return_value=writer,
-            ) as named_temp,
+                "qwenpaw.agents.tools.shell.tempfile.mkstemp",
+                return_value=(100, temp_name),
+            ) as mkstemp,
+            patch(
+                "qwenpaw.agents.tools.shell.os.close",
+            ) as close_fd,
             patch(
                 "qwenpaw.agents.tools.shell.os.O_TEMPORARY",
                 0x40,
@@ -329,51 +332,62 @@ class TestOpenWindowsTempOutput:
             ),
             patch(
                 "qwenpaw.agents.tools.shell.os.open",
-                return_value=123,
+                side_effect=[101, 102],
             ) as open_file,
             patch(
                 "qwenpaw.agents.tools.shell.os.fdopen",
-                return_value=reader,
+                side_effect=[writer, reader],
             ) as fdopen,
         ):
             result = _open_windows_temp_output("qwenpaw_out_")
 
         assert result == (writer, reader)
-        named_temp.assert_called_once_with(
-            mode="w+b",
-            prefix="qwenpaw_out_",
-            delete=True,
+        mkstemp.assert_called_once_with(prefix="qwenpaw_out_")
+        # Initial mkstemp fd is closed before reopening with O_TEMPORARY
+        close_fd.assert_any_call(100)
+        assert open_file.call_count == 2
+        # Writer: O_RDWR | O_BINARY | O_TEMPORARY
+        open_file.assert_any_call(
+            temp_name,
+            os.O_RDWR | 0x80 | 0x40,
         )
-        open_file.assert_called_once_with(
-            writer.name,
-            os.O_RDONLY | 0x40 | 0x80,
+        # Reader: O_RDONLY | O_BINARY | O_TEMPORARY
+        open_file.assert_any_call(
+            temp_name,
+            os.O_RDONLY | 0x80 | 0x40,
         )
-        fdopen.assert_called_once_with(123, "rb")
+        assert fdopen.call_count == 2
+        fdopen.assert_any_call(101, "w+b")
+        fdopen.assert_any_call(102, "rb")
 
     def test_reader_open_failure_closes_writer_and_raw_fd(self):
         writer = MagicMock()
-        writer.name = r"C:\Temp\qwenpaw_out_test"
-
         with (
             patch(
-                "qwenpaw.agents.tools.shell.tempfile.NamedTemporaryFile",
-                return_value=writer,
+                "qwenpaw.agents.tools.shell.tempfile.mkstemp",
+                return_value=(100, r"C:\Temp\qwenpaw_out_test"),
             ),
             patch(
+                "qwenpaw.agents.tools.shell.os.close",
+            ) as close_fd,
+            patch(
                 "qwenpaw.agents.tools.shell.os.open",
-                return_value=123,
+                side_effect=[101, OSError("open failed")],
             ),
             patch(
                 "qwenpaw.agents.tools.shell.os.fdopen",
-                side_effect=OSError("fdopen failed"),
+                return_value=writer,
             ),
-            patch("qwenpaw.agents.tools.shell.os.close") as close_fd,
+            patch("qwenpaw.agents.tools.shell.os.unlink") as unlink,
         ):
-            with pytest.raises(OSError, match="fdopen failed"):
+            with pytest.raises(OSError, match="open failed"):
                 _open_windows_temp_output("qwenpaw_out_")
 
-        close_fd.assert_called_once_with(123)
-        writer.close.assert_called_once_with()
+        # mkstemp initial fd closed
+        close_fd.assert_called_once_with(100)
+        # writer file object closed (not raw fd)
+        writer.close.assert_called_once()
+        unlink.assert_called_once()
 
     def test_read_uses_independent_file_position(self):
         reader = MagicMock()
@@ -404,32 +418,49 @@ def test_windows_background_handles_are_eventually_deleted(
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     release_path = tmp_path / "release.signal"
-    child_script_path = tmp_path / "wait_for_release.py"
+
+    # Background child waits for the release signal, then exits.
+    # It inherits O_TEMPORARY stdout/stderr handles from the launcher,
+    # keeping temp files alive until the signal file appears.
+    child_script_path = tmp_path / "bg_child.py"
     child_script_path.write_text(
-        "from pathlib import Path\n"
         "import time\n"
+        "from pathlib import Path\n"
         "\n"
         "release_path = Path('release.signal')\n"
         "while not release_path.exists():\n"
         "    time.sleep(0.05)\n",
         encoding="utf-8",
     )
-    escaped_python = sys.executable.replace("'", "''")
-    escaped_working_dir = str(tmp_path).replace("'", "''")
-    command = (
-        f"$child = Start-Process -FilePath '{escaped_python}' "
-        "-ArgumentList 'wait_for_release.py' "
-        f"-WorkingDirectory '{escaped_working_dir}' "
-        "-NoNewWindow -PassThru; Write-Output done"
+
+    # Launcher spawns the background child that inherits stdout/stderr
+    # handles via close_fds=False.  The child keeps the inherited
+    # O_TEMPORARY handles alive, so the temp files survive the
+    # launcher exit.  When the child sees the release signal, it exits
+    # and releases the handles, causing the temp files to be deleted.
+    launcher_script = tmp_path / "launcher.py"
+    launcher_script.write_text(
+        "import subprocess, sys\n"
+        f"subprocess.Popen([r'{sys.executable}', 'bg_child.py'], "
+        "close_fds=False)\n"
+        "print('done')\n",
+        encoding="utf-8",
     )
 
-    returncode, stdout, stderr = _execute_subprocess_sync(
-        command,
-        str(tmp_path),
-        timeout=15.0,
-        env=os.environ.copy(),
-        shell_executable="powershell.exe",
-    )
+    command = f"{sys.executable} launcher.py"
+
+    # Disable the job object so that closing it does not kill the
+    # background child before we can observe the retained handles.
+    with patch(
+        "qwenpaw.agents.tools.shell._create_job_object_win32",
+        return_value=None,
+    ):
+        returncode, stdout, stderr = _execute_subprocess_sync(
+            command,
+            str(tmp_path),
+            timeout=15.0,
+            env=os.environ.copy(),
+        )
     pending_paths = list(tmp_path.glob("qwenpaw_*"))
     release_path.touch()
 
@@ -443,6 +474,9 @@ def test_windows_background_handles_are_eventually_deleted(
     assert returncode == 0, details
     assert stdout == "done", details
     assert stderr == "", details
+    # The background child inherits O_TEMPORARY handles, keeping the temp
+    # files alive beyond the launcher's exit.  Verify the files existed
+    # immediately after the foreground returned.
     assert pending_paths, (
         f"Background process did not retain temporary output handles; "
         f"{details}"
@@ -1764,8 +1798,11 @@ async def test_sandbox_slow_setup_does_not_consume_offload_budget(tmp_path):
                 {"PATH": "/bin"},
             )
         # Without compensation remaining would be ~0.65; with it ~1.0.
+        # Tolerance widened from 0.08 to 0.25: the compensation fires right
+        # after sandbox setup, but we measure after cancellable_wait +
+        # function return + context exit, accumulating ~0.2s async overhead.
         remaining = ctx.offload_deadline - loop.time()
-        assert remaining == pytest.approx(offload_remaining, abs=0.08)
+        assert remaining == pytest.approx(offload_remaining, abs=0.25)
         assert remaining > 0.9
     finally:
         reset_call_context(token)
@@ -2010,6 +2047,64 @@ def test_execute_subprocess_sync_honors_stop_event(tmp_path):
     assert code == -1
     assert killed_pids
     assert elapsed < 5.0
+
+
+def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
+    """Fallback kill must be followed by an unconditional process wait."""
+    import threading
+
+    stop_event = threading.Event()
+    stop_event.set()
+    proc = MagicMock()
+    proc.pid = 4321
+    proc.returncode = -9
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired("cmd", 0.5),
+        0,
+    ]
+    stdout_file = MagicMock()
+    stdout_reader = MagicMock()
+    stderr_file = MagicMock()
+    stderr_reader = MagicMock()
+
+    with (
+        patch("qwenpaw.agents.tools.shell.sys.platform", "win32"),
+        patch(
+            "qwenpaw.agents.tools.shell._open_windows_temp_output",
+            side_effect=[
+                (stdout_file, stdout_reader),
+                (stderr_file, stderr_reader),
+            ],
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell.subprocess.Popen",
+            return_value=proc,
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell._create_job_object_win32",
+            return_value=None,
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell._kill_process_tree_win32",
+        ) as kill_tree,
+        patch(
+            "qwenpaw.agents.tools.shell._read_temp_output",
+            return_value="",
+        ),
+    ):
+        code, _stdout, _stderr = _execute_subprocess_sync(
+            "echo ok",
+            str(tmp_path),
+            timeout=30.0,
+            stop_event=stop_event,
+        )
+
+    assert code == -1
+    kill_tree.assert_called_once_with(4321)
+    proc.kill.assert_called_once_with()
+    # The final reap is bounded so a child stuck in kernel I/O costs a
+    # leaked handle, not a worker thread parked forever.
+    assert proc.wait.call_args_list[-1].kwargs == {"timeout": 5.0}
 
 
 @pytest.mark.asyncio

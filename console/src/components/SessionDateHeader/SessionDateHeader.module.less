@@ -1,0 +1,28 @@
+.header {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 14px 1px 20px;
+  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.34));
+  font-size: 10px;
+  font-weight: 520;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.line {
+  height: 1px;
+  flex: 1;
+  background: var(--colorBorderSecondary, rgba(43, 18, 0, 0.055));
+}
+
+:global(.dark-mode) {
+  .header {
+    color: rgba(255, 255, 255, 0.42);
+  }
+
+  .line {
+    background: rgba(255, 255, 255, 0.09);
+  }
+}
