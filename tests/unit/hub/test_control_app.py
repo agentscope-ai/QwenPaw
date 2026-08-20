@@ -869,6 +869,14 @@ def test_admin_stop_and_disable_have_distinct_owner_recovery(
             f"/api/hub/runtimes/{runtime_id}/disable",
             headers=_headers(admin_token),
         )
+        denied_delete = client.delete(
+            f"/api/hub/runtimes/{runtime_id}",
+            headers=member_headers,
+        )
+        retained = client.get(
+            f"/api/hub/runtimes/{runtime_id}",
+            headers=member_headers,
+        )
         denied_restart = client.post(
             "/api/hub/me/runtime/restart",
             headers=member_headers,
@@ -880,6 +888,9 @@ def test_admin_stop_and_disable_have_distinct_owner_recovery(
 
         assert disabled.status_code == 200
         assert disabled.json()["start_policy"] == "admin_only"
+        assert denied_delete.status_code == 403
+        assert retained.status_code == 200
+        assert retained.json()["start_policy"] == "admin_only"
         assert denied_restart.status_code == 423
         assert denied_start.status_code == 403
 
@@ -891,6 +902,20 @@ def test_admin_stop_and_disable_have_distinct_owner_recovery(
         assert enabled.json()["start_policy"] == "owner_allowed"
         assert (
             client.get("/api/probe", headers=member_headers).status_code == 200
+        )
+        assert (
+            client.post(
+                f"/api/hub/runtimes/{runtime_id}/stop",
+                headers=_headers(admin_token),
+            ).status_code
+            == 200
+        )
+        assert (
+            client.delete(
+                f"/api/hub/runtimes/{runtime_id}",
+                headers=_headers(admin_token),
+            ).status_code
+            == 204
         )
 
 

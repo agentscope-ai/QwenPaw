@@ -1036,7 +1036,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     @app.delete("/api/hub/runtimes/{runtime_id}", status_code=204)
     async def delete_runtime(
         runtime_id: str,
-        user: HubUser = Depends(require_user),
+        user: HubUser = Depends(require_admin),
     ) -> None:
         await require_runtime_access(runtime_id, user)
         try:
