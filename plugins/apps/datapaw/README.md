@@ -1,8 +1,10 @@
-# QwenPaw-Data PawApp
+# datapaw
 
 **Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale**
 
-QwenPaw-Data is a native QwenPaw application. Its frontend is mounted at
+Source: https://github.com/agentscope-ai/QwenPaw-Data
+
+datapaw is a native QwenPaw application. Its frontend is mounted at
 `/apps/datapaw`, its backend is registered under `/api/datapaw`, and its
 context service is private to the backend.
 
