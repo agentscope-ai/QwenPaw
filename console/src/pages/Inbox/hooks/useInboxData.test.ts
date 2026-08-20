@@ -7,7 +7,7 @@
  * - Events sorted by created_at descending
  * - Heartbeat content uses getHeartbeatSummary(status)
  * - markMessageAsRead optimistically sets read:true, decrements unread, calls api
- * - markAllMessagesAsRead returns 0 without calling api when no unread
+ * - markAllMessagesAsRead returns 0 and still calls api when no visible unread
  * - markAllMessagesAsRead marks all read, zeroes unread, returns unread count
  * - deleteMessages removes specified messages and returns count
  * - deleteMessages dedupes/trims empty ids (does not delete nothing)
@@ -127,6 +127,94 @@ describe("useInboxData", () => {
     expect(result.current.summary.pushMessages.total).toBe(2);
   });
 
+  it("keeps mail events and maps them to the email channel", async () => {
+    const events = [
+      makeEvent({
+        id: "keep-mail",
+        source_type: "mail",
+        event_type: "new_email",
+        title: "New email: hello",
+        body: "From: someone@example.com",
+      }),
+      makeEvent({ id: "drop-manual", source_type: "manual" }),
+    ];
+    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
+
+    const { result } = renderHook(() => useInboxData());
+
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    const msg = result.current.pushMessages[0];
+    expect(msg.id).toBe("keep-mail");
+    expect(msg.channelType).toBe("email");
+    expect(msg.channelName).toBe("Mail");
+    expect(msg.metadata?.sourceType).toBe("mail");
+  });
+
+  it("passes mail payload (incl. body_preview) through to metadata.payload", async () => {
+    const payload = {
+      sender: "alice@example.com",
+      subject: "Invoice #42",
+      date: "2026-07-28 10:00:00",
+      uid: "1001",
+      folder: "INBOX",
+      body_preview: "Hello,\nplease find the invoice attached.",
+    };
+    const events = [
+      makeEvent({
+        id: "mail-payload",
+        source_type: "mail",
+        event_type: "new_email",
+        payload,
+      }),
+    ];
+    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
+
+    const { result } = renderHook(() => useInboxData());
+
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    const msg = result.current.pushMessages[0];
+    expect(msg.metadata?.payload).toEqual(payload);
+    expect(msg.metadata?.payload?.body_preview).toBe(
+      "Hello,\nplease find the invoice attached.",
+    );
+  });
+
+  it("passes auto_handled payload.trace through to metadata.payload", async () => {
+    const trace = [
+      {
+        type: "tool_call",
+        name: "reply_message",
+        summary: '{"to": "alice@example.com"} => sent ok',
+      },
+      { type: "text", summary: "已回复 Alice 的邮件。" },
+    ];
+    const payload = {
+      from: "alice@example.com",
+      subject: "Invoice #42",
+      uid: "1001",
+      folder: "INBOX",
+      trace,
+    };
+    const events = [
+      makeEvent({
+        id: "mail-auto-handled",
+        source_type: "mail",
+        event_type: "auto_handled",
+        body: "已回复 Alice 的邮件。",
+        payload,
+      }),
+    ];
+    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
+
+    const { result } = renderHook(() => useInboxData());
+
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    const msg = result.current.pushMessages[0];
+    expect(msg.metadata?.eventType).toBe("auto_handled");
+    expect(msg.metadata?.payload?.trace).toEqual(trace);
+    expect(msg.content).toBe("已回复 Alice 的邮件。");
+  });
+
   it("sorts events by created_at descending", async () => {
     const events = [
       makeEvent({ id: "old", created_at: 1000 }),
@@ -179,7 +267,7 @@ describe("useInboxData", () => {
     expect(result.current.summary.pushMessages.unread).toBe(0);
   });
 
-  it("markAllMessagesAsRead returns 0 without calling api when no unread", async () => {
+  it("markAllMessagesAsRead returns 0 and still calls api when no visible unread", async () => {
     const events = [makeEvent({ id: "m1", read: true })];
     mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
 
@@ -193,7 +281,9 @@ describe("useInboxData", () => {
     });
 
     expect(count).toBe(0);
-    expect(mockMarkInboxRead).not.toHaveBeenCalled();
+    // API is still called — backend may have hidden unread events
+    // (e.g. ACL pending notifications filtered client-side).
+    expect(mockMarkInboxRead).toHaveBeenCalledWith({ all: true });
   });
 
   it("markAllMessagesAsRead marks all read, zeroes unread, returns unread count", async () => {

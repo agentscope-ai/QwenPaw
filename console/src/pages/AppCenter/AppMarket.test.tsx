@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { Modal } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +18,13 @@ const hoisted = vi.hoisted(() => ({
   installPlugin: vi.fn(),
   getVersion: vi.fn(),
 }));
+
+interface MockIntersectionObserver {
+  callback: IntersectionObserverCallback;
+  elements: Element[];
+}
+
+let intersectionObservers: MockIntersectionObserver[] = [];
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -67,6 +80,23 @@ describe("AppMarket", () => {
   const windowOpen = vi.fn();
 
   beforeEach(() => {
+    intersectionObservers = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private record: MockIntersectionObserver;
+
+        constructor(callback: IntersectionObserverCallback) {
+          this.record = { callback, elements: [] };
+          intersectionObservers.push(this.record);
+        }
+
+        observe(element: Element) {
+          this.record.elements.push(element);
+        }
+        disconnect() {}
+      },
+    );
     hoisted.fetchMarketPlugins.mockReset();
     hoisted.installPlugin.mockReset();
     hoisted.getVersion.mockReset();
@@ -80,23 +110,36 @@ describe("AppMarket", () => {
     hoisted.getVersion.mockResolvedValue({ version: "2.1.0" });
   });
 
-  it("shows featured apps only in the official channel", async () => {
+  it("requests featured apps for the official channel", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
-      plugins: [
-        makeEntry("agent-kanban", { is_featured: true }),
-        makeEntry("zalo-channel", { is_featured: false }),
-      ],
-      total: 2,
+      plugins: [makeEntry("official-app", { is_featured: true })],
+      total: 1,
     });
 
     render(<AppMarket channel="official" onInstalled={vi.fn()} />);
 
-    expect(await screen.findByText("agent-kanban")).toBeInTheDocument();
-    expect(screen.queryByText("zalo-channel")).not.toBeInTheDocument();
+    expect(await screen.findByText("official-app")).toBeInTheDocument();
+    expect(hoisted.fetchMarketPlugins).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page_number: 1,
+        page_size: 20,
+        is_featured: true,
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "appCenter.filterAll" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "common.refresh" }),
+    ).not.toBeInTheDocument();
+    expect(hoisted.fetchMarketPlugins.mock.calls[0][0]).not.toHaveProperty(
+      "sort_by",
+    );
     expect(screen.getByText("appCenter.featured")).toBeInTheDocument();
   });
 
-  it("shows non-featured apps only in the community channel", async () => {
+  it("shows all apps in the unfiltered app market", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [
         makeEntry("agent-kanban", { is_featured: true }),
@@ -110,34 +153,119 @@ describe("AppMarket", () => {
 
     expect(await screen.findByText("zalo-channel")).toBeInTheDocument();
     expect(screen.getByText("mahjong4")).toBeInTheDocument();
-    expect(screen.queryByText("agent-kanban")).not.toBeInTheDocument();
+    expect(screen.getByText("agent-kanban")).toBeInTheDocument();
+    expect(screen.getAllByText("appCenter.featured")).toHaveLength(2);
+
+    const initialParams = hoisted.fetchMarketPlugins.mock.calls[0][0];
+    expect(initialParams).not.toHaveProperty("sort_by");
+    expect(initialParams).not.toHaveProperty("is_featured");
+    expect(initialParams).not.toHaveProperty("is_trending");
   });
 
-  it("loads all server pages before applying the channel filter", async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) =>
-      makeEntry(`community-${index}`, { is_featured: false }),
+  it("passes the selected featured and trending filters to the API", async () => {
+    render(<AppMarket onInstalled={vi.fn()} />);
+    await screen.findByText("appCenter.marketEmpty");
+
+    fireEvent.click(screen.getByRole("button", { name: "appCenter.featured" }));
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ is_featured: true, page_number: 1 }),
+    );
+
+    const trendingButton = screen.getByRole("button", {
+      name: "appCenter.trending",
+    });
+    await waitFor(() => expect(trendingButton).toBeEnabled());
+    fireEvent.click(trendingButton);
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(3),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[2][0]).toEqual(
+      expect.objectContaining({ is_trending: true, page_number: 1 }),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[2][0]).not.toHaveProperty(
+      "is_featured",
+    );
+  });
+
+  it("refreshes page one with the current market filter", async () => {
+    render(<AppMarket onInstalled={vi.fn()} />);
+    await screen.findByText("appCenter.marketEmpty");
+
+    fireEvent.click(screen.getByRole("button", { name: "appCenter.featured" }));
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2),
+    );
+
+    const refreshButton = screen.getByRole("button", {
+      name: "common.refresh",
+    });
+    await waitFor(() => expect(refreshButton).toBeEnabled());
+    fireEvent.click(refreshButton);
+
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(3),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        page_number: 1,
+        is_featured: true,
+      }),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[2][0]).not.toHaveProperty(
+      "sort_by",
+    );
+  });
+
+  it("loads and appends the next market page when the sentinel is visible", async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) =>
+      makeEntry(`community-${index}`),
     );
     hoisted.fetchMarketPlugins.mockImplementation(({ page_number }) =>
       Promise.resolve(
         page_number === 1
-          ? { plugins: firstPage, total: 101 }
+          ? { plugins: firstPage, total: 21 }
           : {
-              plugins: [
-                makeEntry("official-on-page-two", { is_featured: true }),
-              ],
-              total: 101,
+              plugins: [makeEntry("community-page-two")],
+              total: 21,
             },
       ),
     );
 
-    render(<AppMarket channel="official" onInstalled={vi.fn()} />);
+    render(<AppMarket onInstalled={vi.fn()} />);
 
-    expect(await screen.findByText("official-on-page-two")).toBeInTheDocument();
+    expect(await screen.findByText("community-0")).toBeInTheDocument();
+    expect(screen.queryByText("community-page-two")).not.toBeInTheDocument();
+    expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1);
+
+    const sentinel = await screen.findByText("common.loading");
+    const sentinelObserver = intersectionObservers.find((observer) =>
+      observer.elements.includes(sentinel),
+    );
+    expect(sentinelObserver).toBeDefined();
+    act(() => {
+      sentinelObserver!.callback(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    expect(await screen.findByText("community-page-two")).toBeInTheDocument();
+    expect(screen.getByText("community-0")).toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(2);
     expect(hoisted.fetchMarketPlugins).toHaveBeenLastCalledWith(
-      expect.objectContaining({ page_number: 2, page_size: 100 }),
+      expect.objectContaining({
+        page_number: 2,
+        page_size: 20,
+      }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    expect(hoisted.fetchMarketPlugins.mock.calls[1][0]).not.toHaveProperty(
+      "sort_by",
+    );
+    expect(screen.getByText("appCenter.noMoreApps")).toBeInTheDocument();
   });
 
   it("aborts an obsolete request when a new search starts", async () => {

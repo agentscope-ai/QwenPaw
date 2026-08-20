@@ -22,7 +22,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 28px 32px 40px;
+  padding: 16px;
 
   @media (max-width: 1023px) {
     padding: 24px;
@@ -90,6 +90,71 @@
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────
 
+.marketFilterBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: nowrap;
+}
+
+.marketFilterOptions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.marketFilterActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.marketFilter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+
+  &:hover:not(:disabled) {
+    color: var(--app-text);
+    border-color: var(--app-border-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.marketFilterActive {
+  border-color: var(--color-fill-secondary, #e8e6e3);
+  background: var(--color-fill-secondary, #e8e6e3);
+  color: var(--app-text);
+  font-weight: 500;
+}
+
 .toolbar {
   display: flex;
   gap: 12px;
@@ -103,9 +168,32 @@
 }
 
 .searchInput {
+  width: 320px;
   max-width: 320px;
 
   @media (max-width: 639px) {
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .marketFilterBar {
+    flex-wrap: wrap;
+  }
+
+  .marketFilterOptions {
+    min-width: 0;
+    flex: 1;
+    overflow-x: auto;
+  }
+
+  .marketFilterActions {
+    margin-left: auto;
+  }
+
+  .marketFilterBar .searchInput {
+    width: 100%;
     max-width: none;
     flex-basis: 100%;
   }
@@ -116,61 +204,31 @@
 }
 
 .refreshBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 32px;
-  height: 32px;
-  border: 1px solid var(--app-border-strong);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--app-text-secondary);
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    border-color 0.18s ease;
-
-  &:hover {
-    border-color: var(--app-accent);
-    color: var(--app-accent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-accent);
-    outline-offset: 1px;
-  }
+  padding: 0;
 }
 
 // ── Grid & cards ────────────────────────────────────────────────────────────
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
 
   @media (max-width: 639px) {
     grid-template-columns: 1fr;
-  }
-}
-
-// Larger grid for the official-apps channel: wide, landscape cards (usually
-// two per row) so full descriptions fit without truncation.
-.gridLarge {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
-  gap: 20px;
-
-  @media (max-width: 767px) {
-    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 
 .appCard {
   position: relative;
-  border-radius: 12px;
+  min-width: 0;
+  border-radius: 8px;
   border: 1px solid var(--app-border);
   background: var(--app-surface);
   box-shadow: none;
+  overflow: hidden;
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease,
@@ -186,11 +244,31 @@
   // for safety in tests/storybook-like environments.
   :global(.ant-card-body),
   :global(.qwenpaw-card-body) {
+    position: relative;
     height: 100%;
-    padding: 18px;
+    min-height: 184px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    background: transparent;
+
+    @media (max-width: 639px) {
+      min-height: 184px;
+      padding: 14px;
+    }
+  }
+
+  &:hover .cardHoverActions,
+  &:focus-within .cardHoverActions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  &:hover .cardFooter,
+  &:focus-within .cardFooter {
+    opacity: 0;
   }
 }
 
@@ -198,147 +276,10 @@
   cursor: pointer;
 }
 
-// Official-channel market cards: landscape layout (icon left, content right)
-// with enlarged icon and typography. Text is never truncated — cards in the
-// same grid row share their height and the actions row is pinned to the
-// bottom so install buttons stay aligned across cards.
-.appCardLarge {
-  border-radius: 16px;
-
-  :global(.ant-card-body),
-  :global(.qwenpaw-card-body) {
-    padding: 24px;
-    flex-direction: row;
-    gap: 20px;
-  }
-
-  .cardIcon {
-    width: 72px;
-    height: 72px;
-    border-radius: 18px;
-    align-self: flex-start;
-  }
-
-  .marketLogo {
-    width: 100%;
-    height: 100%;
-    border-radius: 18px;
-  }
-
-  .cardTitle {
-    font-size: 18px;
-  }
-
-  .cardDesc {
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
-  .cardMeta {
-    font-size: 13px;
-  }
-
-  .featuredTag {
-    font-size: 12px;
-    line-height: 20px;
-    padding: 2px 10px;
-  }
-
-  .cardActions {
-    padding-top: 12px;
-  }
-
-  @media (max-width: 639px) {
-    :global(.ant-card-body),
-    :global(.qwenpaw-card-body) {
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .cardIcon {
-      width: 56px;
-      height: 56px;
-      border-radius: 14px;
-    }
-
-    .marketLogo {
-      border-radius: 14px;
-    }
-  }
-}
-
-// Installed apps share the official-channel landscape card look: icon left,
-// content right, enlarged typography, no text truncation. The layout lives on
-// .cardOpenButton because the card body's only flow child is that wrapper.
-.appCardInstalled {
-  border-radius: 16px;
-
-  :global(.ant-card-body),
-  :global(.qwenpaw-card-body) {
-    padding: 24px;
-  }
-
-  .cardOpenButton {
-    flex-direction: row;
-    gap: 20px;
-  }
-
-  .cardIcon {
-    width: 72px;
-    height: 72px;
-    border-radius: 18px;
-    align-self: flex-start;
-  }
-
-  .cardIconImage {
-    border-radius: 18px;
-  }
-
-  .cardBody {
-    gap: 8px;
-  }
-
-  .cardTitle {
-    font-size: 18px;
-    // Keep the title clear of the absolutely-positioned more-actions button.
-    padding-right: 28px;
-  }
-
-  .cardMeta {
-    font-size: 13px;
-  }
-
-  .cardDesc {
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
-  .moreBtn {
-    top: 16px;
-    right: 16px;
-  }
-
-  @media (max-width: 639px) {
-    .cardOpenButton {
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .cardIcon {
-      width: 56px;
-      height: 56px;
-      border-radius: 14px;
-    }
-
-    .cardIconImage {
-      border-radius: 14px;
-    }
-  }
-}
-
 .cardOpenButton {
   display: flex;
   flex: 1;
+  height: 100%;
   min-width: 0;
   flex-direction: column;
   gap: 12px;
@@ -354,10 +295,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
-  border-radius: 12px;
+  border-radius: 8px;
   color: var(--app-accent);
   background: var(--color-fill-quaternary, #f5f3f1);
 }
@@ -366,24 +307,25 @@
 .cardIconImage {
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  border-radius: 8px;
   object-fit: contain;
 }
 
 /* Emoji icons from plugin.json render as plain glyphs inside the slot. */
 .cardIconEmoji {
-  font-size: 34px;
+  font-size: 30px;
   line-height: 1;
 }
 
 .marketLogo {
-  width: 34px;
-  height: 34px;
+  width: 100%;
+  height: 100%;
   border-radius: 8px;
   object-fit: contain;
 }
 
 .cardBody {
+  min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -393,19 +335,33 @@
 .cardHeader {
   display: flex;
   align-items: center;
-  gap: 8px;
+  min-width: 0;
+  gap: 6px;
 }
 
 .cardTitle {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.4;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
+.versionBadge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-mauve-bg, rgba(239, 240, 243, 0.8));
+  color: var(--app-text-secondary);
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
 .cardDesc {
+  min-height: 39px;
   margin: 0 !important;
   font-size: 13px;
   line-height: 1.5;
@@ -423,31 +379,23 @@
   font-variant-numeric: tabular-nums;
 }
 
-// Bottom row of installed cards: version + category tag share one line.
+// Metadata follows the fixed-height description so cards stay aligned without
+// leaving a large vertical gap above the metadata.
 .cardFooter {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: auto;
-  padding-top: 2px;
+  min-height: 24px;
+  color: var(--app-text-secondary);
+  transition: opacity 0.16s ease;
 }
 
 .metaDownloads {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-}
-
-.cardTag {
-  align-self: flex-start;
-  margin: 2px 0 0 !important;
-  padding: 1px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 20px;
-  font-weight: 500;
   color: var(--app-text-secondary);
-  background: var(--color-fill-quaternary, #f5f3f1);
+  margin-left: auto;
 }
 
 .featuredTag {
@@ -472,53 +420,76 @@
 }
 
 .cardActions {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  z-index: 2;
   display: flex;
   gap: 8px;
-  margin-top: auto;
-  padding-top: 6px;
 
   :global(.ant-btn),
   :global(.qwenpaw-btn) {
-    border-radius: 8px;
+    flex: 1;
+    min-width: 0;
+    border-radius: 6px;
   }
 
   @media (max-width: 639px) {
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+
     :global(.ant-btn),
     :global(.qwenpaw-btn) {
-      min-height: 40px;
+      min-height: 36px;
     }
   }
 }
 
-.moreBtn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 2;
-  display: inline-flex;
+.cardHoverActions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+@media (max-width: 639px), (hover: none) {
+  .cardHoverActions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .appCard .cardFooter {
+    opacity: 0;
+  }
+}
+
+.loadMoreRow {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
+  min-height: 48px;
+  margin-top: 12px;
+  padding: 8px;
+}
+
+.noMoreText {
   color: var(--app-text-secondary);
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
+  font-size: 13px;
+}
 
-  &:hover {
-    color: var(--app-text);
-    background: var(--color-fill-quaternary, #f5f3f1);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-accent);
-    outline-offset: 1px;
-  }
+.sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
 }
 
 .stateBlock {
@@ -537,13 +508,55 @@
     transition: none;
   }
 
-  .refreshBtn,
-  .moreBtn {
+  .cardHoverActions {
     transition: none;
   }
 }
 
 :global(.dark-mode) {
+  .page {
+    background: #141414;
+  }
+
+  .marketFilter {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: #1f1f1f;
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover:not(:disabled):not(.marketFilterActive) {
+      border-color: rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .marketFilterActive {
+    border-color: rgba(255, 127, 22, 0.5);
+    background: rgba(255, 127, 22, 0.18);
+    color: #ffad66;
+  }
+
+  .viewTabs {
+    :global(.ant-tabs-nav::before),
+    :global(.qwenpaw-tabs-nav::before) {
+      border-bottom-color: rgba(255, 255, 255, 0.12);
+    }
+
+    :global(.ant-tabs-tab),
+    :global(.qwenpaw-tabs-tab) {
+      color: rgba(255, 255, 255, 0.55);
+    }
+
+    :global(.ant-tabs-tab-active .ant-tabs-tab-btn),
+    :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    :global(.ant-tabs-ink-bar),
+    :global(.qwenpaw-tabs-ink-bar) {
+      background: #ff7f16;
+    }
+  }
+
   .appCard:hover {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }

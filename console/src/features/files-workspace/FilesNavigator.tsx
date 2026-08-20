@@ -18,9 +18,6 @@ import {
   ArrowLeftRight,
   ChevronDown,
   ChevronRight,
-  File,
-  FileCode2,
-  FileText,
   Folder,
   FolderOpen,
   GripVertical,
@@ -40,6 +37,7 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { directoriesMatch, workspaceRoots } from "./directorySources";
+import FileGlyph from "./FileGlyph";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -77,30 +75,6 @@ interface ProfileFileRowProps {
 }
 
 type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
-
-function FileGlyph({ name }: { name: string }) {
-  const extension = name.split(".").pop()?.toLowerCase();
-  if (["md", "mdx", "txt", "log", "csv"].includes(extension ?? "")) {
-    return <FileText size={15} />;
-  }
-  if (
-    [
-      "py",
-      "ts",
-      "tsx",
-      "js",
-      "jsx",
-      "go",
-      "rs",
-      "java",
-      "html",
-      "css",
-    ].includes(extension ?? "")
-  ) {
-    return <FileCode2 size={15} />;
-  }
-  return <File size={15} />;
-}
 
 function ProfileFileRow({
   entry,

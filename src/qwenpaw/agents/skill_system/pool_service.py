@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ...exceptions import SkillsError
+from ...utils.io_utils import write_text_atomic
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import SkillInfo
 from .registry import (
@@ -581,9 +582,11 @@ class SkillPoolService:
                     encoding="utf-8",
                 )
                 scan_skill_dir_or_raise(staged_dir, skill_name)
-            (skill_dir / "SKILL.md").write_text(
+            write_text_atomic(
+                skill_dir / "SKILL.md",
                 content,
                 encoding="utf-8",
+                new_file_mode=0o644,
             )
 
         source = (

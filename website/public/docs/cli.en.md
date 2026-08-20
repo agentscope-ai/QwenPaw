@@ -679,31 +679,41 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 
 ### qwenpaw skills
 
-| Command                    | What it does                                              |
-| -------------------------- | --------------------------------------------------------- |
-| `qwenpaw skills install`   | Install a skill from a supported URL source               |
-| `qwenpaw skills uninstall` | Remove a skill from the skill pool or one agent workspace |
-| `qwenpaw skills list`      | Show all skills and their enabled/disabled status         |
-| `qwenpaw skills config`    | Interactively enable/disable skills (checkbox UI)         |
-| `qwenpaw skills info`      | Show local details for one workspace skill                |
-
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+| Usage                                  | Positional arguments                                        | Options                                                                                                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qwenpaw skills list`                  | None                                                        | `--agent-id ID` (default `default`) or `--pool`; workspaces support `--status all\|enabled\|disabled` (default `all`), while the Pool does not support status filtering                                                         |
+| `qwenpaw skills config`                | None                                                        | `--agent-id ID` (default `default`); workspace only                                                                                                                                                                             |
+| `qwenpaw skills enable SKILL_NAME...`  | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                                                                             |
+| `qwenpaw skills disable SKILL_NAME...` | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                                                                             |
+| `qwenpaw skills info SKILL_NAME`       | One exact skill name                                        | `--agent-id ID` (default `default`) or `--pool`                                                                                                                                                                                 |
+| `qwenpaw skills install BUNDLE_URL`    | A skill URL from a supported source                         | `--pool` imports to the Pool; `--agent-id ID` installs into that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool; `--enable/--no-enable` is workspace-only (enabled by default) |
+| `qwenpaw skills uninstall SKILL_NAME`  | One exact skill name                                        | `--pool` removes it from the Pool; `--agent-id ID` removes it from that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool                                                         |
+| `qwenpaw skills test SKILL`            | A local skill directory or exact name in the selected scope | `--agent-id ID` (default `default`) or `--pool`                                                                                                                                                                                 |
 
 ```bash
-qwenpaw skills install https://skills.sh/owner/repo/skill  # Import into the local skill pool
+qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # Import into the local skill pool
 qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # Import directly into a specific agent workspace
-qwenpaw skills uninstall skill-creator  # Remove from the local skill pool
+qwenpaw skills uninstall skill-creator --pool  # Remove from the local skill pool
 qwenpaw skills uninstall skill-creator --agent-id abc123  # Remove from a specific agent workspace
-qwenpaw skills list                   # See default agent's skills
+qwenpaw skills list --status enabled      # Show only enabled skills for the default agent
+qwenpaw skills list --pool                # List the shared Pool (which has no enabled state)
 qwenpaw skills list --agent-id abc123 # See specific agent's skills
-qwenpaw skills config                 # Configure default agent
+qwenpaw skills config                 # Configure installed skills interactively
 qwenpaw skills config --agent-id abc123 # Configure specific agent
+qwenpaw skills enable pdf docx --agent-id abc123  # Batch-enable exact names
+qwenpaw skills disable pdf --agent-id abc123      # Disable without uninstalling
 qwenpaw skills info [skill_name]               # See default agent's skill details
+qwenpaw skills info [skill_name] --pool        # See details in the Pool
 qwenpaw skills info [skill_name] --agent-id abc123 # See specific agent's skill details
 ```
 
-In the interactive UI: ↑/↓ to navigate, Space to toggle, Enter to confirm.
-A preview of changes is shown before applying.
+In the `skills config` checkbox, type a contiguous substring to narrow the
+choices immediately instead of stepping through them one by one. Use ↑/↓ to
+navigate, Space to toggle, and Enter to confirm. Enabled choices
+remain selected while hidden by a filter. A preview is shown before applying.
+`config`, `enable`, and `disable` are workspace-only because the shared Pool
+has no enabled state. For commands that support `--pool`, it cannot be combined
+with `--agent-id`.
 
 > For built-in skill details and custom skill authoring, see [Skills](./skills).
 
@@ -784,7 +794,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    Partial ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
-| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        No        |
+| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        No        |
 | `qwenpaw task`      | —                                                                                    |        No        |
 | `qwenpaw auth`      | `reset-password`                                                                     |        No        |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        No        |

@@ -1,13 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
-import { Check } from "lucide-react";
+import { Button as AntButton } from "antd";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useAgentStore } from "../../../stores/agentStore";
 import { useMarketSearch } from "./useMarketSearch";
-import {
-  useMarketInstall,
-  type InstallTarget,
-  type InstallQueueItem,
+import type {
+  InstallTarget,
+  InstallQueueItem,
+  MarketInstallController,
 } from "./useMarketInstall";
 import type { MarketResult } from "../../../api/modules/market";
 import { ResultCard, DetailDrawer, QueueItem, EmptyState } from "./components";
@@ -18,7 +18,7 @@ function getCardKey(item: MarketResult) {
 }
 
 /** Memoized install queue panel — only re-renders when queue changes */
-const InstallQueuePanel = memo(function InstallQueuePanel({
+export const InstallQueuePanel = memo(function InstallQueuePanel({
   queue,
   onClearCompleted,
   onCancel,
@@ -52,11 +52,11 @@ const InstallQueuePanel = memo(function InstallQueuePanel({
   );
 });
 
-/** Multi-select provider chips (first filter layer) */
-const ProviderChips = memo(function ProviderChips({
+/** Multi-select source selector. */
+const ProviderSelect = memo(function ProviderSelect({
   providers,
   selectedKeys,
-  onToggle,
+  onSelect,
 }: {
   providers: {
     key: string;
@@ -65,58 +65,49 @@ const ProviderChips = memo(function ProviderChips({
     reason?: string | null;
   }[];
   selectedKeys: Set<string>;
-  onToggle: (key: string) => void;
+  onSelect: (keys: string[]) => void;
 }) {
   const { t } = useTranslation();
+  const availableKeys = useMemo(
+    () => providers.filter((provider) => provider.available).map((p) => p.key),
+    [providers],
+  );
+  const value = [...selectedKeys].filter((key) => availableKeys.includes(key));
+  const options = useMemo(
+    () =>
+      providers.map((provider) => {
+        const unavailableReason =
+          provider.reason ?? t("market.providerUnavailable");
+        return {
+          value: provider.key,
+          label: provider.available ? (
+            provider.label
+          ) : (
+            <Tooltip title={unavailableReason}>
+              <span className={styles.providerOption}>{provider.label}</span>
+            </Tooltip>
+          ),
+          disabled: !provider.available,
+        };
+      }),
+    [providers, t],
+  );
+
   return (
-    <div className={styles.providerChips}>
-      {providers.map((p) => {
-        const active = selectedKeys.has(p.key);
-        const klass = [
-          styles.chip,
-          active ? styles.chipActive : "",
-          !p.available ? styles.chipDisabled : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        return (
-          <Tooltip
-            key={p.key}
-            title={
-              p.available
-                ? undefined
-                : p.reason ?? t("market.providerUnavailable")
-            }
-          >
-            <span
-              className={klass}
-              onClick={p.available ? () => onToggle(p.key) : undefined}
-              role="button"
-              tabIndex={p.available ? 0 : -1}
-              onKeyDown={(e) => {
-                if (p.available && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  onToggle(p.key);
-                }
-              }}
-              aria-pressed={active}
-              aria-disabled={!p.available}
-            >
-              {active && <Check size={12} strokeWidth={3} />}
-              {p.label}
-            </span>
-          </Tooltip>
-        );
-      })}
-    </div>
+    <Select
+      className={styles.providerSelect}
+      mode="multiple"
+      value={value}
+      options={options}
+      onChange={(nextValues: string[]) => onSelect(nextValues)}
+      popupMatchSelectWidth={false}
+      popupClassName={styles.providerDropdown}
+    />
   );
 });
 
-/**
- * Single-select category dropdown (second filter layer).
- * The leading "All" option clears the filter.
- */
-const CategorySelect = memo(function CategorySelect({
+/** Expanded single-select category tags. */
+const CategoryChips = memo(function CategoryChips({
   categories,
   active,
   onSelect,
@@ -126,26 +117,93 @@ const CategorySelect = memo(function CategorySelect({
   onSelect: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const options = useMemo(
-    () => [
-      { value: "", label: t("market.categoryAll") },
-      ...categories.map((c) => ({ value: c.id, label: c.label })),
-    ],
-    [categories, t],
-  );
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const options = [{ id: "", label: t("market.categoryAll") }, ...categories];
+  const optionsKey = options
+    .map((option) => `${option.id}:${option.label}`)
+    .join("|");
+
+  const updateScrollState = useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    setCanScrollLeft(viewport.scrollLeft > 1);
+    setCanScrollRight(
+      viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 1,
+    );
+  }, []);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    updateScrollState();
+    viewport.addEventListener("scroll", updateScrollState, { passive: true });
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updateScrollState)
+        : null;
+    resizeObserver?.observe(viewport);
+    return () => {
+      viewport.removeEventListener("scroll", updateScrollState);
+      resizeObserver?.disconnect();
+    };
+  }, [optionsKey, updateScrollState]);
+
+  const scrollCategories = useCallback((direction: -1 | 1) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({
+      left: direction * viewport.clientWidth,
+      behavior: "smooth",
+    });
+  }, []);
+
   return (
-    <Select
-      className={styles.categorySelect}
-      value={active || undefined}
-      onChange={(v) => onSelect(v ?? "")}
-      options={options}
-      placeholder={t("market.categoryPlaceholder")}
-      showSearch
-      allowClear
-      optionFilterProp="label"
-      popupMatchSelectWidth={false}
-      aria-label={t("market.categoryPlaceholder")}
-    />
+    <div className={styles.categoryNav}>
+      <div
+        ref={viewportRef}
+        className={styles.categoryViewport}
+        role="group"
+        aria-label={t("market.categoryPlaceholder")}
+      >
+        <div className={styles.categoryChips}>
+          {options.map((category) => (
+            <button
+              type="button"
+              key={category.id || "all"}
+              className={`${styles.categoryChip} ${
+                active === category.id ? styles.categoryChipActive : ""
+              }`}
+              aria-pressed={active === category.id}
+              onClick={() => onSelect(category.id)}
+            >
+              {category.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={styles.categoryNavActions}>
+        <Button
+          type="default"
+          className={styles.categoryNavButton}
+          icon={<ChevronLeft size={16} />}
+          disabled={!canScrollLeft}
+          onClick={() => scrollCategories(-1)}
+          aria-label={t("common.back")}
+          title={t("common.back")}
+        />
+        <Button
+          type="default"
+          className={styles.categoryNavButton}
+          icon={<ChevronRight size={16} />}
+          disabled={!canScrollRight}
+          onClick={() => scrollCategories(1)}
+          aria-label={t("common.next", "Next")}
+          title={t("common.next", "Next")}
+        />
+      </div>
+    </div>
   );
 });
 
@@ -178,26 +236,14 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
  */
 export function MarketPanel({
   installTarget,
-  onInstalled,
+  install,
 }: {
   installTarget: InstallTarget;
-  onInstalled?: () => void;
+  install: MarketInstallController;
 }) {
   const { t } = useTranslation();
-  const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const market = useMarketSearch();
   const [detailItem, setDetailItem] = useState<MarketResult | null>(null);
-  const onInstalledRef = useRef(onInstalled);
-  onInstalledRef.current = onInstalled;
-
-  const handleInstalled = useCallback(() => {
-    onInstalledRef.current?.();
-  }, []);
-
-  const install = useMarketInstall({
-    selectedAgent,
-    onSuccess: handleInstalled,
-  });
 
   const onInstall = useCallback(
     (item: MarketResult) => {
@@ -244,17 +290,12 @@ export function MarketPanel({
     <div className={styles.marketPage}>
       <div className={styles.content}>
         <div className={styles.toolbar}>
-          <ProviderChips
-            providers={market.providers}
-            selectedKeys={market.selectedProviderKeys}
-            onToggle={market.toggleProvider}
+          <CategoryChips
+            categories={market.categories}
+            active={market.category}
+            onSelect={market.setCategory}
           />
           <div className={styles.filters}>
-            <CategorySelect
-              categories={market.categories}
-              active={market.category}
-              onSelect={market.setCategory}
-            />
             <Input.Search
               className={styles.searchInput}
               placeholder={t("market.searchPlaceholder")}
@@ -263,6 +304,22 @@ export function MarketPanel({
               onChange={(e) => market.setQuery(e.target.value)}
               aria-label={t("market.searchPlaceholder")}
             />
+            <div className={styles.providerActions}>
+              <ProviderSelect
+                providers={market.providers}
+                selectedKeys={market.selectedProviderKeys}
+                onSelect={market.setSelectedProviders}
+              />
+              <AntButton
+                type="default"
+                className={styles.refreshButton}
+                icon={<RefreshCw size={14} />}
+                onClick={market.refresh}
+                disabled={market.loading}
+                aria-label={t("common.refresh")}
+                title={t("common.refresh")}
+              />
+            </div>
           </div>
         </div>
 
@@ -336,15 +393,6 @@ export function MarketPanel({
           </>
         )}
       </div>
-
-      {install.queue.length > 0 && (
-        <InstallQueuePanel
-          queue={install.queue}
-          onClearCompleted={install.clearFinished}
-          onCancel={install.cancel}
-          onRetry={install.retry}
-        />
-      )}
 
       <DetailDrawer
         item={detailItem}
