@@ -9,6 +9,7 @@ import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
 import { AgentTable, AgentModal, CopyAgentModal } from "./components";
+import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
@@ -43,6 +44,9 @@ export default function AgentsPage() {
       workspace_dir: "",
       active_model_provider: undefined,
       active_model_model: undefined,
+      mail_mode: "none",
+      mail_credential: undefined,
+      mail_push: undefined,
       backend: "qwenpaw",
     });
     setSelectedSkills([]);
@@ -57,10 +61,32 @@ export default function AgentsPage() {
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
+      const { mail, ...configRest } = config;
       form.setFieldsValue({
-        ...config,
+        ...configRest,
         active_model_provider: config.active_model?.provider_id || undefined,
         active_model_model: config.active_model?.model || undefined,
+        mail_mode: mail
+          ? mail.is_new_account
+            ? "dedicated"
+            : "personal"
+          : "none",
+        mail_credential: mail ? mail.credential : undefined,
+        mail_push: mail?.push
+          ? {
+              mode: mail.push.mode ?? "off",
+              // Legacy field "subject" is displayed and saved as
+              // "content" (subject + body matching).
+              rules: (mail.push.rules ?? []).map((rule) =>
+                rule.field === "subject"
+                  ? { ...rule, field: "content" as const }
+                  : rule,
+              ),
+              poll_interval_seconds: mail.push.poll_interval_seconds,
+              // Missing in legacy configs → backend defaults to false.
+              access_control_enabled: mail.push.access_control_enabled ?? false,
+            }
+          : undefined,
       });
       setModalVisible(true);
     } catch (error) {
@@ -151,8 +177,95 @@ export default function AgentsPage() {
           ? { provider_id: providerId, model: modelId }
           : null;
 
-      const { active_model_provider, active_model_model, ...rest } = values;
-      const payload = { ...rest, workspace_dir, active_model };
+      const {
+        // Destructured only to keep them out of `rest` (already read
+        // above via `values.*`); underscore + disable per project style.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        active_model_provider: _active_model_provider,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        active_model_model: _active_model_model,
+        mail_mode,
+        mail_credential,
+        mail_push,
+        ...rest
+      } = values;
+      // 0.2.0: the rules editor UI is hidden, so `mail_push.rules` is no
+      // longer a registered form field and won't appear in validateFields()
+      // results. Read the form store directly to pass legacy rules through
+      // unchanged (hidden-but-preserved policy).
+      const storedMailPush = form.getFieldValue("mail_push") as
+        | {
+            mode?: string;
+            rules?: Array<{
+              field?: string;
+              contains?: string;
+              action?: string;
+              param?: string;
+            }>;
+            poll_interval_seconds?: number;
+            access_control_enabled?: boolean;
+          }
+        | undefined;
+      const pushMode = mail_push?.mode ?? storedMailPush?.mode ?? "off";
+      // Preserve existing rules as-is regardless of mode so editing an old
+      // agent never wipes its rule config on the backend.
+      const pushRules = (
+        (mail_push?.rules ?? storedMailPush?.rules ?? []) as Array<{
+          field?: string;
+          contains?: string;
+          action?: string;
+          param?: string;
+        }>
+      ).map((rule) => ({
+        // Never submit the legacy "subject" value.
+        field: rule?.field === "subject" ? "content" : rule?.field || "from",
+        contains: (rule?.contains ?? "").trim(),
+        action: rule?.action || "notify",
+        param: (rule?.param ?? "").trim(),
+      }));
+      const pollIntervalSeconds =
+        mail_push?.poll_interval_seconds ??
+        storedMailPush?.poll_interval_seconds;
+      // Explicitly persist the access-control switch; access control is
+      // opt-in, so a missing field falls back to disabled.
+      const accessControlEnabled =
+        mail_push?.access_control_enabled ??
+        storedMailPush?.access_control_enabled ??
+        false;
+      const push =
+        pushMode === "off" && pushRules.length === 0
+          ? null
+          : {
+              mode: pushMode,
+              rules: pushRules,
+              ...(pollIntervalSeconds != null
+                ? { poll_interval_seconds: pollIntervalSeconds }
+                : {}),
+              access_control_enabled: accessControlEnabled,
+            };
+      // Mail is only supported for the qwenpaw backend; never submit
+      // mail config for third-party backends (the server rejects it).
+      const mail =
+        values.backend === "qwenpaw" &&
+        (mail_mode === "personal" || mail_mode === "dedicated")
+          ? {
+              is_new_account: mail_mode === "dedicated",
+              credential: {
+                name: (mail_credential?.name ?? "").trim(),
+                domain: mail_credential?.domain || "163.com",
+                // Whitelisted domains must use an empty provider; custom
+                // enterprise domains carry the selected provider.
+                provider: MAIL_DOMAIN_WHITELIST.includes(
+                  mail_credential?.domain || "163.com",
+                )
+                  ? ""
+                  : mail_credential?.provider || "",
+                auth_code: mail_credential?.auth_code || "",
+              },
+              ...(push ? { push } : {}),
+            }
+          : null;
+      const payload = { ...rest, workspace_dir, active_model, mail };
 
       if (editingAgent) {
         const previousInstalledSkills = installedSkillsRef.current;
@@ -189,12 +302,14 @@ export default function AgentsPage() {
 
       setModalVisible(false);
       await loadAgents();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to save agent:", error);
       if (editingAgent) {
         invalidateSkillCache({ agentId: editingAgent.id });
       }
-      message.error(error.message || t("agent.saveFailed"));
+      message.error(
+        error instanceof Error ? error.message : t("agent.saveFailed"),
+      );
     }
   };
 

@@ -20,9 +20,12 @@ import {
   BulbOutlined,
   CopyOutlined,
   DownOutlined,
+  SafetyOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import { PackageOpen, Bell, BellRing } from "lucide-react";
+import { MailAccessControlDrawer } from "./components/MailAccessControlDrawer";
+import { useMailPendingCount } from "./hooks/useMailPendingCount";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -37,6 +40,7 @@ import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
+import type { PushMessage } from "./types";
 import { useAgentStore } from "../../stores/agentStore";
 import {
   DEFAULT_AGENT_ID,
@@ -57,6 +61,7 @@ const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
   cron: "inbox.sourceTypeCron",
   heartbeat: "inbox.sourceTypeHeartbeat",
   memory: "inbox.sourceTypeMemory",
+  mail: "inbox.sourceTypeMail",
 };
 
 const resolveInitialTab = (): TabKey => {
@@ -81,9 +86,78 @@ const renderMarkdownText = (text: string, className: string) => (
   </div>
 );
 
+interface MailTraceEntry {
+  type: string;
+  name?: string;
+  summary: string;
+}
+
+interface MailDetail {
+  sender: string;
+  subject: string;
+  date: string;
+  bodyPreview: string;
+  isAutoHandled: boolean;
+  trace: MailTraceEntry[];
+}
+
+const readMailTrace = (value: unknown): MailTraceEntry[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const entries: MailTraceEntry[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const summary =
+      typeof record.summary === "string" ? record.summary.trim() : "";
+    if (!summary) {
+      continue;
+    }
+    entries.push({
+      type: typeof record.type === "string" ? record.type : "text",
+      name: typeof record.name === "string" ? record.name : undefined,
+      summary,
+    });
+  }
+  return entries;
+};
+
+const getMailDetail = (messageItem: PushMessage | null): MailDetail | null => {
+  if (
+    !messageItem ||
+    (messageItem.metadata?.sourceType || "").toLowerCase() !== "mail"
+  ) {
+    return null;
+  }
+  const payload = messageItem.metadata?.payload || {};
+  const readString = (key: string): string => {
+    const value = payload[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
+  return {
+    // Backend new_email payload uses "from"; keep "sender" for compatibility.
+    sender: readString("sender") || readString("from"),
+    subject: readString("subject"),
+    date: readString("date"),
+    bodyPreview: readString("body_preview"),
+    isAutoHandled: messageItem.metadata?.eventType === "auto_handled",
+    trace: readMailTrace(payload.trace),
+  };
+};
+
 export default function InboxPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
+  const [mailAclDrawerOpen, setMailAclDrawerOpen] = useState(false);
+  const {
+    pendingCount,
+    refresh: refreshPendingCount,
+    newArrival: mailAclNewArrival,
+    markSeen: markMailAclSeen,
+  } = useMailPendingCount();
   const [markAllReading, setMarkAllReading] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
     string | undefined
@@ -230,6 +304,11 @@ export default function InboxPage() {
     copyTraceBlock,
     handleTraceScroll,
   } = useTraceViewer(markMessageAsRead);
+
+  const mailDetail = useMemo(
+    () => getMailDetail(selectedMessage),
+    [selectedMessage],
+  );
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -458,6 +537,7 @@ export default function InboxPage() {
                   findingsCount={approval.findings_count}
                   findingsSummary={approval.findings_summary}
                   toolParams={approval.tool_params}
+                  reasoning={approval.reasoning}
                   createdAt={approval.created_at}
                   timeoutSeconds={approval.timeout_seconds}
                   sessionId={approval.session_id}
@@ -508,7 +588,28 @@ export default function InboxPage() {
 
   return (
     <div className={styles.inboxPage}>
-      <PageHeader items={[{ title: t("inbox.title") }]} extra={null} />
+      <PageHeader
+        items={[{ title: t("inbox.title") }]}
+        extra={
+          <Badge dot={pendingCount > 0} offset={[-4, 4]}>
+            <Button
+              icon={<SafetyOutlined />}
+              className={
+                mailAclNewArrival && wobbleEnabled
+                  ? styles.mailAclShake
+                  : undefined
+              }
+              onMouseEnter={markMailAclSeen}
+              onClick={() => {
+                markMailAclSeen();
+                setMailAclDrawerOpen(true);
+              }}
+            >
+              {t("inbox.mailAccessControl")}
+            </Button>
+          </Badge>
+        }
+      />
 
       <div className={styles.pageContent}>
         <Tabs
@@ -579,221 +680,296 @@ export default function InboxPage() {
               <Descriptions.Item label={t("inbox.detailTaskId")}>
                 {selectedMessage.id || "-"}
               </Descriptions.Item>
+              {mailDetail ? (
+                <Descriptions.Item label={t("inbox.mailDetailSender")}>
+                  {mailDetail.sender || "-"}
+                </Descriptions.Item>
+              ) : null}
+              {mailDetail ? (
+                <Descriptions.Item label={t("inbox.mailDetailDate")}>
+                  {mailDetail.date || "-"}
+                </Descriptions.Item>
+              ) : null}
+              {mailDetail ? (
+                <Descriptions.Item
+                  label={t("inbox.mailDetailSubject")}
+                  span={2}
+                >
+                  {mailDetail.subject || "-"}
+                </Descriptions.Item>
+              ) : null}
             </Descriptions>
 
-            <div className={styles.messageDetailBlock}>
-              <div className={styles.messageDetailLabel}>
-                {t("inbox.detailExecutionTrace")}
+            {mailDetail ? (
+              <div className={styles.messageDetailBlock}>
+                <div className={styles.messageDetailLabel}>
+                  {t(
+                    mailDetail.isAutoHandled
+                      ? "inbox.mailDetailProcess"
+                      : "inbox.mailDetailBody",
+                  )}
+                </div>
+                {/* Plain-text rendering only (XSS-safe); preserves newlines */}
+                {mailDetail.isAutoHandled && mailDetail.trace.length > 0 ? (
+                  <ol className={styles.mailTraceList}>
+                    {mailDetail.trace.map((entry, index) => (
+                      <li
+                        key={`mail-trace-${index}`}
+                        className={styles.mailTraceItem}
+                      >
+                        {entry.type === "tool_call" ? (
+                          <span className={styles.mailTraceTool}>
+                            <ToolOutlined /> {entry.name || "tool"}
+                          </span>
+                        ) : null}
+                        <pre className={styles.mailTraceSummary}>
+                          {entry.summary}
+                        </pre>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <pre className={styles.mailBodyBlock}>
+                    {mailDetail.isAutoHandled
+                      ? selectedMessage.content || "-"
+                      : mailDetail.bodyPreview ||
+                        selectedMessage.content ||
+                        "-"}
+                  </pre>
+                )}
               </div>
-              {traceLoading ? (
-                <div className={styles.traceLoading}>
-                  <Spin size="small" />
+            ) : (
+              <div className={styles.messageDetailBlock}>
+                <div className={styles.messageDetailLabel}>
+                  {t("inbox.detailExecutionTrace")}
                 </div>
-              ) : traceEvents.length > 0 ? (
-                <div
-                  ref={traceContainerRef as React.RefObject<HTMLDivElement>}
-                  className={styles.traceContainer}
-                  onScroll={(event) => {
-                    handleTraceScroll(event.currentTarget.scrollTop);
-                  }}
-                >
-                  <div className={styles.traceTimeline}>
-                    {traceEvents.map((item, index) => {
-                      const {
-                        eventRecord,
-                        eventType,
-                        traceText,
-                        collapsible,
-                        collapseTitle,
-                      } = item;
-                      const kind = eventType;
-                      const foldIcon = kind
-                        .toLowerCase()
-                        .includes("thinking") ? (
-                        <BulbOutlined />
-                      ) : kind.toLowerCase().includes("tool") ? (
-                        <ToolOutlined />
-                      ) : null;
-                      const collapseKey = `trace-${item.at}-${index}`;
-                      const isPanelActive = !!expandedTraceMap[collapseKey];
-                      return (
-                        <div
-                          key={`${item.at}-${index}`}
-                          className={styles.traceEntry}
-                        >
-                          {eventRecord.role === "user" && traceText ? (
-                            <div className={styles.traceUserRow}>
-                              <div className={styles.traceUserMessage}>
-                                {traceText}
-                              </div>
-                            </div>
-                          ) : kind === "push_preview" && traceText ? (
-                            renderMarkdownText(
-                              traceText,
-                              `${styles.traceAssistantMessage} ${styles.traceStandaloneAligned}`,
-                            )
-                          ) : collapsible ? (
-                            <Collapse
-                              bordered={false}
-                              ghost
-                              activeKey={isPanelActive ? [collapseKey] : []}
-                              onChange={(keys) => {
-                                const nextActive = Array.isArray(keys)
-                                  ? keys.length > 0
-                                  : Boolean(keys);
-                                toggleTracePanel(collapseKey, nextActive);
-                              }}
-                              className={`${styles.traceCollapse} ${
-                                isPanelActive ? styles.traceCollapseActive : ""
-                              }`}
-                              expandIcon={() => null}
-                              items={[
-                                {
-                                  key: collapseKey,
-                                  label: (
-                                    <div className={styles.traceFoldHeader}>
-                                      {foldIcon ? (
-                                        <span className={styles.traceFoldIcon}>
-                                          {foldIcon}
-                                        </span>
-                                      ) : null}
-                                      <span className={styles.traceFoldTitle}>
-                                        {collapseTitle}
-                                      </span>
-                                      <span
-                                        className={`${
-                                          styles.traceInlineChevron
-                                        } ${
-                                          isPanelActive
-                                            ? styles.traceInlineChevronActive
-                                            : ""
-                                        }`}
-                                      >
-                                        <DownOutlined />
-                                      </span>
-                                    </div>
-                                  ),
-                                  children:
-                                    item.renderKind === "tool_pair" ? (
-                                      <div className={styles.toolDetailWrap}>
-                                        {item.toolInput ? (
-                                          <div className={styles.toolSection}>
-                                            <div
-                                              className={styles.traceCodeHeader}
-                                            >
-                                              <div
-                                                className={
-                                                  styles.traceCodeTitle
-                                                }
-                                              >
-                                                Input
-                                              </div>
-                                              <button
-                                                type="button"
-                                                className={
-                                                  styles.traceCodeCopyBtn
-                                                }
-                                                onClick={() =>
-                                                  void copyTraceBlock(
-                                                    formatToolBlockContent(
-                                                      formatToolInput(
-                                                        item.toolInput || "",
-                                                      ),
-                                                    ),
-                                                  )
-                                                }
-                                                title={t("common.copy")}
-                                              >
-                                                <CopyOutlined />
-                                              </button>
-                                            </div>
-                                            <pre
-                                              className={styles.toolCodeBlock}
-                                            >
-                                              {formatToolBlockContent(
-                                                formatToolInput(item.toolInput),
-                                              )}
-                                            </pre>
-                                          </div>
-                                        ) : null}
-                                        {item.toolOutput ? (
-                                          <div className={styles.toolSection}>
-                                            <div
-                                              className={styles.traceCodeHeader}
-                                            >
-                                              <div
-                                                className={
-                                                  styles.traceCodeTitle
-                                                }
-                                              >
-                                                Output
-                                              </div>
-                                              <button
-                                                type="button"
-                                                className={
-                                                  styles.traceCodeCopyBtn
-                                                }
-                                                onClick={() =>
-                                                  void copyTraceBlock(
-                                                    formatToolBlockContent(
-                                                      item.toolOutput || "",
-                                                    ),
-                                                  )
-                                                }
-                                                title={t("common.copy")}
-                                              >
-                                                <CopyOutlined />
-                                              </button>
-                                            </div>
-                                            <pre
-                                              className={styles.toolCodeBlock}
-                                            >
-                                              {formatToolBlockContent(
-                                                item.toolOutput,
-                                              )}
-                                            </pre>
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                    ) : traceText ? (
-                                      renderMarkdownText(
-                                        traceText,
-                                        styles.traceMarkdownBlock,
-                                      )
-                                    ) : (
-                                      <pre className={styles.traceJsonBlock}>
-                                        {JSON.stringify(eventRecord, null, 2)}
-                                      </pre>
-                                    ),
-                                },
-                              ]}
-                            />
-                          ) : traceText ? (
-                            renderMarkdownText(
-                              traceText,
-                              `${styles.traceMarkdownBlock} ${styles.traceStandaloneAligned}`,
-                            )
-                          ) : (
-                            <pre
-                              className={`${styles.traceJsonBlock} ${styles.traceStandaloneAligned}`}
-                            >
-                              {JSON.stringify(eventRecord, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      );
-                    })}
+                {traceLoading ? (
+                  <div className={styles.traceLoading}>
+                    <Spin size="small" />
                   </div>
-                </div>
-              ) : (
-                <div className={styles.traceEmpty}>
-                  {t("inbox.detailTraceEmpty")}
-                </div>
-              )}
-            </div>
+                ) : traceEvents.length > 0 ? (
+                  <div
+                    ref={traceContainerRef as React.RefObject<HTMLDivElement>}
+                    className={styles.traceContainer}
+                    onScroll={(event) => {
+                      handleTraceScroll(event.currentTarget.scrollTop);
+                    }}
+                  >
+                    <div className={styles.traceTimeline}>
+                      {traceEvents.map((item, index) => {
+                        const {
+                          eventRecord,
+                          eventType,
+                          traceText,
+                          collapsible,
+                          collapseTitle,
+                        } = item;
+                        const kind = eventType;
+                        const foldIcon = kind
+                          .toLowerCase()
+                          .includes("thinking") ? (
+                          <BulbOutlined />
+                        ) : kind.toLowerCase().includes("tool") ? (
+                          <ToolOutlined />
+                        ) : null;
+                        const collapseKey = `trace-${item.at}-${index}`;
+                        const isPanelActive = !!expandedTraceMap[collapseKey];
+                        return (
+                          <div
+                            key={`${item.at}-${index}`}
+                            className={styles.traceEntry}
+                          >
+                            {eventRecord.role === "user" && traceText ? (
+                              <div className={styles.traceUserRow}>
+                                <div className={styles.traceUserMessage}>
+                                  {traceText}
+                                </div>
+                              </div>
+                            ) : kind === "push_preview" && traceText ? (
+                              renderMarkdownText(
+                                traceText,
+                                `${styles.traceAssistantMessage} ${styles.traceStandaloneAligned}`,
+                              )
+                            ) : collapsible ? (
+                              <Collapse
+                                bordered={false}
+                                ghost
+                                activeKey={isPanelActive ? [collapseKey] : []}
+                                onChange={(keys) => {
+                                  const nextActive = Array.isArray(keys)
+                                    ? keys.length > 0
+                                    : Boolean(keys);
+                                  toggleTracePanel(collapseKey, nextActive);
+                                }}
+                                className={`${styles.traceCollapse} ${
+                                  isPanelActive
+                                    ? styles.traceCollapseActive
+                                    : ""
+                                }`}
+                                expandIcon={() => null}
+                                items={[
+                                  {
+                                    key: collapseKey,
+                                    label: (
+                                      <div className={styles.traceFoldHeader}>
+                                        {foldIcon ? (
+                                          <span
+                                            className={styles.traceFoldIcon}
+                                          >
+                                            {foldIcon}
+                                          </span>
+                                        ) : null}
+                                        <span className={styles.traceFoldTitle}>
+                                          {collapseTitle}
+                                        </span>
+                                        <span
+                                          className={`${
+                                            styles.traceInlineChevron
+                                          } ${
+                                            isPanelActive
+                                              ? styles.traceInlineChevronActive
+                                              : ""
+                                          }`}
+                                        >
+                                          <DownOutlined />
+                                        </span>
+                                      </div>
+                                    ),
+                                    children:
+                                      item.renderKind === "tool_pair" ? (
+                                        <div className={styles.toolDetailWrap}>
+                                          {item.toolInput ? (
+                                            <div className={styles.toolSection}>
+                                              <div
+                                                className={
+                                                  styles.traceCodeHeader
+                                                }
+                                              >
+                                                <div
+                                                  className={
+                                                    styles.traceCodeTitle
+                                                  }
+                                                >
+                                                  Input
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  className={
+                                                    styles.traceCodeCopyBtn
+                                                  }
+                                                  onClick={() =>
+                                                    void copyTraceBlock(
+                                                      formatToolBlockContent(
+                                                        formatToolInput(
+                                                          item.toolInput || "",
+                                                        ),
+                                                      ),
+                                                    )
+                                                  }
+                                                  title={t("common.copy")}
+                                                >
+                                                  <CopyOutlined />
+                                                </button>
+                                              </div>
+                                              <pre
+                                                className={styles.toolCodeBlock}
+                                              >
+                                                {formatToolBlockContent(
+                                                  formatToolInput(
+                                                    item.toolInput,
+                                                  ),
+                                                )}
+                                              </pre>
+                                            </div>
+                                          ) : null}
+                                          {item.toolOutput ? (
+                                            <div className={styles.toolSection}>
+                                              <div
+                                                className={
+                                                  styles.traceCodeHeader
+                                                }
+                                              >
+                                                <div
+                                                  className={
+                                                    styles.traceCodeTitle
+                                                  }
+                                                >
+                                                  Output
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  className={
+                                                    styles.traceCodeCopyBtn
+                                                  }
+                                                  onClick={() =>
+                                                    void copyTraceBlock(
+                                                      formatToolBlockContent(
+                                                        item.toolOutput || "",
+                                                      ),
+                                                    )
+                                                  }
+                                                  title={t("common.copy")}
+                                                >
+                                                  <CopyOutlined />
+                                                </button>
+                                              </div>
+                                              <pre
+                                                className={styles.toolCodeBlock}
+                                              >
+                                                {formatToolBlockContent(
+                                                  item.toolOutput,
+                                                )}
+                                              </pre>
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      ) : traceText ? (
+                                        renderMarkdownText(
+                                          traceText,
+                                          styles.traceMarkdownBlock,
+                                        )
+                                      ) : (
+                                        <pre className={styles.traceJsonBlock}>
+                                          {JSON.stringify(eventRecord, null, 2)}
+                                        </pre>
+                                      ),
+                                  },
+                                ]}
+                              />
+                            ) : traceText ? (
+                              renderMarkdownText(
+                                traceText,
+                                `${styles.traceMarkdownBlock} ${styles.traceStandaloneAligned}`,
+                              )
+                            ) : (
+                              <pre
+                                className={`${styles.traceJsonBlock} ${styles.traceStandaloneAligned}`}
+                              >
+                                {JSON.stringify(eventRecord, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={styles.traceEmpty}>
+                    {t("inbox.detailTraceEmpty")}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </Modal>
+      <MailAccessControlDrawer
+        open={mailAclDrawerOpen}
+        onClose={() => {
+          setMailAclDrawerOpen(false);
+          void refreshPendingCount();
+        }}
+      />
     </div>
   );
 }

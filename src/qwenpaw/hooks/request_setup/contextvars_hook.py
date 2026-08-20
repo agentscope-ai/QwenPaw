@@ -157,4 +157,25 @@ class ContextVarsSetupHook(LifecycleHook):
         return HookResult()
 
 
-__all__ = ["ContextVarsSetupHook"]
+class MailF1CleanupHook(LifecycleHook):
+    """Clear mail F1 exploration mode for the session in FINALLY.
+
+    F1 mode is scoped to one request ("for the remainder of this
+    request"). The session-level registry outlives the request, so this
+    hook guarantees deactivation for every entry point — not only the
+    mail monitor's own finally block — preventing STRICT gating from
+    leaking into later requests of the same session.
+    """
+
+    phase = Phase.FINALLY
+    name = "mail_f1_cleanup"
+    priority = 30
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        from ...config.context import deactivate_f1_for_session
+
+        deactivate_f1_for_session(ctx.session_id or "")
+        return HookResult()
+
+
+__all__ = ["ContextVarsSetupHook", "MailF1CleanupHook"]

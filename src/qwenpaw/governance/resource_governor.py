@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -385,9 +386,13 @@ class ResourceGovernor:
 
         Strategy:
             - WORKSPACE_DIR/* → workspace_dir (mount as a whole)
-            - /absolute/path/* → /absolute/path (take directory part)
+            - ``~`` / ``$VAR`` → expanded before anything else
+            - absolute path/* → that path (take directory part)
             - relative path → workspace_dir / relative (take directory part)
             - Pure wildcards (*, **) → skip, cannot derive a concrete path
+
+        The result is always normalised, so the same directory written two
+        ways yields one string.
         """
         p = pattern.rstrip("*").rstrip("/")
 
@@ -399,12 +404,27 @@ class ResourceGovernor:
         if "WORKSPACE_DIR" in p:
             p = p.replace("WORKSPACE_DIR", workspace_dir)
 
-        # Absolute path
-        if p.startswith("/"):
-            return p
+        # ``~/.cache/uv`` is how an operator naturally writes a tool cache
+        # in policy.yaml, and every backend already expands ``~`` for
+        # deny_paths. Leaving it literal here fell through to the relative
+        # branch below and produced ``<workspace>/~/.cache/uv`` -- a path
+        # that never exists, so the backends' existence check dropped the
+        # mount and the grant silently did nothing.
+        p = os.path.expanduser(os.path.expandvars(p))
 
-        # Relative path → resolve based on workspace
-        return str(Path(workspace_dir) / p)
+        # isabs() rather than startswith("/") so a Windows path such as
+        # ``C:\Users\...`` is not mistaken for a workspace-relative one.
+        if not os.path.isabs(p):
+            # Relative path → resolve based on workspace
+            p = str(Path(workspace_dir) / p)
+
+        # expanduser only rewrites the leading ``~``, so on Windows it
+        # returns mixed separators (``C:\Users\x/.cache/uv``).
+        # ``compile_sandbox_config`` de-duplicates mounts by path string and
+        # relies on that to let a Write rule override a Read rule for the
+        # same directory; without normalising, the two spellings become two
+        # separate MountSpecs and the write never wins.
+        return os.path.normpath(p)
 
     # ------------------------------------------------------------------
     # Core interface 4: Dynamic rule addition
