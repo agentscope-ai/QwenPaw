@@ -3621,7 +3621,7 @@
     "runtimes": {
       "eyebrow": "Hub administration",
       "title": "Runtime overview",
-      "description": "Manage isolated QwenPaw processes without leaving the local app. Every runtime has its own workspace and credential boundary.",
+      "description": "Each user has a separate runtime, with files and keys kept apart.",
       "newRuntime": "New runtime",
       "managed": "Managed runtimes",
       "localBoundaries": "Local process boundaries",
@@ -3643,10 +3643,6 @@
       "provisioner": "Execution type",
       "localExecution": "Local isolation",
       "dockerExecution": "Docker container",
-      "boundary": {
-        "token": "Internal token boundary",
-        "loopback_only": "Loopback-only port boundary"
-      },
       "security": "Security",
       "tenant": "Tenant",
       "removeTitle": "Remove {{id}}?",

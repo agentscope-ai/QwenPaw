@@ -802,13 +802,6 @@ export default function HubPage() {
                                   {runtime.metadata?.docker?.image ||
                                     runtime.security_level}
                                 </small>
-                                {runtime.metadata?.docker?.boundary_mode && (
-                                  <Tag>
-                                    {t(
-                                      `hub.runtimes.boundary.${runtime.metadata.docker.boundary_mode}`,
-                                    )}
-                                  </Tag>
-                                )}
                               </td>
                               <td>
                                 {formatDate(runtime.updated_at, i18n.language)}

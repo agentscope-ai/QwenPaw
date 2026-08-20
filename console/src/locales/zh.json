@@ -3478,7 +3478,7 @@
     "runtimes": {
       "eyebrow": "Hub 管理中心",
       "title": "运行环境概览",
-      "description": "在本地应用中管理彼此隔离的 QwenPaw 进程。每个运行环境均拥有独立的工作空间和凭据边界。",
+      "description": "每位用户拥有独立的运行环境，文件和密钥彼此分开。",
       "newRuntime": "新建运行环境",
       "managed": "托管运行环境",
       "localBoundaries": "本地进程边界",
@@ -3500,10 +3500,6 @@
       "provisioner": "运行方式",
       "localExecution": "本机隔离",
       "dockerExecution": "Docker 容器",
-      "boundary": {
-        "token": "内部令牌边界",
-        "loopback_only": "仅回环端口边界"
-      },
       "security": "安全级别",
       "tenant": "租户",
       "removeTitle": "移除 {{id}}？",

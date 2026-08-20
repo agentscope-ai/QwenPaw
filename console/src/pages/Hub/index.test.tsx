@@ -138,6 +138,30 @@ describe("HubPage", () => {
     expect(screen.getByText("a4715bbaa57446b7b3b15b54")).toBeInTheDocument();
   });
 
+  it("does not expose the internal runtime boundary mode", async () => {
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue(
+      page([
+        runtime({
+          provisioner: "docker",
+          metadata: {
+            docker: {
+              image: "qwenpaw:latest",
+              pull_policy: "if_not_present",
+              boundary_mode: "token",
+            },
+          },
+        }),
+      ]),
+    );
+
+    renderHubPage();
+    fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
+
+    expect(
+      screen.queryByText("hub.runtimes.boundary.token"),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows administrator-locked runtimes as enable-only", async () => {
     vi.mocked(hubApi.listRuntimes).mockResolvedValue(
       page([
