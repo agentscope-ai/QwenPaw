@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import secrets
-import select
+import selectors
 import socket
 import threading
 import time
@@ -28,11 +28,13 @@ def _read_line(connection: socket.socket) -> str:
 
 
 def _relay(left: socket.socket, right: socket.socket) -> None:
-    sockets = [left, right]
+    selector = selectors.DefaultSelector()
     try:
-        while sockets:
-            readable, _, _ = select.select(sockets, [], [], 1)
-            for source in readable:
+        selector.register(left, selectors.EVENT_READ)
+        selector.register(right, selectors.EVENT_READ)
+        while True:
+            for key, _ in selector.select(timeout=1):
+                source = left if key.fileobj is left else right
                 target = right if source is left else left
                 payload = source.recv(65536)
                 if not payload:
@@ -41,6 +43,7 @@ def _relay(left: socket.socket, right: socket.socket) -> None:
     except OSError:
         return
     finally:
+        selector.close()
         left.close()
         right.close()
 
