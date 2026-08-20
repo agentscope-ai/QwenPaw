@@ -19,17 +19,6 @@ export interface FileTarget {
   column?: number;
 }
 
-export type SessionArtifactKind = "file" | "image" | "audio" | "video";
-
-export interface SessionArtifact {
-  id: string;
-  name: string;
-  path: string;
-  kind: SessionArtifactKind;
-  target: FileTarget;
-  toolName?: string;
-}
-
 export type FilesDrawerState =
   | { kind: "closed" }
   | { kind: "preview"; target: FileTarget; trigger: HTMLElement | null }

@@ -21,12 +21,7 @@ import { buildAuthHeaders } from "../../api/authHeaders";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
 import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
-import type {
-  FileMetadata,
-  FilesDrawerEvent,
-  FilesDrawerState,
-  SessionArtifact,
-} from "./types";
+import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
 import styles from "./FilesWorkspace.module.less";
 
@@ -40,7 +35,6 @@ interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
   dispatch: (event: FilesDrawerEvent) => void;
   scope: Extract<FilesWorkspaceScope, { kind: "session" }>;
-  artifacts?: SessionArtifact[];
 }
 
 function insertFileReference(path: string): void {
@@ -67,7 +61,6 @@ export default function FilesDrawer({
   state,
   dispatch,
   scope,
-  artifacts = [],
 }: FilesDrawerProps) {
   const { t } = useTranslation();
   const drawerRef = useRef<HTMLElement>(null);
@@ -413,11 +406,7 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace
-                initialTarget={target}
-                scope={scope}
-                artifacts={artifacts}
-              />
+              <FilesWorkspace initialTarget={target} scope={scope} />
             </Suspense>
           ) : (
             <>

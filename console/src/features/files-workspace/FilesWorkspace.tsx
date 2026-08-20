@@ -28,7 +28,6 @@ import type {
   FileMetadata,
   FileTarget,
   MemoryGraphRoot,
-  SessionArtifact,
   WorkspaceRoot,
 } from "./types";
 import styles from "./FilesWorkspace.module.less";
@@ -36,7 +35,6 @@ import styles from "./FilesWorkspace.module.less";
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
   scope: FilesWorkspaceScope;
-  artifacts?: SessionArtifact[];
 }
 
 function inferPreviewKind(
@@ -61,7 +59,6 @@ function inferPreviewKind(
 export default function FilesWorkspace({
   initialTarget,
   scope,
-  artifacts = [],
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
@@ -417,7 +414,6 @@ export default function FilesWorkspace({
         <FilesNavigator
           key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
           scope={effectiveScope}
-          artifacts={artifacts}
           selectedPath={
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
             activeTabPath

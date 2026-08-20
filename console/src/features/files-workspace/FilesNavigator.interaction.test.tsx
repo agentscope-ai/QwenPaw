@@ -94,51 +94,6 @@ describe("FilesNavigator system prompt interactions", () => {
     mocks.setSystemPromptFiles.mockImplementation(async (files) => files);
   });
 
-  it("shows current Session artifacts and opens one from the list", async () => {
-    mocks.listFiles.mockResolvedValue([]);
-    mocks.getSystemPromptFiles.mockResolvedValue([]);
-    const onSelect = vi.fn();
-
-    render(
-      <FilesNavigator
-        selectedPath=""
-        onSelect={onSelect}
-        activeMemoryGraphRoot={null}
-        onShowMemoryGraph={vi.fn()}
-        onShowFiles={vi.fn()}
-        scope={{
-          kind: "session",
-          agentId: "default",
-          sessionId: "session-1",
-        }}
-        artifacts={[
-          {
-            id: "workspace:reports/result.md",
-            name: "result.md",
-            path: "reports/result.md",
-            kind: "file",
-            target: {
-              source: "workspace",
-              path: "reports/result.md",
-              root: "project",
-            },
-          },
-        ]}
-      />,
-    );
-
-    expect(screen.getByText("Project")).toBeInTheDocument();
-    expect(
-      screen.queryByText("files.sessionArtifacts"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: /result\.md/ }));
-    expect(onSelect).toHaveBeenCalledWith({
-      source: "workspace",
-      path: "reports/result.md",
-      root: "project",
-    });
-  });
-
   it("can add a custom prompt again after disabling it", async () => {
     mocks.listFiles.mockResolvedValue([
       mdFile("AGENTS.md"),
