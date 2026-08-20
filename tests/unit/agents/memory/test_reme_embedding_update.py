@@ -101,12 +101,13 @@ async def test_hot_update_reuses_tested_object_without_reindex(
     assert store.health_check_timeout == new_config.health_check_timeout
     manager._reme.file_store.resume_embedding.assert_awaited_once_with(
         verified=True,
+        rebuild=False,
     )
     manager._run_reme_job.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_model_change_invalidates_cache_without_auto_reindex(
+async def test_model_change_invalidates_cache_and_requests_background_rebuild(
     tmp_path,
 ) -> None:
     old_config = _config(model_name="old-model")
@@ -123,6 +124,10 @@ async def test_model_change_invalidates_cache_without_auto_reindex(
     assert applied is True
     assert store._cache == {}
     assert not store.cache_path.exists()
+    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
+        verified=True,
+        rebuild=True,
+    )
     manager._run_reme_job.assert_not_awaited()
 
 
@@ -186,6 +191,37 @@ async def test_untested_config_falls_back_to_reload(tmp_path) -> None:
     manager._tested_embedding = None
 
     assert await manager.apply_tested_embedding(config) is False
+
+
+@pytest.mark.asyncio
+async def test_partial_hot_update_reloads_inside_same_lifecycle_boundary(
+    tmp_path,
+) -> None:
+    """Compatibility fallback cannot expose a partially updated generation."""
+    config = _config()
+    manager, _wrapper, _store = _manager(tmp_path, config)
+    manager._tested_embedding = (
+        embedding_config_fingerprint(config),
+        object(),
+    )
+    original_update = manager._reme.update_component
+
+    async def fail_store_update(component_type, name, **kwargs):
+        if component_type == "embedding_store":
+            raise AttributeError("unsupported hot-update field")
+        return await original_update(component_type, name, **kwargs)
+
+    async def reload_while_locked():
+        assert manager._lifecycle_operation == "embedding-update"
+        return True
+
+    manager._reme.update_component = fail_store_update
+    manager._reload_embedding_config_unlocked = AsyncMock(
+        side_effect=reload_while_locked,
+    )
+
+    assert await manager.apply_tested_embedding(config) is True
+    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

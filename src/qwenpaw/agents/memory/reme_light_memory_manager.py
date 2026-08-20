@@ -341,7 +341,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self._tested_embedding = None
         return result
 
-    async def _resume_verified_embedding(self) -> bool:
+    async def _resume_verified_embedding(
+        self,
+        *,
+        rebuild: bool = False,
+    ) -> bool:
         """Ask ReMe to resume vector repair without another provider probe."""
         try:
             file_store = await self._reme.update_component(
@@ -353,7 +357,23 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         resume_embedding = getattr(file_store, "resume_embedding", None)
         if resume_embedding is None:
             return False
-        return bool(await resume_embedding(verified=True))
+        return bool(
+            await resume_embedding(
+                verified=True,
+                rebuild=rebuild,
+            ),
+        )
+
+    async def _reload_embedding_config_unlocked(self) -> bool:
+        """Recreate embedded ReMe while the caller owns the lifecycle lock."""
+        await self._close_reme_unlocked()
+        self._worker_stopping = False
+        await run_sync_io(self._initialize_reme)
+        await self.start()
+        self._tested_embedding = None
+        return self._reme is not None and bool(
+            getattr(self._reme, "is_started", False),
+        )
 
     async def apply_tested_embedding(
         self,
@@ -391,7 +411,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 )
             except (AttributeError, KeyError):
                 # ReMe 0.4 cannot add/remove components after initialization.
-                return False
+                return await self._reload_embedding_config_unlocked()
 
             old_config = self._active_embedding_config
             vector_space_changed = old_config is None or (
@@ -414,10 +434,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 if cache_path is not None:
                     await unlink_async(cache_path, missing_ok=True)
 
-            if not await self._resume_verified_embedding():
+            if not await self._resume_verified_embedding(
+                rebuild=vector_space_changed,
+            ):
                 # Older embedded ReMe versions permanently dropped the file
                 # store's reference after a failed probe. Reload to restore it.
-                return False
+                return await self._reload_embedding_config_unlocked()
 
             self._active_embedding_config = config.model_copy(deep=True)
             self._tested_embedding = None
@@ -431,14 +453,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         replacing the whole memory service on every workspace reload.
         """
         async with self._exclusive_reme_lifecycle("embedding-reload"):
-            await self._close_reme_unlocked()
-            self._worker_stopping = False
-            await run_sync_io(self._initialize_reme)
-            await self.start()
-            self._tested_embedding = None
-            return self._reme is not None and bool(
-                getattr(self._reme, "is_started", False),
-            )
+            return await self._reload_embedding_config_unlocked()
 
     async def _run_reme_job(
         self,
