@@ -24,16 +24,17 @@ class FakeReMe:
 
     is_started = True
 
-    def __init__(self, embedding_wrapper, embedding_store):
+    def __init__(self, embedding_wrapper, embedding_store, file_store):
         self.embedding_wrapper = embedding_wrapper
         self.embedding_store = embedding_store
+        self.file_store = file_store
 
     async def update_component(self, component_type, _name, **kwargs):
-        component = (
-            self.embedding_wrapper
-            if component_type == "as_embedding"
-            else self.embedding_store
-        )
+        component = {
+            "as_embedding": self.embedding_wrapper,
+            "embedding_store": self.embedding_store,
+            "file_store": self.file_store,
+        }[component_type]
         for key, value in kwargs.items():
             setattr(component, key, value)
         return component
@@ -70,7 +71,8 @@ def _manager(tmp_path: Path, config: EmbeddingModelConfig):
         _key_suffix=b"|3",
         cache_path=tmp_path / "embedding-cache.npz",
     )
-    manager._reme = FakeReMe(wrapper, store)
+    file_store = SimpleNamespace(resume_embedding=AsyncMock(return_value=True))
+    manager._reme = FakeReMe(wrapper, store, file_store)
     manager._run_reme_job = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="ok"),
     )
@@ -96,6 +98,10 @@ async def test_hot_update_reuses_tested_object_without_reindex(
     assert wrapper.model is tested_model
     assert tested_model.context_size == new_config.max_input_length
     assert store._cache == {"old": [1, 2, 3]}
+    assert store.health_check_timeout == new_config.health_check_timeout
+    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
+        verified=True,
+    )
     manager._run_reme_job.assert_not_awaited()
 
 

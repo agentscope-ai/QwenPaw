@@ -777,6 +777,15 @@ class EmbeddingModelConfig(BaseModel):
         ge=1,
         description="Maximum batch size for embedding",
     )
+    health_check_timeout: float = Field(
+        default=15.0,
+        gt=0,
+        le=300,
+        description=(
+            "Per-attempt timeout in seconds for embedding connection tests "
+            "and ReMe startup health checks"
+        ),
+    )
 
 
 class RerankerConfig(BaseModel):

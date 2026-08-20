@@ -444,6 +444,31 @@ export function EmbeddingModelCard() {
               disabled={reindexing || !embeddingEnabled}
             />
           </Form.Item>
+
+          <Form.Item
+            label={t("agentConfig.embeddingHealthCheckTimeout")}
+            name={[
+              "reme_light_memory_config",
+              "embedding_model_config",
+              "health_check_timeout",
+            ]}
+            rules={[
+              {
+                required: true,
+                message: t("agentConfig.embeddingHealthCheckTimeoutRequired"),
+              },
+            ]}
+            tooltip={t("agentConfig.embeddingHealthCheckTimeoutTooltip")}
+          >
+            <InputNumber
+              style={{ width: "100%" }}
+              min={1}
+              max={300}
+              step={5}
+              addonAfter="s"
+              disabled={reindexing || !embeddingEnabled}
+            />
+          </Form.Item>
         </section>
       </div>
     </Card>

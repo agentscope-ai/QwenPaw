@@ -625,6 +625,7 @@ def _base_components() -> dict[str, Any]:
                 "max_cache_size": 3000,
                 "max_input_length": 8192,
                 "max_batch_size": 10,
+                "health_check_timeout": 15.0,
             },
         },
         "file_store": {
@@ -671,6 +672,7 @@ def _apply_embedding_config(
             "max_cache_size": embedding_config.max_cache_size,
             "max_input_length": embedding_config.max_input_length,
             "max_batch_size": embedding_config.max_batch_size,
+            "health_check_timeout": embedding_config.health_check_timeout,
         },
     )
     components["file_store"]["default"]["embedding_store"] = "default"

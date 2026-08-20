@@ -213,6 +213,21 @@ def test_ollama_embedding_maps_base_url_to_host() -> None:
     }
 
 
+def test_embedding_health_check_timeout_is_forwarded_to_reme() -> None:
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="ollama",
+            model_name="nomic-embed-text",
+            health_check_timeout=45,
+        ),
+    )
+
+    assert (
+        cfg["components"]["embedding_store"]["default"]["health_check_timeout"]
+        == 45
+    )
+
+
 def test_ollama_embedding_without_host_still_enables_with_model() -> None:
     cfg = _config_for_embedding(
         EmbeddingModelConfig(

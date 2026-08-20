@@ -341,6 +341,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self._tested_embedding = None
         return result
 
+    async def _resume_verified_embedding(self) -> bool:
+        """Ask ReMe to resume vector repair without another provider probe."""
+        try:
+            file_store = await self._reme.update_component(
+                "file_store",
+                "default",
+            )
+        except KeyError:
+            return False
+        resume_embedding = getattr(file_store, "resume_embedding", None)
+        if resume_embedding is None:
+            return False
+        return bool(await resume_embedding(verified=True))
+
     async def apply_tested_embedding(
         self,
         config: EmbeddingModelConfig,
@@ -373,8 +387,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     max_cache_size=config.max_cache_size,
                     max_input_length=config.max_input_length,
                     max_batch_size=config.max_batch_size,
+                    health_check_timeout=config.health_check_timeout,
                 )
-            except KeyError:
+            except (AttributeError, KeyError):
                 # ReMe 0.4 cannot add/remove components after initialization.
                 return False
 
@@ -398,6 +413,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 cache_path = getattr(store, "cache_path", None)
                 if cache_path is not None:
                     await unlink_async(cache_path, missing_ok=True)
+
+            if not await self._resume_verified_embedding():
+                # Older embedded ReMe versions permanently dropped the file
+                # store's reference after a failed probe. Reload to restore it.
+                return False
 
             self._active_embedding_config = config.model_copy(deep=True)
             self._tested_embedding = None
