@@ -17,6 +17,7 @@ import {
   checkScanWarnings as checkScanWarningsShared,
   showScanErrorModal,
 } from "../../../utils/scanError";
+import { subscribeToSkillChanges } from "../../../utils/skillChangeEvents";
 
 type SkillActionResult =
   | { success: true; name?: string; imported?: string[] }
@@ -115,6 +116,16 @@ export function useSkills() {
     invalidateSkillCache({ agentId: selectedAgent });
     void fetchSkills();
   }, [selectedAgent, fetchSkills]);
+
+  useEffect(
+    () =>
+      subscribeToSkillChanges((change) => {
+        if (change.agentId !== selectedAgent) return;
+        invalidateSkillCache({ agentId: selectedAgent });
+        void fetchSkills();
+      }),
+    [fetchSkills, selectedAgent],
+  );
 
   const createSkill = async (
     name: string,

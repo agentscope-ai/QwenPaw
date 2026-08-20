@@ -1,9 +1,8 @@
 /**
  * AppCard.tsx — Individual app card for the App Center grid.
  */
-import { Card, Dropdown, Tag, Typography } from "antd";
-import type { MenuProps } from "antd";
-import { AppWindow, MoreHorizontal, Trash2 } from "lucide-react";
+import { Button, Card, Typography } from "antd";
+import { AppWindow, Play, Trash2 } from "lucide-react";
 import type { FC, KeyboardEvent } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,8 +12,8 @@ const { Text, Paragraph } = Typography;
 
 // Curated translations for known apps whose plugin.json ships no (or
 // English-only) description_i18n, keyed by installed plugin id and language
-// prefix. Mirrors OFFICIAL_APP_DESCRIPTIONS in AppMarket so the installed
-// view reads the same as the official channel.
+// prefix. Mirrors FEATURED_APP_DESCRIPTIONS in AppMarket so installed and
+// marketplace cards use the same copy.
 const CURATED_APP_DESCRIPTIONS: Record<string, Record<string, string>> = {
   "agent-kanban": {
     zh: "一个看板应用：创建任务并分配给智能体，由指定智能体自动执行，并实时查看其输出流。",
@@ -91,39 +90,8 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
     onClick(app);
   };
 
-  const menuItems: MenuProps["items"] = [
-    {
-      key: "uninstall",
-      danger: true,
-      icon: <Trash2 size={14} />,
-      label: t("appCenter.uninstall", "卸载"),
-      onClick: ({ domEvent }) => {
-        domEvent.stopPropagation();
-        onUninstall?.(app);
-      },
-    },
-  ];
-
   return (
-    <Card
-      className={`${styles.appCard} ${styles.appCardClickable} ${styles.appCardInstalled}`}
-    >
-      {onUninstall && (
-        <Dropdown
-          menu={{ items: menuItems }}
-          trigger={["click"]}
-          placement="bottomRight"
-        >
-          <button
-            type="button"
-            className={styles.moreBtn}
-            aria-label={t("appCenter.moreActions", "更多操作")}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal size={16} />
-          </button>
-        </Dropdown>
-      )}
+    <Card className={`${styles.appCard} ${styles.appCardClickable}`}>
       <div
         className={styles.cardOpenButton}
         onClick={() => onClick(app)}
@@ -150,25 +118,41 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
         </div>
         <div className={styles.cardBody}>
           <div className={styles.cardHeader}>
-            <Text strong className={styles.cardTitle}>
+            <Text strong className={styles.cardTitle} ellipsis>
               {app.name}
             </Text>
+            {app.version && (
+              <span className={styles.versionBadge}>v{app.version}</span>
+            )}
           </div>
-          <Paragraph type="secondary" className={styles.cardDesc}>
+          <Paragraph
+            type="secondary"
+            className={styles.cardDesc}
+            ellipsis={{ rows: 2 }}
+          >
             {pickAppDescription(app, i18n.language) ||
               t("appCenter.noDescription", "No description")}
           </Paragraph>
           <div className={styles.cardFooter}>
-            {app.version && (
-              <span className={styles.cardMeta}>v{app.version}</span>
-            )}
             {app.category && (
-              <Tag bordered={false} className={styles.cardTag}>
-                {app.category}
-              </Tag>
+              <span className={styles.cardMeta}>{app.category}</span>
             )}
           </div>
         </div>
+      </div>
+      <div className={`${styles.cardActions} ${styles.cardHoverActions}`}>
+        <Button icon={<Play size={14} />} onClick={() => onClick(app)}>
+          {t("appCenter.openApp", "打开应用")}
+        </Button>
+        {onUninstall && (
+          <Button
+            danger
+            icon={<Trash2 size={14} />}
+            onClick={() => onUninstall(app)}
+          >
+            {t("appCenter.uninstall", "卸载")}
+          </Button>
+        )}
       </div>
     </Card>
   );

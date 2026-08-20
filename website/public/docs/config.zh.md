@@ -70,15 +70,25 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **其他配置：**
 
-| 变量                                 | 默认值         | 说明                                                            |
-| ------------------------------------ | -------------- | --------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀        |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                       |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _（自动检测）_ | 控制台前端静态文件路径                                          |
+| 变量                                   | 默认值         | 说明                                                                                 |
+| -------------------------------------- | -------------- | ------------------------------------------------------------------------------------ |
+| `QWENPAW_LOG_LEVEL`                    | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`）                      |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀                             |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                                            |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`       | 触发记忆压缩的字符阈值                                                               |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`            | 压缩后保留的最近消息数                                                               |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                                           |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`           | `view_image` 远程图片下载上限（MiB）。接受任意正整数；非法值、`0` 或负数回退到默认值 |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _（自动检测）_ | 控制台前端静态文件路径                                                               |
+
+**LLM 流式超时：**
+
+| 变量                                       | 默认值 | 说明                                                                               |
+| ------------------------------------------ | ------ | ---------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`   | 等待首个携带内容的 chunk 时，累计等待上游流的最长秒数；设为 `0` 时禁用首段超时     |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`   | 首个内容到达后，连续携带内容的 chunk 之间累计等待上游流的最长秒数；设为 `0` 时禁用 |
+
+这两个超时只累计等待上游流的时间，不包含下游消费者背压造成的暂停。空控制 chunk 不会切换阶段或刷新预算。环境变量在进程启动时读取，修改后需要重启 QwenPaw。
 
 **安全与认证：**
 

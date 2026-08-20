@@ -1798,8 +1798,11 @@ async def test_sandbox_slow_setup_does_not_consume_offload_budget(tmp_path):
                 {"PATH": "/bin"},
             )
         # Without compensation remaining would be ~0.65; with it ~1.0.
+        # Tolerance widened from 0.08 to 0.25: the compensation fires right
+        # after sandbox setup, but we measure after cancellable_wait +
+        # function return + context exit, accumulating ~0.2s async overhead.
         remaining = ctx.offload_deadline - loop.time()
-        assert remaining == pytest.approx(offload_remaining, abs=0.08)
+        assert remaining == pytest.approx(offload_remaining, abs=0.25)
         assert remaining > 0.9
     finally:
         reset_call_context(token)
