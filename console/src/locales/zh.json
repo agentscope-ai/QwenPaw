@@ -3755,6 +3755,7 @@
     "logoutSuccess": "已成功退出",
     "sessionExpired": "会话已过期，请重新登录",
     "unauthorized": "未授权，请登录",
+    "switchLanguage": "切换语言",
     "hubDisclaimerTitle": "自托管 Hub 安全提示",
     "hubDisclaimerPoint1": "仅登录由你本人或可信组织运营的 Hub",
     "hubDisclaimerPoint2": "管理员可能接触此实例存储或处理的数据",

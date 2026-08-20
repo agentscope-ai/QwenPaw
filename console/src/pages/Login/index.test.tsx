@@ -4,9 +4,17 @@ import { authApi } from "../../api/modules/auth";
 import LoginPage from ".";
 
 const navigate = vi.fn();
+const changeLanguage = vi.fn();
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: {
+      language: "en",
+      resolvedLanguage: "en",
+      changeLanguage,
+    },
+  }),
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -39,6 +47,7 @@ vi.mock("../../hooks/useAppMessage", () => ({
 describe("LoginPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it("resumes login after accepting terms in Hub mode", async () => {
@@ -60,6 +69,13 @@ describe("LoginPage", () => {
     expect(screen.getByText("login.hubDisclaimerPoint1")).toBeInTheDocument();
     expect(screen.getByText("login.hubDisclaimerPoint2")).toBeInTheDocument();
     expect(screen.getByText("login.hubDisclaimerPoint3")).toBeInTheDocument();
+    const languageSwitcher = screen.getByRole("button", {
+      name: "login.switchLanguage",
+    });
+    expect(languageSwitcher).toHaveTextContent("简体中文");
+    fireEvent.click(languageSwitcher);
+    expect(changeLanguage).toHaveBeenCalledWith("zh");
+    expect(localStorage.getItem("language")).toBe("zh");
     const disclaimer = screen.getByText("login.hubDisclaimerTitle")
       .parentElement?.parentElement;
     expect(disclaimer?.querySelector("a")).toBeNull();
@@ -119,6 +135,9 @@ describe("LoginPage", () => {
     await waitFor(() => expect(authApi.getStatus).toHaveBeenCalledOnce());
     expect(
       screen.queryByText("login.hubDisclaimerTitle"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "login.switchLanguage" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "login.submit" })).toBeEnabled();
   });

@@ -3898,6 +3898,7 @@
     "logoutSuccess": "Logged out successfully",
     "sessionExpired": "Session expired, please login again",
     "unauthorized": "Unauthorized, please login",
+    "switchLanguage": "Switch language",
     "hubDisclaimerTitle": "Self-hosted Hub notice",
     "hubDisclaimerPoint1": "Only sign in to a Hub operated by you or an organization you trust",
     "hubDisclaimerPoint2": "Administrators may access data stored or processed by this instance",

@@ -6,6 +6,7 @@ import { useAppMessage } from "../../hooks/useAppMessage";
 import {
   Github,
   Globe2,
+  Languages,
   LockKeyhole,
   ShieldAlert,
   UserRound,
@@ -17,7 +18,7 @@ import { getPostLoginHref } from "../../utils/navigationMode";
 import styles from "./index.module.less";
 
 export default function LoginPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { isDark } = useTheme();
@@ -142,6 +143,16 @@ export default function LoginPage() {
     setPendingCredentials(null);
   };
 
+  const isChinese = (i18n.resolvedLanguage || i18n.language || "en").startsWith(
+    "zh",
+  );
+
+  const switchHubLanguage = () => {
+    const language = isChinese ? "en" : "zh";
+    void i18n.changeLanguage(language);
+    localStorage.setItem("language", language);
+  };
+
   return (
     <div
       style={{
@@ -168,6 +179,22 @@ export default function LoginPage() {
             : "0 4px 24px rgba(0,0,0,0.1)",
         }}
       >
+        {isHub && (
+          <div className={styles.languageBar}>
+            <Button
+              type="text"
+              size="small"
+              className={styles.languageSwitcher}
+              icon={
+                <Languages size={15} strokeWidth={1.8} aria-hidden="true" />
+              }
+              aria-label={t("login.switchLanguage")}
+              onClick={switchHubLanguage}
+            >
+              {isChinese ? "English" : "简体中文"}
+            </Button>
+          </div>
+        )}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
             src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}

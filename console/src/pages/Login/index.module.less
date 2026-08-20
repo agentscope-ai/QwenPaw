@@ -1,3 +1,30 @@
+.languageBar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -17px -17px 2px 0;
+}
+
+.languageSwitcher {
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(41, 24, 13, 0.1);
+  border-radius: 8px;
+  color: #776c64;
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease;
+
+  &:hover,
+  &:focus-visible {
+    border-color: rgba(217, 83, 0, 0.32) !important;
+    color: #d95300 !important;
+    background: #fff9f4 !important;
+  }
+}
+
 .hubDisclaimer {
   margin: 2px 0 16px;
   padding: 13px 14px;
@@ -81,6 +108,18 @@
   border-color: rgba(255, 157, 86, 0.25);
   color: rgba(255, 255, 255, 0.78);
   background: rgba(255, 122, 26, 0.08);
+}
+
+:global(html.dark-mode) .languageSwitcher {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.62);
+
+  &:hover,
+  &:focus-visible {
+    border-color: rgba(255, 157, 86, 0.32) !important;
+    color: #ff9d56 !important;
+    background: rgba(255, 122, 26, 0.08) !important;
+  }
 }
 
 :global(html.dark-mode) .disclaimerPoints {
