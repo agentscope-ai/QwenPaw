@@ -8,7 +8,7 @@ import type { FileTarget } from "./types";
 import styles from "./ResponseArtifactList.module.less";
 
 interface ResponseArtifactListProps {
-  output: unknown;
+  messages: unknown;
 }
 
 type ArtifactChange = "created" | "modified";
@@ -22,20 +22,7 @@ interface ResponseArtifact {
 
 const MIN_FILE_WIDTH = 320;
 const GRID_GAP = 8;
-const FILE_IO_TOOLS = new Set([
-  "appendfile",
-  "edit",
-  "editfile",
-  "write",
-  "writefile",
-]);
-const TOOL_CALL_TYPES = new Set([
-  "tool_call",
-  "plugin_call",
-  "function_call",
-  "mcp_call",
-  "component_call",
-]);
+const FILE_IO_TOOLS = new Set(["appendfile", "editfile", "writefile"]);
 const TOOL_OUTPUT_TYPES = new Set([
   "tool_call_output",
   "plugin_call_output",
@@ -83,9 +70,12 @@ function firstString(
   return "";
 }
 
-function contentData(item: Record<string, unknown>): Record<string, unknown> {
+function contentData(
+  item: Record<string, unknown>,
+  index: number,
+): Record<string, unknown> {
   const content = Array.isArray(item.content) ? item.content : [];
-  return record(record(content[0])?.data) ?? {};
+  return record(record(content[index])?.data) ?? {};
 }
 
 function normalizedToolName(name: string): string {
@@ -112,78 +102,52 @@ function targetForPath(path: string): FileTarget | null {
   return null;
 }
 
-function extractResponseArtifacts(output: unknown): ResponseArtifact[] {
-  if (!Array.isArray(output)) return [];
+function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
+  if (!Array.isArray(messages)) return [];
 
-  const calls: Array<{
-    callId: string;
-    toolName: string;
-    path: string;
-    inlineSuccess: boolean;
-  }> = [];
-  const successfulResults = new Set<string>();
-
-  for (const value of output) {
+  const artifacts = new Map<string, ResponseArtifact>();
+  for (const value of messages) {
     const item = record(value);
     if (!item) continue;
-    const data = contentData(item);
     const type = firstString(item, ["type"]);
-    const callId =
-      firstString(data, ["call_id", "tool_call_id", "id"]) ||
-      firstString(item, ["call_id", "tool_call_id", "id"]);
+    if (!TOOL_OUTPUT_TYPES.has(type)) continue;
 
-    if (TOOL_CALL_TYPES.has(type)) {
-      const toolName =
-        firstString(item, ["name"]) || firstString(data, ["name"]);
-      if (!FILE_IO_TOOLS.has(normalizedToolName(toolName))) continue;
-      const params =
-        parsedRecord(item.params) ??
-        parsedRecord(item.arguments) ??
-        parsedRecord(data.arguments) ??
-        {};
-      const path = firstString(params, ["file_path"]);
-      if (path) {
-        const state = firstString(item, ["state", "status"]).toLowerCase();
-        calls.push({
-          callId,
-          toolName,
-          path,
-          inlineSuccess: item.result !== undefined && !FAILED_STATES.has(state),
-        });
-      }
+    // mergeToolMessages uses [call content, result content] for a completed
+    // tool entry. Reusing that shape keeps artifacts in sync with ResponseTool.
+    const callData = contentData(item, 0);
+    const resultData = contentData(item, 1);
+    const state = (
+      firstString(resultData, ["state", "status"]) ||
+      firstString(item, ["state", "status"])
+    ).toLowerCase();
+    if (
+      resultData.is_error === true ||
+      item.is_error === true ||
+      FAILED_STATES.has(state)
+    ) {
       continue;
     }
 
-    if (TOOL_OUTPUT_TYPES.has(type)) {
-      const state = (
-        firstString(data, ["state", "status"]) ||
-        firstString(item, ["state", "status"])
-      ).toLowerCase();
-      if (
-        callId &&
-        data.is_error !== true &&
-        item.is_error !== true &&
-        (state === "success" || state === "completed")
-      ) {
-        successfulResults.add(callId);
-      }
-    }
-  }
-
-  const artifacts = new Map<string, ResponseArtifact>();
-  for (const call of calls) {
-    if (!call.inlineSuccess && !successfulResults.has(call.callId)) continue;
-    const target = targetForPath(call.path);
+    const toolName =
+      firstString(callData, ["name"]) || firstString(item, ["name"]);
+    if (!FILE_IO_TOOLS.has(normalizedToolName(toolName))) continue;
+    const params =
+      parsedRecord(callData.arguments) ??
+      parsedRecord(item.params) ??
+      parsedRecord(item.arguments) ??
+      {};
+    const path = firstString(params, ["file_path"]);
+    const target = targetForPath(path);
     if (!target) continue;
-    const name = call.path.replace(/\\/g, "/").split("/").pop() || "file";
+    const name = path.replace(/\\/g, "/").split("/").pop() || "file";
     const id = `${target.source}:${target.path}`;
     artifacts.delete(id);
     artifacts.set(id, {
       id,
       name,
-      path: call.path,
+      path,
       target,
-      toolName: call.toolName,
+      toolName,
     });
   }
   return Array.from(artifacts.values()).reverse();
@@ -191,16 +155,14 @@ function extractResponseArtifacts(output: unknown): ResponseArtifact[] {
 
 function artifactChange(toolName?: string): ArtifactChange {
   const normalized = normalizedToolName(toolName ?? "");
-  return normalized === "write" || normalized === "writefile"
-    ? "created"
-    : "modified";
+  return normalized === "writefile" ? "created" : "modified";
 }
 
 export default function ResponseArtifactList({
-  output,
+  messages,
 }: ResponseArtifactListProps) {
   const { t } = useTranslation();
-  const artifacts = extractResponseArtifacts(output);
+  const artifacts = extractResponseArtifacts(messages);
   const gridRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(2);

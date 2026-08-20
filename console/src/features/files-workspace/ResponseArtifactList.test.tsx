@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import AgentScopeRuntimeResponseBuilder from "../../../node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -19,16 +20,19 @@ import ResponseArtifactList from "./ResponseArtifactList";
 function successfulFileIo(path: string, name = "write_file") {
   return [
     {
-      id: `call-${path}`,
-      type: "tool_call",
-      name,
-      params: { file_path: path },
-    },
-    {
       id: `result-${path}`,
       type: "tool_call_output",
-      call_id: `call-${path}`,
       status: "completed",
+      content: [
+        {
+          data: {
+            call_id: `call-${path}`,
+            name,
+            arguments: JSON.stringify({ file_path: path }),
+          },
+        },
+        { data: { call_id: `call-${path}`, state: "success" } },
+      ],
     },
   ];
 }
@@ -37,7 +41,7 @@ describe("ResponseArtifactList", () => {
   it("renders each file as a flat preview entry", () => {
     render(
       <ResponseArtifactList
-        output={[
+        messages={[
           ...successfulFileIo("snack-shop/public/main.js"),
           ...successfulFileIo("snack-shop/package.json"),
         ]}
@@ -53,7 +57,7 @@ describe("ResponseArtifactList", () => {
   it("marks edit and append operations as modified", () => {
     render(
       <ResponseArtifactList
-        output={[
+        messages={[
           ...successfulFileIo("notes.md", "edit_file"),
           ...successfulFileIo("journal.md", "append_file"),
         ]}
@@ -66,7 +70,7 @@ describe("ResponseArtifactList", () => {
   it("collapses files beyond two rows and allows expanding them", () => {
     render(
       <ResponseArtifactList
-        output={Array.from({ length: 3 }, (_, index) =>
+        messages={Array.from({ length: 3 }, (_, index) =>
           successfulFileIo(`file-${index}.md`),
         ).flat()}
       />,
@@ -85,7 +89,7 @@ describe("ResponseArtifactList", () => {
       .mockReturnValue({ width: 700 } as DOMRect);
     render(
       <ResponseArtifactList
-        output={Array.from({ length: 5 }, (_, index) =>
+        messages={Array.from({ length: 5 }, (_, index) =>
           successfulFileIo(`wide-${index}.md`),
         ).flat()}
       />,
@@ -104,7 +108,7 @@ describe("ResponseArtifactList", () => {
     const listener = vi.fn();
     window.addEventListener("qwenpaw:open-file-preview", listener);
     render(
-      <ResponseArtifactList output={successfulFileIo("reports/final.md")} />,
+      <ResponseArtifactList messages={successfulFileIo("reports/final.md")} />,
     );
 
     fireEvent.click(
@@ -125,38 +129,55 @@ describe("ResponseArtifactList", () => {
   it("renders nothing when the response has no successful file IO", () => {
     const { container } = render(
       <ResponseArtifactList
-        output={[{ type: "message", content: [{ text: "hello" }] }]}
+        messages={[
+          { type: "message", content: [{ text: "hello" }] },
+          {
+            type: "tool_call_output",
+            content: [
+              {
+                data: {
+                  name: "shell",
+                  arguments: JSON.stringify({
+                    file_path: "not-an-artifact.md",
+                  }),
+                },
+              },
+              { data: { state: "success" } },
+            ],
+          },
+        ]}
       />,
     );
 
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("reads the normalized ResponseCard content-data shape", () => {
-    render(
-      <ResponseArtifactList
-        output={[
+  it("renders a live SSE file after ResponseCard merges its tool result", () => {
+    const liveOutput = [
+      {
+        id: "write-call",
+        type: "tool_call",
+        content: [
           {
-            id: "write-call",
-            type: "tool_call",
-            content: [
-              {
-                data: {
-                  call_id: "write-call",
-                  name: "write_file",
-                  arguments: JSON.stringify({ file_path: "result.md" }),
-                },
-              },
-            ],
+            data: {
+              call_id: "write-call",
+              name: "write_file",
+              arguments: JSON.stringify({ file_path: "result.md" }),
+            },
           },
-          {
-            id: "write-output",
-            type: "tool_call_output",
-            content: [{ data: { call_id: "write-call", state: "success" } }],
-          },
-        ]}
-      />,
+        ],
+      },
+      {
+        id: "write-output",
+        type: "tool_call_output",
+        content: [{ data: { call_id: "write-call", state: "success" } }],
+      },
+    ];
+    const messages = AgentScopeRuntimeResponseBuilder.mergeToolMessages(
+      liveOutput as never,
     );
+
+    render(<ResponseArtifactList messages={messages} />);
 
     expect(
       screen.getByRole("button", { name: "result.md result.md" }),
@@ -166,17 +187,20 @@ describe("ResponseArtifactList", () => {
   it("does not show failed file operations", () => {
     const { container } = render(
       <ResponseArtifactList
-        output={[
-          {
-            id: "failed-write",
-            type: "tool_call",
-            name: "write_file",
-            params: { file_path: "failed.md" },
-          },
+        messages={[
           {
             type: "tool_call_output",
-            call_id: "failed-write",
             status: "failed",
+            content: [
+              {
+                data: {
+                  call_id: "failed-write",
+                  name: "write_file",
+                  arguments: JSON.stringify({ file_path: "failed.md" }),
+                },
+              },
+              { data: { call_id: "failed-write", state: "failed" } },
+            ],
           },
         ]}
       />,

@@ -197,7 +197,9 @@ function DefaultHostResponseCard({
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
       {contentAppend}
-      <ResponseArtifactList output={data.output} />
+      {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+        <ResponseArtifactList messages={messages} />
+      ) : null}
       <ResponseActions data={data} isLast={isLast} />
     </>
   );
