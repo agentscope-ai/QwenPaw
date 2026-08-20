@@ -1,25 +1,25 @@
 ---
-title: "Introducing QwenPaw Hub：为每位用户运行一个独立的 QwenPaw"
+title: "Introducing QwenPaw Hub：为团队部署多租户 QwenPaw"
 date: 2026-08-19
 author: QwenPaw Team
-tags: [QwenPaw Hub, 自托管, 多用户, Docker]
+tags: [QwenPaw Hub, 自托管, 多租户, Docker]
 excerpt: "QwenPaw Hub 为团队自托管场景提供统一账户、独立运行环境、Local 与 Docker 后端，以及面向管理员的安全与运维控制。"
 related:
   heading: "开始使用 QwenPaw Hub"
   description: "从首次初始化到运行环境和安全运维，完整文档集中在同一个入口。"
   items:
     - label: "文档"
-      name: "QwenPaw Hub 部署与管理"
+      name: "QwenPaw Hub：部署与管理多租户 QwenPaw"
       href: "/docs/hub"
 ---
 
-# Introducing QwenPaw Hub：为每位用户运行一个独立的 QwenPaw
+# Introducing QwenPaw Hub：为团队部署多租户 QwenPaw
 
 QwenPaw 最初围绕个人设备设计：一个人安装一个 QwenPaw，配置自己的模型、记忆、Skills 和工作区。这种方式足够直接，也让数据和能力始终围绕个人展开。
 
 但当一个团队希望在自己的服务器上提供 QwenPaw 时，问题就变了：谁可以登录？不同用户的文件和密钥放在哪里？一个人的进程异常会不会影响其他人？管理员停止实例后，用户访问页面会不会又把它自动拉起？Docker 镜像和资源上限又应该由谁决定？
 
-QwenPaw Hub 就是对这些问题的回答。它不是把一个 QwenPaw 页面简单分享给更多人，而是在统一入口后，为每个账户运行一个独立、可管理的 QwenPaw。
+QwenPaw Hub 就是对这些问题的回答。它是面向团队自托管场景的多租户 QwenPaw 平台：在统一入口后，为每个账户运行一个独立、可管理的 QwenPaw，而不是把同一个 QwenPaw 页面简单分享给所有人。
 
 先说明它的安全边界：当前 Hub 不为每个用户提供独立内核。Linux Local 使用 Bubblewrap namespace，macOS Local 使用 Seatbelt，Windows Local 使用 AppContainer 和 Job Object；三者都共享各自的宿主机内核。Docker 使用容器隔离，所有 Hub 容器共享 Docker Engine 所使用的 Linux 内核。在 Windows 或 macOS 的 Docker Desktop 环境中，这通常是 Docker Linux VM 的内核，但仍不是一租户一内核。这里的“独立运行环境”指独立的数据目录、凭据、进程或容器和生命周期管理，不代表每个用户拥有独立虚拟机或 MicroVM。
 

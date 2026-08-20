@@ -11,6 +11,8 @@ from typing import Any
 
 _SCHEMA_GENERATION = "hub-v1"
 _JSON_DEFAULT = '{"schema_version":1}'
+_RUNTIME_CONFIG_SCHEMA_VERSION = 2
+_RUNTIME_CONFIG_SCHEMA_KEY = "runtime_config_schema_version"
 
 
 def utc_now() -> str:
@@ -44,6 +46,7 @@ def initialize_hub_database(database_path: Path) -> None:
             "INSERT OR IGNORE INTO hub_schema(key, value) VALUES (?, ?)",
             ("schema_generation", _SCHEMA_GENERATION),
         )
+        _migrate_runtime_config_documents(connection)
         connection.execute(
             "INSERT OR IGNORE INTO hub_settings("
             "key, value_json, schema_version, revision, updated_at) "
@@ -57,6 +60,46 @@ def initialize_hub_database(database_path: Path) -> None:
             ("registration_default_role", '"user"', utc_now()),
         )
         _validate_schema(connection)
+
+
+def _migrate_runtime_config_documents(
+    connection: sqlite3.Connection,
+) -> None:
+    marker = connection.execute(
+        "SELECT value FROM hub_schema WHERE key = ?",
+        (_RUNTIME_CONFIG_SCHEMA_KEY,),
+    ).fetchone()
+    if marker is not None and int(marker["value"]) >= (
+        _RUNTIME_CONFIG_SCHEMA_VERSION
+    ):
+        return
+
+    rows = connection.execute(
+        "SELECT runtime_id, config_json FROM runtimes",
+    ).fetchall()
+    for row in rows:
+        config = json.loads(str(row["config_json"]))
+        if not isinstance(config, dict):
+            raise RuntimeError("Invalid runtime config document.")
+        config["schema_version"] = _RUNTIME_CONFIG_SCHEMA_VERSION
+        config.setdefault("start_policy", "owner_allowed")
+        connection.execute(
+            "UPDATE runtimes SET config_json = ?, revision = revision + 1 "
+            "WHERE runtime_id = ?",
+            (
+                json.dumps(config, sort_keys=True),
+                str(row["runtime_id"]),
+            ),
+        )
+
+    connection.execute(
+        "INSERT INTO hub_schema(key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (
+            _RUNTIME_CONFIG_SCHEMA_KEY,
+            str(_RUNTIME_CONFIG_SCHEMA_VERSION),
+        ),
+    )
 
 
 def ensure_tenant(

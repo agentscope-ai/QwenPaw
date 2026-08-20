@@ -1,4 +1,4 @@
-# QwenPaw Hub 部署与管理
+# QwenPaw Hub：部署与管理多租户 QwenPaw
 
 QwenPaw Hub 是面向自托管多用户场景的统一入口。管理员只需维护一个 Hub，每个账户即可使用自己的 QwenPaw 运行环境，并拥有分别存放的工作目录、配置、凭据和会话。
 

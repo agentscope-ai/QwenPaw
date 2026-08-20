@@ -10,6 +10,7 @@ from qwenpaw.hub.database import (
     HubExtensionStore,
     initialize_hub_database,
 )
+from qwenpaw.hub.models import RuntimeStartPolicy
 from qwenpaw.hub.registry import RuntimeRegistry
 from tests.unit.hub.factories import runtime_record
 
@@ -108,3 +109,25 @@ def test_runtime_revision_rejects_lost_updates(tmp_path: Path) -> None:
     assert updated.revision == 2
     with pytest.raises(RuntimeError, match="changed concurrently"):
         registry.save(stale)
+
+
+def test_runtime_config_documents_upgrade_to_current_schema(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.db"
+    registry = RuntimeRegistry(database)
+    record = registry.create(runtime_record(tmp_path, port=8001))
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE runtimes SET config_json = ? WHERE runtime_id = ?",
+            ('{"schema_version":1}', record.runtime_id),
+        )
+        connection.execute(
+            "DELETE FROM hub_schema WHERE key = ?",
+            ("runtime_config_schema_version",),
+        )
+
+    upgraded = RuntimeRegistry(database).get(record.runtime_id)
+
+    assert upgraded is not None
+    assert upgraded.start_policy is RuntimeStartPolicy.OWNER_ALLOWED
