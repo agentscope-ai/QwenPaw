@@ -1,0 +1,123 @@
+# One-shot DataPaw demo stack.
+#
+# This compose brings up the external infrastructure and context service so the
+# datapaw app can run against a ready Neo4j + PostgreSQL environment without a
+# local QwenPaw-Data source workspace.
+#
+# Quick start:
+#   1. cp .env.example .env
+#   2. docker compose up -d
+#   3. Open QwenPaw (local or container) and enable the datapaw app.
+#
+# The optional `qwenpaw` service builds the full QwenPaw image from the repo
+# root. If the build is too heavy or fails (e.g. ACR base images unavailable),
+# disable it and run QwenPaw locally instead:
+#   docker compose up -d neo4j postgres context seed
+#   qwenpaw app
+#
+# The `seed` service waits for Postgres and the context service to be healthy,
+# then injects the GAAP demo data, imports the semantic workbook, and triggers
+# a weave task.
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: datapaw-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-datapaw-demo}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  postgres:
+    image: postgres:16
+    container_name: datapaw-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-datapaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-datapaw-demo}
+      POSTGRES_DB: ${POSTGRES_DB:-datapaw_demo}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-datapaw} -d ${POSTGRES_DB:-datapaw_demo}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  context:
+    build:
+      context: ./docker/context
+    container_name: datapaw-context
+    restart: unless-stopped
+    environment:
+      DATAPAW_API_TOKEN: ${DATAPAW_CONTEXT_TOKEN:-datapaw-demo-token}
+      DATAPAW_CM_NEO4J_URI: bolt://neo4j:7687
+      DATAPAW_CM_NEO4J_USER: ${NEO4J_USER:-neo4j}
+      DATAPAW_CM_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-datapaw-demo}
+    ports:
+      - "${CONTEXT_PORT:-8765}:8765"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8765/api/health', timeout=5)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    command: >
+      sh -c "uvicorn context_manager.api.server:app --host 0.0.0.0 --port 8765"
+
+  seed:
+    build:
+      context: ./docker/seed
+    container_name: datapaw-seed
+    environment:
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-datapaw}:${POSTGRES_PASSWORD:-datapaw-demo}@postgres:5432/${POSTGRES_DB:-datapaw_demo}
+      CONTEXT_URL: http://context:8765
+      CONTEXT_TOKEN: ${DATAPAW_CONTEXT_TOKEN:-datapaw-demo-token}
+      DATAPAW_DEMO_POSTGRES_PORT: "5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      context:
+        condition: service_healthy
+    command: >
+      sh -c "python /seed.py"
+
+  qwenpaw:
+    build:
+      context: ../../..
+      dockerfile: deploy/Dockerfile
+    container_name: datapaw-qwenpaw
+    environment:
+      QWENPAW_PORT: "${QWENPAW_PORT:-8088}"
+      DATAPAW_CONTEXT_MODE: external
+      DATAPAW_CONTEXT_URL: http://context:8765
+      DATAPAW_CONTEXT_TOKEN: ${DATAPAW_CONTEXT_TOKEN:-datapaw-demo-token}
+    ports:
+      - "${QWENPAW_PORT:-8088}:8088"
+    depends_on:
+      context:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+volumes:
+  neo4j-data:
+  postgres-data:

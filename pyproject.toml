@@ -150,8 +150,14 @@ codex = [
 qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
+datapaw = [
+    "datapaw-context>=0.2,<0.3",
+    "datapaw-host-core>=0.2,<0.3",
+    "datapaw-cli>=0.2,<0.3",
+    "datapaw-skills>=0.2,<0.3",
+]
 full = [
-    "qwenpaw[local,whisper,codex,qoder]",
+    "qwenpaw[datapaw,local,whisper,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

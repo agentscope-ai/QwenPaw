@@ -1,7 +1,7 @@
 {
   "id": "datapaw",
-  "name": "QwenPaw-Data",
-  "version": "0.2.0",
+  "name": "datapaw",
+  "version": "0.2.2",
   "type": "app",
   "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
   "description_i18n": {
@@ -18,7 +18,7 @@
     "ui/dist/context-console/index.html",
     "ui/dist/app/logo-mark-v4.png"
   ],
-  "pack_requires_hint": "Run scripts/sync-context-ui.sh to vendor the context console, then 'npm ci && npm run build' in ui/ to produce ui/dist.",
+  "pack_requires_hint": "To run: install the runtime from PyPI with scripts/setup-pypi.sh (or pip install qwenpaw[datapaw]), or from source with scripts/setup-dev.sh; alternatively set DATAPAW_CONTEXT_MODE=external. For a one-shot demo with Neo4j + PostgreSQL + seeded GAAP data, run 'docker compose up -d' from plugins/apps/datapaw/. To build: run scripts/sync-context-ui.sh to vendor the context console, then 'npm ci && npm run build' in ui/ to produce ui/dist.",
   "pack_exclude": [
     ".venv-datapaw",
     ".datapaw-dev",
@@ -32,11 +32,11 @@
   "dependencies": [],
   "qwenpaw_version": {
     "min": "2.0.1",
-    "max": "3.1.0"
+    "max": "2.2.0"
   },
   "meta": {
     "pawapp": {
-      "icon": "📊",
+      "icon": "\ud83d\udcca",
       "icon_url": "/api/frontend_plugin/datapaw/files/ui/dist/app/logo-mark-v4.png",
       "entry_page": "/apps/datapaw",
       "launch_scope": "page",
@@ -45,7 +45,9 @@
     "permissions": {
       "chat": true,
       "storage": true,
-      "network": ["loopback"]
+      "network": [
+        "loopback"
+      ]
     },
     "runtime_dependencies": {
       "python_packages": [
@@ -67,6 +69,10 @@
       "semantic-management",
       "graph-management"
     ],
-    "planned_features": ["task-graph", "artifacts", "tool-renderers"]
+    "planned_features": [
+      "task-graph",
+      "artifacts",
+      "tool-renderers"
+    ]
   }
 }
