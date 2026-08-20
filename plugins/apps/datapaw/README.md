@@ -48,6 +48,42 @@ step, run `./scripts/dev.sh`. `QWENPAW_BIN` and `QWENPAW_WORKING_DIR` select
 the target instance. The installer targets `127.0.0.1:8089` by default;
 override it with `QWENPAW_HOST` and `QWENPAW_PORT` when needed.
 
+## Docker compose demo
+
+A one-shot demo stack is available for users who want Neo4j + PostgreSQL +
+seeded GAAP data without a local `QwenPaw-Data` source workspace. The stack
+uses the `datapaw-context` and `datapaw-cli` packages from PyPI.
+
+```bash
+cd plugins/apps/datapaw
+cp .env.example .env
+docker compose up -d
+```
+
+This starts:
+
+- `neo4j` — graph store (port 7687 / 7474)
+- `postgres` — GAAP demo datasource (port 55432)
+- `context` — external context service (port 8765)
+- `seed` — injects the bundled demo SQL, imports the semantic workbook, and weaves it into Neo4j
+- `qwenpaw` *(optional)* — builds the full QwenPaw image from the repo root
+
+If the `qwenpaw` service is too heavy or fails to build (e.g. ACR base images
+unavailable), start only the infrastructure and run QwenPaw locally:
+
+```bash
+docker compose up -d neo4j postgres context seed
+# in another terminal, from the QwenPaw repo root
+DATAPAW_CONTEXT_MODE=external DATAPAW_CONTEXT_URL=http://127.0.0.1:8765 DATAPAW_CONTEXT_TOKEN=datapaw-demo-token qwenpaw app
+```
+
+To re-run the seed container manually (for example after wiping Postgres
+volumes):
+
+```bash
+./scripts/init-demo.sh
+```
+
 ## Runtime health and local services
 
 - Configure and activate a language model in QwenPaw's **Settings → Models**
