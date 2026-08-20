@@ -39,17 +39,12 @@ interface ModelOption {
   label: string;
   providerId: string;
   modelId: string;
-  supportsThinking: boolean;
 }
 
 const EMPTY_KEY = "";
 
 function slotKey(providerId: string, modelId: string): string {
   return `${providerId}:${modelId}`;
-}
-
-function supportsThinking(_provider: SettingsProvider, model: ModelInfo) {
-  return model.supports_agent_thinking === true;
 }
 
 export function AgentModelSettings({
@@ -72,16 +67,12 @@ export function AgentModelSettings({
   const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
   const [pendingFallback, setPendingFallback] = useState(EMPTY_KEY);
   const [subagentKey, setSubagentKey] = useState(EMPTY_KEY);
-  const [thinkingLevel, setThinkingLevel] = useState<
-    "inherit" | "off" | "low" | "medium" | "high"
-  >("inherit");
   const loadRevision = useRef(0);
   const saveRevision = useRef(0);
   const configAgentId = useRef<string | null>(null);
   const agentIdRef = useRef(agentId);
   agentIdRef.current = agentId;
   const bodyId = useId();
-  const thinkingSelectId = `${bodyId}-thinking-level`;
   const subagentSelectId = `${bodyId}-subagent-model`;
   const fallbackScopeSelectId = `${bodyId}-fallback-scope`;
   const fallbackSelectId = `${bodyId}-fallback-model`;
@@ -94,7 +85,6 @@ export function AgentModelSettings({
           label: `${provider.name} / ${model.name || model.id}`,
           providerId: provider.id,
           modelId: model.id,
-          supportsThinking: supportsThinking(provider, model),
         })),
       ),
     [providers],
@@ -126,7 +116,6 @@ export function AgentModelSettings({
     slotKey(activeProviderId ?? "", activeModelId ?? ""),
   );
   const activeKey = activeOption?.key ?? EMPTY_KEY;
-  const thinkingSupported = activeOption?.supportsThinking ?? false;
   const modelSelectOptions = useMemo(
     () =>
       options.map((option) => ({
@@ -187,7 +176,6 @@ export function AgentModelSettings({
         ? slotKey(next.subagent_model.provider_id, next.subagent_model.model)
         : EMPTY_KEY,
     );
-    setThinkingLevel(next.thinking_level ?? "inherit");
   };
 
   const loadConfig = async (force = false) => {
@@ -259,7 +247,6 @@ export function AgentModelSettings({
           target_scope: fallbackScope,
         },
         subagent_model: subagentSlot ?? null,
-        ...(thinkingSupported ? { thinking_level: thinkingLevel } : {}),
       };
       const updated = await agentsApi.updateModelSettings(
         targetAgentId,
@@ -323,33 +310,6 @@ export function AgentModelSettings({
             </div>
           ) : (
             <>
-              <label className={styles.settingsRow} htmlFor={thinkingSelectId}>
-                <span>{t("modelSelector.thinkingLevel")}</span>
-                <Select
-                  id={thinkingSelectId}
-                  aria-label={t("modelSelector.thinkingLevel")}
-                  className={styles.agentSelect}
-                  classNames={{
-                    popup: { root: styles.agentSelectDropdown },
-                  }}
-                  value={thinkingLevel}
-                  disabled={!thinkingSupported}
-                  options={(
-                    ["inherit", "off", "low", "medium", "high"] as const
-                  ).map((level) => ({
-                    label: t(`modelSelector.thinking.${level}`),
-                    value: level,
-                  }))}
-                  onChange={(value) =>
-                    setThinkingLevel(value as typeof thinkingLevel)
-                  }
-                />
-              </label>
-              {!thinkingSupported && (
-                <p className={styles.settingsHint}>
-                  {t("modelSelector.thinkingUnsupported")}
-                </p>
-              )}
               <label className={styles.settingsRow} htmlFor={subagentSelectId}>
                 <span>{t("modelSelector.subagentModel")}</span>
                 <Select

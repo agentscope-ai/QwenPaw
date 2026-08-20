@@ -1950,6 +1950,7 @@ def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    thinking_level_override: Any = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -1983,6 +1984,9 @@ def create_model_and_formatter(
             pass
 
     settings = _load_agent_model_settings(agent_id, agent_config)
+    thinking_level = settings.thinking_level
+    if thinking_level_override in {"off", "low", "medium", "high"}:
+        thinking_level = thinking_level_override
     model_slot = settings.model_slot
     slot = _resolve_model_slot_override(model_slot_override)
     if slot is not None and slot.provider_id and slot.model:
@@ -2000,7 +2004,7 @@ def create_model_and_formatter(
 
         from ..providers.provider import agent_thinking_level
 
-        with agent_thinking_level(settings.thinking_level):
+        with agent_thinking_level(thinking_level):
             model = provider.get_chat_model_instance(model_slot.model)
         provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     else:
@@ -2057,7 +2061,7 @@ def create_model_and_formatter(
         fallback_slots=settings.fallback_slots,
         fallback_enabled=settings.fallback_enabled,
         fallback_free_only=settings.fallback_free_only,
-        thinking_level=settings.thinking_level,
+        thinking_level=thinking_level,
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
@@ -2071,6 +2075,7 @@ async def create_model_and_formatter_async(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    thinking_level_override: Any = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Build a model and formatter without blocking the event loop."""
     return await run_sync_io(
@@ -2078,6 +2083,7 @@ async def create_model_and_formatter_async(
         agent_id=agent_id,
         model_slot_override=model_slot_override,
         agent_config=agent_config,
+        thinking_level_override=thinking_level_override,
     )
 
 

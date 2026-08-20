@@ -304,7 +304,6 @@ class ProviderManagerDiscoveryMixin(
             for model in provider.discovered_models
             if model.discovery_origin in {None, "api", "both"}
         }
-        removed_ids = set(provider.removed_model_ids)
         try:
             fetched = await fetch_provider.fetch_models(timeout=timeout)
             fetched = [model for model in fetched if model.id.strip()]
@@ -314,12 +313,6 @@ class ProviderManagerDiscoveryMixin(
                     timeout,
                 )
                 raise ValueError(reason or "Provider returned no models")
-            fetched = [
-                model
-                for model in fetched
-                if model.id.strip() not in removed_ids
-            ]
-
             synced_at = datetime.now(timezone.utc).isoformat()
             by_id: dict[str, ModelInfo] = {}
             api_ids: set[str] = set()
@@ -337,8 +330,6 @@ class ProviderManagerDiscoveryMixin(
             # /models endpoint exposes only a subset of its public models.
             if provider.merge_with_catalog:
                 for catalog_model in provider.models:
-                    if catalog_model.id in removed_ids:
-                        continue
                     existing = by_id.get(catalog_model.id)
                     if existing is not None:
                         existing.discovery_origin = "both"
@@ -366,11 +357,6 @@ class ProviderManagerDiscoveryMixin(
                     models=models,
                     synced_at=synced_at,
                 )
-            current_removed = set(provider.removed_model_ids)
-            models = [
-                model for model in models if model.id not in current_removed
-            ]
-
             return ProviderModelDiscoveryResult(
                 success=True,
                 models=models,

@@ -374,6 +374,15 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     assert compact_thresholds == [0.75, 0.75]
     assert thinking_levels == ["high", "high"]
 
+    thinking_levels.clear()
+    model_factory.create_model_and_formatter(
+        agent_id="agent-1",
+        agent_config=config,
+        thinking_level_override="medium",
+    )
+
+    assert thinking_levels == ["medium", "medium"]
+
 
 def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     """Install the protocol formatter before wrapping every model."""

@@ -372,6 +372,7 @@ class AgentBuilder:
             self.build_model,
             agent_config,
             model_slot_override=model_slot_override,
+            thinking_level_override=request_context.get("thinking_level"),
         )
 
         # Built once and shared: the agent's native offloader, and (when
@@ -532,6 +533,7 @@ class AgentBuilder:
         self,
         agent_config: Any,
         model_slot_override: Any = None,
+        thinking_level_override: Any = None,
     ) -> tuple[Any, Any]:
         """Create model and formatter using the factory method."""
         from ..agents.model_factory import create_model_and_formatter
@@ -540,6 +542,7 @@ class AgentBuilder:
             agent_id=agent_config.id,
             model_slot_override=model_slot_override,
             agent_config=agent_config,
+            thinking_level_override=thinking_level_override,
         )
         if formatter is not None:
             innermost = model

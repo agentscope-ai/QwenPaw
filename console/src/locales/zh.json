@@ -1870,7 +1870,7 @@
     "thinkingUnsupported": "当前模型未声明可配置的思考能力。",
     "thinking": {
       "inherit": "模型默认",
-      "off": "关闭",
+      "off": "无",
       "low": "低",
       "medium": "中",
       "high": "高"
@@ -1889,6 +1889,7 @@
     "fallbackActive": "实际处理模型：{{provider}} / {{model}}"
   },
   "models": {
+    "modelConfigTitle": "{{model}} 模型配置",
     "discoveryOriginApi": "API 检测",
     "discoveryOriginCatalog": "官方目录",
     "discoveryOriginBoth": "API + 目录",
@@ -3000,6 +3001,7 @@
       "codeSnippet": "代码片段 · {{count}} 行"
     },
     "modelSelectTooltip": "模型选择",
+    "thinkingLevelTitle": "Session 思考模式",
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",

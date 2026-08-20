@@ -36,15 +36,6 @@
   }
 }
 
-.fallbackBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 11px;
-}
-
 .marquee {
   display: inline-block;
 }
@@ -195,6 +186,35 @@
   flex-shrink: 0;
 }
 
+.modelConfigButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ms-text-muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease;
+
+  &:hover {
+    color: var(--ms-text);
+    background: color-mix(in srgb, var(--ms-text) 9%, transparent);
+  }
+}
+
+.modelItem:hover .modelConfigButton,
+.modelItem:focus-within .modelConfigButton {
+  opacity: 1;
+}
+
 .freeTag {
   display: inline-flex;
   align-items: center;
@@ -222,38 +242,12 @@
   font-size: 14px;
 }
 
-.showAllButton {
-  width: calc(100% - 16px);
-  margin: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--ms-border);
-  font-size: 12px;
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--ms-accent);
-  }
-}
-
-.candidateItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 4px 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--ms-border);
-  border-radius: 9px;
-}
-
-.candidateModelSection,
 .agentModelSettings {
   margin: 8px;
   border: 1px solid var(--ms-border);
   border-radius: 9px;
 }
 
-.candidateSectionToggle,
 .agentSettingsToggle {
   display: flex;
   align-items: center;
@@ -275,118 +269,6 @@
   &:disabled {
     cursor: default;
   }
-}
-
-.candidateSectionTitle {
-  flex: 1;
-  text-align: left;
-}
-
-.candidateSectionMeta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.candidateSectionBody {
-  max-height: min(300px, 42vh);
-  padding: 2px 2px 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.candidateIdentity {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--ms-text);
-  font-size: 13px;
-
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.candidateSecondaryButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 5px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--ms-text-faint);
-  background: transparent;
-  cursor: pointer;
-
-  &:hover {
-    color: var(--ms-accent);
-    background: var(--ms-accent-soft);
-  }
-}
-
-.addCandidateButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 7px;
-  color: #fff;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.hiddenModels {
-  margin: 8px;
-  border-top: 1px solid var(--ms-border);
-  color: var(--ms-text-muted);
-  font-size: 12px;
-
-  summary {
-    padding: 9px 2px 5px;
-    cursor: pointer;
-  }
-}
-
-.hiddenModelItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 2px;
-
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  button {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 7px;
-    border: 1px solid var(--ms-border);
-    border-radius: 6px;
-    color: var(--ms-text-muted);
-    background: transparent;
-    cursor: pointer;
-  }
-}
-
-.settingsHint {
-  margin: -2px 0 4px;
-  color: var(--ms-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .srOnly {
@@ -662,15 +544,6 @@
   flex-shrink: 0;
 }
 
-/* ---- Pro section hint banner ---- */
-.proBanner {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 /* ---- OAuth warning icon on model items ---- */
 .oauthWarningIcon {
   flex-shrink: 0;
@@ -863,23 +736,15 @@
   scrollbar-color: var(--ms-border-strong) transparent;
 }
 
-.candidateSectionBody {
-  scrollbar-width: thin;
-  scrollbar-color: var(--ms-border-strong) transparent;
-}
-
-.listContainer::-webkit-scrollbar,
-.candidateSectionBody::-webkit-scrollbar {
+.listContainer::-webkit-scrollbar {
   width: 6px;
 }
 
-.listContainer::-webkit-scrollbar-track,
-.candidateSectionBody::-webkit-scrollbar-track {
+.listContainer::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.listContainer::-webkit-scrollbar-thumb,
-.candidateSectionBody::-webkit-scrollbar-thumb {
+.listContainer::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: var(--ms-border-strong);
 }
@@ -948,7 +813,6 @@
   }
 }
 
-.candidateSecondaryButton,
 .fallbackList button {
   min-width: 32px;
   min-height: 32px;
@@ -967,8 +831,7 @@
   border-color: var(--ms-border);
 }
 
-.freeBanner,
-.proBanner {
+.freeBanner {
   margin: 4px 2px 8px;
   padding: 8px 10px;
   border: 1px solid var(--ms-border);
@@ -986,8 +849,7 @@
 
 .viewMore,
 .moreToggle,
-.connectEntry,
-.showAllButton {
+.connectEntry {
   min-height: 38px;
   border-radius: 8px;
   color: var(--ms-text-muted);
@@ -1009,27 +871,17 @@
 
 .viewMore:hover,
 .moreToggle:hover,
-.connectEntry:hover,
-.showAllButton:hover {
+.connectEntry:hover {
   color: var(--ms-accent-strong);
   background: var(--ms-accent-soft);
 }
 
-.candidateItem,
-.candidateModelSection,
 .agentModelSettings {
   border-color: var(--ms-border);
   background: var(--ms-surface-muted);
   box-shadow: none;
 }
 
-.candidateItem {
-  min-height: 48px;
-  border-radius: 10px;
-  background: var(--ms-surface);
-}
-
-.addCandidateButton,
 .saveAgentSettings {
   min-height: 36px;
   border-radius: 9px;
@@ -1057,12 +909,10 @@
   }
 }
 
-.candidateSectionToggle,
 .agentSettingsToggle {
   min-height: 40px;
 }
 
-.candidateSectionToggle:focus-visible,
 .agentSettingsToggle:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1px var(--ms-border-strong);
@@ -1112,18 +962,6 @@
   color: var(--ms-text-muted);
 }
 
-.fallbackBadge {
-  max-width: 132px;
-  color: var(--ms-text-muted);
-  background: var(--ms-surface-muted);
-
-  > span:last-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
 .oauthModalContent {
   padding: 20px 8px 8px;
   color: var(--ms-text);
@@ -1168,14 +1006,11 @@
 .tabButton:focus-visible,
 .providerHeader:focus-visible,
 .modelSelectButton:focus-visible,
+.modelConfigButton:focus-visible,
 .viewMore:focus-visible,
 .moreToggle:focus-visible,
 .connectEntry:focus-visible,
-.showAllButton:focus-visible,
-.candidateSecondaryButton:focus-visible,
-.addCandidateButton:focus-visible,
-.agentSettingsBody button:focus-visible,
-.hiddenModelItem button:focus-visible {
+.agentSettingsBody button:focus-visible {
   outline: 3px solid var(--ms-focus);
   outline-offset: 2px;
 }
@@ -1196,14 +1031,10 @@
     max-width: 92px;
   }
 
-  .fallbackBadge {
-    display: inline-flex;
-    max-width: 82px;
-    padding: 2px 5px;
-
-    > svg:nth-of-type(2) {
-      display: none;
-    }
+  .modelConfigButton {
+    width: 44px;
+    height: 44px;
+    opacity: 1;
   }
 }
 
@@ -1222,31 +1053,6 @@
 
   .triggerName {
     max-width: 68px;
-  }
-
-  .fallbackBadge {
-    max-width: 64px;
-
-    > span:last-child {
-      max-width: 40px;
-    }
-  }
-
-  .candidateItem {
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-
-  .candidateSectionBody {
-    max-height: min(260px, 38vh);
-  }
-
-  .candidateIdentity {
-    width: 100%;
-  }
-
-  .candidateSecondaryButton {
-    margin-left: auto;
   }
 
   .settingsRow {
@@ -1310,8 +1116,6 @@
     background: var(--ms-surface);
   }
 
-  .candidateItem,
-  .candidateModelSection,
   .agentModelSettings {
     background: var(--ms-surface-muted);
   }
@@ -1321,24 +1125,16 @@
     background: color-mix(in srgb, var(--ms-text) 7%, transparent);
   }
 
-  .candidateSectionToggle,
   .agentSettingsToggle,
-  .candidateIdentity,
   .settingsRow,
   .settingsCheckRow,
-  .hiddenModels,
   .fallbackList span {
     color: var(--ms-text-muted);
   }
 
-  .candidateSectionToggle:hover:not(:disabled),
   .agentSettingsToggle:hover:not(:disabled) {
     color: var(--ms-accent-strong);
     background: var(--ms-accent-soft);
-  }
-
-  .settingsHint {
-    color: var(--ms-text-muted);
   }
 
   .agentSelect {

@@ -12,6 +12,8 @@ import {
   ChevronDown,
   CloudCog,
   Database,
+  Eye,
+  EyeOff,
   FlaskConical,
   Gift,
   PlugZap,
@@ -90,8 +92,6 @@ export function RemoteModelManageModal({
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const previewAttemptedProviderRef = useRef<string | null>(null);
 
-  // For custom providers ALL models are deletable.
-  // For built-in providers only extra_models are deletable.
   const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
 
   const doAddModel = async (id: string, name: string) => {
@@ -264,6 +264,24 @@ export function RemoteModelManageModal({
         }
       },
     });
+  };
+
+  const handleModelVisibility = async (modelId: string, hidden: boolean) => {
+    try {
+      const updated = await api.setModelVisibility(
+        provider.id,
+        modelId,
+        hidden,
+      );
+      onProviderUpdated?.(updated);
+      await onSaved();
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("modelSelector.visibilityFailed"),
+      );
+    }
   };
 
   const handleClose = () => {
@@ -557,16 +575,29 @@ export function RemoteModelManageModal({
   }, [deferredSearchQuery]);
 
   const filteredModels = useMemo(() => {
+    const hidden = new Set(provider.hidden_model_ids ?? []);
     const all_models = [
       ...(provider.extra_models ?? []),
       ...(provider.models ?? []),
-    ];
+    ].filter((model) => !hidden.has(model.id));
     const q = deferredSearchQuery.trim().toLowerCase();
     if (!q) return all_models;
     return all_models.filter(
       (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
-  }, [provider.models, provider.extra_models, deferredSearchQuery]);
+  }, [
+    provider.models,
+    provider.extra_models,
+    provider.hidden_model_ids,
+    deferredSearchQuery,
+  ]);
+  const hiddenConfiguredModels = useMemo(() => {
+    const hidden = new Set(provider.hidden_model_ids ?? []);
+    return [
+      ...(provider.extra_models ?? []),
+      ...(provider.models ?? []),
+    ].filter((model) => hidden.has(model.id));
+  }, [provider.extra_models, provider.hidden_model_ids, provider.models]);
 
   const colors = tagColors(isDark);
 
@@ -620,7 +651,7 @@ export function RemoteModelManageModal({
 
       {/* Model list */}
       <div className={styles.modelList}>
-        {filteredModels.length === 0 ? (
+        {filteredModels.length === 0 && hiddenConfiguredModels.length === 0 ? (
           <div className={styles.modelListEmpty}>
             <div>{t("models.noModels")}</div>
             {discoveredModels.length > 0 && !isOpenRouter && (
@@ -759,19 +790,28 @@ export function RemoteModelManageModal({
                           style={darkBtnStyle}
                         />
                       </Tooltip>
-                      {isDeletable && (
-                        <Tooltip title={t("models.removeModel")}>
-                          <Button
-                            type="text"
-                            size="small"
-                            danger
-                            className={styles.modelListActionButton}
-                            aria-label={t("models.removeModel")}
-                            icon={<Trash2 size={18} />}
-                            onClick={() => handleRemoveModel(m.id, m.name)}
-                          />
-                        </Tooltip>
-                      )}
+                      <Tooltip title={t("modelSelector.hideModel")}>
+                        <Button
+                          type="text"
+                          size="small"
+                          className={styles.modelListActionButton}
+                          aria-label={t("modelSelector.hideModel")}
+                          icon={<EyeOff size={18} />}
+                          onClick={() => void handleModelVisibility(m.id, true)}
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t("models.removeModel")}>
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          className={styles.modelListActionButton}
+                          aria-label={t("models.removeModel")}
+                          icon={<Trash2 size={18} />}
+                          onClick={() => handleRemoveModel(m.id, m.name)}
+                        />
+                      </Tooltip>
                     </div>
                   </div>
                   {isConfigOpen && (
@@ -791,22 +831,6 @@ export function RemoteModelManageModal({
                         onClose={() => setConfigOpenModelId(null)}
                         isDark={isDark}
                         chatModel={provider.chat_model}
-                        thinkingParamStyle={
-                          extraModelIds.has(m.id)
-                            ? undefined
-                            : m.thinking_param_style ??
-                              provider.thinking_param_style
-                        }
-                        reasoningEffortOptions={
-                          m.reasoning_effort_options ??
-                          provider.reasoning_effort_options
-                        }
-                        thinkingBudgetRange={
-                          (m.thinking_budget_range ??
-                            provider.thinking_budget_range) as
-                            | [number, number]
-                            | undefined
-                        }
                       />
                     </div>
                   )}
@@ -831,6 +855,32 @@ export function RemoteModelManageModal({
                 <span className={styles.modelListCount}>
                   {visibleCount} / {filteredModels.length}
                 </span>
+              </div>
+            )}
+            {hiddenConfiguredModels.length > 0 && (
+              <div className={styles.hiddenModelSection}>
+                <div className={styles.hiddenModelSectionTitle}>
+                  {t("modelSelector.hiddenModels", {
+                    count: hiddenConfiguredModels.length,
+                  })}
+                </div>
+                {hiddenConfiguredModels.map((model) => (
+                  <div key={model.id} className={styles.hiddenModelRow}>
+                    <span>{model.name || model.id}</span>
+                    <Tooltip title={t("modelSelector.restoreModel")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        className={styles.modelListActionButton}
+                        aria-label={t("modelSelector.restoreModel")}
+                        icon={<Eye size={18} />}
+                        onClick={() =>
+                          void handleModelVisibility(model.id, false)
+                        }
+                      />
+                    </Tooltip>
+                  </div>
+                ))}
               </div>
             )}
           </>

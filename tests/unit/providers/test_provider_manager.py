@@ -2031,11 +2031,11 @@ async def test_removed_builtin_model_stays_removed_after_restart(
     assert reloaded.get_model_info(model_id) is None
 
 
-async def test_removed_discovery_model_does_not_return_on_refresh(
+async def test_removed_model_returns_as_candidate_without_reactivation(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
-    """API discovery continues to respect an explicit removal."""
+    """Discovery may offer a removed model without configuring it again."""
     manager = ProviderManager()
     provider = manager.get_provider("openai")
     assert provider is not None
@@ -2053,8 +2053,16 @@ async def test_removed_discovery_model_does_not_return_on_refresh(
     result = await manager.discover_provider_models("openai")
 
     assert result.success is True
-    assert all(model.id != "remote-removed" for model in result.models)
-    assert provider.get_discovered_model_info("remote-removed") is None
+    assert any(model.id == "remote-removed" for model in result.models)
+    assert provider.get_discovered_model_info("remote-removed") is not None
+    assert provider.get_model_info("remote-removed") is None
+    assert "remote-removed" in provider.removed_model_ids
+
+    info = await provider.get_info()
+    assert any(
+        model.id == "remote-removed" for model in info.discovered_models
+    )
+    assert all(model.id != "remote-removed" for model in info.models)
 
 
 async def test_stale_snapshot_cannot_clear_new_tombstone(
@@ -2074,16 +2082,28 @@ async def test_stale_snapshot_cannot_clear_new_tombstone(
     assert "stale-model" in reloaded.removed_model_ids
 
 
-async def test_explicit_add_restores_tombstoned_model(
+async def test_explicit_add_restores_discovered_tombstoned_model(
     isolated_secret_dir,
+    monkeypatch,
 ) -> None:
-    """Add-before-use is the explicit recovery path for a removed model."""
+    """A removed candidate becomes configured only after an explicit add."""
     manager = ProviderManager()
     provider = manager.get_provider("openai")
     assert provider is not None
     model_id = provider.models[0].id
 
     await manager.delete_model_from_provider("openai", model_id)
+
+    async def fetch_models(_self, timeout=5):
+        _ = timeout
+        return [ModelInfo(id=model_id, name=model_id)]
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
+    discovery = await manager.discover_provider_models("openai")
+
+    assert any(model.id == model_id for model in discovery.models)
+    assert provider.get_model_info(model_id) is None
+
     info = await manager.add_model_to_provider(
         "openai",
         ModelInfo(id=model_id, name=model_id),
@@ -2116,11 +2136,11 @@ async def test_hidden_and_removed_model_states_are_independent(
     assert info.removed_model_ids == ["removed-model"]
 
 
-async def test_removal_invalidates_inflight_discovery(
+async def test_inflight_discovery_only_restores_removed_model_as_candidate(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
-    """A discovery started before removal cannot restore its model."""
+    """An in-flight discovery cannot reactivate a removed model."""
     manager = ProviderManager()
     provider = manager.get_provider("openai")
     assert provider is not None
@@ -2143,8 +2163,10 @@ async def test_removal_invalidates_inflight_discovery(
     result = await discovery
 
     assert result.success is True
-    assert all(model.id != "racing-model" for model in result.models)
+    assert any(model.id == "racing-model" for model in result.models)
     assert provider.get_discovered_model_info("racing-model") is None
+    assert provider.get_model_info("racing-model") is None
+    assert "racing-model" in provider.removed_model_ids
 
 
 async def test_discovery_empty_result_surfaces_connection_error(

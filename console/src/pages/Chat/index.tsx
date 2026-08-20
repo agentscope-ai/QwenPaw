@@ -191,6 +191,9 @@ import {
   stopBackgroundWatchersNotInSession,
 } from "../../hooks/useBackgroundTaskWatcher";
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
+import ThinkingLevelToggle, {
+  type SessionThinkingLevel,
+} from "./components/ThinkingLevelToggle";
 import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
 import HarnessModelSelector from "./components/HarnessModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
@@ -1331,6 +1334,7 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const sessionThinkingLevelRef = useRef<SessionThinkingLevel | null>(null);
   const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
@@ -2653,6 +2657,17 @@ export default function ChatPage() {
           sessionApprovalLevelRef.current,
           runningConfigApprovalLevel,
         );
+        if (sessionThinkingLevelRef.current) {
+          const requestContext =
+            requestBody.request_context &&
+            typeof requestBody.request_context === "object"
+              ? (requestBody.request_context as Record<string, unknown>)
+              : {};
+          requestBody.request_context = {
+            ...requestContext,
+            thinking_level: sessionThinkingLevelRef.current,
+          };
+        }
         projectSessionId =
           sessionApi.lastActiveChatId ??
           chatIdRef.current ??
@@ -3240,14 +3255,23 @@ export default function ChatPage() {
               />
             )}
             {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueSessionId}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                compact={compactSender}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
+              <>
+                <ApprovalLevelToggle
+                  sessionId={queueSessionId}
+                  runningConfigApprovalLevel={runningConfigApprovalLevel}
+                  compact={compactSender}
+                  onChange={(sessionOverride) => {
+                    sessionApprovalLevelRef.current = sessionOverride;
+                  }}
+                />
+                <ThinkingLevelToggle
+                  sessionId={queueSessionId}
+                  compact={compactSender}
+                  onChange={(level) => {
+                    sessionThinkingLevelRef.current = level;
+                  }}
+                />
+              </>
             ) : approvalPresets.length > 0 ? (
               <HarnessApprovalToggle
                 backend={selectedAgentBackend}

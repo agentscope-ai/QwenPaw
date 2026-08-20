@@ -23,6 +23,7 @@ import { providerApi } from "@/api/modules/provider";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
+import { AgentModelSettings } from "../../../Chat/ModelSelector/AgentModelSettings";
 import {
   MAIL_DOMAIN_PICKER_DOMAINS,
   MAIL_DOMAIN_WHITELIST,
@@ -74,7 +75,7 @@ const LEGACY_MAIL_PUSH_MODE_LABEL_KEYS: Record<string, string> = {
 interface EligibleProvider {
   id: string;
   name: string;
-  models: Array<{ id: string; name: string }>;
+  models: ProviderInfo["models"];
 }
 
 interface AgentModalProps {
@@ -373,6 +374,16 @@ export function AgentModal({
             />
           </Space.Compact>
         </Form.Item>
+        {editingAgent && selectedBackend === "qwenpaw" && (
+          <Form.Item label={t("modelSelector.agentModelSettings")}>
+            <AgentModelSettings
+              agentId={editingAgent.id}
+              providers={eligibleProviders}
+              activeProviderId={selectedProviderId}
+              activeModelId={selectedModelId}
+            />
+          </Form.Item>
+        )}
         <Form.Item
           name="workspace_dir"
           label={t("agent.workspace")}

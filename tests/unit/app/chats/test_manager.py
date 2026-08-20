@@ -322,6 +322,26 @@ async def test_patch_chat_merges_partial_updates(manager: ChatManager):
 
 
 @pytest.mark.asyncio
+async def test_patch_chat_merges_thinking_level_into_metadata(
+    manager: ChatManager,
+):
+    spec = _make_spec()
+    spec.meta = {"runtime_context": {"project_dir": "/workspace"}}
+    await manager.create_chat(spec)
+
+    patched = await manager.patch_chat(
+        spec.id,
+        ChatUpdate(thinking_level="low"),
+    )
+
+    assert patched is not None
+    assert patched.meta == {
+        "runtime_context": {"project_dir": "/workspace"},
+        "thinking_level": "low",
+    }
+
+
+@pytest.mark.asyncio
 async def test_move_chat_preserves_updated_at(manager: ChatManager):
     work = await manager.create_group("Work")
     spec = await manager.create_chat(_make_spec())

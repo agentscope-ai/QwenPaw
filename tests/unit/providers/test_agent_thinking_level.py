@@ -96,6 +96,37 @@ def test_dashscope_effort_model_off_disables_thinking() -> None:
     assert "thinking_budget" not in kwargs
 
 
+def test_session_level_overrides_extra_body_thinking_fields() -> None:
+    """Session thinking removes conflicting model generate kwargs."""
+    provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
+    model_id = "effort-model-with-conflicts"
+    provider.extra_models.append(
+        PROVIDER_OPENAI.models[0].model_copy(
+            update={
+                "id": model_id,
+                "thinking_enabled": True,
+                "thinking_param_style": "effort",
+                "generate_kwargs": {
+                    "extra_body": {
+                        "enable_thinking": False,
+                        "reasoning_effort": "low",
+                        "thinking": {"type": "disabled"},
+                        "thinking_budget": 1,
+                    },
+                },
+            },
+        ),
+    )
+
+    with agent_thinking_level("high"):
+        kwargs = provider.get_effective_generate_kwargs(model_id)
+
+    assert kwargs["extra_body"] == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high",
+    }
+
+
 def test_thinking_budget_levels_are_stable() -> None:
     assert AGENT_THINKING_BUDGETS == {
         "low": 2_048,

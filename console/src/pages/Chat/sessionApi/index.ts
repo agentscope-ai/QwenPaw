@@ -1079,6 +1079,45 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.findSession(libraryId)?.sessionId || libraryId;
   }
 
+  getSessionMeta(libraryId: string): Record<string, unknown> {
+    return {
+      ...((this.findSession(libraryId) as ExtendedSession | undefined)?.meta ||
+        {}),
+    };
+  }
+
+  async updateSessionMeta(
+    libraryId: string,
+    meta: Record<string, unknown>,
+  ): Promise<void> {
+    const existing = this.findSession(libraryId);
+    const backendId =
+      existing?.realId ?? (isLocalTimestamp(libraryId) ? null : libraryId);
+    if (!backendId) {
+      if (existing) {
+        (existing as ExtendedSession).meta = { ...meta };
+      }
+      return;
+    }
+    const level = meta.thinking_level;
+    if (
+      level !== "off" &&
+      level !== "low" &&
+      level !== "medium" &&
+      level !== "high"
+    ) {
+      return;
+    }
+    const updated = await api.updateSession(backendId, {
+      thinking_level: level,
+    });
+    const canonical = this.findSession(libraryId);
+    if (canonical) {
+      canonical.meta = { ...(updated.meta || {}) };
+      canonical.updatedAt = updated.updated_at ?? canonical.updatedAt;
+    }
+  }
+
   /** Returns session identity from the session list (authoritative).
    *  Uses lastActiveChatId (set only by intentional user actions) as the
    *  primary lookup key, avoiding the stale window globals problem. */
