@@ -253,8 +253,8 @@ def test_decode_unwraps_async_task_results(monkeypatch) -> None:
         "download_remote_image",
         fake_download,
     )
-    url = asyncio.run(model._decode(_succeeded_payload()))
-    assert url == "/generated/img.png"
+    result = asyncio.run(model._decode(_succeeded_payload()))
+    assert result == {"url": "/generated/img.png", "source_url": ""}
 
 
 def test_decode_still_reads_the_synchronous_payload(monkeypatch) -> None:
@@ -282,4 +282,7 @@ def test_decode_still_reads_the_synchronous_payload(monkeypatch) -> None:
             ],
         },
     }
-    assert asyncio.run(model._decode(payload)) == "/generated/sync.png"
+    assert asyncio.run(model._decode(payload)) == {
+        "url": "/generated/sync.png",
+        "source_url": "",
+    }

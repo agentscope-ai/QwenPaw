@@ -112,6 +112,46 @@ def test_openai_image_probe_reads_model_metadata() -> None:
     assert payload == {"_get_probe": True}
 
 
+def test_token_plan_image_probe_uses_models_endpoint() -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="image",
+            base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+            model_name="wan2.7-image-pro",
+            protocol="Aliyun Token Plan",
+            provider=None,
+        ),
+    )
+
+    expected = (
+        "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        "/compatible-mode/v1/models"
+    )
+    assert url == expected
+    assert payload == {"_get_probe": True}
+    assert headers["Authorization"] == "Bearer sk-test"
+
+
+def test_token_plan_video_probe_uses_models_endpoint() -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="video",
+            base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+            model_name="happyhorse-1.1",
+            protocol="Aliyun Token Plan",
+            provider=None,
+        ),
+    )
+
+    expected = (
+        "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        "/compatible-mode/v1/models"
+    )
+    assert url == expected
+    assert payload == {"_get_probe": True}
+    assert headers["Authorization"] == "Bearer sk-test"
+
+
 def test_llm_probe_still_posts_a_chat_ping() -> None:
     url, _headers, payload = _probe_payload(
         _request(

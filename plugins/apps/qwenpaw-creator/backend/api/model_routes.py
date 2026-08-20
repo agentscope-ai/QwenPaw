@@ -1449,6 +1449,21 @@ def _openai_model_probe(
     )
 
 
+def _token_plan_models_probe(
+    body: ModelConnectionTestRequest,
+    headers: dict[str, str],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Token Plan probe: list models endpoint (zero-cost, validates API key).
+
+    Token Plan uses /api/v1 as base_url but the models endpoint is at
+    /compatible-mode/v1/models. This probe verifies the API key and base
+    URL without submitting any billable generation task.
+    """
+    parsed = urlparse(body.base_url)
+    url = f"{parsed.scheme}://{parsed.netloc}/compatible-mode/v1/models"
+    return url, headers, {"_get_probe": True}
+
+
 def _anthropic_llm_probe(
     body: ModelConnectionTestRequest,
     base: str,
@@ -1516,10 +1531,9 @@ def _probe_payload(
     body: ModelConnectionTestRequest,
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
     base = body.base_url.rstrip("/")
-    headers = {
-        "Authorization": f"Bearer {body.api_key}",
-        "Content-Type": "application/json",
-    }
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if body.require_api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
     if body.type == "asr":
         provider = body.provider or (
             "whisper" if "whisper" in body.protocol.casefold() else "fun-asr"
@@ -1609,6 +1623,8 @@ def _probe_payload(
             },
         )
     if body.type == "image":
+        if "token plan" in body.protocol.casefold():
+            return _token_plan_models_probe(body, headers)
         if "dashscope" in body.protocol.casefold() or "百炼" in body.protocol:
             return _dashscope_policy_probe(body, headers)
         return _openai_model_probe(body, headers)
@@ -1620,6 +1636,8 @@ def _probe_payload(
             headers,
             {"_get_probe": True, "page_size": 1},
         )
+    if "token plan" in body.protocol.casefold():
+        return _token_plan_models_probe(body, headers)
     return _dashscope_policy_probe(body, headers)
 
 
@@ -1651,7 +1669,7 @@ async def test_model_connection(
     )
     if (
         not selected.base_url
-        or not selected.api_key
+        or (body.require_api_key and not selected.api_key)
         or not selected.model_name
     ):
         return ConnectionTestResponse(

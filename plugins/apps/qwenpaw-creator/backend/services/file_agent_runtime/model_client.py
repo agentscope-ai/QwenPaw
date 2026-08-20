@@ -28,7 +28,7 @@ from agentscope.message import (
     ToolResultState,
     UserMsg,
 )
-from agentscope.model import DashScopeChatModel
+from agentscope.model import ChatModelBase, DashScopeChatModel
 
 from models import config as model_config
 from models.concurrency import model_slot
@@ -548,12 +548,92 @@ def records_to_agentscope_messages(
     return messages
 
 
+# ── Protocol-aware model construction ────────────────────────────────────────
+
+
+def _is_anthropic_protocol(protocol: str) -> bool:
+    lower = protocol.casefold()
+    return "anthropic" in lower or "minimax" in lower
+
+
+def _is_gemini_protocol(protocol: str) -> bool:
+    lower = protocol.casefold()
+    return "gemini" in lower or "google" in lower
+
+
+def _build_chat_model(
+    *,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    protocol: str,
+    parameters: Any,
+    stream: bool = True,
+    formatter: Any = None,
+    client_kwargs: dict[str, Any] | None = None,
+) -> ChatModelBase:
+    """Create the correct AgentScope ChatModel for the given protocol.
+
+    Anthropic/MiniMax → `AnthropicChatModel` + `AnthropicCredential`
+    Google Gemini     → `GeminiChatModel` + `GeminiCredential`
+    Everything else   → `DashScopeChatModel` + `DashScopeCredential`
+    """
+    protocol_lower = protocol.casefold()
+    if "anthropic" in protocol_lower or "minimax" in protocol_lower:
+        from agentscope.credential import AnthropicCredential
+        from agentscope.model import AnthropicChatModel
+
+        return AnthropicChatModel(
+            credential=AnthropicCredential(
+                api_key=api_key,
+                base_url=base_url,
+            ),
+            model=model_name,
+            parameters=parameters,
+            stream=stream,
+            formatter=formatter,
+            client_kwargs=client_kwargs,
+        )
+    if "gemini" in protocol_lower or "google" in protocol_lower:
+        from agentscope.credential import GeminiCredential
+        from agentscope.model import GeminiChatModel
+
+        return GeminiChatModel(
+            credential=GeminiCredential(
+                id="qwenpaw-creator",
+                api_key=api_key,
+            ),
+            model=model_name,
+            parameters=parameters,
+            stream=stream,
+            formatter=formatter,
+            client_kwargs=client_kwargs,
+        )
+    return DashScopeChatModel(
+        credential=DashScopeCredential(
+            api_key=api_key,
+            base_url=base_url,
+        ),
+        model=model_name,
+        parameters=parameters,
+        stream=stream,
+        formatter=formatter,
+        client_kwargs=client_kwargs,
+    )
+
+
 class AgentScopeAgentChatClient:
-    """Direct AgentScope 2.0.4 DashScope model adapter for file Runtime turns."""
+    """Direct AgentScope 2.0.4 model adapter for file Runtime turns.
+
+    Supports DashScope (OpenAI-compatible), Anthropic/MiniMax, and
+    Google Gemini protocols.  The protocol is read from the persisted
+    ``llm`` section of ``model_config.json`` via
+    ``model_config.get_text_protocol()``.
+    """
 
     def __init__(
         self,
-        model: DashScopeChatModel | None = None,
+        model: ChatModelBase | None = None,
         *,
         # Keep in sync with driver.DEFAULT_MODEL_TURN_TIMEOUT_SECONDS so
         # the transport timeout never undercuts the turn budget.
@@ -567,16 +647,17 @@ class AgentScopeAgentChatClient:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self._injected = model is not None
-        self._configuration: tuple[str, str, str] | None = None
+        self._configuration: tuple[str, str, str, str] | None = None
         self.model = model
 
-    def _configured_model(self) -> DashScopeChatModel:
+    def _configured_model(self) -> ChatModelBase:
         if self._injected:
             assert self.model is not None
             return self.model
         api_key = model_config.get_text_api_key().strip()
         base_url = model_config.get_text_base_url().strip()
         model_name = model_config.get_text_model_name().strip()
+        protocol = model_config.get_text_protocol().strip()
         missing = [
             name
             for name, value in (
@@ -592,24 +673,54 @@ class AgentScopeAgentChatClient:
                 + ", ".join(missing)
                 + ". Configure creator_text_model before retrying.",
             )
-        configuration = (api_key, base_url, model_name)
+        configuration = (api_key, base_url, model_name, protocol)
         if self.model is None or self._configuration != configuration:
-            self.model = DashScopeChatModel(
-                credential=DashScopeCredential(
+            if _is_anthropic_protocol(protocol):
+                from agentscope.model import AnthropicChatModel
+
+                parameters = AnthropicChatModel.Parameters(
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+                self.model = _build_chat_model(
                     api_key=api_key,
                     base_url=base_url,
-                ),
-                model=model_name,
-                parameters=DashScopeChatModel.Parameters(
+                    model_name=model_name,
+                    protocol=protocol,
+                    parameters=parameters,
+                    client_kwargs={"timeout": self.timeout_seconds},
+                )
+            elif _is_gemini_protocol(protocol):
+                from agentscope.model import GeminiChatModel
+
+                parameters = GeminiChatModel.Parameters(
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+                self.model = _build_chat_model(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    protocol=protocol,
+                    parameters=parameters,
+                    client_kwargs={"timeout": self.timeout_seconds},
+                )
+            else:
+                parameters = DashScopeChatModel.Parameters(
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
                     thinking_enable=True,
                     parallel_tool_calls=False,
-                ),
-                stream=True,
-                formatter=DashScopeChatFormatter(),
-                client_kwargs={"timeout": self.timeout_seconds},
-            )
+                )
+                self.model = _build_chat_model(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    protocol=protocol,
+                    parameters=parameters,
+                    formatter=DashScopeChatFormatter(),
+                    client_kwargs={"timeout": self.timeout_seconds},
+                )
             self._configuration = configuration
         return self.model
 
@@ -1010,9 +1121,15 @@ class AgentScopeAgentChatClient:
 
 
 class AgentScopeVlmChatClient(AgentScopeAgentChatClient):
-    """Native multimodal client used for Source Intelligence turns."""
+    """Native multimodal client used for Source Intelligence turns.
 
-    def _configured_model(self) -> DashScopeChatModel:
+    Supports DashScope (OpenAI-compatible), Anthropic/MiniMax, and
+    Google Gemini protocols.  The protocol is read from the persisted
+    ``vlm`` section of ``model_config.json`` via
+    ``model_config.get_vlm_protocol()``.
+    """
+
+    def _configured_model(self) -> ChatModelBase:
         if self._injected:
             assert self.model is not None
             return self.model
@@ -1021,6 +1138,7 @@ class AgentScopeVlmChatClient(AgentScopeAgentChatClient):
         model_name = (
             model_config.get_vlm_model_name() or "qwen3.7-plus"
         ).strip()
+        protocol = model_config.get_vlm_protocol().strip()
         timeout_seconds = model_config.get_vlm_timeout_seconds()
         missing = [
             name
@@ -1037,29 +1155,59 @@ class AgentScopeVlmChatClient(AgentScopeAgentChatClient):
                 + ", ".join(missing)
                 + ". Configure creator_vlm before retrying.",
             )
-        configuration = (api_key, base_url, model_name)
+        configuration = (api_key, base_url, model_name, protocol)
         if self.model is None or self._configuration != configuration:
-            self.model = DashScopeChatModel(
-                credential=DashScopeCredential(
+            if _is_anthropic_protocol(protocol):
+                from agentscope.model import AnthropicChatModel
+
+                parameters = AnthropicChatModel.Parameters(
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+                self.model = _build_chat_model(
                     api_key=api_key,
                     base_url=base_url,
-                ),
-                model=model_name,
-                parameters=DashScopeChatModel.Parameters(
+                    model_name=model_name,
+                    protocol=protocol,
+                    parameters=parameters,
+                    client_kwargs={"timeout": timeout_seconds},
+                )
+            elif _is_gemini_protocol(protocol):
+                from agentscope.model import GeminiChatModel
+
+                parameters = GeminiChatModel.Parameters(
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+                self.model = _build_chat_model(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    protocol=protocol,
+                    parameters=parameters,
+                    client_kwargs={"timeout": timeout_seconds},
+                )
+            else:
+                parameters = DashScopeChatModel.Parameters(
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
                     thinking_enable=True,
                     parallel_tool_calls=False,
-                ),
-                stream=True,
-                formatter=DashScopeNativeFormatter(),
-                client_kwargs={
-                    "timeout": timeout_seconds,
-                    "default_headers": {
-                        "X-DashScope-OssResourceResolve": "enable",
+                )
+                self.model = _build_chat_model(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    protocol=protocol,
+                    parameters=parameters,
+                    formatter=DashScopeNativeFormatter(),
+                    client_kwargs={
+                        "timeout": timeout_seconds,
+                        "default_headers": {
+                            "X-DashScope-OssResourceResolve": "enable",
+                        },
                     },
-                },
-            )
+                )
             self._configuration = configuration
         return self.model
 

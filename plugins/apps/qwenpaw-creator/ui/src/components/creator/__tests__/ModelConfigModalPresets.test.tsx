@@ -5,9 +5,8 @@ import { installMockFetch } from "@/test/mockFetch";
 import type { ModelConfigData } from "@/contracts/creator";
 
 /**
- * Picking a preset model must imply its provider endpoint: a Seedance model
- * chosen while the section still points at DashScope would otherwise submit
- * against the wrong gateway and fail only at generation time.
+ * Changing model_name should NOT affect protocol or base_url.
+ * Users must explicitly select the protocol they want.
  */
 
 const baseConfig: ModelConfigData = {
@@ -152,7 +151,7 @@ async function openVideoCard() {
 }
 
 describe("ModelConfigModal model presets", () => {
-  it("realigns protocol and Base URL when a preset model of another provider is picked", async () => {
+  it("does NOT change protocol or base_url when model_name is changed", async () => {
     mount();
     await openVideoCard();
     const modelInput = await waitFor(() => {
@@ -175,7 +174,7 @@ describe("ModelConfigModal model presets", () => {
         .find(
           (input): input is HTMLInputElement =>
             input instanceof HTMLInputElement &&
-            input.value === "https://ark.cn-beijing.volces.com",
+            input.value === "https://dashscope.aliyuncs.com/api/v1",
         );
       expect(urlInput).toBeTruthy();
     });

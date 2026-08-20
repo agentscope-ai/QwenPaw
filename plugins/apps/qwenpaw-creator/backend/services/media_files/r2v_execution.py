@@ -481,6 +481,36 @@ def _resolve_reference_versions(
         version = source or artifact
         if version is None:
             raise NotFoundError(f"R2V reference version 不存在: {version_id}")
+        # Check for source_url stored by Token Plan image generation.
+        # Stored at metadata["provider"]["source_url"] by _materialize_and_publish.
+        source_url = ""
+        if artifact is not None and isinstance(
+            getattr(artifact, "metadata", None),
+            dict,
+        ):
+            provider_meta = artifact.metadata.get("provider", {})
+            if isinstance(provider_meta, dict):
+                source_url = provider_meta.get("source_url", "")
+        if source_url:
+            indexed = project.assets.files_by_id.get(version.file_id)
+            if indexed is None or not indexed.media_type.casefold().startswith(
+                "image/",
+            ):
+                raise ValidationError(f"R2V reference 不是图片: {version_id}")
+            ref = f"artifact-version:{version_id}"
+            urls.append(source_url)
+            checksums.append(version.checksum)
+            provenance.append(ref)
+            read_set.append(
+                {
+                    "ref": ref,
+                    "versionId": version_id,
+                    "fileId": indexed.file_id,
+                    "checksum": version.checksum,
+                    "sourceUrl": source_url,
+                },
+            )
+            continue
         remote_url = public_source_url(source) if source is not None else None
         if remote_url is not None:
             if not version.media_type.casefold().startswith("image/"):
@@ -554,6 +584,36 @@ def _resolve_single_media_version(
     version = source or artifact
     if version is None:
         raise NotFoundError(f"{label} version 不存在: {version_id}")
+    # Check for source_url stored by Token Plan image generation.
+    source_url = ""
+    if artifact is not None and isinstance(
+        getattr(artifact, "metadata", None),
+        dict,
+    ):
+        provider_meta = artifact.metadata.get("provider", {})
+        if isinstance(provider_meta, dict):
+            source_url = provider_meta.get("source_url", "")
+    if source_url:
+        indexed = project.assets.files_by_id.get(version.file_id)
+        if indexed is None or not indexed.media_type.casefold().startswith(
+            media_prefix,
+        ):
+            raise ValidationError(
+                f"{label} 必须是 {media_prefix}* 媒体: {version_id}",
+            )
+        ref = f"artifact-version:{version_id}"
+        return (
+            source_url,
+            version.checksum,
+            ref,
+            {
+                "ref": ref,
+                "versionId": version_id,
+                "fileId": indexed.file_id,
+                "checksum": version.checksum,
+                "sourceUrl": source_url,
+            },
+        )
     remote_url = public_source_url(source) if source is not None else None
     if remote_url is not None:
         if not version.media_type.casefold().startswith(media_prefix):

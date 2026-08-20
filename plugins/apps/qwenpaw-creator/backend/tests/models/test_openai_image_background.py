@@ -240,8 +240,8 @@ def test_decode_reads_the_responses_payload(monkeypatch, tmp_path) -> None:
         return "/generated/bg.png"
 
     monkeypatch.setattr(openai_provider, "persist_image_bytes", fake_persist)
-    url = asyncio.run(model._decode(_completed_payload()))
-    assert url == "/generated/bg.png"
+    result = asyncio.run(model._decode(_completed_payload()))
+    assert result == {"url": "/generated/bg.png", "source_url": ""}
     assert saved["bytes"] == _PNG_BYTES
 
 
@@ -257,7 +257,10 @@ def test_decode_still_reads_the_classic_images_payload(monkeypatch) -> None:
             {"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")},
         ],
     }
-    assert asyncio.run(model._decode(classic)) == "/generated/classic.png"
+    assert asyncio.run(model._decode(classic)) == {
+        "url": "/generated/classic.png",
+        "source_url": "",
+    }
 
 
 def test_decode_persists_off_the_event_loop_with_task_scope(
@@ -296,14 +299,14 @@ def test_decode_persists_off_the_event_loop_with_task_scope(
 
     monkeypatch.setattr(openai_provider, "persist_image_bytes", fake_persist)
 
-    async def scenario() -> tuple[int, str]:
+    async def scenario() -> tuple[int, dict]:
         with media_task_scope("task-bg-1", project_id="project-bg"):
-            url = await model._decode(_completed_payload())
-        return threading.get_ident(), url
+            result = await model._decode(_completed_payload())
+        return threading.get_ident(), result
 
-    loop_thread, url = asyncio.run(scenario())
+    loop_thread, result = asyncio.run(scenario())
 
-    assert url == "/generated/bg.png"
+    assert result == {"url": "/generated/bg.png", "source_url": ""}
     assert seen["bytes"] == _PNG_BYTES
     # Off the loop, but still inside the Task's scratch scope.
     assert seen["thread"] != loop_thread

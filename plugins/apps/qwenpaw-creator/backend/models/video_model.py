@@ -8,7 +8,6 @@ import asyncio
 import json
 import mimetypes
 from pathlib import Path
-import tempfile
 from urllib.parse import urlparse
 import uuid
 import httpx
@@ -17,7 +16,6 @@ from models.concurrency import model_slot
 from models import config as model_config
 from models.provider_tasks import note_provider_task
 from models.media_transport import (
-    DASHSCOPE_TEMP_UPLOAD_MAX_BYTES,
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
     read_reference_media,
     reference_media_data_url,
@@ -34,7 +32,6 @@ from models.video_capabilities import (
     validate_video_mode,
     video_backend_key,
 )
-from services.runtime_files.safe_remote_download import safe_download_to_file
 from utils.paths import media_path_from_url
 from utils.logger import setup_logger
 from utils.exceptions import ModelError
@@ -97,9 +94,13 @@ async def _resolve_reference_media_url(
         )
 
     try:
-        if backend == "seedance2" and url.startswith(("http://", "https://")):
-            # Public URLs are the officially supported form for both image
-            # and video reference parts; pass them through untouched.
+        if url.startswith(("http://", "https://")):
+            # Public URLs are passed through untouched for both seedance2 and
+            # wan backends. DashScope's X-DashScope-OssResourceResolve: enable
+            # header resolves them directly on the server side. This avoids
+            # downloading and re-uploading, which fails for Token Plan API
+            # keys that cannot authenticate against
+            # dashscope.aliyuncs.com/api/v1/uploads.
             kind = _reference_media_kind(filename)
             logger.info(
                 f"Passing public reference media through | backend={backend}, "
@@ -111,41 +112,17 @@ async def _resolve_reference_media_url(
             media_type = (
                 mimetypes.guess_type(filename)[0] or "application/octet-stream"
             )
-            if url.startswith(("http://", "https://")):
-                with tempfile.TemporaryDirectory(
-                    prefix="creator-reference-",
-                ) as temporary_directory:
-                    media_path = Path(temporary_directory) / filename
-                    _, downloaded_type, _ = await asyncio.to_thread(
-                        safe_download_to_file,
-                        url,
-                        media_path,
-                        max_bytes=DASHSCOPE_TEMP_UPLOAD_MAX_BYTES,
-                        timeout=httpx.Timeout(
-                            connect=30.0,
-                            read=300.0,
-                            write=300.0,
-                            pool=30.0,
-                        ),
-                    )
-                    resolved_url = await upload_local_file_to_dashscope_temp(
-                        media_path,
-                        api_key=model_config.get_video_api_key(),
-                        model_name=model_name,
-                        media_type=downloaded_type or media_type,
-                    )
-            else:
-                media_path = (
-                    media_path_from_url(url)
-                    if url.startswith("/generated/")
-                    else Path(urlparse(url).path)
-                )
-                resolved_url = await upload_local_file_to_dashscope_temp(
-                    media_path,
-                    api_key=model_config.get_video_api_key(),
-                    model_name=model_name,
-                    media_type=media_type,
-                )
+            media_path = (
+                media_path_from_url(url)
+                if url.startswith("/generated/")
+                else Path(urlparse(url).path)
+            )
+            resolved_url = await upload_local_file_to_dashscope_temp(
+                media_path,
+                api_key=model_config.get_video_api_key(),
+                model_name=model_name,
+                media_type=media_type,
+            )
             logger.info(
                 f"Uploaded reference media to DashScope temp storage | backend={backend}, "
                 f"filename={filename}, url={resolved_url[:100]}",

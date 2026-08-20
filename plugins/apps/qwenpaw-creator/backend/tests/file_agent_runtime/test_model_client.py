@@ -38,7 +38,11 @@ from services.file_agent_runtime import model_client
 pytestmark = pytest.mark.unit
 
 
-def _configure_text_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def _configure_text_model(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    protocol: str = "",
+) -> None:
     monkeypatch.setattr(
         model_client.model_config,
         "get_text_api_key",
@@ -53,6 +57,11 @@ def _configure_text_model(monkeypatch: pytest.MonkeyPatch) -> None:
         model_client.model_config,
         "get_text_model_name",
         lambda: "qwen3.7-plus",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_protocol",
+        lambda: protocol,
     )
 
 
@@ -80,6 +89,66 @@ def test_default_client_constructs_real_agentscope_dashscope_model(
     configured = AgentScopeAgentChatClient()._configured_model()
 
     assert isinstance(configured, DashScopeChatModel)
+
+
+def test_anthropic_protocol_constructs_anthropic_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import AnthropicChatModel
+
+    _configure_text_model(
+        monkeypatch,
+        protocol="Anthropic Claude",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: "https://api.anthropic.com",
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, AnthropicChatModel)
+
+
+def test_minimax_protocol_constructs_anthropic_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import AnthropicChatModel
+
+    _configure_text_model(
+        monkeypatch,
+        protocol="MiniMax",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: "https://api.minimaxi.com/anthropic",
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, AnthropicChatModel)
+
+
+def test_gemini_protocol_constructs_gemini_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import GeminiChatModel
+
+    _configure_text_model(
+        monkeypatch,
+        protocol="Google Gemini",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: "https://generativelanguage.googleapis.com",
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, GeminiChatModel)
 
 
 def test_history_is_rehydrated_as_agentscope_tool_blocks() -> None:
@@ -186,10 +255,51 @@ def test_vlm_client_uses_creator_vlm_configuration(
         "get_vlm_timeout_seconds",
         lambda: 180,
     )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_protocol",
+        lambda: "",
+    )
 
     configured = AgentScopeVlmChatClient()._configured_model()
 
     assert isinstance(configured, DashScopeChatModel)
+
+
+def test_vlm_anthropic_protocol_constructs_anthropic_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import AnthropicChatModel
+
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_api_key",
+        lambda: "vlm-key",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_base_url",
+        lambda: "https://api.anthropic.com",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_model_name",
+        lambda: "claude-sonnet-4-20250514",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_timeout_seconds",
+        lambda: 180,
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_protocol",
+        lambda: "Anthropic Claude",
+    )
+
+    configured = AgentScopeVlmChatClient()._configured_model()
+
+    assert isinstance(configured, AnthropicChatModel)
 
 
 def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (

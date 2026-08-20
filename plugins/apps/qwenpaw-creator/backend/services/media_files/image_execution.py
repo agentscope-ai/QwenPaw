@@ -179,7 +179,7 @@ class ExistingImageProvider:
     ) -> Mapping[str, Any]:
         from models.image import generate_image
 
-        url = await generate_image(
+        result = await generate_image(
             prompt,
             aspect_ratio=aspect_ratio,
             reference_image_urls=list(reference_image_urls),
@@ -187,7 +187,15 @@ class ExistingImageProvider:
             source_lang=source_lang,
             target_lang=target_lang,
         )
-        return {"url": url, "media_type": "image/png"}
+        # result is {"url": local_url, "source_url": original_url_or_empty}
+        source_url = (
+            result.get("source_url", "") if isinstance(result, dict) else ""
+        )
+        return {
+            "url": result["url"] if isinstance(result, dict) else result,
+            "media_type": "image/png",
+            "metadata": {"source_url": source_url} if source_url else {},
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +472,34 @@ def _resolve_version_references(
         version = source or artifact
         if version is None:
             raise NotFoundError(f"引用版本不存在: {version_id}")
+        # Check for source_url stored by Token Plan image generation.
+        # Stored at metadata["provider"]["source_url"] by _materialize_and_publish.
+        source_url = ""
+        if artifact is not None and isinstance(
+            getattr(artifact, "metadata", None),
+            dict,
+        ):
+            provider_meta = artifact.metadata.get("provider", {})
+            if isinstance(provider_meta, dict):
+                source_url = provider_meta.get("source_url", "")
+        if source_url:
+            indexed = project.assets.files_by_id.get(version.file_id)
+            if indexed is None or not indexed.media_type.casefold().startswith(
+                "image/",
+            ):
+                raise ValidationError(f"引用版本不是图片: {version_id}")
+            urls.append(source_url)
+            checksums.append(version.checksum)
+            read_set.append(
+                {
+                    "ref": f"artifact-version:{version_id}",
+                    "versionId": version_id,
+                    "fileId": version.file_id,
+                    "checksum": version.checksum,
+                    "sourceUrl": source_url,
+                },
+            )
+            continue
         remote_url = public_source_url(source) if source is not None else None
         if remote_url is not None:
             if not version.media_type.casefold().startswith("image/"):

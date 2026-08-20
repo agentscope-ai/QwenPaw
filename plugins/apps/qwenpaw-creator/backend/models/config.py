@@ -1656,7 +1656,7 @@ def get_oss_public_base_url() -> str:
     return _first_env("OSS_PUBLIC_BASE_URL", "ALIYUN_OSS_PUBLIC_BASE_URL")
 
 
-def get_video_backend() -> str:
+def get_video_backend() -> str:  # pylint: disable=too-many-return-statements
     """Return the configured video backend protocol name.
     Priority: request-scoped _video_backend (set by protocol) > heuristic.
     """
@@ -1664,6 +1664,9 @@ def get_video_backend() -> str:
     backend = tool_cfg.get("_video_backend")
     if backend:
         return backend.strip().lower()
+    protocol = str(tool_cfg.get("protocol") or "").casefold()
+    if "token plan" in protocol or "tokenplan" in protocol:
+        return "wan"
     model_name = get_video_model_name().lower()
     if "seedance" in model_name:
         return "seedance2"

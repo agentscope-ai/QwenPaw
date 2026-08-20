@@ -190,6 +190,14 @@ def _configured_int(
     )
 
 
+def _mask_key(key: str, prefix: int = 10) -> str:
+    if not key:
+        return "(empty)"
+    if len(key) <= prefix:
+        return key
+    return f"{key[:prefix]}...({len(key)} chars)"
+
+
 def _image_api_key(env_name: str, default: str = "") -> str:
     """Image credential: explicit value first, else optionally reuse LLM.
 
@@ -199,6 +207,12 @@ def _image_api_key(env_name: str, default: str = "") -> str:
     key is reused — mirroring the tts/s2v sections.
     """
     configured = _configured_value("api_key", env_name, default)
+    logger.info(
+        "Image API key lookup | env=%s, configured=%s, default=%s",
+        env_name,
+        _mask_key(configured),
+        _mask_key(default),
+    )
     if configured:
         return configured
     section = model_config._get_user_config().get("image", {})
@@ -206,7 +220,17 @@ def _image_api_key(env_name: str, default: str = "") -> str:
         "reuse_llm_key",
         True,
     )
-    return model_config.get_text_api_key() if reuse else ""
+    logger.info(
+        "Image API key fallback | reuse_llm_key=%s, section_keys=%s",
+        reuse,
+        list(section.keys()) if isinstance(section, dict) else "(not dict)",
+    )
+    result = model_config.get_text_api_key() if reuse else ""
+    logger.info(
+        "Image API key final | result=%s",
+        _mask_key(result),
+    )
+    return result
 
 
 def _validated_mode(
@@ -296,8 +320,11 @@ class BaseImageModel(ABC):
         mode: str = "generate",
         source_lang: str = "",
         target_lang: str = "",
-    ) -> str:
-        """Generate an image, persist it, and return a /generated/... URL.
+    ) -> dict:
+        """Generate an image, persist it, and return a dict.
+
+        Returns:
+            {"url": local_url, "source_url": original_url_or_empty}
 
         ``mode`` selects the qwen-image operation: ``generate`` (default),
         ``edit`` (instruction editing over 1-3 reference images) or
@@ -344,11 +371,12 @@ class BaseImageModel(ABC):
         try:
             if active_mode == "translate":
                 async with model_slot("image"):
-                    return await self._translate(
+                    local_url = await self._translate(
                         clean_reference_urls[0],
                         source_lang=(source_lang or "auto").strip() or "auto",
                         target_lang=(target_lang or "en").strip() or "en",
                     )
+                    return {"url": local_url, "source_url": ""}
             data = None
             async with model_slot("image"):
                 for attempt in range(MAX_RETRIES):
