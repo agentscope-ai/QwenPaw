@@ -173,6 +173,8 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             args.extend(["--ro-bind", str(path), str(path)])
         args.extend(
             [
+                "--tmpfs",
+                "/tmp",
                 "--bind",
                 str(runtime_root),
                 str(runtime_root),
@@ -180,8 +182,6 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
                 "/dev",
                 "--proc",
                 "/proc",
-                "--tmpfs",
-                "/tmp",
                 "--chdir",
                 str(record.working_dir.resolve()),
                 "--",

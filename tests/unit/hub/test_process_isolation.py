@@ -144,12 +144,18 @@ def test_linux_command_mounts_only_runtime_root_writable(
 
     args = launch.command
     bind_index = args.index("--bind")
+    tmp_index = next(
+        index
+        for index, value in enumerate(args)
+        if value == "--tmpfs" and args[index + 1] == "/tmp"
+    )
     read_only_sources = {
         args[index + 1]
         for index, value in enumerate(args)
         if value == "--ro-bind"
     }
     repository = Path(__file__).parents[3]
+    assert tmp_index < bind_index
     assert args[bind_index + 1] == str(record.working_dir.parent)
     assert str(record.working_dir.parent.parent) not in args
     assert str(repository / "packages" / "qwenpawmail-mcp" / "src") in (
