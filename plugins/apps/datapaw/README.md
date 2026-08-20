@@ -24,6 +24,53 @@ the legacy plugin globals, a fixed port, or a second request client.
 QwenPaw-Data explicitly enables the PawApp standard capabilities; existing PawApps
 that do not opt in receive no additional chat, storage, toast, or notify routes.
 
+## What is datapaw?
+
+datapaw is the QwenPaw-native face of [QwenPaw-Data](https://github.com/agentscope-ai/QwenPaw-Data).
+It brings autonomous, graph-grounded data analysis into the QwenPaw workspace so
+users can ask business questions in natural language and get traceable,
+artifact-rich answers backed by real enterprise data.
+
+<p align="center">
+  <img src="assets/screenshots/analysis-workspace.png" alt="datapaw analysis workspace" width="900" />
+</p>
+
+## Core idea
+
+Enterprise data analysis is open-ended, ambiguous, and constantly evolving. A
+useful data agent must answer three questions on every task:
+
+- **What facts to use**: business concepts, metrics, dimensions, tables, lineage,
+  and historical context.
+- **How to analyze**: reusable analytical methodology instead of ad-hoc reasoning
+  for every request.
+- **How to run**: a controllable runtime for long-horizon, artifact-centric
+  workflows.
+
+datapaw implements this through three collaborative layers:
+
+| Layer | Role | What it manages |
+| --- | --- | --- |
+| **DataBridge** | Evidence grounding | Metadata graph, knowledge graph, semantic config, data sources, and task traces. |
+| **Skill-Hub** | Method orchestration | Reusable analytical skills from coarse routing down to atomic SQL, visualization, and report generation. |
+| **Host** | Execution control | DAG planning, tool invocation, artifact registry, and recovery. |
+
+## End-to-end walkthrough
+
+A typical request such as *"check out MAU of product X"* flows through the
+following stages:
+
+1. **Plan.** Host consults Skill-Hub to route the request and decompose it into a
+   DAG: identify the metric, fetch data, compute MAU, and summarize findings.
+2. **Ground.** DataBridge resolves "MAU" and "product X" through the semantic
+   layer, mapping them to the `dws_gaap_di` table and the right filters.
+3. **Execute.** Host runs governed SQL against the registered datasource and
+   registers the result as an artifact.
+4. **Report.** A final answer is assembled with methodology, source links, and
+   coverage notes — everything in the chat pane.
+5. **Evolve.** Traces, feedback, and confirmed definitions feed back into
+   DataBridge and Skill-Hub for the next similar question.
+
 ## Quick start (recommended: PyPI)
 
 The fastest way to run the datapaw app without a `QwenPaw-Data` source
