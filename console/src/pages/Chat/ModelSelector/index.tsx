@@ -37,6 +37,7 @@ import {
   buildEligibleProviders,
   buildHiddenCandidates,
   modelKey,
+  splitProvidersByTier,
 } from "./modelSelectorModels";
 import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
@@ -192,32 +193,9 @@ export default function ModelSelector({
     [providers],
   );
 
-  // Split by model-level is_free, not provider-level is_free_tier
+  // Free providers appear in both tabs; other providers use model-level tags.
   const { freeProviders, proProviders } = useMemo(() => {
-    const freeMap = new Map<string, EligibleProvider>();
-    const proMap = new Map<string, EligibleProvider>();
-    for (const p of eligibleProviders) {
-      const freeModels = p.models.filter((m) => m.is_free);
-      const proModels = p.models.filter((m) => !m.is_free);
-      if (freeModels.length > 0 || (p.is_free_tier && p.models.length === 0)) {
-        freeMap.set(p.id, { ...p, models: freeModels });
-      }
-      // PRO: show paid models when API key is configured, provider
-      // doesn't require a key, or provider is user-created / local
-      if (
-        proModels.length > 0 &&
-        (p.has_api_key ||
-          p.require_api_key === false ||
-          p.is_custom ||
-          p.is_local)
-      ) {
-        proMap.set(p.id, { ...p, models: proModels });
-      }
-    }
-    return {
-      freeProviders: [...freeMap.values()],
-      proProviders: [...proMap.values()],
-    };
+    return splitProvidersByTier(eligibleProviders);
   }, [eligibleProviders]);
 
   // Filter by search query

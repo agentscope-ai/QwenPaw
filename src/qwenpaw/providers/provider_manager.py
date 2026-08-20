@@ -131,6 +131,7 @@ class ProviderManager(
     def _init_builtins(self):
         """Register the ordered built-in provider catalog."""
         catalog = model_catalog.load_model_catalog()
+        free_provider_ids = model_catalog.load_free_provider_ids()
         for provider in BUILTIN_PROVIDERS:
             builtin = provider.model_copy(deep=True)
             catalog_key = BUILTIN_PROVIDER_CATALOG_KEYS.get(provider.id)
@@ -139,6 +140,13 @@ class ProviderManager(
                     model.model_copy(deep=True)
                     for model in catalog.get(catalog_key, builtin.models)
                 ]
+            builtin.meta = {
+                key: value
+                for key, value in (builtin.meta or {}).items()
+                if key != "is_free_tier"
+            }
+            if provider.id in free_provider_ids:
+                builtin.meta["is_free_tier"] = True
             self._add_builtin(builtin)
 
     def _add_builtin(self, provider: Provider):

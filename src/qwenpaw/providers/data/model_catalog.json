@@ -2,6 +2,16 @@
   "schema_version": 1,
   "catalog_version": "2026.07.29",
   "published_at": "2026-07-29T00:00:00Z",
+  "free_provider_ids": [
+    "zhipu-cn",
+    "opencode",
+    "kilo",
+    "openrouter",
+    "github-models",
+    "gemini",
+    "siliconflow-cn",
+    "siliconflow-intl"
+  ],
   "providers": {
     "MODELSCOPE_MODELS": [
       {

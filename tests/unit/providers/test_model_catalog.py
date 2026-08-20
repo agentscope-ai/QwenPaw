@@ -171,6 +171,39 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].supports_image is True
 
 
+def test_free_provider_ids_use_overlay_priority(tmp_path: Path) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "local.json"
+    _write_catalog(packaged, {},)
+    ota.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "catalog_version": "ota",
+                "free_provider_ids": ["opencode"],
+                "providers": {},
+            },
+        ),
+        encoding="utf-8",
+    )
+    local.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "catalog_version": "local",
+                "free_provider_ids": ["kilo"],
+                "providers": {},
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    assert model_catalog.load_free_provider_ids(packaged, ota, local) == {
+        "kilo",
+    }
+
+
 @pytest.mark.parametrize(
     "content",
     [b"not-json", b'{"schema_version": 2}'],

@@ -1019,6 +1019,44 @@ describe("ModelSelector", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps configured free providers in both model tabs", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue([
+      {
+        ...mockProvider,
+        id: "opencode",
+        name: "OpenCode",
+        is_free_tier: true,
+        models: [
+          {
+            ...mockProvider.models[0],
+            id: "opencode-paid-model",
+            name: "OpenCode Model",
+            is_free: false,
+          },
+        ],
+      },
+    ]);
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: {
+        provider_id: "opencode",
+        model: "opencode-paid-model",
+      },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector showAdvancedModelControls />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "chat.modelSelectTooltip",
+      }),
+    );
+
+    await user.click(screen.getByRole("tab", { name: "FREE" }));
+    expect((await screen.findAllByText("OpenCode Model")).length).toBe(3);
+
+    await user.click(screen.getByRole("tab", { name: "PRO" }));
+    expect((await screen.findAllByText("OpenCode Model")).length).toBe(3);
+  });
+
   it("does not show paid discovery candidates in the free tab search", async () => {
     const candidate = {
       ...mockProvider.models[0],
