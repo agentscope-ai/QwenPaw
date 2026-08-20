@@ -4,6 +4,8 @@
 
 Source: https://github.com/agentscope-ai/QwenPaw-Data
 
+[中文 README](./README_ZH.md)
+
 datapaw is a native QwenPaw application. Its frontend is mounted at
 `/apps/datapaw`, its backend is registered under `/api/datapaw`, and its
 context service is private to the backend.
