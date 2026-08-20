@@ -3,18 +3,24 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
 import os
 import re
+import stat
 import threading
+import weakref
+from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ...exceptions import SkillsError
+from ...utils.file_snapshot_cache import FileSignature
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import (
     BuiltinSkillIdentity,
@@ -57,6 +63,24 @@ _ENV_LOCK = threading.Lock()
 
 _builtin_cache: dict[str, Any] = {}
 _BUILTIN_CACHE_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _WorkspaceInventory:
+    manifest: FileSignature | None
+    skills: tuple[
+        tuple[str, FileSignature, FileSignature],
+        ...,
+    ]
+
+
+_MAX_WORKSPACE_INVENTORIES = 256
+_WORKSPACE_INVENTORIES: OrderedDict[str, _WorkspaceInventory] = OrderedDict()
+_WORKSPACE_INVENTORY_LOCKS: weakref.WeakValueDictionary[
+    str,
+    threading.Lock,
+] = weakref.WeakValueDictionary()
+_WORKSPACE_INVENTORY_GUARD = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -1074,7 +1098,11 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
     if not manifest_path.exists():
         write_json_atomic(manifest_path, default_workspace_manifest())
 
-    def _update(payload: dict[str, Any]) -> dict[str, Any]:
+    reconciled: dict[str, Any] | None = None
+
+    def _update(payload: dict[str, Any]) -> dict[str, Any] | bool:
+        nonlocal reconciled
+        original = copy.deepcopy(payload)
         payload.setdefault("skills", {})
         skills = payload["skills"]
 
@@ -1149,13 +1177,19 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
             if skill_name not in discovered:
                 skills.pop(skill_name, None)
 
-        return payload
+        reconciled = payload
+        return payload if payload != original else False
 
-    return mutate_json(
+    result = mutate_json(
         manifest_path,
         default_workspace_manifest(),
         _update,
     )
+    assert reconciled is not None
+    if result is False:
+        return reconciled
+    assert isinstance(result, dict)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1216,9 +1250,76 @@ def resolve_effective_skills(
     return resolved
 
 
+def _path_signature(path: Path) -> FileSignature | None:
+    try:
+        return FileSignature.from_stat(path.stat())
+    except OSError:
+        return None
+
+
+def _workspace_skill_inventory(workspace_dir: Path) -> _WorkspaceInventory:
+    """Return a metadata-only fingerprint of runtime Skill inputs."""
+    manifest = get_workspace_skill_manifest_path(workspace_dir)
+    skill_root = get_workspace_skills_dir(workspace_dir)
+    skills: list[tuple[str, FileSignature, FileSignature]] = []
+    try:
+        children = sorted(skill_root.iterdir(), key=lambda item: item.name)
+    except OSError:
+        children = []
+    for child in children:
+        if is_ignored_skill_entry(child.name):
+            continue
+        try:
+            child_stat = child.stat()
+        except OSError:
+            continue
+        if not stat.S_ISDIR(child_stat.st_mode):
+            continue
+        child_signature = FileSignature.from_stat(child_stat)
+        skill_md = child / "SKILL.md"
+        signature = _path_signature(skill_md)
+        if signature is not None:
+            skills.append((child.name, child_signature, signature))
+    return _WorkspaceInventory(_path_signature(manifest), tuple(skills))
+
+
+def _cached_workspace_inventory(key: str) -> _WorkspaceInventory | None:
+    with _WORKSPACE_INVENTORY_GUARD:
+        inventory = _WORKSPACE_INVENTORIES.get(key)
+        if inventory is not None:
+            _WORKSPACE_INVENTORIES.move_to_end(key)
+        return inventory
+
+
+def _remember_workspace_inventory(
+    key: str,
+    inventory: _WorkspaceInventory,
+) -> None:
+    with _WORKSPACE_INVENTORY_GUARD:
+        _WORKSPACE_INVENTORIES[key] = inventory
+        _WORKSPACE_INVENTORIES.move_to_end(key)
+        while len(_WORKSPACE_INVENTORIES) > _MAX_WORKSPACE_INVENTORIES:
+            _WORKSPACE_INVENTORIES.popitem(last=False)
+
+
 def ensure_skills_initialized(workspace_dir: Path) -> None:
-    """Ensure workspace manifests exist before runtime use."""
-    reconcile_workspace_manifest(workspace_dir)
+    """Reconcile only when the manifest or on-disk Skill inventory changed."""
+    workspace_dir = Path(workspace_dir).expanduser().resolve(strict=False)
+    key = os.path.normcase(str(workspace_dir))
+    with _WORKSPACE_INVENTORY_GUARD:
+        lock = _WORKSPACE_INVENTORY_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _WORKSPACE_INVENTORY_LOCKS[key] = lock
+    with lock:
+        current = _workspace_skill_inventory(workspace_dir)
+        if _cached_workspace_inventory(key) == current:
+            return
+        reconcile_workspace_manifest(workspace_dir)
+        reconciled = _workspace_skill_inventory(workspace_dir)
+        # A concurrent Skill edit may make the just-written manifest stale.
+        if reconciled.skills == current.skills:
+            _remember_workspace_inventory(key, reconciled)
 
 
 # ---------------------------------------------------------------------------

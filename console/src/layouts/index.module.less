@@ -529,6 +529,136 @@
 
 // ─── Simple mode: flat nav + session list ─────────────────────────────────────
 
+.simpleAgentPanel {
+  flex-shrink: 0;
+
+  .agentSelectorContainer {
+    position: static;
+    margin-bottom: 0;
+  }
+
+  > .agentSelectorContainer > :first-child {
+    margin-bottom: 4px;
+  }
+
+  .simpleNavItems {
+    max-height: min(216px, 34vh);
+    overflow-y: auto;
+    padding: 2px 0 4px;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+.simpleAgentDisclosure {
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  width: 100%;
+  height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible,
+  &[aria-expanded="true"] {
+    color: var(--colorPrimary, #ff7f16);
+
+    .simpleAgentDisclosureLine {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in srgb, var(--colorPrimary, #ff7f16) 44%, transparent)
+      );
+    }
+
+    .simpleAgentDisclosureHandle {
+      border-color: color-mix(
+        in srgb,
+        var(--colorPrimary, #ff7f16) 34%,
+        transparent
+      );
+      background: color-mix(
+        in srgb,
+        var(--colorPrimary, #ff7f16) 9%,
+        transparent
+      );
+      box-shadow: 0 3px 10px rgba(255, 127, 22, 0.12);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid
+      color-mix(in srgb, var(--colorPrimary, #ff7f16) 30%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+.simpleAgentDisclosureLine {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--colorBorderSecondary, rgba(43, 18, 0, 0.1))
+  );
+  transition: background 0.16s ease;
+
+  &:last-child {
+    transform: scaleX(-1);
+  }
+}
+
+.simpleAgentDisclosureHandle {
+  display: inline-flex;
+  width: 30px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--colorBorderSecondary, rgba(43, 18, 0, 0.08));
+  border-radius: 999px;
+  background: color-mix(in srgb, white 48%, transparent);
+  box-shadow: 0 2px 8px rgba(43, 18, 0, 0.055);
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.simpleAgentFunctionsMotion {
+  overflow: hidden;
+}
+
+.simpleInboxItem {
+  margin-bottom: 1px;
+}
+
+.simpleChatItem {
+  margin-top: 1px;
+}
+
+.simpleInboxIcon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.simpleInboxUnreadDot {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
 .simpleNewChat {
   display: flex;
   align-items: center;
@@ -1217,6 +1347,30 @@
 
 .siderSimple {
   :global(.dark-mode) & {
+    .simpleAgentDisclosure {
+      color: rgba(255, 255, 255, 0.48);
+
+      &:hover,
+      &:focus-visible,
+      &[aria-expanded="true"] {
+        color: #ff8f32;
+      }
+    }
+
+    .simpleAgentDisclosureLine {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.13)
+      );
+    }
+
+    .simpleAgentDisclosureHandle {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.045);
+      box-shadow: none;
+    }
+
     .simpleNewChat {
       background: rgba(255, 127, 22, 0.12);
       color: #ff7f16;

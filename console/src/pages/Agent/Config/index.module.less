@@ -173,10 +173,6 @@
     font-size: 12px;
     line-height: 1.55;
   }
-
-  .memoryReferences {
-    margin: 7px 0 0;
-  }
 }
 
 .memoryStatusBadge {
@@ -244,21 +240,6 @@
   }
 }
 
-.memoryStatusButton {
-  height: 30px;
-  border-color: rgba(255, 127, 22, 0.25) !important;
-  border-radius: 9px !important;
-  background: rgba(255, 255, 255, 0.58) !important;
-  color: #c85e08 !important;
-  font-size: 12px;
-  font-weight: 600;
-
-  &:hover {
-    border-color: rgba(255, 127, 22, 0.5) !important;
-    background: rgba(255, 127, 22, 0.08) !important;
-  }
-}
-
 .memoryOverviewGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -269,9 +250,12 @@
 }
 
 .memoryOverviewItem {
+  position: relative;
   min-width: 0;
   padding: 13px 15px;
+  border: 0;
   border-right: 1px solid rgba(20, 20, 19, 0.07);
+  background: transparent;
 
   &:last-child {
     border-right: 0;
@@ -313,6 +297,109 @@
   }
 }
 
+.memoryOverviewItem > .memoryOverviewLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  > svg {
+    flex: none;
+  }
+}
+
+.memoryOverviewClickableItem {
+  padding-right: 34px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  transition: background 160ms ease;
+
+  > svg {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    color: rgba(200, 94, 8, 0.62);
+    transform: translateY(-50%);
+    transition:
+      color 160ms ease,
+      transform 160ms ease;
+  }
+
+  &:hover {
+    background: rgba(255, 127, 22, 0.055);
+
+    > svg {
+      color: #c85e08;
+      transform: translate(2px, -50%);
+    }
+  }
+
+  &:focus-visible {
+    z-index: 1;
+    outline: 2px solid rgba(255, 127, 22, 0.38);
+    outline-offset: -2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+
+    &:hover {
+      background: transparent;
+
+      > svg {
+        transform: translateY(-50%);
+      }
+    }
+  }
+}
+
+.memoryServiceStatusLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.memoryServiceStatusLine .memoryReferences {
+  flex: none;
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.memoryOverviewMetrics {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 14px;
+
+  > div {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 5px;
+  }
+
+  small {
+    flex: none;
+    color: rgba(20, 20, 19, 0.4);
+    font-size: 10px;
+  }
+
+  strong {
+    overflow: hidden;
+    color: #2f2d2a;
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .memoryOverviewActionItem {
   display: flex;
   align-items: center;
@@ -336,10 +423,6 @@
 }
 
 .memoryOverviewMaintenance {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
   background: rgba(255, 183, 36, 0.075);
 
   > div {
@@ -378,17 +461,9 @@
     -webkit-line-clamp: 1;
   }
 
-  :global(.ant-btn),
-  :global(.qwenpaw-btn) {
-    flex: none;
-    border-color: rgba(205, 143, 26, 0.35) !important;
-    background: rgba(255, 255, 255, 0.64) !important;
-    color: #a96010 !important;
-
-    &:hover {
-      border-color: rgba(205, 143, 26, 0.62) !important;
-      background: rgba(255, 183, 36, 0.13) !important;
-    }
+  &:disabled {
+    cursor: wait;
+    opacity: 0.65;
   }
 }
 
@@ -767,14 +842,6 @@
 }
 
 .memoryStatusModalTitle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-
-  > div {
-    min-width: 0;
-  }
-
   strong,
   span {
     display: block;
@@ -786,26 +853,12 @@
     font-weight: 650;
   }
 
-  > div > span {
+  > span {
     margin-top: 3px;
     color: rgba(20, 20, 19, 0.5);
     font-size: 11px;
     font-weight: 400;
   }
-}
-
-.memoryStatusModalIcon {
-  display: flex !important;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: rgba(255, 127, 22, 0.11);
-  color: #d96b11;
-  font-size: 12px;
-  font-weight: 750;
 }
 
 .memoryStatusModalFooter {
@@ -829,16 +882,8 @@
   padding-top: 4px;
 }
 
-.memoryRuntimeSection {
-  margin-bottom: 22px;
-  padding: 16px;
-  border: 1px solid rgba(255, 127, 22, 0.16);
-  border-radius: 13px;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 127, 22, 0.065),
-    rgba(255, 255, 255, 0.12) 70%
-  );
+.memoryTaskPanel {
+  padding: 2px 0 4px;
 
   :global(.ant-alert),
   :global(.qwenpaw-alert) {
@@ -846,125 +891,123 @@
   }
 }
 
-.memoryRuntimeSectionHeader {
+.memoryTaskSummary {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
-
-  h4,
-  p {
-    margin: 0;
-  }
-
-  h4 {
-    color: #302e2b;
-    font-size: 13px;
-    font-weight: 650;
-  }
-
-  p {
-    margin-top: 3px;
-    color: rgba(20, 20, 19, 0.48);
-    font-size: 10px;
-    line-height: 1.5;
-  }
-}
-
-.memoryRuntimeGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid rgba(20, 20, 19, 0.075);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.62);
-  overflow: hidden;
+  padding: 8px 0 18px;
 
   > div {
     min-width: 0;
-    padding: 13px;
-    border-right: 1px solid rgba(20, 20, 19, 0.07);
-
-    &:last-child {
-      border-right: 0;
-    }
   }
 
-  span,
-  strong,
-  small {
+  > div > strong,
+  > div > span {
     display: block;
   }
 
-  span {
-    color: rgba(20, 20, 19, 0.48);
-    font-size: 10px;
-  }
-
-  strong {
-    margin: 5px 0 2px;
+  > div > strong {
+    margin-bottom: 5px;
     color: #292724;
-    font-size: 17px;
+    font-size: 14px;
     font-weight: 680;
   }
 
-  small {
-    overflow: hidden;
-    color: rgba(20, 20, 19, 0.42);
+  > div > span {
+    color: rgba(20, 20, 19, 0.48);
     font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.6;
   }
 }
 
-.memoryRecentActivity {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 20px;
-  margin-top: 12px;
+.memoryAutoMemoryHistory {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(20, 20, 19, 0.07);
+}
 
-  > div {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+.memoryAutoMemoryHistoryHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+
+  strong {
+    color: rgba(20, 20, 19, 0.72);
+    font-size: 11px;
   }
 
   span {
-    color: rgba(20, 20, 19, 0.44);
+    color: rgba(20, 20, 19, 0.42);
     font-size: 10px;
-  }
-
-  strong {
-    overflow: hidden;
-    color: rgba(20, 20, 19, 0.68);
-    font-size: 10px;
-    font-weight: 550;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 }
 
-.memoryResourceHeading {
-  margin-bottom: 10px;
+.memoryAutoMemoryHistoryList {
+  display: grid;
+  gap: 6px;
 
-  h4,
-  p {
+  details {
+    border: 1px solid rgba(20, 20, 19, 0.07);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.48);
+  }
+
+  summary {
+    display: grid;
+    grid-template-columns: minmax(70px, auto) 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 11px;
+    cursor: pointer;
+    list-style-position: inside;
+
+    span,
+    strong,
+    small {
+      font-size: 10px;
+    }
+
+    span {
+      color: #df6c12;
+      font-weight: 650;
+    }
+
+    strong {
+      color: rgba(20, 20, 19, 0.68);
+      font-weight: 550;
+    }
+
+    small {
+      color: rgba(20, 20, 19, 0.42);
+    }
+  }
+
+  pre {
+    max-height: 220px;
     margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    border-top: 1px solid rgba(20, 20, 19, 0.06);
+    color: rgba(20, 20, 19, 0.74);
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
+}
 
-  h4 {
-    color: #302e2b;
-    font-size: 13px;
-    font-weight: 650;
-  }
-
-  p {
-    margin-top: 3px;
-    color: rgba(20, 20, 19, 0.46);
-    font-size: 10px;
-  }
+.memoryAutoMemoryHistoryEmpty {
+  margin: 0;
+  padding: 22px 12px;
+  border-radius: 8px;
+  background: rgba(20, 20, 19, 0.025);
+  color: rgba(20, 20, 19, 0.42);
+  font-size: 10px;
+  text-align: center;
 }
 
 .memoryStatusMetrics {
@@ -1124,51 +1167,14 @@
 }
 
 .embeddingStatusValuePending {
-  color: #b56a19 !important;
+  color: #c85e08 !important;
 }
 
-.embeddingOverviewNote {
-  display: block;
-  margin-top: 7px;
-  color: rgba(20, 20, 19, 0.42);
-  font-size: 10px;
-  line-height: 1.5;
-}
+.embeddingVerificationAction {
+  background: rgba(255, 127, 22, 0.055);
 
-.embeddingVerificationItem {
-  > div {
-    min-width: 0;
-  }
-
-  > div > span,
-  > div > strong,
-  > div > small {
-    display: block;
-  }
-
-  > div > span {
-    margin-bottom: 5px;
-    color: rgba(20, 20, 19, 0.48);
-    font-size: 11px;
-  }
-
-  > div > strong {
-    overflow: hidden;
-    font-size: 13px;
-    font-weight: 650;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  > div > small {
-    display: block;
-    margin-top: 2px;
-    overflow: hidden;
-    color: rgba(20, 20, 19, 0.4);
-    font-size: 10px;
-    line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  &:hover {
+    background: rgba(255, 127, 22, 0.1);
   }
 }
 
@@ -1205,14 +1211,11 @@
     border-bottom: 0;
   }
 
-  .memoryOverviewActionItem,
-  .memoryOverviewMaintenance {
+  .memoryOverviewActionItem {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .memoryOverviewMaintenance :global(.ant-btn),
-  .memoryOverviewMaintenance :global(.qwenpaw-btn),
   .memoryOverviewActionItem :global(.ant-btn),
   .memoryOverviewActionItem :global(.qwenpaw-btn) {
     width: 100%;
@@ -1254,18 +1257,9 @@
     grid-template-columns: 1fr;
   }
 
-  .memoryRuntimeGrid,
-  .memoryRecentActivity {
-    grid-template-columns: 1fr;
-  }
-
-  .memoryRuntimeGrid > div {
-    border-right: 0;
-    border-bottom: 1px solid rgba(20, 20, 19, 0.07);
-
-    &:last-child {
-      border-bottom: 0;
-    }
+  .memoryTaskSummary {
+    align-items: flex-start;
+    flex-direction: column-reverse;
   }
 
   .memoryStatusComponentRow {
@@ -1331,10 +1325,12 @@
     color: rgba(255, 255, 255, 0.5);
   }
 
-  .embeddingOverviewNote,
-  .embeddingVerificationItem > div > span,
-  .embeddingVerificationItem > div > small {
-    color: rgba(255, 255, 255, 0.46);
+  .embeddingVerificationAction {
+    background: rgba(255, 127, 22, 0.075);
+
+    &:hover {
+      background: rgba(255, 127, 22, 0.13);
+    }
   }
 
   .memoryOverviewGrid,
@@ -1355,6 +1351,20 @@
     > strong {
       color: rgba(255, 255, 255, 0.82);
     }
+  }
+
+  .memoryOverviewMetrics {
+    small {
+      color: rgba(255, 255, 255, 0.46);
+    }
+
+    strong {
+      color: rgba(255, 255, 255, 0.82);
+    }
+  }
+
+  .memoryOverviewClickableItem:hover {
+    background: rgba(255, 127, 22, 0.08);
   }
 
   .memoryConfigPanel,
@@ -1450,18 +1460,12 @@
     }
   }
 
-  .memoryStatusButton {
-    border-color: rgba(255, 127, 22, 0.3) !important;
-    background: rgba(255, 255, 255, 0.045) !important;
-    color: #ff9d4c !important;
-  }
-
   .memoryStatusModalTitle {
     strong {
       color: rgba(255, 255, 255, 0.9);
     }
 
-    > div > span {
+    > span {
       color: rgba(255, 255, 255, 0.5);
     }
   }
@@ -1482,33 +1486,21 @@
     }
   }
 
-  .memoryRuntimeSection {
-    border-color: rgba(255, 127, 22, 0.2);
-    background: rgba(255, 127, 22, 0.06);
-  }
-
-  .memoryRuntimeSectionHeader h4,
-  .memoryResourceHeading h4,
-  .memoryRuntimeGrid strong,
-  .memoryRecentActivity strong {
+  .memoryTaskSummary > div > strong {
     color: rgba(255, 255, 255, 0.88);
   }
 
-  .memoryRuntimeSectionHeader p,
-  .memoryResourceHeading p,
-  .memoryRuntimeGrid span,
-  .memoryRuntimeGrid small,
-  .memoryRecentActivity span {
+  .memoryTaskSummary > div > span {
     color: rgba(255, 255, 255, 0.46);
   }
 
-  .memoryRuntimeGrid {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.035);
+  .memoryAutoMemoryHistory {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
 
-    > div {
-      border-color: rgba(255, 255, 255, 0.08);
-    }
+  .memoryAutoMemoryHistoryEmpty {
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(255, 255, 255, 0.46);
   }
 
   .memoryStatusComponentSection h4,

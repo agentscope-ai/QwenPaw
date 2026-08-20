@@ -96,6 +96,17 @@ describe("projectDirectoryApi", () => {
     );
   });
 
+  it("createDirectory sends the current parent and child name", async () => {
+    await projectDirectoryApi.createDirectory("/projects", "reports");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/project-directory/browse-dirs/create",
+      {
+        method: "POST",
+        body: JSON.stringify({ parent: "/projects", name: "reports" }),
+      },
+    );
+  });
+
   it("uploadZip returns json on success and posts FormData to upload-zip", async () => {
     const json = { path: "/p", name: "p" };
     global.fetch = vi.fn().mockResolvedValue({

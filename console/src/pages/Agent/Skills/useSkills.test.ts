@@ -109,6 +109,7 @@ vi.mock("../../../utils/scanError", () => ({
 }));
 
 import { useSkills } from "./useSkills";
+import { notifySkillChange } from "../../../utils/skillChangeEvents";
 
 const {
   apiMocks,
@@ -173,6 +174,27 @@ describe("useSkills", () => {
       expect(result.current.loading).toBe(false);
     });
     expect(result.current.skills).toEqual(skills);
+  });
+
+  it("refreshes an already-mounted workspace after a market install", async () => {
+    apiMocks.listSkills
+      .mockResolvedValueOnce([makeSkill({ name: "existing" })])
+      .mockResolvedValue([makeSkill({ name: "installed-from-market" })]);
+    const { result } = renderSkillsHook();
+
+    await waitFor(() =>
+      expect(result.current.skills[0]?.name).toBe("existing"),
+    );
+
+    act(() => {
+      notifySkillChange("agent-1");
+    });
+
+    await waitFor(() =>
+      expect(result.current.skills[0]?.name).toBe("installed-from-market"),
+    );
+    expect(apiMocks.listSkills).toHaveBeenCalledTimes(2);
+    expect(apiMocks.listSkills).toHaveBeenLastCalledWith("agent-1");
   });
 
   it("loads Provider Skills separately as read-only inventory", async () => {

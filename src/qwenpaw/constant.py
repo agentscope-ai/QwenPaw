@@ -230,6 +230,12 @@ HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
 HEARTBEAT_DEFAULT_TIMEOUT_SECONDS = 300
 HEARTBEAT_MAX_TIMEOUT_SECONDS = 3600
+
+# Default execution budget for POST /console/chat/task when the request
+# omits ``timeout``. Aligned with Xiaoyi channel task_timeout_ms (1 hour).
+DEFAULT_STREAM_TASK_TIMEOUT_SECONDS = 3600
+# Parent HTTP wait for spawn_subagent foreground (/console/chat).
+DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS = 600
 HEARTBEAT_TARGET_LAST = "last"
 HEARTBEAT_TARGET_INBOX = "inbox"
 
@@ -380,6 +386,22 @@ LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
     "QWENPAW_LLM_ACQUIRE_TIMEOUT",
     300.0,
     min_value=10.0,
+)
+
+# Maximum upstream wait (seconds) for the first content-bearing stream chunk.
+# Set to 0 to disable the first-content timeout.
+LLM_STREAM_FIRST_CONTENT_TIMEOUT = EnvVarLoader.get_float(
+    "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
+    30.0,
+    min_value=0.0,
+)
+
+# Maximum upstream wait (seconds) between later content-bearing stream chunks.
+# Set to 0 to disable the steady-state idle timeout.
+LLM_STREAM_IDLE_TIMEOUT = EnvVarLoader.get_float(
+    "QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
+    30.0,
+    min_value=0.0,
 )
 
 # Tool guard approval timeout (seconds).

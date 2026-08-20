@@ -1,0 +1,57 @@
+.draggable {
+  height: 100%;
+  border-radius: 8px;
+  touch-action: manipulation;
+}
+
+.dragging {
+  opacity: 0.28;
+}
+
+.dropActive {
+  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #ff7f16) 10%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-primary, #ff7f16) 38%, transparent);
+}
+
+.overlay {
+  display: flex;
+  width: min(280px, calc(100vw - 32px));
+  height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-primary, #ff7f16) 34%, transparent);
+  border-radius: 10px;
+  background: var(--colorBgElevated, #fffdfa);
+  box-shadow: 0 12px 34px rgba(48, 27, 8, 0.16);
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.overlay span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.dark-mode) {
+  .dropActive {
+    background: rgba(255, 127, 22, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 143, 50, 0.44);
+  }
+
+  .overlay {
+    border-color: rgba(255, 143, 50, 0.42);
+    background: #1f1f1f;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+    color: rgba(255, 255, 255, 0.95);
+  }
+}

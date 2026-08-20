@@ -298,6 +298,53 @@ async def test_mark_all_read(inbox_path: Path):
     assert await inbox_store.mark_all_read() == 0
 
 
+@pytest.mark.asyncio
+async def test_mark_read_by_acl_sender_uses_agent_and_exact_address(
+    inbox_path: Path,
+):
+    cases = [
+        ("exact", "A", "a@example.com", "Alice <a@example.com>"),
+        ("other-agent", "B", "a@example.com", "Alice <a@example.com>"),
+        ("similar", "A", "ba@example.com", "BA <ba@example.com>"),
+        ("legacy-display-only", "A", None, "Alice <a@example.com>"),
+    ]
+    for case, agent_id, acl_sender, from_field in cases:
+        payload = {
+            "case": case,
+            "acl_status": "pending",
+            "from": from_field,
+        }
+        if acl_sender is not None:
+            payload["acl_sender_address"] = acl_sender
+        await inbox_store.append_event(
+            agent_id=agent_id,
+            source_type="mail",
+            source_id="_mail_monitor",
+            event_type="new_email",
+            status="success",
+            title="pending",
+            body="pending",
+            payload=payload,
+        )
+
+    updated = await inbox_store.mark_read_by_acl_sender(
+        "A",
+        " A@EXAMPLE.COM ",
+    )
+
+    assert updated == 1
+    events = await inbox_store.list_events(limit=10)
+    read_by_case = {
+        event["payload"]["case"]: event["read"] for event in events
+    }
+    assert read_by_case == {
+        "exact": True,
+        "other-agent": False,
+        "similar": False,
+        "legacy-display-only": False,
+    }
+
+
 # ---------------------------------------------------------------------------
 # delete_event (with run_id reference tracking)
 # ---------------------------------------------------------------------------

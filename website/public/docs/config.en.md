@@ -102,15 +102,25 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                  |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
+| Variable                               | Default         | Description                                                                                                                       |
+| -------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                    | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)                                                                   |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB`                                                      |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`             | Number of rotated log backups to retain; `0` disables backups                                                                     |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`        | Character threshold to trigger memory compaction                                                                                  |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`             | Number of recent messages to keep after compaction                                                                                |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)                                                       |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`            | Remote image download limit for `view_image` in MiB. Any positive integer is accepted; invalid/nonpositive values use the default |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _(auto-detect)_ | Console frontend static files path                                                                                                |
+
+**LLM streaming timeouts:**
+
+| Variable                                   | Default | Description                                                                                                                     |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                    |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout |
+
+These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
 **Security & Authentication:**
 
@@ -140,6 +150,13 @@ Starting from **v0.1.0**, configuration is split into two layers:
 
 1. **Global config** - `~/.qwenpaw/config.json` (providers, environment variables, agent list)
 2. **Agent config** - `~/.qwenpaw/workspaces/{agent_id}/agent.json` (per-agent settings)
+
+QwenPaw serializes agent configuration writes within its single server
+process and rejects saves based on an older on-disk snapshot. Atomic file
+replacement prevents partial JSON. External editors do not participate in
+this lock, so changes made during the final validation-and-replace interval
+are outside the strict consistency guarantee; reload before retrying a 409
+conflict.
 
 ### Global config.json
 
@@ -174,15 +191,14 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                       |
-| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
+| Field                 | Type           | Default             | Description                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -278,8 +294,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -426,8 +441,8 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
 | `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream results to the inbox                                                                                                                                  |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
 | `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
 | `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
 | `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
@@ -593,9 +608,11 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 
 ---
 
-#### `last_dispatch` — Last message dispatch target
+#### `state/last_dispatch.json` — Last message dispatch state
 
 Records the last user message source, used for sending messages when heartbeat `target = "last"`.
+This runtime state lives in the agent workspace and is not part of
+`agent.json` configuration.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |
@@ -603,7 +620,7 @@ Records the last user message source, used for sending messages when heartbeat `
 | `user_id`    | string | `""`    | User ID in that channel                       |
 | `session_id` | string | `""`    | Session/conversation ID                       |
 
-Auto-updated; no manual configuration needed.
+It is updated atomically by the system; no manual configuration is needed.
 
 ---
 

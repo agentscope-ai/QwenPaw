@@ -13,12 +13,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from qwenpaw.constant import SECRET_DIR, WORKING_DIR
 from qwenpaw.security.secret_store import decrypt, encrypt, is_encrypted
+from qwenpaw.utils.io_utils import get_sync_path_lock, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -139,16 +142,42 @@ def _sync_environ(
 # ------------------------------------------------------------------
 
 
-def load_envs(
-    path: Optional[Path] = None,
-) -> dict[str, str]:
-    """Load env vars from envs.json, decrypting values transparently.
-
-    Legacy plaintext values are detected and re-encrypted on disk.
-    """
+def _resolve_envs_path(path: Optional[Path]) -> tuple[Path, bool]:
     if path is None:
-        path = get_envs_json_path()
-        _migrate_legacy_envs_json(path)
+        return get_envs_json_path(), True
+    return path, False
+
+
+def _quarantine_corrupt_envs(path: Path, exc: Exception) -> None:
+    source = path.resolve(strict=False) if path.is_symlink() else path
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    quarantined = source.with_name(
+        f"{source.name}.corrupt-{timestamp}-{secrets.token_hex(4)}",
+    )
+    try:
+        source.rename(quarantined)
+        _chmod_best_effort(quarantined, 0o600)
+    except OSError as quarantine_exc:
+        logger.error(
+            "Failed to quarantine corrupt envs.json at %s: %s",
+            path,
+            quarantine_exc,
+        )
+        raise
+
+    logger.warning(
+        "Failed to load envs.json from %s; quarantined it to %s: %s",
+        path,
+        quarantined,
+        exc,
+    )
+
+
+def _load_envs_unlocked(
+    path: Path,
+    *,
+    fail_on_os_error: bool = False,
+) -> dict[str, str]:
     if path.exists() and not path.is_file():
         logger.error(
             "envs.json path exists but is not a regular file: %s",
@@ -160,24 +189,39 @@ def load_envs(
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        if isinstance(data, dict):
-            raw = {k: str(v) for k, v in data.items()}
-            has_plaintext = any(
-                v and not is_encrypted(v) for v in raw.values()
-            )
-            decrypted = {k: decrypt(v) for k, v in raw.items()}
-            if has_plaintext:
-                _rewrite_encrypted(path, decrypted)
-            return decrypted
-    except (json.JSONDecodeError, ValueError):
-        pass
+        if not isinstance(data, dict):
+            raise ValueError("envs.json root must be a JSON object")
+        raw = {k: str(v) for k, v in data.items()}
+        has_plaintext = any(v and not is_encrypted(v) for v in raw.values())
+        decrypted = {k: decrypt(v) for k, v in raw.items()}
+        if has_plaintext:
+            _rewrite_encrypted(path, decrypted)
+        return decrypted
+    except (json.JSONDecodeError, UnicodeError, ValueError) as exc:
+        _quarantine_corrupt_envs(path, exc)
     except OSError as exc:
         logger.warning(
             "Failed to read envs.json from %s due to OS error: %s",
             path,
             exc,
         )
+        if fail_on_os_error:
+            raise
     return {}
+
+
+def load_envs(
+    path: Optional[Path] = None,
+) -> dict[str, str]:
+    """Load env vars from envs.json, decrypting values transparently.
+
+    Legacy plaintext values are detected and re-encrypted on disk.
+    """
+    path, migrate_legacy = _resolve_envs_path(path)
+    with get_sync_path_lock(path):
+        if migrate_legacy:
+            _migrate_legacy_envs_json(path)
+        return _load_envs_unlocked(path)
 
 
 def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
@@ -188,22 +232,18 @@ def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
             for k, v in envs.items()
         }
         _prepare_secret_parent(path)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(encrypted, fh, indent=2, ensure_ascii=False)
         _chmod_best_effort(path, 0o600)
+        write_json_atomic(path, encrypted)
     except Exception as exc:
         logger.warning("Failed to re-encrypt envs.json: %s", exc)
 
 
-def save_envs(
+def _save_envs_unlocked(
     envs: dict[str, str],
-    path: Optional[Path] = None,
+    path: Path,
+    *,
+    old: dict[str, str],
 ) -> None:
-    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
-    if path is None:
-        path = get_envs_json_path()
-        _migrate_legacy_envs_json(path)
-    old = load_envs(path)
     if path.exists() and not path.is_file():
         raise IsADirectoryError(
             f"envs.json path exists but is not a regular file: {path}",
@@ -213,11 +253,22 @@ def save_envs(
         k: encrypt(v) if v and not is_encrypted(v) else v
         for k, v in envs.items()
     }
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(encrypted, fh, indent=2, ensure_ascii=False)
     _chmod_best_effort(path, 0o600)
-
+    write_json_atomic(path, encrypted)
     _sync_environ(old, envs)
+
+
+def save_envs(
+    envs: dict[str, str],
+    path: Optional[Path] = None,
+) -> None:
+    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
+    path, migrate_legacy = _resolve_envs_path(path)
+    with get_sync_path_lock(path):
+        if migrate_legacy:
+            _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        _save_envs_unlocked(envs, path, old=old)
 
 
 def set_env_var(
@@ -225,18 +276,26 @@ def set_env_var(
     value: str,
 ) -> dict[str, str]:
     """Set a single env var. Returns updated dict."""
-    envs = load_envs()
-    envs[key] = value
-    save_envs(envs)
-    return envs
+    path = get_envs_json_path()
+    with get_sync_path_lock(path):
+        _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        envs = dict(old)
+        envs[key] = value
+        _save_envs_unlocked(envs, path, old=old)
+        return envs
 
 
 def delete_env_var(key: str) -> dict[str, str]:
     """Delete a single env var. Returns updated dict."""
-    envs = load_envs()
-    envs.pop(key, None)
-    save_envs(envs)
-    return envs
+    path = get_envs_json_path()
+    with get_sync_path_lock(path):
+        _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        envs = dict(old)
+        envs.pop(key, None)
+        _save_envs_unlocked(envs, path, old=old)
+        return envs
 
 
 def load_envs_into_environ() -> dict[str, str]:

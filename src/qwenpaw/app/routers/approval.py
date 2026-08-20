@@ -253,6 +253,7 @@ async def get_approval_list(
                 "created_at": pending.created_at,
                 "timeout_seconds": pending.timeout_seconds,
                 "result_summary": pending.result_summary,
+                "reasoning": pending.extra.get("reasoning", ""),
             },
         )
 

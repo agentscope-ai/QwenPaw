@@ -24,6 +24,7 @@ from ..constant import (
 )
 from ..config.utils import load_config
 from ..utils.startup_display import AgentStartupDisplay
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,24 @@ class MultiAgentManager:
             CUSTOM_AGENT_STARTUP_CONCURRENCY,
         )
         self._cleanup_tasks: Set[asyncio.Task] = set()
+        self._config_generations: Dict[str, int] = {}
         logger.debug("MultiAgentManager initialized")
+
+    def note_agent_config_changed(self, agent_id: str) -> int:
+        """Record that the agent's persisted configuration just changed.
+
+        ``reload_agent`` captures this counter when it starts and aborts
+        its swap when the counter moved while the replacement workspace
+        was being built.  Without the guard, a zero-downtime rebuild
+        that began before a config write could finish after it and
+        re-install the pre-write snapshot -- readers would see a fresh
+        PUT revert until the next reload landed.  Every config-writer
+        path must bump: API writers via ``schedule_agent_reload``, disk
+        writers via ``AgentConfigWatcher``.
+        """
+        value = self._config_generations.get(agent_id, 0) + 1
+        self._config_generations[agent_id] = value
+        return value
 
     def _create_workspace(
         self,
@@ -95,7 +113,9 @@ class MultiAgentManager:
         # Fast path: already loaded (no lock)
         if agent_id in self.agents:
             self._agent_startup_statuses[agent_id] = AgentStartupStatus.RUNNING
-            logger.debug(f"Returning cached agent: {agent_id}")
+            logger.debug(
+                f"Returning cached agent: {sanitize_log_value(agent_id)}",
+            )
             return self.agents[agent_id]
 
         should_start = False
@@ -105,7 +125,9 @@ class MultiAgentManager:
         async with self._lock:
             # Re-check under lock
             if agent_id in self.agents:
-                logger.debug(f"Returning cached agent: {agent_id}")
+                logger.debug(
+                    f"Returning cached agent: {sanitize_log_value(agent_id)}",
+                )
                 return self.agents[agent_id]
 
             if agent_id in self._pending_starts:
@@ -135,7 +157,9 @@ class MultiAgentManager:
             # Wait for the in-progress startup to finish
             await event.wait()
             if agent_id in self.agents:
-                logger.debug(f"Returning cached agent: {agent_id}")
+                logger.debug(
+                    f"Returning cached agent: {sanitize_log_value(agent_id)}",
+                )
                 return self.agents[agent_id]
             raise ConfigurationException(
                 config_key="agent",
@@ -158,7 +182,8 @@ class MultiAgentManager:
 
             elapsed = time.perf_counter() - t0
             logger.debug(
-                f"Workspace created and started: {agent_id} "
+                "Workspace created and started: "
+                f"{sanitize_log_value(agent_id)} "
                 f"({elapsed:.3f}s)",
             )
 
@@ -173,7 +198,10 @@ class MultiAgentManager:
 
             return instance
         except Exception as e:
-            logger.error(f"Failed to start workspace {agent_id}: {e}")
+            logger.error(
+                f"Failed to start workspace {sanitize_log_value(agent_id)}: "
+                f"{sanitize_log_value(e)}",
+            )
             raise
         finally:
             # Always clean up pending state and signal waiters
@@ -193,29 +221,12 @@ class MultiAgentManager:
             event.set()
 
     @staticmethod
-    async def _fire_workspace_created_hooks(workspace_info: dict) -> None:
-        """Invoke all registered workspace_created hooks.
-
-        Supports both sync and async callbacks:
-        - Async callbacks are awaited directly.
-        - Sync callbacks are offloaded to a thread via
-          ``asyncio.to_thread`` so they never block the event loop.
-
-        Errors in individual hooks are logged but do not prevent
-        subsequent hooks from running.
-
-        Args:
-            workspace_info: Dict with at least ``agent_id`` and
-                ``workspace_dir`` keys.
-        """
-        try:
-            from ..plugins.registry import PluginRegistry
-
-            hooks = PluginRegistry().get_workspace_created_hooks()
-        except Exception:
-            # Plugin system not initialised yet — nothing to do.
-            return
-
+    async def _run_workspace_hooks(
+        hooks: list,
+        workspace_info: dict,
+        hook_type: str,
+    ) -> None:
+        """Run sync or async workspace hooks with error isolation."""
         for hook in hooks:
             try:
                 callback = hook.callback
@@ -230,11 +241,53 @@ class MultiAgentManager:
                         await result
             except Exception as exc:
                 logger.error(
-                    f"Error in workspace_created hook "
+                    f"Error in {hook_type} hook "
                     f"'{hook.hook_name}' for plugin "
                     f"'{hook.plugin_id}': {exc}",
                     exc_info=True,
                 )
+
+    @classmethod
+    async def _fire_workspace_created_hooks(cls, workspace_info: dict) -> None:
+        """Invoke hooks registered for newly created workspaces."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_created_hooks()
+        except Exception:
+            # Plugin system not initialised yet — nothing to do.
+            return
+
+        await cls._run_workspace_hooks(
+            hooks,
+            workspace_info,
+            "workspace_created",
+        )
+
+    @classmethod
+    async def _setup_workspace_plugins(
+        cls,
+        workspace: Workspace,
+        workspace_dir: str,
+    ) -> None:
+        """Install plugin-contributed in-memory state into a workspace."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            hooks = PluginRegistry().get_workspace_setup_hooks()
+        except Exception:
+            return
+
+        workspace_info = {
+            "agent_id": workspace.agent_id,
+            "workspace_dir": workspace_dir,
+            "workspace": workspace,
+        }
+        await cls._run_workspace_hooks(
+            hooks,
+            workspace_info,
+            "workspace setup",
+        )
 
     async def _graceful_stop_old_instance(
         self,
@@ -399,6 +452,26 @@ class MultiAgentManager:
             )
         # pylint: enable=protected-access
 
+    async def _stop_old_config_watcher(
+        self,
+        old_instance: Workspace,
+        agent_id: str,
+    ) -> None:
+        """Stop the outgoing instance's config watcher, best effort."""
+        try:
+            # pylint: disable=protected-access
+            old_watcher = old_instance._service_manager.services.get(
+                "agent_config_watcher",
+            )
+            # pylint: enable=protected-access
+            if old_watcher is not None:
+                await old_watcher.stop()
+        except Exception as stop_err:
+            logger.warning(
+                f"Failed to stop old AgentConfigWatcher for "
+                f"{agent_id}: {stop_err}.",
+            )
+
     async def reload_agent(self, agent_id: str) -> bool:
         """Reload a specific agent instance with zero-downtime.
 
@@ -426,6 +499,11 @@ class MultiAgentManager:
             bool: True if agent was reloaded, False if not running
         """
         # Step 1: Check if agent exists (quick check with lock)
+        # Capture the config generation first: any write bumping it
+        # after this point invalidates the snapshot this rebuild will
+        # be based on, and the swap below aborts in favour of the
+        # newer writer's own scheduled reload.
+        generation = self._config_generations.get(agent_id, 0)
         async with self._lock:
             if agent_id not in self.agents:
                 logger.debug(
@@ -439,19 +517,7 @@ class MultiAgentManager:
 
         # Step 1.5: Stop old config watcher (no-op if it triggered
         # this reload, since it already disabled itself).
-        try:
-            # pylint: disable=protected-access
-            old_watcher = old_instance._service_manager.services.get(
-                "agent_config_watcher",
-            )
-            # pylint: enable=protected-access
-            if old_watcher is not None:
-                await old_watcher.stop()
-        except Exception as stop_err:
-            logger.warning(
-                f"Failed to stop old AgentConfigWatcher for "
-                f"{agent_id}: {stop_err}.",
-            )
+        await self._stop_old_config_watcher(old_instance, agent_id)
 
         # Step 2: Load configuration (outside lock)
         config = load_config()
@@ -498,6 +564,10 @@ class MultiAgentManager:
         try:
             await new_instance.start()
             new_instance.set_manager(self)  # Set manager reference
+            await self._setup_workspace_plugins(
+                new_instance,
+                str(agent_ref.workspace_dir),
+            )
             logger.info(f"New workspace instance started: {agent_id}")
         except Exception as e:
             logger.exception(
@@ -519,6 +589,19 @@ class MultiAgentManager:
                 logger.warning(
                     f"Agent {agent_id} was removed during reload, "
                     f"stopping new instance",
+                )
+                await new_instance.stop()
+                return False
+
+            if self._config_generations.get(agent_id, 0) != generation:
+                # The configuration changed while this replacement was
+                # being built: installing it would revert the newer
+                # write. The writer's own reload delivers the fresh
+                # state; the current (already patched in memory)
+                # instance keeps serving until then.
+                logger.info(
+                    f"Discarding stale reload for {agent_id}: "
+                    f"configuration changed during rebuild",
                 )
                 await new_instance.stop()
                 return False
@@ -665,10 +748,16 @@ class MultiAgentManager:
         """
         try:
             await self.get_agent(agent_id)
-            logger.info(f"Successfully preloaded agent: {agent_id}")
+            logger.info(
+                "Successfully preloaded agent: "
+                f"{sanitize_log_value(agent_id)}",
+            )
             return True
         except Exception as e:
-            logger.error(f"Failed to preload agent {agent_id}: {e}")
+            logger.error(
+                f"Failed to preload agent {sanitize_log_value(agent_id)}: "
+                f"{sanitize_log_value(e)}",
+            )
             return False
 
     async def _wait_for_scheduled_startup(self, agent_id: str) -> None:

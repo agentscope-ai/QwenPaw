@@ -431,6 +431,25 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 | `writable`   | bool   | `false` | 允许写入                       |
 | `executable` | bool   | `true`  | 允许执行二进制文件（仅 macOS） |
 
+#### 授权 workspace 之外的路径
+
+`mounts` **没有可直接编辑的配置项**。它由 `policy.yaml` 的规则推导而来：`Write(...)` 规则会变成可写 mount，`Read(...)` 变成只读 mount，workspace 则永远可写。所以让沙箱内命令写入 workspace 之外的正确做法是**添加规则**，而不是手写 mount。
+
+这对把缓存放在 home 目录的工具尤为重要——`uv`、`pip`、`npm` 在缓存目录被授权前都会在沙箱下失败：
+
+```yaml
+# policy.yaml —— 允许 uv 写入缓存
+user_rules:
+  - match: Write(~/.cache/uv/**)
+    action: allow
+    reason: uv build cache
+```
+
+路径可以使用 `~` 或 `$VAR`，二者在编译 mount 时都会被展开。两个行为需要注意：
+
+- **路径只有在沙箱启动时已存在才会被绑入**。不存在的路径会被跳过并以 `WARNING` 上报“未绑入”。缓存目录通常在对应工具首次运行前并不存在，因此若首次沙箱运行就需要写入，请先手动创建一次（`mkdir -p ~/.cache/uv`）。
+- **`mode=none` 完全忽略 mounts**，所以在没有内核后端的容器里这个授权无关紧要——本来就什么都没限制。
+
 ### 违规检测
 
 当沙箱内的命令尝试访问其允许视图之外的路径时，操作系统内核会阻止该操作。QwenPaw 通过匹配 stderr 模式来检测这些违规：

@@ -324,9 +324,9 @@ class CodingPage(BasePage):
         return {"X-Agent-Id": self.AGENT_ID_DEFAULT}
 
     def api_create_project(self, api_context, name: str) -> dict:
-        """POST /api/workspace/coding-project/create."""
+        """POST /api/workspace/project-directory/create."""
         resp = api_context.post(
-            "/api/workspace/coding-project/create",
+            "/api/workspace/project-directory/create",
             data={"name": name},
             headers=self._agent_headers(),
         )
@@ -338,9 +338,9 @@ class CodingPage(BasePage):
         return body
 
     def api_activate_project(self, api_context, path: str) -> dict:
-        """PUT /api/workspace/coding-project — set the active project."""
+        """PUT /api/workspace/project-directory — set the active project."""
         resp = api_context.put(
-            "/api/workspace/coding-project",
+            "/api/workspace/project-directory",
             data={"path": path},
             headers=self._agent_headers(),
         )
@@ -362,9 +362,9 @@ class CodingPage(BasePage):
         return resp.json()
 
     def api_get_coding_project(self, api_context) -> dict:
-        """GET /api/workspace/coding-project — current bound project."""
+        """GET /api/workspace/project-directory — current bound project."""
         resp = api_context.get(
-            "/api/workspace/coding-project",
+            "/api/workspace/project-directory",
             headers=self._agent_headers(),
         )
         assert resp.ok, (

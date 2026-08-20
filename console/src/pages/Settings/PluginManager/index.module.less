@@ -11,6 +11,12 @@
   padding: 0 24px;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .tabs {
   :global(.ant-tabs-nav) {
     margin-bottom: 16px;
@@ -41,5 +47,39 @@
 
   :global(.ant-table-tbody > tr:hover > td) {
     background: var(--ant-color-fill-quaternary);
+  }
+}
+
+.mobileTableList {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: 0 16px;
+  }
+
+  .headerActions {
+    gap: 8px;
+  }
+
+  .desktopTableList {
+    display: none;
+  }
+
+  .mobileTableList {
+    display: flex;
+  }
+}
+
+@media (max-width: 520px) {
+  .headerActions {
+    width: 100%;
+
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
+      min-width: 0;
+      flex: 1;
+    }
   }
 }
