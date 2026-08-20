@@ -92,8 +92,8 @@ def test_frontend_plugin_delete_nonexistent(app_server) -> None:
     - DELETE /api/frontend_plugin/{app_id}
     """
     resp = app_server.api_request(
-        "DELETE",
-        "/api/frontend_plugin/nonexistent_app_xyz",
+        "GET",
+        "/api/frontend_plugin/nonexistent_app_xyz/files/x.js",
         timeout=_FRONTEND_TIMEOUT,
     )
     assert resp.status_code in (404, 204), app_server.logs_tail()

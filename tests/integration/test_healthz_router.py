@@ -12,57 +12,52 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_healthz(app_server):
+def test_healthz(app_server) -> None:
     """Test GET /api/healthz returns health status."""
-    async with app_server() as server:
-        response = await server.get("/api/healthz")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-        assert "status" in data or "healthy" in data
+    response = app_server.api_request("GET", "/api/healthz")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    assert "status" in data or "healthy" in data
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_healthz_ready(app_server):
+def test_healthz_ready(app_server) -> None:
     """Test GET /api/healthz/ready returns readiness status."""
-    async with app_server() as server:
-        response = await server.get("/api/healthz/ready")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
+    response = app_server.api_request("GET", "/api/healthz/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_healthz_live(app_server):
+def test_healthz_live(app_server) -> None:
     """Test GET /api/healthz/live returns liveness status."""
-    async with app_server() as server:
-        response = await server.get("/api/healthz/live")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
+    response = app_server.api_request("GET", "/api/healthz/live")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_healthz_structure(app_server):
+def test_healthz_structure(app_server) -> None:
     """Test health check response structure."""
-    async with app_server() as server:
-        response = await server.get("/api/healthz")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-        # Should have status-related fields
-        assert len(data) > 0
+    response = app_server.api_request("GET", "/api/healthz")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    # Should have status-related fields
+    assert len(data) > 0
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_healthz_ready_structure(app_server):
+def test_healthz_ready_structure(app_server) -> None:
     """Test readiness check response structure."""
-    async with app_server() as server:
-        response = await server.get("/api/healthz/ready")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
+    response = app_server.api_request("GET", "/api/healthz/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)

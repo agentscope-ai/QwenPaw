@@ -11,93 +11,87 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_coding_mode_get_default(app_server):
+def test_coding_mode_get_default(app_server) -> None:
     """Test GET /api/coding-mode returns default state."""
-    async with app_server() as server:
-        response = await server.get("/api/coding-mode")
-        assert response.status_code == 200
-        data = response.json()
-        assert "enabled" in data
-        assert "agent_id" in data
-        assert isinstance(data["enabled"], bool)
+    response = app_server.api_request("GET", "/api/coding-mode")
+    assert response.status_code == 200
+    data = response.json()
+    assert "enabled" in data
+    assert "agent_id" in data
+    assert isinstance(data["enabled"], bool)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_coding_mode_toggle_enable(app_server):
+def test_coding_mode_toggle_enable(app_server) -> None:
     """Test POST /api/coding-mode to enable coding mode."""
-    async with app_server() as server:
-        # Enable coding mode
-        payload = {"enabled": True}
-        response = await server.post("/api/coding-mode", json=payload)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["enabled"] is True
+    # Enable coding mode
+    payload = {"enabled": True}
+    response = app_server.api_request("POST", "/api/coding-mode", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["enabled"] is True
 
-        # Verify state persisted
-        get_response = await server.get("/api/coding-mode")
-        assert get_response.status_code == 200
-        assert get_response.json()["enabled"] is True
+    # Verify state persisted
+    get_response = app_server.api_request("GET", "/api/coding-mode")
+    assert get_response.status_code == 200
+    assert get_response.json()["enabled"] is True
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_coding_mode_toggle_disable(app_server):
+def test_coding_mode_toggle_disable(app_server) -> None:
     """Test POST /api/coding-mode to disable coding mode."""
-    async with app_server() as server:
-        # First enable
-        await server.post("/api/coding-mode", json={"enabled": True})
+    # First enable
+    app_server.api_request("POST", "/api/coding-mode", json={"enabled": True})
 
-        # Then disable
-        payload = {"enabled": False}
-        response = await server.post("/api/coding-mode", json=payload)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["enabled"] is False
+    # Then disable
+    payload = {"enabled": False}
+    response = app_server.api_request("POST", "/api/coding-mode", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["enabled"] is False
 
-        # Verify state persisted
-        get_response = await server.get("/api/coding-mode")
-        assert get_response.status_code == 200
-        assert get_response.json()["enabled"] is False
+    # Verify state persisted
+    get_response = app_server.api_request("GET", "/api/coding-mode")
+    assert get_response.status_code == 200
+    assert get_response.json()["enabled"] is False
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_coding_mode_toggle_idempotent(app_server):
+def test_coding_mode_toggle_idempotent(app_server) -> None:
     """Test toggling to same state is idempotent."""
-    async with app_server() as server:
-        # Enable twice
-        payload = {"enabled": True}
-        response1 = await server.post("/api/coding-mode", json=payload)
-        response2 = await server.post("/api/coding-mode", json=payload)
+    # Enable twice
+    payload = {"enabled": True}
+    response1 = app_server.api_request("POST", "/api/coding-mode", json=payload)
+    response2 = app_server.api_request("POST", "/api/coding-mode", json=payload)
 
-        assert response1.status_code == 200
-        assert response2.status_code == 200
-        assert response1.json()["enabled"] == response2.json()["enabled"]
+    assert response1.status_code == 200
+    assert response2.status_code == 200
+    assert response1.json()["enabled"] == response2.json()["enabled"]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_coding_mode_invalid_request(app_server):
+def test_coding_mode_invalid_request(app_server) -> None:
     """Test POST /api/coding-mode with invalid request body."""
-    async with app_server() as server:
-        # Missing 'enabled' field
-        response = await server.post("/api/coding-mode", json={})
-        assert response.status_code == 422
+    # Missing 'enabled' field
+    response = app_server.api_request("POST", "/api/coding-mode", json={})
+    assert response.status_code == 422
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_coding_mode_agent_isolation(app_server):
+def test_coding_mode_agent_isolation(app_server) -> None:
     """Test coding mode is per-agent."""
-    async with app_server() as server:
-        # Enable for default agent
-        payload = {"enabled": True}
-        response = await server.post("/api/coding-mode", json=payload)
-        assert response.status_code == 200
-        agent_id = response.json()["agent_id"]
+    # Enable for default agent
+    payload = {"enabled": True}
+    response = app_server.api_request("POST", "/api/coding-mode", json=payload)
+    assert response.status_code == 200
+    agent_id = response.json()["agent_id"]
 
-        # Verify state
-        get_response = await server.get("/api/coding-mode")
-        assert get_response.json()["agent_id"] == agent_id
-        assert get_response.json()["enabled"] is True
+    # Verify state
+    get_response = app_server.api_request("GET", "/api/coding-mode")
+    assert get_response.json()["agent_id"] == agent_id
+    assert get_response.json()["enabled"] is True

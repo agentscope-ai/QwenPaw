@@ -59,7 +59,7 @@ def test_config_language_put(app_server) -> None:
     """
     get_resp = app_server.api_request(
         "GET",
-        "/api/config/language",
+        "/api/settings/language",
         timeout=_CONFIG_TIMEOUT,
     )
     original = get_resp.json()
@@ -67,7 +67,7 @@ def test_config_language_put(app_server) -> None:
 
     put_resp = app_server.api_request(
         "PUT",
-        "/api/config/language",
+        "/api/settings/language",
         json={"language": "zh"},
         timeout=_CONFIG_TIMEOUT,
     )
@@ -76,7 +76,7 @@ def test_config_language_put(app_server) -> None:
     # Restore
     app_server.api_request(
         "PUT",
-        "/api/config/language",
+        "/api/settings/language",
         json={"language": original_lang},
         timeout=_CONFIG_TIMEOUT,
     )
@@ -128,14 +128,14 @@ def test_config_offload_policy_put(app_server) -> None:
     """
     get_resp = app_server.api_request(
         "GET",
-        "/api/config/offload-policy",
+        "/api/settings/offload-policy",
         timeout=_CONFIG_TIMEOUT,
     )
     original = get_resp.json()
 
     put_resp = app_server.api_request(
         "PUT",
-        "/api/config/offload-policy",
+        "/api/settings/offload-policy",
         json=original,
         timeout=_CONFIG_TIMEOUT,
     )

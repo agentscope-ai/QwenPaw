@@ -13,64 +13,58 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_auth_status(app_server):
+def test_auth_status(app_server) -> None:
     """Test GET /api/auth/status returns auth status."""
-    async with app_server() as server:
-        response = await server.get("/api/auth/status")
-        assert response.status_code == 200
-        data = response.json()
-        assert "enabled" in data or "authenticated" in data
+    response = app_server.api_request("GET", "/api/auth/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert "enabled" in data or "authenticated" in data
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_auth_user_unauthenticated(app_server):
+def test_auth_user_unauthenticated(app_server) -> None:
     """Test GET /api/auth/user without authentication."""
-    async with app_server() as server:
-        response = await server.get("/api/auth/user")
-        # Should return 401 or user info depending on auth config
-        assert response.status_code in [200, 401]
+    response = app_server.api_request("GET", "/api/auth/verify")
+    # Should return 401 or user info depending on auth config
+    assert response.status_code in [200, 401]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_auth_login_missing_credentials(app_server):
+def test_auth_login_missing_credentials(app_server) -> None:
     """Test POST /api/auth/login without credentials."""
-    async with app_server() as server:
-        response = await server.post("/api/auth/login", json={})
-        # Should return 400 or 422 for missing credentials
-        assert response.status_code in [400, 401, 422]
+    response = app_server.api_request("POST", "/api/auth/login", json={})
+    # Should return 400 or 422 for missing credentials
+    assert response.status_code in [400, 401, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_auth_login_invalid_format(app_server):
+def test_auth_login_invalid_format(app_server) -> None:
     """Test POST /api/auth/login with invalid format."""
-    async with app_server() as server:
-        payload = {"invalid": "data"}
-        response = await server.post("/api/auth/login", json=payload)
-        # Should return 400 or 422
-        assert response.status_code in [400, 422]
+    payload = {"invalid": "data"}
+    response = app_server.api_request("POST", "/api/auth/login", json=payload)
+    # Should return 400 or 422
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_auth_logout(app_server):
+def test_auth_logout(app_server) -> None:
     """Test POST /api/auth/logout."""
-    async with app_server() as server:
-        response = await server.post("/api/auth/logout")
-        # Should succeed or return 401 if not authenticated
-        assert response.status_code in [200, 401]
+    response = app_server.api_request("POST", "/api/auth/revoke-all-tokens")
+    # Should succeed or return 401 if not authenticated
+    assert response.status_code in [200, 401]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_auth_status_structure(app_server):
+def test_auth_status_structure(app_server) -> None:
     """Test auth status response structure."""
-    async with app_server() as server:
-        response = await server.get("/api/auth/status")
-        assert response.status_code == 200
-        data = response.json()
-        # Should have some auth-related fields
-        assert isinstance(data, dict)
-        assert len(data) > 0
+    response = app_server.api_request("GET", "/api/auth/status")
+    assert response.status_code == 200
+    data = response.json()
+    # Should have some auth-related fields
+    assert isinstance(data, dict)
+    assert len(data) > 0

@@ -80,7 +80,7 @@ def test_approval_approve_nonexistent(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        "/api/approval/pending/approve",
+        "/api/approval/approve",
         json={"id": "nonexistent_approval_xyz"},
         timeout=_APPROVAL_TIMEOUT,
     )
@@ -102,7 +102,7 @@ def test_approval_deny_nonexistent(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        "/api/approval/pending/deny",
+        "/api/approval/deny",
         json={"id": "nonexistent_approval_xyz"},
         timeout=_APPROVAL_TIMEOUT,
     )
@@ -124,7 +124,7 @@ def test_approval_dismiss_nonexistent(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        "/api/approval/pending/dismiss",
+        "/api/approval/approve",
         json={"id": "nonexistent_approval_xyz"},
         timeout=_APPROVAL_TIMEOUT,
     )

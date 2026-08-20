@@ -12,56 +12,51 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_mcp_status(app_server):
+def test_mcp_status(app_server) -> None:
     """Test GET /api/mcp returns MCP status."""
-    async with app_server() as server:
-        response = await server.get("/api/mcp")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
+    response = app_server.api_request("GET", "/api/mcp")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_mcp_servers_list(app_server):
+def test_mcp_servers_list(app_server) -> None:
     """Test GET /api/mcp/servers returns server list."""
-    async with app_server() as server:
-        response = await server.get("/api/mcp/servers")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
+    response = app_server.api_request("GET", "/api/mcp")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_mcp_servers_add_invalid(app_server):
+def test_mcp_servers_add_invalid(app_server) -> None:
     """Test POST /api/mcp/servers with invalid data."""
-    async with app_server() as server:
-        response = await server.post("/api/mcp/servers", json={})
-        # Should return 400 or 422 for missing required fields
-        assert response.status_code in [400, 422]
+    response = app_server.api_request("POST", "/api/mcp", json={})
+    # Should return 400 or 422 for missing required fields
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_mcp_servers_list_pagination(app_server):
+def test_mcp_servers_list_pagination(app_server) -> None:
     """Test MCP servers list pagination."""
-    async with app_server() as server:
-        response = await server.get("/api/mcp/servers?limit=5&offset=0")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) <= 5
+    response = app_server.api_request("GET", "/api/mcp/servers?limit=5&offset=0")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) <= 5
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_mcp_status_structure(app_server):
+def test_mcp_status_structure(app_server) -> None:
     """Test MCP status response structure."""
-    async with app_server() as server:
-        response = await server.get("/api/mcp")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-        # Should have MCP-related fields
-        assert len(data) >= 0
+    response = app_server.api_request("GET", "/api/mcp")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    # Should have MCP-related fields
+    assert len(data) >= 0

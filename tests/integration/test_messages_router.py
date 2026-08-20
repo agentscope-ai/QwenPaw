@@ -20,7 +20,7 @@ def test_messages_tool_call_info(app_server) -> None:
       tool call info. Console shows tool call details from this.
 
     Test flow:
-    1. GET /api/messages/session_xyz/toolcall_xyz.
+    1. GET /api/tool-calls/session_xyz/toolcall_xyz.
     2. Assert 404 (doesn't exist) or 200 with data.
 
     API endpoints:
@@ -28,7 +28,7 @@ def test_messages_tool_call_info(app_server) -> None:
     """
     resp = app_server.api_request(
         "GET",
-        "/api/messages/session_xyz/toolcall_xyz",
+        "/api/tool-calls/session_xyz/toolcall_xyz",
         timeout=_MESSAGES_TIMEOUT,
     )
     # Either 404 (not found) or 200 with data
@@ -51,7 +51,7 @@ def test_messages_tool_call_output(app_server) -> None:
     """
     resp = app_server.api_request(
         "GET",
-        "/api/messages/session_xyz/toolcall_xyz/output",
+        "/api/tool-calls/session_xyz/toolcall_xyz/output",
         timeout=_MESSAGES_TIMEOUT,
     )
     assert resp.status_code in (200, 404), app_server.logs_tail()
@@ -73,7 +73,7 @@ def test_messages_tool_call_stream(app_server) -> None:
     """
     resp = app_server.api_request(
         "GET",
-        "/api/messages/session_xyz/toolcall_xyz/stream",
+        "/api/tool-calls/session_xyz/toolcall_xyz/stream",
         timeout=_MESSAGES_TIMEOUT,
     )
     assert resp.status_code in (200, 404), app_server.logs_tail()
@@ -95,7 +95,7 @@ def test_messages_tool_call_cancel(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        "/api/messages/session_xyz/toolcall_xyz/cancel",
+        "/api/tool-calls/session_xyz/toolcall_xyz/cancel",
         timeout=_MESSAGES_TIMEOUT,
     )
     assert resp.status_code in (200, 202, 404), app_server.logs_tail()
@@ -117,7 +117,7 @@ def test_messages_tool_call_offload(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        "/api/messages/session_xyz/toolcall_xyz/offload",
+        "/api/tool-calls/session_xyz/toolcall_xyz/offload",
         timeout=_MESSAGES_TIMEOUT,
     )
     assert resp.status_code in (200, 202, 404), app_server.logs_tail()

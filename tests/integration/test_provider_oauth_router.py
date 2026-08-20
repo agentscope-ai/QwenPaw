@@ -11,52 +11,47 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_provider_oauth_status(app_server):
+def test_provider_oauth_status(app_server) -> None:
     """Test GET /api/provider-oauth returns OAuth status."""
-    async with app_server() as server:
-        response = await server.get("/api/provider-oauth")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
+    response = app_server.api_request("GET", "/api/providers/dashscope/oauth/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_provider_oauth_authorize_invalid(app_server):
+def test_provider_oauth_authorize_invalid(app_server) -> None:
     """Test POST /api/provider-oauth/authorize with invalid data."""
-    async with app_server() as server:
-        response = await server.post("/api/provider-oauth/authorize", json={})
-        # Should return 400 or 422 for missing required fields
-        assert response.status_code in [400, 422]
+    response = app_server.api_request("POST", "/api/providers/dashscope/oauth/start", json={})
+    # Should return 400 or 422 for missing required fields
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_provider_oauth_status_structure(app_server):
+def test_provider_oauth_status_structure(app_server) -> None:
     """Test provider OAuth status response structure."""
-    async with app_server() as server:
-        response = await server.get("/api/provider-oauth")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-        # Should have OAuth-related fields
-        assert len(data) >= 0
+    response = app_server.api_request("GET", "/api/providers/dashscope/oauth/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    # Should have OAuth-related fields
+    assert len(data) >= 0
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_provider_oauth_authorize_missing_params(app_server):
+def test_provider_oauth_authorize_missing_params(app_server) -> None:
     """Test POST /api/provider-oauth/authorize without required params."""
-    async with app_server() as server:
-        response = await server.post("/api/provider-oauth/authorize", json={})
-        # Should return 400 or 422
-        assert response.status_code in [400, 422]
+    response = app_server.api_request("POST", "/api/providers/dashscope/oauth/start", json={})
+    # Should return 400 or 422
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_provider_oauth_get_specific(app_server):
+def test_provider_oauth_get_specific(app_server) -> None:
     """Test GET /api/provider-oauth with specific provider."""
-    async with app_server() as server:
-        response = await server.get("/api/provider-oauth?provider=openai")
-        assert response.status_code in [200, 404]
+    response = app_server.api_request("GET", "/api/providers/openai/oauth/status")
+    assert response.status_code in [200, 404]

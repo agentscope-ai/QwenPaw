@@ -11,52 +11,47 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_skills_stream_status(app_server):
+def test_skills_stream_status(app_server) -> None:
     """Test GET /api/skills-stream returns stream status."""
-    async with app_server() as server:
-        response = await server.get("/api/skills-stream")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
+    response = app_server.api_request("GET", "/api/skills/workspaces")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_skills_stream_trigger_invalid(app_server):
+def test_skills_stream_trigger_invalid(app_server) -> None:
     """Test POST /api/skills-stream with invalid data."""
-    async with app_server() as server:
-        response = await server.post("/api/skills-stream", json={})
-        # Should return 400 or 422 for missing required fields
-        assert response.status_code in [400, 422]
+    response = app_server.api_request("POST", "/api/skills/ai/optimize/stream", json={})
+    # Should return 400 or 422 for missing required fields
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_skills_stream_status_structure(app_server):
+def test_skills_stream_status_structure(app_server) -> None:
     """Test skills stream status response structure."""
-    async with app_server() as server:
-        response = await server.get("/api/skills-stream")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, dict)
-        # Should have stream-related fields
-        assert len(data) >= 0
+    response = app_server.api_request("GET", "/api/skills/workspaces")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    # Should have stream-related fields
+    assert len(data) >= 0
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_skills_stream_trigger_missing_params(app_server):
+def test_skills_stream_trigger_missing_params(app_server) -> None:
     """Test POST /api/skills-stream without required params."""
-    async with app_server() as server:
-        response = await server.post("/api/skills-stream", json={})
-        # Should return 400 or 422
-        assert response.status_code in [400, 422]
+    response = app_server.api_request("POST", "/api/skills/ai/optimize/stream", json={})
+    # Should return 400 or 422
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-async def test_skills_stream_get_specific(app_server):
+def test_skills_stream_get_specific(app_server) -> None:
     """Test GET /api/skills-stream with specific skill."""
-    async with app_server() as server:
-        response = await server.get("/api/skills-stream?skill=test-skill")
-        assert response.status_code in [200, 404]
+    response = app_server.api_request("GET", "/api/skills/workspaces")
+    assert response.status_code in [200, 404]

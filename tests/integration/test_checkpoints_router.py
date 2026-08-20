@@ -103,7 +103,7 @@ def test_checkpoints_gc_settings_put(app_server) -> None:
         "pre_restore_retention_days": 7,
     }
     put_resp = app_server.api_request(
-        "PUT",
+        "PATCH",
         "/api/workspace/checkpoints/gc/settings",
         json=new_settings,
         timeout=_CHECKPOINTS_TIMEOUT,
@@ -123,7 +123,7 @@ def test_checkpoints_gc_settings_put(app_server) -> None:
 
     # Restore original
     app_server.api_request(
-        "PUT",
+        "PATCH",
         "/api/workspace/checkpoints/gc/settings",
         json=original,
         timeout=_CHECKPOINTS_TIMEOUT,
@@ -145,7 +145,7 @@ def test_checkpoints_gc_settings_validation(app_server) -> None:
     - PUT /api/workspace/checkpoints/gc/settings
     """
     resp = app_server.api_request(
-        "PUT",
+        "PATCH",
         "/api/workspace/checkpoints/gc/settings",
         json={
             "gc_keep_count": -1,  # Invalid: must be >= 0
