@@ -41,3 +41,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+:global(.dark-mode) {
+  .dropActive {
+    background: rgba(255, 127, 22, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 143, 50, 0.44);
+  }
+
+  .overlay {
+    border-color: rgba(255, 143, 50, 0.42);
+    background: #1f1f1f;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+    color: rgba(255, 255, 255, 0.95);
+  }
+}

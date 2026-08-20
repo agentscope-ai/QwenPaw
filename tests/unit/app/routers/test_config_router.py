@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.crons import heartbeat
+from qwenpaw.app.exception_handlers import register_exception_handlers
 from qwenpaw.app.routers.config import router as config_router
 from qwenpaw.config import get_available_channels
 from qwenpaw.config.config import (
@@ -42,6 +43,7 @@ from qwenpaw.constant import (
     HEARTBEAT_TARGET_INBOX,
     HEARTBEAT_TARGET_LAST,
 )
+from qwenpaw.exceptions import AgentConfigConflictError
 
 
 class _HeartbeatWorkspace:
@@ -69,6 +71,7 @@ def app() -> FastAPI:
     # ``get_agent_for_request``, but keep state attribute populated to
     # avoid spurious 500s from the auth-context fallback.
     application.state.multi_agent_manager = MagicMock(name="ManagerStub")
+    register_exception_handlers(application)
     application.include_router(config_router, prefix="/api")
     return application
 
@@ -213,6 +216,31 @@ def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
     )
 
     assert response.status_code == 422
+
+
+def test_put_channels_returns_409_for_stale_agent_config(
+    client,
+    patch_get_agent,
+):
+    """A stale agent save returns a stable conflict response."""
+    with patch(
+        "qwenpaw.config.config.save_agent_config",
+        side_effect=AgentConfigConflictError("default"),
+    ):
+        response = client.put(
+            "/api/config/channels",
+            json={"console": {"enabled": False}},
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "AGENT_CONFIG_STALE",
+            "message": (
+                "Agent 'default' changed on disk; reload it and retry"
+            ),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

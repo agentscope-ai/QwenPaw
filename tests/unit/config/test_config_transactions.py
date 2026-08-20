@@ -13,6 +13,9 @@ import pytest
 
 from qwenpaw.config import utils as config_utils
 from qwenpaw.config.config import (
+    AGENT_MAIL_CREDENTIAL_REF,
+    AgentMailConfig,
+    AgentMailCredential,
     AgentProfileConfig,
     AgentProfileRef,
     AgentsConfig,
@@ -21,6 +24,7 @@ from qwenpaw.config.config import (
     mutate_agent_config,
     save_agent_config,
 )
+from qwenpaw.drivers.credentials.store import AsyncCredentialStore
 
 
 @pytest.fixture
@@ -169,3 +173,96 @@ def test_failed_agent_write_preserves_disk_and_cache(isolated_agent):
     after = json.loads(isolated_agent.read_text(encoding="utf-8"))
     assert after == before
     assert load_agent_config("agent").description == "original"
+
+
+def _mail_config(auth_code: str = "a" * 16) -> AgentMailConfig:
+    return AgentMailConfig(
+        credential=AgentMailCredential(
+            name="tester",
+            domain="163.com",
+            auth_code=auth_code,
+            password="mail-password",
+            phone_number="13800000000",
+        ),
+    )
+
+
+def test_agent_mail_secrets_round_trip_outside_agent_json(isolated_agent):
+    workspace = isolated_agent.parent
+    config = load_agent_config("agent")
+    config.mail = _mail_config()
+
+    save_agent_config("agent", config)
+
+    persisted = isolated_agent.read_text(encoding="utf-8")
+    assert "a" * 16 not in persisted
+    assert "mail-password" not in persisted
+    assert "13800000000" not in persisted
+    credential_text = (workspace / "credentials.yaml").read_text("utf-8")
+    assert "a" * 16 not in credential_text
+    assert "mail-password" not in credential_text
+    assert "13800000000" not in credential_text
+    assert "ENC:" in credential_text
+    # pylint: disable=protected-access
+    config_utils._agent_config_cache.clear()
+    reloaded = load_agent_config("agent")
+    assert reloaded.mail is not None
+    assert reloaded.mail.credential.auth_code == "a" * 16
+    assert reloaded.mail.credential.password == "mail-password"
+    assert reloaded.mail.credential.phone_number == "13800000000"
+
+
+def test_load_migrates_legacy_plaintext_mail_credentials(isolated_agent):
+    workspace = isolated_agent.parent
+    legacy = json.loads(isolated_agent.read_text(encoding="utf-8"))
+    legacy["mail"] = _mail_config().model_dump()
+    # Secret fields are write-only now, so emulate a file written by the old
+    # schema explicitly.
+    legacy["mail"]["credential"].update(
+        {
+            "auth_code": "b" * 16,
+            "password": "legacy-password",
+            "phone_number": "13900000000",
+        },
+    )
+    isolated_agent.write_text(json.dumps(legacy), encoding="utf-8")
+    # pylint: disable=protected-access
+    config_utils._agent_config_cache.clear()
+
+    loaded = load_agent_config("agent")
+
+    sanitized = isolated_agent.read_text(encoding="utf-8")
+    assert "b" * 16 not in sanitized
+    assert "legacy-password" not in sanitized
+    assert "13900000000" not in sanitized
+    assert loaded.mail is not None
+    assert loaded.mail.credential.auth_code == "b" * 16
+    record = AsyncCredentialStore(
+        workspace / "credentials.yaml",
+    ).get_sync(AGENT_MAIL_CREDENTIAL_REF)
+    assert record.secrets["password"] == "legacy-password"
+
+
+def test_failed_agent_write_restores_previous_mail_credential(isolated_agent):
+    workspace = isolated_agent.parent
+    config = load_agent_config("agent")
+    config.mail = _mail_config("a" * 16)
+    save_agent_config("agent", config)
+
+    updated = load_agent_config("agent")
+    assert updated.mail is not None
+    updated.mail.credential.auth_code = "b" * 16
+    with patch(
+        "qwenpaw.config.config.write_json_atomic",
+        side_effect=OSError("write failed"),
+    ):
+        with pytest.raises(OSError, match="write failed"):
+            save_agent_config("agent", updated)
+
+    record = AsyncCredentialStore(
+        workspace / "credentials.yaml",
+    ).get_sync(AGENT_MAIL_CREDENTIAL_REF)
+    assert record.secrets["auth_code"] == "a" * 16
+    cached = load_agent_config("agent")
+    assert cached.mail is not None
+    assert cached.mail.credential.auth_code == "a" * 16

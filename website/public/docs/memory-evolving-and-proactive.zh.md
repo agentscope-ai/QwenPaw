@@ -247,13 +247,13 @@ Proactive **不使用 `agent.json` 参数**，全部通过命令管理，作用�
 
 以下几项位于 `agent.json` 的 `running.reme_light_memory_config`。完整配置（目录、Embedding、Daily Paper、索引维护、其他 Backend）见[长期记忆](./memory)。
 
-| 配置项                              | 默认值         | 说明                                         |
-| ----------------------------------- | -------------- | -------------------------------------------- |
-| `dream_cron_enabled`                | `true`         | 是否定时运行 Auto-Dream                      |
-| `dream_cron`                        | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动 |
-| `auto_dream_inbox_push_enabled`     | `true`         | 将 Auto-Dream 的成功或失败摘要推送到 Inbox   |
-| `auto_memory_interval`              | `5`            | 每累计 N 个用户回合运行 Auto-Memory          |
-| `auto_memory_search_config.enabled` | `false`        | 是否在每个普通用户请求前自动检索记忆         |
+| 配置项                              | 默认值         | 说明                                          |
+| ----------------------------------- | -------------- | --------------------------------------------- |
+| `dream_cron_enabled`                | `true`         | 是否定时运行 Auto-Dream                       |
+| `dream_cron`                        | `"0 23 * * *"` | 5 段 Cron 表达式；触发后随机延迟 0–60 秒启动  |
+| `auto_dream_inbox_push_enabled`     | `true`         | Auto-Dream 有实际变化或执行失败时推送到 Inbox |
+| `auto_memory_interval`              | `5`            | 每累计 N 个用户回合运行 Auto-Memory           |
+| `auto_memory_search_config.enabled` | `false`        | 是否在每个普通用户请求前自动检索记忆          |
 
 Auto-Memory 间隔越小，进入 Auto-Dream 的素材越新，但模型调用和 Token 消耗也越高。
 

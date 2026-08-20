@@ -328,10 +328,10 @@ The default `remelight` backend runs inside the QwenPaw process and reuses the c
 | Field                                   | Default        | Description                                                                       |
 | --------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
 | `auto_memory_interval`                  | `5`            | Run Auto-Memory every N user turns; `null` or `<= 0` disables interval-based runs |
-| `auto_memory_inbox_push_enabled`        | `true`         | Push an Inbox result when Auto-Memory changes memory                              |
+| `auto_memory_inbox_push_enabled`        | `true`         | Push Auto-Memory changes and failures to Inbox                                    |
 | `dream_cron_enabled`                    | `true`         | Enable scheduled Auto-Dream                                                       |
 | `dream_cron`                            | `"0 23 * * *"` | Five-field cron; execution starts after a random 0–60 second delay                |
-| `auto_dream_inbox_push_enabled`         | `true`         | Push Auto-Dream results to Inbox                                                  |
+| `auto_dream_inbox_push_enabled`         | `true`         | Push Auto-Dream changes and failures to Inbox                                     |
 | `daily_paper_cron_enabled`              | `false`        | Enable scheduled Daily Paper                                                      |
 | `daily_paper_cron`                      | `"0 9 * * *"`  | Five-field Daily Paper cron expression                                            |
 | `daily_paper_use_hf_mirror`             | `false`        | Fetch paper information through the Hugging Face mirror                           |

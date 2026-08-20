@@ -28,6 +28,7 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
+from ..utils.io_utils import read_json, write_json_atomic
 from ..utils.logging import sanitize_log_value
 from .config import (
     Config,
@@ -36,9 +37,7 @@ from .config import (
     LastDispatchConfig,
     load_agent_config,
     migrate_channel_display_fields,
-    save_agent_config,
 )
-from ..utils.io_utils import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +46,11 @@ _config_cache: Optional[Config] = None
 _config_mtime: Optional[float] = None
 _config_lock = threading.RLock()
 
-# Agent config cache: {agent_id: (config, mtime)}
-# Using Any for forward reference to AgentProfileConfig
-_agent_config_cache: dict[str, tuple[Any, float]] = {}
+# Agent config cache entries are defined in config.py to avoid importing the
+# large AgentProfileConfig model here during module initialization.
+_agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
+_last_dispatch_lock = threading.Lock()
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -755,16 +755,22 @@ def update_last_dispatch(
     """
     if agent_id is not None:
         try:
-            agent_config = load_agent_config(agent_id)
-            agent_config.last_dispatch = LastDispatchConfig(
+            config = load_config()
+            agent_ref = config.agents.profiles[agent_id]
+            workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+            dispatch = LastDispatchConfig(
                 channel=channel,
                 user_id=user_id,
                 session_id=session_id,
             )
-            save_agent_config(agent_id, agent_config)
+            _write_last_dispatch_state(workspace_dir, dispatch)
             return
         except Exception:
-            pass
+            logger.exception(
+                f"Failed to update last dispatch state for agent "
+                f"{agent_id}",
+            )
+            return
 
     # Legacy: update root config
     config = load_config()
@@ -774,6 +780,67 @@ def update_last_dispatch(
         session_id=session_id,
     )
     save_config(config)
+
+
+def _last_dispatch_state_path(workspace_dir: Path) -> Path:
+    """Return the runtime dispatch state path for one agent workspace."""
+    return workspace_dir / "state" / "last_dispatch.json"
+
+
+def _write_last_dispatch_state(
+    workspace_dir: Path,
+    dispatch: LastDispatchConfig,
+) -> None:
+    """Atomically persist one agent's latest dispatch target."""
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        write_json_atomic(
+            state_path,
+            dispatch.model_dump(exclude_none=True),
+        )
+
+
+def _migrate_last_dispatch_state(
+    workspace_dir: Path,
+    legacy_dispatch: object,
+) -> None:
+    """Publish legacy dispatch state without replacing valid new state."""
+    if legacy_dispatch is None:
+        return
+
+    dispatch = LastDispatchConfig.model_validate(legacy_dispatch)
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        if state_path.exists():
+            try:
+                LastDispatchConfig.model_validate(read_json(state_path))
+                return
+            except Exception:
+                logger.warning(
+                    f"Replacing invalid last dispatch state at {state_path}",
+                )
+        write_json_atomic(
+            state_path,
+            dispatch.model_dump(exclude_none=True),
+        )
+
+
+def read_last_dispatch(agent_id: str) -> Optional[LastDispatchConfig]:
+    """Read one agent's dedicated last-dispatch runtime state."""
+    try:
+        config = load_config()
+        agent_ref = config.agents.profiles[agent_id]
+        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+        state_path = _last_dispatch_state_path(workspace_dir)
+        with _last_dispatch_lock:
+            if not state_path.exists():
+                return None
+            return LastDispatchConfig.model_validate(read_json(state_path))
+    except Exception:
+        logger.exception(
+            f"Failed to read last dispatch state for agent {agent_id}",
+        )
+        return None
 
 
 # In-process cache for the current server's API address.

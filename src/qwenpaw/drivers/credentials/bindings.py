@@ -134,6 +134,7 @@ def lookup_credential_value(
     return None
 
 
+# pylint: disable-next=too-many-return-statements
 def _resolve_value_source(
     spec: Any,
     credentials: dict[str, ResolvedCredential],
@@ -154,11 +155,14 @@ def _resolve_value_source(
         if field
         else None
     )
-    if value is None:
+    if value is None or value == "":
         return None
 
     text = str(value)
     fmt = spec.get("format")
-    if isinstance(fmt, str) and fmt:
-        return fmt.replace("{value}", text)
-    return text
+    if not (isinstance(fmt, str) and fmt):
+        return text
+    resolved = fmt.replace("{value}", text)
+    if not resolved:
+        return None
+    return resolved

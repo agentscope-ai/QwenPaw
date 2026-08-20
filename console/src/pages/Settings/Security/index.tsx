@@ -25,6 +25,11 @@ function SecurityPage() {
     sandboxEnabled,
     setSandboxEnabled,
     sandboxReason,
+    denyPathsActive,
+    denyPathsLoading,
+    denyPathsProtectedPaths,
+    denyPathsPlatformSupported,
+    toggleDenyPaths,
     toolOptions,
     saving,
     handleSave,
@@ -135,7 +140,16 @@ function SecurityPage() {
                     <p className={styles.tabDescription}>
                       {t("security.fileGuard.description")}
                     </p>
-                    <FileGuardSection onSave={onFileGuardHandlersReady} />
+                    <FileGuardSection
+                      onSave={onFileGuardHandlersReady}
+                      denyPathsActive={denyPathsActive}
+                      denyPathsLoading={denyPathsLoading}
+                      denyPathsProtectedPaths={denyPathsProtectedPaths}
+                      denyPathsPlatformSupported={denyPathsPlatformSupported}
+                      sandboxEnabled={sandboxEnabled}
+                      sandboxReason={sandboxReason}
+                      toggleDenyPaths={toggleDenyPaths}
+                    />
                   </div>
                 </div>
               ),
