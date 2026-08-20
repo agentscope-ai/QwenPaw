@@ -31,7 +31,7 @@ import {
 } from "@agentscope-ai/icons";
 import SidebarSessionList from "./SidebarSessionList";
 import SidebarSettingsPanel from "./SidebarSettingsPanel";
-import { clearAuthToken, setAuthToken } from "../api/config";
+import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
 import {
@@ -533,8 +533,7 @@ export default function Sidebar({
           message.warning(t("account.passwordRequired"));
           return;
         }
-        const response = await hubApi.changePassword(trimmedPassword);
-        setAuthToken(response.token);
+        await hubApi.changePassword(trimmedPassword);
       } else {
         await authApi.updateProfile(
           values.currentPassword || "",
@@ -545,10 +544,8 @@ export default function Sidebar({
       message.success(t("account.updateSuccess"));
       setAccountModalOpen(false);
       accountForm.resetFields();
-      if (!hubMode) {
-        clearAuthToken();
-        window.location.href = "/login";
-      }
+      clearAuthToken();
+      window.location.href = "/login";
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "";
       let msg = t("account.updateFailed");

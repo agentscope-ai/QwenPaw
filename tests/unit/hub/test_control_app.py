@@ -747,8 +747,7 @@ def test_authenticated_user_changes_only_their_password(
 
         assert changed.status_code == 200
         assert changed.json()["username"] == "owner"
-        assert changed.json()["user"]["username"] == "owner"
-        new_token = changed.json()["token"]
+        assert "token" not in changed.json()
         assert (
             client.get(
                 "/api/hub/me",
@@ -756,6 +755,15 @@ def test_authenticated_user_changes_only_their_password(
             ).status_code
             == 401
         )
+        login = client.post(
+            "/api/auth/login",
+            json={
+                "username": "owner",
+                "password": "new-safe-password",
+            },
+        )
+        assert login.status_code == 200
+        new_token = login.json()["token"]
         assert (
             client.get(
                 "/api/hub/me",

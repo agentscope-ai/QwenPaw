@@ -485,18 +485,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
             user.user_id,
             body.new_password,
         )
-        token = await run_in_threadpool(hub_auth.create_token, updated)
         await record_audit(
             updated,
             "auth.password_change",
             "user",
             updated.user_id,
         )
-        return {
-            "token": token,
-            "username": updated.username,
-            "user": updated.to_dict(),
-        }
+        return updated.to_dict()
 
     @app.post("/api/hub/me/runtime/restart")
     async def restart_own_runtime(

@@ -39,12 +39,6 @@ export interface HubRuntime {
   updated_at: string;
 }
 
-export interface HubPasswordChangeResponse {
-  token: string;
-  username: string;
-  user: HubUser;
-}
-
 export interface HubCredential {
   scope: string;
   name: string;
@@ -256,7 +250,7 @@ export const hubApi = {
   getHealth: () => request<HubHealth>("/hub/healthz"),
   me: () => request<HubUser>("/hub/me"),
   changePassword: (newPassword: string) =>
-    request<HubPasswordChangeResponse>("/hub/me/password", {
+    request<HubUser>("/hub/me/password", {
       method: "POST",
       body: JSON.stringify({ new_password: newPassword }),
     }),
