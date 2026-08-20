@@ -392,7 +392,7 @@ LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
 # Set to 0 to disable the first-content timeout.
 LLM_STREAM_FIRST_CONTENT_TIMEOUT = EnvVarLoader.get_float(
     "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
-    120.0,
+    30.0,
     min_value=0.0,
 )
 

@@ -123,6 +123,21 @@ async def _immediate_content_stream() -> AsyncGenerator[Any, None]:
     yield SimpleNamespace(content="second")
 
 
+async def _final_then_hanging_stream(
+    state: dict[str, bool],
+) -> AsyncGenerator[ChatResponse, None]:
+    try:
+        state["yielded"] = True
+        yield ChatResponse(
+            content=[TextBlock(text="complete")],
+            is_last=True,
+        )
+        state["continued_after_final"] = True
+        await asyncio.Event().wait()
+    finally:
+        state["closed"] = True
+
+
 class _IdleStreamModel:
     model = "idle-stream-test"
     stream = True
@@ -590,8 +605,51 @@ async def test_stream_idle_timeout_does_not_retry_after_output() -> None:
         assert exc_info.value.timeout_seconds == 0.15
         assert str(exc_info.value) == (
             "LLM stream for unit:idle-stream-test produced no content for "
-            "0.15s"
+            "0.15s. Set QWENPAW_LLM_STREAM_IDLE_TIMEOUT to adjust this "
+            "timeout"
         )
+        assert _limiters[model.model_key].stats()["current_in_flight"] == 0
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_final_chunk_ends_stream_without_idle_timeout() -> None:
+    _limiters.clear()
+    state = {
+        "yielded": False,
+        "continued_after_final": False,
+        "closed": False,
+    }
+    try:
+        inner = _IdleStreamModel([_final_then_hanging_stream(state)])
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(enabled=False),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+            stream_idle_timeout=0.05,
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert len(chunks) == 1
+        assert chunks[0].is_last is True
+        assert [(type(block), block.text) for block in chunks[0].content] == [
+            (TextBlock, "complete"),
+        ]
+        assert state == {
+            "yielded": True,
+            "continued_after_final": False,
+            "closed": True,
+        }
         assert _limiters[model.model_key].stats()["current_in_flight"] == 0
     finally:
         _limiters.clear()
@@ -671,6 +729,9 @@ async def test_empty_chunks_do_not_reset_stream_idle_timeout() -> None:
         assert contents
         assert all(content == [] for content in contents)
         assert exc_info.value.timeout_seconds == 0.15
+        assert "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT" in str(
+            exc_info.value,
+        )
         assert state["started"].is_set() is True
         assert state["closed"] is True
         assert _limiters[model.model_key].stats()["current_in_flight"] == 0

@@ -57,6 +57,39 @@ from .rate_limiter import LLMRateLimiter, get_rate_limiter
 
 logger = logging.getLogger(__name__)
 
+_STREAM_CLEANUP_TIMEOUT = 1.0
+_STREAM_FIRST_CONTENT_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT"
+_STREAM_IDLE_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_IDLE_TIMEOUT"
+_pending_stream_cleanup_tasks: set[asyncio.Future[Any]] = set()
+
+
+def _track_stream_cleanup(
+    task: asyncio.Future[Any],
+    description: str,
+) -> None:
+    """Retain deferred cleanup work and report eventual failures."""
+    _pending_stream_cleanup_tasks.add(task)
+
+    def _on_done(completed: asyncio.Future[Any]) -> None:
+        _pending_stream_cleanup_tasks.discard(completed)
+        if completed.cancelled():
+            return
+        try:
+            exc = completed.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            logger.warning(f"Deferred {description} failed: {exc}")
+
+    task.add_done_callback(_on_done)
+
+
+@dataclass(slots=True)
+class _StreamCleanupState:
+    """Record whether stream cleanup was moved off the request path."""
+
+    deferred: bool = False
+
 
 class _AcquireTimeoutError(RateLimitExceededException):
     """Raised when ``limiter.acquire()`` times out internally.
@@ -70,12 +103,22 @@ class _AcquireTimeoutError(RateLimitExceededException):
 class StreamIdleTimeoutError(TimeoutError):
     """Raised when an LLM stream stops producing content-bearing chunks."""
 
-    def __init__(self, model_key: str, timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        model_key: str,
+        timeout_seconds: float,
+        setting_name: str | None = None,
+    ) -> None:
         self.model_key = model_key
         self.timeout_seconds = timeout_seconds
+        setting_hint = (
+            f". Set {setting_name} to adjust this timeout"
+            if setting_name
+            else ""
+        )
         super().__init__(
             f"LLM stream for {model_key} produced no content for "
-            f"{timeout_seconds:g}s",
+            f"{timeout_seconds:g}s{setting_hint}",
         )
 
 
@@ -419,11 +462,11 @@ class RetryChatModel(ChatModelBase):
         at ``yield`` because of consumer backpressure. A configured timeout of
         zero disables that phase's watchdog.
 
-        Always closes *stream* on completion or error.  Any exception raised
-        during iteration propagates to the caller's ``async for`` loop
-        (i.e. _wrap_stream), which handles retry decisions.  The exception
-        does not propagate to the final consumer unless all retries are
-        exhausted.
+        Attempts to close *stream* within a bounded cleanup period on
+        completion or error. Non-cooperative cleanup continues in the
+        background. Any iteration exception propagates to _wrap_stream,
+        which handles retry decisions, and reaches the final consumer only
+        after all retries are exhausted.
 
         Args:
             acquired_at: Timestamp from ``limiter.acquire()``, forwarded to
@@ -432,16 +475,21 @@ class RetryChatModel(ChatModelBase):
         first_chunk = True
         loop = asyncio.get_running_loop()
         active_timeout = self._stream_first_content_timeout
+        timeout_setting = _STREAM_FIRST_CONTENT_TIMEOUT_ENV
         idle_budget = active_timeout
         iterator = stream.__aiter__()
+        cleanup_state = _StreamCleanupState()
         try:
             while True:
                 wait_started_at = loop.time()
                 try:
                     chunk = await self._next_stream_chunk(
                         iterator,
+                        stream,
+                        cleanup_state,
                         idle_budget if active_timeout > 0 else None,
                         active_timeout,
+                        timeout_setting,
                     )
                 except StopAsyncIteration:
                     break
@@ -462,20 +510,30 @@ class RetryChatModel(ChatModelBase):
                     await limiter.on_success(acquired_at)
                 if chunk.content:
                     active_timeout = self._stream_idle_timeout
+                    timeout_setting = _STREAM_IDLE_TIMEOUT_ENV
                     idle_budget = active_timeout
+                is_last = bool(getattr(chunk, "is_last", False))
                 yield chunk
+                if is_last:
+                    return
         finally:
-            await stream.aclose()
-            if first_chunk:
-                # Stream failed before producing any chunk;
-                # slot not yet released.
-                limiter.release()
+            try:
+                if not cleanup_state.deferred:
+                    await self._close_stream_bounded(stream)
+            finally:
+                if first_chunk:
+                    # Stream failed before producing any chunk;
+                    # slot not yet released.
+                    limiter.release()
 
     async def _next_stream_chunk(
         self,
         iterator: AsyncIterator[ChatResponse],
+        stream: AsyncGenerator[ChatResponse, None],
+        cleanup_state: _StreamCleanupState,
         timeout: float | None,
         timeout_seconds: float,
+        timeout_setting: str,
     ) -> ChatResponse:
         """Return the next stream chunk within the upstream idle budget."""
         # Do not replace this with asyncio.wait_for(). AgentScope may suppress
@@ -489,19 +547,106 @@ class RetryChatModel(ChatModelBase):
                 timeout=timeout,
             )
         except BaseException:
-            next_chunk.cancel()
-            await asyncio.gather(next_chunk, return_exceptions=True)
+            await self._cancel_stream_read(
+                next_chunk,
+                stream,
+                cleanup_state,
+            )
             raise
 
         if done:
             return next_chunk.result()
 
-        next_chunk.cancel()
-        await asyncio.gather(next_chunk, return_exceptions=True)
+        await self._cancel_stream_read(
+            next_chunk,
+            stream,
+            cleanup_state,
+        )
         raise StreamIdleTimeoutError(
             self.model_key,
             timeout_seconds,
+            timeout_setting,
         )
+
+    async def _cancel_stream_read(
+        self,
+        next_chunk: asyncio.Future[ChatResponse],
+        stream: AsyncGenerator[ChatResponse, None],
+        cleanup_state: _StreamCleanupState,
+    ) -> None:
+        """Cancel one read without blocking the request indefinitely."""
+        next_chunk.cancel()
+        done, _ = await asyncio.wait(
+            {next_chunk},
+            timeout=_STREAM_CLEANUP_TIMEOUT,
+        )
+        if done:
+            await asyncio.gather(next_chunk, return_exceptions=True)
+            return
+
+        cleanup_state.deferred = True
+        cleanup_task = asyncio.create_task(
+            self._finish_stream_cleanup(next_chunk, stream),
+        )
+        _track_stream_cleanup(
+            cleanup_task,
+            f"stream cleanup for {self.model_key}",
+        )
+        logger.warning(
+            f"Stream read for {self.model_key} ignored cancellation for "
+            f"{_STREAM_CLEANUP_TIMEOUT:g}s; cleanup continues in the "
+            f"background",
+        )
+
+    async def _finish_stream_cleanup(
+        self,
+        next_chunk: asyncio.Future[ChatResponse],
+        stream: AsyncGenerator[ChatResponse, None],
+    ) -> None:
+        """Close a stream after its non-cooperative read eventually exits."""
+        await asyncio.gather(next_chunk, return_exceptions=True)
+        await self._close_stream_bounded(stream)
+
+    async def _close_stream_bounded(
+        self,
+        stream: AsyncGenerator[ChatResponse, None],
+    ) -> None:
+        """Close a provider stream without blocking the request forever."""
+        close_task = asyncio.ensure_future(stream.aclose())
+        try:
+            done, _ = await asyncio.wait(
+                {close_task},
+                timeout=_STREAM_CLEANUP_TIMEOUT,
+            )
+        except BaseException:
+            close_task.cancel()
+            _track_stream_cleanup(
+                close_task,
+                f"stream close for {self.model_key}",
+            )
+            raise
+
+        if not done:
+            close_task.cancel()
+            _track_stream_cleanup(
+                close_task,
+                f"stream close for {self.model_key}",
+            )
+            logger.warning(
+                f"Stream close for {self.model_key} exceeded "
+                f"{_STREAM_CLEANUP_TIMEOUT:g}s; cleanup continues in the "
+                f"background",
+            )
+            return
+
+        results = await asyncio.gather(
+            close_task,
+            return_exceptions=True,
+        )
+        if results and isinstance(results[0], BaseException):
+            logger.warning(
+                f"Stream close for {self.model_key} failed: {results[0]}",
+            )
 
     async def generate_structured_output(
         self,
