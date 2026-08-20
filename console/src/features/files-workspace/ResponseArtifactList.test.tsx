@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import AgentScopeRuntimeResponseBuilder from "../../../node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
+import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -52,6 +52,7 @@ describe("ResponseArtifactList", () => {
     expect(screen.getByText("snack-shop/public/main.js")).toBeInTheDocument();
     expect(screen.getByText("package.json")).toBeInTheDocument();
     expect(screen.getAllByText("已新增")).toHaveLength(2);
+    expect(screen.getAllByText("已新增")[0].tagName).toBe("SMALL");
   });
 
   it("marks edit and append operations as modified", () => {

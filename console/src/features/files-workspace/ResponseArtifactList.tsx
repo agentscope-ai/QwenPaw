@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chatApi } from "../../api/modules/chat";
 import FileGlyph from "./FileGlyph";
@@ -167,7 +167,7 @@ export default function ResponseArtifactList({
   const [expanded, setExpanded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(2);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
 
@@ -223,20 +223,20 @@ export default function ResponseArtifactList({
                 );
               }}
             >
-              <span className={styles.icon}>
+              <i className={styles.icon} aria-hidden="true">
                 <FileGlyph name={artifact.name} size={20} />
-              </span>
+              </i>
               <span className={styles.details}>
                 <strong>{artifact.name}</strong>
                 <small title={artifact.path}>{artifact.path}</small>
               </span>
-              <span className={styles.status} data-change={change}>
+              <small className={styles.status} data-change={change}>
                 {t(
                   change === "created"
                     ? "files.artifactCreated"
                     : "files.artifactModified",
                 )}
-              </span>
+              </small>
             </button>
           );
         })}
