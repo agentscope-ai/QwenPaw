@@ -229,17 +229,25 @@ class AgentBuilder:
         workspace_dir: str | None,
         tools: Iterable[Any],
     ) -> list[Any]:
-        """Resolve and load runtime Skills in one synchronous I/O job."""
+        """Load runtime Skills, preferring workspace skills on conflicts."""
         from ..agents.skill_system.runtime_cache import load_runtime_skills
 
-        skill_dirs = cls._resolve_skill_loader_dirs(
+        workspace_skill_dirs = cls._resolve_skill_loader_dirs(
             effective_skills,
             workspace_dir,
         )
-        for extra in _bound_skill_loader_dirs(tools):
-            if extra not in skill_dirs:
-                skill_dirs.append(extra)
-        return load_runtime_skills(skill_dirs)
+        workspace_skills = load_runtime_skills(workspace_skill_dirs)
+        workspace_skill_names = {skill.name for skill in workspace_skills}
+
+        bound_skill_dirs = list(
+            dict.fromkeys(_bound_skill_loader_dirs(tools)),
+        )
+        bound_skills = load_runtime_skills(bound_skill_dirs)
+        return workspace_skills + [
+            skill
+            for skill in bound_skills
+            if skill.name not in workspace_skill_names
+        ]
 
     # ----------------------------------------------------------------- build
 

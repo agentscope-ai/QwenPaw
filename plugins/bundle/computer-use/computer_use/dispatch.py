@@ -14,7 +14,13 @@ import threading
 import time
 from typing import Any, Literal, Mapping
 
-from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    TextBlock,
+    ToolResultState,
+    URLSource,
+)
 from agentscope.tool import ToolChunk
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
@@ -125,9 +131,8 @@ def _without_screenshot_urls(
 
     Screenshots are attached as image blocks; repeating the base64 data
     URL inside the JSON text block would double a multi-megabyte payload
-    and pollute the model's text context. Post-action observations remain
-    available natively but omit their image metadata until an explicit visual
-    observation requests the attachment.
+    and pollute the model's text context. Post-action refreshes are semantic
+    and do not capture images; a visual target starts with a fresh observation.
     """
     screenshots = payload.get("screenshots")
     if not isinstance(screenshots, list):
@@ -213,6 +218,18 @@ def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return {**payload, "accessibility": compact}
 
 
+def _screenshot_source(url: str) -> Base64Source | URLSource:
+    header, separator, data = url.partition(",")
+    if (
+        separator
+        and header.casefold().startswith("data:")
+        and ";base64" in header.casefold()
+    ):
+        media_type = header[5:].split(";", 1)[0] or "image/*"
+        return Base64Source(data=data, media_type=media_type)
+    return URLSource(url=url, media_type="image/*")
+
+
 def _response(
     payload: Mapping[str, Any],
     *,
@@ -228,10 +245,7 @@ def _response(
             ):
                 content.append(
                     DataBlock(
-                        source=URLSource(
-                            url=screenshot["url"],
-                            media_type="image/*",
-                        ),
+                        source=_screenshot_source(screenshot["url"]),
                     ),
                 )
     content.append(
@@ -261,6 +275,7 @@ def _error(code: str, message: str) -> ToolChunk:
         "observation_required",
         "stale_observation",
         "target_not_at_point",
+        "unknown_screenshot",
         "user_intervention",
     }:
         payload["requires_observe"] = True
@@ -289,6 +304,7 @@ async def computer_use(
     action: ComputerUseAction,
     app: str = "",
     window_id: str = "",
+    screenshot_id: str = "",
     element_id: str = "",
     x: int = 0,
     y: int = 0,
@@ -315,6 +331,9 @@ async def computer_use(
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     platform-native application path.
+    ``observe_window`` returns screenshots and accessibility text.
+    Coordinate actions require the ``id`` of an attached screenshot as
+    ``screenshot_id``; coordinates are local to that image.
     Inspect the replacement observation after an action changes selection,
     focus, menus, editors, dialogs, or windows. Confirm editable focus before
     typing, and observe again after committing an edit.
@@ -349,6 +368,7 @@ async def computer_use(
             action,
             app=app,
             window_id=window_id,
+            screenshot_id=screenshot_id,
             element_id=element_id,
             x=x,
             y=y,
@@ -437,6 +457,7 @@ def _native_request(
         if element_id:
             params["element_id"] = element_id
         else:
+            params["screenshot_id"] = _screenshot_id(values)
             params["x"] = values["x"]
             params["y"] = values["y"]
         params["button"] = (
@@ -445,7 +466,11 @@ def _native_request(
         params["count"] = 2 if action == "double_click" else values["count"]
         return "click", params, False
     if action == "scroll":
-        params = {"x": values["x"], "y": values["y"]}
+        params = {
+            "screenshot_id": _screenshot_id(values),
+            "x": values["x"],
+            "y": values["y"],
+        }
         params["delta_y"] = values["delta_y"]
         return action, params, False
     if action == "drag":
@@ -468,6 +493,7 @@ def _native_request(
             )
         else:
             params.update(
+                screenshot_id=_screenshot_id(values),
                 start_x=values["start_x"],
                 start_y=values["start_y"],
                 end_x=values["end_x"],
@@ -516,3 +542,12 @@ def _native_request(
         "double_click, right_click, scroll, drag, type, press_key, invoke, "
         "begin_text_edit, set_value, sequence, wait, stop.",
     )
+
+
+def _screenshot_id(values: Mapping[str, Any]) -> str:
+    screenshot_id = str(values.get("screenshot_id") or "").strip()
+    if not screenshot_id:
+        raise ValueError(
+            "Coordinate input requires screenshot_id from observe_window.",
+        )
+    return screenshot_id

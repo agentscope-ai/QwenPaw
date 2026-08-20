@@ -17,6 +17,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from qwenpaw.exceptions import ChannelError
+
 
 # =============================================================================
 # Fixtures
@@ -723,6 +725,116 @@ class TestXiaoYiChannelSend:
         xiaoyi_channel._connected = False
 
         await xiaoyi_channel.send("user123", "Hello")
+
+    async def test_api_send_raises_when_not_connected(self, xiaoyi_channel):
+        """API sends should report a disconnected channel as a failure."""
+        xiaoyi_channel.enabled = True
+        xiaoyi_channel._connected = False
+
+        with pytest.raises(ChannelError, match="not connected"):
+            await xiaoyi_channel.send(
+                "session_123",
+                "Hello",
+                meta={"_api_send": True},
+            )
+
+    async def test_api_send_normalizes_prefixed_session(self, xiaoyi_channel):
+        """API sends should resolve task IDs using the native session ID."""
+        from qwenpaw.schemas import ContentType, TextContent
+
+        xiaoyi_channel._connected = True
+        xiaoyi_channel._session_task_map["session_123"] = "task_123"
+
+        with patch.object(
+            xiaoyi_channel,
+            "_send_chunk",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_send:
+            await xiaoyi_channel.send_content_parts(
+                "session_123",
+                [TextContent(type=ContentType.TEXT, text="Hello")],
+                meta={
+                    "_api_send": True,
+                    "session_id": "xiaoyi:session_123",
+                },
+            )
+
+        mock_send.assert_awaited_once()
+        assert mock_send.await_args.args[:2] == (
+            "session_123",
+            "task_123",
+        )
+
+    async def test_api_send_raises_when_task_id_missing(
+        self,
+        xiaoyi_channel,
+    ):
+        """API sends should report a missing task mapping as a failure."""
+        xiaoyi_channel._connected = True
+
+        with pytest.raises(ChannelError, match="No task_id"):
+            await xiaoyi_channel.send(
+                "session_123",
+                "Hello",
+                meta={"_api_send": True},
+            )
+
+    async def test_normal_reply_keeps_missing_task_id_tolerant(
+        self,
+        xiaoyi_channel,
+    ):
+        """Normal conversation replies should retain warning-only behavior."""
+        xiaoyi_channel._connected = True
+
+        await xiaoyi_channel.send("session_123", "Hello")
+
+    async def test_api_send_raises_when_transport_fails(
+        self,
+        xiaoyi_channel,
+    ):
+        """API sends should report failure when both WebSockets reject it."""
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiConnection
+
+        xiaoyi_channel._connected = True
+        xiaoyi_channel._session_task_map["session_123"] = "task_123"
+        primary = MagicMock(spec=XiaoYiConnection)
+        primary.send_json = AsyncMock(return_value=False)
+        backup = MagicMock(spec=XiaoYiConnection)
+        backup.send_json = AsyncMock(return_value=False)
+        xiaoyi_channel._conn_primary = primary
+        xiaoyi_channel._conn_backup = backup
+
+        with pytest.raises(ChannelError, match="Failed to send message"):
+            await xiaoyi_channel.send(
+                "session_123",
+                "Hello",
+                meta={"_api_send": True},
+            )
+
+        primary.send_json.assert_awaited_once()
+        backup.send_json.assert_awaited_once()
+
+    async def test_normal_reply_keeps_transport_failure_tolerant(
+        self,
+        xiaoyi_channel,
+    ):
+        """Normal replies should not raise when the transport send fails."""
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiConnection
+
+        xiaoyi_channel._connected = True
+        xiaoyi_channel._session_task_map["session_123"] = "task_123"
+        primary = MagicMock(spec=XiaoYiConnection)
+        primary.send_json = AsyncMock(return_value=False)
+        backup = MagicMock(spec=XiaoYiConnection)
+        backup.send_json = AsyncMock(return_value=False)
+        xiaoyi_channel._conn_primary = primary
+        xiaoyi_channel._conn_backup = backup
+
+        await xiaoyi_channel.send("session_123", "Hello")
+
+        primary.send_json.assert_awaited_once()
+        backup.send_json.assert_awaited_once()
 
     async def test_send_skips_empty_text(self, xiaoyi_channel):
         """send() should skip empty text."""

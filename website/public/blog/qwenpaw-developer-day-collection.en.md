@@ -1,15 +1,31 @@
 ---
 title: "QwenPaw Developer Day Collection"
-date: 2026-08-04
+date: 2026-08-18
 author: QwenPaw Team
 tags: [DeveloperDay, MeetingNotes, SessionRecordings]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "Replay archive from QwenPaw developer day sessions — in-depth technical talks and practical insights for every QwenPaw developer and enthusiast."
 ---
 
-Last updated August 4, 2026
+Last updated August 18, 2026
 
 ---
+
+**08-18 QwenPaw Community Meetup: QwenPaw's New Long-Term Memory Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643431303630343433335f323034353035363233375f30
+
+**08-13 QwenPaw Community Meetup: QwenPaw Loop Engineering Introduction and OMP Plugin Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643430343338313333315f323034353035363233375f30
+
+**08-11 QwenPaw Community Meetup: QwenPaw Apps Module Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643430313131363531305f323034353035363233375f30
+
+**08-06 QwenPaw Community Meetup: QwenPaw All-New computer-use Module Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643339353131303638355f323034353035363233375f30
 
 **08-04 QwenPaw Community Meetup: QwenPaw All-New Browser-use Module Deep Dive**
 
