@@ -477,9 +477,7 @@ def resolve_effective_project_dirs(
         workspace_dir=normalized_workspace,
         # Only the fallback primary reads this, so skip the syscall when
         # the list already has one.
-        workspace_exists=(
-            True if dirs else normalized_workspace.is_dir()
-        ),
+        workspace_exists=(True if dirs else normalized_workspace.is_dir()),
     )
 
 
