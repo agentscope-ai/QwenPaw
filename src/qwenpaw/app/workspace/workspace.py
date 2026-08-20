@@ -128,6 +128,7 @@ class Workspace:
     def mail_monitor(self):
         """Get mail push monitor instance from ServiceManager."""
         return self._service_manager.services.get("mail_monitor")
+
     def terminal_manager(self):
         """Get the managed terminal service for this workspace."""
         return self._service_manager.services.get("terminal_manager")
