@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for the Docker Hub runtime backend."""
 
+import re
 import threading
 import time
 import urllib.error
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.__version__ import __version__
 from qwenpaw.hub.docker_images import DockerImagePullStore
 from qwenpaw.hub.docker_provisioner import DockerRuntimeProvisioner
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
@@ -25,6 +27,18 @@ class _FakeImage:
         "Size": 123,
         "Created": "2026-08-19T00:00:00Z",
     }
+
+
+def test_docker_boundary_label_default_matches_qwenpaw_version() -> None:
+    dockerfile = Path(__file__).parents[3] / "deploy" / "Dockerfile"
+    content = dockerfile.read_text(encoding="utf-8")
+    match = re.search(
+        r'ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="([^"]+)"',
+        content,
+    )
+
+    assert match is not None
+    assert match.group(1) == __version__
 
 
 class _FakeContainer:

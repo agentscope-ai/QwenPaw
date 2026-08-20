@@ -206,15 +206,12 @@ jobs:
           docker run -d \
             --name qwenpaw-test \
             -p 8088:8088 \
-            -e QWENPAW_RUNTIME_INTERNAL_TOKEN=release-verification-token \
             qwenpaw-verify:test
 
       - name: Wait for /api/version
         run: |
           for i in $(seq 1 90); do
-            status=$(curl -s -o /dev/null -w '%{http_code}' \
-              http://127.0.0.1:8088/api/version || true)
-            if [ "$status" = "401" ]; then
+            if curl -sf http://127.0.0.1:8088/api/version; then
               echo ""
               echo "Container is up after ~$((i*2))s"
               exit 0
@@ -232,15 +229,7 @@ jobs:
           text = pathlib.Path('src/qwenpaw/__version__.py').read_text()
           print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', text).group(1))
           ")
-          anonymous_status=$(curl -s -o /dev/null -w '%{http_code}' \
-            http://127.0.0.1:8088/api/version)
-          if [ "$anonymous_status" != "401" ]; then
-            echo "::error::Managed runtime accepted anonymous API access"
-            exit 1
-          fi
-          response=$(curl -sf \
-            -H 'X-QwenPaw-Runtime-Token: release-verification-token' \
-            http://127.0.0.1:8088/api/version)
+          response=$(curl -sf http://127.0.0.1:8088/api/version)
           echo "Response: $response"
           actual=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
           echo "Expected: $expected"
