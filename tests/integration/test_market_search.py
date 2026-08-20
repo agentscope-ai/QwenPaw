@@ -119,7 +119,7 @@ def test_market_search_with_query_returns_result_schema(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_limit_min_1(app_server) -> None:
     """Test purpose:
     - Verify limit=1 is accepted and returns at most 1 result per
@@ -156,7 +156,7 @@ def test_market_search_limit_min_1(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_limit_max_50(app_server) -> None:
     """Test purpose:
     - Verify limit=50 (maximum) is accepted. Boundary: maximum valid
@@ -190,7 +190,7 @@ def test_market_search_limit_max_50(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_limit_exceeds_max_rejected(app_server) -> None:
     """Test purpose:
     - Verify limit>50 is rejected by the API schema validation. The
@@ -224,7 +224,7 @@ def test_market_search_limit_exceeds_max_rejected(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_limit_zero_rejected(app_server) -> None:
     """Test purpose:
     - Verify limit=0 is rejected (ge=1 constraint).
@@ -262,7 +262,7 @@ def test_market_search_limit_zero_rejected(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_empty_provider_pages_returns_empty(app_server) -> None:
     """Test purpose:
     - Verify POST /api/market/search with empty provider_pages returns
@@ -348,7 +348,7 @@ def test_market_search_multiple_providers_aggregates(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_lang_zh(app_server) -> None:
     """Test purpose:
     - Verify lang=zh is accepted and returns valid response. Console
@@ -390,7 +390,7 @@ def test_market_search_lang_zh(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_with_category(app_server) -> None:
     """Test purpose:
     - Verify search with a category filter returns valid response.
@@ -443,7 +443,7 @@ def test_market_search_with_category(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_search_by_provider_has_pagination_info(app_server) -> None:
     """Test purpose:
     - Verify by_provider entries contain has_more (bool) and total (int)
@@ -487,7 +487,7 @@ def test_market_search_by_provider_has_pagination_info(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_market_providers_supports_browse_field(app_server) -> None:
     """Test purpose:
     - Verify providers include supports_browse field. Console uses this

@@ -39,7 +39,7 @@ def test_tool_calls_list_by_session(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_tool_calls_item_schema(app_server) -> None:
     """Test purpose:
     - Verify each tool call entry has expected fields.
@@ -65,7 +65,7 @@ def test_tool_calls_item_schema(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_tool_calls_with_session_filter(app_server) -> None:
     """Test purpose:
     - Verify GET /api/tool-calls accepts session_id filter parameter.

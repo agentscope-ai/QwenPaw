@@ -37,7 +37,7 @@ def test_tools_list(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_tools_item_schema(app_server) -> None:
     """Test purpose:
     - Verify each tool entry has expected fields (name, enabled, etc.).
@@ -63,7 +63,7 @@ def test_tools_item_schema(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_tools_toggle_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify PATCH /api/tools/{tool_name}/toggle returns 404 for
@@ -85,7 +85,7 @@ def test_tools_toggle_nonexistent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_tools_async_execution_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify PATCH /api/tools/{tool_name}/async-execution returns 404
@@ -108,7 +108,7 @@ def test_tools_async_execution_nonexistent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_tools_config_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify GET /api/tools/{tool_name}/config returns 404 for

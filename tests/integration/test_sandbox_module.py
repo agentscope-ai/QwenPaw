@@ -61,7 +61,7 @@ def test_sandbox_config_dataclass_creation() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_mount_spec_dataclass() -> None:
     """Test purpose:
     - Verify MountSpec data class has correct defaults.
@@ -79,7 +79,7 @@ def test_mount_spec_dataclass() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_port_rule_dataclass() -> None:
     """Test purpose:
     - Verify PortRule data class has correct defaults.
@@ -97,7 +97,7 @@ def test_port_rule_dataclass() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_execution_result_dataclass() -> None:
     """Test purpose:
     - Verify ExecutionResult data class structure.
@@ -188,7 +188,7 @@ def test_create_sandbox_none_mode() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_create_sandbox_platform_compatibility_guard() -> None:
     """Test purpose:
     - Verify create_sandbox downgrades incompatible modes to platform
@@ -215,7 +215,7 @@ def test_create_sandbox_platform_compatibility_guard() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_network_allow_is_absolute_block_all() -> None:
     """Test purpose:
     - Verify network_allow_is_absolute returns True for empty list
@@ -247,7 +247,7 @@ def test_network_allow_is_absolute_block_all() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_network_allow_is_absolute_domain_list() -> None:
     """Test purpose:
     - Verify network_allow_is_absolute returns False for a domain list
@@ -272,7 +272,7 @@ def test_network_allow_is_absolute_domain_list() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_sandbox_capability_landlock_version() -> None:
     """Test purpose:
     - Verify SandboxCapability has landlock_abi_version field with

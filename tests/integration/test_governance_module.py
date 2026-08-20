@@ -53,7 +53,7 @@ def test_governance_decision_dataclass() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_decision_with_sandbox_config() -> None:
     """Test purpose:
     - Verify GovernanceDecision can carry sandbox_config for
@@ -102,7 +102,7 @@ def test_resource_governor_creation() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_init_exports() -> None:
     """Test purpose:
     - Verify qwenpaw.governance package exports expected symbols.
@@ -125,7 +125,7 @@ def test_governance_init_exports() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_detectors_module_exists() -> None:
     """Test purpose:
     - Verify governance.detectors module can be imported. Contains
@@ -141,7 +141,7 @@ def test_governance_detectors_module_exists() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_tool_registry_module_exists() -> None:
     """Test purpose:
     - Verify governance.tool_registry module can be imported. Contains
@@ -157,7 +157,7 @@ def test_governance_tool_registry_module_exists() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_tool_adapter_module_exists() -> None:
     """Test purpose:
     - Verify governance.tool_adapter module can be imported. Contains
@@ -173,7 +173,7 @@ def test_governance_tool_adapter_module_exists() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_generalize_module_exists() -> None:
     """Test purpose:
     - Verify governance.generalize module can be imported. Contains
@@ -189,7 +189,7 @@ def test_governance_generalize_module_exists() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_governance_audit_module_exists() -> None:
     """Test purpose:
     - Verify governance.audit module can be imported. Contains audit

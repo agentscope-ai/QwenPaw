@@ -13,7 +13,7 @@ _MESSAGES_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_messages_tool_call_info(app_server) -> None:
     """Test purpose:
     - Verify GET /api/messages/{session_id}/{tool_call_id} returns
@@ -36,7 +36,7 @@ def test_messages_tool_call_info(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_messages_tool_call_output(app_server) -> None:
     """Test purpose:
     - Verify GET /api/messages/{session_id}/{tool_call_id}/output
@@ -58,7 +58,7 @@ def test_messages_tool_call_output(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_messages_tool_call_stream(app_server) -> None:
     """Test purpose:
     - Verify GET /api/messages/{session_id}/{tool_call_id}/stream
@@ -80,7 +80,7 @@ def test_messages_tool_call_stream(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_messages_tool_call_cancel(app_server) -> None:
     """Test purpose:
     - Verify POST /api/messages/{session_id}/{tool_call_id}/cancel
@@ -102,7 +102,7 @@ def test_messages_tool_call_cancel(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_messages_tool_call_offload(app_server) -> None:
     """Test purpose:
     - Verify POST /api/messages/{session_id}/{tool_call_id}/offload

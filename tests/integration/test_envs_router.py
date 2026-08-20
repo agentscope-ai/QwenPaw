@@ -43,7 +43,7 @@ def test_envs_list_returns_array(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_envs_list_item_schema(app_server) -> None:
     """Test purpose:
     - Verify each env var entry has key and value fields.
@@ -123,7 +123,7 @@ def test_envs_batch_save_roundtrip(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_envs_batch_save_replaces_all(app_server) -> None:
     """Test purpose:
     - Verify PUT /api/envs replaces all variables (not merges).
@@ -173,7 +173,7 @@ def test_envs_batch_save_replaces_all(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_envs_batch_save_empty_key_rejected(app_server) -> None:
     """Test purpose:
     - Verify PUT /api/envs rejects empty keys.
@@ -200,7 +200,7 @@ def test_envs_batch_save_empty_key_rejected(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_envs_delete_existing(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/envs/{key} removes a variable.
@@ -242,7 +242,7 @@ def test_envs_delete_existing(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_envs_delete_nonexistent_404(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/envs/{nonexistent} returns 404.

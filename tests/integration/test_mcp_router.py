@@ -11,6 +11,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_mcp_status(app_server):
     """Test GET /api/mcp returns MCP status."""
     async with app_server() as server:
@@ -21,6 +22,7 @@ async def test_mcp_status(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_mcp_servers_list(app_server):
     """Test GET /api/mcp/servers returns server list."""
     async with app_server() as server:
@@ -31,6 +33,7 @@ async def test_mcp_servers_list(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_mcp_servers_add_invalid(app_server):
     """Test POST /api/mcp/servers with invalid data."""
     async with app_server() as server:
@@ -40,6 +43,7 @@ async def test_mcp_servers_add_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_mcp_servers_list_pagination(app_server):
     """Test MCP servers list pagination."""
     async with app_server() as server:
@@ -51,6 +55,7 @@ async def test_mcp_servers_list_pagination(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_mcp_status_structure(app_server):
     """Test MCP status response structure."""
     async with app_server() as server:

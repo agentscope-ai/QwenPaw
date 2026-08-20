@@ -72,7 +72,7 @@ def test_checkpoints_gc_settings_get(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_gc_settings_put(app_server) -> None:
     """Test purpose:
     - Verify PUT /api/workspace/checkpoints/gc/settings accepts valid
@@ -131,7 +131,7 @@ def test_checkpoints_gc_settings_put(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_gc_settings_validation(app_server) -> None:
     """Test purpose:
     - Verify GC settings validation rejects invalid values (negative,
@@ -163,7 +163,7 @@ def test_checkpoints_gc_settings_validation(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_snapshot_requires_session_id(app_server) -> None:
     """Test purpose:
     - Verify POST /api/workspace/checkpoints/snapshot rejects requests
@@ -186,7 +186,7 @@ def test_checkpoints_snapshot_requires_session_id(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_snapshot_empty_session_id_rejected(app_server) -> None:
     """Test purpose:
     - Verify snapshot rejects empty session_id (min_length=1).
@@ -213,7 +213,7 @@ def test_checkpoints_snapshot_empty_session_id_rejected(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_restore_preview_requires_fields(app_server) -> None:
     """Test purpose:
     - Verify POST /api/workspace/checkpoints/restore/preview rejects
@@ -236,7 +236,7 @@ def test_checkpoints_restore_preview_requires_fields(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_restore_preview_short_commit_rejected(app_server) -> None:
     """Test purpose:
     - Verify restore preview rejects commit hashes shorter than 7 chars
@@ -267,7 +267,7 @@ def test_checkpoints_restore_preview_short_commit_rejected(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_gc_preview(app_server) -> None:
     """Test purpose:
     - Verify POST /api/workspace/checkpoints/gc/preview returns a
@@ -298,7 +298,7 @@ def test_checkpoints_gc_preview(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_checkpoints_commit_diff_requires_commit(app_server) -> None:
     """Test purpose:
     - Verify GET /api/workspace/checkpoints/commit-diff requires a

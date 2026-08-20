@@ -39,7 +39,7 @@ def test_approval_list_pending(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_approval_pending_item_schema(app_server) -> None:
     """Test purpose:
     - Verify each pending approval has expected fields (id, tool_name,
@@ -66,7 +66,7 @@ def test_approval_pending_item_schema(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_approval_approve_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify approving a nonexistent approval returns 404.
@@ -88,7 +88,7 @@ def test_approval_approve_nonexistent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_approval_deny_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify denying a nonexistent approval returns 404.
@@ -110,7 +110,7 @@ def test_approval_deny_nonexistent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_approval_dismiss_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify dismissing a nonexistent approval returns 404.

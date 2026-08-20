@@ -62,7 +62,7 @@ def test_version_format(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_version_includes_commit_info(app_server) -> None:
     """Test purpose:
     - Verify version response includes commit information for

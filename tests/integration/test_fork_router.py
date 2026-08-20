@@ -11,6 +11,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_fork_status(app_server):
     """Test GET /api/fork returns fork status."""
     async with app_server() as server:
@@ -21,6 +22,7 @@ async def test_fork_status(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_fork_list(app_server):
     """Test GET /api/fork/list returns fork list."""
     async with app_server() as server:
@@ -31,6 +33,7 @@ async def test_fork_list(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_fork_create_invalid(app_server):
     """Test POST /api/fork with invalid request."""
     async with app_server() as server:
@@ -40,6 +43,7 @@ async def test_fork_create_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_fork_list_pagination(app_server):
     """Test fork list pagination."""
     async with app_server() as server:
@@ -51,6 +55,7 @@ async def test_fork_list_pagination(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_fork_list_empty_filter(app_server):
     """Test fork list with empty filter."""
     async with app_server() as server:

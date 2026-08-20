@@ -38,7 +38,7 @@ def test_agent_stats_summary_default_range(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_agent_stats_summary_with_date_range(app_server) -> None:
     """Test purpose:
     - Verify date range parameters are accepted.
@@ -63,7 +63,7 @@ def test_agent_stats_summary_with_date_range(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_agent_stats_summary_reversed_dates_swapped(app_server) -> None:
     """Test purpose:
     - Verify that reversed start/end dates are handled gracefully.
@@ -88,7 +88,7 @@ def test_agent_stats_summary_reversed_dates_swapped(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_agent_stats_summary_invalid_date_format(app_server) -> None:
     """Test purpose:
     - Verify invalid date format returns None (falls back to default).

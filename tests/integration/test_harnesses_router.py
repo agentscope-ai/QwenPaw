@@ -44,7 +44,7 @@ def test_harnesses_list_returns_providers(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_provider_schema(app_server) -> None:
     """Test purpose:
     - Verify each provider entry has expected fields from the
@@ -99,7 +99,7 @@ def test_harnesses_unknown_provider_models_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_unknown_provider_mcp_404(app_server) -> None:
     """Test purpose:
     - Verify GET /api/harnesses/{unknown}/mcp returns 404.
@@ -120,7 +120,7 @@ def test_harnesses_unknown_provider_mcp_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_unknown_provider_skills_404(app_server) -> None:
     """Test purpose:
     - Verify GET /api/harnesses/{unknown}/skills returns 404.
@@ -141,7 +141,7 @@ def test_harnesses_unknown_provider_skills_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_unknown_provider_status_404(app_server) -> None:
     """Test purpose:
     - Verify POST /api/harnesses/{unknown}/status returns 404.
@@ -163,7 +163,7 @@ def test_harnesses_unknown_provider_status_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_unknown_provider_login_404(app_server) -> None:
     """Test purpose:
     - Verify POST /api/harnesses/{unknown}/login returns 404.
@@ -185,7 +185,7 @@ def test_harnesses_unknown_provider_login_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_unknown_provider_logout_404(app_server) -> None:
     """Test purpose:
     - Verify POST /api/harnesses/{unknown}/logout returns 404.
@@ -212,7 +212,7 @@ def test_harnesses_unknown_provider_logout_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_harnesses_coming_soon_provider_409(app_server) -> None:
     """Test purpose:
     - Verify a coming_soon provider returns 409 (conflict) instead of

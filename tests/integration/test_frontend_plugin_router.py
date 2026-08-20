@@ -37,7 +37,7 @@ def test_frontend_plugin_list_apps(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_frontend_plugin_get_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify GET /api/frontend_plugin/{nonexistent} returns 404.
@@ -58,7 +58,7 @@ def test_frontend_plugin_get_nonexistent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_frontend_plugin_settings_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify GET /api/frontend_plugin/{nonexistent}/settings returns 404.
@@ -79,7 +79,7 @@ def test_frontend_plugin_settings_nonexistent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_frontend_plugin_delete_nonexistent(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/frontend_plugin/{nonexistent} returns 404.

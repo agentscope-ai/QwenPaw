@@ -10,6 +10,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_stream_status(app_server):
     """Test GET /api/skills-stream returns stream status."""
     async with app_server() as server:
@@ -20,6 +21,7 @@ async def test_skills_stream_status(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_stream_trigger_invalid(app_server):
     """Test POST /api/skills-stream with invalid data."""
     async with app_server() as server:
@@ -29,6 +31,7 @@ async def test_skills_stream_trigger_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_stream_status_structure(app_server):
     """Test skills stream status response structure."""
     async with app_server() as server:
@@ -41,6 +44,7 @@ async def test_skills_stream_status_structure(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_stream_trigger_missing_params(app_server):
     """Test POST /api/skills-stream without required params."""
     async with app_server() as server:
@@ -50,6 +54,7 @@ async def test_skills_stream_trigger_missing_params(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_stream_get_specific(app_server):
     """Test GET /api/skills-stream with specific skill."""
     async with app_server() as server:

@@ -11,6 +11,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_local_models_list(app_server):
     """Test GET /api/local-models returns model list."""
     async with app_server() as server:
@@ -21,6 +22,7 @@ async def test_local_models_list(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_local_models_get_nonexistent(app_server):
     """Test GET /api/local-models/{model_id} with non-existent model."""
     async with app_server() as server:
@@ -31,6 +33,7 @@ async def test_local_models_get_nonexistent(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_local_models_download_invalid(app_server):
     """Test POST /api/local-models/download with invalid model."""
     async with app_server() as server:
@@ -43,6 +46,7 @@ async def test_local_models_download_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_local_models_list_pagination(app_server):
     """Test local models list pagination."""
     async with app_server() as server:
@@ -54,6 +58,7 @@ async def test_local_models_list_pagination(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_local_models_structure(app_server):
     """Test local model response structure."""
     async with app_server() as server:
@@ -68,6 +73,7 @@ async def test_local_models_structure(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_local_models_download_missing_id(app_server):
     """Test POST /api/local-models/download without model_id."""
     async with app_server() as server:

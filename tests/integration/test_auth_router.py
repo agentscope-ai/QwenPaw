@@ -12,6 +12,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_auth_status(app_server):
     """Test GET /api/auth/status returns auth status."""
     async with app_server() as server:
@@ -22,6 +23,7 @@ async def test_auth_status(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_auth_user_unauthenticated(app_server):
     """Test GET /api/auth/user without authentication."""
     async with app_server() as server:
@@ -31,6 +33,7 @@ async def test_auth_user_unauthenticated(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_auth_login_missing_credentials(app_server):
     """Test POST /api/auth/login without credentials."""
     async with app_server() as server:
@@ -40,6 +43,7 @@ async def test_auth_login_missing_credentials(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_auth_login_invalid_format(app_server):
     """Test POST /api/auth/login with invalid format."""
     async with app_server() as server:
@@ -50,6 +54,7 @@ async def test_auth_login_invalid_format(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_auth_logout(app_server):
     """Test POST /api/auth/logout."""
     async with app_server() as server:
@@ -59,6 +64,7 @@ async def test_auth_logout(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_auth_status_structure(app_server):
     """Test auth status response structure."""
     async with app_server() as server:

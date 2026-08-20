@@ -10,6 +10,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_coding_mode_get_default(app_server):
     """Test GET /api/coding-mode returns default state."""
     async with app_server() as server:
@@ -22,6 +23,7 @@ async def test_coding_mode_get_default(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_coding_mode_toggle_enable(app_server):
     """Test POST /api/coding-mode to enable coding mode."""
     async with app_server() as server:
@@ -39,6 +41,7 @@ async def test_coding_mode_toggle_enable(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_coding_mode_toggle_disable(app_server):
     """Test POST /api/coding-mode to disable coding mode."""
     async with app_server() as server:
@@ -59,6 +62,7 @@ async def test_coding_mode_toggle_disable(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_coding_mode_toggle_idempotent(app_server):
     """Test toggling to same state is idempotent."""
     async with app_server() as server:
@@ -73,6 +77,7 @@ async def test_coding_mode_toggle_idempotent(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_coding_mode_invalid_request(app_server):
     """Test POST /api/coding-mode with invalid request body."""
     async with app_server() as server:
@@ -82,6 +87,7 @@ async def test_coding_mode_invalid_request(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_coding_mode_agent_isolation(app_server):
     """Test coding mode is per-agent."""
     async with app_server() as server:

@@ -10,6 +10,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_agent_scoped_get(app_server):
     """Test GET /api/agent-scoped returns agent-scoped settings."""
     async with app_server() as server:
@@ -20,6 +21,7 @@ async def test_agent_scoped_get(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_agent_scoped_update_invalid(app_server):
     """Test POST /api/agent-scoped with invalid data."""
     async with app_server() as server:
@@ -29,6 +31,7 @@ async def test_agent_scoped_update_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_agent_scoped_structure(app_server):
     """Test agent-scoped response structure."""
     async with app_server() as server:
@@ -41,6 +44,7 @@ async def test_agent_scoped_structure(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_agent_scoped_update_partial(app_server):
     """Test POST /api/agent-scoped with partial update."""
     async with app_server() as server:
@@ -50,6 +54,7 @@ async def test_agent_scoped_update_partial(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_agent_scoped_get_specific(app_server):
     """Test GET /api/agent-scoped with specific key."""
     async with app_server() as server:

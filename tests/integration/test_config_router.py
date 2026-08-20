@@ -42,7 +42,7 @@ def test_config_channel_types_get(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_config_language_put(app_server) -> None:
     """Test purpose:
     - Verify PUT /api/config/language accepts a valid language code.
@@ -112,7 +112,7 @@ def test_config_user_timezone_get(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_config_offload_policy_put(app_server) -> None:
     """Test purpose:
     - Verify PUT /api/config/offload-policy accepts a valid policy.

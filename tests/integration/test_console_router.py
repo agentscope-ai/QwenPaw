@@ -40,7 +40,7 @@ def test_console_inbox_events_list(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_console_inbox_read_marks_events(app_server) -> None:
     """Test purpose:
     - Verify POST /api/console/inbox/read accepts event IDs and marks
@@ -63,7 +63,7 @@ def test_console_inbox_read_marks_events(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_console_inbox_delete_event(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/console/inbox/events/{event_id} accepts an
@@ -111,7 +111,7 @@ def test_console_push_messages(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_console_inbox_traces(app_server) -> None:
     """Test purpose:
     - Verify GET /api/console/inbox/traces/{run_id} returns trace data.

@@ -47,7 +47,7 @@ def test_heartbeat_get(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_heartbeat_nonexistent_agent(app_server) -> None:
     """Test purpose:
     - Verify GET heartbeat for nonexistent agent returns 404.
@@ -68,7 +68,7 @@ def test_heartbeat_nonexistent_agent(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_heartbeat_put(app_server) -> None:
     """Test purpose:
     - Verify PUT /api/agents/{agentId}/config/heartbeat accepts valid

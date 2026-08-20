@@ -10,6 +10,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_list(app_server):
     """Test GET /api/skills returns skill list."""
     async with app_server() as server:
@@ -24,6 +25,7 @@ async def test_skills_list(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_list_with_filters(app_server):
     """Test GET /api/skills with query parameters."""
     async with app_server() as server:
@@ -36,6 +38,7 @@ async def test_skills_list_with_filters(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_get_nonexistent(app_server):
     """Test GET /api/skills/{skill_id} with non-existent skill."""
     async with app_server() as server:
@@ -45,6 +48,7 @@ async def test_skills_get_nonexistent(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_empty_filter(app_server):
     """Test GET /api/skills with empty filter."""
     async with app_server() as server:
@@ -55,6 +59,7 @@ async def test_skills_empty_filter(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_skills_pagination(app_server):
     """Test skills list pagination."""
     async with app_server() as server:

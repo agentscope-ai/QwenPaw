@@ -11,6 +11,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_healthz(app_server):
     """Test GET /api/healthz returns health status."""
     async with app_server() as server:
@@ -22,6 +23,7 @@ async def test_healthz(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_healthz_ready(app_server):
     """Test GET /api/healthz/ready returns readiness status."""
     async with app_server() as server:
@@ -32,6 +34,7 @@ async def test_healthz_ready(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_healthz_live(app_server):
     """Test GET /api/healthz/live returns liveness status."""
     async with app_server() as server:
@@ -42,6 +45,7 @@ async def test_healthz_live(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_healthz_structure(app_server):
     """Test health check response structure."""
     async with app_server() as server:
@@ -54,6 +58,7 @@ async def test_healthz_structure(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_healthz_ready_structure(app_server):
     """Test readiness check response structure."""
     async with app_server() as server:

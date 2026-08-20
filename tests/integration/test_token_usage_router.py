@@ -45,7 +45,7 @@ def test_token_usage_summary_default_range(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_summary_with_date_range(app_server) -> None:
     """Test purpose:
     - Verify date range parameters are accepted and response is valid.
@@ -70,7 +70,7 @@ def test_token_usage_summary_with_date_range(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_summary_reversed_dates_swapped(app_server) -> None:
     """Test purpose:
     - Verify that reversed start/end dates are handled gracefully
@@ -96,7 +96,7 @@ def test_token_usage_summary_reversed_dates_swapped(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_summary_invalid_date_format(app_server) -> None:
     """Test purpose:
     - Verify invalid date format returns None for that date (falls back
@@ -122,7 +122,7 @@ def test_token_usage_summary_invalid_date_format(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_summary_model_filter(app_server) -> None:
     """Test purpose:
     - Verify model filter parameter is accepted.
@@ -144,7 +144,7 @@ def test_token_usage_summary_model_filter(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_summary_provider_filter(app_server) -> None:
     """Test purpose:
     - Verify provider filter parameter is accepted.
@@ -195,7 +195,7 @@ def test_token_usage_details_default_range(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_details_with_date_range(app_server) -> None:
     """Test purpose:
     - Verify details endpoint accepts date range parameters.
@@ -221,7 +221,7 @@ def test_token_usage_details_with_date_range(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_details_record_schema(app_server) -> None:
     """Test purpose:
     - Verify each detail record has expected fields (date, model,
@@ -247,7 +247,7 @@ def test_token_usage_details_record_schema(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_token_usage_details_with_filters(app_server) -> None:
     """Test purpose:
     - Verify details endpoint accepts model and provider filters

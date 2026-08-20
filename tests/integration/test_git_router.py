@@ -11,6 +11,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_git_status(app_server):
     """Test GET /api/git returns git status."""
     async with app_server() as server:
@@ -21,6 +22,7 @@ async def test_git_status(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_git_branches_list(app_server):
     """Test GET /api/git/branches returns branch list."""
     async with app_server() as server:
@@ -31,6 +33,7 @@ async def test_git_branches_list(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_git_checkout_invalid(app_server):
     """Test POST /api/git/checkout with invalid branch."""
     async with app_server() as server:
@@ -43,6 +46,7 @@ async def test_git_checkout_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_git_status_structure(app_server):
     """Test git status response structure."""
     async with app_server() as server:
@@ -55,6 +59,7 @@ async def test_git_status_structure(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_git_branches_structure(app_server):
     """Test git branches response structure."""
     async with app_server() as server:

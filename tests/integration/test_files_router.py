@@ -36,7 +36,7 @@ def test_files_preview_nonexistent_file_404(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_files_preview_sensitive_file_blocked(app_server) -> None:
     """Test purpose:
     - Verify GET /api/files/preview blocks sensitive files (e.g. .env,
@@ -59,7 +59,7 @@ def test_files_preview_sensitive_file_blocked(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_files_preview_path_traversal_blocked(app_server) -> None:
     """Test purpose:
     - Verify GET /api/files/preview blocks path traversal attempts.
@@ -82,7 +82,7 @@ def test_files_preview_path_traversal_blocked(app_server) -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_files_preview_outside_workspace_default_blocked(app_server) -> None:
     """Test purpose:
     - Verify GET /api/files/preview blocks files outside workspace by

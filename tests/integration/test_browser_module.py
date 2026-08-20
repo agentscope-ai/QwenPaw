@@ -43,7 +43,7 @@ def test_browser_governance_error_codes() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_sdk_contracts_module() -> None:
     """Test purpose:
     - Verify browser.sdk.contracts module can be imported. Contains
@@ -59,7 +59,7 @@ def test_browser_sdk_contracts_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_sdk_execution_context_module() -> None:
     """Test purpose:
     - Verify browser.sdk.execution_context module can be imported.
@@ -75,7 +75,7 @@ def test_browser_sdk_execution_context_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_sdk_facade_module() -> None:
     """Test purpose:
     - Verify browser.sdk.facade module can be imported. Contains the
@@ -91,7 +91,7 @@ def test_browser_sdk_facade_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_sdk_page_module() -> None:
     """Test purpose:
     - Verify browser.sdk.page module can be imported. Contains page
@@ -107,7 +107,7 @@ def test_browser_sdk_page_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_sdk_tabs_module() -> None:
     """Test purpose:
     - Verify browser.sdk.tabs module can be imported. Contains tab
@@ -123,7 +123,7 @@ def test_browser_sdk_tabs_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_runtime_engine_module() -> None:
     """Test purpose:
     - Verify browser.runtime.engine module can be imported. Contains
@@ -139,7 +139,7 @@ def test_browser_runtime_engine_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_runtime_identity_module() -> None:
     """Test purpose:
     - Verify browser.runtime.identity module can be imported. Contains
@@ -155,7 +155,7 @@ def test_browser_runtime_identity_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_runtime_launch_resolve_module() -> None:
     """Test purpose:
     - Verify browser.runtime.launch_resolve module can be imported.
@@ -171,7 +171,7 @@ def test_browser_runtime_launch_resolve_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_runtime_locator_module() -> None:
     """Test purpose:
     - Verify browser.runtime.locator module can be imported. Contains
@@ -187,7 +187,7 @@ def test_browser_runtime_locator_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_runtime_ownership_module() -> None:
     """Test purpose:
     - Verify browser.runtime.ownership module can be imported. Contains
@@ -203,7 +203,7 @@ def test_browser_runtime_ownership_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_runtime_ports_module() -> None:
     """Test purpose:
     - Verify browser.runtime.ports module can be imported. Contains
@@ -219,7 +219,7 @@ def test_browser_runtime_ports_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_telemetry_trace_module() -> None:
     """Test purpose:
     - Verify browser.telemetry.trace module can be imported. Contains
@@ -235,7 +235,7 @@ def test_browser_telemetry_trace_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_control_link_identity_module() -> None:
     """Test purpose:
     - Verify browser.control_link.identity module can be imported.
@@ -251,7 +251,7 @@ def test_browser_control_link_identity_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_handoff_signal_module() -> None:
     """Test purpose:
     - Verify browser.handoff_signal module can be imported. Contains
@@ -267,7 +267,7 @@ def test_browser_handoff_signal_module() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_browser_tool_entrypoint_module() -> None:
     """Test purpose:
     - Verify browser.tool_entrypoint module can be imported. Contains

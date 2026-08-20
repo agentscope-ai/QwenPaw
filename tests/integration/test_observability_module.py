@@ -90,7 +90,7 @@ def test_is_langfuse_enabled_no_env_vars() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_set_and_get_current_trace() -> None:
     """Test purpose:
     - Verify set_current_trace stores trace context that can be
@@ -125,7 +125,7 @@ def test_set_and_get_current_trace() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_set_current_trace_default_metadata() -> None:
     """Test purpose:
     - Verify set_current_trace handles None metadata gracefully
@@ -156,7 +156,7 @@ def test_set_current_trace_default_metadata() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_current_trace_default_none() -> None:
     """Test purpose:
     - Verify _current_trace ContextVar defaults to None when no trace
@@ -175,7 +175,7 @@ def test_current_trace_default_none() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_langfuse_available_detection() -> None:
     """Test purpose:
     - Verify _langfuse_available correctly detects whether langfuse
@@ -192,7 +192,7 @@ def test_langfuse_available_detection() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.p2
+@pytest.mark.p1
 def test_langfuse_client_returns_none_when_unavailable() -> None:
     """Test purpose:
     - Verify _langfuse_client returns None when langfuse is not

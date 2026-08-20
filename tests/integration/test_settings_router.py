@@ -10,6 +10,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_settings_get(app_server):
     """Test GET /api/settings returns settings."""
     async with app_server() as server:
@@ -20,6 +21,7 @@ async def test_settings_get(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_settings_update_invalid(app_server):
     """Test PUT /api/settings with invalid data."""
     async with app_server() as server:
@@ -30,6 +32,7 @@ async def test_settings_update_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_settings_get_structure(app_server):
     """Test settings response structure."""
     async with app_server() as server:
@@ -42,6 +45,7 @@ async def test_settings_get_structure(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_settings_update_partial(app_server):
     """Test PUT /api/settings with partial update."""
     async with app_server() as server:
@@ -55,6 +59,7 @@ async def test_settings_update_partial(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_settings_get_specific(app_server):
     """Test GET /api/settings with specific key."""
     async with app_server() as server:

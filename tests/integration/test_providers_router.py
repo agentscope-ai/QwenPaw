@@ -11,6 +11,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_providers_list(app_server):
     """Test GET /api/providers returns provider list."""
     async with app_server() as server:
@@ -21,6 +22,7 @@ async def test_providers_list(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_providers_get_nonexistent(app_server):
     """Test GET /api/providers/{provider_id} with non-existent provider."""
     async with app_server() as server:
@@ -31,6 +33,7 @@ async def test_providers_get_nonexistent(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_providers_add_invalid(app_server):
     """Test POST /api/providers with invalid data."""
     async with app_server() as server:
@@ -40,6 +43,7 @@ async def test_providers_add_invalid(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_providers_list_with_filter(app_server):
     """Test GET /api/providers with filter."""
     async with app_server() as server:
@@ -50,6 +54,7 @@ async def test_providers_list_with_filter(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_providers_list_pagination(app_server):
     """Test providers list pagination."""
     async with app_server() as server:
@@ -61,6 +66,7 @@ async def test_providers_list_pagination(app_server):
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_providers_structure(app_server):
     """Test provider response structure."""
     async with app_server() as server:
