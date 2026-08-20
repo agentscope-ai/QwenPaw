@@ -180,14 +180,15 @@ describe("WebSearchConfigModal", () => {
     });
 
     await switchProvider("anysearch");
-    fireEvent.change(passwordInput()!, { target: { value: "as_sk_new" } });
 
     // Switching provider triggers a credential re-fetch; the OK button stays
-    // disabled until loadingConfig clears. Wait for it to be clickable.
+    // disabled until loadingConfig clears. Wait before typing as the fetched
+    // credential is allowed to refill the field while loading.
     const okButton = screen.getByText("common.save").closest("button")!;
     await waitFor(() => {
       expect(okButton).not.toBeDisabled();
     });
+    fireEvent.change(passwordInput()!, { target: { value: "as_sk_new" } });
     fireEvent.click(okButton);
 
     await waitFor(() => {
