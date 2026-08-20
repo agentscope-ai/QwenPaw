@@ -19,6 +19,8 @@ import hashlib
 import logging
 import os
 import secrets
+import stat
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -245,6 +247,24 @@ def _master_key_file() -> Path:
     return _get_secret_dir() / ".master_key"
 
 
+def _chmod_best_effort(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        # Some systems/filesystems do not support chmod semantics.
+        pass
+
+
+def _restrict_key_file(path: Path) -> None:
+    """Tighten a key file an older version left group- or world-readable."""
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        return
+    if mode & 0o077:
+        _chmod_best_effort(path, 0o600)
+
+
 def _read_key_file() -> Optional[str]:
     path = _master_key_file()
     if path.is_file():
@@ -260,6 +280,7 @@ def _read_key_file() -> Optional[str]:
                     len(content),
                 )
                 return None
+            _restrict_key_file(path)
             return content
         except (OSError, ValueError):
             logger.warning(
@@ -269,22 +290,37 @@ def _read_key_file() -> Optional[str]:
     return None
 
 
-def _chmod_best_effort(path: Path, mode: int) -> None:
-    try:
-        os.chmod(path, mode)
-    except OSError:
-        # Some systems/filesystems do not support chmod semantics.
-        pass
-
-
 def _write_key_file(key_hex: str) -> None:
+    """Persist the master key as an owner-only file.
+
+    The key is written to a freshly created ``0o600`` temporary file and
+    moved into place. Truncating the destination would keep the mode of an
+    existing ``.master_key``, so a file left behind ``0o644`` by an older
+    version would hold the new key while it is world-readable -- and stay
+    that way whenever the best-effort ``chmod`` is refused. Replacing the
+    file makes the mode a property of the inode we created instead.
+    """
     path = _master_key_file()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     _chmod_best_effort(path.parent, 0o700)
-    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(key_hex)
-    _chmod_best_effort(path, 0o600)
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(key_hex)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _generate_master_key() -> str:

@@ -263,6 +263,17 @@ def _umask_022():
         os.umask(previous)
 
 
+@pytest.fixture
+def _no_chmod(monkeypatch):
+    """Disable ``os.chmod`` so only creation-time modes can pass a test.
+
+    ``secret_store`` calls ``os.chmod`` best effort (``except OSError:
+    pass``), so a mode that only holds because the chmod succeeded is not a
+    guarantee. Everything asserted under this fixture holds without it.
+    """
+    monkeypatch.setattr(os, "chmod", lambda *args, **kwargs: None)
+
+
 @pytest.mark.skipif(
     os.name != "posix",
     reason="POSIX mode bits are not meaningful on Windows",
@@ -272,9 +283,8 @@ class TestMasterKeyFilePermissions:
     """The fallback key file must be owner-only from the moment it exists.
 
     The module docstring promises ``SECRET_DIR/.master_key`` is persisted
-    "with mode ``0o600``", and its own ``os.chmod`` is best effort
-    (``except OSError: pass``), so the mode has to come from the creation
-    itself rather than from a follow-up call.
+    "with mode ``0o600``", so the mode has to come from creating the file
+    rather than from a follow-up call that is allowed to fail.
     """
 
     @staticmethod
@@ -283,7 +293,18 @@ class TestMasterKeyFilePermissions:
         monkeypatch.setattr(mod, "_get_secret_dir", lambda: secret_dir)
         return secret_dir
 
-    def test_key_is_not_world_readable_before_chmod_runs(
+    @staticmethod
+    def _legacy_key_file(secret_dir: Path, content: str) -> Path:
+        """Lay down a key file as a pre-0o600 version would have left it."""
+        secret_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
+        os.chmod(secret_dir, 0o755)
+        path = secret_dir / ".master_key"
+        path.write_text(content, encoding="utf-8")
+        os.chmod(path, 0o644)
+        return path
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_new_key_file_is_owner_only(
         self,
         tmp_path: Path,
         monkeypatch,
@@ -291,47 +312,69 @@ class TestMasterKeyFilePermissions:
         import qwenpaw.security.secret_store as mod
 
         secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
-        key_path = secret_dir / ".master_key"
-        observed: dict = {}
-        real_chmod = os.chmod
-
-        def _spy_chmod(path, mode, *args, **kwargs):
-            if Path(path) == key_path and key_path.exists():
-                observed["mode"] = stat.S_IMODE(key_path.stat().st_mode)
-                observed["content"] = key_path.read_text(encoding="utf-8")
-            return real_chmod(path, mode, *args, **kwargs)
-
-        monkeypatch.setattr(os, "chmod", _spy_chmod)
-
-        mod._write_key_file("ab" * 32)
-
-        assert observed, "the key file was never chmod-ed"
-        assert observed["content"] == "ab" * 32
-        assert observed["mode"] == 0o600
-
-    def test_key_is_owner_only_when_chmod_cannot_help(
-        self,
-        tmp_path: Path,
-        monkeypatch,
-    ):
-        import qwenpaw.security.secret_store as mod
-
-        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
-        key_path = secret_dir / ".master_key"
-        real_chmod = os.chmod
-
-        def _chmod_without_the_key_file(path, mode, *args, **kwargs):
-            if Path(path) == key_path:
-                return None
-            return real_chmod(path, mode, *args, **kwargs)
-
-        monkeypatch.setattr(os, "chmod", _chmod_without_the_key_file)
 
         mod._write_key_file("cd" * 32)
 
+        key_path = secret_dir / ".master_key"
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(secret_dir.stat().st_mode) == 0o700
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_world_readable_key_file_is_replaced_not_truncated(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A pre-existing 0o644 file must not host the new key.
+
+        Opening the destination with ``O_TRUNC`` would keep its mode, so
+        the freshly written key would sit in a world-readable inode.
+        """
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = self._legacy_key_file(secret_dir, "ab" * 32)
+
+        mod._write_key_file("cd" * 32)
+
+        assert key_path.read_text(encoding="utf-8") == "cd" * 32
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
-    def test_secret_dir_is_owner_only(
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_corrupt_world_readable_key_file_is_replaced(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """The regeneration path starts from the same 0o644 file."""
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = self._legacy_key_file(secret_dir, "not-a-hex-key")
+
+        assert mod._read_key_file() is None
+
+        mod._write_key_file("ef" * 32)
+
+        assert key_path.read_text(encoding="utf-8") == "ef" * 32
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+    def test_reading_a_valid_legacy_key_tightens_it(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A valid 0o644 key is never rewritten, so reading must fix it."""
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        key_path = self._legacy_key_file(secret_dir, "ab" * 32)
+
+        assert mod._read_key_file() == "ab" * 32
+
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+    def test_no_temporary_key_file_is_left_behind(
         self,
         tmp_path: Path,
         monkeypatch,
@@ -340,9 +383,10 @@ class TestMasterKeyFilePermissions:
 
         secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
 
-        mod._write_key_file("ef" * 32)
+        mod._write_key_file("11" * 32)
+        mod._write_key_file("22" * 32)
 
-        assert stat.S_IMODE(secret_dir.stat().st_mode) == 0o700
+        assert [p.name for p in secret_dir.iterdir()] == [".master_key"]
 
 
 class TestMasterKeyFileContent:
