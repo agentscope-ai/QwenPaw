@@ -386,13 +386,14 @@ def _timeline_has_text_overlays_without_motion(
     project_id: str,
     timeline_id: str,
 ) -> bool:
-    """Return True when any text overlay on the timeline lacks motion design.
+    """Return True when any text or keyword overlay lacks motion design.
 
     The AI Editing Director is expected to call ``design_motion_overlays``
     after creating text overlays; when it skips that step the compose pipeline
     falls back to static bubble templates with no animation.  This check lets
     the render route auto-trigger motion design before composing.
     """
+    from services.media_files.motion_design import _is_keyword_overlay
     from services.project_files.models import OverlayCreation
 
     snapshot = services.projects.read(project_id)
@@ -402,8 +403,8 @@ def _timeline_has_text_overlays_without_motion(
     return any(
         element.enabled
         and isinstance(element.creation, OverlayCreation)
-        and element.creation.text.strip()
         and element.creation.motion is None
+        and (element.creation.text.strip() or _is_keyword_overlay(element))
         for element in timeline.elements_by_id.values()
     )
 

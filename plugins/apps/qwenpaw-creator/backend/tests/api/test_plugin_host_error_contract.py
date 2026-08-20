@@ -232,11 +232,18 @@ def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
 
         response = asyncio.run(scenario())
         assert response.status_code == 404
-        assert response.json() == {
+        body = response.json()
+        assert {
+            key: body[key]
+            for key in ("code", "message", "retryable", "details")
+        } == {
             "code": "NOT_FOUND",
             "message": "Project 不存在",
             "retryable": False,
             "details": {},
         }
+        assert body["errorId"] == response.headers["X-Creator-Error-ID"]
+        assert body["traceId"] == response.headers["X-Creator-Trace-ID"]
+        assert body["requestId"] == response.headers["X-Request-ID"]
     finally:
         PluginRegistry._instance = previous_registry

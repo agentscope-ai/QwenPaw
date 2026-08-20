@@ -62,3 +62,57 @@ def test_explicit_request_scoped_vlm_config_wins_over_text_fallback(
         assert config.get_vlm_model_name() == "vlm-model"
     finally:
         config.reset_request_tool_configs(token)
+
+
+def test_vlm_chat_url_uses_anthropic_path_for_anthropic_protocol(
+    monkeypatch,
+) -> None:
+    _clear_vlm_env(monkeypatch)
+    monkeypatch.setattr(config, "get_text_api_key", lambda: "text-key")
+    monkeypatch.setattr(
+        config,
+        "get_text_base_url",
+        lambda: "https://api.anthropic.com",
+    )
+    monkeypatch.setattr(
+        config,
+        "get_text_model_name",
+        lambda: "claude-sonnet-4-20250514",
+    )
+    monkeypatch.setattr(
+        config,
+        "get_text_protocol",
+        lambda: "Anthropic Claude",
+    )
+    token = config.set_request_tool_configs({})
+    try:
+        assert config.get_vlm_protocol() == "Anthropic Claude"
+        assert (
+            config.get_vlm_chat_url()
+            == "https://api.anthropic.com/v1/messages"
+        )
+    finally:
+        config.reset_request_tool_configs(token)
+
+
+def test_vlm_chat_url_uses_anthropic_path_for_minimax_protocol(
+    monkeypatch,
+) -> None:
+    _clear_vlm_env(monkeypatch)
+    monkeypatch.setattr(config, "get_text_api_key", lambda: "text-key")
+    monkeypatch.setattr(
+        config,
+        "get_text_base_url",
+        lambda: "https://api.minimaxi.com/anthropic",
+    )
+    monkeypatch.setattr(config, "get_text_model_name", lambda: "MiniMax-M3")
+    monkeypatch.setattr(config, "get_text_protocol", lambda: "MiniMax")
+    token = config.set_request_tool_configs({})
+    try:
+        assert config.get_vlm_protocol() == "MiniMax"
+        assert (
+            config.get_vlm_chat_url()
+            == "https://api.minimaxi.com/anthropic/v1/messages"
+        )
+    finally:
+        config.reset_request_tool_configs(token)

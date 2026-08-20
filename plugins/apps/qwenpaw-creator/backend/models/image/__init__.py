@@ -21,6 +21,9 @@ from models.image.base import BaseImageModel
 from models.image.openai_provider import OpenAIImageModel
 from models.image.dashscope_provider import DashScopeImageModel
 from models import config as model_config
+from utils.logger import setup_logger
+
+logger = setup_logger("models.image")
 
 __all__ = [
     "BaseImageModel",
@@ -70,18 +73,26 @@ def get_image_backend() -> str:
     )
     backend = tool_cfg.get("_image_backend")
     if backend:
+        logger.info("Image backend from tool_cfg: %s", backend)
         return backend.strip().upper()
     configured = os.environ.get("IMAGE_MODEL", "").strip().upper()
     if configured:
+        logger.info("Image backend from env IMAGE_MODEL: %s", configured)
         return configured
     # Persisted UI config: mirror request_tool_configs()'s protocol→backend rule
     # so background workers select the same provider an in-request call would.
     user_cfg = model_config._get_user_config().get("image", {})
+    logger.info("Image backend user_cfg: %s", user_cfg)
     if isinstance(user_cfg, dict) and user_cfg.get("enabled"):
         protocol = str(user_cfg.get("protocol") or "").casefold()
         if "dashscope" in protocol or "百炼" in protocol:
+            logger.info("Image backend from protocol dashscope: DASHSCOPE")
+            return "DASHSCOPE"
+        if "token plan" in protocol or "tokenplan" in protocol:
+            logger.info("Image backend from protocol token plan: DASHSCOPE")
             return "DASHSCOPE"
         if "openai" in protocol:
+            logger.info("Image backend from protocol openai: OPENAI")
             return "OPENAI"
         model_name = str(user_cfg.get("model_name") or "").casefold()
         base_url = str(user_cfg.get("base_url") or "").casefold()
@@ -91,6 +102,7 @@ def get_image_backend() -> str:
             or "dashscope" in base_url
             or _is_maas_endpoint(base_url)
         ):
+            logger.info("Image backend from model_name/base_url: DASHSCOPE")
             return "DASHSCOPE"
     model_name = os.environ.get("IMAGE_MODEL_NAME", "").casefold()
     base_url = os.environ.get("IMAGE_BASE_URL", "").casefold()
@@ -101,7 +113,9 @@ def get_image_backend() -> str:
         or "dashscope" in base_url
         or _is_maas_endpoint(base_url)
     ):
+        logger.info("Image backend from env fallback: DASHSCOPE")
         return "DASHSCOPE"
+    logger.info("Image backend default: OPENAI")
     return "OPENAI"
 
 
@@ -135,8 +149,8 @@ async def generate_image(
     mode: str = "generate",
     source_lang: str = "",
     target_lang: str = "",
-) -> str:
-    """Generate an image and return a /generated/... URL."""
+) -> dict:
+    """Generate an image and return ``{"url": local, "source_url": original}``."""
     model = get_image_model()
     return await model.generate(
         prompt,

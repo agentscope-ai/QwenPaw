@@ -1,0 +1,47 @@
+# QwenPaw HTTPS reverse proxy (Caddy)
+#
+# Why: browsers only expose secure-context APIs (crypto.subtle, clipboard,
+# getUserMedia) on HTTPS or localhost, and the remote SSO service rejects
+# http + non-localhost redirectUri values. Terminating TLS in front of the
+# QwenPaw backend fixes all of these at once without touching the app.
+#
+# Usage (on the deployment host):
+#   1. Install caddy (https://caddyserver.com/docs/install).
+#   2. Point QWENPAW_HTTPS_HOST at the address clients will use (the
+#      server's LAN IP or hostname) and QWENPAW_UPSTREAM at the QwenPaw
+#      HTTP listener, then run:
+#        QWENPAW_HTTPS_HOST=192.168.1.20 \
+#        QWENPAW_UPSTREAM=127.0.0.1:8088 \
+#        caddy run --config deploy/https/Caddyfile
+#   3. Trust the generated internal CA on each client machine:
+#        - on the server: `caddy trust` installs it locally;
+#        - for other clients, distribute the root certificate from
+#          Caddy's data dir (…/caddy/pki/authorities/local/root.crt)
+#          and add it to the OS/browser trust store.
+#   4. Open https://$QWENPAW_HTTPS_HOST:8443 — the page is now a secure
+#      context.
+#
+# With a real domain + public DNS, replace the site address below with the
+# domain and delete `tls internal`; Caddy then provisions Let's Encrypt
+# certificates automatically.
+
+{
+	# Local/internal deployments have no public domain, so certificates
+	# come from Caddy's built-in CA instead of ACME.
+	skip_install_trust
+}
+
+# The site address needs a concrete host: a bare `https://:8443` gives the
+# internal CA no certificate subject, so every TLS handshake fails with
+# "internal error" before the request reaches the proxy.
+{$QWENPAW_HTTPS_HOST:127.0.0.1}:8443 {
+	tls internal
+
+	# Preserve origin headers so backend-generated absolute URLs (OAuth
+	# redirect_uri, SSE endpoints) reflect the HTTPS front.
+	reverse_proxy {$QWENPAW_UPSTREAM:127.0.0.1:8088} {
+		header_up X-Forwarded-Proto https
+		# SSE event streams must not be buffered.
+		flush_interval -1
+	}
+}

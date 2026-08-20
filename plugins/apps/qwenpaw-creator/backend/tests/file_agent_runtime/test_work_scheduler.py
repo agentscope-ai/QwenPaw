@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Work-graph scheduler: parallel fan-out with fuses, not a retry cannon.
 
 The scheduler dispatches READY media nodes up to media_parallelism,
@@ -6,6 +7,7 @@ never redispatches the same node for the same inputs (FAILED stays
 parked until something changes), and stays fully inert outside the
 unattended ladder.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,7 +23,6 @@ from services.project_files.models import (
     VisualEntity,
     VisualVariant,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -72,15 +73,37 @@ class _RecordingDispatch:
         *,
         fail: bool = False,
         error: str = "provider down",
+        records: list | None = None,
     ) -> None:
         self.calls: list[dict] = []
         self._fail = fail
         self._error = error
+        # Real executors admit a durable task record before any provider
+        # spend; pass a list to mirror that admission-then-failure order
+        # (a dispatch that dies without a record is treated as pre-spend
+        # and re-enters through the bounded no-record reopen).
+        self._records = records
         self.started = asyncio.Event()
 
     async def __call__(self, services, **kwargs):
         self.calls.append(kwargs)
         self.started.set()
+        if self._fail and self._records is not None:
+            self._records.append(
+                SimpleNamespace(
+                    kind="image_generation",
+                    status=TaskStatus.FAILED,
+                    error={
+                        "code": "IMAGE_GENERATION_FAILED",
+                        "message": self._error,
+                    },
+                    result=None,
+                    metadata={"targetRef": kwargs["target_ref"]},
+                    input_refs=[kwargs["target_ref"]],
+                    idempotency_key=kwargs["idempotency_key"],
+                    updated_at=(f"2026-08-12T00:00:{len(self.calls):02d}Z"),
+                ),
+            )
         if self._fail:
             raise RuntimeError(self._error)
         return {"ok": True}
@@ -122,6 +145,28 @@ def test_tick_dispatches_up_to_media_parallelism(tmp_path, monkeypatch):
     assert len(variant_ids) == 3  # three distinct nodes, no duplicates
 
 
+def _failed_record(dispatch: _RecordingDispatch, *, error: str):
+    """The durable FAILED record a real executor leaves after admission.
+
+    Real executors admit the task before any provider spend; the fake
+    dispatchers here don't, so tests pinning the paid-retry guarantee
+    must supply the record — without one, the bounded no-record reopen
+    applies (a dispatch that dies before admission paid for nothing).
+    """
+
+    call = dispatch.calls[0]
+    return SimpleNamespace(
+        kind="image_generation",
+        status=TaskStatus.FAILED,
+        error={"code": "IMAGE_GENERATION_FAILED", "message": error},
+        result=None,
+        metadata={"targetRef": call["target_ref"]},
+        input_refs=[call["target_ref"]],
+        idempotency_key=call["idempotency_key"],
+        updated_at="2026-08-12T00:00:01Z",
+    )
+
+
 def test_same_inputs_are_never_redispatched(tmp_path, monkeypatch):
     services = _services(tmp_path, monkeypatch, ready_variants=1)
     _enable_yolo(monkeypatch)
@@ -131,7 +176,14 @@ def test_same_inputs_are_never_redispatched(tmp_path, monkeypatch):
     async def scenario():
         await scheduler.tick(PROJECT_ID)
         await _drain()
-        # Second tick: the node is FAILED-by-ledger; inputs unchanged.
+        record = _failed_record(dispatch, error="provider down")
+        monkeypatch.setattr(
+            scheduler.executions,
+            "list_tasks",
+            lambda _project_id: [record],
+        )
+        # Second tick: the durable record locks the ledger; inputs
+        # unchanged.
         await scheduler.tick(PROJECT_ID)
         await _drain()
         await scheduler.shutdown()
@@ -144,12 +196,22 @@ def test_same_inputs_are_never_redispatched(tmp_path, monkeypatch):
 def test_changed_prompt_reopens_dispatch(tmp_path, monkeypatch):
     services = _services(tmp_path, monkeypatch, ready_variants=1)
     _enable_yolo(monkeypatch)
-    dispatch = _RecordingDispatch(fail=True)
+    records: list = []
+    dispatch = _RecordingDispatch(fail=True, records=records)
     scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
+    monkeypatch.setattr(
+        scheduler.executions,
+        "list_tasks",
+        lambda _project_id: list(records),
+    )
 
     async def scenario():
         await scheduler.tick(PROJECT_ID)
         await _drain()
+        # Quiesce the failure-woken background loop so the reopen below
+        # is attributable to the fingerprint change alone (the ledger
+        # and retry budgets live on the instance and survive shutdown).
+        await scheduler.shutdown()
         # The model rewrites the prompt: fingerprint moves, dispatch reopens.
         snapshot = services.projects.read(PROJECT_ID)
         candidate = snapshot.project.model_dump(mode="json")
@@ -248,7 +310,15 @@ def test_deterministic_failures_stay_locked(tmp_path, monkeypatch):
     scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
 
     async def scenario():
-        for _ in range(3):
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+        record = _failed_record(dispatch, error="safety system rejected")
+        monkeypatch.setattr(
+            scheduler.executions,
+            "list_tasks",
+            lambda _project_id: [record],
+        )
+        for _ in range(2):
             await scheduler.tick(PROJECT_ID)
             await _drain()
         await scheduler.shutdown()
@@ -319,6 +389,7 @@ def test_quarantine_without_stored_result_stays_locked(
             result=None,
             metadata={"targetRef": target_ref},
             input_refs=[target_ref],
+            idempotency_key=dispatch.calls[0]["idempotency_key"],
         )
         monkeypatch.setattr(
             scheduler.executions,
@@ -332,3 +403,131 @@ def test_quarantine_without_stored_result_stays_locked(
     asyncio.run(scenario())
 
     assert len(dispatch.calls) == 1
+
+
+def test_transient_budget_reopens_after_the_cooldown(tmp_path, monkeypatch):
+    """Provider weather outlives the immediate retry budget.
+
+    Field run 2026-08-12 (project 27dc): gpt-image-2 threw WriteTimeout /
+    ReadError for ~40 minutes, every storyboard burned its immediate
+    retries and FAILED terminally with nothing left to try once the
+    provider recovered. After the immediate budget, one retry per
+    cooldown window re-enters up to the hard cap.
+    """
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+    dispatch = _RecordingDispatch(
+        fail=True,
+        error="Image generation timed out after 240s",
+    )
+    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
+
+    def age_past_cooldown() -> None:
+        # Rewind the recorded retry stamps instead of freezing the global
+        # monotonic clock (asyncio's loop shares it).
+        stamps = scheduler._transient_last  # pylint: disable=protected-access
+        for key in list(stamps):
+            stamps[key] -= 301.0
+
+    async def scenario():
+        for _ in range(4):  # initial + 2 immediate retries, then locked
+            await scheduler.tick(PROJECT_ID)
+            await _drain()
+        assert len(dispatch.calls) == 3
+        # Cooldown not elapsed: still locked.
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+        assert len(dispatch.calls) == 3
+        # The cooldown elapses: exactly one more bounded retry.
+        age_past_cooldown()
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+        assert len(dispatch.calls) == 4
+        await scheduler.tick(PROJECT_ID)
+        await _drain()
+        assert len(dispatch.calls) == 4
+        # Cooldown windows keep granting retries only up to the hard cap.
+        for _ in range(8):
+            age_past_cooldown()
+            await scheduler.tick(PROJECT_ID)
+            await _drain()
+        await scheduler.shutdown()
+
+    asyncio.run(scenario())
+
+    # initial + hard cap of 6 noted retries, then permanently locked.
+    assert len(dispatch.calls) == 7
+
+
+def test_prespend_rejection_never_poisons_the_ledger(tmp_path, monkeypatch):
+    """A ValidationError raised before any task record must not strand
+    the node READY-but-undispatchable (field run 2026-08-12, project
+    27dc: the execution gate refused a storyboard the graph derived
+    READY, and only a restart cleared the ledger). The reopen stays
+    bounded by the transient budget so a persistent graph/executor
+    mismatch cannot hot-loop."""
+    from domain.errors import ValidationError
+
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+
+    calls: list[dict] = []
+
+    async def rejecting_dispatch(inner_services, **kwargs):  # noqa: ARG001
+        del inner_services
+        calls.append(kwargs)
+        raise ValidationError("视觉设定尚未完成，分镜图未开始")
+
+    scheduler = WorkGraphScheduler(services, image_dispatch=rejecting_dispatch)
+
+    async def scenario():
+        # Initial dispatch + bounded no-record reopens, then locked by
+        # the cooldown — never a permanent READY-but-undispatchable stall.
+        for _ in range(5):
+            await scheduler.tick(PROJECT_ID)
+            await _drain()
+        await scheduler.shutdown()
+
+    asyncio.run(scenario())
+
+    assert len(calls) == 3
+
+
+def test_cancel_project_does_not_resurrect_dispatch_and_wake_rearms(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def blocking_dispatch(inner_services, **kwargs):  # noqa: ARG001
+        del inner_services, kwargs
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    scheduler = WorkGraphScheduler(
+        services,
+        image_dispatch=blocking_dispatch,
+    )
+
+    async def scenario():
+        await scheduler.tick(PROJECT_ID)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        scheduler.cancel_project(PROJECT_ID)
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert PROJECT_ID not in scheduler._loops
+        assert PROJECT_ID not in scheduler._dispatch_tasks
+        assert PROJECT_ID in scheduler._cancelled_projects
+
+        scheduler.wake(PROJECT_ID)
+        assert PROJECT_ID not in scheduler._cancelled_projects
+        scheduler.cancel_project(PROJECT_ID)
+        await scheduler.shutdown()
+
+    asyncio.run(scenario())

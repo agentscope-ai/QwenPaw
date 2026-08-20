@@ -21,6 +21,9 @@ https://help.aliyun.com/zh/model-studio/happyhorse-reference-to-video-api-refere
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import re
+
 HAPPYHORSE_MODEL_PREFIX = "happyhorse"
 HAPPYHORSE_MAX_REFERENCE_IMAGES = 9
 HAPPYHORSE_RESOLUTIONS = frozenset({"720P", "1080P"})
@@ -35,6 +38,82 @@ HAPPYHORSE_VIDEO_EDIT_MIN_INPUT_SECONDS = 3
 HAPPYHORSE_VIDEO_EDIT_MAX_INPUT_SECONDS = 60
 HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS = 15
 HAPPYHORSE_VIDEO_EDIT_MAX_REFERENCE_IMAGES = 5
+
+
+@dataclass(frozen=True, slots=True)
+class VideoReferenceCapability:
+    """Official R2V reference-media contract for one model family."""
+
+    family: str
+    max_reference_images: int
+    max_reference_videos: int
+    max_reference_media: int
+    documentation_url: str
+
+
+_HAPPYHORSE_REFERENCE_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/"
+    "happyhorse-reference-to-video-api-reference"
+)
+_WAN_27_REFERENCE_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/video-to-video-guide"
+)
+_WAN_26_REFERENCE_DOCUMENTATION = (
+    "https://help.aliyun.com/zh/model-studio/"
+    "legacy-wan-reference-to-video-api-reference"
+)
+_SEEDANCE_20_REFERENCE_DOCUMENTATION = "https://arxiv.org/abs/2604.14148"
+
+# These are R2V input limits, not generated-video counts. Keep the catalog
+# closed over model IDs whose official contracts are known. In particular, a
+# gateway endpoint alias is not assumed to be Wan merely because it speaks the
+# same transport protocol: reference use must fail before billing until the
+# alias is mapped to an official model capability.
+_HAPPYHORSE_REFERENCE_PATTERN = re.compile(
+    r"^happyhorse-1\.(?:0|1)(?:-r2v)?$",
+    re.IGNORECASE,
+)
+_WAN_27_REFERENCE_PATTERN = re.compile(
+    r"^wan2\.7(?:-r2v)?(?:-20\d{2}-\d{2}-\d{2})?$",
+    re.IGNORECASE,
+)
+_WAN_26_REFERENCE_PATTERN = re.compile(
+    r"^wan2\.6(?:-r2v(?:-flash)?)?(?:-20\d{2}-\d{2}-\d{2})?$",
+    re.IGNORECASE,
+)
+_SEEDANCE_20_REFERENCE_PATTERN = re.compile(
+    r"^(?:doubao-)?seedance-?2(?:-0)?(?:-(?:pro|lite|fast))?(?:-\d{6})?$",
+    re.IGNORECASE,
+)
+
+_HAPPYHORSE_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="happyhorse-1.0/1.1-r2v",
+    max_reference_images=9,
+    max_reference_videos=0,
+    max_reference_media=9,
+    documentation_url=_HAPPYHORSE_REFERENCE_DOCUMENTATION,
+)
+_WAN_27_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="wan2.7-r2v",
+    max_reference_images=5,
+    max_reference_videos=5,
+    max_reference_media=5,
+    documentation_url=_WAN_27_REFERENCE_DOCUMENTATION,
+)
+_WAN_26_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="wan2.6-r2v",
+    max_reference_images=5,
+    max_reference_videos=3,
+    max_reference_media=5,
+    documentation_url=_WAN_26_REFERENCE_DOCUMENTATION,
+)
+_SEEDANCE_20_REFERENCE_CAPABILITY = VideoReferenceCapability(
+    family="doubao-seedance-2.0",
+    max_reference_images=9,
+    max_reference_videos=3,
+    max_reference_media=12,
+    documentation_url=_SEEDANCE_20_REFERENCE_DOCUMENTATION,
+)
 
 # Generation modes exposed on the r2v_generation tool. ``r2v`` keeps the
 # historical behaviour; the others map onto the upstream model families
@@ -77,6 +156,63 @@ def video_backend_key(model_name: str, protocol_backend: str = "") -> str:
     ):
         return "seedance2"
     return "wan"
+
+
+def video_reference_capability(
+    model_name: str,
+) -> VideoReferenceCapability | None:
+    """Resolve an official R2V reference contract without guessing."""
+
+    normalized = model_name.strip()
+    if not normalized:
+        return None
+    if _HAPPYHORSE_REFERENCE_PATTERN.fullmatch(normalized):
+        return _HAPPYHORSE_REFERENCE_CAPABILITY
+    if _WAN_27_REFERENCE_PATTERN.fullmatch(normalized):
+        return _WAN_27_REFERENCE_CAPABILITY
+    if _WAN_26_REFERENCE_PATTERN.fullmatch(normalized):
+        return _WAN_26_REFERENCE_CAPABILITY
+    # Seedance model IDs use both dots and hyphens for the 2.0 segment across
+    # the Ark presets and compatible endpoint configurations. Canonicalising
+    # separators keeps those official IDs equivalent without accepting an
+    # opaque endpoint alias.
+    seedance_name = normalized.replace("_", "-").replace(".", "-")
+    if _SEEDANCE_20_REFERENCE_PATTERN.fullmatch(seedance_name):
+        return _SEEDANCE_20_REFERENCE_CAPABILITY
+    return None
+
+
+def video_reference_violation(
+    capability: VideoReferenceCapability,
+    *,
+    image_count: int,
+    video_count: int,
+) -> str | None:
+    """Return the first official R2V reference-limit violation, if any."""
+
+    if image_count < 0 or video_count < 0:
+        raise ValueError("reference counts must be non-negative")
+    total = image_count + video_count
+    if total < 1:
+        return "r2v 至少需要 1 个参考图像或参考视频"
+    if image_count > capability.max_reference_images:
+        return (
+            f"参考图像最多 {capability.max_reference_images} 个，"
+            f"当前为 {image_count} 个"
+        )
+    if video_count > capability.max_reference_videos:
+        if capability.max_reference_videos == 0:
+            return f"该模型不支持参考视频，当前为 {video_count} 个"
+        return (
+            f"参考视频最多 {capability.max_reference_videos} 个，"
+            f"当前为 {video_count} 个"
+        )
+    if total > capability.max_reference_media:
+        return (
+            f"参考图像与参考视频合计最多 "
+            f"{capability.max_reference_media} 个，当前为 {total} 个"
+        )
+    return None
 
 
 def validate_video_mode(
@@ -236,6 +372,30 @@ def _mode_guidance(model_name: str) -> str:
     return "\n".join(lines)
 
 
+def _reference_guidance(model_name: str) -> str:
+    """One prompt block rendered from the official R2V media budget."""
+
+    capability = video_reference_capability(model_name)
+    if capability is None:
+        return (
+            "- 当前模型名没有匹配到 Creator 内置的官方视频参考能力表；"
+            "不得提交 r2v 参考素材。若这是兼容网关别名，必须先映射到官方"
+            "模型能力，不可套用 Wan 或通用默认值。"
+        )
+    if capability.max_reference_videos == 0:
+        return (
+            f"- R2V 参考素材仅支持 1–{capability.max_reference_images} 张"
+            "图片，不支持参考视频；storyboard 也计入图片总数。"
+        )
+    return (
+        f"- R2V 参考预算：图片最多 {capability.max_reference_images} 张，"
+        f"视频最多 {capability.max_reference_videos} 个，图片与视频合计"
+        f"最多 {capability.max_reference_media} 个且至少 1 个；storyboard "
+        "计入图片总数。超出时必须先缩减 Project 的 exact reference "
+        "version 列表，不得静默截断。"
+    )
+
+
 def video_model_prompt_guidance(model_name: str) -> str:
     """Model-specific prompt-writing rules injected into the R2V director.
 
@@ -252,7 +412,8 @@ def video_model_prompt_guidance(model_name: str) -> str:
             "- 用 `[Image N]` 指代第 N 个参考素材，顺序与 Element creation 的"
             " exact reference version 列表一致；storyboard 是第一参考，即 `[Image 1]`。\n"
             "- 每次指代都要说明该参考图中的具体对象，例如“[Image 1] 分镜图中的角色”。\n"
-            "- 参考素材仅支持 1–9 张图片，不支持参考视频。\n"
+            + _reference_guidance(normalized)
+            + "\n"
             "- 视频时长必须是 3–15 秒的整数；分辨率仅支持 720P 或 1080P。\n"
             + _mode_guidance(normalized)
         )
@@ -260,6 +421,8 @@ def video_model_prompt_guidance(model_name: str) -> str:
         f"当前视频生成模型是 `{normalized}`。video prompt 用自然语言直接描述"
         "参考素材中的主体、场景与动作；参考素材顺序与 Element creation 的"
         " exact reference version 列表一致，storyboard 是第一参考。\n"
+        + _reference_guidance(normalized)
+        + "\n"
         + _mode_guidance(normalized)
     )
 
@@ -275,6 +438,7 @@ __all__ = [
     "HAPPYHORSE_VIDEO_EDIT_MAX_INPUT_SECONDS",
     "HAPPYHORSE_VIDEO_EDIT_MAX_REFERENCE_IMAGES",
     "HAPPYHORSE_VIDEO_EDIT_MIN_INPUT_SECONDS",
+    "VideoReferenceCapability",
     "VIDEO_MODES",
     "VIDEO_MODE_MATRIX",
     "configured_mode_segment",
@@ -284,4 +448,6 @@ __all__ = [
     "validate_video_mode",
     "video_backend_key",
     "video_model_prompt_guidance",
+    "video_reference_capability",
+    "video_reference_violation",
 ]

@@ -2,6 +2,8 @@
 # flake8: noqa: E501
 from __future__ import annotations
 
+import pytest
+
 from domain.enums import SpecialistRole
 from services.file_agent_runtime.subagents import specialist_system_prompt
 from services.project_files.facade import CreatorFileServices
@@ -163,6 +165,44 @@ def test_image_generation_arguments_expose_modes(tmp_path) -> None:
     assert "targetLang" in arguments["properties"]
     # mode stays optional so existing generate callers keep working.
     assert arguments["required"] == ["prompt"]
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected"),
+    [
+        ("qwen-image-3.0-pro", 3),
+        ("qwen-mt-image", 1),
+        ("gpt-image-2", 16),
+        ("qwen-image-max", 0),
+        ("private-gateway-alias", 0),
+    ],
+)
+def test_image_manifest_uses_official_model_reference_limit(
+    tmp_path,
+    monkeypatch,
+    model_name,
+    expected,
+) -> None:
+    monkeypatch.setattr(
+        "services.specialist_tools.get_image_model_name",
+        lambda: model_name,
+    )
+    manifest = FileSpecialistToolRegistry(
+        CreatorFileServices.create(tmp_path.resolve()),
+    ).manifest_for(
+        SpecialistRole.VISUAL_DEVELOPMENT,
+        admitted_target_refs=["asset:hero"],
+    )
+    image_tool = next(
+        item
+        for item in manifest
+        if item["function"]["name"] == "image_generation"
+    )
+    references = image_tool["function"]["parameters"]["properties"][
+        "arguments"
+    ]["properties"]["referenceVersionIds"]
+
+    assert references["maxItems"] == expected
 
 
 def test_project_assets_scope_does_not_expand_for_r2v_image_tool(

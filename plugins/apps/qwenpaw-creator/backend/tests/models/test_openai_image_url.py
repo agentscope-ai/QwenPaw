@@ -31,14 +31,16 @@ def _model(base_url: str) -> OpenAIImageModel:
 
 
 @pytest.mark.parametrize(
-    "base_url",
+    "configured_base_url",
     [
         "https://api.openai.com/v1",
         "https://api.openai.com/v1/",
     ],
 )
-def test_v1_suffixed_base_url_is_not_duplicated(base_url: str) -> None:
-    model = _model(base_url)
+def test_v1_suffixed_base_url_is_not_duplicated(
+    configured_base_url: str,
+) -> None:
+    model = _model(configured_base_url)
     assert (
         model.generation_url == "https://api.openai.com/v1/images/generations"
     )

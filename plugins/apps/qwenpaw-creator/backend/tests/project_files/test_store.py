@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import threading
 
 import pytest
 
@@ -18,7 +19,6 @@ from services.project_files import (
     UnsafeProjectPath,
 )
 from services.project_files import store as store_module
-
 
 pytestmark = pytest.mark.unit
 
@@ -75,6 +75,29 @@ def test_create_read_list_replace_and_delete(tmp_path):
     with pytest.raises(ProjectNotFound):
         store.read("project-b")
     assert [item.project_id for item in store.list()] == ["project-a"]
+
+
+def test_delete_returns_after_atomic_hide_without_waiting_for_tree_cleanup(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-fast-delete", "Delete"))
+    cleanup_started = threading.Event()
+    release_cleanup = threading.Event()
+    real_rmtree = store_module.shutil.rmtree
+
+    def blocking_cleanup(path, *args, **kwargs):
+        cleanup_started.set()
+        release_cleanup.wait(timeout=5)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(store_module.shutil, "rmtree", blocking_cleanup)
+    store.delete("project-fast-delete")
+
+    assert cleanup_started.wait(timeout=1)
+    assert not store.project_root("project-fast-delete").exists()
+    release_cleanup.set()
 
 
 def test_create_is_exclusive_and_does_not_overwrite(tmp_path):

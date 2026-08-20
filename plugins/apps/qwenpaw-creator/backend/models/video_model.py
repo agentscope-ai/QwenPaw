@@ -8,7 +8,6 @@ import asyncio
 import json
 import mimetypes
 from pathlib import Path
-import tempfile
 from urllib.parse import urlparse
 import uuid
 import httpx
@@ -17,7 +16,6 @@ from models.concurrency import model_slot
 from models import config as model_config
 from models.provider_tasks import note_provider_task
 from models.media_transport import (
-    DASHSCOPE_TEMP_UPLOAD_MAX_BYTES,
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
     read_reference_media,
     reference_media_data_url,
@@ -33,8 +31,9 @@ from models.video_capabilities import (
     effective_video_model_name,
     validate_video_mode,
     video_backend_key,
+    video_reference_capability,
+    video_reference_violation,
 )
-from services.runtime_files.safe_remote_download import safe_download_to_file
 from utils.paths import media_path_from_url
 from utils.logger import setup_logger
 from utils.exceptions import ModelError
@@ -51,6 +50,12 @@ VIDEO_REFERENCE_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
 def _reference_media_kind(filename: str) -> str:
     suffix = Path(filename or "").suffix.lower()
     return "video" if suffix in VIDEO_REFERENCE_SUFFIXES else "image"
+
+
+def _reference_media_kind_from_url(url: str) -> str:
+    """Classify a provider-bound reference from its URL path suffix."""
+
+    return _reference_media_kind(urlparse(url).path or url)
 
 
 def _uses_seedance_protocol() -> bool:
@@ -97,9 +102,13 @@ async def _resolve_reference_media_url(
         )
 
     try:
-        if backend == "seedance2" and url.startswith(("http://", "https://")):
-            # Public URLs are the officially supported form for both image
-            # and video reference parts; pass them through untouched.
+        if url.startswith(("http://", "https://")):
+            # Public URLs are passed through untouched for both seedance2 and
+            # wan backends. DashScope's X-DashScope-OssResourceResolve: enable
+            # header resolves them directly on the server side. This avoids
+            # downloading and re-uploading, which fails for Token Plan API
+            # keys that cannot authenticate against
+            # dashscope.aliyuncs.com/api/v1/uploads.
             kind = _reference_media_kind(filename)
             logger.info(
                 f"Passing public reference media through | backend={backend}, "
@@ -111,41 +120,17 @@ async def _resolve_reference_media_url(
             media_type = (
                 mimetypes.guess_type(filename)[0] or "application/octet-stream"
             )
-            if url.startswith(("http://", "https://")):
-                with tempfile.TemporaryDirectory(
-                    prefix="creator-reference-",
-                ) as temporary_directory:
-                    media_path = Path(temporary_directory) / filename
-                    _, downloaded_type, _ = await asyncio.to_thread(
-                        safe_download_to_file,
-                        url,
-                        media_path,
-                        max_bytes=DASHSCOPE_TEMP_UPLOAD_MAX_BYTES,
-                        timeout=httpx.Timeout(
-                            connect=30.0,
-                            read=300.0,
-                            write=300.0,
-                            pool=30.0,
-                        ),
-                    )
-                    resolved_url = await upload_local_file_to_dashscope_temp(
-                        media_path,
-                        api_key=model_config.get_video_api_key(),
-                        model_name=model_name,
-                        media_type=downloaded_type or media_type,
-                    )
-            else:
-                media_path = (
-                    media_path_from_url(url)
-                    if url.startswith("/generated/")
-                    else Path(urlparse(url).path)
-                )
-                resolved_url = await upload_local_file_to_dashscope_temp(
-                    media_path,
-                    api_key=model_config.get_video_api_key(),
-                    model_name=model_name,
-                    media_type=media_type,
-                )
+            media_path = (
+                media_path_from_url(url)
+                if url.startswith("/generated/")
+                else Path(urlparse(url).path)
+            )
+            resolved_url = await upload_local_file_to_dashscope_temp(
+                media_path,
+                api_key=model_config.get_video_api_key(),
+                model_name=model_name,
+                media_type=media_type,
+            )
             logger.info(
                 f"Uploaded reference media to DashScope temp storage | backend={backend}, "
                 f"filename={filename}, url={resolved_url[:100]}",
@@ -401,6 +386,36 @@ async def submit_video_task(
         normalized_mode,
         backend_key if not uses_seedance else "seedance2",
     )
+
+    if normalized_mode == "r2v":
+        capability = video_reference_capability(effective_model)
+        reference_kinds = [
+            _reference_media_kind_from_url(item) for item in unique_references
+        ]
+        image_count = reference_kinds.count("image")
+        video_count = reference_kinds.count("video")
+        if capability is None:
+            raise ModelError(
+                "VIDEO_MODEL_CAPABILITY_UNKNOWN: Creator 无法从官方能力表"
+                f"确认视频模型 {effective_model.strip() or '未配置'} 的参考素材"
+                "数量限制，因此未上传素材、也未调用 provider。如果这是兼容"
+                "网关别名，请先将别名映射到其官方模型能力，不要使用 Wan 或"
+                "通用猜测上限。",
+                model_name=effective_model or model_name,
+            )
+        violation = video_reference_violation(
+            capability,
+            image_count=image_count,
+            video_count=video_count,
+        )
+        if violation is not None:
+            raise ModelError(
+                "VIDEO_REFERENCE_BUDGET_EXCEEDED: 视频模型 "
+                f"{effective_model}（{capability.family}）的官方限制为："
+                f"{violation}。当前共 {len(unique_references)} 个参考素材；"
+                "未上传素材、也未调用 provider。",
+                model_name=effective_model,
+            )
 
     happyhorse_resolution = ""
     if uses_happyhorse and normalized_mode == "r2v":

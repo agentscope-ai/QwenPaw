@@ -132,9 +132,9 @@ def _transcript_boundaries_ms(
     indexed = project.assets.files_by_id.get(record.file_id)
     if indexed is None or indexed.kind != "source_intelligence":
         return ()
-    cached = _TRANSCRIPT_BOUNDARY_CACHE.get(indexed.checksum)
+    cached = _TRANSCRIPT_BOUNDARY_CACHE.get(indexed.sha256)
     if cached is not None:
-        _TRANSCRIPT_BOUNDARY_CACHE.move_to_end(indexed.checksum)
+        _TRANSCRIPT_BOUNDARY_CACHE.move_to_end(indexed.sha256)
         return cached
     payload = AssetFileStore(project_root).read_verified(indexed)
     raw = json.loads(payload.decode("utf-8"))
@@ -149,7 +149,7 @@ def _transcript_boundaries_ms(
         if isinstance(end, int) and not isinstance(end, bool):
             boundaries.add(end)
     result = tuple(sorted(boundaries))
-    _TRANSCRIPT_BOUNDARY_CACHE[indexed.checksum] = result
+    _TRANSCRIPT_BOUNDARY_CACHE[indexed.sha256] = result
     while len(_TRANSCRIPT_BOUNDARY_CACHE) > _TRANSCRIPT_BOUNDARY_CACHE_MAX:
         _TRANSCRIPT_BOUNDARY_CACHE.popitem(last=False)
     return result

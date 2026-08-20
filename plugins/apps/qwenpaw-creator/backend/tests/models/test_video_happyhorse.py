@@ -167,7 +167,7 @@ def test_happyhorse_rejects_video_reference(monkeypatch) -> None:
         fake_resolve,
     )
 
-    with pytest.raises(ModelError, match="only accepts image references"):
+    with pytest.raises(ModelError, match="不支持参考视频"):
         asyncio.run(
             video_model.submit_video_task(
                 "prompt",
@@ -182,7 +182,7 @@ def test_happyhorse_rejects_video_reference(monkeypatch) -> None:
 def test_happyhorse_requires_one_to_nine_references(monkeypatch) -> None:
     _bind_happyhorse(monkeypatch)
 
-    with pytest.raises(ModelError, match="at least 1 reference image"):
+    with pytest.raises(ModelError, match="至少需要 1 个参考图像或参考视频"):
         asyncio.run(
             video_model.submit_video_task(
                 "prompt",
@@ -193,7 +193,7 @@ def test_happyhorse_requires_one_to_nine_references(monkeypatch) -> None:
         )
 
     too_many = [f"/generated/ref-{index}.png" for index in range(10)]
-    with pytest.raises(ModelError, match="at most 9"):
+    with pytest.raises(ModelError, match="参考图像最多 9"):
         asyncio.run(
             video_model.submit_video_task(
                 "prompt",

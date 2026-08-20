@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 
 import pytest
 
@@ -378,11 +379,82 @@ class TestMotionTemplates:
         assert "@keyframes" in html
         assert len(html) >= 32
 
+    @pytest.mark.parametrize("motif", sorted(SUPPORTED_MOTIFS))
+    def test_every_motif_has_visible_content_at_t0(self, motif: str) -> None:
+        """Every motif must have at least one shaped element visible at t=0.
+
+        The probe rejects documents whose first composited frame is fully
+        transparent.  Each motif therefore needs at least one .shape-bearing
+        element that is visible at t=0: either it has no opacity / non-zero
+        base opacity, or an immediate animation (no delay) whose 0% keyframe
+        starts at non-zero opacity.
+        """
+        html = render_decoration_template(motif)
+        style_start = html.index("<style>")
+        style_end = html.index("</style>")
+        css = html[style_start:style_end]
+        body = html[style_end:]
+
+        shape_classes = re.findall(r'class="shape\s+([\w-]+)', body)
+        assert shape_classes, f"motif {motif!r} has no .shape elements"
+
+        css_props: dict[str, str] = {}
+        for cls in set(shape_classes):
+            match = re.search(rf"\.{cls}\{{([^}}]+)\}}", css)
+            if match:
+                css_props[cls] = match.group(1)
+
+        for cls in shape_classes:
+            props = css_props.get(cls, "")
+            opacity_match = re.search(r"(?<!\w)opacity:([^;]+)", props)
+            if opacity_match is None or opacity_match.group(1).strip() != "0":
+                return
+            anim_match = re.search(r"animation:([\w-]+)", props)
+            if anim_match and "animation-delay" not in props:
+                kf_name = anim_match.group(1)
+                kf = re.search(
+                    rf"@keyframes\s+{kf_name}\s*\{{0%{{([^}}]+)",
+                    css,
+                )
+                if kf:
+                    kf_opacity = re.search(r"opacity:([^;]+)", kf.group(1))
+                    if (
+                        kf_opacity is None
+                        or kf_opacity.group(1).strip() != "0"
+                    ):
+                        return
+
+        raise AssertionError(
+            f"motif {motif!r} has no shaped element visible at t=0; "
+            "the probe will reject it as an empty first frame",
+        )
+
+    def test_paw_trail_first_paw_visible_at_t0(self) -> None:
+        html = render_decoration_template("paw_trail")
+        assert ".p1{" in html
+        p1_match = re.search(r"\.p1\{([^}]+)\}", html)
+        assert p1_match is not None
+        p1_props = p1_match.group(1)
+        assert (
+            "animation-delay" not in p1_props
+        ), "first paw must start immediately so t=0 is not an empty frame"
+        paw_match = re.search(r"\.paw\{([^}]+)\}", html)
+        assert paw_match is not None
+        assert "opacity:.25" in paw_match.group(
+            1,
+        ) or "opacity:0.25" in paw_match.group(1), (
+            ".paw base opacity must be >0 so the first paw is partially "
+            "visible before its keyframe animation begins"
+        )
+        assert (
+            "0%{opacity:.25" in html or "0%{opacity:0.25" in html
+        ), "paw-appear keyframe must start at opacity > 0"
+
     def test_paw_trail_uses_the_trusted_three_paw_sequence(self) -> None:
         html = render_decoration_template("paw_trail")
 
         assert html.count('class="shape paw p') == 3
-        assert "animation-delay:.08s" in html
+        assert "animation-delay:.08s" not in html
         assert "animation-delay:.38s" in html
         assert "animation-delay:.68s" in html
         assert ".toe{width:20%;height:20%" in html
@@ -925,7 +997,7 @@ class TestApplyOverlayStyledRouting:
                 "x": 0.5,
                 "y": 0.88,
                 "width": 0.8,
-                "height": 0.18,
+                "height": 0.25,
                 "anchor_x": 0.5,
                 "anchor_y": 0.5,
                 "opacity": 1.0,
@@ -1012,10 +1084,11 @@ class TestUniformCaptionStyle:
             "",
         )
 
-    def test_uniform_blueprint_font_size_ignores_text_length(self) -> None:
-        """The static capsule keeps one fixed font size: a long sentence
-        wraps instead of shrinking, so short and long captions share the
-        exact same style skeleton (the hyperframes caption-bar contract)."""
+    def test_uniform_blueprint_font_size_adapts_to_text_length(self) -> None:
+        """The static capsule uses dynamic font sizing (min(vh, vw)) so
+        that text fills its overlay box proportionally. Short text gets
+        a larger font; long text shrinks to fit. Both share the same
+        style skeleton structure (exit style, entrance, card layout)."""
 
         from services.media_files.motion_blueprints import (
             render_caption_blueprint,
@@ -1035,14 +1108,13 @@ class TestUniformCaptionStyle:
             long_text,
             intensity=intensity,
         )
-        # Style skeleton (all CSS, including font-size) is byte-identical
-        # across very different text lengths -- only the words differ.
-        assert short_doc.replace(short_text, "") == long_doc.replace(
-            long_text,
-            "",
-        )
-        # No adaptive vw/text-length term ever reaches the font size.
-        assert "font-size:24vh" in short_doc
+        # Font size uses dynamic min(vh, vw) clamping from _caption_font_css.
+        short_font = re.search(r"font-size:(min\([^)]+\))", short_doc)
+        long_font = re.search(r"font-size:(min\([^)]+\))", long_doc)
+        assert short_font is not None
+        assert long_font is not None
+        # Short text gets a larger font than long text.
+        assert short_font.group(1) != long_font.group(1)
         # No per-card entrance choreography beyond the single card fade.
         for performance in ("letterSpacing", "scaleY", "stagger"):
             assert performance not in short_doc

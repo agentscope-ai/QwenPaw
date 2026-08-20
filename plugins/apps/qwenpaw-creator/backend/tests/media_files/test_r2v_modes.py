@@ -4,12 +4,19 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import pytest
 
 from domain.errors import ValidationError
+from models import config as model_config
 from services.media_files.image_execution import FileImageExecutionService
-from services.media_files.r2v_execution import FileR2VExecutionService
+from services.media_files.r2v_execution import (
+    FileR2VExecutionService,
+    VideoModelCapabilityError,
+    VideoReferenceBudgetError,
+    _assert_r2v_reference_budget,
+)
 from services.project_files.facade import CreatorFileServices
 from services.project_files.review import ReviewDecisionItem
 from services.project_files.models import (
@@ -100,6 +107,83 @@ def _r2v_element() -> TimelineElement:
             ),
         ),
     )
+
+
+def _project_with_image_references(count: int) -> tuple[Project, list[str]]:
+    project = Project.new(project_id="reference-budget", name="Budget")
+    candidate = project.model_dump(mode="json")
+    created_at = project.created_at.isoformat()
+    version_ids = [f"reference-{index}" for index in range(count)]
+    for version_id in version_ids:
+        url = f"https://cdn.test/{version_id}.png"
+        candidate["assets"]["source_versions_by_id"][version_id] = {
+            "version_id": version_id,
+            "logical_asset_id": f"asset-{version_id}",
+            "name": version_id,
+            "checksum": hashlib.sha256(url.encode()).hexdigest(),
+            "media_kind": "image",
+            "media_type": "image/png",
+            "created_at": created_at,
+            "metadata": {
+                "sourceKind": "remote_url",
+                "checksumKind": "source_url_sha256",
+                "publicSourceUrl": url,
+            },
+        }
+    return Project.model_validate(candidate), version_ids
+
+
+@pytest.mark.parametrize(
+    ("model_name", "backend", "count", "limit"),
+    [
+        ("wan2.7-r2v", "wan", 6, 5),
+        ("happyhorse-1.1-r2v", "wan", 10, 9),
+        ("doubao-seedance-2.0-pro", "seedance2", 10, 9),
+    ],
+)
+def test_execution_rejects_resolved_video_reference_budget(
+    monkeypatch,
+    model_name,
+    backend,
+    count,
+    limit,
+) -> None:
+    project, version_ids = _project_with_image_references(count)
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: model_name,
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: backend)
+
+    with pytest.raises(VideoReferenceBudgetError) as captured:
+        _assert_r2v_reference_budget(project, version_ids)
+
+    error = captured.value
+    assert error.code == "VIDEO_REFERENCE_BUDGET_EXCEEDED"
+    assert error.details["imageCount"] == count
+    assert error.details["maxReferenceImages"] == limit
+    assert error.details["documentationUrl"].startswith("https://")
+
+
+@pytest.mark.parametrize("model_name", ["", "private-video-gateway"])
+def test_execution_fails_closed_for_unknown_video_model(
+    monkeypatch,
+    model_name,
+) -> None:
+    project, version_ids = _project_with_image_references(1)
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: model_name,
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+
+    with pytest.raises(VideoModelCapabilityError) as captured:
+        _assert_r2v_reference_budget(project, version_ids)
+
+    assert captured.value.code == "VIDEO_MODEL_CAPABILITY_UNKNOWN"
+    assert captured.value.details["knownModelRequired"] is True
 
 
 def _services(

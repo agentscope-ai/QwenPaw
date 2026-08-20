@@ -420,6 +420,7 @@ class ManualEditBufferStore:
         with CrossProcessFileLock(
             self.data_root / ".locks" / f"project-{project_id}.lock",
             timeout_seconds=self.lock_timeout_seconds,
+            shared=True,
         ):
             self._require_project(project_id)
             with CrossProcessFileLock(

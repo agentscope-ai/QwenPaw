@@ -446,7 +446,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         after ?? initial.messages.at(-1)?.messageSeq ?? 0,
       );
       while (expectedEpoch === messageRefreshEpoch) {
-        const page = await listMessages(projectId, conversationId, cursor, 500);
+        const page = await listMessages(projectId, conversationId, {
+          after: cursor,
+          limit: 500,
+        });
         const current = get();
         if (
           expectedEpoch !== messageRefreshEpoch ||
@@ -622,12 +625,12 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               },
             ];
           }
-          const page = await listMessages(
-            projectId,
-            activeConversationId,
-            0,
-            50,
-          );
+          // The newest page anchors the conversation; older history loads
+          // backward on demand (scroll-up in AgentDock).
+          const page = await listMessages(projectId, activeConversationId, {
+            tail: true,
+            limit: 50,
+          });
           if (
             bootstrapGeneration !== lifecycleGeneration ||
             get().projectId !== projectId
@@ -657,7 +660,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 current.streamingAssistantMessages,
                 messages,
               ),
-              hasMoreMessages: page.nextAfter != null,
+              hasMoreMessages: page.nextBefore != null,
               lastEventSeq: resumeAfter,
               loading: false,
               stopping: false,
@@ -739,7 +742,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           loadingOlder: true,
         });
         try {
-          const page = await listMessages(projectId, conversationId, 0, 50);
+          const page = await listMessages(projectId, conversationId, {
+            tail: true,
+            limit: 50,
+          });
           set((current) => {
             if (
               current.projectId !== projectId ||
@@ -748,7 +754,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               return {};
             return {
               messages: page.items,
-              hasMoreMessages: page.nextAfter != null,
+              hasMoreMessages: page.nextBefore != null,
               loadingOlder: false,
             };
           });
@@ -808,15 +814,19 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         const { projectId, activeConversationId, messages, loadingOlder } =
           get();
         if (!projectId || !activeConversationId || loadingOlder) return;
-        const latest = messages.at(-1)?.messageSeq ?? 0;
+        // Page backward from the oldest durable message already loaded; the
+        // initial tail page comes from bootstrap/setConversation.
+        const oldest = messages[0]?.messageSeq;
+        if (!oldest || oldest <= 1) {
+          set({ hasMoreMessages: false });
+          return;
+        }
         set({ loadingOlder: true });
         try {
-          const page = await listMessages(
-            projectId,
-            activeConversationId,
-            latest,
-            50,
-          );
+          const page = await listMessages(projectId, activeConversationId, {
+            before: oldest,
+            limit: 50,
+          });
           set((state) => {
             if (
               state.projectId !== projectId ||
@@ -830,7 +840,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 state.streamingAssistantMessages,
                 messages,
               ),
-              hasMoreMessages: page.nextAfter != null,
+              hasMoreMessages: page.nextBefore != null,
               loadingOlder: false,
             };
           });
@@ -924,12 +934,10 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             };
           });
           if (accepted.appendState === "appended") {
-            const page = await listMessages(
-              projectId,
-              activeConversationId,
-              Math.max(0, accepted.messageSeq - 1),
-              1,
-            );
+            const page = await listMessages(projectId, activeConversationId, {
+              after: Math.max(0, accepted.messageSeq - 1),
+              limit: 1,
+            });
             set((state) => {
               if (
                 state.projectId !== projectId ||

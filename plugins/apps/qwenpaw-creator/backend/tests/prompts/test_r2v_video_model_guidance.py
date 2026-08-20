@@ -42,5 +42,8 @@ def test_wan_model_keeps_generic_guidance(monkeypatch) -> None:
     prompt = _render_r2v_prompt()
     assert "# 当前视频模型要求" in prompt
     assert "wan2.7-r2v" in prompt
+    assert "图片最多 5 张" in prompt
+    assert "视频最多 5 个" in prompt
+    assert "合计最多 5 个" in prompt
     assert "[Image N]" not in prompt
     assert "{{video_model_guidance}}" not in prompt

@@ -69,6 +69,8 @@ def test_dashscope_temporary_upload_streams_file_handle_instead_of_loading_bytes
     class FakeResponse:
         def __init__(self, payload=None):
             self.payload = payload or {}
+            self.status_code = 200
+            self.text = ""
 
         def raise_for_status(self):
             return None
@@ -140,6 +142,8 @@ def test_dashscope_temporary_upload_accepts_in_memory_reference_bytes(
     class FakeResponse:
         def __init__(self, payload=None):
             self.payload = payload or {}
+            self.status_code = 200
+            self.text = ""
 
         def raise_for_status(self):
             return None

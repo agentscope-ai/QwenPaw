@@ -425,4 +425,59 @@ describe("R2V Workbench page", () => {
       ],
     });
   });
+
+  it("numbers references authoritatively, refs by kind, and drops stale numbering on dirty drafts", async () => {
+    installMockFetch([
+      {
+        match: "/models/resolved",
+        response: {
+          json: { video: { provider: "wan", model: "wan2.7-r2v" } },
+        },
+      },
+      {
+        match: "/r2v-references",
+        response: {
+          json: {
+            elementId: "r2v-window",
+            storyboardSelected: true,
+            references: [
+              {
+                index: 1,
+                versionId: "sb-window-v1",
+                kind: "storyboard",
+                name: "分镜图",
+              },
+              {
+                index: 2,
+                versionId: "cat-video-v1",
+                kind: "source",
+                name: "橘猫原始视频",
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    renderWorkbench();
+
+    // The [Image N] badges follow the backend preview, and clicking a row
+    // selects the kind-correct ref (sources are asset versions).
+    await screen.findByText("[Image 1]");
+    fireEvent.click(screen.getByText("@橘猫原始视频").closest("button")!);
+    expect(useCreatorInteractionStore.getState().selectedRef).toBe(
+      "asset-version:cat-video-v1",
+    );
+    fireEvent.click(screen.getByText("@分镜图").closest("button")!);
+    expect(useCreatorInteractionStore.getState().selectedRef).toBe(
+      "artifact-version:sb-window-v1",
+    );
+
+    // A dirty draft invalidates the committed numbering until Apply: the
+    // stale badges disappear and the pending-apply notice takes over.
+    fireEvent.change(screen.getByDisplayValue("镜头缓慢推近，橘猫眨眼"), {
+      target: { value: "镜头快速推近" },
+    });
+    await waitFor(() => expect(screen.queryByText("[Image 1]")).toBeNull());
+    expect(screen.getByText(/权威序号将在应用更改后更新/)).toBeInTheDocument();
+  });
 });

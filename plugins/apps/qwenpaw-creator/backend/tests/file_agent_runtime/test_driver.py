@@ -1330,6 +1330,26 @@ def test_stale_snapshot_and_quarantine_replays_get_targeted_recovery() -> None:
     assert "quarantined" not in generic
 
 
+def test_video_reference_failures_get_targeted_recovery() -> None:
+    budget = _specialist_tool_recovery(
+        "r2v_generation",
+        "VIDEO_REFERENCE_BUDGET_EXCEEDED",
+        code="VIDEO_REFERENCE_BUDGET_EXCEEDED",
+    )
+    assert "No task was created" in budget
+    assert "maxReferenceVideos" in budget
+    assert "video_reference_version_ids" in budget
+    assert "Preserve the selected storyboard" in budget
+
+    unknown = _specialist_tool_recovery(
+        "r2v_generation",
+        "VIDEO_MODEL_CAPABILITY_UNKNOWN",
+        code="VIDEO_MODEL_CAPABILITY_UNKNOWN",
+    )
+    assert "unregistered gateway alias" in unknown
+    assert "Do not guess a generic limit" in unknown
+
+
 def test_r2v_real_face_rejection_gets_targeted_recovery() -> None:
     """The provider face-moderation error names the exact repair steps.
 

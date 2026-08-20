@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback, memo } from "react";
 import { Modal, message, Tooltip } from "antd";
-import { Film, ArrowUp, ArrowDown, CircleHelp, Trash2 } from "lucide-react";
+import {
+  Film,
+  ArrowUp,
+  ArrowDown,
+  CircleHelp,
+  Trash2,
+  Copy,
+  RotateCcw,
+} from "lucide-react";
 import logoMarkUrl from "@/assets/design/logo-mark.png";
 import tabCreateIcon from "@/assets/design/icon-tab-create.svg";
 import tabProjectsIcon from "@/assets/design/icon-tab-projects.svg";
@@ -9,10 +17,13 @@ import importProjectIcon from "@/assets/design/icon-import-project.svg";
 import type { ProjectSummary } from "@/contracts/creator";
 import {
   deleteProject,
+  copyProject,
+  getRecreateParams,
   listProjects,
   getArtifactVersionMediaUrl,
 } from "@/api/creator";
 import { useModelConfigStore } from "@/store/modelConfigStore";
+import { useRecreateStore } from "@/store/recreateStore";
 import { useRouter, useSearchParams } from "@/routing/navigation";
 import ModelBadges from "@/components/creator/ModelBadges";
 import ModelConfigModal from "@/components/creator/ModelConfigModal";
@@ -37,6 +48,8 @@ interface ProjectCardProps {
   project: ProjectSummary;
   onOpen: (id: string) => void;
   onDelete: (project: ProjectSummary) => void;
+  onCopy: (project: ProjectSummary) => void;
+  onRecreate: (project: ProjectSummary) => void;
   onPreview: (project: ProjectSummary) => void;
   formatDate: (dateStr: string) => string;
 }
@@ -46,6 +59,8 @@ const ProjectCard = memo(function ProjectCard({
   project,
   onOpen,
   onDelete,
+  onCopy,
+  onRecreate,
   onPreview,
   formatDate,
 }: ProjectCardProps) {
@@ -104,19 +119,47 @@ const ProjectCard = memo(function ProjectCard({
         >
           {formatDate(project.updatedAt)}
         </span>
-        {/* Export moved to the plan page; the only card action left is a
-            muted always-visible delete icon that reddens on hover only. */}
-        <button
-          type="button"
-          aria-label={t("home.deleteProject", { name: project.name })}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(project);
-          }}
-          className="flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {/* Export moved to the plan page; the only card actions left are
+            muted always-visible icons. */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Tooltip title={t("home.recreateProject", { name: project.name })}>
+            <button
+              type="button"
+              aria-label={t("home.recreateProject", { name: project.name })}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRecreate(project);
+              }}
+              className="flex h-[18px] w-[18px] cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-accent)]"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip title={t("home.copyProject", { name: project.name })}>
+            <button
+              type="button"
+              aria-label={t("home.copyProject", { name: project.name })}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopy(project);
+              }}
+              className="flex h-[18px] w-[18px] cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-accent)]"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+          <button
+            type="button"
+            aria-label={t("home.deleteProject", { name: project.name })}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(project);
+            }}
+            className="flex h-[18px] w-[18px] cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -227,6 +270,29 @@ export default function HomePage() {
     },
     [fetchProjects],
   );
+
+  const handleCopy = useCallback(
+    async (project: ProjectSummary) => {
+      try {
+        const result = await copyProject(project.projectId);
+        message.success(t("home.copySuccess"));
+        router.push(`/project/${result.projectId}/plan`);
+      } catch {
+        message.error(t("home.copyFailed"));
+      }
+    },
+    [router],
+  );
+
+  const handleRecreate = useCallback(async (project: ProjectSummary) => {
+    try {
+      const params = await getRecreateParams(project.projectId);
+      useRecreateStore.getState().setParams(params);
+      setView("create");
+    } catch {
+      message.error(t("home.recreateFailed"));
+    }
+  }, []);
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -458,6 +524,8 @@ export default function HomePage() {
                     project={project}
                     onOpen={handleOpen}
                     onDelete={handleDelete}
+                    onCopy={handleCopy}
+                    onRecreate={handleRecreate}
                     onPreview={setPreviewProject}
                     formatDate={formatDate}
                   />
