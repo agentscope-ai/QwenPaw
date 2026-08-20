@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from domain.enums import SpecialistRole
 from models import config as model_config
+from models.image.base import image_model_prompt_guidance
 from models.video_capabilities import video_model_prompt_guidance
 from services.file_agent_runtime.prompts import render_file_agent_prompt
 from services.file_agent_runtime.prompts import tts_guidance
@@ -268,6 +269,16 @@ def specialist_system_prompt(
         # prompt stays model-agnostic.
         values["video_model_guidance"] = video_model_prompt_guidance(
             model_config.get_video_model_name(),
+        )
+    if role in {
+        SpecialistRole.VISUAL_DEVELOPMENT,
+        SpecialistRole.R2V_GENERATION_DIRECTOR,
+    }:
+        # The image reference budget is a model capability, not a static
+        # rule: qwen-image only accepts 0-3 image content items per call
+        # while other providers keep the historical budget of 5.
+        values["image_model_guidance"] = image_model_prompt_guidance(
+            model_config.get_image_model_name(),
         )
     if role is SpecialistRole.AI_EDITING_DIRECTOR:
         content_type = (

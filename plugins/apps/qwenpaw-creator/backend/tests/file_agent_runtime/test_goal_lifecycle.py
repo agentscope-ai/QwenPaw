@@ -438,3 +438,109 @@ def test_restart_orphaned_interrupt_with_queued_run_completes_the_stop(
     # The hard stop consumed every pending message, as a served interrupt
     # always does.
     assert session.last_consumed_message_seq == session.last_message_seq
+
+
+def test_stalled_interrupt_reclaims_a_running_run_with_no_live_owner(
+    tmp_path,
+) -> None:
+    """A dead worker's RUNNING run must not park the stop forever.
+
+    Production wedge: the mainline failed on stream persistence and the
+    FAILED transition itself lost the Runtime lock race, leaving the run
+    durably RUNNING with no owner. Every reconcile pass treated it as a
+    foreign live lease, so the Session stayed INTERRUPT_REQUESTED and the
+    dock showed 「正在停止所有 Agent」 indefinitely while user messages
+    piled up unconsumed. After the stall window the stop must be served.
+    """
+
+    async def callback(_messages, _tools) -> AgentModelTurn:
+        return AgentModelTurn(content="不应被调用")
+
+    async def scenario():
+        services = _create_project(tmp_path, initial_goal=None)
+        appended = services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[{"type": "text", "text": "生成镜头视频"}],
+        ).message
+        goal = services.sessions.create_goal(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            root_message_seq=appended.message_seq,
+            intent="生成镜头视频",
+            goal_id="goal-dead-owner",
+        )
+        snapshot = services.projects.read(PROJECT_ID)
+        runs = CreatorAgentRunStore(services.root)
+        runs.create(
+            CreatorAgentRunRecord(
+                run_id="agent-run-dead-owner",
+                project_id=PROJECT_ID,
+                session_id=SESSION_ID,
+                goal_id=goal.goal_id,
+                conversation_id=CONVERSATION_ID,
+                round_id="round-dead-owner",
+                caused_by_message_id=appended.message_id,
+                caused_by_message_seq=appended.message_seq,
+                origin=ChangeOrigin.AGENTDOCK_IDLE_GOAL,
+                review_policy=ReviewPolicy.AUTO_FIX,
+                input_generation=snapshot.generation,
+                input_etag=snapshot.etag,
+            ),
+        )
+        services.sessions.activate_run(
+            PROJECT_ID,
+            SESSION_ID,
+            goal_id=goal.goal_id,
+            run_id="agent-run-dead-owner",
+        )
+        runs.transition(
+            PROJECT_ID,
+            "agent-run-dead-owner",
+            expected_status="QUEUED",
+            status="RUNNING",
+        )
+        # The worker dies here without persisting a terminal status; the
+        # user presses stop and keeps typing into the unresponsive dock.
+        services.sessions.set_session_status(
+            PROJECT_ID,
+            SESSION_ID,
+            "INTERRUPT_REQUESTED",
+        )
+        services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[{"type": "text", "text": "还在吗？"}],
+        )
+
+        driver = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(callback),
+            poll_interval_seconds=0.01,
+        )
+        driver._INTERRUPT_STALL_RECLAIM_SECONDS = 0.0
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: services.sessions.get_project_session(
+                PROJECT_ID,
+            ).status.value
+            == "CANCELLED",
+        )
+        reclaimed = runs.get(PROJECT_ID, "agent-run-dead-owner")
+        session = services.sessions.get_project_session(PROJECT_ID)
+        await driver.stop()
+        return reclaimed, session
+
+    reclaimed, session = asyncio.run(scenario())
+
+    assert reclaimed.status.value == "FAILED"
+    assert (reclaimed.error or {}).get("code") == "INTERRUPTED"
+    assert session.status.value == "CANCELLED"
+    assert session.active_run_id is None
+    assert session.last_consumed_message_seq == session.last_message_seq

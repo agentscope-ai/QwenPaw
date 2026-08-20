@@ -10,6 +10,7 @@ authorities used here.
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import stat as stat_module
 import zipfile
@@ -72,7 +73,6 @@ from .dependencies import (
     project_file_services,
     resolve_idempotency_key,
 )
-
 
 logger = setup_logger("project_routes")
 
@@ -305,7 +305,9 @@ async def create_project(
             existing = services.projects.list()
             target_name = request.name.strip()
             if any(item.name == target_name for item in existing):
-                raise ValidationError(f"项目名称「{target_name}」已存在，请使用其他名称")
+                raise ValidationError(
+                    f"项目名称「{target_name}」已存在，请使用其他名称",
+                )
 
             holder: list[ProjectRuntimeBootstrap] = []
 
@@ -397,6 +399,12 @@ async def delete_project(
         superseded=False,
         reason="project_deleted",
     )
+    # Signal every detached provider/review/scheduler worker before the
+    # Project id disappears. Cancellation is synchronous; cleanup is not
+    # awaited because deletion itself is the terminal boundary.
+    from api.file_session_routes import _cancel_detached_project_tasks
+
+    _cancel_detached_project_tasks(services, project_id)
     try:
         await asyncio.to_thread(services.projects.delete, project_id)
     except ProjectNotFound:
@@ -404,15 +412,152 @@ async def delete_project(
     except (ProjectIntegrityError, ProjectStoreError) as exc:
         raise StorageIntegrityError(str(exc)) from exc
     services.poller.close(project_id)
-    try:
-        await asyncio.to_thread(
-            services.poller.poll_once,
-            project_id,
-            force=True,
-        )
-    except ProjectNotFound:
-        pass
+    from utils.logger import close_creator_project_logging
+
+    close_creator_project_logging(project_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{project_id}/recreate-params")
+async def get_recreate_params(
+    project_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    logger.info(f"fetching recreate params for:{_log_safe(project_id)}")
+
+    def operation() -> dict[str, Any]:
+        snapshot = services.projects.read(project_id)
+        project = snapshot.project
+
+        base_name = re.sub(r" copy$", "", project.name)
+        base_name = re.sub(r"\s+\d+$", "", base_name)
+
+        existing = services.projects.list()
+        max_count = 1
+        pattern = re.compile(rf"^{re.escape(base_name)}\s+(\d+)$")
+        for item in existing:
+            match = pattern.match(item.name)
+            if match:
+                count = int(match.group(1))
+                if count > max_count:
+                    max_count = count
+        next_name = f"{base_name} {max_count + 1}"
+
+        source_urls: list[str] = []
+        for version in project.assets.source_versions_by_id.values():
+            url = version.metadata.get("publicSourceUrl")
+            if url and isinstance(url, str):
+                source_urls.append(url)
+
+        return {
+            "name": next_name,
+            "description": project.description,
+            "scenario": project.scenario,
+            "contentType": project.settings.content_type,
+            "resolution": project.settings.resolution,
+            "aspectRatio": project.settings.aspect_ratio,
+            "sourceUrls": source_urls,
+        }
+
+    try:
+        return await asyncio.to_thread(operation)
+    except ProjectNotFound:
+        raise
+    except (ProjectIntegrityError, ProjectStoreError) as exc:
+        raise StorageIntegrityError(str(exc)) from exc
+
+
+@router.post("/{project_id}/copy", status_code=status.HTTP_201_CREATED)
+async def copy_project(
+    project_id: str,
+    response: Response,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    logger.info(f"copying project:{_log_safe(project_id)}")
+
+    def operation() -> dict[str, Any]:
+        source_snapshot = services.projects.read(project_id)
+        source = source_snapshot.project
+        source_root = services.projects.project_root(project_id)
+
+        new_project_id = f"project-{uuid4().hex}"
+        new_session_id = f"session-{uuid4().hex}"
+        new_conversation_id = f"conversation-{uuid4().hex}"
+
+        copy_name = f"{source.name} copy"
+        with CrossProcessFileLock(
+            services.projects.root / ".project-names.lock",
+        ):
+            existing = services.projects.list()
+            base_name = copy_name
+            suffix = 1
+            while any(item.name == copy_name for item in existing):
+                suffix += 1
+                copy_name = f"{base_name} {suffix}"
+
+            new_project = Project.new(
+                project_id=new_project_id,
+                name=copy_name,
+                description=source.description,
+                scenario=source.scenario,
+                settings=source.settings,
+            )
+            new_project = new_project.model_copy(
+                update={
+                    "strategy": source.strategy,
+                    "visual": source.visual,
+                    "timelines": source.timelines,
+                    "assets": source.assets,
+                },
+            )
+
+            holder: list[None] = []
+
+            def initialize(staged_root: Path) -> None:
+                assets_src = source_root / "assets"
+                assets_dst = staged_root / "assets"
+                if assets_src.is_dir():
+                    for item in assets_src.iterdir():
+                        dst = assets_dst / item.name
+                        if item.is_dir():
+                            shutil.copytree(
+                                str(item),
+                                str(dst),
+                                dirs_exist_ok=True,
+                            )
+                        else:
+                            shutil.copy2(str(item), str(dst))
+                holder.append(None)
+                services.sessions.initialize_staged_project(
+                    staged_root,
+                    new_project_id,
+                    session_id=new_session_id,
+                    conversation_id=new_conversation_id,
+                )
+
+            snapshot = services.projects.create(
+                new_project,
+                initialize_staged_project=initialize,
+            )
+
+        if len(holder) != 1:
+            raise StorageIntegrityError(
+                "Project Runtime 未随复制 Project 原子创建",
+            )
+        services.poller.note_commit(snapshot)
+        return {"projectId": new_project_id}
+
+    try:
+        result = await asyncio.to_thread(operation)
+    except ProjectNotFound:
+        raise
+    except (ConflictError, StorageIntegrityError):
+        raise
+    except (ProjectIntegrityError, ProjectStoreError, RuntimeFileError) as exc:
+        raise StorageIntegrityError(str(exc)) from exc
+    notify_creator_agent_runtime(result["projectId"])
+    response.status_code = status.HTTP_201_CREATED
+    return result
 
 
 @router.get("/{project_id}/export")

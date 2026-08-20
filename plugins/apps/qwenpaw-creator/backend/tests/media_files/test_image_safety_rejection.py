@@ -40,6 +40,10 @@ _PHOTO_URL = "https://example.com/messi-photo.jpg"
 
 
 class _CountingProvider:
+    # Safety behaviour is exercised after the model-capability preflight, so
+    # this test provider must identify the documented model contract it mocks.
+    model_name = "qwen-image-2.0-pro"
+
     def __init__(self, *, fail_with: str | None = None) -> None:
         self.calls = 0
         self._fail_with = fail_with

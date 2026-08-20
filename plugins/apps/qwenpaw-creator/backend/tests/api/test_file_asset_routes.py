@@ -617,31 +617,34 @@ def test_remote_asset_rejects_invalid_content_length_without_staging(
     assert list(file_store.staging_root.iterdir()) == []
 
 
-def test_local_video_limit_remains_100_mib_and_is_independent_of_remote_limit(
+def test_local_video_limit_remains_2_gib_and_is_independent_of_remote_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
         "CREATOR_REMOTE_ASSET_MAX_BYTES",
         str(4 * 1024 * 1024 * 1024),
     )
-    assert file_asset_routes._MAX_LOCAL_VIDEO_UPLOAD_BYTES == 100 * 1024 * 1024
+    assert (
+        file_asset_routes._MAX_LOCAL_VIDEO_UPLOAD_BYTES
+        == 2 * 1024 * 1024 * 1024
+    )
     _validate_local_video_upload(
         name="source.mp4",
         media_type="video/mp4",
-        size_bytes=100 * 1024 * 1024,
+        size_bytes=2 * 1024 * 1024 * 1024,
     )
-    with pytest.raises(ValidationError, match="100 MiB"):
+    with pytest.raises(ValidationError, match="2 GiB"):
         _validate_local_video_upload(
             name="source.mp4",
             media_type="video/mp4",
-            size_bytes=100 * 1024 * 1024 + 1,
+            size_bytes=2 * 1024 * 1024 * 1024 + 1,
         )
 
     # Do not add a new backend limit to non-video uploads in this change.
     _validate_local_video_upload(
         name="dataset.bin",
         media_type="application/octet-stream",
-        size_bytes=100 * 1024 * 1024 + 1,
+        size_bytes=2 * 1024 * 1024 * 1024 + 1,
     )
 
 
@@ -668,7 +671,7 @@ def test_local_video_route_enforces_its_own_limit(
 
     response = asyncio.run(scenario())
     assert response.status_code == 422
-    assert "本地视频超过 100 MiB" in response.text
+    assert "Local video upload exceeds 2 GiB" in response.text
     project = services.projects.read("project-1").project
     assert project.generation == 0
     assert project.assets.files_by_id == {}

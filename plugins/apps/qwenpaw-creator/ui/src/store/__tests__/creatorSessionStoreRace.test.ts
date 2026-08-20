@@ -137,13 +137,15 @@ describe("Creator Session async project/conversation isolation", () => {
       vi.fn(() => pendingResponse.promise),
     );
     bind("p1", "conversation-p1");
+    // Older-history paging needs a loaded oldest message to anchor `before`.
+    useCreatorSessionStore.setState({ messages: [message("p1", 5)] });
 
     const load = useCreatorSessionStore.getState().loadOlderMessages();
     useCreatorSessionStore.getState().reset();
     bind("p2", "conversation-p2");
     useCreatorSessionStore.setState({ messages: [message("p2")] });
     pendingResponse.resolve(
-      response({ items: [message("p1", 2)], nextAfter: null }),
+      response({ items: [message("p1", 2)], nextBefore: null }),
     );
     await load;
 

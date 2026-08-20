@@ -550,4 +550,7 @@ def test_guidance_describes_the_mode_matrix() -> None:
     assert "不支持的 mode（video_edit）" in wan
 
     seedance = video_model_prompt_guidance("doubao-seedance-2.0-pro")
+    assert "图片最多 9 张" in seedance
+    assert "视频最多 3 个" in seedance
+    assert "合计最多 12 个" in seedance
     assert "不支持的 mode（t2v, i2v, video_edit）" in seedance

@@ -839,3 +839,69 @@ def test_startup_recovery_terminalizes_an_unresumable_generation(
     # resubmitted to the provider.
     assert PROVIDER_TASK_ID in str(task.error)
     assert provider.calls == 0
+
+
+def test_recovery_terminalizes_scheduler_dispatched_zombies(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Field run 2026-08-12 (project 27dc): recover the record we iterated.
+
+    A storyboard task admitted by the work-graph scheduler survived a
+    restart as a RUNNING zombie: the recovery pass recomputed the
+    file-image stable id from the task's idempotency key, missed the
+    record (scheduler keys live in another id namespace), silently
+    returned on RecordNotFound and left the work-graph lane pinned
+    RUNNING forever.
+    """
+
+    services = _services(tmp_path, monkeypatch)
+    worker = FileImageExecutionService(services, provider=_UncalledProvider())
+
+    async def leave_zombie() -> str:
+        base = await asyncio.to_thread(services.projects.read, PROJECT_ID)
+        arguments = {
+            "prompt": "翻译海报文字",
+            "mode": "translate",
+            "referenceImageRefs": [SOURCE_VERSION_ID],
+            "sourceLang": "zh",
+            "targetLang": "en",
+        }
+        resolved = image_execution._resolve_request(
+            snapshot=base,
+            project_root=services.projects.project_root(PROJECT_ID),
+            command=CreatorCommandType.GENERATE_ASSET,
+            target_ref=f"asset:{ENTITY_ID}",
+            arguments=arguments,
+        )
+        # The scheduler admits under its own id scheme: the stored
+        # idempotency key cannot reproduce the record's task id.
+        ids = worker._ids(PROJECT_ID, "scheduler-slot-1")
+        run, task = await worker._admit(
+            base=base,
+            resolved=resolved,
+            request_fingerprint=f"sha256:{'a' * 64}",
+            command_request_hash=f"sha256:{'b' * 64}",
+            idempotency_key="dag-storyboard:elem:scene3-deadbeef",
+            ids=ids,
+        )
+        task = await worker._start(
+            run=run,
+            task=task,
+            resolved=resolved,
+            ids=ids,
+        )
+        assert await worker._claim_provider(task)
+        # One-shot generation: no billed provider-task ledger exists.
+        return task.task_id
+
+    task_id = asyncio.run(leave_zombie())
+    interrupted = worker.executions.get_task(PROJECT_ID, task_id)
+    assert interrupted.status is TaskStatus.RUNNING
+
+    recovered = asyncio.run(recover_interrupted_image_tasks(services))
+
+    assert recovered == 1
+    task = worker.executions.get_task(PROJECT_ID, task_id)
+    assert task.status is TaskStatus.FAILED
+    assert "IMAGE_PROCESS_RESTARTED" in str(task.error)

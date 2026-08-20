@@ -33,7 +33,7 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
 )
 from services.runtime_files.models import ReviewPolicy
-
+from services.runtime_files.session_store import ProjectRuntimeSessionStore
 
 pytestmark = pytest.mark.unit
 
@@ -117,7 +117,6 @@ def test_run_task_and_attempt_heads_use_atomic_json_and_jsonl(tmp_path):
     assert (
         store.get_task(PROJECT_ID, task.task_id).status is TaskStatus.RUNNING
     )
-
     completed = store.append_task_attempt(
         PROJECT_ID,
         task.task_id,
@@ -139,6 +138,20 @@ def test_run_task_and_attempt_heads_use_atomic_json_and_jsonl(tmp_path):
     assert (
         runtime_root / "tasks" / task.task_id / "attempts.jsonl"
     ).read_text(encoding="utf-8").count("\n") == 2
+
+
+def test_execution_write_does_not_wait_for_session_runtime_domain(tmp_path):
+    store = _store(tmp_path)
+    store.create_specialist_run(_run())
+    sessions = ProjectRuntimeSessionStore(
+        tmp_path.resolve(),
+        lock_timeout_seconds=0.05,
+    )
+
+    with sessions._runtime_lock(PROJECT_ID):
+        created = store.create_task(_task())
+
+    assert created.task_id == "task-1"
 
 
 def test_message_and_continuation_streams_are_ordered_and_inherit_provenance(

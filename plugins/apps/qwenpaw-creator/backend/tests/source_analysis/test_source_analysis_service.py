@@ -492,14 +492,11 @@ def test_legacy_dispatch_fails_closed_without_calling_an_inner_vlm(
 
     dispatch, completed, replay = asyncio.run(scenario())
     assert completed.status is replay.status is TaskStatus.FAILED
-    assert completed.error == {
-        "code": "SOURCEANALYZERCONFIGURATIONERROR",
-        "message": (
-            "Direct inner Source VLM analysis has been removed; the outer Source "
-            "Intelligence VLM must call commit_source_intelligence"
-        ),
-        "retryable": False,
-    }
+    assert completed.error["code"] == "SOURCEANALYZERCONFIGURATIONERROR"
+    assert "outer Source Intelligence VLM" in completed.error["message"]
+    assert completed.error["retryable"] is False
+    assert completed.error["errorId"].startswith("error-")
+    assert completed.error["traceId"].startswith("trace-")
     assert (
         service.executions.get_run(
             "project-1",
@@ -861,7 +858,8 @@ def test_analyze_endpoint_rejects_removed_inner_vlm_path(
 
     response = asyncio.run(submit())
     assert response.status_code == 409
-    assert "outer Source Intelligence VLM" in response.json()["detail"]
+    assert response.json()["code"] == "HTTP_409"
+    assert "outer Source Intelligence VLM" in response.json()["message"]
 
 
 def test_source_admission_replay_repairs_run_created_before_task(

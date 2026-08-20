@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Iterable, Mapping, Sequence
@@ -222,6 +223,107 @@ def _upstream_missing(
     return tuple(
         dep for dep in dep_ids if statuses.get(dep) is not WorkNodeStatus.DONE
     )
+
+
+def _dialogue_match_key(text: str) -> str:
+    return "".join(text.split())
+
+
+# Speaker prefixes ("老板娘：…" / "Regular: …") and stage directions
+# ("（回头）") belong to the shot plan, not to the spoken line itself — the
+# prompt naturally rephrases them ("她温和地说：“…”"), so requiring them
+# verbatim makes the gate unsatisfiable (field run 2026-08-12, project
+# 27dc: three YOLO continuation rounds burned against exactly this).
+_DIALOGUE_SPEAKER_PREFIX = re.compile(r"^[^：:]{1,20}[：:]\s*")
+_DIALOGUE_STAGE_DIRECTION = re.compile(r"[（(][^）)]*[）)]")
+
+
+def _dialogue_spoken_lines(dialogue: str) -> tuple[str, ...]:
+    """The spoken sentences of a shot's dialogue field, one per line."""
+    lines: list[str] = []
+    for raw in dialogue.splitlines():
+        line = _DIALOGUE_SPEAKER_PREFIX.sub("", raw.strip())
+        line = _DIALOGUE_STAGE_DIRECTION.sub("", line).strip()
+        if line:
+            lines.append(line)
+    return tuple(lines)
+
+
+def _video_prompt_dialogue_gaps(creation: R2VCreation) -> tuple[str, ...]:
+    """Shots whose spoken lines never reached the committed video prompt.
+
+    Field run 2026-08-12 (project f5ac): the mainline planned per-shot
+    dialogue in the shot list, then committed a two-sentence mood summary
+    as ``video_prompt``. The scheduler dispatched that summary verbatim and
+    the dialogue never reached the video provider — a silent film with a
+    written script. R2V doctrine requires quoting the spoken lines 原文
+    inside the video prompt, so the graph enforces it deterministically:
+    the video node stays GATED (naming the offending shots) until the
+    prompt quotes every planned line. Matching ignores whitespace, speaker
+    prefixes and stage directions so natural prompt phrasing never causes
+    a false gap.
+    """
+    prompt = _dialogue_match_key(creation.video_prompt or "")
+    gaps: list[str] = []
+    for shot_id in creation.shots.order:
+        shot = creation.shots.items.get(shot_id)
+        if shot is None:
+            continue
+        for line in _dialogue_spoken_lines(shot.dialogue or ""):
+            if _dialogue_match_key(line) not in prompt:
+                gaps.append(f"video_prompt 缺台词原文：{shot_id}")
+                break
+    return tuple(gaps)
+
+
+def _element_dialogue_density_gap(
+    creation: R2VCreation,
+    scenario: str,
+) -> str | None:
+    """Element dialogue density below min_dialogue_ratio — gate the video.
+
+    Field run 2026-08-12 (project 4cd, amodei love story): the story
+    theme was "unspoken love" and the model interpreted it as "no one
+    speaks anywhere" — 6 elements, 26 shots, only 1 dialogue line.
+    The dialogue-coverage gate (_video_prompt_dialogue_gaps) only fires
+    when dialogue *exists* and is not quoted; it silently passes when
+    shot.dialogue is empty. This gate catches the other failure mode:
+    characters appear but the model wrote a silent film.
+
+    The threshold is per-element (``creation.min_dialogue_ratio``,
+    default 0.3 ≈ 1 line per 2–3 shots); the review UI may override it
+    per element for fine-grained control.
+
+    Exemptions:
+    - Non-narrative scenarios (video_edit, general) — no story doctrine.
+    - Elements without character_refs — nothing to speak.
+    - Elements whose narrative contains the explicit directorial note
+      "有意静默" — a deliberate silence choice, not an oversight.
+    - min_dialogue_ratio == 0 — the model (or user) explicitly opted out.
+    """
+    gap: str | None = None
+    if (
+        scenario == "short_drama"
+        and creation.character_refs
+        and creation.min_dialogue_ratio > 0
+        and "有意静默" not in (creation.narrative or "")
+    ):
+        shots = [creation.shots.items.get(sid) for sid in creation.shots.order]
+        shots = [s for s in shots if s is not None]
+        if shots:
+            dialogue_count = sum(
+                1 for s in shots if (s.dialogue or "").strip()
+            )
+            ratio = dialogue_count / len(shots)
+            if ratio < creation.min_dialogue_ratio:
+                gap = (
+                    f"element 对白密度 {dialogue_count}/{len(shots)}"
+                    f" ({ratio:.0%}) 低于目标"
+                    f" {creation.min_dialogue_ratio:.0%}；"
+                    "如确需静默请在 narrative 写明「有意静默」"
+                    "或将 min_dialogue_ratio 调低"
+                )
+    return gap
 
 
 def _slot_selected(project: Project, slot_id: str) -> str | None:
@@ -514,6 +616,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 creation.video_prompt,
                 storyboard_slot,
             )
+            video_missing: tuple[str, ...] = ()
             if task is not None:
                 status = WorkNodeStatus.RUNNING
             elif video_slot:
@@ -528,12 +631,34 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 )
             elif not storyboard_done:
                 status = WorkNodeStatus.GATED
+                video_missing = (storyboard_id,)
             elif failure is not None and not _failure_inputs_changed(
                 failure,
                 video_id,
                 fingerprint,
             ):
                 status = WorkNodeStatus.FAILED
+            elif not (creation.video_prompt or "").strip():
+                # No prompt yet: model work, mirrored on the storyboard
+                # node's "prompt missing" reason so the completion loop
+                # names the gap instead of dispatching into a
+                # ValidationError.
+                status = WorkNodeStatus.GATED
+                video_missing = ("video_prompt 缺失",)
+            elif dialogue_gaps := _video_prompt_dialogue_gaps(creation):
+                # Planned dialogue must be quoted verbatim in the video
+                # prompt before dispatch — see _video_prompt_dialogue_gaps.
+                status = WorkNodeStatus.GATED
+                video_missing = dialogue_gaps
+            elif absence_gap := _element_dialogue_density_gap(
+                creation,
+                project.scenario,
+            ):
+                # Element dialogue density below min_dialogue_ratio —
+                # the model wrote a silent film or too-sparse dialogue.
+                # See _element_dialogue_density_gap.
+                status = WorkNodeStatus.GATED
+                video_missing = (absence_gap,)
             else:
                 status = WorkNodeStatus.READY
             add(
@@ -551,7 +676,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                         if status is WorkNodeStatus.FAILED
                         else None
                     ),
-                    missing=((storyboard_id,) if not storyboard_done else ()),
+                    missing=video_missing,
                     locator={"page": "plan", "elementId": element_id},
                     command="GENERATE_R2V_VIDEO",
                     target_ref=f"element:{element_id}",
@@ -711,6 +836,16 @@ def _storyboard_gate_dependencies(
     and field runs showed identity drift — duplicated jersey numbers —
     exactly when storyboards rendered while the lineup was still absent.
     Projects that plan no lineup are unaffected.
+
+    Declared-but-unselected lineups gate *every* storyboard, not only the
+    covering ones: the execution gate
+    (assert_visual_design_ready_for_storyboards) is project-wide, and a
+    graph that reports READY for a node the executor refuses poisons the
+    dispatch ledger before any task record exists. Field run 2026-08-12
+    (project 27dc): a single-character closing scene derived READY while
+    the counter lineup was pending, its pre-spend dispatch was rejected,
+    and the node stalled READY-but-undispatchable for 25 minutes until a
+    restart cleared the ledger.
     """
 
     gate_missing: list[str] = []
@@ -725,26 +860,68 @@ def _storyboard_gate_dependencies(
         entity = project.visual.entities.items.get(ref)
         if entity is None:
             continue
-        if not entity.required_variant_ids:
-            if entity.selected_artifact_version_id is None:
-                gate_missing.append(f"{ref} 尚无使用中视觉产物")
-            continue
-        for required_id in entity.required_variant_ids:
-            variant = entity.variants.items.get(required_id)
-            node = f"visual:{ref}:{required_id}"
-            if variant is None:
-                gate_missing.append(f"{ref}/{required_id} 尚未定义")
-            elif variant.selected_artifact_version_id is None:
-                if node not in deps:
-                    deps.append(node)
-        if len(entity.required_variant_ids) > 1 and not (
-            creation.visual_variant_refs.get(ref)
-        ):
-            gate_missing.append(f"{ref} 缺少 variant 绑定")
+        gate_missing.extend(_entity_gate_gaps(entity, ref, creation, deps))
     for lineup_node in _covering_lineup_nodes(project, creation):
         if lineup_node not in deps:
             deps.append(lineup_node)
+    for lineup_node in _declared_pending_lineup_nodes(project):
+        if lineup_node not in deps:
+            deps.append(lineup_node)
     return tuple(gate_missing)
+
+
+def _entity_gate_gaps(
+    entity: Any,
+    ref: str,
+    creation: R2VCreation,
+    deps: list[str],
+) -> list[str]:
+    """One referenced entity's model-only gaps; dispatchable ones → deps."""
+
+    gaps: list[str] = []
+    if not entity.required_variant_ids:
+        if entity.selected_artifact_version_id is None:
+            gaps.append(f"{ref} 尚无使用中视觉产物")
+        return gaps
+    for required_id in entity.required_variant_ids:
+        variant = entity.variants.items.get(required_id)
+        node = f"visual:{ref}:{required_id}"
+        if variant is None:
+            gaps.append(f"{ref}/{required_id} 尚未定义")
+        elif variant.selected_artifact_version_id is None:
+            if node not in deps:
+                deps.append(node)
+    if len(entity.required_variant_ids) > 1 and not (
+        creation.visual_variant_refs.get(ref)
+    ):
+        gaps.append(f"{ref} 缺少 variant 绑定")
+    return gaps
+
+
+def _declared_pending_lineup_nodes(project: Project) -> list[str]:
+    """Unselected lineups any enabled element declared, project-wide.
+
+    Mirrors _lineup_readiness_issues exactly: a declared
+    ``cast_lineup_refs`` blocks every storyboard in the project until the
+    lineup artwork is selected.
+    """
+
+    pending: list[str] = []
+    for timeline_id in project.timelines.order:
+        timeline = project.timelines.items[timeline_id]
+        for element in timeline.elements_by_id.values():
+            creation = element.creation
+            if not element.enabled or not isinstance(creation, R2VCreation):
+                continue
+            for lineup_ref in creation.cast_lineup_refs:
+                lineup = project.visual.cast_lineups.items.get(lineup_ref)
+                node = f"lineup:{lineup_ref}"
+                if (
+                    lineup is None
+                    or lineup.selected_artifact_version_id is None
+                ) and node not in pending:
+                    pending.append(node)
+    return pending
 
 
 def _covering_lineup_nodes(

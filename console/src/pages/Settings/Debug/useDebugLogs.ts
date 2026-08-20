@@ -5,6 +5,7 @@ import {
   debugApi,
   type BackendDebugLogsResponse,
 } from "../../../api/modules/debug";
+import { copyText } from "@/utils/clipboard";
 
 const BACKEND_LOG_LINES = 200;
 const BACKEND_REFRESH_MS = 3000;
@@ -137,7 +138,9 @@ export function useDebugLogs() {
 
   const handleCopyBackend = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(filteredBackendText);
+      // copyText degrades to execCommand on non-secure (HTTP) contexts where
+      // navigator.clipboard is unavailable.
+      await copyText(filteredBackendText);
       messageApi.success(t("common.copied"));
     } catch {
       messageApi.error(t("common.copyFailed"));

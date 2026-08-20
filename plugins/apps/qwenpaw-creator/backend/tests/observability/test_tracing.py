@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 import pytest
 
-from api.dependencies import bind_creator_trace_request
+from api.dependencies import CreatorErrorRoute, bind_creator_trace_request
+from api.observability_routes import router as observability_router
+from domain.errors import ValidationError
 from schemas.observability import ObservabilityConfigData
 from services.observability import (
     bind_trace_context,
@@ -241,13 +245,19 @@ def test_creator_file_logging_and_trace_are_isolated_by_project(
         assert len(project_traces) == 1
         assert '"name":"creator.test.system_logging"' in system_traces[
             0
-        ].read_text(encoding="utf-8")
+        ].read_text(
+            encoding="utf-8",
+        )
         assert '"name":"creator.test.file_logging"' not in system_traces[
             0
-        ].read_text(encoding="utf-8")
+        ].read_text(
+            encoding="utf-8",
+        )
         assert '"name":"creator.test.file_logging"' in project_traces[
             0
-        ].read_text(encoding="utf-8")
+        ].read_text(
+            encoding="utf-8",
+        )
         assert project_traces[0].stat().st_mode & 0o777 == 0o600
         assert (
             read_trace_records(
@@ -323,11 +333,126 @@ def test_creator_http_dependency_persists_correlated_request_span(
             list(
                 (
                     data_root / "project-http-1" / "observability" / "traces"
-                ).glob("creator-trace-*.jsonl"),
+                ).glob(
+                    "creator-trace-*.jsonl",
+                ),
             ),
         )
         == 1
     )
+
+
+def test_creator_error_route_suppresses_successful_poll_but_keeps_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    data_root = tmp_path / "creator-runtime"
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(data_root))
+    save_observability_config(ObservabilityConfigData())
+    _create_project(data_root, "project-poll")
+    app = FastAPI()
+    poll_router = APIRouter(
+        dependencies=[Depends(bind_creator_trace_request)],
+        route_class=CreatorErrorRoute,
+    )
+
+    @poll_router.get("/projects/{project_id}/session")
+    async def successful_poll() -> dict[str, str]:
+        return {"status": "unchanged"}
+
+    @poll_router.get("/projects/{project_id}/tasks")
+    async def failed_poll() -> dict[str, str]:
+        raise ValidationError("poll failed")
+
+    app.include_router(poll_router)
+
+    async def scenario():
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            ok = await client.get(
+                "/projects/project-poll/session",
+                headers={"X-Request-ID": "poll-ok"},
+            )
+            failed = await client.get(
+                "/projects/project-poll/tasks",
+                headers={"X-Request-ID": "poll-failed"},
+            )
+            return ok, failed
+
+    ok, failed = asyncio.run(scenario())
+    assert ok.status_code == 200
+    assert failed.status_code == 422
+    assert read_trace_records(filters={"requestId": "poll-ok"}) == []
+    failure = read_trace_records(filters={"requestId": "poll-failed"})
+    assert [item["name"] for item in failure] == [
+        "creator.error.reported",
+    ]
+    assert failure[0]["status"] == "error"
+    assert failure[0]["attributes"]["errorCode"] == "VALIDATION_ERROR"
+    assert failure[0]["attributes"]["errorId"] == failed.json()["errorId"]
+    assert failed.json()["traceId"] == failed.headers["X-Creator-Trace-ID"]
+    assert read_trace_records(filters={"errorId": failed.json()["errorId"]})
+
+
+def test_observability_config_and_trace_query_api(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    data_root = tmp_path / "creator-runtime"
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(data_root))
+    save_observability_config(ObservabilityConfigData())
+    trace_event(
+        "creator.test.queryable",
+        component="test",
+        requestId="query-request",
+    )
+    app = FastAPI()
+    app.include_router(observability_router)
+
+    async def scenario():
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            missing_key = await client.put(
+                "/observability/config",
+                json={"enabled": True, "retentionDays": 30},
+            )
+            saved = await client.put(
+                "/observability/config",
+                headers={"Idempotency-Key": "observability-config-1"},
+                json={"enabled": True, "retentionDays": 30},
+            )
+            queried = await client.get(
+                "/observability/traces?requestId=query-request",
+            )
+            return missing_key, saved, queried
+
+    missing_key, saved, queried = asyncio.run(scenario())
+    assert missing_key.status_code == 422
+    assert saved.status_code == 200
+    assert saved.json()["retentionDays"] == 30
+    assert queried.status_code == 200
+    assert queried.json()["count"] == 1
+    assert queried.json()["items"][0]["name"] == "creator.test.queryable"
+
+
+def test_trace_retention_removes_expired_jsonl_files(tmp_path, monkeypatch):
+    data_root = tmp_path / "creator-runtime"
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(data_root))
+    save_observability_config(ObservabilityConfigData(retentionDays=1))
+    trace_directory = data_root / "observability" / "traces"
+    trace_directory.mkdir(parents=True, exist_ok=True)
+    expired = trace_directory / "creator-trace-2020-01-01.jsonl"
+    expired.write_text("{}\n", encoding="utf-8")
+    old = time.time() - 3 * 24 * 60 * 60
+    os.utime(expired, (old, old))
+
+    trace_event("creator.test.retention", component="test")
+
+    assert not expired.exists()
 
 
 def test_unknown_project_trace_falls_back_to_system_without_creating_project(
@@ -353,7 +478,9 @@ def test_unknown_project_trace_falls_back_to_system_without_creating_project(
     assert len(system_traces) == 1
     assert '"name":"creator.test.unknown_project"' in system_traces[
         0
-    ].read_text(encoding="utf-8")
+    ].read_text(
+        encoding="utf-8",
+    )
 
 
 def test_project_observability_symlink_is_rejected_and_never_written(
@@ -402,6 +529,8 @@ def test_project_observability_symlink_is_rejected_and_never_written(
         assert len(system_traces) == 1
         assert '"name":"creator.test.symlink_rejected"' in system_traces[
             0
-        ].read_text(encoding="utf-8")
+        ].read_text(
+            encoding="utf-8",
+        )
     finally:
         shutdown_creator_file_logging()

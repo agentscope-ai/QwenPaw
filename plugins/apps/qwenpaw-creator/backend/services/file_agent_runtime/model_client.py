@@ -34,6 +34,7 @@ from models import config as model_config
 from models.concurrency import model_slot
 from models.dashscope_multimodal import DashScopeNativeFormatter
 from models.native_content import native_content_blocks
+from services.media_files.transient_errors import is_transient_error_message
 from utils.logger import setup_logger
 from .tool_protocol import (
     NativeToolTextStream,
@@ -92,6 +93,7 @@ RATE_LIMIT_ERROR_SIGNATURES = (
 )
 
 MAX_RATE_LIMIT_RETRIES = 5
+MAX_TRANSIENT_MODEL_RETRIES = 4
 
 
 def is_rate_limit_error_text(exc_text: str) -> bool:
@@ -735,7 +737,7 @@ class AgentScopeAgentChatClient:
         on_rate_limit_retry: AgentRateLimitRetryCallback | None = None,
         _empty_retries_remaining: int = 2,
         _rate_limit_retries_remaining: int = MAX_RATE_LIMIT_RETRIES,
-        _transient_retries_remaining: int = 2,
+        _transient_retries_remaining: int = MAX_TRANSIENT_MODEL_RETRIES,
         _markup_retries_remaining: int = 4,
     ) -> AgentModelTurn:
         native_messages = records_to_agentscope_messages(messages)
@@ -924,6 +926,10 @@ class AgentScopeAgentChatClient:
                     _rate_limit_retries_remaining=(
                         _rate_limit_retries_remaining - 1
                     ),
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining
+                    ),
+                    _markup_retries_remaining=_markup_retries_remaining,
                 )
             if is_rate_limit:
                 model_name = (
@@ -942,14 +948,21 @@ class AgentScopeAgentChatClient:
                     f"{MAX_RATE_LIMIT_RETRIES} retries: {exc_text}",
                     retries=MAX_RATE_LIMIT_RETRIES,
                 ) from exc
-            is_transient = (
-                "Download multimodal file timed out" in exc_text
-                or "ReadTimeout" in exc_text
-                or "ConnectTimeout" in exc_text
-                or "WriteTimeout" in exc_text
+            is_transient = is_transient_error_message(exc_text) or any(
+                marker in exc_text.casefold()
+                for marker in (
+                    "readerror",
+                    "writeerror",
+                    "connecterror",
+                    "remoteprotocolerror",
+                    "download multimodal file timed out",
+                )
             )
             if is_transient and _transient_retries_remaining > 0:
-                delay = 2 ** (3 - _transient_retries_remaining)
+                attempt = (
+                    MAX_TRANSIENT_MODEL_RETRIES - _transient_retries_remaining
+                )
+                delay = min(2**attempt, 8)
                 model_name = (
                     getattr(self.model, "model", "")
                     or model_config.get_text_model_name()
@@ -976,6 +989,7 @@ class AgentScopeAgentChatClient:
                     _transient_retries_remaining=(
                         _transient_retries_remaining - 1
                     ),
+                    _markup_retries_remaining=_markup_retries_remaining,
                 )
             logger.error(
                 "Model request failed with unexpected error: %s: %s",
@@ -1007,10 +1021,10 @@ class AgentScopeAgentChatClient:
                     raise AgentModelError(
                         "Creator AgentScope ToolCallBlock has no id/name",
                     )
-                if name not in allowed_names:
-                    raise AgentModelError(
-                        f"Creator AgentScope returned a tool not offered this turn: {name}",
-                    )
+                # Preserve an unknown native call as a normal tool call. The
+                # execution layer returns a failed ToolResultBlock naming the
+                # offered tools, which lets the model correct itself on the
+                # next turn instead of aborting the complete Agent run here.
                 raw_arguments = block.input or ""
                 (
                     arguments,
@@ -1077,6 +1091,13 @@ class AgentScopeAgentChatClient:
                     on_tool_call_delta=on_tool_call_delta,
                     on_rate_limit_retry=on_rate_limit_retry,
                     _empty_retries_remaining=_empty_retries_remaining - 1,
+                    _rate_limit_retries_remaining=(
+                        _rate_limit_retries_remaining
+                    ),
+                    _transient_retries_remaining=(
+                        _transient_retries_remaining
+                    ),
+                    _markup_retries_remaining=_markup_retries_remaining,
                 )
             raise AgentModelError(
                 "Creator AgentScope model returned empty text and no ToolCallBlock",

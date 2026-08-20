@@ -30,6 +30,15 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _business_error(response: httpx.Response) -> dict:
+    volatile = {"errorId", "traceId", "requestId", "occurredAt"}
+    return {
+        key: value
+        for key, value in response.json().items()
+        if key not in volatile
+    }
+
+
 async def _post_review_decision_twice(app, url, payload):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -412,7 +421,7 @@ def test_project_patch_replays_success_and_rejects_payload_drift(
     first, replay, drift = _run(scenario())
     assert first.status_code == 200
     assert replay.status_code == 200
-    assert replay.json() == first.json()
+    assert _business_error(replay) == _business_error(first)
     assert replay.headers["X-Idempotent-Replay"] == "true"
     assert replay.headers["etag"] == first.headers["etag"]
     assert drift.status_code == 409
@@ -585,7 +594,7 @@ def test_failed_project_patch_is_terminal_and_replays_exact_error(
     assert first.status_code == 409
     assert first.json()["code"] == "CAS_CONFLICT"
     assert replay.status_code == first.status_code
-    assert replay.json() == first.json()
+    assert _business_error(replay) == _business_error(first)
 
     record = IdempotencyRecordStore(
         services.projects.project_root("project-1")
@@ -1050,7 +1059,7 @@ def test_failed_review_decision_is_terminal_and_replays_exact_error(
     assert first.status_code == 409
     assert first.json()["code"] == "CAS_CONFLICT"
     assert replay.status_code == first.status_code
-    assert replay.json() == first.json()
+    assert _business_error(replay) == _business_error(first)
 
     scope = (
         "POST /projects/{projectId}/runtime/reviews/"

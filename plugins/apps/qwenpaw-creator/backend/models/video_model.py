@@ -31,6 +31,8 @@ from models.video_capabilities import (
     effective_video_model_name,
     validate_video_mode,
     video_backend_key,
+    video_reference_capability,
+    video_reference_violation,
 )
 from utils.paths import media_path_from_url
 from utils.logger import setup_logger
@@ -48,6 +50,12 @@ VIDEO_REFERENCE_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
 def _reference_media_kind(filename: str) -> str:
     suffix = Path(filename or "").suffix.lower()
     return "video" if suffix in VIDEO_REFERENCE_SUFFIXES else "image"
+
+
+def _reference_media_kind_from_url(url: str) -> str:
+    """Classify a provider-bound reference from its URL path suffix."""
+
+    return _reference_media_kind(urlparse(url).path or url)
 
 
 def _uses_seedance_protocol() -> bool:
@@ -378,6 +386,36 @@ async def submit_video_task(
         normalized_mode,
         backend_key if not uses_seedance else "seedance2",
     )
+
+    if normalized_mode == "r2v":
+        capability = video_reference_capability(effective_model)
+        reference_kinds = [
+            _reference_media_kind_from_url(item) for item in unique_references
+        ]
+        image_count = reference_kinds.count("image")
+        video_count = reference_kinds.count("video")
+        if capability is None:
+            raise ModelError(
+                "VIDEO_MODEL_CAPABILITY_UNKNOWN: Creator 无法从官方能力表"
+                f"确认视频模型 {effective_model.strip() or '未配置'} 的参考素材"
+                "数量限制，因此未上传素材、也未调用 provider。如果这是兼容"
+                "网关别名，请先将别名映射到其官方模型能力，不要使用 Wan 或"
+                "通用猜测上限。",
+                model_name=effective_model or model_name,
+            )
+        violation = video_reference_violation(
+            capability,
+            image_count=image_count,
+            video_count=video_count,
+        )
+        if violation is not None:
+            raise ModelError(
+                "VIDEO_REFERENCE_BUDGET_EXCEEDED: 视频模型 "
+                f"{effective_model}（{capability.family}）的官方限制为："
+                f"{violation}。当前共 {len(unique_references)} 个参考素材；"
+                "未上传素材、也未调用 provider。",
+                model_name=effective_model,
+            )
 
     happyhorse_resolution = ""
     if uses_happyhorse and normalized_mode == "r2v":

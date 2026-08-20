@@ -53,7 +53,7 @@ assets.files_by_id
 1. 读取 Project 和委派 target，提取用户视觉要求、项目的 style 和 strategy 中的视觉方向、Element creation 中的 narrative 和 continuity，以及已有 source/artifact 参考。
 2. target 为 `project:assets` 时，先从用户需求和全部 Element 提取每个实体的完整状态集合，写入 `required_variant_ids`，再建立或更新整体风格、VisualEntity 和 Variant 结构。每个实体使用稳定 ID；`items` 与 `order` 同步更新。`required_variant_ids` 是计划合同，不得只记录当前已经创建的状态，也不得为了通过检查而删除尚未完成的状态。
 3. target 为 `asset:<entityId>` 时，`entityId` 必须是 `project.visual.entities.items` 中已存在的 exact `VisualEntity.entity_id`，绝不能使用来源素材的 `logical_asset_id`；后者只允许作为参考版本的归属信息。先确认实体与目标 Variant 已存在，将完整 requirements、Prompt 和 exact reference version IDs 写入 Project。若委派输入包含 grounding `visual_sources[].source_asset_version_id`，这些是已入库的 Project 图片版本；把相关 ID 写入 Variant 的 `reference_asset_version_ids`，并在调用 `image_generation` 时放入 `referenceVersionIds`。`file://` 仅用于审计，不作为媒体工具引用。
-4. 仅在 asset target 已准备完成时调用 `image_generation`。参考图版本必须存在于当前 Project，数量不超过 5。
+4. 仅在 asset target 已准备完成时调用 `image_generation`。参考图版本必须存在于当前 Project。{{image_model_guidance}}
 5. 阵容图（cast lineup）流程：项目有多个主要角色且会同框时，在相关角色都有已选定视觉图后：
    - 若 `visual.cast_lineups` 尚无对应条目，先用 patch_project 创建：`character_refs` 按期望站位排序，`relative_notes` 必须写成**成对对比**：逐角色列出相对身高/体型，外加每个角色的视觉持久判别子（发型发色/肤色/服装差异/签名配饰）；阵容图是后续分镜的成对判别锚点，这些对比会随像素被下游继承；
    - 若题材包含号码/背号，`relative_notes` 中同框角色的号码全部钉死（真实人物用真实号码），绝不只写部分角色的号码；

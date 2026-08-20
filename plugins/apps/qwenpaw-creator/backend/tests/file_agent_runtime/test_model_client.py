@@ -671,6 +671,42 @@ def test_agentscope_client_retries_one_empty_provider_turn() -> None:
     assert turn.provider_message_id == "response-retry"
 
 
+def test_agentscope_client_returns_unknown_native_tool_for_model_correction() -> (
+    None
+):
+    class UnknownToolModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, messages, *, tools=None):
+            del messages
+            assert tools
+            return ChatResponse(
+                id="response-unknown-tool",
+                content=[
+                    ToolCallBlock(
+                        id="call-unknown",
+                        name="invented_tool",
+                        input='{"projectId":"project-1"}',
+                    ),
+                ],
+                is_last=True,
+            )
+
+    async def scenario():
+        client = AgentScopeAgentChatClient(  # type: ignore[arg-type]
+            UnknownToolModel(),
+        )
+        return await client.complete(
+            messages=[{"role": "user", "content": "读取"}],
+            tools=_tools(),
+        )
+
+    turn = asyncio.run(scenario())
+    assert len(turn.tool_calls) == 1
+    assert turn.tool_calls[0].name == "invented_tool"
+    assert turn.tool_calls[0].arguments == {"projectId": "project-1"}
+
+
 @pytest.mark.parametrize(
     "markup",
     [

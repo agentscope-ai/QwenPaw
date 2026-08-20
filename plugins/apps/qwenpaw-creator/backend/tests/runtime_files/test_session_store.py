@@ -25,7 +25,6 @@ from services.runtime_files import (
     SessionStateConflict,
 )
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -424,7 +423,9 @@ def test_competing_review_resolution_supervisors_emit_one_event(tmp_path):
     assert all(item.status is CreatorSessionStatus.IDLE for item in results)
     assert [
         item.event_type for item in store.list_events(PROJECT_ID, SESSION_ID)
-    ] == ["agent.review.resolved"]
+    ] == [
+        "agent.review.resolved",
+    ]
 
 
 def test_event_append_and_poll_skip_full_aggregate_recovery_on_consistent_head(
@@ -542,7 +543,9 @@ def test_review_resolution_reuses_event_after_final_session_write_failure(
     assert recovered.status is CreatorSessionStatus.IDLE
     assert [
         item.event_type for item in store.list_events(PROJECT_ID, SESSION_ID)
-    ] == ["agent.review.resolved"]
+    ] == [
+        "agent.review.resolved",
+    ]
 
 
 def test_only_active_agentdock_mutation_persists_review_boundary(tmp_path):
@@ -710,6 +713,35 @@ def test_cancelled_session_feedback_still_captures_review_boundary(tmp_path):
     assert feedback.review_policy is ReviewPolicy.REQUIRE_REVIEW
     assert feedback.review_boundary is not None
     assert feedback.review_boundary.interrupted_run_id is None
+
+
+def test_hard_stop_consumes_only_existing_input_and_leaves_restart_pending(
+    tmp_path,
+) -> None:
+    root, snapshot, store, _bootstrap = _runtime(tmp_path)
+    _activate_runtime(root, snapshot, store)
+
+    stopped = store.hard_stop_session(PROJECT_ID, SESSION_ID)
+    restarted = store.admit_user_request(
+        PROJECT_ID,
+        SESSION_ID,
+        CONVERSATION_ID,
+        request_id="request-restart-after-stop",
+        client_message_id="client-restart-after-stop",
+        content_parts=_text("继续刚才的任务"),
+        channel=MessageChannel.AGENTDOCK,
+        classification=MessageClassification.READ_ONLY_QUESTION,
+    )
+    current = store.get_project_session(PROJECT_ID)
+
+    assert stopped.status is CreatorSessionStatus.CANCELLED
+    assert stopped.active_run_id is None
+    assert stopped.last_consumed_message_seq == stopped.last_message_seq
+    assert restarted.message.message_seq == stopped.last_message_seq + 1
+    assert (
+        current.last_consumed_message_seq == stopped.last_consumed_message_seq
+    )
+    assert current.last_message_seq == restarted.message.message_seq
 
 
 def test_review_revise_interrupts_the_active_run(tmp_path):

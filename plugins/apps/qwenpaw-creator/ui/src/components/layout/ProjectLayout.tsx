@@ -18,6 +18,7 @@ import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 import TopNav from "./TopNav";
 import ReturnBanner from "@/components/creator/ReturnBanner";
 import { AgentDock, SelectionToolbar } from "@/components/agent";
@@ -219,9 +220,11 @@ export default function ProjectLayout() {
         .catch(() => undefined);
     };
     poll();
-    const timer = window.setInterval(poll, 1_000);
+    // Every poll holds the shared project lock; slower, visibility-aware
+    // ticks keep the reader stream from starving project writers.
+    const stop = startVisiblePolling(poll, 2_000);
     return () => {
-      window.clearInterval(timer);
+      stop();
       const current = useExecutionAuthorizationStore.getState();
       if (current.projectId === id) current.reset();
     };
@@ -263,10 +266,9 @@ export default function ProjectLayout() {
     // in-process progress callbacks to the browser.  Poll their durable heads
     // so AgentDock and Timeline surfaces expose QUEUED /
     // RUNNING progress while the blocking command request is still active.
-    const timer = window.setInterval(() => {
+    return startVisiblePolling(() => {
       void refreshTasks(id).catch(() => undefined);
-    }, 750);
-    return () => window.clearInterval(timer);
+    }, 2_000);
   }, [id, refreshTasks, sessionStatus]);
 
   useEffect(() => {
@@ -276,11 +278,10 @@ export default function ProjectLayout() {
     // last mid-flight snapshot (perpetual "waiting for result" rows and
     // generating stripes on finished elements). Polling stops by itself
     // once every node is terminal.
-    const timer = window.setInterval(() => {
+    return startVisiblePolling(() => {
       void refreshTasks(id).catch(() => undefined);
       void useWorkGraphStore.getState().refresh(id);
-    }, 2_000);
-    return () => window.clearInterval(timer);
+    }, 3_000);
   }, [id, refreshTasks, workGraphActive]);
 
   useEffect(() => {

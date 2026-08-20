@@ -215,12 +215,13 @@ class CreatorAgentRunStore:
         with CrossProcessFileLock(
             self.data_root / ".locks" / f"project-{project_id}.lock",
             timeout_seconds=self.lock_timeout_seconds,
+            shared=True,
         ):
             self._require_project(project_id)
             with CrossProcessFileLock(
                 self._runtime_root(project_id)
                 / "locks"
-                / "project-runtime.lock",
+                / "agent-run-runtime.lock",
                 timeout_seconds=self.lock_timeout_seconds,
             ):
                 yield
