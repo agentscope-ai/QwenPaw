@@ -263,15 +263,27 @@ def test_linux_command_never_mounts_pythonpath(
     assert str(other_tenant.resolve()) not in read_only_sources
 
 
-def test_provisioner_never_bypasses_injected_isolator(tmp_path: Path) -> None:
+def test_provisioner_launches_through_injected_isolator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     isolator = _RecordingIsolator()
     provisioner = LocalProcessRuntimeProvisioner(isolator=isolator)
-    record = _record(tmp_path)
+    monkeypatch.setattr(
+        isolator,
+        "launch",
+        lambda *_: _RuntimeProcess(),
+    )
+    monkeypatch.setattr(provisioner, "_wait_until_ready", lambda *_: None)
 
-    environment = provisioner.runtime_environment(record, {})
-    isolator.prepare(record, ["python"], environment)
+    started = provisioner.start(
+        _record(tmp_path),
+        {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "secret"},
+    )
 
     assert isolator.called is True
+    assert started.state is RuntimeState.RUNNING
+    provisioner.close()
 
 
 def test_windows_runtime_uses_outbound_reverse_tunnel(

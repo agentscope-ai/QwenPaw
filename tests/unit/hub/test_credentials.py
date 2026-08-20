@@ -12,13 +12,33 @@ from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 
 
-def test_same_credential_name_never_crosses_tenant_boundary(
-    tmp_path: Path,
-) -> None:
-    vault = TenantCredentialVault(
+@pytest.fixture(name="vault")
+def _vault(tmp_path: Path) -> TenantCredentialVault:
+    return TenantCredentialVault(
         tmp_path / "control.db",
         tmp_path / ".vault_key",
     )
+
+
+def _record(tmp_path: Path) -> RuntimeRecord:
+    return RuntimeRecord(
+        runtime_id="runtime-a",
+        tenant_id="tenant-a",
+        owner_user_id="user-a",
+        provisioner="local",
+        host="127.0.0.1",
+        port=9001,
+        state=RuntimeState.CREATED,
+        working_dir=tmp_path / "working",
+        secret_dir=tmp_path / "secrets",
+        backup_dir=tmp_path / "backups",
+        log_file=tmp_path / "logs" / "app.log",
+    )
+
+
+def test_same_credential_name_never_crosses_tenant_boundary(
+    vault: TenantCredentialVault,
+) -> None:
     vault.put(
         tenant_id="tenant-a",
         scope="tenant",
@@ -42,11 +62,9 @@ def test_same_credential_name_never_crosses_tenant_boundary(
     ) == {"OPENAI_API_KEY": "key-b"}
 
 
-def test_runtime_scope_overrides_only_its_tenant_value(tmp_path: Path) -> None:
-    vault = TenantCredentialVault(
-        tmp_path / "control.db",
-        tmp_path / ".vault_key",
-    )
+def test_runtime_scope_overrides_only_its_tenant_value(
+    vault: TenantCredentialVault,
+) -> None:
     vault.put(
         tenant_id="tenant-a",
         scope="tenant",
@@ -82,19 +100,7 @@ def test_local_runtime_does_not_inherit_control_plane_secrets(
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "control-plane-key")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "control-plane-secret")
-    record = RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=tmp_path / "working",
-        secret_dir=tmp_path / "secrets",
-        backup_dir=tmp_path / "backups",
-        log_file=tmp_path / "logs" / "app.log",
-    )
+    record = _record(tmp_path)
 
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
         record,
@@ -113,19 +119,7 @@ def test_windows_runtime_keeps_required_system_drive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("SYSTEMDRIVE", "C:")
-    record = RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=tmp_path / "working",
-        secret_dir=tmp_path / "secrets",
-        backup_dir=tmp_path / "backups",
-        log_file=tmp_path / "logs" / "app.log",
-    )
+    record = _record(tmp_path)
 
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
         record,
@@ -142,19 +136,7 @@ def test_windows_runtime_redirects_user_profile(
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("USERPROFILE", "C:\\Users\\control-plane")
     monkeypatch.setenv("APPDATA", "C:\\Users\\control-plane\\AppData")
-    record = RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=tmp_path / "working",
-        secret_dir=tmp_path / "secrets",
-        backup_dir=tmp_path / "backups",
-        log_file=tmp_path / "logs" / "app.log",
-    )
+    record = _record(tmp_path)
 
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
         record,
@@ -183,14 +165,9 @@ def test_windows_runtime_redirects_user_profile(
     ],
 )
 def test_tenant_cannot_store_runtime_control_credentials(
-    tmp_path: Path,
+    vault: TenantCredentialVault,
     name: str,
 ) -> None:
-    vault = TenantCredentialVault(
-        tmp_path / "control.db",
-        tmp_path / ".vault_key",
-    )
-
     with pytest.raises(ValueError, match="reserved by the runtime"):
         vault.put(
             tenant_id="tenant-a",
@@ -201,12 +178,8 @@ def test_tenant_cannot_store_runtime_control_credentials(
 
 
 def test_preexisting_control_credentials_are_not_resolved(
-    tmp_path: Path,
+    vault: TenantCredentialVault,
 ) -> None:
-    vault = TenantCredentialVault(
-        tmp_path / "control.db",
-        tmp_path / ".vault_key",
-    )
     vault.put(
         tenant_id="tenant-a",
         scope="tenant",
@@ -225,12 +198,8 @@ def test_preexisting_control_credentials_are_not_resolved(
 
 
 def test_runtime_boundary_secret_ignores_tenant_planted_value(
-    tmp_path: Path,
+    vault: TenantCredentialVault,
 ) -> None:
-    vault = TenantCredentialVault(
-        tmp_path / "control.db",
-        tmp_path / ".vault_key",
-    )
     vault.put(
         tenant_id="tenant-a",
         scope="runtime:runtime-a",
@@ -267,19 +236,7 @@ def test_runtime_boundary_secret_ignores_tenant_planted_value(
 def test_local_runtime_filters_untrusted_control_environment(
     tmp_path: Path,
 ) -> None:
-    record = RuntimeRecord(
-        runtime_id="runtime-a",
-        tenant_id="tenant-a",
-        owner_user_id="user-a",
-        provisioner="local",
-        host="127.0.0.1",
-        port=9001,
-        state=RuntimeState.CREATED,
-        working_dir=tmp_path / "working",
-        secret_dir=tmp_path / "secrets",
-        backup_dir=tmp_path / "backups",
-        log_file=tmp_path / "logs" / "app.log",
-    )
+    record = _record(tmp_path)
 
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
         record,
@@ -298,12 +255,8 @@ def test_local_runtime_filters_untrusted_control_environment(
 
 
 def test_credential_metadata_pages_are_tenant_scoped_and_filterable(
-    tmp_path: Path,
+    vault: TenantCredentialVault,
 ) -> None:
-    vault = TenantCredentialVault(
-        tmp_path / "control.db",
-        tmp_path / ".vault_key",
-    )
     for index in range(5):
         vault.put(
             tenant_id="tenant-a",

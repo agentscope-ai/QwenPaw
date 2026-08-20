@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Authorization tests for QwenPaw Hub control-plane APIs."""
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
 import gzip
 from pathlib import Path
@@ -18,7 +18,7 @@ from starlette.websockets import WebSocketDisconnect
 from websockets.sync.server import ServerConnection, serve
 
 from qwenpaw.__version__ import __version__
-from qwenpaw.hub.auth import HubAuthService
+from qwenpaw.hub.auth import HubAuthService, HubUser
 from qwenpaw.hub.config import (
     AccessSecurityConfig,
     ControlPlaneConfig,
@@ -147,6 +147,27 @@ def _register(client: TestClient, username: str) -> str:
     return str(response.json()["token"])
 
 
+def _create_user(client: TestClient, username: str) -> tuple[HubUser, str]:
+    auth = client.app.state.auth_service
+    user = auth.create_user(
+        username=username,
+        password="safe-password",
+    )
+    _, token = auth.authenticate(username, "safe-password")
+    return user, token
+
+
+@pytest.fixture(name="hub_client")
+def _hub_client(tmp_path: Path) -> Iterator[TestClient]:
+    with _client(tmp_path) as client:
+        yield client
+
+
+@pytest.fixture(name="admin_client")
+def _admin_client(hub_client: TestClient) -> tuple[TestClient, str]:
+    return hub_client, _register(hub_client, "owner")
+
+
 def test_login_rate_limit_returns_retry_after(tmp_path: Path) -> None:
     config = HubConfig(
         control_plane=ControlPlaneConfig(
@@ -190,44 +211,15 @@ def test_websocket_proxy_requires_hub_authentication(tmp_path: Path) -> None:
     assert caught.value.code == 4401
 
 
-def test_websocket_proxy_relays_authenticated_session(
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-
-    async def relay(websocket, upstream_url: str, *, headers) -> None:
-        captured["url"] = upstream_url
-        captured["headers"] = headers
-        await websocket.accept()
-        message = await websocket.receive_text()
-        await websocket.send_text(f"relayed:{message}")
-        await websocket.close(code=4000)
-
-    with _client(tmp_path) as client:
-        token = _register(client, "owner")
-        with patch(
-            "qwenpaw.hub.websocket_proxy.relay_websocket",
-            new=relay,
-        ):
-            with client.websocket_connect(
-                "/api/ws/chrome?mode=test",
-                headers=_headers(token),
-            ) as websocket:
-                websocket.send_text("hello")
-                assert websocket.receive_text() == "relayed:hello"
-
-    assert captured["url"] == "ws://127.0.0.1:0/api/ws/chrome?mode=test"
-    headers = captured["headers"]
-    assert isinstance(headers, dict)
-    assert headers["X-QwenPaw-Runtime-Token"]
-
-
 def test_websocket_proxy_relays_real_text_and_binary_frames(
     tmp_path: Path,
 ) -> None:
+    upstream_path = ""
     upstream_headers: dict[str, str] = {}
 
     def echo(connection: ServerConnection) -> None:
+        nonlocal upstream_path
+        upstream_path = connection.request.path
         upstream_headers.update(connection.request.headers)
         for message in connection:
             connection.send(message)
@@ -240,7 +232,7 @@ def test_websocket_proxy_relays_real_text_and_binary_frames(
             with _client(tmp_path, runtime_port=port) as client:
                 token = _register(client, "owner")
                 with client.websocket_connect(
-                    "/api/ws/echo",
+                    "/api/ws/echo?mode=test",
                     headers=_headers(token),
                 ) as websocket:
                     websocket.send_text("hello")
@@ -251,6 +243,7 @@ def test_websocket_proxy_relays_real_text_and_binary_frames(
             server.shutdown()
             thread.join(timeout=2)
 
+    assert upstream_path == "/api/ws/echo?mode=test"
     assert upstream_headers["x-qwenpaw-runtime-token"]
 
 
@@ -267,13 +260,14 @@ def test_websocket_proxy_rejects_unavailable_runtime(tmp_path: Path) -> None:
     assert caught.value.code == 1013
 
 
-def test_public_version_does_not_create_runtime(tmp_path: Path) -> None:
-    with _client(tmp_path) as client:
-        response = client.get("/api/version")
+def test_public_version_does_not_create_runtime(
+    hub_client: TestClient,
+) -> None:
+    response = hub_client.get("/api/version")
 
-        assert response.status_code == 200
-        assert response.json() == {"version": __version__}
-        assert client.app.state.runtime_service.registry.list() == []
+    assert response.status_code == 200
+    assert response.json() == {"version": __version__}
+    assert hub_client.app.state.runtime_service.registry.list() == []
 
 
 @pytest.mark.asyncio
@@ -339,42 +333,40 @@ def test_docker_image_management_is_admin_only(tmp_path: Path) -> None:
 
 
 def test_credential_api_rejects_runtime_control_environment(
-    tmp_path: Path,
+    admin_client: tuple[TestClient, str],
 ) -> None:
-    with _client(tmp_path) as client:
-        token = _register(client, "owner")
-
-        response = client.put(
-            "/api/hub/credentials",
-            headers=_headers(token),
-            json={
-                "scope": "tenant",
-                "name": "PYTHONPATH",
-                "value": "/",
-            },
-        )
+    client, token = admin_client
+    response = client.put(
+        "/api/hub/credentials",
+        headers=_headers(token),
+        json={
+            "scope": "tenant",
+            "name": "PYTHONPATH",
+            "value": "/",
+        },
+    )
 
     assert response.status_code == 400
     assert "reserved by the runtime" in response.json()["detail"]
 
 
-def test_runtime_create_rejects_backend_overrides(tmp_path: Path) -> None:
-    with _client(tmp_path) as client:
-        token = _register(client, "admin")
-
-        top_level = client.post(
-            "/api/hub/runtimes",
-            json={"runtime_id": "top-level", "provisioner": "docker"},
-            headers=_headers(token),
-        )
-        metadata = client.post(
-            "/api/hub/runtimes",
-            json={
-                "runtime_id": "metadata",
-                "metadata": {"docker": {"image": "attacker/image"}},
-            },
-            headers=_headers(token),
-        )
+def test_runtime_create_rejects_backend_overrides(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    client, token = admin_client
+    top_level = client.post(
+        "/api/hub/runtimes",
+        json={"runtime_id": "top-level", "provisioner": "docker"},
+        headers=_headers(token),
+    )
+    metadata = client.post(
+        "/api/hub/runtimes",
+        json={
+            "runtime_id": "metadata",
+            "metadata": {"docker": {"image": "attacker/image"}},
+        },
+        headers=_headers(token),
+    )
 
     assert top_level.status_code == 422
     assert metadata.status_code == 400
@@ -819,12 +811,7 @@ def test_authenticated_user_restarts_only_their_personal_runtime(
 
     with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
         admin_token = _register(client, "owner")
-        auth = client.app.state.auth_service
-        member = auth.create_user(
-            username="member",
-            password="safe-password",
-        )
-        _, member_token = auth.authenticate("member", "safe-password")
+        member, member_token = _create_user(client, "member")
         client.get("/api/probe", headers=_headers(admin_token))
         client.get("/api/probe", headers=_headers(member_token))
 
@@ -856,12 +843,7 @@ def test_admin_stop_and_disable_have_distinct_owner_recovery(
 
     with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
         admin_token = _register(client, "owner")
-        auth = client.app.state.auth_service
-        member = auth.create_user(
-            username="member",
-            password="safe-password",
-        )
-        _, member_token = auth.authenticate("member", "safe-password")
+        member, member_token = _create_user(client, "member")
         member_headers = _headers(member_token)
         assert (
             client.get("/api/probe", headers=member_headers).status_code == 200
@@ -989,14 +971,7 @@ def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         admin_token = _register(client, "owner")
         auth = client.app.state.auth_service
-        member = auth.create_user(
-            username="former-member",
-            password="safe-password",
-        )
-        _, member_token = auth.authenticate(
-            "former-member",
-            "safe-password",
-        )
+        member, member_token = _create_user(client, "former-member")
         created = client.post(
             "/api/hub/runtimes",
             json={"runtime_id": "orphaned-runtime"},
@@ -1145,12 +1120,11 @@ def test_oauth_callback_route_is_stable_and_runtime_scoped(
 
 
 def test_regular_runtime_callback_still_requires_login(
-    tmp_path: Path,
+    hub_client: TestClient,
 ) -> None:
-    with _client(tmp_path) as client:
-        response = client.get(
-            "/api/providers/openrouter/oauth/callback",
-            params={"code": "value"},
-        )
+    response = hub_client.get(
+        "/api/providers/openrouter/oauth/callback",
+        params={"code": "value"},
+    )
 
-        assert response.status_code == 401
+    assert response.status_code == 401

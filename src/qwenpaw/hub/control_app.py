@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
 import os
-import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -28,17 +26,23 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.types import Scope
 
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
 from .access_security import HubAccessSecurity
+from .api_models import (
+    AdminUserCreateBody,
+    AdminUserPatchBody,
+    CredentialBody,
+    CredentialsBody,
+    DockerImagePullBody,
+    HubSettingsBody,
+    PasswordChangeBody,
+    RuntimeCreateBody,
+)
 from .auth import HubAuthService, HubUser
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
@@ -57,161 +61,15 @@ from .models import (
     RuntimeState,
 )
 from .operations import HubOperationsStore
+from .oauth_routes import oauth_callback_route, runtime_oauth_callback_path
 from .registry import RuntimeRegistry
 from .service import RuntimeService
+from .static_files import (
+    CompressedStaticFiles,
+    resolve_console_response,
+    resolve_console_static_dir,
+)
 from . import websocket_proxy
-
-_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
-
-
-def _accepted_asset_encodings(scope: Scope) -> list[tuple[str, str]]:
-    headers = {name.lower(): value for name, value in scope.get("headers", [])}
-    raw = headers.get(b"accept-encoding", b"").decode(
-        "latin-1",
-    )
-    quality_by_name: dict[str, float] = {}
-    for item in raw.split(","):
-        parts = [part.strip() for part in item.split(";")]
-        name = parts[0].lower()
-        quality = 1.0
-        for parameter in parts[1:]:
-            if parameter.startswith("q="):
-                try:
-                    quality = float(parameter[2:])
-                except ValueError:
-                    quality = 0.0
-        quality_by_name[name] = quality
-    wildcard_quality = quality_by_name.get("*", 0.0)
-    supported = [("br", ".br"), ("gzip", ".gz")]
-    candidates = [
-        (quality_by_name.get(name, wildcard_quality), index, name, suffix)
-        for index, (name, suffix) in enumerate(supported)
-        if quality_by_name.get(name, wildcard_quality) > 0
-    ]
-    candidates.sort(key=lambda item: (-item[0], item[1]))
-    return [(name, suffix) for _, _, name, suffix in candidates]
-
-
-class CompressedStaticFiles(StaticFiles):
-    """Serve precompressed hashed assets with production cache headers."""
-
-    async def get_response(self, path: str, scope: Scope) -> Response:
-        """Negotiate Brotli or gzip while retaining identity fallback."""
-        for encoding, suffix in _accepted_asset_encodings(scope):
-            try:
-                response = await super().get_response(
-                    f"{path}{suffix}",
-                    scope,
-                )
-            except StarletteHTTPException as exc:
-                if exc.status_code == 404:
-                    continue
-                raise
-            if response.status_code == 404:
-                continue
-            media_type, _ = mimetypes.guess_type(path)
-            if media_type:
-                response.headers["Content-Type"] = media_type
-            response.headers["Content-Encoding"] = encoding
-            response.headers["Vary"] = "Accept-Encoding"
-            response.headers["Cache-Control"] = _ASSET_CACHE_CONTROL
-            return response
-        response = await super().get_response(path, scope)
-        response.headers["Vary"] = "Accept-Encoding"
-        response.headers["Cache-Control"] = _ASSET_CACHE_CONTROL
-        return response
-
-
-class RuntimeCreateBody(BaseModel):
-    """Request body for a new managed runtime."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    runtime_id: str = Field(min_length=1, max_length=64)
-    host: str = "127.0.0.1"
-    port: int = Field(default=0, ge=0, le=65535)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    auto_start: bool = False
-
-
-class DockerImagePullBody(BaseModel):
-    """Request an asynchronous Docker image pull."""
-
-    reference: str = Field(min_length=1, max_length=512)
-
-
-class CredentialsBody(BaseModel):
-    """Login or bootstrap registration credentials."""
-
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=8, max_length=1024)
-
-
-class AdminUserCreateBody(CredentialsBody):
-    """Administrator request for a managed account."""
-
-    role: str = "user"
-
-
-class AdminUserPatchBody(BaseModel):
-    """Administrator changes that invalidate existing user tokens."""
-
-    role: str | None = None
-    disabled: bool | None = None
-
-
-class PasswordChangeBody(BaseModel):
-    """Authenticated password replacement request."""
-
-    new_password: str = Field(min_length=8, max_length=1024)
-
-
-class HubSettingsBody(BaseModel):
-    """Atomic administrator update for the complete Hub configuration."""
-
-    revision: int = Field(ge=1)
-    config: HubConfig
-
-
-class CredentialBody(BaseModel):
-    """Tenant-scoped credential write without a plaintext read endpoint."""
-
-    scope: str = "tenant"
-    name: str = Field(min_length=1, max_length=128)
-    value: str = Field(min_length=1, max_length=65536)
-
-
-_PROVIDER_OAUTH_START = re.compile(
-    r"^providers/(?P<provider_id>[A-Za-z0-9_.-]+)/oauth/start$",
-)
-_MCP_OAUTH_START = re.compile(
-    r"^(?:agents/[^/]+/)?mcp/oauth/start/[^/].*$",
-)
-
-
-def _oauth_callback_route(method: str, path: str) -> str | None:
-    """Map a managed OAuth start request to its stable Hub route."""
-    if method != "POST":
-        return None
-    provider_match = _PROVIDER_OAUTH_START.fullmatch(path)
-    if provider_match:
-        provider_id = provider_match.group("provider_id")
-        return f"providers/{provider_id}"
-    if _MCP_OAUTH_START.fullmatch(path):
-        return "mcp"
-    return None
-
-
-def _runtime_oauth_callback_path(callback_route: str) -> str | None:
-    """Resolve an allowlisted Hub callback route inside one runtime."""
-    if callback_route == "mcp":
-        return "/api/mcp/oauth/callback"
-    provider_prefix = "providers/"
-    if callback_route.startswith(provider_prefix):
-        provider_id = callback_route[len(provider_prefix) :]
-        if re.fullmatch(r"[A-Za-z0-9_.-]+", provider_id):
-            return f"/api/providers/{provider_id}/oauth/callback"
-    return None
 
 
 def get_hub_root() -> Path:
@@ -1252,7 +1110,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         callback_route: str,
         request: Request,
     ) -> Response:
-        callback_path = _runtime_oauth_callback_path(callback_route)
+        callback_path = runtime_oauth_callback_path(callback_route)
         if callback_path is None:
             raise HTTPException(
                 status_code=404,
@@ -1359,7 +1217,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             if name.lower() not in excluded_request_headers
         }
         headers["X-QwenPaw-Runtime-Token"] = internal_token
-        callback_route = _oauth_callback_route(request.method, path)
+        callback_route = oauth_callback_route(request.method, path)
         if callback_route:
             public_base_url = (
                 app.state.hub_config.control_plane.public_base_url
@@ -1468,7 +1326,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             except RuntimeError:
                 return
 
-    static_dir = _resolve_console_static_dir()
+    static_dir = resolve_console_static_dir()
     assets_dir = static_dir / "assets"
     if assets_dir.is_dir():
         app.mount(
@@ -1482,7 +1340,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
         requested, index_file = await run_in_threadpool(
-            _resolve_console_response,
+            resolve_console_response,
             static_dir,
             path,
         )
@@ -1506,32 +1364,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
         )
 
     return app
-
-
-def _resolve_console_response(
-    static_dir: Path,
-    path: str,
-) -> tuple[Path | None, Path | None]:
-    """Resolve static response paths outside the asyncio event loop."""
-    index_file = static_dir / "index.html"
-    requested = (static_dir / path).resolve()
-    if requested.is_file() and static_dir in requested.parents:
-        return requested, None
-    if index_file.is_file():
-        return None, index_file
-    return None, None
-
-
-def _resolve_console_static_dir() -> Path:
-    configured = os.environ.get("QWENPAW_CONSOLE_STATIC_DIR", "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    package_root = Path(__file__).resolve().parents[1]
-    packaged = package_root / "console"
-    if (packaged / "index.html").is_file():
-        return packaged
-    repository = Path(__file__).resolve().parents[3]
-    return repository / "console" / "dist"
 
 
 def _runtime_payload(

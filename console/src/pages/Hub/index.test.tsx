@@ -9,7 +9,11 @@ import { App } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import HubPage from ".";
-import { hubApi } from "../../api/modules/hub";
+import {
+  hubApi,
+  type HubDockerImageCatalog,
+  type HubRuntime,
+} from "../../api/modules/hub";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -61,6 +65,61 @@ const page = {
   page_size: 20,
   total: 0,
   pages: 1,
+};
+
+function renderHubPage() {
+  return render(
+    <App>
+      <HubPage />
+    </App>,
+  );
+}
+
+function runtime(overrides: Partial<HubRuntime>): HubRuntime {
+  return {
+    runtime_id: "personal-user-a",
+    tenant_id: "personal-user-a",
+    owner_user_id: "user-a",
+    owner_username: "owner",
+    provisioner: "local",
+    host: "127.0.0.1",
+    port: 32001,
+    state: "running",
+    desired_state: "running",
+    start_policy: "owner_allowed",
+    endpoint: "http://127.0.0.1:32001",
+    security_level: "isolated-local",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+const dockerCatalog: HubDockerImageCatalog = {
+  available: true,
+  sources: {
+    docker_hub: "docker.io/agentscope/qwenpaw",
+    aliyun_acr:
+      "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw",
+  },
+  official_images: [
+    {
+      source: "docker_hub",
+      reference: "docker.io/agentscope/qwenpaw:latest",
+      tag: "latest",
+      downloaded: true,
+    },
+  ],
+  local_images: [],
+  policy: {
+    source: "docker_hub",
+    image: "docker.io/agentscope/qwenpaw:latest",
+    pull_policy: "if_not_present",
+    cpu_limit: 2,
+    memory_limit_mb: 4096,
+    pids_limit: 1024,
+    shm_size_mb: 512,
+  },
 };
 
 describe("HubPage", () => {
@@ -145,43 +204,14 @@ describe("HubPage", () => {
       updated_at: "2026-01-01T00:00:00Z",
       available_provisioners: ["local", "docker"],
     });
-    vi.mocked(hubApi.getDockerImages).mockResolvedValue({
-      available: true,
-      sources: {
-        docker_hub: "docker.io/agentscope/qwenpaw",
-        aliyun_acr:
-          "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw",
-      },
-      official_images: [
-        {
-          source: "docker_hub",
-          reference: "docker.io/agentscope/qwenpaw:latest",
-          tag: "latest",
-          downloaded: true,
-        },
-      ],
-      local_images: [],
-      policy: {
-        source: "docker_hub",
-        image: "docker.io/agentscope/qwenpaw:latest",
-        pull_policy: "if_not_present",
-        cpu_limit: 2,
-        memory_limit_mb: 4096,
-        pids_limit: 1024,
-        shm_size_mb: 512,
-      },
-    });
+    vi.mocked(hubApi.getDockerImages).mockResolvedValue(dockerCatalog);
     vi.mocked(hubApi.listDockerImagePulls).mockResolvedValue([]);
     vi.mocked(hubApi.listCredentials).mockResolvedValue(page);
     vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page);
   });
 
   it("loads the real operations overview for administrators", async () => {
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
 
     expect(await screen.findByText("hub.overview.title")).toBeInTheDocument();
     expect(hubApi.getOverview).toHaveBeenCalledOnce();
@@ -189,11 +219,7 @@ describe("HubPage", () => {
   });
 
   it("queries the server when runtime search changes", async () => {
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
     const search = await screen.findByPlaceholderText(
       "hub.table.searchRuntimes",
@@ -217,22 +243,14 @@ describe("HubPage", () => {
   it("shows the owner username with the full user id", async () => {
     vi.mocked(hubApi.listRuntimes).mockResolvedValue({
       items: [
-        {
+        runtime({
           runtime_id: "personal-a4715bbaa57446b7b3b15b54",
           tenant_id: "personal-a4715bbaa57446b7b3b15b54",
           owner_user_id: "a4715bbaa57446b7b3b15b54",
           owner_username: "ray",
-          provisioner: "local",
-          host: "127.0.0.1",
           port: 35583,
-          state: "running",
-          desired_state: "running",
-          start_policy: "owner_allowed",
           endpoint: "http://127.0.0.1:35583",
-          security_level: "isolated-local",
-          created_at: "2026-01-01T00:00:00Z",
-          updated_at: "2026-01-01T00:00:00Z",
-        },
+        }),
       ],
       page: 1,
       page_size: 20,
@@ -240,11 +258,7 @@ describe("HubPage", () => {
       pages: 1,
     });
 
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
 
     expect(await screen.findByText("ray")).toBeInTheDocument();
@@ -254,22 +268,15 @@ describe("HubPage", () => {
   it("shows administrator-locked runtimes as enable-only", async () => {
     vi.mocked(hubApi.listRuntimes).mockResolvedValue({
       items: [
-        {
+        runtime({
           runtime_id: "personal-disabled",
           tenant_id: "personal-user-b",
           owner_user_id: "user-b",
           owner_username: "member",
-          provisioner: "local",
-          host: "127.0.0.1",
-          port: 32001,
           state: "stopped",
           desired_state: "stopped",
           start_policy: "admin_only",
-          endpoint: "http://127.0.0.1:32001",
-          security_level: "isolated-local",
-          created_at: "2026-01-01T00:00:00Z",
-          updated_at: "2026-01-01T00:00:00Z",
-        },
+        }),
       ],
       page: 1,
       page_size: 20,
@@ -277,11 +284,7 @@ describe("HubPage", () => {
       pages: 1,
     });
 
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
 
     expect(
@@ -309,11 +312,7 @@ describe("HubPage", () => {
       pages: 1,
     });
 
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.users"));
     const protectedLabel = await screen.findByText(
       "hub.users.currentAccountProtected",
@@ -335,11 +334,7 @@ describe("HubPage", () => {
         available_provisioners: ["local"],
       }),
     );
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
 
     fireEvent.click(await screen.findByText("hub.navigation.settings"));
     expect(
@@ -372,11 +367,7 @@ describe("HubPage", () => {
   });
 
   it("shows Docker policy only when the Docker backend is selected", async () => {
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
 
     fireEvent.click(await screen.findByText("hub.navigation.settings"));
     fireEvent.click(await screen.findByText("hub.settings.tabs.runtime"));
@@ -419,11 +410,7 @@ describe("HubPage", () => {
 
   it("shows the settings shell before the base request completes", async () => {
     vi.mocked(hubApi.getSettings).mockReturnValue(new Promise(() => {}));
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
 
     fireEvent.click(await screen.findByText("hub.navigation.settings"));
 
@@ -436,12 +423,7 @@ describe("HubPage", () => {
 
   it("uses a tagged local image without a registry allowlist", async () => {
     vi.mocked(hubApi.getDockerImages).mockResolvedValue({
-      available: true,
-      sources: {
-        docker_hub: "docker.io/agentscope/qwenpaw",
-        aliyun_acr:
-          "agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw",
-      },
+      ...dockerCatalog,
       official_images: [],
       local_images: [
         {
@@ -453,15 +435,6 @@ describe("HubPage", () => {
           downloaded: true,
         },
       ],
-      policy: {
-        source: "docker_hub",
-        image: "docker.io/agentscope/qwenpaw:latest",
-        pull_policy: "if_not_present",
-        cpu_limit: 2,
-        memory_limit_mb: 4096,
-        pids_limit: 1024,
-        shm_size_mb: 512,
-      },
     });
     vi.mocked(hubApi.updateSettings).mockImplementation(
       async (revision, config) => ({
@@ -472,11 +445,7 @@ describe("HubPage", () => {
       }),
     );
 
-    render(
-      <App>
-        <HubPage />
-      </App>,
-    );
+    renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.settings"));
     fireEvent.click(await screen.findByText("hub.settings.tabs.runtime"));
     fireEvent.click(screen.getByText("hub.settings.runtime.dockerBackend"));

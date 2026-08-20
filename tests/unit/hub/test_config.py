@@ -107,15 +107,6 @@ runtime:
     }
 
 
-def test_custom_source_accepts_a_tagged_local_image() -> None:
-    config = DockerRuntimeConfig(
-        source="custom",
-        image="qwenpaw-hub-e2e:test",
-    )
-
-    assert config.image == "qwenpaw-hub-e2e:test"
-
-
 @pytest.mark.parametrize(
     "content, match",
     [

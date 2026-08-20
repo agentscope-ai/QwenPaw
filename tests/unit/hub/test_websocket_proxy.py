@@ -11,10 +11,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.frames import Close
 
 from qwenpaw.hub import websocket_proxy
-from qwenpaw.hub.websocket_proxy import (
-    _client_to_upstream,
-    _upstream_to_client,
-)
+from qwenpaw.hub.websocket_proxy import _upstream_to_client
 
 
 class _Client:
@@ -97,40 +94,6 @@ class _ConnectContext:
 
     async def __aexit__(self, *args: object) -> None:
         del args
-
-
-@pytest.mark.asyncio
-async def test_client_frames_relay_text_binary_and_close() -> None:
-    client = _Client(
-        [
-            {"type": "websocket.receive", "text": "hello"},
-            {"type": "websocket.receive", "bytes": b"binary"},
-            {"type": "websocket.disconnect", "code": 4001},
-        ],
-    )
-    upstream = _Upstream()
-
-    await _client_to_upstream(
-        cast(Any, client),
-        cast(Any, upstream),
-    )
-
-    assert upstream.sent == ["hello", b"binary"]
-    assert upstream.closed == 4001
-
-
-@pytest.mark.asyncio
-async def test_upstream_frames_relay_text_and_binary() -> None:
-    client = _Client()
-    upstream = _Upstream(["hello", b"binary"])
-
-    await _upstream_to_client(
-        cast(Any, client),
-        cast(Any, upstream),
-    )
-
-    assert client.sent == ["hello", b"binary"]
-    assert client.closed == (1000, "complete")
 
 
 @pytest.mark.asyncio
