@@ -49,7 +49,6 @@ import type {
   ChatResponseData,
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
-import { ViewportRenderBoundary } from "./ViewportRenderBoundary";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -288,15 +287,7 @@ function HostRequestCardContent(props: { data: ChatRequestData }) {
   return fallback();
 }
 
-export const HostRequestCard = React.memo(function HostRequestCard(props: {
-  data: ChatRequestData;
-}) {
-  return (
-    <ViewportRenderBoundary>
-      <HostRequestCardContent {...props} />
-    </ViewportRenderBoundary>
-  );
-});
+export const HostRequestCard = React.memo(HostRequestCardContent);
 
 function HostResponseCardContent(props: {
   data: ChatResponseData;
@@ -370,13 +361,4 @@ function HostResponseCardContent(props: {
   return fallback();
 }
 
-export const HostResponseCard = React.memo(function HostResponseCard(props: {
-  data: ChatResponseData;
-  isLast?: boolean;
-}) {
-  return (
-    <ViewportRenderBoundary>
-      <HostResponseCardContent {...props} />
-    </ViewportRenderBoundary>
-  );
-});
+export const HostResponseCard = React.memo(HostResponseCardContent);

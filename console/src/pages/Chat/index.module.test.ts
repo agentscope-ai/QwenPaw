@@ -8,11 +8,6 @@ const stylesSource = readFileSync(
 );
 
 describe("Chat message markdown layout styles", () => {
-  it("skips rendering message bubbles outside the viewport", () => {
-    expect(stylesSource).toMatch(/content-visibility:\s*auto/);
-    expect(stylesSource).toMatch(/contain-intrinsic-size:\s*auto\s+\d+px/);
-  });
-
   it("wraps long lines for assistant markdown fallback content", () => {
     const marker = "Fix #5480";
     const markerIndex = stylesSource.indexOf(marker);
