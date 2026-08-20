@@ -373,8 +373,8 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `resource_dir`                   | string      | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录                                                    |
 | `daily_dir`                      | string      | `"memory"`       | 每日记忆子目录                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | digest 记忆子目录                                                                                 |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否将 Auto-Memory 结果推送到收件箱                                                               |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | 是否将 Auto-Dream 结果推送到收件箱                                                                |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否在 Auto-Memory 实际改变记忆或执行失败时推送到收件箱                                           |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | 是否在 Auto-Dream 实际改变记忆或执行失败时推送到收件箱                                            |
 | `daily_paper_inbox_push_enabled` | bool        | `true`           | 是否将 Daily Paper 结果推送到收件箱                                                               |
 | `auto_memory_interval`           | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
 | `dream_cron_enabled`             | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |

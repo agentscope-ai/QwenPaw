@@ -25,7 +25,7 @@ use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 use serde_json::{json, Map, Value};
 
 use super::super::state::{
-    map_point, Observation, PendingAction, WindowInfo, INPUT_GUARD_GRACE_MS,
+    map_point, screenshot_target, Observation, PendingAction, WindowInfo, INPUT_GUARD_GRACE_MS,
 };
 use super::super::InputStep;
 use super::accessibility_tree::{
@@ -831,7 +831,7 @@ fn ensure_observed_geometry(observation: &Observation) -> Result<(), (&'static s
         current.2 as i32,
         current.3 as i32,
     ];
-    if current_bounds != observation.bounds {
+    if current_bounds != observation.window_bounds {
         return Err((
             "stale_observation",
             "Window geometry changed; observe it again.".to_string(),
@@ -847,8 +847,9 @@ fn resolve_target_point(
     y_key: &str,
 ) -> Result<CGPoint, (&'static str, String)> {
     let point = resolve_point(observation, params, x_key, y_key)?;
+    let screenshot = screenshot_target(observation, params)?;
     match frontmost_window_at_point(point) {
-        Some(window_id) if window_id == observation.window.hwnd as i64 => Ok(point),
+        Some(window_id) if window_id == screenshot.hwnd as i64 => Ok(point),
         Some(window_id) => Err((
             "target_not_at_point",
             format!("Target point is covered by window {window_id}."),
@@ -869,12 +870,13 @@ fn resolve_point(
     // The window must still be where it was when the observation was taken,
     // or the mapping below would aim at whatever now occupies those pixels.
     ensure_observed_geometry(observation)?;
+    let screenshot = screenshot_target(observation, params)?;
     let x = integer_param(params, x_key)?;
     let y = integer_param(params, y_key)?;
-    let (x_offset, y_offset) = map_point(observation, x, y)?;
+    let (x_offset, y_offset) = map_point(screenshot, x, y)?;
     Ok(CGPoint {
-        x: f64::from(observation.bounds[0]) + x_offset,
-        y: f64::from(observation.bounds[1]) + y_offset,
+        x: f64::from(screenshot.bounds[0]) + x_offset,
+        y: f64::from(screenshot.bounds[1]) + y_offset,
     })
 }
 

@@ -48,6 +48,9 @@ export interface PendingApproval {
   tool_params: Record<string, unknown>;
   created_at: number;
   timeout_seconds: number;
+  // One-line rationale emitted by the agent before requesting the tool
+  // call. May be an empty string when the agent gave no reasoning.
+  reasoning?: string;
   // Approval-scope display fields (governance path). When is_generalized
   // is true the console offers Approve Pattern vs Approve Exact.
   is_generalized?: boolean;

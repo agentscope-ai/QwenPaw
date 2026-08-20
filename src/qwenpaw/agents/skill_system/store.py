@@ -7,7 +7,6 @@ import hashlib
 import io
 import json
 import logging
-import os
 import re
 import shutil
 import tempfile
@@ -16,7 +15,6 @@ import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -906,26 +904,18 @@ def build_import_conflict(
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=256)
-def _read_file_text_cached(  # pylint: disable=unused-argument
-    path_str: str,
-    mtime_ns: int,
-) -> str:
-    """Return file text cached by *path + mtime*."""
-    return Path(path_str).read_text(encoding="utf-8")
-
-
-def _read_json_mtime_cached(
+def _read_json_snapshot_cached(
     path: Path,
     default: dict[str, Any],
 ) -> dict[str, Any]:
-    """``_read_json_unlocked`` variant with mtime cache."""
+    """Read JSON from the shared strong-signature file snapshot cache."""
     if not path.exists():
         return json.loads(json.dumps(default))
     try:
-        mtime_ns = os.stat(path).st_mtime_ns
-        text = _read_file_text_cached(str(path), mtime_ns)
-        return json.loads(text)
+        from ...utils.file_snapshot_cache import get_file_snapshot_cache
+
+        snapshot = get_file_snapshot_cache().get_bytes(path)
+        return json.loads(snapshot.data.decode("utf-8"))
     except json.JSONDecodeError:
         logger.warning("Malformed JSON in %s, resetting to default", path)
         return json.loads(json.dumps(default))
@@ -936,15 +926,15 @@ def _read_json_mtime_cached(
 def read_skill_manifest(
     workspace_dir: Path,
 ) -> dict[str, Any]:
-    """Return the workspace skill manifest, cached by file mtime."""
+    """Return the workspace skill manifest from a cached file snapshot."""
     path = get_workspace_skill_manifest_path(workspace_dir)
-    return _read_json_mtime_cached(path, default_workspace_manifest())
+    return _read_json_snapshot_cached(path, default_workspace_manifest())
 
 
 def read_skill_pool_manifest() -> dict[str, Any]:
-    """Return the pool skill manifest, cached by file mtime."""
+    """Return the pool skill manifest from a cached file snapshot."""
     path = get_pool_skill_manifest_path()
-    return _read_json_mtime_cached(path, default_pool_manifest())
+    return _read_json_snapshot_cached(path, default_pool_manifest())
 
 
 # ---------------------------------------------------------------------------

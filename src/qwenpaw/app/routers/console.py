@@ -590,6 +590,7 @@ async def get_push_messages(
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
             "source_type": p.extra.get("source_type", "tool_guard"),
             "driver": p.extra.get("driver"),
+            "reasoning": p.extra.get("reasoning", ""),
             "created_at": p.created_at,
             "timeout_seconds": p.timeout_seconds,
         }

@@ -584,14 +584,14 @@ export function RemoteModelManageModal({
         placeholder={t("models.searchModelPlaceholder", "搜索模型...")}
         value={modelSearchQuery}
         onChange={(e) => setModelSearchQuery(e.target.value)}
-        prefix={<Search size={16} />}
+        prefix={<Search size={18} />}
         allowClear
       />
 
       {supportsAutoDiscover && (
         <div style={{ marginTop: 8, color: "rgba(127,127,127,0.9)" }}>
           <CloudCog
-            size={15}
+            size={18}
             style={{ marginRight: 6, verticalAlign: "-3px" }}
           />
           {provider.models_syncing
@@ -669,8 +669,8 @@ export function RemoteModelManageModal({
                           }}
                         >
                           <Gift
-                            size={11}
-                            style={{ marginRight: 3, verticalAlign: "-2px" }}
+                            size={14}
+                            style={{ marginRight: 4, verticalAlign: "-3px" }}
                           />
                           {t("models.free")}
                         </Tag>
@@ -684,13 +684,13 @@ export function RemoteModelManageModal({
                       >
                         {isDeletable ? (
                           <User
-                            size={11}
-                            style={{ marginRight: 3, verticalAlign: "-2px" }}
+                            size={14}
+                            style={{ marginRight: 4, verticalAlign: "-3px" }}
                           />
                         ) : (
                           <Database
-                            size={11}
-                            style={{ marginRight: 3, verticalAlign: "-2px" }}
+                            size={14}
+                            style={{ marginRight: 4, verticalAlign: "-3px" }}
                           />
                         )}
                         {t(
@@ -702,6 +702,7 @@ export function RemoteModelManageModal({
                         )}
                       </Tag>
                       <span
+                        className={styles.modelListItemActionDivider}
                         style={{
                           display: "inline-block",
                           width: 1,
@@ -719,7 +720,9 @@ export function RemoteModelManageModal({
                         <Button
                           type="text"
                           size="small"
-                          icon={<FlaskConical size={16} />}
+                          className={styles.modelListActionButton}
+                          aria-label={t("models.probeMultimodal", "测试多模态")}
+                          icon={<FlaskConical size={18} />}
                           onClick={() => handleProbeMultimodal(m.id)}
                           loading={probingModelId === m.id}
                           style={darkBtnStyle}
@@ -729,7 +732,9 @@ export function RemoteModelManageModal({
                         <Button
                           type="text"
                           size="small"
-                          icon={<PlugZap size={16} />}
+                          className={styles.modelListActionButton}
+                          aria-label={t("models.testConnection")}
+                          icon={<PlugZap size={18} />}
                           onClick={() => handleTestModel(m.id)}
                           loading={testingModelId === m.id}
                           style={darkBtnStyle}
@@ -739,11 +744,13 @@ export function RemoteModelManageModal({
                         <Button
                           type="text"
                           size="small"
+                          className={styles.modelListActionButton}
+                          aria-label={t("models.modelConfigLabel", "模型配置")}
                           icon={
                             isConfigOpen ? (
-                              <ChevronDown size={16} />
+                              <ChevronDown size={18} />
                             ) : (
-                              <Settings size={16} />
+                              <Settings size={18} />
                             )
                           }
                           onClick={() =>
@@ -753,13 +760,17 @@ export function RemoteModelManageModal({
                         />
                       </Tooltip>
                       {isDeletable && (
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<Trash2 size={16} />}
-                          onClick={() => handleRemoveModel(m.id, m.name)}
-                        />
+                        <Tooltip title={t("models.removeModel")}>
+                          <Button
+                            type="text"
+                            size="small"
+                            danger
+                            className={styles.modelListActionButton}
+                            aria-label={t("models.removeModel")}
+                            icon={<Trash2 size={18} />}
+                            onClick={() => handleRemoveModel(m.id, m.name)}
+                          />
+                        </Tooltip>
                       )}
                     </div>
                   </div>
@@ -912,7 +923,7 @@ export function RemoteModelManageModal({
           <div className={styles.modalActionRow}>
             {supportsAutoDiscover && (
               <Button
-                icon={<Search size={16} />}
+                icon={<Search size={18} />}
                 loading={discoveringModels}
                 onClick={handleAutoDiscoverModels}
                 style={{ flex: 1 }}
@@ -922,7 +933,7 @@ export function RemoteModelManageModal({
             )}
             <Button
               type="dashed"
-              icon={<Plus size={16} />}
+              icon={<Plus size={18} />}
               onClick={openAddModel}
               style={{ flex: 1 }}
             >

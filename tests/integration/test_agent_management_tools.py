@@ -383,14 +383,23 @@ def test_spawn_subagent_batch(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_spawn_subagent_empty_batch_rejected(
+def test_spawn_subagent_empty_batch_runs_single_task(
     app_server,
     mock_llm,  # pylint: disable=redefined-outer-name
 ):
-    """An empty batch list is rejected with a clear error.
+    """An empty ``batch`` placeholder falls back to single-task mode.
 
     Test purpose:
-      - Cover _spawn_batch's validation branch.
+      - Cover the ``_normalize_batch`` compatibility branch where an
+        empty list is treated as "field not supplied", so a tool call
+        carrying ``task`` + ``batch=[]`` spawns one subagent for
+        ``task`` instead of erroring.
+
+    Note:
+      ``batch=[]`` never reaches ``_spawn_batch`` validation because
+      empty placeholders are normalised to ``None`` first (see
+      ``_normalize_batch``).  Asserting a rejection here would recurse
+      into a forced tool call and time out.
     """
     srv, mock_url = mock_llm
     srv.force_tool_call = True
@@ -398,17 +407,23 @@ def test_spawn_subagent_empty_batch_rejected(
     srv.tool_call_arguments = json.dumps(
         {"task": "parent", "batch": []},
     )
+    # The spawned subagent's own turn also reaches the mock LLM; without
+    # this gate it would be forced to spawn again and recurse until the
+    # request times out. Only the parent prompt carries the marker.
+    marker = "INTEG-SPAWN-EMPTY-BATCH"
+    srv.force_tool_call_user_marker = marker
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
     provider_id = register_mock_provider(app_server, mock_url)
     try:
         final = _chat_once(
             app_server,
             "integ-tools-spawn-empty",
-            "spawn an empty batch",
+            f"{marker} spawn an empty batch",
         )
         assert final.get("status") == "finished", final
     finally:
         srv.force_tool_call = False
+        srv.force_tool_call_user_marker = None
         unregister_mock_provider(app_server, provider_id)
 
 
@@ -433,15 +448,20 @@ def test_spawn_subagent_with_allowed_tools(
             "timeout": 60,
         },
     )
+    # Without this gate the spawned subagent's own turn is forced to
+    # spawn again and the chat task never finishes (recursion → timeout).
+    marker = "INTEG-SPAWN-ALLOWED"
+    srv.force_tool_call_user_marker = marker
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
     provider_id = register_mock_provider(app_server, mock_url)
     try:
         final = _chat_once(
             app_server,
             "integ-tools-spawn-allowed",
-            "spawn with restricted tools",
+            f"{marker} spawn with restricted tools",
         )
         assert final.get("status") == "finished", final
     finally:
         srv.force_tool_call = False
+        srv.force_tool_call_user_marker = None
         unregister_mock_provider(app_server, provider_id)
