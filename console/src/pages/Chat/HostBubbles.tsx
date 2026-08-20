@@ -225,7 +225,7 @@ function DefaultHostResponseCard({
   );
 }
 
-function HostRequestCardContent(props: { data: ChatRequestData }) {
+export function HostRequestCard(props: { data: ChatRequestData }) {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
 
@@ -287,9 +287,7 @@ function HostRequestCardContent(props: { data: ChatRequestData }) {
   return fallback();
 }
 
-export const HostRequestCard = React.memo(HostRequestCardContent);
-
-function HostResponseCardContent(props: {
+export function HostResponseCard(props: {
   data: ChatResponseData;
   isLast?: boolean;
 }) {
@@ -360,5 +358,3 @@ function HostResponseCardContent(props: {
   }
   return fallback();
 }
-
-export const HostResponseCard = React.memo(HostResponseCardContent);
