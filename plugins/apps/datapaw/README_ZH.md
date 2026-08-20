@@ -25,10 +25,6 @@ QwenPaw-Data UI
 
 datapaw 是 [QwenPaw-Data](https://github.com/agentscope-ai/QwenPaw-Data) 在 QwenPaw 中的原生入口。它将自主、图驱动的数据分析能力引入 QwenPaw 工作区，让用户可以用自然语言提出业务问题，并获得可追溯、富含工件、由真实企业数据支撑的答案。
 
-<p align="center">
-  <img src="assets/screenshots/analysis-workspace.png" alt="datapaw 分析工作区" width="900" />
-</p>
-
 ## 界面截图
 
 <p align="center">

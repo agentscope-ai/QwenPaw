@@ -33,10 +33,6 @@ It brings autonomous, graph-grounded data analysis into the QwenPaw workspace so
 users can ask business questions in natural language and get traceable,
 artifact-rich answers backed by real enterprise data.
 
-<p align="center">
-  <img src="assets/screenshots/analysis-workspace.png" alt="datapaw analysis workspace" width="900" />
-</p>
-
 ## Screenshots
 
 <p align="center">
