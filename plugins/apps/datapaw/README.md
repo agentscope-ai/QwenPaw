@@ -22,6 +22,55 @@ the legacy plugin globals, a fixed port, or a second request client.
 QwenPaw-Data explicitly enables the PawApp standard capabilities; existing PawApps
 that do not opt in receive no additional chat, storage, toast, or notify routes.
 
+## Quick start (recommended: PyPI)
+
+The fastest way to run the datapaw app without a `QwenPaw-Data` source
+workspace is to install the runtime packages from PyPI into the same Python
+environment as QwenPaw.
+
+```bash
+pip install qwenpaw[datapaw]
+```
+
+Or use the convenience script if you want to pin compatible versions:
+
+```bash
+./plugins/apps/datapaw/scripts/setup-pypi.sh
+```
+
+Then start QwenPaw and enable the datapaw app. The PawApp lifecycle will
+auto-detect the PyPI packages and start a managed context service on a dynamic
+loopback port.
+
+```bash
+qwenpaw app
+```
+
+> This path is recommended for users who only need the datapaw app and already
+> have their own Neo4j / PostgreSQL infrastructure, or who want to try the app
+> without demo data.
+
+### PyPI + docker-compose demo data
+
+If you also want the bundled GAAP demo data (Neo4j graph + PostgreSQL
+ datasource), start the infrastructure containers and run QwenPaw in external
+context mode:
+
+```bash
+cd plugins/apps/datapaw
+cp .env.example .env
+docker compose up -d neo4j postgres context seed
+
+# in another terminal
+DATAPAW_CONTEXT_MODE=external \
+DATAPAW_CONTEXT_URL=http://127.0.0.1:8765 \
+DATAPAW_CONTEXT_TOKEN=datapaw-demo-token \
+qwenpaw app
+```
+
+This is the **recommended one-shot demo** path: you get a fully seeded graph
+and datasource without compiling QwenPaw inside Docker.
+
 ## Local package setup
 
 The source workspace defaults to `~/dev/QwenPaw-Data`. Its isolated
