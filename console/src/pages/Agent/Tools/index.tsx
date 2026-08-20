@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
 
 /** Stable background colours for the initial-letter fallback icon. */
@@ -61,6 +62,7 @@ function ToolIcon({ icon, name }: { icon: string; name: string }) {
 }
 
 const BROWSER_TOOL_NAMES = new Set(["browser"]);
+const WEBSEARCH_TOOL_NAMES = new Set(["web_search"]);
 
 function browserModeLabel(experimental: boolean, t: TFunction): string {
   return experimental
@@ -450,6 +452,15 @@ export default function ToolsPage() {
                             {t("tools.configure")}
                           </Button>
                         )}
+                        {WEBSEARCH_TOOL_NAMES.has(tool.name) && (
+                          <Button
+                            className={styles.toggleButton}
+                            onClick={() => handleConfigure(tool)}
+                            icon={<SettingOutlined />}
+                          >
+                            {t("tools.configure")}
+                          </Button>
+                        )}
                         <Button
                           className={styles.toggleButton}
                           onClick={() => toggleEnabled(tool)}
@@ -514,14 +525,24 @@ export default function ToolsPage() {
       </div>
 
       {/* Config modal — key forces remount when switching tools */}
-      {currentTool && (
-        <ToolConfigModal
+      {currentTool && WEBSEARCH_TOOL_NAMES.has(currentTool.name) ? (
+        <WebSearchConfigModal
           key={currentTool.name}
           tool={currentTool}
           visible={configModalVisible}
           onClose={() => setConfigModalVisible(false)}
           onSave={handleSaveConfig}
         />
+      ) : (
+        currentTool && (
+          <ToolConfigModal
+            key={currentTool.name}
+            tool={currentTool}
+            visible={configModalVisible}
+            onClose={() => setConfigModalVisible(false)}
+            onSave={handleSaveConfig}
+          />
+        )
       )}
     </div>
   );

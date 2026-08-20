@@ -94,6 +94,7 @@ export interface MatrixConfig extends BaseChannelConfig {
   homeserver: string;
   user_id: string;
   access_token: string;
+  share_session_in_group?: boolean;
   streaming_enabled?: boolean;
 }
 

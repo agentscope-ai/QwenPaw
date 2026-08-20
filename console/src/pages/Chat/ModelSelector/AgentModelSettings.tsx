@@ -8,6 +8,7 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
+import { Select } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { agentsApi } from "@/api/modules/agents";
@@ -80,6 +81,10 @@ export function AgentModelSettings({
   const agentIdRef = useRef(agentId);
   agentIdRef.current = agentId;
   const bodyId = useId();
+  const thinkingSelectId = `${bodyId}-thinking-level`;
+  const subagentSelectId = `${bodyId}-subagent-model`;
+  const fallbackScopeSelectId = `${bodyId}-fallback-scope`;
+  const fallbackSelectId = `${bodyId}-fallback-model`;
 
   const options = useMemo<ModelOption[]>(
     () =>
@@ -122,6 +127,39 @@ export function AgentModelSettings({
   );
   const activeKey = activeOption?.key ?? EMPTY_KEY;
   const thinkingSupported = activeOption?.supportsThinking ?? false;
+  const modelSelectOptions = useMemo(
+    () =>
+      options.map((option) => ({
+        label: option.label,
+        value: option.key,
+      })),
+    [options],
+  );
+  const subagentOptions = useMemo(() => {
+    const items = [
+      {
+        label: t("modelSelector.sameAsPrimary"),
+        value: EMPTY_KEY,
+      },
+    ];
+    if (subagentKey && !optionByKey.has(subagentKey)) {
+      items.push({ label: subagentKey, value: subagentKey });
+    }
+    return [...items, ...modelSelectOptions];
+  }, [modelSelectOptions, optionByKey, subagentKey, t]);
+  const fallbackOptions = useMemo(
+    () => [
+      {
+        label: t("modelSelector.chooseFallback"),
+        value: EMPTY_KEY,
+      },
+      ...modelSelectOptions.filter(
+        (option) =>
+          option.value !== activeKey && !fallbackKeys.includes(option.value),
+      ),
+    ],
+    [activeKey, fallbackKeys, modelSelectOptions, t],
+  );
 
   useEffect(() => {
     loadRevision.current += 1;
@@ -285,47 +323,50 @@ export function AgentModelSettings({
             </div>
           ) : (
             <>
-              <label className={styles.settingsRow}>
+              <label className={styles.settingsRow} htmlFor={thinkingSelectId}>
                 <span>{t("modelSelector.thinkingLevel")}</span>
-                <select
+                <Select
+                  id={thinkingSelectId}
+                  aria-label={t("modelSelector.thinkingLevel")}
+                  className={styles.agentSelect}
+                  classNames={{
+                    popup: { root: styles.agentSelectDropdown },
+                  }}
                   value={thinkingLevel}
                   disabled={!thinkingSupported}
-                  onChange={(event) =>
-                    setThinkingLevel(event.target.value as typeof thinkingLevel)
+                  options={(
+                    ["inherit", "off", "low", "medium", "high"] as const
+                  ).map((level) => ({
+                    label: t(`modelSelector.thinking.${level}`),
+                    value: level,
+                  }))}
+                  onChange={(value) =>
+                    setThinkingLevel(value as typeof thinkingLevel)
                   }
-                >
-                  {(["inherit", "off", "low", "medium", "high"] as const).map(
-                    (level) => (
-                      <option key={level} value={level}>
-                        {t(`modelSelector.thinking.${level}`)}
-                      </option>
-                    ),
-                  )}
-                </select>
+                />
               </label>
               {!thinkingSupported && (
                 <p className={styles.settingsHint}>
                   {t("modelSelector.thinkingUnsupported")}
                 </p>
               )}
-              <label className={styles.settingsRow}>
+              <label className={styles.settingsRow} htmlFor={subagentSelectId}>
                 <span>{t("modelSelector.subagentModel")}</span>
-                <select
+                <Select
+                  id={subagentSelectId}
+                  aria-label={t("modelSelector.subagentModel")}
+                  className={styles.agentSelect}
+                  classNames={{
+                    popup: { root: styles.agentSelectDropdown },
+                  }}
                   value={subagentKey}
-                  onChange={(event) => setSubagentKey(event.target.value)}
-                >
-                  <option value={EMPTY_KEY}>
-                    {t("modelSelector.sameAsPrimary")}
-                  </option>
-                  {subagentKey && !optionByKey.has(subagentKey) && (
-                    <option value={subagentKey}>{subagentKey}</option>
-                  )}
-                  {options.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  options={subagentOptions}
+                  showSearch
+                  optionFilterProp="label"
+                  listHeight={280}
+                  popupMatchSelectWidth={320}
+                  onChange={setSubagentKey}
+                />
               </label>
               <label className={styles.settingsCheckRow}>
                 <input
@@ -337,47 +378,53 @@ export function AgentModelSettings({
               </label>
               {fallbackEnabled && (
                 <>
-                  <label className={styles.settingsRow}>
+                  <label
+                    className={styles.settingsRow}
+                    htmlFor={fallbackScopeSelectId}
+                  >
                     <span>{t("modelSelector.fallbackScope")}</span>
-                    <select
+                    <Select
+                      id={fallbackScopeSelectId}
+                      aria-label={t("modelSelector.fallbackScope")}
+                      className={styles.agentSelect}
+                      classNames={{
+                        popup: { root: styles.agentSelectDropdown },
+                      }}
                       value={fallbackScope}
-                      onChange={(event) =>
-                        setFallbackScope(
-                          event.target.value as typeof fallbackScope,
-                        )
+                      options={[
+                        {
+                          label: t("modelSelector.configuredModels"),
+                          value: "configured",
+                        },
+                        {
+                          label: t("modelSelector.freeModelsOnly"),
+                          value: "free_only",
+                        },
+                      ]}
+                      onChange={(value) =>
+                        setFallbackScope(value as typeof fallbackScope)
                       }
-                    >
-                      <option value="configured">
-                        {t("modelSelector.configuredModels")}
-                      </option>
-                      <option value="free_only">
-                        {t("modelSelector.freeModelsOnly")}
-                      </option>
-                    </select>
+                    />
                   </label>
                   <div className={styles.fallbackComposer}>
-                    <select
+                    <label className={styles.srOnly} htmlFor={fallbackSelectId}>
+                      {t("modelSelector.chooseFallback")}
+                    </label>
+                    <Select
+                      id={fallbackSelectId}
                       aria-label={t("modelSelector.chooseFallback")}
+                      className={styles.agentSelect}
+                      classNames={{
+                        popup: { root: styles.agentSelectDropdown },
+                      }}
                       value={pendingFallback}
-                      onChange={(event) =>
-                        setPendingFallback(event.target.value)
-                      }
-                    >
-                      <option value={EMPTY_KEY}>
-                        {t("modelSelector.chooseFallback")}
-                      </option>
-                      {options
-                        .filter(
-                          (option) =>
-                            option.key !== activeKey &&
-                            !fallbackKeys.includes(option.key),
-                        )
-                        .map((option) => (
-                          <option key={option.key} value={option.key}>
-                            {option.label}
-                          </option>
-                        ))}
-                    </select>
+                      options={fallbackOptions}
+                      showSearch
+                      optionFilterProp="label"
+                      listHeight={280}
+                      popupMatchSelectWidth={320}
+                      onChange={setPendingFallback}
+                    />
                     <button
                       type="button"
                       aria-label={t("modelSelector.addFallback")}

@@ -20,3 +20,4 @@ export { DouyinIcon } from "./DouyinIcon";
 export { DingTalkIcon } from "./DingTalkIcon";
 export { BlogIcon } from "./BlogIcon";
 export { LuckyBagIcon } from "./luckyBagIcon";
+export { BilibiliIcon } from "./BilibiliIcon";

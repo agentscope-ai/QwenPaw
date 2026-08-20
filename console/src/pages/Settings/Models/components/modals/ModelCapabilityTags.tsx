@@ -58,7 +58,7 @@ export function CapabilityTags({
   if (model.supports_image && model.supports_video) {
     return (
       <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
-        <Boxes size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
+        <Boxes size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
         {t("models.tagMultimodal", "多模态")}
       </Tag>
     );
@@ -66,7 +66,7 @@ export function CapabilityTags({
   if (model.supports_image) {
     return (
       <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
-        <Eye size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
+        <Eye size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
         {t("models.tagVision", "视觉")}
       </Tag>
     );
@@ -74,7 +74,7 @@ export function CapabilityTags({
   if (model.supports_video) {
     return (
       <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
-        <Video size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
+        <Video size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
         {t("models.tagVideo", "视频")}
       </Tag>
     );
@@ -82,14 +82,14 @@ export function CapabilityTags({
   if (model.supports_multimodal === false) {
     return (
       <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
-        <FileText size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
+        <FileText size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
         {t("models.tagText", "文本")}
       </Tag>
     );
   }
   return (
     <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
-      <CircleHelp size={11} style={{ marginRight: 3, verticalAlign: "-2px" }} />
+      <CircleHelp size={14} style={{ marginRight: 4, verticalAlign: "-3px" }} />
       {t("models.tagNotProbed", "未检测")}
     </Tag>
   );

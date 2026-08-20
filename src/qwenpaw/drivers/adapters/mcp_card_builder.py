@@ -12,10 +12,13 @@ from .mcp_binding import (
     binding_to_response,
     classify_mcp_binding,
     normalize_secret_key,
+    parse_env_template,
+    plan_env_ref_bindings,
     restore_masked_value,
     source_binding_from_split,
     split_mcp_binding,
 )
+from .env_ref import env_ref
 from ..constants import (
     CAPABILITY_KIND_TOOL,
     CREDENTIAL_ALIAS_OAUTH,
@@ -50,7 +53,12 @@ def build_mcp_credential_record(
     *,
     existing: CredentialRecord | None = None,
 ) -> CredentialRecord:
-    """Build the static MCP credential record from console request data."""
+    """Build the static MCP credential record from console request data.
+
+    Values that embed a single ``${VAR}`` reference are env-backed and
+    never stored as static secrets — they resolve from the process
+    environment at runtime (see ``plan_env_ref_bindings``).
+    """
     ref = mcp_credential_ref(client_key)
     incoming_env = dict(_read_field(client, "env", {}) or {})
     incoming_headers = dict(_read_field(client, "headers", {}) or {})
@@ -62,6 +70,9 @@ def build_mcp_credential_record(
             classify_mcp_binding(section="env", key=str(key), value=str(value))
             == "public"
         ):
+            continue
+        template = parse_env_template(str(value))
+        if template is not None and template.is_single:
             continue
         secret_key = str(key)
         secrets[secret_key] = restore_masked_value(
@@ -79,6 +90,9 @@ def build_mcp_credential_record(
             )
             == "public"
         ):
+            continue
+        template = parse_env_template(str(value))
+        if template is not None and template.is_single:
             continue
         secret_key = normalize_secret_key(str(header), used)
         used.add(secret_key)
@@ -115,40 +129,51 @@ def build_mcp_driver_card(
     if transport == "stdio":
         env = dict(data.get("env") or {})
         public_env, secret_env = split_mcp_binding("env", env)
+        env_plan = plan_env_ref_bindings(secret_env)
+        env_binding = source_binding_from_split(
+            public_env,
+            {str(key): str(key) for key in env_plan.plain_secrets},
+            STATIC_CREDENTIAL_ALIAS,
+        )
+        env_binding.update(env_plan.env_bindings)
         endpoint: dict[str, Any] = {
             "transport": "stdio",
             "command": str(data.get("command") or ""),
             "args": list(data.get("args") or []),
-            "env": source_binding_from_split(
-                public_env,
-                {str(key): str(key) for key in secret_env},
-                STATIC_CREDENTIAL_ALIAS,
-            ),
+            "env": env_binding,
         }
         cwd = str(data.get("cwd") or "")
         if cwd:
             endpoint["cwd"] = cwd
+        env_aliases = env_plan.env_aliases
     else:
         headers = dict(data.get("headers") or {})
         public_headers, secret_headers = split_mcp_binding("headers", headers)
+        header_plan = plan_env_ref_bindings(secret_headers)
         used: set[str] = set()
         secret_refs: dict[str, str] = {}
-        for header in secret_headers:
+        for header in header_plan.plain_secrets:
             secret_key = normalize_secret_key(str(header), used)
             used.add(secret_key)
             secret_refs[str(header)] = secret_key
+        header_binding = source_binding_from_split(
+            public_headers,
+            secret_refs,
+            STATIC_CREDENTIAL_ALIAS,
+        )
+        header_binding.update(header_plan.env_bindings)
         endpoint = {
             "transport": transport,
             "url": str(data.get("url") or ""),
-            "headers": source_binding_from_split(
-                public_headers,
-                secret_refs,
-                STATIC_CREDENTIAL_ALIAS,
-            ),
+            "headers": header_binding,
         }
         _preserve_oauth_authorization_binding(existing, endpoint)
+        env_aliases = header_plan.env_aliases
 
     credentials = _credential_refs_from_existing(existing)
+    for alias, ref in list(credentials.items()):
+        if ref.ref.startswith("env:"):
+            credentials.pop(alias, None)
     if secrets:
         credentials[STATIC_CREDENTIAL_ALIAS] = CredentialRef(
             kind=CREDENTIAL_KIND_STATIC,
@@ -156,6 +181,11 @@ def build_mcp_driver_card(
         )
     else:
         credentials.pop(STATIC_CREDENTIAL_ALIAS, None)
+    for alias, var in env_aliases.items():
+        credentials[alias] = CredentialRef(
+            kind=CREDENTIAL_KIND_STATIC,
+            ref=env_ref(var),
+        )
     # Generic DriverPolicy defaults to deny as the low-level safe fallback.
     # Console-created MCP clients default to ask so a newly added external
     # server requires human approval instead of failing silently before the
@@ -180,6 +210,21 @@ def build_mcp_driver_card(
     )
 
 
+def _env_aliases_from_credentials(
+    credentials: dict[str, CredentialRef],
+) -> dict[str, str]:
+    """Return alias -> var name for ``env:`` credential refs.
+
+    Preserves the original variable name (case-sensitive) recorded on the
+    card, instead of reverse-engineering it from the lowercased alias.
+    """
+    aliases: dict[str, str] = {}
+    for alias, ref in (credentials or {}).items():
+        if ref.ref.startswith("env:"):
+            aliases[str(alias)] = ref.ref[len("env:") :]
+    return aliases
+
+
 def build_mcp_client_info_payload(
     card: DriverCard,
     credential: CredentialRecord | None,
@@ -188,15 +233,18 @@ def build_mcp_client_info_payload(
     """Return the MCPClientInfo-compatible API response payload."""
     endpoint = card.endpoint
     transport = str(endpoint.get("transport") or "stdio")
+    env_aliases = _env_aliases_from_credentials(card.credentials)
     env = binding_to_response(
         endpoint.get("env") or {},
         credential,
         credential_alias=STATIC_CREDENTIAL_ALIAS,
+        env_aliases=env_aliases,
     )
     headers = binding_to_response(
         endpoint.get("headers") or {},
         credential,
         credential_alias=STATIC_CREDENTIAL_ALIAS,
+        env_aliases=env_aliases,
     )
     return {
         "key": card.name,
@@ -310,6 +358,7 @@ def _card_to_client_data(card: DriverCard | None) -> dict[str, Any]:
     if card is None:
         return {}
     endpoint = card.endpoint
+    env_aliases = _env_aliases_from_credentials(card.credentials)
     return {
         "name": card.config.get("display_name") or card.name,
         "description": card.config.get("description") or "",
@@ -319,12 +368,14 @@ def _card_to_client_data(card: DriverCard | None) -> dict[str, Any]:
         "headers": binding_plain_keys(
             endpoint.get("headers") or {},
             credential_alias=STATIC_CREDENTIAL_ALIAS,
+            env_aliases=env_aliases,
         ),
         "command": endpoint.get("command") or "",
         "args": list(endpoint.get("args") or []),
         "env": binding_plain_keys(
             endpoint.get("env") or {},
             credential_alias=STATIC_CREDENTIAL_ALIAS,
+            env_aliases=env_aliases,
         ),
         "cwd": endpoint.get("cwd") or "",
     }

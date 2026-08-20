@@ -209,10 +209,15 @@ class TestReportUnenforcedConfig:
         # hides a boundary failure at the default log level.
         assert field in _SECURITY_BOUNDARY_FIELDS
 
-    def test_enforced_fields_are_silent(self, caplog):
+    def test_enforced_fields_are_silent(self, caplog, tmp_path):
+        # The mount must exist: a declared-but-absent path is reported
+        # separately, and that is a different concern from this one.
         caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
         report_unenforced_config(
-            _config(deny_paths=["~/.ssh"], mounts=[MountSpec(path="/a")]),
+            _config(
+                deny_paths=["~/.ssh"],
+                mounts=[MountSpec(path=str(tmp_path))],
+            ),
             "FakeSandbox",
             frozenset({"deny_paths", "mounts"}),
         )
@@ -655,3 +660,75 @@ class TestShellArgvDispatch:
         # cmd.exe is normally referenced.
         assert _resolve_shell("definitely-not-a-real-binary") is None
         assert _resolve_shell("/nonexistent/fish") is None
+
+
+class TestMissingMountPaths:
+    """A mount is bound only if its path exists, so a drop must be loud.
+
+    Issue #7005: an operator granted ``~/.cache/uv`` and saw a clean log
+    while the path was never bound. A field-level report cannot catch this
+    -- ``mounts`` *is* enforced by the backend; the individual path just
+    was not there.
+    """
+
+    def test_absent_path_is_reported(self, caplog, tmp_path):
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        report_unenforced_config(
+            _config(
+                mounts=[
+                    MountSpec(path=str(tmp_path), writable=True),
+                    MountSpec(path="/definitely/not/here", writable=True),
+                ],
+            ),
+            "FakeSandbox",
+            frozenset({"mounts"}),
+        )
+        assert "/definitely/not/here" in caplog.text
+        assert "NOT bound" in caplog.text
+        # The existing path must not be dragged into the message.
+        assert str(tmp_path) not in caplog.text
+
+    def test_existing_paths_are_silent(self, caplog, tmp_path):
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        report_unenforced_config(
+            _config(mounts=[MountSpec(path=str(tmp_path), writable=True)]),
+            "FakeSandbox",
+            frozenset({"mounts"}),
+        )
+        assert _reports(caplog) == []
+
+    def test_report_is_a_warning(self, caplog):
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        report_unenforced_config(
+            _config(mounts=[MountSpec(path="/definitely/not/here")]),
+            "FakeSandbox",
+            frozenset({"mounts"}),
+        )
+        assert [level for level, _ in _reports(caplog)] == [logging.WARNING]
+
+    def test_not_reported_where_mounts_are_ignored_wholesale(self, caplog):
+        # NoneSandbox already reports that it enforces no mounts at all;
+        # adding a per-path line there would be redundant noise.
+        caplog.set_level(logging.DEBUG, logger=_CONFIG_LOGGER)
+        report_unenforced_config(
+            _config(mounts=[MountSpec(path="/definitely/not/here")]),
+            "NoneSandbox",
+            frozenset(),
+        )
+        messages = [message for _, message in _reports(caplog)]
+        assert len(messages) == 1
+        assert "does not enforce mounts" in messages[0]
+
+    def test_absent_path_does_not_stop_the_sandbox(self, tmp_path):
+        # A tool cache legitimately does not exist until its tool first
+        # runs, so an absent mount must never be fatal.
+        sandbox = BubblewrapSandbox(
+            _config(
+                workspace_dir=str(tmp_path),
+                mounts=[
+                    MountSpec(path=str(tmp_path), writable=True),
+                    MountSpec(path="/definitely/not/here", writable=True),
+                ],
+            ),
+        )
+        assert "mounts" in sandbox._enforced_fields()
