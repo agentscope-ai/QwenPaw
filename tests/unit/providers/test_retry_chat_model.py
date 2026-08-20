@@ -28,6 +28,7 @@ from qwenpaw.providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
     RateLimitConfig,
+    StreamCleanupPendingError,
     StreamIdleTimeoutError,
     _compute_backoff,
     _enable_reasoning_content_fallback,
@@ -136,6 +137,65 @@ async def _final_then_hanging_stream(
         await asyncio.Event().wait()
     finally:
         state["closed"] = True
+
+
+class _SlowCloseStream:
+    """Stream whose close operation completes only after release."""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.completed = asyncio.Event()
+        self.cancelled = False
+
+    async def aclose(self) -> None:
+        self.started.set()
+        try:
+            await self.release.wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        self.completed.set()
+
+
+class _NonCooperativeStreamModel:
+    """Model whose streams wait for explicit release after cancellation."""
+
+    model = "non-cooperative-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.active = 0
+        self.max_active = 0
+        self.release = asyncio.Event()
+        self.closed = asyncio.Event()
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        return self._stream()
+
+    async def _stream(self) -> AsyncGenerator[Any, None]:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await self.release.wait()
+                raise
+            if False:
+                yield SimpleNamespace(content="unreachable")
+        finally:
+            self.active -= 1
+            self.closed.set()
 
 
 class _IdleStreamModel:
@@ -424,7 +484,7 @@ class _TransientStreamRetryModel:
     [
         [{"type": "text", "text": "partial"}],
         [{"type": "thinking", "thinking": "partial"}],
-        [{"type": "tool_use", "id": "call-1"}],
+        [{"type": "tool_use", "id": "call-1", "name": "tool"}],
         [{"type": "data", "data": "media"}],
     ],
 )
@@ -458,6 +518,49 @@ async def test_stream_does_not_retry_after_visible_output(
             _ = [chunk async for chunk in stream]
 
         assert inner.calls == 1
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    [
+        [TextBlock(text="")],
+        [ThinkingBlock(thinking="")],
+        [ToolCallBlock(id="call-1", name="", input="")],
+    ],
+)
+async def test_stream_retries_after_empty_payload_block(
+    content: Any,
+) -> None:
+    pytest.importorskip("openai")
+    _limiters.clear()
+    try:
+        inner = _TransientStreamRetryModel(content)
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=1,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert [chunk.content for chunk in chunks] == [content, "ok"]
+        assert inner.calls == 2
     finally:
         _limiters.clear()
 
@@ -653,6 +756,112 @@ async def test_final_chunk_ends_stream_without_idle_timeout() -> None:
         assert _limiters[model.model_key].stats()["current_in_flight"] == 0
     finally:
         _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_slow_stream_close_continues_in_background(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model._STREAM_CLEANUP_TIMEOUT",
+        0.02,
+    )
+    model = RetryChatModel(
+        _IdleStreamModel([]),  # type: ignore[arg-type]
+        retry_config=RetryConfig(enabled=False),
+    )
+    provider_stream = _SlowCloseStream()
+
+    await model._close_stream_bounded(  # pylint: disable=protected-access
+        provider_stream,  # type: ignore[arg-type]
+    )
+
+    assert provider_stream.started.is_set() is True
+    assert provider_stream.cancelled is False
+    assert provider_stream.completed.is_set() is False
+    assert len(model._pending_provider_cleanup_tasks) == 1
+
+    provider_stream.release.set()
+    await asyncio.wait_for(provider_stream.completed.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    assert provider_stream.cancelled is False
+    assert provider_stream.completed.is_set() is True
+    assert model._pending_provider_cleanup_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_deferred_cleanup_quarantines_model_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.providers.retry_chat_model._STREAM_CLEANUP_TIMEOUT",
+        0.02,
+    )
+    _limiters.clear()
+    inner = _NonCooperativeStreamModel()
+    model = RetryChatModel(
+        inner,  # type: ignore[arg-type]
+        retry_config=RetryConfig(
+            enabled=True,
+            max_retries=2,
+            backoff_base=0.01,
+            backoff_cap=0.01,
+        ),
+        rate_limit_config=RateLimitConfig(
+            max_concurrent=1,
+            max_qpm=0,
+            pause_seconds=1.0,
+            jitter_range=0.0,
+            acquire_timeout=10.0,
+        ),
+        stream_first_content_timeout=0.05,
+    )
+    try:
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        with pytest.raises(StreamIdleTimeoutError) as exc_info:
+            await anext(stream)
+
+        assert exc_info.value.cleanup_deferred is True
+        assert {
+            "calls": inner.calls,
+            "active": inner.active,
+            "max_active": inner.max_active,
+            "limiter_in_flight": _limiters[model.model_key].stats()[
+                "current_in_flight"
+            ],
+            "pending_cleanup": len(model._pending_provider_cleanup_tasks),
+        } == {
+            "calls": 1,
+            "active": 1,
+            "max_active": 1,
+            "limiter_in_flight": 0,
+            "pending_cleanup": 1,
+        }
+
+        with pytest.raises(StreamCleanupPendingError):
+            await model(messages=[])
+
+        peer = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(enabled=False),
+        )
+        with pytest.raises(StreamCleanupPendingError):
+            await peer(messages=[])
+        assert inner.calls == 1
+    finally:
+        inner.release.set()
+        if inner.active:
+            await asyncio.wait_for(inner.closed.wait(), timeout=1.0)
+        for _ in range(10):
+            if not model._pending_provider_cleanup_tasks:
+                break
+            await asyncio.sleep(0.01)
+        _limiters.clear()
+
+    assert inner.active == 0
+    assert model._pending_provider_cleanup_tasks == set()
 
 
 @pytest.mark.asyncio

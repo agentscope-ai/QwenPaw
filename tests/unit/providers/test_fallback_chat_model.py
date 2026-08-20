@@ -276,7 +276,10 @@ async def test_falls_back_after_empty_stream_control_chunk() -> None:
     primary = FakeModel(
         "primary",
         lambda: _stream(
-            ChatResponse(content=[], is_last=False),
+            ChatResponse(
+                content=[{"type": "text", "text": ""}],
+                is_last=False,
+            ),
             error=HttpError(503),
         ),
     )
@@ -335,7 +338,10 @@ class ClosableModel(FakeModel):
 
     async def _stream(self) -> AsyncGenerator[ChatResponse, None]:
         try:
-            yield _response("partial")
+            yield ChatResponse(
+                content=[{"type": "text", "text": "partial"}],
+                is_last=False,
+            )
             await self.release.wait()
         except asyncio.CancelledError:
             self.cancelled = True
