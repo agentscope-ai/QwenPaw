@@ -179,22 +179,6 @@ export default function LoginPage() {
             : "0 4px 24px rgba(0,0,0,0.1)",
         }}
       >
-        {isHub && (
-          <div className={styles.languageBar}>
-            <Button
-              type="text"
-              size="small"
-              className={styles.languageSwitcher}
-              icon={
-                <Languages size={15} strokeWidth={1.8} aria-hidden="true" />
-              }
-              aria-label={t("login.switchLanguage")}
-              onClick={switchHubLanguage}
-            >
-              {isChinese ? "English" : "简体中文"}
-            </Button>
-          </div>
-        )}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
             src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
@@ -330,6 +314,15 @@ export default function LoginPage() {
               <Globe2 size={14} strokeWidth={1.8} aria-hidden="true" />
               {t("login.officialWebsite")}
             </a>
+            <span aria-hidden="true" />
+            <button
+              type="button"
+              aria-label={t("login.switchLanguage")}
+              onClick={switchHubLanguage}
+            >
+              <Languages size={14} strokeWidth={1.8} aria-hidden="true" />
+              {isChinese ? "English" : "简体中文"}
+            </button>
           </nav>
         )}
       </div>
