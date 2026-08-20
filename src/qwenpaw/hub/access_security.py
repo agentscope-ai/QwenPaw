@@ -50,11 +50,14 @@ class HubAccessSecurity:
         if not self._contains(self._trusted_proxies, peer):
             return peer
         forwarded = request.headers.get("x-forwarded-for", "")
-        candidate = forwarded.split(",", 1)[0].strip()
-        try:
-            return str(ipaddress.ip_address(candidate))
-        except ValueError:
-            return peer
+        for token in reversed(forwarded.split(",")):
+            try:
+                candidate = str(ipaddress.ip_address(token.strip()))
+            except ValueError:
+                return peer
+            if not self._contains(self._trusted_proxies, candidate):
+                return candidate
+        return peer
 
     def is_blacklisted(self, address: str) -> bool:
         """Return whether an address belongs to a blocked network."""

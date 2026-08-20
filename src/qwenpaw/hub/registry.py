@@ -211,12 +211,12 @@ class RuntimeRegistry:
         return counts
 
     def delete(self, runtime_id: str) -> None:
-        """Retire registration without deleting runtime data."""
+        """Remove registration without deleting runtime data."""
         with self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE runtimes SET deleted_at = ?, revision = revision + 1 "
+                "DELETE FROM runtimes "
                 "WHERE runtime_id = ? AND deleted_at IS NULL",
-                (utc_now(), runtime_id),
+                (runtime_id,),
             )
             if cursor.rowcount != 1:
                 raise KeyError(runtime_id)

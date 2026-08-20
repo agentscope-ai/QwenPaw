@@ -699,6 +699,46 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes["items"][0]["metadata"]["hub_default"] is True
 
 
+def test_deleted_personal_runtime_is_recreated_on_next_proxy(
+    tmp_path: Path,
+) -> None:
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, stream=_ProxyStream())
+
+    transport = httpx.MockTransport(proxy_handler)
+    with _client(tmp_path, transport) as client:
+        admin_token = _register(client, "owner")
+        member, member_token = _create_user(client, "member")
+        member_headers = _headers(member_token)
+        assert (
+            client.get("/api/probe", headers=member_headers).status_code == 200
+        )
+        runtime_id = f"personal-{member.user_id[:24]}"
+        original = client.app.state.runtime_service.get(runtime_id)
+        marker = original.working_dir / "retained.txt"
+        marker.write_text("retained", encoding="utf-8")
+
+        stopped = client.post(
+            f"/api/hub/runtimes/{runtime_id}/stop",
+            headers=_headers(admin_token),
+        )
+        deleted = client.delete(
+            f"/api/hub/runtimes/{runtime_id}",
+            headers=_headers(admin_token),
+        )
+        recreated_response = client.get("/api/probe", headers=member_headers)
+        recreated = client.app.state.runtime_service.get(runtime_id)
+
+        assert stopped.status_code == 200
+        assert deleted.status_code == 204
+        assert recreated_response.status_code == 200
+        assert recreated.runtime_id == runtime_id
+        assert recreated.owner_user_id == member.user_id
+        assert recreated.state is RuntimeState.RUNNING
+        assert marker.read_text(encoding="utf-8") == "retained"
+
+
 def test_proxy_closes_upstream_client_when_request_disconnects(
     tmp_path: Path,
 ) -> None:

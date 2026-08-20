@@ -6,7 +6,7 @@ import type {
   HubRuntime,
   HubSettings,
   HubUser,
-} from "../../api/modules/hub";
+} from "../api/modules/hub";
 
 export function page<T>(items: T[] = []): HubPage<T> {
   return {

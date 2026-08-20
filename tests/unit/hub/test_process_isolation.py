@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for fail-closed Hub runtime process isolation."""
 
+import subprocess
 import sys
 import threading
 import urllib.request
@@ -14,6 +15,7 @@ from qwenpaw.hub.models import RuntimeRecord, RuntimeState
 from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
     LinuxBubblewrapIsolator,
+    MacOSSeatbeltIsolator,
     ProcessIsolationError,
     ProcessIsolator,
     UnsupportedProcessIsolator,
@@ -258,6 +260,87 @@ def test_linux_command_never_mounts_pythonpath(
     assert str(trusted_path.resolve()) not in read_only_sources
     assert str(Path("/")) not in read_only_sources
     assert str(other_tenant.resolve()) not in read_only_sources
+
+
+def test_macos_profile_does_not_allow_global_file_reads(
+    tmp_path: Path,
+) -> None:
+    record = _record(tmp_path)
+
+    profile = (
+        MacOSSeatbeltIsolator()._profile(  # pylint: disable=protected-access
+            record,
+        )
+    )
+
+    assert "\n(allow file-read*)\n" not in f"\n{profile}\n"
+    assert f'(allow file-read* (subpath "{record.working_dir.parent}"))' in (
+        profile
+    )
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="Seatbelt is only available on macOS.",
+)
+def test_macos_seatbelt_blocks_reads_outside_allowlist(
+    tmp_path: Path,
+) -> None:
+    sandbox_exec = Path("/usr/bin/sandbox-exec")
+    if not sandbox_exec.is_file():
+        pytest.skip("sandbox-exec is unavailable")
+    record = _record(tmp_path)
+    allowed = record.working_dir / "allowed.txt"
+    allowed.write_text("allowed", encoding="utf-8")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text("outside-secret", encoding="utf-8")
+    profile_path = record.secret_dir / "runtime-test.sb"
+    profile_path.write_text(
+        MacOSSeatbeltIsolator()._profile(  # pylint: disable=protected-access
+            record,
+        ),
+        encoding="utf-8",
+    )
+
+    allowed_result = subprocess.run(
+        [
+            str(sandbox_exec),
+            "-f",
+            str(profile_path),
+            "/bin/cat",
+            str(allowed),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=record.working_dir,
+        check=False,
+    )
+    blocked_result = subprocess.run(
+        [str(sandbox_exec), "-f", str(profile_path), "/bin/cat", str(outside)],
+        capture_output=True,
+        text=True,
+        cwd=record.working_dir,
+        check=False,
+    )
+
+    assert allowed_result.returncode == 0
+    assert allowed_result.stdout == "allowed"
+    assert blocked_result.returncode != 0
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="Seatbelt is only available on macOS.",
+)
+def test_macos_seatbelt_real_preflight(tmp_path: Path) -> None:
+    provisioner = LocalProcessRuntimeProvisioner(
+        isolator=MacOSSeatbeltIsolator(),
+    )
+
+    availability = provisioner.preflight(tmp_path / "preflight")
+
+    provisioner.close()
+    assert availability.available, availability.reason
 
 
 def test_provisioner_launches_through_injected_isolator(

@@ -293,15 +293,8 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
                 "(allow network-inbound "
                 f'(local ip "localhost:{record.port}"))'
             ),
-            "(allow file-read*)",
+            '(allow file-read-data (literal "/"))',
         ]
-        protected_paths = {
-            Path.home().resolve(),
-            runtime_root.parent.parent.resolve(),
-        }
-        for path in sorted(protected_paths, key=str):
-            value = self._escape(path)
-            lines.append(f'(deny file-read* (subpath "{value}"))')
         available_paths = {path for path in read_paths if path.exists()}
         for path in sorted(available_paths, key=str):
             value = self._escape(path)
@@ -324,16 +317,31 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             f"qwenpaw-hub-forbidden-{os.getpid()}"
         )
         forbidden.write_text("forbidden", encoding="utf-8")
-        command = f'touch "{allowed}" && test ! -r "{forbidden}"'
+        command_prefix = [
+            self._executable,
+            "-f",
+            str(profile_path),
+            sys.executable,
+            "-B",
+            "-c",
+        ]
         try:
-            result = subprocess.run(
+            allowed_result = subprocess.run(
                 [
-                    self._executable,
-                    "-f",
-                    str(profile_path),
-                    "/bin/sh",
-                    "-c",
-                    command,
+                    *command_prefix,
+                    f"open({str(allowed)!r}, 'w').close()",
+                ],
+                env=dict(environment),
+                cwd=record.working_dir,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            forbidden_result = subprocess.run(
+                [
+                    *command_prefix,
+                    f"open({str(forbidden)!r}, 'r').read()",
                 ],
                 env=dict(environment),
                 cwd=record.working_dir,
@@ -345,10 +353,14 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
         finally:
             allowed.unlink(missing_ok=True)
             forbidden.unlink(missing_ok=True)
-        if result.returncode != 0:
-            detail = result.stderr.strip() or "isolation probe failed"
+        if allowed_result.returncode != 0:
+            detail = allowed_result.stderr.strip() or "write probe failed"
             raise ProcessIsolationError(
                 f"Seatbelt isolation is unavailable: {detail}",
+            )
+        if forbidden_result.returncode == 0:
+            raise ProcessIsolationError(
+                "Seatbelt isolation probe read a host file.",
             )
         self._probe_loopback_denied(
             profile_path,

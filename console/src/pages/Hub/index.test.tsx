@@ -18,7 +18,7 @@ import {
   hubUser,
   page,
   runtime,
-} from "./testFixtures";
+} from "../../test/hubFixtures";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
