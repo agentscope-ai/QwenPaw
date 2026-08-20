@@ -14,7 +14,7 @@
  * Vendor response primitives are deep-imported because the SDK does not expose
  * a message-renderer seam. If their paths change, update the imports below.
  */
-import React, { useMemo } from "react";
+import React, { useDeferredValue, useMemo } from "react";
 import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -59,7 +59,32 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCardProps = any;
 
-function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
+function DeferredMarkdown({
+  content,
+  cursor,
+}: {
+  content: string;
+  cursor: boolean;
+}) {
+  // Parsing Markdown, code fences, and diagrams is substantially more
+  // expensive than appending stream text. A deferred value lets React skip
+  // obsolete intermediate parses while keeping input and scrolling responsive.
+  const deferredContent = useDeferredValue(content);
+
+  return (
+    <Markdown
+      components={renderableCodeComponents}
+      content={deferredContent}
+      cursor={cursor}
+    />
+  );
+}
+
+const HostMessage = React.memo(function HostMessage({
+  data,
+}: {
+  data: IAgentScopeRuntimeMessage;
+}) {
   const replaceMediaURL = useChatAnywhereOptions(
     (options) => options.api?.replaceMediaURL,
   );
@@ -77,9 +102,8 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
         switch (item.type) {
           case AgentScopeRuntimeContentType.TEXT:
             return (
-              <Markdown
+              <DeferredMarkdown
                 key={index}
-                components={renderableCodeComponents}
                 content={item.text}
                 cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
               />
@@ -134,7 +158,7 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
       })}
     </>
   );
-}
+});
 
 function DefaultHostResponseCard({
   data,

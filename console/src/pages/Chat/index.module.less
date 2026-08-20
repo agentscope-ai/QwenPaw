@@ -288,6 +288,14 @@
 
 /* Message actions: always visible (timestamps are useful at a glance). */
 .chatMessagesArea :global {
+  /* Keep the complete accessible message tree while allowing the browser to
+   * skip layout and paint work for bubbles far outside the viewport. The
+   * remembered intrinsic size prevents scroll jumps after a bubble is seen. */
+  [class*="bubble-list"] > [class*="bubble-"][data-role] {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 240px;
+  }
+
   [class*="bubble-footer"] {
     opacity: 1;
   }
