@@ -6,8 +6,10 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import aiofiles.os
 import pytest
 
 from qwenpaw.agent_stats.models import AgentStatsSummary
@@ -475,3 +477,250 @@ class TestAgentStatsServiceAgentTokens:
         # Global fields stay identical (same mocked manager)
         assert summary_a.total_prompt_tokens == 999
         assert summary_b.total_prompt_tokens == 999
+
+
+def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
+    sess_dir = root / "sessions" / "console"
+    sess_dir.mkdir(parents=True)
+    (root / "agent.json").write_text("{}", encoding="utf-8")
+    content: list[dict] = [{"type": "text", "text": "hi"}]
+    content.extend(
+        {"type": "tool_use", "id": f"t{i}", "name": "x", "input": {}}
+        for i in range(n_tools)
+    )
+    msg = _assistant_with_usage(
+        created_at="2026-07-23T10:00:00Z",
+        prompt_tokens=10,
+        completion_tokens=1,
+    )
+    msg["content"] = content
+    (sess_dir / "s.json").write_text(
+        json.dumps({"agent": {"state": {"context": [msg] * n_turns}}}),
+        encoding="utf-8",
+    )
+    return root
+
+
+def _agent_config(**named: Path | str) -> SimpleNamespace:
+    return SimpleNamespace(
+        agents=SimpleNamespace(
+            profiles={
+                key: SimpleNamespace(workspace_dir=str(path))
+                for key, path in named.items()
+            },
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_by_date_sums_skips_and_fills(tmp_path):
+    """Sum agents, skip empty/dup paths, fill missing days, no overlay."""
+    ws_a = _write_trend_workspace(tmp_path / "a", 2, 2)
+    ws_b = _write_trend_workspace(tmp_path / "b", 1, 1)
+    stat_paths: list[str] = []
+    orig_stat = Path.stat
+
+    def spy_stat(self, *args, **kwargs):
+        stat_paths.append(str(self))
+        return orig_stat(self, *args, **kwargs)
+
+    with (
+        patch(
+            "qwenpaw.config.utils.load_config",
+            return_value=_agent_config(
+                a=ws_a,
+                a_dup=ws_a,
+                b=ws_b,
+                empty="",
+            ),
+        ),
+        patch.object(Path, "stat", spy_stat),
+        patch(
+            "qwenpaw.agent_stats.service.get_token_usage_manager",
+            side_effect=AssertionError("overlay must not run"),
+        ),
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2026, 7, 23),
+            end_date=date(2026, 7, 24),
+        )
+
+    assert [row.date for row in rows] == ["2026-07-23", "2026-07-24"]
+    assert (rows[0].agent_llm_calls, rows[0].tool_calls) == (3, 5)
+    assert (rows[1].agent_llm_calls, rows[1].tool_calls) == (0, 0)
+    assert "." not in stat_paths and "" not in stat_paths
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_skips_non_object_session(tmp_path):
+    """A non-object session JSON must not fail the whole trend."""
+    ws = _write_trend_workspace(tmp_path / "a", 1, 3)
+    (ws / "sessions" / "console" / "bad.json").write_text(
+        "[]",
+        encoding="utf-8",
+    )
+    with patch(
+        "qwenpaw.config.utils.load_config",
+        return_value=_agent_config(a=ws),
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2026, 7, 23),
+            end_date=date(2026, 7, 23),
+        )
+    assert (rows[0].agent_llm_calls, rows[0].tool_calls) == (1, 3)
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_skips_non_iso_timestamp(tmp_path):
+    """A non-calendar created_at[:10] must not 500 the trend."""
+    ws = _write_trend_workspace(tmp_path / "a", 1, 3)
+    sess_path = ws / "sessions" / "console" / "s.json"
+    sess = json.loads(sess_path.read_text(encoding="utf-8"))
+    bad = _assistant_with_usage(
+        created_at="2026-07-32T10:00:00Z",
+        prompt_tokens=10,
+        completion_tokens=1,
+    )
+    bad["content"] = [
+        {"type": "tool_use", "id": "bad", "name": "x", "input": {}},
+    ]
+    sess["agent"]["state"]["context"].append(bad)
+    sess_path.write_text(json.dumps(sess), encoding="utf-8")
+    with patch(
+        "qwenpaw.config.utils.load_config",
+        return_value=_agent_config(a=ws),
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2026, 7, 23),
+            end_date=date(2026, 8, 1),
+        )
+    july23 = next(row for row in rows if row.date == "2026-07-23")
+    assert (july23.agent_llm_calls, july23.tool_calls) == (1, 3)
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_counts_unordered_session(tmp_path):
+    """Out-of-order timestamps must not skip in-range messages."""
+    ws = _write_trend_workspace(tmp_path / "a", 1, 3)
+    sess_path = ws / "sessions" / "console" / "s.json"
+    sess = json.loads(sess_path.read_text(encoding="utf-8"))
+    in_range = sess["agent"]["state"]["context"][0]
+    later = _assistant_with_usage(
+        created_at="2026-07-25T10:00:00Z",
+        prompt_tokens=10,
+        completion_tokens=1,
+    )
+    sess["agent"]["state"]["context"] = [later, in_range]
+    sess_path.write_text(json.dumps(sess), encoding="utf-8")
+    with patch(
+        "qwenpaw.config.utils.load_config",
+        return_value=_agent_config(a=ws),
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2026, 7, 23),
+            end_date=date(2026, 7, 24),
+        )
+    assert (rows[0].agent_llm_calls, rows[0].tool_calls) == (1, 3)
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_raises_when_channel_listdir_fails(tmp_path):
+    """A channel listdir FileNotFoundError must fail the workspace."""
+    ws = _write_trend_workspace(tmp_path / "a", 1, 3)
+    orig_listdir = aiofiles.os.listdir
+
+    async def listdir(path):
+        if Path(path).name == "console":
+            raise FileNotFoundError("gone")
+        return await orig_listdir(path)
+
+    with (
+        patch(
+            "qwenpaw.config.utils.load_config",
+            return_value=_agent_config(a=ws),
+        ),
+        patch(
+            "qwenpaw.agent_stats.service.aiofiles.os.listdir",
+            side_effect=listdir,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="all workspaces failed"):
+            await AgentStatsService().get_global_llm_tool_by_date(
+                start_date=date(2026, 7, 23),
+                end_date=date(2026, 7, 23),
+            )
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_zeros_when_sessions_dir_missing(tmp_path):
+    """An initialized agent with no sessions/ is zero usage, not a failure."""
+    ws = tmp_path / "a"
+    ws.mkdir()
+    (ws / "agent.json").write_text("{}", encoding="utf-8")
+    with patch(
+        "qwenpaw.config.utils.load_config",
+        return_value=_agent_config(a=ws),
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2026, 7, 23),
+            end_date=date(2026, 7, 23),
+        )
+    assert (rows[0].agent_llm_calls, rows[0].tool_calls) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_raises_when_some_workspaces_fail(tmp_path):
+    """A partial scan failure must not look like a complete success."""
+    orig = getattr(AgentStatsService, "_workspace_llm_tool")
+
+    async def wrapped(
+        self,
+        workspace_dir,
+        start_date,
+        end_date,
+        *args,
+        **kwargs,
+    ):
+        if Path(workspace_dir).name == "bad":
+            raise RuntimeError("scan failed")
+        return await orig(
+            self,
+            workspace_dir,
+            start_date,
+            end_date,
+            *args,
+            **kwargs,
+        )
+
+    with (
+        patch(
+            "qwenpaw.config.utils.load_config",
+            return_value=_agent_config(
+                ok=_write_trend_workspace(tmp_path / "ok", 1, 3),
+                bad=_write_trend_workspace(tmp_path / "bad", 9, 9),
+            ),
+        ),
+        patch.object(AgentStatsService, "_workspace_llm_tool", new=wrapped),
+    ):
+        with pytest.raises(RuntimeError, match="some workspaces failed"):
+            await AgentStatsService().get_global_llm_tool_by_date(
+                start_date=date(2026, 7, 23),
+                end_date=date(2026, 7, 23),
+            )
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_raises_when_no_workspace_readable(tmp_path):
+    """Named workspaces that cannot be discovered must not look like zeros."""
+    missing = tmp_path / "gone"
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    with patch(
+        "qwenpaw.config.utils.load_config",
+        return_value=_agent_config(a=missing, b=bare),
+    ):
+        with pytest.raises(RuntimeError, match="all workspaces failed"):
+            await AgentStatsService().get_global_llm_tool_by_date(
+                start_date=date(2026, 7, 23),
+                end_date=date(2026, 7, 23),
+            )

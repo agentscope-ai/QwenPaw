@@ -979,6 +979,11 @@
     "promptTokens": "Token đầu vào",
     "completionTokens": "Token đầu ra",
     "totalTokens": "Tổng token",
+    "toolCalls": "Lời gọi công cụ",
+    "llmAndToolTrend": "Xu hướng LLM & công cụ (tất cả agent)",
+    "llmAndToolTrendTooltip": "Tổng lượt trợ lý đã ghi nhận và ý định gọi công cụ trên mọi agent. Không phải Total Calls (số lần gọi API thô); phiên cũ có thể hiện 0.",
+    "llmAndToolTrendLoadFailed": "Không tải được xu hướng LLM & công cụ",
+    "recordedTurnsAllAgents": "Lượt đã ghi nhận (tất cả agent)",
     "noData": "Chưa có dữ liệu",
     "period": "Khoảng thời gian"
   },
