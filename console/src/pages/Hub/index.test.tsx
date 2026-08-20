@@ -187,6 +187,27 @@ describe("HubPage", () => {
     expect(screen.queryByText("hub.actions.disable")).not.toBeInTheDocument();
   });
 
+  it("does not offer runtime deletion to non-administrators", async () => {
+    vi.mocked(hubApi.me).mockResolvedValue(hubUser({ role: "user" }));
+    vi.mocked(hubApi.listRuntimes).mockResolvedValue(
+      page([
+        runtime({
+          runtime_id: "personal-stopped",
+          state: "stopped",
+          desired_state: "stopped",
+        }),
+      ]),
+    );
+
+    renderHubPage();
+    fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
+    const runtimeId = await screen.findByText("personal-stopped");
+    const row = runtimeId.closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(within(row!).queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("locks the current administrator role and account status", async () => {
     vi.mocked(hubApi.listUsers).mockResolvedValue(page([hubUser()]));
 

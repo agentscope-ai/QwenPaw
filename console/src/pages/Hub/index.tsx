@@ -898,28 +898,30 @@ export default function HubPage() {
                                         {t("hub.actions.rebuild")}
                                       </Button>
                                     )}
-                                  <Button
-                                    size="small"
-                                    danger
-                                    disabled={runtime.state === "running"}
-                                    icon={<Trash2 size={14} />}
-                                    onClick={() =>
-                                      modal.confirm({
-                                        title: t("hub.runtimes.removeTitle", {
-                                          id: runtime.runtime_id,
-                                        }),
-                                        content: t(
-                                          "hub.runtimes.removeDescription",
-                                        ),
-                                        okButtonProps: { danger: true },
-                                        onOk: () =>
-                                          runRuntimeAction(
-                                            runtime.runtime_id,
-                                            "delete",
+                                  {me?.role === "admin" && (
+                                    <Button
+                                      size="small"
+                                      danger
+                                      disabled={runtime.state === "running"}
+                                      icon={<Trash2 size={14} />}
+                                      onClick={() =>
+                                        modal.confirm({
+                                          title: t("hub.runtimes.removeTitle", {
+                                            id: runtime.runtime_id,
+                                          }),
+                                          content: t(
+                                            "hub.runtimes.removeDescription",
                                           ),
-                                      })
-                                    }
-                                  />
+                                          okButtonProps: { danger: true },
+                                          onOk: () =>
+                                            runRuntimeAction(
+                                              runtime.runtime_id,
+                                              "delete",
+                                            ),
+                                        })
+                                      }
+                                    />
+                                  )}
                                 </div>
                               </td>
                             </tr>
