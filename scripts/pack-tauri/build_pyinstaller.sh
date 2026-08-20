@@ -68,7 +68,10 @@ echo "PyInstaller installed"
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 echo "== Installing project dependencies =="
-install_python_packages -e ".[full]"
+# Pin setuptools <82 alongside the install (same reason as Dockerfile:
+# lark-oapi needs pkg_resources.declare_namespace; setuptools >= 82
+# removes it and would break the Feishu channel in desktop builds).
+install_python_packages -e ".[full]" "setuptools<82"
 echo "Project dependencies installed with full extras"
 
 # Fix agent-client-protocol namespace collision

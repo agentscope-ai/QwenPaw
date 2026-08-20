@@ -130,7 +130,10 @@ Write-Host ""
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
-Install-PythonPackages -Packages @("-e", ".[full]")
+# Pin setuptools <82 alongside the install (same reason as Dockerfile:
+# lark-oapi needs pkg_resources.declare_namespace; setuptools >= 82
+# removes it and would break the Feishu channel in desktop builds).
+Install-PythonPackages -Packages @("-e", ".[full]", "setuptools<82")
 Write-Host "Project dependencies installed with full extras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision

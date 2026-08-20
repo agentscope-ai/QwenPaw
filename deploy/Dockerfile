@@ -98,7 +98,10 @@ COPY website/public/docs/ ./src/qwenpaw/docs/
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
 COPY --from=uv-src /uv /bin/uv
-RUN uv pip install --no-cache-dir . && rm -rf ./build
+# Pin setuptools <82: lark-oapi (a base dependency) still calls
+# pkg_resources.declare_namespace at import; setuptools >= 82 removes
+# pkg_resources, which breaks the Feishu channel in released images.
+RUN uv pip install --no-cache-dir . "setuptools<82" && rm -rf ./build
 
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
