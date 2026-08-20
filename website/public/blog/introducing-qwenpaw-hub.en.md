@@ -21,7 +21,7 @@ QwenPaw Hub answers those questions with a unified entry point and one independe
 
 The boundary must be explicit. Hub does not provide one kernel per tenant. Linux Local uses Bubblewrap namespaces, macOS Local uses Seatbelt, and Windows Local uses AppContainer plus a Job Object; each shares its host kernel. Docker containers share the Linux kernel used by their Engine. “Independent runtime” means separate data, credentials, process or container, and lifecycle—not a separate VM or microVM.
 
-> **Image placeholder: Hub sign-in page and admin-center overview. Replace with a real screenshot before publication.**
+![QwenPaw Hub sign-in page and admin-center overview](https://img.alicdn.com/imgextra/i3/O1CN01pmq9btaadNF6mRvU_!!6000000004218-2-tps-3340-1772.png)
 
 ## One entry point, personal runtimes
 
@@ -65,7 +65,7 @@ Docker creates one container per account, publishes its port only on host loopba
 
 CPU, memory, PID, shared-memory, and global concurrent-runtime limits protect host capacity without exposing infrastructure choices to regular users.
 
-> **Image placeholder: Runtime backend, image, pull action, and resource policy. Replace with a real screenshot before publication.**
+![Runtime backend, image, pull action, and resource policy](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
 
 ## Containers can change without taking user data with them
 

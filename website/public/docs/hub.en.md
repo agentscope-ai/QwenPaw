@@ -6,7 +6,7 @@ Hub does not replace or alter the single-user QwenPaw App. Personal devices can 
 
 > **Important security boundary: Hub does not give every user a separate kernel.** Local runtimes use Bubblewrap namespaces on Linux, Seatbelt on macOS, and AppContainer plus a Job Object on Windows. All three are process sandboxes that share the host kernel. Docker runtimes share the Linux kernel used by their Docker Engine. On Docker Desktop this is normally the Docker Linux VM kernel, but it is still not one kernel per tenant. For mutually untrusted users or higher-risk multi-tenant deployments, add virtual machines, dedicated nodes, microVMs, or another stronger infrastructure boundary outside Hub.
 
-> **Image placeholder: Hub sign-in page and Terms dialog. Replace with a real screenshot before publication.**
+![Hub sign-in page and Terms dialog](https://img.alicdn.com/imgextra/i2/O1CN01hhIGAbMm89B6lBsc_!!6000000006867-2-tps-3330-1772.png)
 
 ## Hub and the single-user App
 
@@ -127,7 +127,7 @@ Regular users can use their Console, manage their own model and integration cred
 
 Each account maps to one tenant and one default runtime. The admin list displays the username first and the immutable user ID second. Search and owner filters accept both values; if an account is deleted, historical runtimes fall back to the user ID.
 
-> **Image placeholder: Personal runtime status and restart action. Replace with a real screenshot before publication.**
+![Personal runtime status and restart action](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
 
 ### Switching backends
 
@@ -149,7 +149,7 @@ AppContainer normally cannot connect directly to host loopback. While a runtime 
 
 This is process and filesystem access control, not kernel isolation. Local runtimes share the host kernel and must not be treated as virtual machines, microVMs, or a sufficient boundary for hostile tenants.
 
-> **Image placeholder: Local/Docker backend selector in System Settings. Replace with a real screenshot before publication.**
+![Local/Docker backend selector in System Settings](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
 
 ## Docker backend: container isolation
 
@@ -192,7 +192,7 @@ The settings page shows the effective image reference, repository, tag, local st
 
 Empty CPU, memory, or PID values mean no corresponding limit. `capacity.max_running_runtimes` limits concurrent runtimes across the Hub; it does not create multiple runtimes for one tenant.
 
-> **Image placeholder: Docker image detail, pull action, and resource limits. Replace with a real screenshot before publication.**
+![Docker image detail, pull action, and resource limits](https://img.alicdn.com/imgextra/i2/O1CN01M5zUCZUwvZG6nhyY_!!6000000002043-2-tps-3350-1784.png)
 
 ## Persistent data
 
