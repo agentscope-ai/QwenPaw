@@ -37,6 +37,20 @@ artifact-rich answers backed by real enterprise data.
   <img src="assets/screenshots/analysis-workspace.png" alt="datapaw analysis workspace" width="900" />
 </p>
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/cm-graph.png" alt="Metadata graph visualization" width="900" />
+  <br/>
+  <em>Metadata Graph: semantic model, dimensions, metrics, and lineage</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/analysis-result.png" alt="End-to-end analysis result" width="900" />
+  <br/>
+  <em>End-to-end analysis: natural language question → governed SQL → traceable answer</em>
+</p>
+
 ## Core idea
 
 Enterprise data analysis is open-ended, ambiguous, and constantly evolving. A

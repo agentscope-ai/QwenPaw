@@ -29,6 +29,20 @@ datapaw 是 [QwenPaw-Data](https://github.com/agentscope-ai/QwenPaw-Data) 在 Qw
   <img src="assets/screenshots/analysis-workspace.png" alt="datapaw 分析工作区" width="900" />
 </p>
 
+## 界面截图
+
+<p align="center">
+  <img src="assets/screenshots/cm-graph.png" alt="元数据图谱可视化" width="900" />
+  <br/>
+  <em>元数据图谱：语义模型、维度、指标与血缘关系</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/analysis-result.png" alt="端到端分析结果" width="900" />
+  <br/>
+  <em>端到端分析：自然语言提问 → 受控 SQL → 可追溯答案</em>
+</p>
+
 ## 核心理念
 
 企业数据分析是开放式、充满歧义且持续演进的。一个可用的数据智能体必须在每次任务中回答三个问题：
