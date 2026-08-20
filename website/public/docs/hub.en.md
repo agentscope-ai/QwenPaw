@@ -31,10 +31,18 @@ After signing in, a regular user is proxied to their own QwenPaw Console. Admini
 
 ## Install and initialize
 
-Install from PyPI and verify that the Hub command is present:
+Install the Hub optional dependencies from PyPI:
 
 ```bash
-pip install qwenpaw
+pip install "qwenpaw[hub]"
+```
+
+The `hub` extra includes the Docker SDK required by the Docker backend. A normal `pip install qwenpaw` does not install it and does not change the existing QwenPaw App dependency path. Install the extra in a Hub environment even if you initially select Local, so the admin center can probe and report Docker backend availability.
+
+For an existing QwenPaw environment, install the extra in place and verify that the Hub command is present:
+
+```bash
+pip install -U "qwenpaw[hub]"
 qwenpaw hub --help
 ```
 

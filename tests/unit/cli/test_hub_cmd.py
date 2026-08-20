@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """CLI tests for the QwenPaw Hub command."""
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -74,3 +75,20 @@ def test_hub_is_registered_at_root() -> None:
 
     assert result.exit_code == 0
     assert "Run the multi-user QwenPaw Hub control plane" in result.output
+
+
+def test_hub_reports_missing_optional_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for module_name in (
+        "qwenpaw.hub.control_app",
+        "qwenpaw.hub.docker_images",
+        "qwenpaw.hub.docker_provisioner",
+    ):
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setitem(sys.modules, "docker", None)
+
+    result = CliRunner().invoke(hub_cmd, [])
+
+    assert result.exit_code != 0
+    assert "Install qwenpaw[hub]" in result.output

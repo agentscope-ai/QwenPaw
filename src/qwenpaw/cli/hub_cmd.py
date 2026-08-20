@@ -83,7 +83,15 @@ def hub_cmd(
         hide_access_paths,
     )
 
-    from ..hub.control_app import run_hub_app
+    try:
+        from ..hub.control_app import run_hub_app
+    except ModuleNotFoundError as exc:
+        if exc.name != "docker":
+            raise
+        raise click.ClickException(
+            f"QwenPaw Hub dependency {exc.name!r} is not installed. "
+            f"Install qwenpaw[hub] to provide {exc.name!r} and try again.",
+        ) from exc
 
     try:
         run_hub_app(

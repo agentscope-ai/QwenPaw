@@ -35,13 +35,19 @@ Local 后端和 Docker 后端的具体要求将在本文的运行环境章节中
 
 ## 安装
 
-通过 PyPI 安装：
+通过 PyPI 安装 Hub 可选依赖：
 
 ```bash
-pip install qwenpaw
+pip install "qwenpaw[hub]"
 ```
 
-也可以使用 QwenPaw 的安装脚本。已有 QwenPaw 安装无需为 Hub 创建另一套环境，但应确认当前版本已经包含 `hub` 命令：
+`hub` extra 包含 Docker 后端所需的 Docker SDK；普通的 `pip install qwenpaw` 不会安装它，也不会改变原有 QwenPaw App 主链路。即使只准备使用 Local 后端，也建议为运行 Hub 的环境安装该 extra，以便管理中心能够探测和展示 Docker 后端状态。
+
+已有 QwenPaw 安装无需为 Hub 创建另一套环境，可以在原环境补装 `hub` extra，然后确认当前版本已经包含 `hub` 命令：
+
+```bash
+pip install -U "qwenpaw[hub]"
+```
 
 ```bash
 qwenpaw hub --help

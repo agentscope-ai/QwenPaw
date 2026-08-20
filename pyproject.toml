@@ -70,7 +70,6 @@ dependencies = [
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
     "html2text>=2024.2.26",
-    "docker>=7.1.0,<8",
 ]
 
 [project.urls]
@@ -138,6 +137,9 @@ dev = [
 ]
 local = [
     "huggingface_hub>=0.20.0",
+]
+hub = [
+    "docker>=7.1.0,<8",
 ]
 whisper = [
     "openai-whisper>=20231117",

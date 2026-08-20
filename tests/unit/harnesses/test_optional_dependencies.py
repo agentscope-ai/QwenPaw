@@ -27,6 +27,17 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
     assert extras["full"] == ["qwenpaw[local,whisper,codex,qoder]"]
 
 
+def test_docker_sdk_is_only_in_hub_extra() -> None:
+    pyproject_path = Path(__file__).parents[3] / "pyproject.toml"
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    project = data["project"]
+    dependencies = project["dependencies"]
+    extras = project["optional-dependencies"]
+
+    assert not any(item.startswith("docker") for item in dependencies)
+    assert extras["hub"] == ["docker>=7.1.0,<8"]
+
+
 @pytest.mark.asyncio
 async def test_missing_qoder_sdk_does_not_break_provider_creation(
     tmp_path: Path,
