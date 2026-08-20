@@ -28,8 +28,8 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v2.0.0: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
-    "sub1": "and TUI — all upgraded, all yours.",
+    "sub": "v2.1.0 expands agent capabilities across the board:",
+    "sub1": "Introducing QwenPaw OS Shell, a unified Files workspace, QwenPaw Creator, Codex/Qoder integration, Browser/Computer Use, checkpoint recovery, and long-task continuation.",
     "releaseNote": "QwenPaw v2.0.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start",
@@ -65,21 +65,37 @@
     "sub": "Memory and personalization under your control.",
     "learnMore": "Learn more",
     "cards": {
-      "agentOs": {
-        "title": "Agent OS",
-        "desc": "QwenPaw 2.0 introduces Agent OS Foundation, an open intelligence layer powered by an OS-like Harness that connects models and applications. More QwenPaw-powered mini apps and lightweight applications are on the way."
+      "osShell": {
+        "title": "QwenPaw OS Shell",
+        "desc": "Bring conversations, Agent Spaces, apps, and system settings onto one freely arranged AI desktop. Multi-window workflows, the launcher, and the Dock keep chats, files, and specialist apps active in the same workspace."
       },
-      "tui": {
-        "title": "Terminal UI",
-        "desc": "A full-screen terminal chat experience built with Textual, featuring streaming responses, rendered tool calls, and session management—with sessions and memory shared across the console and channels."
+      "workspace": {
+        "title": "Workspace Management",
+        "desc": "The unified Files workspace brings project files, profiles, daily notes, and the knowledge base into one place. Freely choose a working directory for the current conversation, then preview, edit, diff, upload, and download files in the same interface."
       },
-      "scrollContext": {
-        "title": "Scroll Context",
-        "desc": "Every conversation turn is persisted to SQLite in real time. When the context window fills, indexed entries are evicted instead of summarized, while the original content remains available for on-demand recall."
+      "creator": {
+        "title": "Content Creation",
+        "desc": "QwenPaw Creator coordinates specialist agents across the production process, from ideas and source material to a finished video, while keeping precise edits to clips, subtitles, effects, and assets under your control."
       },
-      "loopEngineering": {
-        "title": "Loop Engineering",
-        "desc": "Agent execution moves from hard-coded logic to composable orchestration. Workflows can already be assembled through plugin interfaces, with more loop-control patterns coming as official “Oh-My-Paw” plugins."
+      "thirdPartyAgents": {
+        "title": "Third-party Agent Integration",
+        "desc": "Create and use Codex and Qoder agents directly in QwenPaw through a shared workspace, chat surface, and capability control plane, while each harness retains its own models, execution loop, and permission system."
+      },
+      "browserUse": {
+        "title": "Browser-use",
+        "desc": "Drive a real browser to open pages, read content, click controls, and fill forms. Use a standalone browser or connect to your signed-in Chrome, with sign-in and verification steps handed back to you."
+      },
+      "computerUse": {
+        "title": "Computer-use",
+        "desc": "Let agents operate approved desktop applications on Windows and macOS by inspecting windows, clicking, typing, scrolling, and dragging, while per-app authorization and human takeover keep you in control."
+      },
+      "checkpoint": {
+        "title": "Workspace Recovery",
+        "desc": "Checkpoint saves conversation state and can optionally include long-term memory and selected workspace files. Preview changes before restoring the right timeline without rewriting your project’s Git history."
+      },
+      "scroll": {
+        "title": "Long Task Continuation",
+        "desc": "QwenPaw Scroll preserves the complete interaction trail as a durable, searchable record, enabling agents to recover evidence, maintain task state, and keep moving through very long conversations."
       }
     }
   },
@@ -240,7 +256,8 @@
       "dingtalk": "DingTalk",
       "xiaohongshu": "Xiaohongshu",
       "wechat": "WeChat",
-      "douyin": "Douyin"
+      "douyin": "Douyin",
+      "bilibili": "Bilibili"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, All rights reserved.",
     "poweredBy": {

@@ -22,6 +22,7 @@ from PyInstaller.utils.hooks import (
 REPO_ROOT = Path(SPECPATH).parent.parent
 
 SRC = REPO_ROOT / "src" / "qwenpaw"
+MAIL_MCP_SRC = REPO_ROOT / "packages" / "qwenpawmail-mcp" / "src"
 if sys.platform == "darwin":
     codesign_identity = os.environ.get(
         "PYINSTALLER_CODESIGN_IDENTITY"
@@ -165,7 +166,7 @@ a = Analysis(
         str(SRC / "tauri" / "entry.py"),
         str(SRC / "tauri" / "cli_entry.py"),
     ],
-    pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
+    pathex=[str(REPO_ROOT), str(REPO_ROOT / "src"), str(MAIL_MCP_SRC)],
     binaries=[*qoder_binaries, *codex_binaries],
     datas=datas,
     hiddenimports=[
@@ -183,6 +184,8 @@ a = Analysis(
         "uvicorn.lifespan.on",
         # All CLI sub-commands (dynamically loaded by Click)
         *collect_submodules("qwenpaw.cli"),
+        # The mail MCP package lives under a second setuptools source root.
+        *collect_submodules("qwenpawmail_mcp"),
         # All channel adapters (imported on-demand at runtime)
         *collect_submodules("qwenpaw.app.channels"),
         # ACP runner support is lazily imported by delegate_external_agent.

@@ -425,6 +425,14 @@ def test_update_agent_returns_merged_config(client, fake_config):
 
     with (
         patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=existing,
+        ),
+        patch(
             "qwenpaw.app.routers.agents.update_agent_config_async",
             new_callable=AsyncMock,
             side_effect=apply_update,

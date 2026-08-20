@@ -90,6 +90,21 @@ ROOM_HISTORY_MAX_ROOMS = 256
 VERIFICATION_STATE_MAX_ENTRIES = 1_024
 VERIFICATION_STATE_TTL_S = 60 * 60
 
+# nio's _send() retries transport errors but not unparseable HTTP
+# responses (e.g. 502 before Synapse is ready).  login()/whoami()
+# return LoginError/WhoamiError with status_code=None and start()
+# gives up.  These constants drive a retry loop covering that gap.
+_NON_RETRYABLE_AUTH_CODES = frozenset(
+    {
+        "M_FORBIDDEN",
+        "M_MISSING_TOKEN",
+        "M_UNKNOWN_TOKEN",
+        "M_USER_DEACTIVATED",
+    },
+)
+_LOGIN_RETRY_INITIAL_DELAY = 5.0
+_LOGIN_RETRY_MAX_DELAY = 60.0
+
 # Known QwenPaw slash commands — used to decide whether to strip
 # @mention prefix
 _SLASH_COMMANDS = frozenset(
@@ -212,6 +227,7 @@ class MatrixChannel(BaseChannel):
         access_control_dm: bool = False,
         access_control_group: bool = False,
         enabled: bool = True,
+        share_session_in_group: bool = True,
         **_kwargs: Any,
     ) -> None:
         super().__init__(
@@ -232,6 +248,7 @@ class MatrixChannel(BaseChannel):
         self.device_id: str = device_id
         self.encryption: bool = encryption
         self.enabled: bool = enabled
+        self.share_session_in_group: bool = share_session_in_group
         # Channel-level mute
         self.dm_disabled: bool = dm_disabled
         self.group_disabled: bool = group_disabled
@@ -248,6 +265,7 @@ class MatrixChannel(BaseChannel):
         self._client: Optional[AsyncClient] = None
         self._user_id: Optional[str] = None
         self._sync_task: Optional[asyncio.Task] = None
+        self._stop_event: Optional[asyncio.Event] = None
         self._typing_tasks: Dict[str, asyncio.Task] = {}
         self._room_histories: OrderedDict[
             str,
@@ -329,6 +347,9 @@ class MatrixChannel(BaseChannel):
             access_control_dm=bool(raw.get("access_control_dm", False)),
             access_control_group=bool(raw.get("access_control_group", False)),
             enabled=raw.get("enabled", True),
+            share_session_in_group=bool(
+                raw.get("share_session_in_group", True),
+            ),
         )
 
     @classmethod
@@ -573,6 +594,42 @@ class MatrixChannel(BaseChannel):
                     "device_id; E2EE store may not be reusable",
                 )
 
+    def _is_stopping(self) -> bool:
+        """Return True if stop() has been requested."""
+        return self._stop_event is not None and self._stop_event.is_set()
+
+    def _is_retryable_auth_failure(self, response: Any) -> bool:
+        """Return True if a login/whoami error may recover on retry.
+
+        Checks both the Matrix errcode (``status_code``) and the
+        underlying HTTP status -- only 5xx / 408 / 429 are retried.
+        """
+        code = getattr(response, "status_code", None)
+        if code in _NON_RETRYABLE_AUTH_CODES:
+            return False
+        http_status = getattr(
+            getattr(response, "transport_response", None),
+            "status",
+            None,
+        )
+        if http_status is None:
+            return True
+        return http_status >= 500 or http_status in (408, 429)
+
+    async def _wait_backoff_or_stop(self, delay: float) -> bool:
+        """Sleep for delay; return True if stop() was called."""
+        if self._stop_event is None:
+            await asyncio.sleep(delay)
+            return False
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(),
+                timeout=delay,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     async def _login_with_password(
         self,
         login_user: str,
@@ -587,58 +644,104 @@ class MatrixChannel(BaseChannel):
             login_kwargs,
             resolved_device_id,
         )
-        resp, last_exc = await self._try_password_login_variants(attempts)
-        if last_exc is not None:
-            raise last_exc
-        if isinstance(resp, LoginResponse):
-            self._handle_password_login_success(resp)
-            return True
-        logger.error("MatrixChannel: password login failed: %s", resp)
-        return False
+        delay = _LOGIN_RETRY_INITIAL_DELAY
+        while True:
+            if self._is_stopping():
+                return False
+            resp, last_exc = await self._try_password_login_variants(
+                attempts,
+            )
+            if last_exc is not None:
+                raise last_exc
+            if isinstance(resp, LoginResponse):
+                if self._is_stopping():
+                    return False
+                self._handle_password_login_success(resp)
+                return True
+            if not self._is_retryable_auth_failure(resp):
+                logger.error(
+                    "MatrixChannel: password login rejected: %s",
+                    resp,
+                )
+                return False
+            logger.warning(
+                "MatrixChannel: password login temporarily "
+                "failed, retrying in %.1fs: %s",
+                delay,
+                resp,
+            )
+            if await self._wait_backoff_or_stop(delay):
+                return False
+            delay = min(delay * 2, _LOGIN_RETRY_MAX_DELAY)
 
     async def _login_with_access_token(self) -> bool:
         self._client.access_token = self.access_token
-        whoami = await self._client.whoami()
-        if isinstance(whoami, WhoamiResponse):
-            if self.matrix_user_id and self.matrix_user_id != whoami.user_id:
+        delay = _LOGIN_RETRY_INITIAL_DELAY
+        while True:
+            if self._is_stopping():
+                return False
+            whoami = await self._client.whoami()
+            if isinstance(whoami, WhoamiResponse):
+                if self._is_stopping():
+                    return False
+                return self._handle_token_login_success(whoami)
+            if not self._is_retryable_auth_failure(whoami):
                 logger.error(
-                    "MatrixChannel: configured user_id=%s does not match "
-                    "access_token owner=%s; refusing stale credentials",
-                    self.matrix_user_id,
-                    whoami.user_id,
+                    "MatrixChannel: token login rejected: %s",
+                    whoami,
                 )
                 return False
-            self._user_id = whoami.user_id
-            self._client.user_id = whoami.user_id
-            self._client.user = whoami.user_id
-            # E2EE requires device_id to associate Olm keys with this
-            # device
-            if whoami.device_id:
-                self._client.device_id = whoami.device_id
-            logger.info(
-                "MatrixChannel: logged in as %s (token, device=%s)",
-                self._user_id,
-                whoami.device_id,
+            logger.warning(
+                "MatrixChannel: token login temporarily failed, "
+                "retrying in %.1fs: %s",
+                delay,
+                whoami,
             )
-            self._save_auth_state()
-            # Load crypto store after user_id and device_id are set
-            if self.encryption and self._client.store_path:
-                if self._client.device_id:
-                    self._client.load_store()
-                    logger.info(
-                        "MatrixChannel: crypto store loaded from %s",
-                        self._client.store_path,
-                    )
-                else:
-                    logger.error(
-                        "MatrixChannel: E2EE enabled but whoami returned "
-                        "no device_id — encryption disabled "
-                        "(token may lack device scope)",
-                    )
-                    self.encryption = False
-            return True
-        logger.error("MatrixChannel: token login failed: %s", whoami)
-        return False
+            if await self._wait_backoff_or_stop(delay):
+                return False
+            delay = min(delay * 2, _LOGIN_RETRY_MAX_DELAY)
+
+    def _handle_token_login_success(
+        self,
+        whoami: WhoamiResponse,
+    ) -> bool:
+        if self.matrix_user_id and self.matrix_user_id != whoami.user_id:
+            logger.error(
+                "MatrixChannel: configured user_id=%s does not match "
+                "access_token owner=%s; refusing stale credentials",
+                self.matrix_user_id,
+                whoami.user_id,
+            )
+            return False
+        self._user_id = whoami.user_id
+        self._client.user_id = whoami.user_id
+        self._client.user = whoami.user_id
+        # E2EE requires device_id to associate Olm keys with this
+        # device
+        if whoami.device_id:
+            self._client.device_id = whoami.device_id
+        logger.info(
+            "MatrixChannel: logged in as %s (token, device=%s)",
+            self._user_id,
+            whoami.device_id,
+        )
+        self._save_auth_state()
+        # Load crypto store after user_id and device_id are set
+        if self.encryption and self._client.store_path:
+            if self._client.device_id:
+                self._client.load_store()
+                logger.info(
+                    "MatrixChannel: crypto store loaded from %s",
+                    self._client.store_path,
+                )
+            else:
+                logger.error(
+                    "MatrixChannel: E2EE enabled but whoami returned "
+                    "no device_id — encryption disabled "
+                    "(token may lack device scope)",
+                )
+                self.encryption = False
+        return True
 
     def _register_plain_room_callbacks(self) -> None:
         self._client.add_event_callback(
@@ -712,6 +815,7 @@ class MatrixChannel(BaseChannel):
                 "MatrixChannel: homeserver not configured, skipping",
             )
             return
+        self._stop_event = asyncio.Event()
         self._preflight_e2ee_dependencies()
         login_user = (self.matrix_user_id or "").strip()
         has_password_creds = bool(login_user and self.password)
@@ -752,6 +856,8 @@ class MatrixChannel(BaseChannel):
         logger.info("MatrixChannel: sync loop started")
 
     async def stop(self) -> None:
+        if self._stop_event:
+            self._stop_event.set()
         if self._sync_task:
             self._sync_task.cancel()
             try:
@@ -2896,13 +3002,13 @@ class MatrixChannel(BaseChannel):
         if not content:
             content = [TextContent(type=ContentType.TEXT, text="")]
 
-        # Use room_id as the AgentRequest user_id so that all participants
-        # in the same room share one session (QwenPaw keys session state on
-        # both session_id AND user_id).  The real sender is preserved in
-        # meta["sender_id"] for reply mentions.
         req = self.build_agent_request_from_user_content(
             channel_id=CHANNEL_KEY,
-            sender_id=room_id,
+            sender_id=(
+                sender_id
+                if meta.get("is_group") and not self.share_session_in_group
+                else room_id
+            ),
             session_id=session_id,
             content_parts=content,
             channel_meta=meta,
@@ -2929,7 +3035,14 @@ class MatrixChannel(BaseChannel):
 
     def get_to_handle_from_request(self, request: Any) -> str:
         meta = getattr(request, "channel_meta", {}) or {}
-        return meta.get("room_id", getattr(request, "user_id", ""))
+        room_id = meta.get("room_id")
+        if room_id:
+            return room_id
+        # Recover the room from session_id when metadata is unavailable.
+        session_id = getattr(request, "session_id", "") or ""
+        if session_id.startswith("matrix:"):
+            return session_id[len("matrix:") :]
+        return getattr(request, "user_id", "")
 
     # ------------------------------------------------------------------
     # Mention helper — MSC3952 m.mentions from body text scan

@@ -115,14 +115,17 @@
   transition: color 0.15s;
 
   &:hover {
-    color: #666;
+    color: var(--ms-text);
   }
 }
 
 /* ---- List container ---- */
 .listContainer {
+  min-height: 0;
   overflow-y: auto;
   flex: 1;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 /* ---- Provider group ---- */
@@ -219,33 +222,16 @@
   font-size: 14px;
 }
 
-.pinButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px;
-  border: 0;
-  color: #8b8b82;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-
-  &:hover {
-    color: #c46a28;
-    background: rgba(196, 106, 40, 0.08);
-  }
-}
-
 .showAllButton {
   width: calc(100% - 16px);
   margin: 8px;
   padding: 8px 12px;
-  border: 1px solid rgba(83, 80, 72, 0.14);
+  border: 1px solid var(--ms-border);
   font-size: 12px;
   cursor: pointer;
 
   &:hover {
-    border-color: rgba(196, 106, 40, 0.35);
+    border-color: var(--ms-accent);
   }
 }
 
@@ -256,14 +242,14 @@
   gap: 10px;
   margin: 4px 8px;
   padding: 9px 10px;
-  border: 1px solid rgba(83, 80, 72, 0.12);
+  border: 1px solid var(--ms-border);
   border-radius: 9px;
 }
 
 .candidateModelSection,
 .agentModelSettings {
   margin: 8px;
-  border: 1px solid rgba(83, 80, 72, 0.12);
+  border: 1px solid var(--ms-border);
   border-radius: 9px;
 }
 
@@ -276,14 +262,14 @@
   padding: 9px 10px;
   border: 0;
   border-radius: 8px;
-  color: #4f4b43;
+  color: var(--ms-text-muted);
   background: transparent;
   font-size: 12px;
   cursor: pointer;
 
   &:hover:not(:disabled) {
-    color: #a85620;
-    background: rgba(168, 86, 32, 0.08);
+    color: var(--ms-accent);
+    background: var(--ms-accent-soft);
   }
 
   &:disabled {
@@ -305,7 +291,11 @@
 }
 
 .candidateSectionBody {
+  max-height: min(300px, 42vh);
   padding: 2px 2px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .candidateIdentity {
@@ -313,7 +303,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: #34322d;
+  color: var(--ms-text);
   font-size: 13px;
 
   span {
@@ -331,13 +321,13 @@
   padding: 5px;
   border: 0;
   border-radius: 7px;
-  color: #817c72;
+  color: var(--ms-text-faint);
   background: transparent;
   cursor: pointer;
 
   &:hover {
-    color: #a85620;
-    background: rgba(168, 86, 32, 0.08);
+    color: var(--ms-accent);
+    background: var(--ms-accent-soft);
   }
 }
 
@@ -356,8 +346,8 @@
 
 .hiddenModels {
   margin: 8px;
-  border-top: 1px solid rgba(83, 80, 72, 0.12);
-  color: #6f6a61;
+  border-top: 1px solid var(--ms-border);
+  color: var(--ms-text-muted);
   font-size: 12px;
 
   summary {
@@ -384,9 +374,9 @@
     align-items: center;
     gap: 5px;
     padding: 4px 7px;
-    border: 1px solid rgba(83, 80, 72, 0.14);
+    border: 1px solid var(--ms-border);
     border-radius: 6px;
-    color: #5f5b52;
+    color: var(--ms-text-muted);
     background: transparent;
     cursor: pointer;
   }
@@ -394,9 +384,20 @@
 
 .settingsHint {
   margin: -2px 0 4px;
-  color: rgba(60, 58, 52, 0.58);
+  color: var(--ms-text-muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .agentSettingsToggle {
@@ -409,49 +410,162 @@
 .agentSettingsBody {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 2px 10px 10px;
+  gap: 10px;
+  padding: 4px 10px 10px;
 }
 
 .settingsRow {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
+  grid-template-columns: 102px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  color: #5f5b52;
+  gap: 10px;
+  color: var(--ms-text-muted);
   font-size: 12px;
+}
 
-  select {
-    min-width: 0;
-    padding: 5px 7px;
-    border: 1px solid rgba(83, 80, 72, 0.16);
-    border-radius: 6px;
-    color: #34322d;
-    background: #fff;
+.agentSelect {
+  width: 100%;
+  min-width: 0;
+
+  :global(.ant-select-selector) {
+    min-height: 36px;
+    padding: 0 11px !important;
+    border-color: var(--ms-border) !important;
+    border-radius: 8px !important;
+    color: var(--ms-text) !important;
+    background: var(--ms-surface) !important;
+    box-shadow: none !important;
+    transition:
+      border-color 0.18s ease,
+      box-shadow 0.18s ease,
+      background 0.18s ease !important;
+  }
+
+  :global(.ant-select-selection-item),
+  :global(.ant-select-selection-placeholder) {
+    padding-right: 12px !important;
+    color: var(--ms-text) !important;
+    font-size: 12px;
+    line-height: 34px !important;
+  }
+
+  :global(.ant-select-selection-search-input) {
+    height: 34px !important;
+    color: var(--ms-text);
+    font-size: 12px;
+  }
+
+  :global(.ant-select-arrow) {
+    color: var(--ms-text-faint);
+    transition:
+      color 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  &:hover:not(:global(.ant-select-disabled)) {
+    :global(.ant-select-selector) {
+      border-color: var(--ms-border-strong) !important;
+      background: var(--ms-surface) !important;
+    }
+  }
+
+  &:global(.ant-select-focused),
+  &:global(.ant-select-open) {
+    :global(.ant-select-selector) {
+      border-color: var(--ms-accent) !important;
+      box-shadow: 0 0 0 3px var(--ms-accent-soft) !important;
+    }
+
+    :global(.ant-select-arrow) {
+      color: var(--ms-accent-strong);
+    }
+  }
+
+  &:global(.ant-select-open) :global(.ant-select-arrow) {
+    transform: rotate(180deg);
+  }
+
+  &:global(.ant-select-disabled) {
+    :global(.ant-select-selector) {
+      color: var(--ms-text-faint) !important;
+      background: var(--ms-surface-muted) !important;
+    }
+
+    :global(.ant-select-selection-item) {
+      color: var(--ms-text-faint) !important;
+    }
+  }
+}
+
+.agentSelectDropdown {
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  border: 1px solid var(--ms-border);
+  border-radius: 10px;
+  background: var(--ms-surface);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14);
+
+  :global(.ant-select-item) {
+    min-height: 34px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    color: var(--ms-text);
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  :global(
+      .ant-select-item-option-active:not(.ant-select-item-option-disabled)
+    ) {
+    background: var(--ms-surface-muted);
+  }
+
+  :global(
+      .ant-select-item-option-selected:not(.ant-select-item-option-disabled)
+    ) {
+    color: var(--ms-accent);
+    font-weight: 600;
+    background: var(--ms-accent-soft);
+  }
+
+  :global(.ant-select-item-option-content) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.rc-virtual-list-scrollbar-thumb) {
+    background: var(--ms-border-strong) !important;
   }
 }
 
 .settingsCheckRow {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: #5f5b52;
+  gap: 8px;
+  color: var(--ms-text-muted);
   font-size: 12px;
+
+  input {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--ms-accent-strong);
+  }
 }
 
 .fallbackComposer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 8px;
 
-  select,
   button {
     min-width: 0;
-    padding: 5px 7px;
-    border: 1px solid rgba(83, 80, 72, 0.16);
-    border-radius: 6px;
-    color: #34322d;
-    background: #fff;
+    padding: 0;
+    border: 1px solid var(--ms-border);
+    border-radius: 8px;
+    color: var(--ms-text);
+    background: var(--ms-surface);
   }
 
   button {
@@ -459,6 +573,11 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.46;
+    }
   }
 }
 
@@ -473,13 +592,13 @@
     gap: 3px;
     padding: 5px 6px;
     border-radius: 6px;
-    background: rgba(83, 80, 72, 0.05);
+    background: var(--ms-surface-muted);
   }
 
   span {
     flex: 1;
     overflow: hidden;
-    color: #4f4b43;
+    color: var(--ms-text-muted);
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -489,7 +608,7 @@
     display: inline-flex;
     padding: 2px;
     border: 0;
-    color: #817c72;
+    color: var(--ms-text-faint);
     background: transparent;
     cursor: pointer;
   }
@@ -522,7 +641,7 @@
   padding: 20px 16px;
   text-align: center;
   font-size: 14px;
-  color: #bbb;
+  color: var(--ms-text-faint);
 }
 
 .spinWrapper {
@@ -618,23 +737,30 @@
 .connectHint {
   padding: 6px 20px;
   font-size: 12px;
-  color: #bbb;
+  color: var(--ms-text-faint);
 }
 
 /* Scoped design tokens keep the selector visually consistent without changing
    the Console-wide theme contract. */
 .panel,
 .trigger,
-.oauthModalContent {
-  --ms-accent: #9a5b34;
-  --ms-accent-strong: #7d4528;
-  --ms-accent-soft: rgba(154, 91, 52, 0.1);
-  --ms-surface: #fffefa;
-  --ms-surface-muted: #f7f5ef;
-  --ms-border: rgba(67, 61, 52, 0.14);
-  --ms-text: #302e29;
-  --ms-text-muted: #716c62;
-  --ms-focus: rgba(154, 91, 52, 0.32);
+.oauthModalContent,
+.agentSelectDropdown {
+  --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
+  --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff7f16));
+  --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
+  --ms-accent-soft: var(
+    --qwenpaw-color-primary-bg,
+    var(--colorPrimaryBg, rgba(255, 127, 22, 0.08))
+  );
+  --ms-surface: var(--qwenpaw-color-bg-container, #ffffff);
+  --ms-surface-muted: var(--qwenpaw-color-fill-quaternary, #f5f5f5);
+  --ms-border: var(--qwenpaw-color-border-secondary, #e8e8e8);
+  --ms-border-strong: var(--qwenpaw-color-border, #d9d9d9);
+  --ms-text: var(--qwenpaw-color-text, #1f1f1f);
+  --ms-text-muted: var(--qwenpaw-color-text-secondary, rgba(0, 0, 0, 0.65));
+  --ms-text-faint: var(--qwenpaw-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  --ms-focus: color-mix(in srgb, var(--ms-primary) 34%, transparent);
 }
 
 .trigger {
@@ -646,10 +772,10 @@
 
   &:hover,
   &.triggerActive {
-    border-color: var(--ms-border);
-    color: var(--ms-accent-strong);
-    background: var(--ms-surface-muted);
-    box-shadow: 0 6px 18px rgba(58, 48, 38, 0.08);
+    border-color: color-mix(in srgb, var(--ms-accent) 28%, transparent);
+    color: var(--ms-accent);
+    background: var(--ms-accent-soft);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--ms-accent) 10%, transparent);
   }
 }
 
@@ -657,23 +783,24 @@
   width: 380px;
   max-height: min(620px, 72vh);
   border-color: var(--ms-border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--ms-surface);
-  box-shadow: 0 22px 60px rgba(48, 42, 34, 0.18);
+  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.14);
 }
 
 .searchWrapper {
-  min-height: 48px;
-  padding: 8px 12px;
+  min-height: 50px;
+  padding: 8px 13px;
   border-bottom-color: var(--ms-border);
   background: var(--ms-surface);
 }
 
 .searchInput {
   color: var(--ms-text);
+  font-size: 13px;
 
   &::placeholder {
-    color: #989187;
+    color: var(--ms-text-faint);
   }
 }
 
@@ -697,29 +824,64 @@
 }
 
 .tabBar {
-  gap: 6px;
-  padding: 7px 10px;
+  gap: 0;
+  padding: 0;
   border-bottom-color: var(--ms-border);
-  background: var(--ms-surface-muted);
+  background: var(--ms-surface);
 }
 
 .tabButton {
-  min-height: 34px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 0;
   color: var(--ms-text-muted);
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  letter-spacing: 0;
+  touch-action: manipulation;
 
   &.tabButtonActive {
-    color: var(--ms-accent-strong);
-    background: var(--ms-surface);
-    box-shadow: 0 1px 5px rgba(48, 42, 34, 0.08);
+    color: var(--ms-accent);
+    background: transparent;
+    box-shadow: none;
+
+    &::after {
+      position: absolute;
+      right: 22%;
+      bottom: -1px;
+      left: 22%;
+      height: 2px;
+      border-radius: 2px 2px 0 0;
+      background: var(--ms-accent);
+      content: "";
+    }
   }
 }
 
 .listContainer {
   padding: 6px;
-  scrollbar-color: rgba(113, 108, 98, 0.35) transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ms-border-strong) transparent;
+}
+
+.candidateSectionBody {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ms-border-strong) transparent;
+}
+
+.listContainer::-webkit-scrollbar,
+.candidateSectionBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.listContainer::-webkit-scrollbar-track,
+.candidateSectionBody::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.listContainer::-webkit-scrollbar-thumb,
+.candidateSectionBody::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--ms-border-strong);
 }
 
 .providerGroup {
@@ -739,7 +901,7 @@
 
   &:hover {
     color: var(--ms-text);
-    background: rgba(67, 61, 52, 0.05);
+    background: color-mix(in srgb, var(--ms-text) 5%, transparent);
   }
 }
 
@@ -753,7 +915,7 @@
 
   &:hover {
     color: var(--ms-text);
-    background: rgba(67, 61, 52, 0.055);
+    background: color-mix(in srgb, var(--ms-text) 5.5%, transparent);
   }
 
   &.modelItemActive {
@@ -772,7 +934,7 @@
   align-self: stretch;
   flex: 1;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 8px 0 28px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -786,7 +948,6 @@
   }
 }
 
-.pinButton,
 .candidateSecondaryButton,
 .fallbackList button {
   min-width: 32px;
@@ -795,9 +956,15 @@
 
 .freeTag,
 .visionTag {
-  color: var(--ms-accent-strong);
-  background: var(--ms-accent-soft);
-  border-color: rgba(154, 91, 52, 0.2);
+  color: var(--ms-text-muted);
+  background: var(--ms-surface-muted);
+  border-color: var(--ms-border);
+}
+
+.freeTag {
+  color: var(--qwenpaw-color-success-text, #3f7450);
+  background: var(--qwenpaw-color-success-bg, #edf5ee);
+  border-color: var(--ms-border);
 }
 
 .freeBanner,
@@ -814,7 +981,7 @@
 .oauthWarningIcon,
 .checkIcon,
 .connectIcon {
-  color: var(--ms-accent);
+  color: var(--ms-text-muted);
 }
 
 .viewMore,
@@ -836,6 +1003,10 @@
   text-align: left;
 }
 
+.viewMore {
+  text-align: center;
+}
+
 .viewMore:hover,
 .moreToggle:hover,
 .connectEntry:hover,
@@ -849,23 +1020,39 @@
 .agentModelSettings {
   border-color: var(--ms-border);
   background: var(--ms-surface-muted);
+  box-shadow: none;
 }
 
 .candidateItem {
   min-height: 48px;
+  border-radius: 10px;
+  background: var(--ms-surface);
 }
 
 .addCandidateButton,
 .saveAgentSettings {
-  min-height: 34px;
-  background: var(--ms-accent-strong);
+  min-height: 36px;
+  border-radius: 9px;
+  background: var(--ms-primary);
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--ms-primary) 22%, transparent);
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 
   &:hover:not(:disabled) {
-    background: #69391f;
+    background: color-mix(in srgb, var(--ms-primary) 85%, #fff);
+    box-shadow: 0 5px 12px
+      color-mix(in srgb, var(--ms-primary) 28%, transparent);
+  }
+
+  &:active:not(:disabled) {
+    background: color-mix(in srgb, var(--ms-primary) 86%, #000);
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--ms-primary) 22%, transparent);
   }
 
   &:disabled {
     cursor: not-allowed;
+    box-shadow: none;
     opacity: 0.55;
   }
 }
@@ -873,6 +1060,12 @@
 .candidateSectionToggle,
 .agentSettingsToggle {
   min-height: 40px;
+}
+
+.candidateSectionToggle:focus-visible,
+.agentSettingsToggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--ms-border-strong);
 }
 
 .settingsStatus,
@@ -884,9 +1077,10 @@
   gap: 10px;
   min-height: 42px;
   padding: 8px 10px;
+  border: 1px solid var(--ms-border);
   border-radius: 8px;
   color: var(--ms-text-muted);
-  background: rgba(154, 91, 52, 0.08);
+  background: var(--ms-surface-muted);
   font-size: 12px;
 }
 
@@ -899,9 +1093,9 @@
   flex-shrink: 0;
   min-height: 30px;
   padding: 4px 9px;
-  border: 1px solid rgba(154, 91, 52, 0.28);
+  border: 1px solid var(--ms-border-strong);
   border-radius: 7px;
-  color: var(--ms-accent-strong);
+  color: var(--ms-accent);
   background: var(--ms-surface);
   cursor: pointer;
 }
@@ -920,8 +1114,8 @@
 
 .fallbackBadge {
   max-width: 132px;
-  color: var(--ms-accent-strong);
-  background: var(--ms-accent-soft);
+  color: var(--ms-text-muted);
+  background: var(--ms-surface-muted);
 
   > span:last-child {
     overflow: hidden;
@@ -974,17 +1168,13 @@
 .tabButton:focus-visible,
 .providerHeader:focus-visible,
 .modelSelectButton:focus-visible,
-.pinButton:focus-visible,
 .viewMore:focus-visible,
 .moreToggle:focus-visible,
 .connectEntry:focus-visible,
 .showAllButton:focus-visible,
-.candidateSectionToggle:focus-visible,
 .candidateSecondaryButton:focus-visible,
 .addCandidateButton:focus-visible,
-.agentSettingsToggle:focus-visible,
 .agentSettingsBody button:focus-visible,
-.agentSettingsBody select:focus-visible,
 .hiddenModelItem button:focus-visible {
   outline: 3px solid var(--ms-focus);
   outline-offset: 2px;
@@ -1047,6 +1237,10 @@
     flex-wrap: wrap;
   }
 
+  .candidateSectionBody {
+    max-height: min(260px, 38vh);
+  }
+
   .candidateIdentity {
     width: 100%;
   }
@@ -1076,7 +1270,6 @@
   .trigger,
   .tabButton,
   .modelItem,
-  .pinButton,
   .connectEntry,
   .collapseIcon {
     transition: none;
@@ -1086,25 +1279,37 @@
 :global(.dark-mode) {
   .panel,
   .trigger,
-  .oauthModalContent {
-    --ms-accent: #d49a72;
-    --ms-accent-strong: #edb58e;
-    --ms-accent-soft: rgba(212, 154, 114, 0.14);
-    --ms-surface: #211f1b;
-    --ms-surface-muted: #292620;
-    --ms-border: rgba(244, 234, 218, 0.12);
-    --ms-text: rgba(255, 250, 242, 0.9);
-    --ms-text-muted: rgba(255, 250, 242, 0.58);
-    --ms-focus: rgba(237, 181, 142, 0.38);
+  .oauthModalContent,
+  .agentSelectDropdown {
+    --ms-primary: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
+    --ms-accent: var(--qwenpaw-color-primary, var(--colorPrimary, #ff9d4d));
+    --ms-accent-strong: var(--qwenpaw-color-primary-hover, var(--ms-accent));
+    --ms-accent-soft: var(--qwenpaw-color-primary-bg, rgba(255, 127, 22, 0.14));
+    --ms-surface: var(--qwenpaw-color-bg-container, #1f1f1f);
+    --ms-surface-muted: var(--qwenpaw-color-fill-quaternary, #262626);
+    --ms-border: var(
+      --qwenpaw-color-border-secondary,
+      rgba(255, 255, 255, 0.12)
+    );
+    --ms-border-strong: var(--qwenpaw-color-border, rgba(255, 255, 255, 0.2));
+    --ms-text: var(--qwenpaw-color-text, rgba(255, 255, 255, 0.88));
+    --ms-text-muted: var(
+      --qwenpaw-color-text-secondary,
+      rgba(255, 255, 255, 0.65)
+    );
+    --ms-text-faint: var(
+      --qwenpaw-color-text-tertiary,
+      rgba(255, 255, 255, 0.45)
+    );
+    --ms-focus: color-mix(in srgb, var(--ms-primary) 38%, transparent);
   }
 
   .panel,
   .searchWrapper,
-  .tabButton.tabButtonActive {
+  .tabBar {
     background: var(--ms-surface);
   }
 
-  .tabBar,
   .candidateItem,
   .candidateModelSection,
   .agentModelSettings {
@@ -1113,6 +1318,95 @@
 
   .modelItem:hover,
   .providerHeader:hover {
-    background: rgba(255, 250, 242, 0.06);
+    background: color-mix(in srgb, var(--ms-text) 7%, transparent);
+  }
+
+  .candidateSectionToggle,
+  .agentSettingsToggle,
+  .candidateIdentity,
+  .settingsRow,
+  .settingsCheckRow,
+  .hiddenModels,
+  .fallbackList span {
+    color: var(--ms-text-muted);
+  }
+
+  .candidateSectionToggle:hover:not(:disabled),
+  .agentSettingsToggle:hover:not(:disabled) {
+    color: var(--ms-accent-strong);
+    background: var(--ms-accent-soft);
+  }
+
+  .settingsHint {
+    color: var(--ms-text-muted);
+  }
+
+  .agentSelect {
+    :global(.ant-select-selector) {
+      color: var(--ms-text) !important;
+      background: var(--ms-surface) !important;
+      border-color: var(--ms-border) !important;
+    }
+
+    &:hover:not(:global(.ant-select-disabled)) {
+      :global(.ant-select-selector) {
+        background: var(--ms-surface-muted) !important;
+        border-color: var(--ms-border-strong) !important;
+      }
+    }
+
+    :global(.ant-select-selection-item),
+    :global(.ant-select-selection-search-input) {
+      color: var(--ms-text) !important;
+    }
+  }
+
+  .fallbackComposer button {
+    color: var(--ms-text);
+    background: var(--ms-surface);
+    border-color: var(--ms-border);
+  }
+
+  .fallbackList > div {
+    background: color-mix(in srgb, var(--ms-text) 6%, transparent);
+  }
+
+  .freeTag {
+    color: #a8d7b2;
+    background: rgba(76, 175, 96, 0.12);
+    border-color: rgba(130, 210, 145, 0.22);
+  }
+
+  .visionTag {
+    color: var(--ms-text-muted);
+    background: var(--ms-surface-muted);
+    border-color: var(--ms-border);
+  }
+}
+
+:global(.dark-mode) .agentSelectDropdown {
+  border-color: var(--ms-border);
+  background: var(--ms-surface);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
+
+  :global(.ant-select-item) {
+    color: var(--ms-text);
+  }
+
+  :global(
+      .ant-select-item-option-active:not(.ant-select-item-option-disabled)
+    ) {
+    background: var(--ms-surface-muted);
+  }
+
+  :global(
+      .ant-select-item-option-selected:not(.ant-select-item-option-disabled)
+    ) {
+    color: var(--ms-accent);
+    background: var(--ms-accent-soft);
+  }
+
+  :global(.rc-virtual-list-scrollbar-thumb) {
+    background: var(--ms-border-strong) !important;
   }
 }

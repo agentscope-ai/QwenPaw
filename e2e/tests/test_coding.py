@@ -152,7 +152,7 @@ class TestOpenExistingDirectory:
     The native folder-picker UI flow can't be driven from Playwright
     reliably, so we exercise the equivalent backend path: create a
     project (which lives at a real on-disk path), then re-bind the
-    agent to that path with PUT /api/workspace/coding-project.
+    agent to that path with PUT /api/workspace/project-directory.
     """
 
     @pytest.mark.test_id("CODE-003")

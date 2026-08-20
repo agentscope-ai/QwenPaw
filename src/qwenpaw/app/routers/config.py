@@ -1020,6 +1020,124 @@ async def put_sandbox_setting(
     )
 
 
+# ── Security / Sandbox Deny Paths Protection ─────────────────────────
+
+
+class DenyPathsProtectionBody(BaseModel):
+    """Request body for enabling/disabling deny paths protection."""
+
+    enabled: bool = Field(
+        description=(
+            "When True, applies deny ACLs on the current user for "
+            "configured sensitive paths. When False, removes those ACLs."
+        ),
+    )
+
+
+class DenyPathsProtectionResponse(BaseModel):
+    """Response with deny paths protection status."""
+
+    active: bool = Field(
+        description="Whether deny paths protection is currently active.",
+    )
+    protected_paths: List[str] = Field(
+        default_factory=list,
+        description="Paths currently protected with deny ACLs.",
+    )
+    failed_paths: List[str] = Field(
+        default_factory=list,
+        description="Paths that failed to have ACLs applied/removed.",
+    )
+    platform_supported: bool = Field(
+        description="Whether this feature is available on the "
+        "current platform.",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Additional status message.",
+    )
+
+
+@router.get(
+    "/security/sandbox/deny-paths-protection",
+    response_model=DenyPathsProtectionResponse,
+    summary="Get deny paths protection status",
+)
+async def get_deny_paths_protection() -> DenyPathsProtectionResponse:
+    import sys
+
+    if sys.platform != "win32":
+        return DenyPathsProtectionResponse(
+            active=False,
+            protected_paths=[],
+            failed_paths=[],
+            platform_supported=False,
+            message="Deny paths protection via ACLs is only "
+            "available on Windows.",
+        )
+
+    from ...sandbox.windows_unelevated_sandbox import DenyPathsProtection
+
+    protection = DenyPathsProtection()
+    status = protection.status()
+    return DenyPathsProtectionResponse(
+        active=status["active"],
+        protected_paths=status.get("protected_paths", []),
+        failed_paths=[],
+        platform_supported=True,
+    )
+
+
+@router.put(
+    "/security/sandbox/deny-paths-protection",
+    response_model=DenyPathsProtectionResponse,
+    summary="Enable or disable deny paths protection",
+)
+async def put_deny_paths_protection(
+    body: DenyPathsProtectionBody = Body(...),
+) -> DenyPathsProtectionResponse:
+    import sys
+
+    if sys.platform != "win32":
+        return DenyPathsProtectionResponse(
+            active=False,
+            protected_paths=[],
+            failed_paths=[],
+            platform_supported=False,
+            message="Deny paths protection via ACLs is only "
+            "available on Windows.",
+        )
+
+    from ...governance.policy import DEFAULT_SANDBOX_DENY_PATHS
+    from ...sandbox.windows_unelevated_sandbox import DenyPathsProtection
+
+    protection = DenyPathsProtection()
+    lock = protection.get_lock()
+
+    async with lock:  # pylint: disable=not-async-context-manager
+        if body.enabled:
+            result = await asyncio.to_thread(
+                protection.enable,
+                DEFAULT_SANDBOX_DENY_PATHS,
+            )
+            return DenyPathsProtectionResponse(
+                active=result.get("status") == "enabled"
+                or result.get("status") == "already_active",
+                protected_paths=result.get("protected_paths", []),
+                failed_paths=result.get("failed_paths", []),
+                platform_supported=True,
+                message=result.get("message"),
+            )
+        else:
+            result = await asyncio.to_thread(protection.disable)
+            return DenyPathsProtectionResponse(
+                active=False,
+                protected_paths=[],
+                failed_paths=result.get("failed_paths", []),
+                platform_supported=True,
+            )
+
+
 # ── Security / File Guard ────────────────────────────────────────────
 
 
