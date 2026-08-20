@@ -230,8 +230,10 @@ describe("ModelSelector", () => {
     const trigger = await screen.findByRole("button", {
       name: "chat.modelSelectTooltip",
     });
-    expect(trigger).toHaveTextContent("modelSelector.free");
-    expect(trigger.querySelector('[class*="freeTag"]')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(trigger).toHaveTextContent("modelSelector.free");
+      expect(trigger.querySelector('[class*="freeTag"]')).toBeInTheDocument();
+    });
   });
 
   it("does not mark a paid active model as free", async () => {

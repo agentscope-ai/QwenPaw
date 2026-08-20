@@ -329,14 +329,10 @@ export default function ModelSelector({
     const provider = eligibleProviders.find(
       (item) => item.id === activeProviderId,
     );
-    return (
-      provider?.models.find((model) => model.id === activeModelId) ?? null
-    );
+    return provider?.models.find((model) => model.id === activeModelId) ?? null;
   })();
   const activeModelName =
-    activeModel?.name ||
-    activeModelId ||
-    t("modelSelector.selectModel");
+    activeModel?.name || activeModelId || t("modelSelector.selectModel");
   const activeModelIsFree = Boolean(activeModel?.is_free);
 
   const showActiveProviderIcon = Boolean(activeProviderId);
@@ -1088,9 +1084,7 @@ export default function ModelSelector({
               )}
             </span>
             {activeModelIsFree && (
-              <span className={styles.freeTag}>
-                {t("modelSelector.free")}
-              </span>
+              <span className={styles.freeTag}>{t("modelSelector.free")}</span>
             )}
             {/* Hidden span used to measure intrinsic text width. Placed
                 outside .triggerName so it does not duplicate text for
