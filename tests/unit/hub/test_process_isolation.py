@@ -173,11 +173,11 @@ def test_linux_command_mounts_only_runtime_root_writable(
     ]
 
 
-def test_linux_command_mounts_resolver_target(
+def test_linux_command_mounts_resolver_at_standard_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    resolver = Path("/etc/resolv.conf").resolve()
+    resolver = Path("/etc/resolv.conf")
     if not resolver.exists():
         pytest.skip("resolver configuration is unavailable")
     isolator = LinuxBubblewrapIsolator("/usr/bin/bwrap")

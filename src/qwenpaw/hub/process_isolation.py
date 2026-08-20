@@ -111,7 +111,7 @@ def _read_roots() -> list[Path]:
         Path("/etc/ca-certificates").resolve(),
         Path("/etc/hosts").resolve(),
         Path("/etc/nsswitch.conf").resolve(),
-        Path("/etc/resolv.conf").resolve(),
+        Path("/etc/resolv.conf"),
         Path("/etc/ssl/certs").resolve(),
         Path("/etc/pki/tls/certs").resolve(),
         Path(sys.base_prefix).resolve(),
