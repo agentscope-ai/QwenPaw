@@ -31,19 +31,28 @@ resetting to another directory would scatter the user's files.
 from __future__ import annotations
 
 import logging
-import sys
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Sequence, Union
+
+from .fs_name_rules import NameRules, platform_name_rules
 
 logger = logging.getLogger(__name__)
 
 PathLike = Union[str, Path]
 
-# macOS and Windows fold case in path lookups; Linux does not. Path
-# comparisons must follow the platform, otherwise ``/repo`` and ``/Repo``
-# are wrongly reported as the same directory on Linux.
-_FS_IS_CASE_INSENSITIVE = sys.platform in ("darwin", "win32", "cygwin")
+# Only for paths with no directory entry to identify — see
+# :func:`dir_key`, which prefers filesystem identity, and
+# :mod:`qwenpaw.services.fs_name_rules` for why the platform is a fallback
+# and not the answer.
+_FALLBACK_RULES = platform_name_rules()
+
+# Prefixes keeping the two kinds of comparison key in separate spaces. A
+# path that exists is never "the same directory" as one that does not, so
+# an identity key must not be able to equal a name key.
+_IDENTITY_KEY_PREFIX = "id:"
+_NAME_KEY_PREFIX = "name:"
 
 # Hard cap on how many directories one chat may bind. Keeps the prompt
 # block and the governance rule set bounded no matter what a client
@@ -101,24 +110,74 @@ def normalize_project_dir_label(raw: Any) -> Optional[str]:
     return text[:MAX_PROJECT_DIR_LABEL_LENGTH]
 
 
-def dir_key(raw: Any) -> str:
-    """Return a stable, platform-aware comparison key for a directory.
+def dir_stat(path: Path) -> tuple[bool, Optional[tuple[int, int]]]:
+    """Return ``(is_a_directory, identity)`` for *path* in one syscall.
 
-    Folds case only where the filesystem does, so consumers that need a
-    hashable key (governance dedupe, mount lists) agree with
-    :func:`same_dir` instead of each rolling their own ``casefold()`` —
-    on Linux an unconditional fold would silently treat ``/Repo`` and
-    ``/repo`` as one directory and grant only one of them.
+    ``identity`` is ``(st_dev, st_ino)`` — which directory entry the path
+    actually reaches — or ``None`` when the filesystem cannot say.
 
-    Does not ``resolve()``: callers store the literal path they were
-    given (policy rule patterns, sandbox mounts) and the key must match
-    what they hold.
+    Both answers come from a single ``stat()`` because callers want both
+    and this runs once per bound directory per resolution. Symlinks are
+    followed on purpose: a link to a bound directory *is* that directory,
+    and identity is what makes that fall out for free.
+
+    ``st_ino == 0`` is treated as no identity rather than as inode zero.
+    Some SMB and FUSE mounts report it for every entry, and taking that at
+    face value would make every path on such a mount compare equal — the
+    one failure direction that silently discards a directory.
     """
     try:
-        text = str(Path(str(raw)).expanduser())
+        info = path.stat()
+    except OSError:
+        return False, None
+    identity = (
+        (info.st_dev, info.st_ino)
+        if info.st_ino and info.st_dev is not None
+        else None
+    )
+    return stat_module.S_ISDIR(info.st_mode), identity
+
+
+def dir_key(raw: Any, rules: Optional[NameRules] = None) -> str:
+    """Return a stable comparison key for a directory.
+
+    Two paths get the same key exactly when they are the same directory,
+    which is what every consumer needs: dedupe of a bound list, the
+    governance rule set, the sandbox mount list, Files API membership.
+
+    The key is the directory's **filesystem identity** whenever it has
+    one. That is exact rather than heuristic — it is right across case
+    folding, Unicode normalization, symlinks, bind mounts and mount
+    points, and it needs to know nothing about the platform. Comparing
+    path *strings* gets every one of those wrong in one direction or the
+    other: fold and two genuinely distinct roots on a case-sensitive
+    volume collapse into one, so only one of them is granted; do not fold
+    and one directory on a folding volume is bound twice, with two rules,
+    two mounts and two Files roots.
+
+    For a path with no entry to identify — a configured directory that
+    does not exist yet, which must survive round-trips so the UI can flag
+    it — the key falls back to the path string folded under *rules*, or
+    the platform guess. That case cannot be answered exactly, and nothing
+    is written to a wrong directory on the strength of it, because there
+    is no directory there.
+
+    Does not ``resolve()``: callers store the literal path they were given
+    (policy rule patterns, sandbox mounts) and the key must stay
+    consistent with what they hold. Identity makes resolving unnecessary —
+    two spellings of one directory stat to the same entry whether or not
+    either was resolved.
+
+    This is filesystem I/O. Call it from a worker thread.
+    """
+    try:
+        path = Path(str(raw)).expanduser()
     except (OSError, TypeError, ValueError):
-        text = str(raw)
-    return text.casefold() if _FS_IS_CASE_INSENSITIVE else text
+        return _NAME_KEY_PREFIX + (rules or _FALLBACK_RULES).key(str(raw))
+    _, identity = dir_stat(path)
+    if identity is not None:
+        return f"{_IDENTITY_KEY_PREFIX}{identity[0]}:{identity[1]}"
+    return _NAME_KEY_PREFIX + (rules or _FALLBACK_RULES).key(str(path))
 
 
 def path_case_insensitive() -> bool:
@@ -129,86 +188,81 @@ def path_case_insensitive() -> bool:
     unconditionally would report ``/srv/Repo`` as already bound when
     ``/srv/repo`` is, and a Linux user could never bind both.
 
-    Platform-wide, which the filesystem does not actually guarantee: a
-    case-sensitive APFS volume on macOS, or a directory with the
-    per-directory case-sensitivity flag set on Windows, still compares as
-    folded here. Answering that correctly needs a per-path probe; until
-    then this is one answer both sides agree on instead of three that
-    disagree.
+    Deliberately the coarse platform answer: it describes the whole server
+    in one boolean, and a mixed set of volumes has no single correct value
+    to send.
+
+    The backend does not decide anything on this. It compares directories
+    by filesystem identity (:func:`dir_key`), so a case-sensitive volume
+    on a folding OS is handled correctly there while this still reports
+    the platform's default. The console is therefore *more* eager to call
+    a directory already-bound than the backend is: it may refuse to add a
+    second root that the backend would accept, which is a visible-but-safe
+    failure — no directory is bound wrongly, and the user is not shown
+    files from one they never picked.
+
+    Replacing it means sending each root its own comparison key instead of
+    one server-wide flag. That is a client-visible protocol change and is
+    tracked separately; until then the console's rule is documented in
+    ``console/src/features/project-directory/pathEquivalence.ts``.
     """
-    return _FS_IS_CASE_INSENSITIVE
+    return not _FALLBACK_RULES.case_sensitive
 
 
-def same_dir(a: PathLike, b: PathLike) -> bool:
-    """Compare two directories, ignoring case and trailing separators.
+def same_dir_normalized(
+    a: Path,
+    b: Path,
+    rules: Optional[NameRules] = None,
+) -> bool:
+    """Compare two already-normalized directory paths **by name**.
 
-    On case-insensitive filesystems (macOS, Windows) ``/Repo`` and
-    ``/repo`` are the same directory; naive string comparison would
-    treat them as distinct and let stale entries survive a re-save. On a
-    case-sensitive filesystem they are genuinely different directories,
-    so the fold is only applied where the OS actually folds.
+    The name-only fallback for paths that have no filesystem identity to
+    compare — a configured directory that does not exist yet. Where both
+    directories exist, :func:`dir_key` answers exactly and this does not:
+    folding under one set of rules cannot be right for two paths on
+    volumes that fold differently, and it is blind to symlinks and mount
+    points.
 
-    Two blank/unusable inputs are **not** "the same directory": neither
-    names one, so callers doing dedupe must not collapse them.
+    Does no filesystem access, so a dedupe loop may call it per pair
+    without turning an n-entry list into O(n\u00b2) syscalls.
     """
-    left = _normalize_optional(a)
-    right = _normalize_optional(b)
-    if left is None or right is None:
-        return False
-    return same_dir_normalized(left, right)
+    active = rules or _FALLBACK_RULES
+    return active.key(str(a)) == active.key(str(b))
 
 
-def same_dir_normalized(a: Path, b: Path) -> bool:
-    """:func:`same_dir` for paths that are already normalized.
+def is_within_normalized(
+    target: Path,
+    base: Path,
+    rules: Optional[NameRules] = None,
+) -> bool:
+    """Return True when *target* is *base* itself or lives underneath it.
 
-    Skips the ``resolve()`` on both sides. Dedupe loops need this: they
-    compare each candidate against every entry already kept, all of which
-    they normalized on the way in, so the naive version turns an n-entry
-    list into O(n²) filesystem walks — 101 of them for ten directories,
-    every turn.
-    """
-    if _FS_IS_CASE_INSENSITIVE:
-        return str(a).casefold() == str(b).casefold()
-    return str(a) == str(b)
+    Containment, unlike identity, has no exact filesystem answer to ask
+    for — there is no syscall for "is this entry under that one" — so this
+    stays a lexical comparison folded under *rules*, defaulting to the
+    platform guess. That is acceptable because the only caller is
+    :func:`nested_root_pairs`, which produces a "covered by X" hint for
+    the UI: a wrong answer shows or hides a hint. Nothing authorizes on
+    it, and nothing drops a root because of it.
 
-
-def is_within(path: PathLike, root: PathLike) -> bool:
-    """Return True when *path* is *root* itself or lives underneath it.
-
-    Lexical comparison on normalized paths; both sides are already
-    ``resolve()``-d by :func:`normalize_project_dir`, so symlinks are
-    collapsed as a side effect without dedicated logic.
-
-    Case folding is applied only on case-insensitive filesystems. On
-    Linux, folding would report ``/Repo/x`` as living inside ``/repo``
-    when it does not — a false "contained" answer that would become a
-    containment bypass the moment a caller used this for authorization.
-    """
-    target = _normalize_optional(path)
-    base = _normalize_optional(root)
-    if target is None or base is None:
-        return False
-    return is_within_normalized(target, base)
-
-
-def is_within_normalized(target: Path, base: Path) -> bool:
-    """:func:`is_within` for paths that are already normalized.
-
-    Skips the ``resolve()`` both sides would otherwise get. Only for
-    callers holding paths that came out of :func:`normalize_project_dir`
-    (a :class:`ResolvedProjectDirs` list, say) — passing a raw path here
-    compares it unresolved, which is a different question.
+    Takes paths that came out of :func:`normalize_project_dir` (a
+    :class:`ResolvedProjectDirs` list, say) — passing a raw path here
+    compares it unresolved, which is a different question. Does no
+    filesystem access.
     """
     try:
         target.relative_to(base)
         return True
     except ValueError:
         pass
-    if not _FS_IS_CASE_INSENSITIVE:
+    active = rules or _FALLBACK_RULES
+    if active.case_sensitive and active.normalization_sensitive:
+        # Nothing left to fold, so the exact comparison above was final.
         return False
-    # Case-insensitive filesystems: /Repo under /repo.
+    # The filesystem folds something, so compare the folded spellings:
+    # /Repo/x really is inside /repo here.
     try:
-        Path(str(target).casefold()).relative_to(str(base).casefold())
+        Path(active.key(str(target))).relative_to(active.key(str(base)))
         return True
     except ValueError:
         return False
@@ -253,23 +307,68 @@ def coerce_project_dir_entry(
     return normalized, normalize_project_dir_label(label)
 
 
-def normalize_project_dir_list(
-    raw: Any,
-) -> list[tuple[Path, Optional[str]]]:
+@dataclass(frozen=True)
+class NormalizedProjectDir:
+    """One coerced entry plus what the single ``stat()`` for it found.
+
+    ``key`` is the :func:`dir_key` comparison key and ``exists`` says
+    whether the path is a directory right now. Both are carried rather than
+    recomputed because they come from one syscall and every consumer wants
+    them: dedupe compares keys, the API reports ``exists``, and the Files
+    API membership check compares its candidate against ``key`` without
+    touching the filesystem again.
+    """
+
+    path: Path
+    label: Optional[str]
+    key: str
+    exists: bool
+
+
+def normalize_dir_entry(
+    raw: RawProjectDirEntry,
+) -> Optional[NormalizedProjectDir]:
+    """Coerce one raw entry and stat it once. ``None`` if unusable."""
+    coerced = coerce_project_dir_entry(raw)
+    if coerced is None:
+        return None
+    path, label = coerced
+    exists, identity = dir_stat(path)
+    key = (
+        f"{_IDENTITY_KEY_PREFIX}{identity[0]}:{identity[1]}"
+        if identity is not None
+        else _NAME_KEY_PREFIX + _FALLBACK_RULES.key(str(path))
+    )
+    return NormalizedProjectDir(
+        path=path,
+        label=label,
+        key=key,
+        exists=exists,
+    )
+
+
+def normalize_dir_entry_list(raw: Any) -> list[NormalizedProjectDir]:
     """Normalize a raw project-dir list: coerce, dedupe, cap.
 
-    Order is preserved — index 0 is the primary project directory.
-    Dedupe keeps the first occurrence (and its label) and is
-    case-insensitive via :func:`same_dir_normalized` — both sides have
-    already been normalized by this point, so re-normalizing them would
-    make an n-entry list cost O(n²) filesystem walks. Entries beyond
-    ``MAX_PROJECT_DIRS`` are dropped with a warning (the API layer
-    rejects oversized lists with 422; truncation here is defense in
-    depth only).
+    Order is preserved — index 0 is the primary project directory. Dedupe
+    keeps the first occurrence (and its label) and compares
+    :func:`dir_key` keys, so two spellings collapse exactly when they
+    reach the same directory entry — across case folding, Unicode
+    normalization, symlinks and mount points alike, and *only* then. A
+    string comparison here would either drop one of two genuinely distinct
+    roots on a case-sensitive volume or bind one directory twice on a
+    folding one.
+
+    Entries beyond ``MAX_PROJECT_DIRS`` are dropped with a warning (the
+    API layer rejects oversized lists with 422; truncation here is defense
+    in depth only).
 
     ``None`` (as opposed to an empty list) is treated as an empty list
     here; callers that need to distinguish "absent" from "empty" must
     check before calling.
+
+    One ``stat()`` and one ``resolve()`` per entry, so this must be called
+    from a worker thread, never from a coroutine.
     """
     if raw is None:
         return []
@@ -277,15 +376,14 @@ def normalize_project_dir_list(
         raw = [raw]
 
     items = list(raw)
-    entries: list[tuple[Path, Optional[str]]] = []
+    entries: list[NormalizedProjectDir] = []
+    seen: set[str] = set()
     for index, item in enumerate(items):
-        coerced = coerce_project_dir_entry(item)
-        if coerced is None:
+        entry = normalize_dir_entry(item)
+        if entry is None or entry.key in seen:
             continue
-        path, label = coerced
-        if any(same_dir_normalized(path, existing) for existing, _ in entries):
-            continue
-        entries.append((path, label))
+        seen.add(entry.key)
+        entries.append(entry)
         if len(entries) >= MAX_PROJECT_DIRS:
             # Only a genuine overflow is worth a warning: a list of exactly
             # MAX_PROJECT_DIRS entries loses nothing.
@@ -298,6 +396,21 @@ def normalize_project_dir_list(
                 )
             break
     return entries
+
+
+def normalize_project_dir_list(
+    raw: Any,
+) -> list[tuple[Path, Optional[str]]]:
+    """``(path, label)`` view of :func:`normalize_dir_entry_list`.
+
+    Kept for the callers that only forward paths and labels onward (the
+    console's pending-dir validator, the chats API's stored list). Callers
+    that also want the comparison key or ``exists`` should use
+    :func:`normalize_dir_entry_list` and avoid stat-ing a second time.
+    """
+    return [
+        (entry.path, entry.label) for entry in normalize_dir_entry_list(raw)
+    ]
 
 
 def nested_root_pairs(paths: Sequence[Path]) -> list[tuple[int, int]]:
@@ -338,6 +451,15 @@ class ResolvedProjectDir:
     path: Path
     label: Optional[str] = None
     exists: bool = True
+    # This directory's :func:`dir_key`, taken during resolution from the
+    # same ``stat()`` that filled ``exists``. Consumers asking "is this
+    # path this entry?" — Files API membership above all — compare their
+    # own key against this one instead of comparing path strings, which
+    # would admit an unbound directory on a folding volume and reject a
+    # bound one on a case-sensitive volume. Empty means the entry was
+    # built without a key; comparisons must then fall back to
+    # :func:`same_dir_normalized` rather than treat "" as a match.
+    key: str = ""
 
 
 @dataclass(frozen=True)
@@ -356,6 +478,9 @@ class ResolvedProjectDirs:
     # filesystem instead would issue a syscall on every ``primary`` /
     # ``primary_path`` access, and those are read repeatedly per turn.
     workspace_exists: bool = True
+    # Likewise the workspace's own comparison key, so the fallback primary
+    # below is built without touching the filesystem.
+    workspace_key: str = ""
 
     @property
     def is_workspace_fallback(self) -> bool:
@@ -370,6 +495,7 @@ class ResolvedProjectDirs:
             path=self.workspace_dir,
             label=None,
             exists=self.workspace_exists,
+            key=self.workspace_key,
         )
 
     @property
@@ -414,41 +540,36 @@ def resolve_effective_project_dirs(
         raise ValueError(f"Invalid workspace_dir: {workspace_dir!r}")
 
     if session_project_dirs is not None:
-        entries = normalize_project_dir_list(session_project_dirs)
+        entries = normalize_dir_entry_list(session_project_dirs)
         source: ProjectDirSource = SOURCE_SESSION
     else:
-        entries = normalize_project_dir_list(
+        entries = normalize_dir_entry_list(
             [agent_project_dir] if agent_project_dir else [],
         )
         source = SOURCE_AGENT if entries else SOURCE_WORKSPACE_FALLBACK
 
     if request_override is not None:
-        override = coerce_project_dir_entry(request_override)
+        override = normalize_dir_entry(request_override)
         if override is not None:
-            # Both sides are already normalized (``entries`` from
-            # ``normalize_project_dir_list``, ``override`` from
-            # ``coerce_project_dir_entry``), so compare without resolving
-            # every entry a second time.
+            # Dedupe by comparison key: the override and the inherited
+            # entries were each stat-ed once on the way in, so this is
+            # exact and costs no further syscalls.
             entries = [override] + [
-                entry
-                for entry in entries
-                if not same_dir_normalized(entry[0], override[0])
+                entry for entry in entries if entry.key != override.key
             ]
             source = SOURCE_REQUEST
 
     if mode_override is not None:
-        pinned = normalize_project_dir_list(mode_override)
+        pinned = normalize_dir_entry_list(mode_override)
         if pinned:
             entries = pinned
             source = SOURCE_MODE
 
     if fork_project_dir is not None:
-        worktree = _normalize_optional(fork_project_dir)
+        worktree = normalize_dir_entry(fork_project_dir)
         if worktree is not None:
-            entries = [(worktree, None)] + [
-                entry
-                for entry in entries
-                if not same_dir_normalized(entry[0], worktree)
+            entries = [worktree] + [
+                entry for entry in entries if entry.key != worktree.key
             ]
             source = SOURCE_FORK
 
@@ -467,17 +588,36 @@ def resolve_effective_project_dirs(
         )
         entries = entries[:MAX_PROJECT_DIRS]
 
+    # ``exists`` and ``key`` were both filled by the single stat() each
+    # entry got during normalization, so building these costs nothing.
     dirs = tuple(
-        ResolvedProjectDir(path=path, label=label, exists=path.is_dir())
-        for path, label in entries
+        ResolvedProjectDir(
+            path=entry.path,
+            label=entry.label,
+            exists=entry.exists,
+            key=entry.key,
+        )
+        for entry in entries
     )
+    workspace_exists = True
+    workspace_key = ""
+    if not dirs:
+        # Only the fallback primary reads these, so skip the syscall when
+        # the list already has a primary of its own.
+        workspace_exists, workspace_identity = dir_stat(normalized_workspace)
+        workspace_key = (
+            f"{_IDENTITY_KEY_PREFIX}"
+            f"{workspace_identity[0]}:{workspace_identity[1]}"
+            if workspace_identity is not None
+            else _NAME_KEY_PREFIX
+            + _FALLBACK_RULES.key(str(normalized_workspace))
+        )
     return ResolvedProjectDirs(
         dirs=dirs,
         source=source,
         workspace_dir=normalized_workspace,
-        # Only the fallback primary reads this, so skip the syscall when
-        # the list already has one.
-        workspace_exists=(True if dirs else normalized_workspace.is_dir()),
+        workspace_exists=workspace_exists,
+        workspace_key=workspace_key,
     )
 
 
@@ -582,6 +722,8 @@ def session_project_dirs_from_meta(meta: Optional[dict]) -> Optional[list]:
 __all__ = [
     "MAX_PROJECT_DIRS",
     "MAX_PROJECT_DIR_LABEL_LENGTH",
+    "NameRules",
+    "NormalizedProjectDir",
     "ResolvedProjectDir",
     "ResolvedProjectDirs",
     "SOURCE_AGENT",
@@ -592,15 +734,16 @@ __all__ = [
     "SOURCE_SESSION",
     "SOURCE_WORKSPACE_FALLBACK",
     "dir_key",
-    "is_within",
+    "dir_stat",
     "is_within_normalized",
     "nested_root_pairs",
+    "normalize_dir_entry",
+    "normalize_dir_entry_list",
     "normalize_project_dir",
     "normalize_project_dir_list",
     "path_case_insensitive",
     "resolve_effective_project_dir",
     "resolve_effective_project_dirs",
-    "same_dir",
     "same_dir_normalized",
     "session_project_dir",
     "session_project_dirs_from_meta",

@@ -18,8 +18,6 @@ import shutil
 import stat
 import tempfile
 import os
-import sys
-import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +57,7 @@ from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID, SUPPORTED_AGENT_LANGUAGES
+from ...services.fs_name_rules import NameRules, probe_name_rules
 from ...services.workspace_files import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_PAGE_SIZE,
@@ -316,16 +315,42 @@ async def _resolve_extra_project_root(
     bound. Anything else is rejected outright — never silently downgraded to
     the primary, which would make an out-of-bounds request look like it
     succeeded against the wrong directory.
+
+    Membership is decided by :func:`dir_key`: the candidate is keyed in a
+    worker thread and the loop compares strings, touching the filesystem
+    not at all. Two things depend on that split.
+
+    The loop must do no I/O. The obvious spelling —
+    ``same_dir(candidate, entry.path)`` — resolves *both* sides on every
+    iteration, so ten bound directories cost twenty ``resolve()`` calls on
+    the event loop per Files request, half of them re-resolving
+    ``entry.path``, which ``ResolvedProjectDirs`` already canonicalized.
+    One stalled SMB or FUSE mount in the list would then stall every other
+    request the process is serving.
+
+    And the comparison must be by directory identity, not by path text. A
+    string comparison decides membership on spelling: fold case and an
+    unbound ``/srv/REPO`` is served as ``/srv/repo`` on a case-sensitive
+    volume; do not fold and a bound directory reached by a symlink, a
+    mount alias or a ``..`` detour is refused with 403. Identity is right
+    in both directions without knowing anything about the volume.
+
+    A configured directory that does not exist has no identity, so its key
+    is its path text and the comparison degrades to the old spelling-based
+    one — acceptable, because there is nothing there to serve either way.
     """
-    from ...services.project_directory import same_dir
+    from ...services.project_directory import dir_key
 
     candidate = raw_path.strip()
     if not candidate:
         raise HTTPException(status_code=400, detail="root path is empty")
 
     resolved = await get_project_dirs_for_request(request, workspace)
+    candidate_key = await run_sync_io(dir_key, candidate)
     for entry in resolved.dirs:
-        if same_dir(candidate, entry.path):
+        # An entry built without a key would otherwise match the empty
+        # string; only a real key can grant membership.
+        if entry.key and entry.key == candidate_key:
             return entry.path
     # The workspace is a legitimate root, but it has its own ``root=workspace``
     # selector; accepting it here too would let one root be addressed two ways.
@@ -665,40 +690,23 @@ def _cleanup_upload_reservations(reservations: set[Path]) -> None:
         reservation.unlink(missing_ok=True)
 
 
-def _probe_name_alias(directory: Path, first: str, second: str) -> bool:
-    """Return whether two spellings address the same directory entry."""
-    first_path = directory / first
-    second_path = directory / second
-    descriptor = os.open(
-        first_path,
-        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-        0o600,
-    )
-    os.close(descriptor)
-    try:
-        return second_path.exists()
-    finally:
-        first_path.unlink(missing_ok=True)
-
-
 def _filesystem_name_rules(directory: Path) -> tuple[bool, bool]:
-    """Detect case and Unicode normalization sensitivity for a directory."""
-    token = secrets.token_hex(8)
-    try:
-        case_aliases = _probe_name_alias(
-            directory,
-            f".qwenpaw-case-{token}-a",
-            f".QWENPAW-CASE-{token}-A",
-        )
-        normalization_aliases = _probe_name_alias(
-            directory,
-            f".qwenpaw-unicode-{token}-é",
-            f".qwenpaw-unicode-{token}-e\u0301",
-        )
-    except OSError:
-        case_aliases = os.name == "nt" or sys.platform == "darwin"
-        normalization_aliases = sys.platform == "darwin"
-    return not case_aliases, not normalization_aliases
+    """Detect case and Unicode normalization sensitivity for a directory.
+
+    Thin wrapper over the shared probe: the temp-file technique this used
+    to implement inline now lives in
+    :mod:`qwenpaw.services.fs_name_rules`, unchanged in behaviour. It stays
+    a write probe because the question here is about names that do *not*
+    exist yet — would these two uploads collide? — which nothing that
+    inspects existing entries can answer.
+
+    Project-directory comparison deliberately does **not** use this. There
+    the directories exist, so ``dir_key`` asks which entry each path
+    reaches and gets an exact answer; a name-rules guess would be both
+    weaker and, for a mount point, wrong.
+    """
+    rules = probe_name_rules(directory)
+    return rules.case_sensitive, rules.normalization_sensitive
 
 
 def _upload_name_key(
@@ -708,12 +716,10 @@ def _upload_name_key(
     normalization_sensitive: bool,
 ) -> str:
     """Build a filename comparison key matching the target filesystem."""
-    comparable = (
-        filename
-        if normalization_sensitive
-        else unicodedata.normalize("NFC", filename)
-    )
-    return comparable if case_sensitive else comparable.casefold()
+    return NameRules(
+        case_sensitive=case_sensitive,
+        normalization_sensitive=normalization_sensitive,
+    ).key(filename)
 
 
 def _prepare_upload_targets(
