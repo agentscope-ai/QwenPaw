@@ -62,7 +62,6 @@ function publishActiveMaxInputLength(
 }
 
 const RECENT_STORAGE_KEY = "qwenpaw_model_selector_recent";
-const RECOMMENDED_LIMIT = 6;
 const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
@@ -119,7 +118,6 @@ export default function ModelSelector({
   const [expandedModels, setExpandedModels] = useState<Record<string, number>>(
     {},
   );
-  const [showAllModels, setShowAllModels] = useState(false);
   const [showCandidateModels, setShowCandidateModels] = useState(false);
   const [recentModelKeys, setRecentModelKeys] = useState<string[]>(() =>
     readStoredModelKeys(RECENT_STORAGE_KEY),
@@ -279,10 +277,7 @@ export default function ModelSelector({
   const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
 
   const rankModels = useCallback(
-    (
-      list: EligibleProvider[],
-      includeAllModels = false,
-    ): EligibleProvider[] => {
+    (list: EligibleProvider[]): EligibleProvider[] => {
       const ranked = list.flatMap((provider) =>
         provider.models.map((model) => ({ provider, model })),
       );
@@ -301,32 +296,8 @@ export default function ModelSelector({
           score(rightKey, right.provider.id, right.model.id)
         );
       });
-      let visible = ranked;
-      if (!includeAllModels && !showAllModels && !trimmedSearch) {
-        const alwaysVisible = ranked.filter(({ provider, model }) => {
-          const key = modelKey(provider.id, model.id);
-          return (
-            recentModelKeys.includes(key) ||
-            (provider.id === activeProviderId && model.id === activeModelId)
-          );
-        });
-        const alwaysVisibleKeys = new Set(
-          alwaysVisible.map(({ provider, model }) =>
-            modelKey(provider.id, model.id),
-          ),
-        );
-        const recommended = ranked.filter(({ provider, model }) => {
-          const key = modelKey(provider.id, model.id);
-          return model.is_recommended && !alwaysVisibleKeys.has(key);
-        });
-        const remainingSlots = Math.max(
-          0,
-          RECOMMENDED_LIMIT - alwaysVisible.length,
-        );
-        visible = [...alwaysVisible, ...recommended.slice(0, remainingSlots)];
-      }
       const grouped = new Map<string, EligibleProvider>();
-      for (const item of visible) {
+      for (const item of ranked) {
         const current = grouped.get(item.provider.id);
         if (current) current.models.push(item.model);
         else
@@ -337,13 +308,7 @@ export default function ModelSelector({
       }
       return [...grouped.values()];
     },
-    [
-      activeModelId,
-      activeProviderId,
-      recentModelKeys,
-      showAllModels,
-      trimmedSearch,
-    ],
+    [activeModelId, activeProviderId, recentModelKeys],
   );
 
   const rememberRecent = (providerId: string, modelId: string) => {
@@ -633,8 +598,7 @@ export default function ModelSelector({
       !provider.has_api_key &&
       !provider.oauth_connected;
     const isCollapsed = collapsedProviders.has(provider.id);
-    const shouldLimitModels =
-      !trimmedSearch && (limitInitialModels || showAllModels);
+    const shouldLimitModels = !trimmedSearch && limitInitialModels;
     const visibleCount = shouldLimitModels
       ? Math.min(
           expandedModels[provider.id] ?? DEFAULT_VISIBLE_MODELS,
@@ -922,7 +886,7 @@ export default function ModelSelector({
             <span>{t("modelSelector.proBannerText")}</span>
           </div>
         )}
-        {rankModels(filteredPro, true).map((provider) =>
+        {rankModels(filteredPro).map((provider) =>
           renderProviderModels(provider, true),
         )}
       </>
@@ -1009,17 +973,6 @@ export default function ModelSelector({
           </div>
         )}
         {activeTab === "free" ? renderFreeTab() : renderProTab()}
-        {showAdvancedModelControls && !trimmedSearch && (
-          <button
-            type="button"
-            className={styles.showAllButton}
-            onClick={() => setShowAllModels((value) => !value)}
-          >
-            {showAllModels
-              ? t("modelSelector.showRecommended")
-              : t("modelSelector.showAll")}
-          </button>
-        )}
         {showAdvancedModelControls && (
           <CandidateModelSection
             candidates={visibleCandidates}

@@ -1019,7 +1019,7 @@ describe("ModelSelector", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps configured free providers in both model tabs", async () => {
+  it("shows every free model from a configured free provider", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       {
         ...mockProvider,
@@ -1029,8 +1029,20 @@ describe("ModelSelector", () => {
         models: [
           {
             ...mockProvider.models[0],
+            id: "opencode-free-one",
+            name: "OpenCode Free One",
+            is_free: true,
+          },
+          {
+            ...mockProvider.models[1],
+            id: "opencode-free-two",
+            name: "OpenCode Free Two",
+            is_free: true,
+          },
+          {
+            ...mockProvider.models[1],
             id: "opencode-paid-model",
-            name: "OpenCode Model",
+            name: "OpenCode Paid Model",
             is_free: false,
           },
         ],
@@ -1039,7 +1051,7 @@ describe("ModelSelector", () => {
     vi.mocked(providerApi.getActiveModels).mockResolvedValue({
       active_llm: {
         provider_id: "opencode",
-        model: "opencode-paid-model",
+        model: "opencode-free-one",
       },
     });
     const user = userEvent.setup();
@@ -1051,10 +1063,22 @@ describe("ModelSelector", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: "FREE" }));
-    expect((await screen.findAllByText("OpenCode Model")).length).toBe(3);
+    expect(
+      (await screen.findAllByText("OpenCode Free One")).length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("OpenCode Free Two")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("OpenCode Paid Model")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "PRO" }));
-    expect((await screen.findAllByText("OpenCode Model")).length).toBe(3);
+    expect(
+      (await screen.findAllByText("OpenCode Free One")).length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("OpenCode Free Two")).length,
+    ).toBeGreaterThan(0);
+    expect(await screen.findByText("OpenCode Paid Model")).toBeInTheDocument();
   });
 
   it("does not show paid discovery candidates in the free tab search", async () => {
