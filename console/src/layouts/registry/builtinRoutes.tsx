@@ -5,8 +5,7 @@
  * `useRoutes()` snapshot returns them. Plugin routes are registered via
  * `QwenPaw.route.add(...)` into the same registry and treated uniformly.
  *
- * Lazy components use `lazyImportWithRetry` inline; the eager Chat page is
- * passed as ComponentType directly. The `/` redirect is a
+ * Lazy components use `lazyImportWithRetry` inline. The `/` redirect is a
  * named route with a tiny DefaultRedirect component so routeRegistry has a
  * single uniform shape.
  *
@@ -18,10 +17,8 @@ import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { routeRegistry } from "../../plugins/registry/store";
 import type { Route } from "../../plugins/registry/types";
 
-// Eager pages
-import Chat from "../../pages/Chat";
-
 // Lazy pages
+const ChatPage = lazyImportWithRetry("../../pages/Chat");
 const ChannelsPage = lazyImportWithRetry("../../pages/Control/Channels");
 const SessionsPage = lazyImportWithRetry("../../pages/Control/Sessions");
 const InboxPage = lazyImportWithRetry("../../pages/Inbox");
@@ -68,7 +65,7 @@ function ACPRedirect() {
 
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
-  { id: "core.chat", path: "/chat/*", component: Chat },
+  { id: "core.chat", path: "/chat/*", component: ChatPage },
   { id: "core.files", path: "/files", component: FilesPage },
   { id: "core.channels", path: "/channels", component: ChannelsPage },
   { id: "core.sessions", path: "/sessions", component: SessionsPage },

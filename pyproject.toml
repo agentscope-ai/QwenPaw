@@ -141,6 +141,9 @@ dev = [
 local = [
     "huggingface_hub>=0.20.0",
 ]
+hub = [
+    "docker>=7.1.0,<8",
+]
 whisper = [
     "openai-whisper>=20231117",
 ]
@@ -151,7 +154,7 @@ qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
 full = [
-    "qwenpaw[local,whisper,codex,qoder]",
+    "qwenpaw[hub,local,whisper,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

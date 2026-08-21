@@ -135,6 +135,7 @@ import {
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
 import { scrollReverseMessageList } from "./messageScroll";
+import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -3207,7 +3208,7 @@ export default function ChatPage() {
     }));
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
-      variant: "navigator" as const,
+      ...LONG_CHAT_USER_MESSAGE_ANCHORS,
     };
 
     // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.

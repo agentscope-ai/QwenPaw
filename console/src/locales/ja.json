@@ -2898,6 +2898,328 @@
       }
     }
   },
+  "hub": {
+    "brand": {
+      "title": "Hub 管理",
+      "subtitle": "ローカルワークスペース",
+      "controlPlane": "管理基盤"
+    },
+    "navigation": {
+      "workspace": "ワークスペース",
+      "overview": "運用状況",
+      "runtimes": "ランタイム",
+      "users": "ユーザー",
+      "credentials": "認証情報",
+      "audit": "監査ログ",
+      "settings": "システム設定"
+    },
+    "actions": {
+      "backToQwenPaw": "QwenPawに戻る",
+      "useLightTheme": "ライトテーマを使用する",
+      "useDarkTheme": "ダークテーマを使用する",
+      "signOut": "サインアウト",
+      "start": "開始",
+      "stop": "停止",
+      "disable": "無効化",
+      "rebuild": "再構築",
+      "enableAndStart": "有効化して開始"
+    },
+    "roles": {
+      "admin": "管理者",
+      "user": "ユーザー"
+    },
+    "userStates": {
+      "active": "有効",
+      "disabled": "無効"
+    },
+    "runtimeStates": {
+      "created": "作成済み",
+      "starting": "起動中",
+      "running": "実行中",
+      "stopped": "停止",
+      "failed": "失敗"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "オーナーは再起動できる",
+      "admin_only": "管理者によりロック"
+    },
+    "errors": {
+      "actionFailed": "アクションが失敗しました",
+      "createFailed": "作成に失敗しました",
+      "updateFailed": "アップデートに失敗しました",
+      "saveFailed": "保存に失敗しました",
+      "pullTimedOut": "イメージのプルを待機中にタイムアウトしました"
+    },
+    "messages": {
+      "runtimeCreated": "ランタイムが作成されました",
+      "accountCreated": "アカウントが作成されました",
+      "credentialStored": "保存された認証情報",
+      "settingsSaved": "ハブ設定が保存されました",
+      "imagePulled": "Docker イメージのプルが完了しました"
+    },
+    "validation": {
+      "required": "この項目は必須です",
+      "runtimeIdInvalid": "文字または数字で始まる 1 ～ 64 の文字、数字、ドット、アンダースコア、またはハイフンを使用します",
+      "passwordMin": "パスワードには少なくとも 8 文字を含める必要があります",
+      "credentialNameInvalid": "OPENAI_API_KEY などの大文字の環境変数名を使用します。"
+    },
+    "runtimes": {
+      "eyebrow": "Hub 管理",
+      "title": "ランタイムの概要",
+      "description": "ユーザーごとに専用のランタイムがあり、ファイルとキーは互いに分離されています。",
+      "newRuntime": "ランタイムを作成",
+      "managed": "管理対象ランタイム",
+      "localBoundaries": "ローカルプロセス境界",
+      "runningNow": "現在実行中",
+      "needsAttention": "{{count}} ランタイムには注意が必要です",
+      "healthy": "すべてのランタイムは正常です",
+      "isolationPolicy": "隔離ポリシー",
+      "available": "利用可能",
+      "unavailable": "利用不可",
+      "failClosed": "異常時は起動を拒否",
+      "noFallback": "サンドボックスなしでは実行しない",
+      "executionBlocked": "ランタイムの実行がブロックされています",
+      "isolationTitle": "異常時に起動を拒否するローカル分離",
+      "isolationDescription": "ランタイム プロセス ツリー全体がサンドボックス化されます。ネイティブ分離プローブが失敗した場合、QwenPaw はその開始を拒否します。",
+      "unavailableTitle": "セキュアなランタイム バックエンドが利用できない",
+      "unavailableDescription": "{{provisioner}} は利用できません: {{reason}} バックエンドのインストール、実行状態、システム設定を確認してから、QwenPaw Hub を再起動してください。",
+      "unavailableUserDescription": "ランタイムバックエンドは一時的に利用できません。管理者に連絡してください。",
+      "preflightFailed": "セキュリティチェックに失敗しました。",
+      "localEndpoint": "ローカルエンドポイント · {{endpoint}}",
+      "provisioner": "実行タイプ",
+      "localExecution": "ローカル分離",
+      "dockerExecution": "Dockerコンテナ",
+      "security": "安全",
+      "tenant": "テナント",
+      "removeTitle": "{{id}} を削除しますか?",
+      "removeDescription": "登録は削除されます。実行時データは保持されます。",
+      "disableTitle": "{{id}}を無効にしますか?",
+      "disableDescription": "プロセスは停止し、管理者が有効にするまで所有者は再起動できません。",
+      "rebuildTitle": "現在のイメージで {{id}} を再構築しますか?",
+      "rebuildDescription": "コンテナはシステム設定のイメージを使用して置き換えられます。永続的なワークスペース、シークレット、バックアップは保持されます。",
+      "emptyTitle": "ランタイムはまだありません",
+      "emptyDescription": "最初の分離されたローカル QwenPaw ランタイムを作成します。"
+    },
+    "users": {
+      "eyebrow": "アイデンティティとアクセス",
+      "title": "ユーザーアクセス",
+      "description": "ローカル アカウントを作成し、管理アクセスを割り当て、セッションを 1 か所から取り消します。",
+      "addAccount": "アカウントを追加",
+      "publicRegistration": "公的登録",
+      "publicRegistrationDescription": "無効にすると、管理者のみがアカウントを作成できます。",
+      "currentAccountProtected": "現在のアカウントは保護されています",
+      "empty": "これらのフィルターに一致するユーザーはいません"
+    },
+    "credentials": {
+      "eyebrow": "テナント限定のコンテナー",
+      "title": "認証情報",
+      "description": "プロバイダー キーを明示的なテナントまたはランタイム スコープ内に保存します。シークレット値は暗号化され、API によって返されることはありません。",
+      "storeCredential": "認証情報を保存",
+      "updated": "{{date}} に更新",
+      "deleteTitle": "{{name}}を削除しますか？",
+      "deleteDescription": "この資格情報を使用するランタイムは動作を停止する可能性があります。",
+      "emptyTitle": "金庫は空です",
+      "emptyDescription": "テナントまたはランタイムスコープの API キーを保存します。",
+      "encrypted": "保存時は暗号化されます。平文は読み取れません"
+    },
+    "overview": {
+      "eyebrow": "オペレーションコックピット",
+      "title": "ハブ運用の概要",
+      "description": "実際の実行時状態、ホスト リソース、監査イベントを使用してハブの健全性を理解します。",
+      "availability": "ランタイムの可用性",
+      "availabilityDetail": "{{total}} ランタイム中 {{running}} は現在オンラインです",
+      "totalRuntimes": "ランタイム合計",
+      "failedCount": "{{count}} ランタイムには注意が必要です",
+      "totalUsers": "ハブユーザー",
+      "managedLocally": "ローカル ID とアクセス管理",
+      "hostResources": "ホストリソース",
+      "liveSnapshot": "現在のライブスナップショット",
+      "memory": "メモリ",
+      "dataDisk": "データディスク",
+      "recentActivity": "最近の活動",
+      "auditBacked": "永続的な監査ログによる裏付け",
+      "systemHealthy": "すべてのシステムが稼働中",
+      "systemDegraded": "システムが劣化しました",
+      "localIsolation": "ローカルで分離された実行"
+    },
+    "table": {
+      "searchRuntimes": "ランタイム、所有者、またはエンドポイントを検索する",
+      "searchUsers": "ユーザー名またはユーザー ID を検索する",
+      "searchCredentials": "認証情報の名前またはスコープを検索する",
+      "searchAudit": "アクターまたはリソースを検索する",
+      "allStates": "すべての状態",
+      "allOwners": "すべての所有者",
+      "allExecutions": "すべての実行タイプ",
+      "allRoles": "すべての役割",
+      "allUserStates": "すべてのユーザー状態",
+      "allScopes": "すべてのスコープ",
+      "allActions": "すべてのアクション",
+      "runtime": "ランタイム",
+      "status": "状態",
+      "owner": "所有者",
+      "endpoint": "エンドポイント",
+      "execution": "実行",
+      "updated": "更新日時",
+      "user": "ユーザー",
+      "role": "役割",
+      "created": "作成日時",
+      "credential": "認証情報",
+      "scope": "スコープ",
+      "event": "イベント",
+      "actor": "操作者",
+      "resource": "リソース",
+      "result": "結果",
+      "time": "時間",
+      "total": "{{total}} 件"
+    },
+    "audit": {
+      "eyebrow": "セキュリティとガバナンス",
+      "title": "監査ログ",
+      "description": "各ハブ管理アクションを実行した人、その目標、結果、時間を確認します。機密値は決して監査されません。",
+      "empty": "管理イベントはまだありません"
+    },
+    "settings": {
+      "eyebrow": "プラットフォーム構成",
+      "title": "システム設定",
+      "description": "1 つの監査済みの信頼できる情報源から完全なハブ構成を管理します。変更はすぐに有効になり、再起動しても維持されます。",
+      "save": "設定を保存する",
+      "meta": "リビジョン {{revision}} · 更新された {{date}}",
+      "tabs": {
+        "access": "アクセスセキュリティ",
+        "runtime": "ランタイム"
+      },
+      "access": {
+        "title": "アクセスと登録",
+        "description": "ブラウザーから到達可能なハブ アドレスとパブリック アカウント ポリシーを構成します。",
+        "publicBaseUrl": "パブリックベースURL",
+        "publicBaseUrlHint": "OAuth コールバックに使用されます。ループバックのみの展開の場合のみ空のままにしてください。",
+        "registration": "公的登録",
+        "registrationHint": "無効にすると、管理者のみがアカウントを作成できます。",
+        "defaultRole": "デフォルトの登録ロール",
+        "defaultRoleHint": "セキュリティのために、自己登録アカウントは常に一般ユーザーになります。"
+      },
+      "security": {
+        "title": "認証保護",
+        "description": "ログインと登録の不正行為を制限し、アドレスやネットワークをブロックします。",
+        "ipBlacklist": "IPブラックリスト",
+        "ipBlacklistHint": "IPv4、IPv6、CIDRをサポートします。各値の後に Enter キーを押します。",
+        "trustedProxyIps": "信頼できるリバース プロキシ",
+        "trustedProxyIpsHint": "X-Forwarded-For は、これらのアドレスによって送信された場合にのみ信頼されます。",
+        "loginRateLimit": "ログイン失敗率制限",
+        "loginRateLimitHint": "1 つのアドレスからの繰り返し失敗したサインイン試行を一時的にブロックします。",
+        "registrationRateLimit": "登録レート制限",
+        "registrationRateLimitHint": "1 つのアドレスからの新しいアカウントの大量作成を制限します。",
+        "maxAttempts": "最大試行回数",
+        "windowSeconds": "ウィンドウ (秒)",
+        "blockSeconds": "ブロック期間 (秒)"
+      },
+      "runtime": {
+        "title": "ランタイムポリシー",
+        "description": "ランタイム バックエンドを選択します。既存のランタイムは、次回の再起動時に切り替わります。",
+        "provisioner": "ランタイムバックエンド",
+        "localBackend": "ローカルプロセス",
+        "localBackendHint": "分離されたプロセスをこのホスト上で直接実行します。",
+        "dockerBackend": "Dockerコンテナ",
+        "dockerBackendHint": "管理されたコンテナーで各アカウントを実行します。",
+        "backendUnavailable": "このホストでは利用できません",
+        "localIsolationHint": "ローカル モードはホスト プロセスを使用し、Docker イメージ設定を使用しません。",
+        "dockerIsolationHint": "Docker モードでは、以下のイメージとリソースのポリシーがすべてのアカウントに適用されます。"
+      },
+      "docker": {
+        "title": "Dockerポリシー",
+        "description": "イメージ、プル動作、コンテナーごとのリソース制限を一元管理します。ユーザーはこれらの設定を上書きできません。",
+        "unavailable": "Docker エンジンは使用できません",
+        "source": "画像ソース",
+        "dockerHub": "公式Dockerハブ",
+        "aliyunAcr": "公式 Alibaba Cloud レジストリ",
+        "custom": "カスタムイメージ",
+        "customHint": "ポリシーで許可されている画像参照を入力します。",
+        "customRegistry": "カスタムレジストリまたはイメージ参照",
+        "localHost": "ローカル画像",
+        "localHostHint": "このホストにすでに存在するイメージ タグを使用します。",
+        "noLocalImages": "タグ付けされたローカル画像が見つかりません",
+        "image": "画像とタグ",
+        "selectLocalImage": "ローカルイメージタグを選択してください",
+        "selectedImage": "効果的なイメージ",
+        "repository": "リポジトリ",
+        "localStatus": "現地の状況",
+        "downloaded": "ダウンロード済み",
+        "notDownloaded": "ダウンロードされていません",
+        "pullPolicy": "自動プルポリシー",
+        "ifNotPresent": "ローカルで欠落した場合にプルする",
+        "always": "最初の作成前にプルする",
+        "never": "ローカル画像のみを使用する",
+        "pullImage": "今すぐ画像をプルします",
+        "localImages": "{{count}} ローカル画像参照",
+        "resources": "コンテナリソースの制限",
+        "cpuLimit": "CPUコア",
+        "memoryLimit": "メモリ(MB)",
+        "pidsLimit": "最大プロセス数",
+        "shmSize": "共有メモリ (MB)"
+      },
+      "quotas": {
+        "title": "グローバルなランタイム容量",
+        "description": "各テナントはランタイムを 1 つだけ所有します。これにより、ハブ全体での同時実行時間が制限されます。",
+        "maxRunningRuntimes": "最大実行ランタイム",
+        "unlimitedHint": "空とは無制限を意味します。"
+      }
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "作成されたランタイム",
+        "start": "ランタイムを開始しました",
+        "stop": "停止したランタイム",
+        "disable": "無効化されたランタイム",
+        "rebuild": "再構築されたランタイム",
+        "delete": "削除されたランタイム"
+      },
+      "image": {
+        "pull": "Docker イメージをプルしました"
+      },
+      "user": {
+        "create": "作成されたユーザー",
+        "update": "更新されたユーザー"
+      },
+      "credential": {
+        "store": "保存された資格情報",
+        "delete": "削除された認証情報"
+      },
+      "settings": {
+        "update": "更新されたハブ設定"
+      },
+      "auth": {
+        "register": "登録済みの Hub ユーザー"
+      }
+    },
+    "auditOutcomes": {
+      "success": "成功",
+      "failure": "失敗"
+    },
+    "runtimeForm": {
+      "title": "ランタイムの作成",
+      "hint": "ランタイムはネイティブのローカル サンドボックス内で開始されます。そのファイル、シークレット、プロセス ツリーは他のユーザーから分離されたままになります。",
+      "runtimeId": "ランタイムID",
+      "startImmediately": "すぐに開始",
+      "submit": "ランタイムの作成"
+    },
+    "userForm": {
+      "title": "アカウントを追加",
+      "hint": "8 文字以上の一時パスワードを使用してください。ユーザーは、個人テナントが所有するランタイムにのみアクセスできます。",
+      "username": "ユーザー名",
+      "temporaryPassword": "仮パスワード",
+      "role": "役割",
+      "submit": "アカウントを作成する"
+    },
+    "credentialForm": {
+      "title": "認証情報を保存",
+      "hint": "テナント スコープはすべてのランタイムに適用されます。ランタイム スコープは、選択した 1 つのプロセスのプライベート オーバーライドです。",
+      "scope": "範囲",
+      "allRuntimes": "私のすべてのランタイム",
+      "environmentName": "環境名",
+      "secretValue": "秘密の値",
+      "submit": "暗号化して保存する"
+    }
+  },
   "login": {
     "title": "QwenPaw にログイン",
     "registerTitle": "アカウント作成",
@@ -2934,7 +3256,17 @@
     "wrongPassword": "現在のパスワードが正しくありません",
     "nothingToUpdate": "新しいユーザー名またはパスワードを入力してください",
     "passwordEmpty": "パスワードを空白にすることはできません",
-    "usernameEmpty": "ユーザー名を空白にすることはできません"
+    "usernameEmpty": "ユーザー名を空白にすることはできません",
+    "username": "ユーザー名",
+    "passwordRequired": "新しいパスワードを入力してください",
+    "hubPasswordPlaceholder": "8文字以上入力してください",
+    "runtimeTitle": "個人ランタイム",
+    "runtimeDescription": "ワークスペースが利用できない場合に再起動します。実行中のタスクは中断されますが、保存済みデータは保持されます。",
+    "runtimeRestartConfirmTitle": "ランタイムを再起動しますか？",
+    "runtimeRestartConfirmDescription": "再起動中は実行中のタスクが中断されます。",
+    "runtimeRestart": "ランタイムを再起動",
+    "runtimeRestartSuccess": "ランタイムを再起動しました",
+    "runtimeRestartFailed": "ランタイムの再起動に失敗しました"
   },
   "voiceTranscription": {
     "title": "音声文字起こし",
