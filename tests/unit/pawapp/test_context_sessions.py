@@ -16,7 +16,7 @@ class _WorkspaceRegistry:
         self.workspace = workspace
 
     async def get_agent(self, agent_id: str):
-        assert agent_id == "datapaw"
+        assert agent_id == "qwenpaw-data"
         return self.workspace
 
 
@@ -26,23 +26,23 @@ async def test_pawapp_dialogues_are_catalogued_and_scoped(tmp_path) -> None:
         repo=JsonChatRepository(tmp_path / "chats.json"),
     )
     legacy = ChatSpec(
-        session_id="pawapp:datapaw",
+        session_id="pawapp:qwenpaw-data",
         user_id="default",
         channel="console",
         name="Old transcript",
     )
     foreign = ChatSpec(
-        session_id="pawapp:datapaw:dialogue:foreign",
+        session_id="pawapp:qwenpaw-data:dialogue:foreign",
         user_id="default",
         channel="console",
         name="Another app's record",
-        meta={"pawapp": {"app_id": "another", "agent_id": "datapaw"}},
+        meta={"pawapp": {"app_id": "another", "agent_id": "qwenpaw-data"}},
     )
     await manager.create_chat(legacy)
     await manager.create_chat(foreign)
     context = PawAppContext(
-        app_id="datapaw",
-        agent_id="datapaw",
+        app_id="qwenpaw-data",
+        agent_id="qwenpaw-data",
         channel="console",
         user_id="default",
         _workspace_registry=_WorkspaceRegistry(
@@ -65,16 +65,16 @@ async def test_pawapp_dialogues_are_catalogued_and_scoped(tmp_path) -> None:
     adopted = await manager.get_chat(legacy.id)
     assert adopted is not None
     assert adopted.meta["pawapp"] == {
-        "app_id": "datapaw",
-        "agent_id": "datapaw",
+        "app_id": "qwenpaw-data",
+        "agent_id": "qwenpaw-data",
     }
-    assert created["session_id"].startswith("pawapp:datapaw:dialogue:")
+    assert created["session_id"].startswith("pawapp:qwenpaw-data:dialogue:")
     assert renamed is not None and renamed["name"] == "March GAAP"
     assert pinned is not None and pinned["pinned"] is True
     assert unpinned is not None and unpinned["pinned"] is False
     assert archived is not None and archived["archived"] is True
-    assert context.is_app_session_id("pawapp:datapaw")
-    assert context.is_app_session_id("pawapp:datapaw:dialogue:1")
+    assert context.is_app_session_id("pawapp:qwenpaw-data")
+    assert context.is_app_session_id("pawapp:qwenpaw-data:dialogue:1")
     assert not context.is_app_session_id("pawapp:another:dialogue:1")
 
 
@@ -86,16 +86,16 @@ async def test_pawapp_dialogue_pin_and_delete_respect_ownership(
         repo=JsonChatRepository(tmp_path / "chats.json"),
     )
     foreign = ChatSpec(
-        session_id="pawapp:datapaw:dialogue:foreign",
+        session_id="pawapp:qwenpaw-data:dialogue:foreign",
         user_id="default",
         channel="console",
         name="Another app's record",
-        meta={"pawapp": {"app_id": "another", "agent_id": "datapaw"}},
+        meta={"pawapp": {"app_id": "another", "agent_id": "qwenpaw-data"}},
     )
     await manager.create_chat(foreign)
     context = PawAppContext(
-        app_id="datapaw",
-        agent_id="datapaw",
+        app_id="qwenpaw-data",
+        agent_id="qwenpaw-data",
         channel="console",
         user_id="default",
         _workspace_registry=_WorkspaceRegistry(
