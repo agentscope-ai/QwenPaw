@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the OpenCode built-in provider."""
 
-from qwenpaw.providers.provider_manager import (
+from qwenpaw.providers.provider_catalog import (
     KILO_MODELS,
+)
+from qwenpaw.providers.provider_manager import (
     OPENCODE_MODELS,
     PROVIDER_OPENCODE,
     ProviderManager,
