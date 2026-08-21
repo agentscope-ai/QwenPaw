@@ -151,6 +151,64 @@ describe("getMediaInfo", () => {
     expect(media?.name).toBe("file1.txt");
   });
 
+  it("uses the DataBlock `name` for a non-ASCII filename", () => {
+    // agentscope types URLSource.url as a pydantic AnyUrl, so the URL always
+    // arrives percent-encoded while the readable name rides along on `name`.
+    const media = getMediaInfo(
+      baseToolCall({
+        params: { file_path: "/media/QA测试_示例.md" },
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            source: {
+              type: "url",
+              url: "file:///media/QA%E6%B5%8B%E8%AF%95_%E7%A4%BA%E4%BE%8B.md",
+              media_type: "text/markdown",
+            },
+            name: "QA测试_示例.md",
+          },
+          { type: "text", text: "File sent successfully." },
+        ]),
+      }),
+    );
+    expect(media?.name).toBe("QA测试_示例.md");
+  });
+
+  it("decodes a percent-encoded URL when no block name is present", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            source: {
+              type: "url",
+              url: "file:///media/QA%E6%B5%8B%E8%AF%95_%E7%A4%BA%E4%BE%8B.md",
+              media_type: "text/markdown",
+            },
+          },
+        ]),
+      }),
+    );
+    expect(media?.name).toBe("QA测试_示例.md");
+  });
+
+  it("keeps a malformed percent sequence verbatim instead of throwing", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            source: { type: "url", url: "file:///media/100%_done.md" },
+          },
+        ]),
+      }),
+    );
+    expect(media?.name).toBe("100%_done.md");
+  });
+
   it("only auto-expands multimedia file previews", () => {
     expect(
       hasMultimediaPreview(

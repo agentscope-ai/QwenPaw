@@ -5,6 +5,7 @@
 
 import type { TFunction } from "i18next";
 import type { ToolCallContent } from "./types";
+import { mediaFilenameFromUrl } from "../../MediaDownload/utils";
 import { chatApi } from "@/api/modules/chat";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,17 @@ export function toDisplayUrl(url: string): string {
 export function shortFileName(filePath: string): string {
   const parts = filePath.replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || filePath;
+}
+
+/**
+ * Last path segment of a URL, percent-decoded for display.
+ *
+ * Non-ASCII names reach the frontend percent-encoded because agentscope
+ * types `URLSource.url` as a pydantic `AnyUrl`, which encodes them on
+ * serialization. Returns "" when no segment can be derived (data:/blob:).
+ */
+export function fileNameFromUrl(url: string): string {
+  return mediaFilenameFromUrl(url, "");
 }
 
 /** Count lines in a string */
@@ -136,6 +148,17 @@ function classifyMediaType(ext: string): MediaType {
 }
 
 /**
+ * Display filename carried by a content block. agentscope 2.x `DataBlock`
+ * stores it as `name`, MCP-style blocks as `filename` / `file_name`.
+ */
+function blockFilename(b: Record<string, unknown>): string | undefined {
+  for (const value of [b.filename, b.file_name, b.name]) {
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
+}
+
+/**
  * Extract a URL and filename from a result that uses the MCP content-block
  * array format, e.g.:
  * `[{"type":"file","source":{"type":"url","url":"file:///..."},"filename":"a.txt"},
@@ -170,25 +193,16 @@ function extractUrlFromResultBlocks(
     if (b.source && typeof b.source === "object") {
       const src = b.source as Record<string, unknown>;
       if (typeof src.url === "string" && src.url) {
-        return {
-          url: src.url,
-          filename: typeof b.filename === "string" ? b.filename : undefined,
-        };
+        return { url: src.url, filename: blockFilename(b) };
       }
     }
 
     // Flat blocks: { url: "..." } or { path: "..." }
     if (typeof b.url === "string" && b.url) {
-      return {
-        url: b.url,
-        filename: typeof b.filename === "string" ? b.filename : undefined,
-      };
+      return { url: b.url, filename: blockFilename(b) };
     }
     if (typeof b.path === "string" && b.path) {
-      return {
-        url: b.path,
-        filename: typeof b.filename === "string" ? b.filename : undefined,
-      };
+      return { url: b.path, filename: blockFilename(b) };
     }
   }
 
@@ -243,7 +257,7 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
 
   const name =
     fromResult?.filename ||
-    rawUrl.split("/").pop() ||
+    fileNameFromUrl(rawUrl) ||
     paramPath.split("/").pop() ||
     "file";
   const ext = getFileExtFromPath(name);
