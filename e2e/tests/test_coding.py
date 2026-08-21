@@ -245,11 +245,10 @@ class TestChatInCodingMode:
             )
 
             log_test_step("3. Send a question that mentions README.md")
-            coding_page.page.goto(f"{config.base_url}/chat")
-            coding_page.page.wait_for_load_state("domcontentloaded")
+            coding_page.open_chat()
             coding_page.page.wait_for_timeout(3000)
             chat_input = coding_page.page.locator(
-                '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
+                '.qwenpaw-sender textarea:visible, .qwenpaw-sender [role="textbox"]:visible'
             ).first
             expect(chat_input).to_be_visible(timeout=coding_page.timeout)
             chat_input.fill(
@@ -334,7 +333,7 @@ class TestFileTreeOpenTab:
                 f"4. Click '{seed_filename}' in the file tree"
             )
             tree_node = coding_page.page.locator(
-                f'div[role="button"]:has(span:text-is("{seed_filename}"))'
+                f'button[class*="treeRow"]:has(span:text-is("{seed_filename}"))'
             ).first
             expect(tree_node).to_be_visible(timeout=15000)
             tree_node.click()
