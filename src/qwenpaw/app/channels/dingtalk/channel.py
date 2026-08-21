@@ -152,6 +152,7 @@ class DingTalkChannel(BaseChannel):
         access_control_dm: bool = False,
         access_control_group: bool = False,
         endpoint: str = "",
+        share_session_in_group: bool = False,
     ):
         # Streaming only makes sense for card mode (AI Card streaming updates).
         # For markdown mode, force streaming_enabled=False so base class
@@ -194,6 +195,7 @@ class DingTalkChannel(BaseChannel):
         self.robot_code = robot_code or self.client_id
         self.card_auto_layout = card_auto_layout
         self.at_sender_on_reply = at_sender_on_reply
+        self.share_session_in_group = share_session_in_group
         self.endpoint = (endpoint or "").strip().rstrip("/")
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
@@ -293,6 +295,9 @@ class DingTalkChannel(BaseChannel):
             )
             == "1",
             endpoint=os.getenv("DINGTALK_ENDPOINT", ""),
+            share_session_in_group=(
+                os.getenv("DINGTALK_SHARE_SESSION_IN_GROUP", "0") == "1"
+            ),
         )
 
     @classmethod
@@ -349,6 +354,9 @@ class DingTalkChannel(BaseChannel):
                 getattr(config, "access_control_group", False),
             ),
             endpoint=getattr(config, "endpoint", ""),
+            share_session_in_group=bool(
+                getattr(config, "share_session_in_group", False),
+            ),
         )
 
     # ---------------------------
@@ -373,9 +381,14 @@ class DingTalkChannel(BaseChannel):
         Appends sender_id to the base session key so that messages
         from different users whose conversation_id share the same
         suffix are routed to separate queues and never merged.
+        Skipped for shared group sessions so that one chat maps to
+        one queue and turns stay serialized.
         """
         base_key = super().get_debounce_key(payload)
         if isinstance(payload, dict):
+            meta = payload.get("meta") or {}
+            if meta.get("is_group") and self.share_session_in_group:
+                return base_key
             sender_id = payload.get("sender_id") or ""
             if sender_id:
                 return f"{base_key}:{sender_id}"
@@ -394,9 +407,16 @@ class DingTalkChannel(BaseChannel):
         if payload.get("session_webhook"):
             meta["session_webhook"] = payload["session_webhook"]
         session_id = self.resolve_session_id(sender_id, meta)
+        # Shared id must not contain "_": the webhook fallback key
+        # splits "dingtalk:sw:<user_id>_<session_id>" on the last one.
+        user_id = (
+            "group"
+            if (meta.get("is_group") and self.share_session_in_group)
+            else sender_id
+        )
         request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
-            sender_id=sender_id,
+            sender_id=user_id,
             session_id=session_id,
             content_parts=content_parts,
             channel_meta=meta,

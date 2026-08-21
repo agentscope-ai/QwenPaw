@@ -100,6 +100,30 @@ def dingtalk_channel(
 
 
 @pytest.fixture
+def dingtalk_channel_shared_group(
+    mock_process_handler,
+    temp_media_dir,
+) -> Generator:
+    """Create a DingTalkChannel sharing one session per group."""
+    from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+
+    channel = DingTalkChannel(
+        process=mock_process_handler,
+        enabled=True,
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        bot_prefix="[TestBot] ",
+        media_dir=str(temp_media_dir),
+        share_session_in_group=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
+    )
+    yield channel
+
+
+@pytest.fixture
 def dingtalk_channel_with_workspace(
     mock_process_handler,
     temp_workspace_dir,
@@ -954,6 +978,140 @@ class TestDingTalkResolveSession:
         result = dingtalk_channel._route_from_handle("")
 
         assert result == {}
+
+
+# =============================================================================
+# P2: Group session sharing (share_session_in_group)
+# =============================================================================
+
+
+class TestDingTalkShareSessionInGroup:
+    """Tests for per-user vs shared context in group chats."""
+
+    @staticmethod
+    def _group_payload() -> dict:
+        return {
+            "channel_id": "dingtalk",
+            "sender_id": "Alice#1234",
+            "acl_sender_id": "staff_alice",
+            "content_parts": [],
+            "meta": {
+                "conversation_id": "cidQWERTY7890XYZ",
+                "conversation_type": "group",
+                "is_group": True,
+            },
+        }
+
+    @staticmethod
+    def _dm_payload() -> dict:
+        return {
+            "channel_id": "dingtalk",
+            "sender_id": "Alice#1234",
+            "acl_sender_id": "staff_alice",
+            "content_parts": [],
+            "meta": {
+                "conversation_id": "cidDM0987654321",
+                "conversation_type": "dm",
+                "is_group": False,
+            },
+        }
+
+    def test_default_is_disabled(self, dingtalk_channel):
+        """Group members stay isolated unless sharing is enabled."""
+        assert dingtalk_channel.share_session_in_group is False
+
+    def test_group_isolated_keeps_sender_as_user_id(self, dingtalk_channel):
+        """Isolated mode keeps per-member user_id (own context)."""
+        request = dingtalk_channel.build_agent_request_from_native(
+            self._group_payload(),
+        )
+
+        assert request.user_id == "Alice#1234"
+        assert request.session_id == "Y7890XYZ"
+
+    def test_group_shared_collapses_user_id(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Shared mode collapses user_id so members share one context."""
+        channel = dingtalk_channel_shared_group
+        request = channel.build_agent_request_from_native(
+            self._group_payload(),
+        )
+
+        assert request.user_id == "group"
+        assert request.session_id == "Y7890XYZ"
+
+    def test_shared_user_id_has_no_underscore(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Shared user_id must stay splittable in the webhook key."""
+        channel = dingtalk_channel_shared_group
+        request = channel.build_agent_request_from_native(
+            self._group_payload(),
+        )
+        to_handle = channel.to_handle_from_target(
+            user_id=request.user_id,
+            session_id=request.session_id,
+        )
+
+        assert to_handle == "dingtalk:sw:group_Y7890XYZ"
+        fallback = channel._suffix_only_webhook_key(to_handle)
+        assert fallback == "dingtalk:sw:Y7890XYZ"
+
+    def test_dm_unaffected_by_sharing(self, dingtalk_channel_shared_group):
+        """Direct messages keep their own user_id when sharing is on."""
+        channel = dingtalk_channel_shared_group
+        request = channel.build_agent_request_from_native(self._dm_payload())
+
+        assert request.user_id == "Alice#1234"
+
+    def test_debounce_key_isolated_appends_sender(self, dingtalk_channel):
+        """Isolated mode routes each member to its own queue."""
+        key = dingtalk_channel.get_debounce_key(self._group_payload())
+
+        assert key == "Y7890XYZ:Alice#1234"
+
+    def test_debounce_key_shared_drops_sender(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Shared mode routes the whole group to one queue."""
+        key = dingtalk_channel_shared_group.get_debounce_key(
+            self._group_payload(),
+        )
+
+        assert key == "Y7890XYZ"
+
+    def test_debounce_key_shared_dm_keeps_sender(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """DM queues keep sender isolation when sharing is on."""
+        key = dingtalk_channel_shared_group.get_debounce_key(
+            self._dm_payload(),
+        )
+
+        assert key == "87654321:Alice#1234"
+
+    def test_from_config_passes_flag(self, mock_process_handler):
+        """from_config should forward share_session_in_group."""
+        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.config.config import DingTalkConfig
+
+        config = DingTalkConfig(
+            enabled=True,
+            client_id="cid",
+            client_secret="secret",
+            share_session_in_group=True,
+        )
+        channel = DingTalkChannel.from_config(
+            process=mock_process_handler,
+            config=config,
+        )
+
+        assert channel.share_session_in_group is True
 
 
 # =============================================================================
