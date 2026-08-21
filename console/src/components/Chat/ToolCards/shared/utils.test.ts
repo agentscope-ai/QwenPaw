@@ -111,6 +111,15 @@ describe("getMediaInfo", () => {
     ...overrides,
   });
 
+  const dataBlockResult = (url: string, name?: string): string =>
+    JSON.stringify([
+      {
+        type: "data",
+        source: { type: "url", url, media_type: "text/markdown" },
+        ...(name ? { name } : {}),
+      },
+    ]);
+
   it("does not fall back to a relative param path (backend cannot preview it)", () => {
     const media = getMediaInfo(
       baseToolCall({ params: { file_path: "file1.txt" } }),
@@ -149,6 +158,58 @@ describe("getMediaInfo", () => {
     );
     expect(media?.url).toBe("/api/files/preview/abs/path/file1.txt");
     expect(media?.name).toBe("file1.txt");
+  });
+
+  it("prefers a DataBlock name over its percent-encoded URL basename", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: dataBlockResult(
+          "file:///abs/path/QA%E6%B5%8B%E8%AF%95.md",
+          "QA测试.md",
+        ),
+      }),
+    );
+
+    expect(media).toEqual({
+      url: "/api/files/preview/abs/path/QA%E6%B5%8B%E8%AF%95.md",
+      name: "QA测试.md",
+      type: "file",
+    });
+  });
+
+  it("decodes a percent-encoded URL basename when no name is provided", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: dataBlockResult("file:///abs/path/QA%E6%B5%8B%E8%AF%95.md"),
+      }),
+    );
+
+    expect(media?.name).toBe("QA测试.md");
+  });
+
+  it("preserves a malformed URL basename instead of throwing", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: dataBlockResult("file:///abs/path/report%ZZ.md"),
+      }),
+    );
+
+    expect(media?.name).toBe("report%ZZ.md");
+  });
+
+  it("falls back to the param filename when the result URL has no basename", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        params: { file_path: "/abs/path/report.md" },
+        status: "done",
+        result: dataBlockResult("file:///abs/path/"),
+      }),
+    );
+
+    expect(media?.name).toBe("report.md");
   });
 
   it("only auto-expands multimedia file previews", () => {

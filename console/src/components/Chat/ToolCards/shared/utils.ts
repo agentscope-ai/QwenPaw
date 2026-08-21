@@ -30,6 +30,16 @@ export function shortFileName(filePath: string): string {
   return parts[parts.length - 1] || filePath;
 }
 
+function filenameFromUrl(url: string): string {
+  const path = url.split(/[?#]/, 1)[0];
+  const filename = path.replace(/\\/g, "/").split("/").pop() || "";
+  try {
+    return decodeURIComponent(filename);
+  } catch {
+    return filename;
+  }
+}
+
 /** Count lines in a string */
 export function countLines(text: unknown): number {
   if (typeof text !== "string" || !text) return 0;
@@ -165,6 +175,9 @@ function extractUrlFromResultBlocks(
   for (const block of arr) {
     if (!block || typeof block !== "object") continue;
     const b = block as Record<string, unknown>;
+    const filename = [b.filename, b.file_name, b.name].find(
+      (value): value is string => typeof value === "string" && Boolean(value),
+    );
 
     // Content blocks with source.url (file / image / video / audio types)
     if (b.source && typeof b.source === "object") {
@@ -172,7 +185,7 @@ function extractUrlFromResultBlocks(
       if (typeof src.url === "string" && src.url) {
         return {
           url: src.url,
-          filename: typeof b.filename === "string" ? b.filename : undefined,
+          filename,
         };
       }
     }
@@ -181,13 +194,13 @@ function extractUrlFromResultBlocks(
     if (typeof b.url === "string" && b.url) {
       return {
         url: b.url,
-        filename: typeof b.filename === "string" ? b.filename : undefined,
+        filename,
       };
     }
     if (typeof b.path === "string" && b.path) {
       return {
         url: b.path,
-        filename: typeof b.filename === "string" ? b.filename : undefined,
+        filename,
       };
     }
   }
@@ -243,7 +256,7 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
 
   const name =
     fromResult?.filename ||
-    rawUrl.split("/").pop() ||
+    filenameFromUrl(rawUrl) ||
     paramPath.split("/").pop() ||
     "file";
   const ext = getFileExtFromPath(name);
