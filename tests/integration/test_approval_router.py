@@ -58,7 +58,10 @@ def test_approval_pending_item_schema(app_server) -> None:
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
-    items = resp.json()
+    payload = resp.json()
+    assert isinstance(payload, dict)
+    items = payload.get("pending_approvals", [])
+    assert isinstance(items, list)
     for item in items:
         assert isinstance(item, dict)
         # Each approval should have at least an id
