@@ -6,26 +6,30 @@ allowing downstream APIs to access the correct agent context.
 """
 
 from fastapi import APIRouter, Request
-from starlette.middleware.base import (
-    BaseHTTPMiddleware,
-    RequestResponseEndpoint,
-)
-from starlette.responses import Response
 
 
-class AgentContextMiddleware(BaseHTTPMiddleware):
-    """Middleware to inject agentId into request.state."""
+class AgentContextMiddleware:
+    """Middleware to inject agentId into request.state.
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        """Extract agentId and root_session_id from path/headers."""
+    Implemented as a pure-ASGI middleware (not ``BaseHTTPMiddleware``)
+    so that streaming responses (SSE) are forwarded chunk-by-chunk
+    without buffering.  ``BaseHTTPMiddleware`` bridges the response
+    through an internal anyio memory stream which delays flushes and
+    breaks real-time SSE delivery.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+
         import logging
         from ..agent_context import set_current_agent_id
 
         logger = logging.getLogger(__name__)
+        request = Request(scope, receive)
         agent_id = None
 
         # Priority 1: Extract agentId from path: /api/agents/{agentId}/...
@@ -33,6 +37,9 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         if len(path_parts) >= 4 and path_parts[1] == "api":
             if path_parts[2] == "agents":
                 agent_id = path_parts[3]
+                # ``request.state`` is backed by ``scope["state"]``, so
+                # this value is visible to downstream code that builds
+                # its own ``Request`` from the same scope.
                 request.state.agent_id = agent_id
                 logger.debug(
                     f"AgentContextMiddleware: agent_id={agent_id} "
@@ -50,18 +57,18 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         # Extract X-Root-Session-Id header for cross-session approval routing
         root_session_id = request.headers.get("X-Root-Session-Id")
         if root_session_id:
-            # Inject into request.request_context for runner access
-            if not hasattr(request, "request_context"):
-                request.request_context = {}
-            request.request_context["root_session_id"] = root_session_id
+            # Store on request.state (not a custom Request attribute)
+            # so it survives into downstream code under pure ASGI.
+            if not hasattr(request.state, "request_context"):
+                request.state.request_context = {}
+            request.state.request_context["root_session_id"] = root_session_id
             logger.debug(
                 "AgentContextMiddleware: root_session_id=%s from "
                 "X-Root-Session-Id header",
                 root_session_id[:12],
             )
 
-        response = await call_next(request)
-        return response
+        return await self.app(scope, receive, send)
 
 
 def create_agent_scoped_router() -> APIRouter:

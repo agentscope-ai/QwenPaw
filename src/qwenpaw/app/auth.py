@@ -29,7 +29,6 @@ import time
 from typing import Optional
 
 from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..constant import SECRET_DIR, EnvVarLoader
 from ..security.secret_store import (
@@ -687,31 +686,51 @@ def _resolve_client_ip(request: Request) -> str:
 resolve_client_ip = _resolve_client_ip
 
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Middleware that checks Bearer token on protected routes."""
+class AuthMiddleware:
+    """Middleware that checks Bearer token on protected routes.
 
-    async def dispatch(self, request: Request, call_next):
+    Implemented as a pure-ASGI middleware (not ``BaseHTTPMiddleware``)
+    so that streaming responses (SSE) are forwarded chunk-by-chunk
+    without buffering.  ``BaseHTTPMiddleware`` bridges the response
+    through an internal anyio memory stream which delays flushes and
+    breaks real-time SSE delivery.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+
+        request = Request(scope, receive)
+
         if self._should_skip_auth(request):
-            return await call_next(request)
+            return await self.app(scope, receive, send)
 
         token = self._extract_token(request)
         if not token:
-            return Response(
+            response = Response(
                 content='{"detail":"Not authenticated"}',
                 status_code=401,
                 media_type="application/json",
             )
+            return await response(scope, receive, send)
 
         user = verify_token(token)
         if user is None:
-            return Response(
+            response = Response(
                 content='{"detail":"Invalid or expired token"}',
                 status_code=401,
                 media_type="application/json",
             )
+            return await response(scope, receive, send)
 
+        # ``request.state`` is backed by ``scope["state"]``, so this
+        # value is visible to downstream code that builds its own
+        # ``Request`` from the same scope.
         request.state.user = user
-        return await call_next(request)
+        return await self.app(scope, receive, send)
 
     @staticmethod
     def _should_skip_auth(  # pylint: disable=too-many-return-statements
