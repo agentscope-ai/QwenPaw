@@ -500,9 +500,63 @@ async def test_optional_cleanup_failure_aborts_workspace_start(
 
     assert not workspace._started
     assert close_attempts == 2
+    assert not workspace._service_manager._required_cleanup_services
     # The failed instance remains owned for cleanup, but the workspace never
     # becomes a successfully started candidate that can serve requests.
     assert workspace._service_manager.services["optional"] is service
+
+
+@pytest.mark.asyncio
+async def test_repeated_optional_cleanup_failure_keeps_workspace_retryable(
+    monkeypatch,
+    tmp_path,
+):
+    close_attempts = 0
+
+    class _PartiallyStartedService:
+        async def close(self) -> None:
+            nonlocal close_attempts
+            close_attempts += 1
+            raise RuntimeError("optional cleanup still failing")
+
+    service = _PartiallyStartedService()
+
+    async def failing_factory(_workspace, _service, publish):
+        publish(service)
+        raise RuntimeError("optional startup failed")
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    workspace._service_manager.register(
+        ServiceDescriptor(
+            name="optional",
+            post_init=failing_factory,
+            stop_method="close",
+            optional=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    with pytest.raises(RuntimeError, match="optional cleanup still failing"):
+        await workspace.start()
+
+    assert close_attempts == 2
+    assert workspace._start_attempted
+    assert workspace._service_manager.services["optional"] is service
+
+    with pytest.raises(RuntimeError, match="optional cleanup still failing"):
+        await workspace.stop(final=True, preserve_reused=True)
+
+    assert close_attempts == 3
+    assert workspace._start_attempted
+    assert workspace._service_manager.services["optional"] is service
+    assert workspace._service_manager._required_cleanup_services == {
+        "optional",
+    }
 
 
 @pytest.mark.asyncio

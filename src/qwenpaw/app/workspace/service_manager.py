@@ -100,6 +100,7 @@ class ServiceManager:
         self.services: Dict[str, Any] = {}
         self.descriptors: Dict[str, ServiceDescriptor] = {}
         self.reused_services: Set[str] = set()
+        self._required_cleanup_services: Set[str] = set()
 
     def register(self, descriptor: ServiceDescriptor) -> None:
         """Register a service descriptor.
@@ -307,6 +308,7 @@ class ServiceManager:
                     )
                     cleanup_succeeded = True
                 except Exception as cleanup_error:
+                    self._required_cleanup_services.add(name)
                     logger.warning(
                         "Failed to clean up optional service '%s'; "
                         "aborting workspace startup",
@@ -533,8 +535,9 @@ class ServiceManager:
                 the workspace that is serving requests.
 
         Reused services are skipped. Errors are logged while every service is
-        attempted; failures from ``require_clean_stop`` services are then
-        propagated so the workspace cannot commit a false stopped state.
+        attempted; failures from ``require_clean_stop`` services and services
+        whose startup cleanup already failed are then propagated so the
+        workspace cannot commit a false stopped state.
         """
         logger.debug(
             f"Stopping {len(self.services)} services "
@@ -567,7 +570,10 @@ class ServiceManager:
                     logger.warning(
                         f"Error stopping service '{desc.name}': {result}",
                     )
-                    if desc.require_clean_stop:
+                    if (
+                        desc.require_clean_stop
+                        or desc.name in self._required_cleanup_services
+                    ):
                         clean_stop_errors.append((desc.name, result))
 
         if clean_stop_errors:
@@ -623,6 +629,7 @@ class ServiceManager:
 
         service = self.services.get(name)
         if not service:
+            self._required_cleanup_services.discard(name)
             return
 
         try:
@@ -637,6 +644,7 @@ class ServiceManager:
                         f"Service '{name}' stopped "
                         f"for {self.workspace.agent_id}",
                     )
+            self._required_cleanup_services.discard(name)
         except Exception as e:
             logger.warning(
                 f"Error stopping service '{name}' "
