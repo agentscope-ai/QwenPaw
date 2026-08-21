@@ -1713,6 +1713,7 @@ def _terminal_tool_chunk(result: SessionResult) -> ToolChunk:
     tool_type="shell",
     target_param="session_id",
     policy_name="TerminalInput",
+    inherits_sandbox=True,
     ui_description="Write input to or poll a managed terminal",
     ui_icon="⌨️",
 )
