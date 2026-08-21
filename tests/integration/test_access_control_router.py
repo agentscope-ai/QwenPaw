@@ -24,7 +24,9 @@ def test_access_control_get(app_server) -> None:
 def test_access_control_update_invalid(app_server) -> None:
     """Test POST /api/access-control with invalid data."""
     response = app_server.api_request(
-        "POST", "/api/access-control/pending/approve", json={}
+        "POST",
+        "/api/access-control/pending/approve",
+        json={},
     )
     # Should handle gracefully
     assert response.status_code in [200, 400, 422]
@@ -48,7 +50,9 @@ def test_access_control_update_partial(app_server) -> None:
     """Test POST /api/access-control with partial update."""
     # Try to update with empty dict
     response = app_server.api_request(
-        "POST", "/api/access-control/pending/approve", json={}
+        "POST",
+        "/api/access-control/pending/approve",
+        json={},
     )
     assert response.status_code == 422
 

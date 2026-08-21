@@ -65,10 +65,14 @@ def test_coding_mode_toggle_idempotent(app_server) -> None:
     # Enable twice
     payload = {"enabled": True}
     response1 = app_server.api_request(
-        "POST", "/api/coding-mode", json=payload
+        "POST",
+        "/api/coding-mode",
+        json=payload,
     )
     response2 = app_server.api_request(
-        "POST", "/api/coding-mode", json=payload
+        "POST",
+        "/api/coding-mode",
+        json=payload,
     )
 
     assert response1.status_code == 200

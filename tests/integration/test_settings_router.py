@@ -25,7 +25,9 @@ def test_settings_update_invalid(app_server) -> None:
     """Test PUT /api/settings with invalid data."""
     payload = {"invalid_key": "value"}
     response = app_server.api_request(
-        "PUT", "/api/settings/language", json=payload
+        "PUT",
+        "/api/settings/language",
+        json=payload,
     )
     # Should handle gracefully
     assert response.status_code in [200, 400]

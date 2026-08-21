@@ -24,7 +24,9 @@ def test_skills_stream_status(app_server) -> None:
 def test_skills_stream_trigger_invalid(app_server) -> None:
     """Test POST /api/skills-stream with invalid data."""
     response = app_server.api_request(
-        "POST", "/api/skills/ai/optimize/stream", json={}
+        "POST",
+        "/api/skills/ai/optimize/stream",
+        json={},
     )
     # Should return 400 or 422 for missing required fields
     assert response.status_code in [400, 422]
@@ -47,7 +49,9 @@ def test_skills_stream_status_structure(app_server) -> None:
 def test_skills_stream_trigger_missing_params(app_server) -> None:
     """Test POST /api/skills-stream without required params."""
     response = app_server.api_request(
-        "POST", "/api/skills/ai/optimize/stream", json={}
+        "POST",
+        "/api/skills/ai/optimize/stream",
+        json={},
     )
     # Should return 400 or 422
     assert response.status_code in [400, 422]

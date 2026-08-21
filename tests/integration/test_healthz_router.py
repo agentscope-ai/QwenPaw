@@ -22,7 +22,9 @@ def test_healthz(app_server) -> None:
     - GET /api/healthz
     """
     resp = app_server.api_request(
-        "GET", "/api/healthz", timeout=_HEALTHZ_TIMEOUT
+        "GET",
+        "/api/healthz",
+        timeout=_HEALTHZ_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
@@ -40,7 +42,9 @@ def test_healthz_structure(app_server) -> None:
     - GET /api/healthz
     """
     resp = app_server.api_request(
-        "GET", "/api/healthz", timeout=_HEALTHZ_TIMEOUT
+        "GET",
+        "/api/healthz",
+        timeout=_HEALTHZ_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()

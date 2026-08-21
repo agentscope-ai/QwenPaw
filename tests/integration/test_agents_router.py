@@ -24,7 +24,9 @@ def test_agents_list(app_server) -> None:
     - GET /api/agents
     """
     resp = app_server.api_request(
-        "GET", "/api/agents", timeout=_AGENTS_TIMEOUT
+        "GET",
+        "/api/agents",
+        timeout=_AGENTS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
@@ -77,7 +79,9 @@ def test_agents_list_item_schema(app_server) -> None:
     - GET /api/agents
     """
     resp = app_server.api_request(
-        "GET", "/api/agents", timeout=_AGENTS_TIMEOUT
+        "GET",
+        "/api/agents",
+        timeout=_AGENTS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     agents = resp.json().get("agents", [])
