@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
+from ..utils.http import is_loopback_host
 from .config import HubConfig
 from .provisioner import (
     RuntimeProvisioner,
@@ -122,8 +123,8 @@ class RuntimeService:
             tenant_id=spec.tenant_id,
             owner_user_id=spec.owner_user_id,
             provisioner=provisioner_name,
-            host=spec.host,
-            port=spec.port,
+            host="127.0.0.1",
+            port=0,
             state=RuntimeState.CREATED,
             working_dir=runtime_root / "working",
             secret_dir=runtime_root / "secrets",
@@ -189,6 +190,8 @@ class RuntimeService:
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
         record = self.get(runtime_id)
+        if not is_loopback_host(record.host):
+            raise ValueError("Managed runtime host must be loopback-only.")
         self.require_provisioner_available(record.provisioner)
         capacity = self.hub_config.capacity
         running_count = sum(

@@ -34,8 +34,6 @@ class RuntimeSpec:
     tenant_id: str
     owner_user_id: str
     provisioner: str | None = None
-    host: str = "127.0.0.1"
-    port: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

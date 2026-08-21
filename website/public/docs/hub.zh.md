@@ -97,6 +97,12 @@ control_plane:
       max_attempts: 5
       window_seconds: 3600
       block_seconds: 3600
+  proxy:
+    max_request_size_mb: 1024
+    request_idle_timeout_seconds: 60
+    response_header_timeout_seconds: 300
+    connect_timeout_seconds: 10
+    websocket_max_message_size_mb: 16
 
 runtime:
   provisioner: local
@@ -307,6 +313,11 @@ Hub 分别记录观察状态、期望状态和启动权限，避免用户访问�
 | `control_plane.security.trusted_proxy_ips`       | 可以提供真实客户端地址的代理           |
 | `control_plane.security.login_rate_limit`        | 登录失败限流                           |
 | `control_plane.security.registration_rate_limit` | 注册限流                               |
+| `control_plane.proxy.max_request_size_mb`        | 代理请求体上限，默认 1024 MiB          |
+| `control_plane.proxy.request_idle_timeout_seconds` | 请求体连续无数据超时，默认 60 秒      |
+| `control_plane.proxy.response_header_timeout_seconds` | 运行环境响应头超时，默认 300 秒   |
+| `control_plane.proxy.connect_timeout_seconds`    | 连接运行环境超时，默认 10 秒           |
+| `control_plane.proxy.websocket_max_message_size_mb` | WebSocket 单条消息上限，默认 16 MiB |
 | `runtime.provisioner`                            | `local` 或 `docker`                    |
 | `runtime.docker.source`                          | `docker_hub`、`aliyun_acr` 或 `custom` |
 | `runtime.docker.image`                           | 完整镜像引用                           |
@@ -316,6 +327,8 @@ Hub 分别记录观察状态、期望状态和启动权限，避免用户访问�
 | `capacity.max_running_runtimes`                  | Hub 全局并发运行数量上限               |
 
 配置采用严格校验，未知字段会导致启动或保存失败，避免拼写错误被静默忽略。Local 模式不会应用 Docker 设置，但会保留它们，方便之后切换回 Docker。
+
+代理的请求大小和空闲超时只约束上传方向。运行环境返回响应头后，SSE、Agent 流式响应和流式下载不设置总时长或响应体大小限制，连接会持续到任一端主动断开。
 
 ## 凭据隔离
 

@@ -16,8 +16,6 @@ class RuntimeCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     runtime_id: str = Field(min_length=1, max_length=64)
-    host: str = "127.0.0.1"
-    port: int = Field(default=0, ge=0, le=65535)
     metadata: dict[str, Any] = Field(default_factory=dict)
     auto_start: bool = False
 

@@ -142,6 +142,13 @@ export interface HubConfig {
       login_rate_limit: HubRateLimitConfig;
       registration_rate_limit: HubRateLimitConfig;
     };
+    proxy: {
+      max_request_size_mb: number;
+      request_idle_timeout_seconds: number;
+      response_header_timeout_seconds: number;
+      connect_timeout_seconds: number;
+      websocket_max_message_size_mb: number;
+    };
   };
   runtime: {
     provisioner: "local" | "docker";

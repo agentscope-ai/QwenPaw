@@ -86,6 +86,12 @@ control_plane:
       max_attempts: 5
       window_seconds: 3600
       block_seconds: 3600
+  proxy:
+    max_request_size_mb: 1024
+    request_idle_timeout_seconds: 60
+    response_header_timeout_seconds: 300
+    connect_timeout_seconds: 10
+    websocket_max_message_size_mb: 16
 
 runtime:
   provisioner: local
@@ -104,6 +110,8 @@ Configuration ownership is determined on every startup:
 4. A later startup with `--config` overwrites those database values with YAML again.
 
 This supports either YAML-managed or panel-managed deployments. If YAML remains authoritative, keep it in secure configuration management and remember that panel changes are temporary until the next YAML-backed restart.
+
+The `control_plane.proxy` limits bound traffic forwarded to personal runtimes. Request size and idle limits apply only while uploading a request body. The response-header timeout ends once the runtime starts its response, so SSE, agent streams, and streamed downloads remain open until either peer disconnects. All values can be overridden in YAML; sizes are measured in MiB and timeouts in seconds.
 
 ## Public startup and OAuth base URL
 

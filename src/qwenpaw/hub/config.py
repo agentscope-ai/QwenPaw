@@ -106,6 +106,40 @@ class AccessSecurityConfig(BaseModel):
         return normalized
 
 
+class RuntimeProxyConfig(BaseModel):
+    """Bound resources used while proxying personal runtime traffic."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_request_size_mb: int = Field(default=1024, ge=1, le=102400)
+    request_idle_timeout_seconds: float = Field(
+        default=60,
+        gt=0,
+        le=3600,
+    )
+    response_header_timeout_seconds: float = Field(
+        default=300,
+        gt=0,
+        le=3600,
+    )
+    connect_timeout_seconds: float = Field(default=10, gt=0, le=300)
+    websocket_max_message_size_mb: int = Field(
+        default=16,
+        ge=1,
+        le=1024,
+    )
+
+    @property
+    def max_request_size_bytes(self) -> int:
+        """Return the configured request limit in bytes."""
+        return self.max_request_size_mb * 1024 * 1024
+
+    @property
+    def websocket_max_message_size_bytes(self) -> int:
+        """Return the configured WebSocket message limit in bytes."""
+        return self.websocket_max_message_size_mb * 1024 * 1024
+
+
 class ControlPlaneConfig(BaseModel):
     """Configuration-managed control-plane settings."""
 
@@ -118,6 +152,7 @@ class ControlPlaneConfig(BaseModel):
     security: AccessSecurityConfig = Field(
         default_factory=AccessSecurityConfig,
     )
+    proxy: RuntimeProxyConfig = Field(default_factory=RuntimeProxyConfig)
 
     @field_validator("public_base_url")
     @classmethod

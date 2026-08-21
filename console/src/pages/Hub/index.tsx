@@ -359,6 +359,7 @@ export default function HubPage() {
       const updated = await hubApi.updateSettings(settings.revision, {
         ...settings.config,
         control_plane: {
+          ...settings.config.control_plane,
           public_base_url: values.publicBaseUrl?.trim() || null,
           registration: {
             enabled: values.registrationEnabled,

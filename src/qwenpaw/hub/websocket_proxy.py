@@ -71,6 +71,7 @@ async def relay_websocket(
     upstream_url: str,
     *,
     headers: Mapping[str, str],
+    max_size: int,
 ) -> None:
     """Relay text, binary, and close frames until either peer disconnects."""
     requested_protocols = [
@@ -85,7 +86,7 @@ async def relay_websocket(
         additional_headers=dict(headers),
         subprotocols=requested_protocols or None,
         proxy=None,
-        max_size=None,
+        max_size=max_size,
     ) as upstream:
         await client.accept(subprotocol=upstream.subprotocol)
         tasks = {

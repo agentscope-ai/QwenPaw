@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -62,6 +63,12 @@ from .models import (
 )
 from .operations import HubOperationsStore
 from .oauth_routes import oauth_callback_route, runtime_oauth_callback_path
+from .proxy_limits import (
+    ProxyRequestIdleTimeoutError,
+    ProxyRequestTooLargeError,
+    limited_request_stream,
+    send_with_response_header_timeout,
+)
 from .registry import RuntimeRegistry
 from .service import RuntimeService
 from .static_files import (
@@ -203,6 +210,29 @@ def create_hub_app(  # pylint: disable=too-many-statements
     app.state.operations = operations
     app.state.access_security = access_security
     app.state.docker_pulls = docker_pulls
+
+    def require_loopback_runtime(record: RuntimeRecord) -> None:
+        if not is_loopback_host(record.host):
+            raise HTTPException(
+                status_code=503,
+                detail="Managed runtime endpoint must be loopback-only",
+            )
+
+    def runtime_url(
+        record: RuntimeRecord,
+        *,
+        scheme: str,
+        path: str,
+        query: bytes = b"",
+    ) -> httpx.URL:
+        require_loopback_runtime(record)
+        return httpx.URL(
+            scheme=scheme,
+            host=record.host.strip().strip("[]"),
+            port=record.port,
+            path=path,
+            query=query,
+        )
 
     def require_user(
         authorization: str | None = Header(default=None),
@@ -877,8 +907,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     tenant_id=personal_tenant_id(user),
                     owner_user_id=user.user_id,
                     provisioner=None,
-                    host=body.host,
-                    port=body.port,
                     metadata=body.metadata,
                 ),
             )
@@ -1126,6 +1154,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=503,
                 detail="OAuth callback runtime is not running",
             )
+        target = runtime_url(
+            record,
+            scheme="http",
+            path=callback_path,
+            query=request.url.query.encode("utf-8"),
+        )
         internal_token = await run_in_threadpool(
             credential_vault.get_runtime_secret,
             tenant_id=record.tenant_id,
@@ -1137,10 +1171,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 status_code=503,
                 detail="Personal runtime boundary token is unavailable",
             )
-        target = httpx.URL(
-            f"http://{record.host}:{record.port}{callback_path}",
-            query=request.url.query.encode("utf-8"),
-        )
         try:
             async with httpx.AsyncClient(
                 transport=proxy_transport,
@@ -1183,6 +1213,27 @@ def create_hub_app(  # pylint: disable=too-many-statements
         user: HubUser = Depends(require_user),
     ) -> Response:
         record = await ensure_personal_runtime(user)
+        target = runtime_url(
+            record,
+            scheme="http",
+            path=f"/api/{path}",
+            query=request.url.query.encode("utf-8"),
+        )
+        proxy_config = app.state.hub_config.control_plane.proxy
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                declared_size = 0
+            if declared_size > proxy_config.max_request_size_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Request body exceeds the configured "
+                        f"{proxy_config.max_request_size_mb} MiB limit"
+                    ),
+                )
         internal_token = await run_in_threadpool(
             credential_vault.get_runtime_secret,
             tenant_id=record.tenant_id,
@@ -1195,10 +1246,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 detail="Personal runtime boundary token is unavailable",
             )
 
-        target = httpx.URL(
-            f"http://{record.host}:{record.port}/api/{path}",
-            query=request.url.query.encode("utf-8"),
-        )
         excluded_request_headers = {
             "authorization",
             "connection",
@@ -1222,18 +1269,64 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 f"{public_base_url}/api/hub/oauth/callback/"
                 f"{record.runtime_id}/{callback_route}"
             )
+        timeout = httpx.Timeout(
+            connect=proxy_config.connect_timeout_seconds,
+            read=None,
+            write=proxy_config.request_idle_timeout_seconds,
+            pool=proxy_config.connect_timeout_seconds,
+        )
         client = httpx.AsyncClient(
-            timeout=None,
+            timeout=timeout,
             transport=proxy_transport,
         )
-        upstream_request = client.build_request(
-            request.method,
-            target,
-            headers=headers,
-            content=request.stream(),
-        )
+        request_complete = asyncio.Event()
         try:
-            upstream = await client.send(upstream_request, stream=True)
+            upstream_request = client.build_request(
+                request.method,
+                target,
+                headers=headers,
+                content=limited_request_stream(
+                    request.stream(),
+                    max_bytes=proxy_config.max_request_size_bytes,
+                    idle_timeout_seconds=(
+                        proxy_config.request_idle_timeout_seconds
+                    ),
+                    completion_event=request_complete,
+                ),
+            )
+            upstream = await send_with_response_header_timeout(
+                client,
+                upstream_request,
+                request_complete=request_complete,
+                timeout_seconds=(proxy_config.response_header_timeout_seconds),
+            )
+        except ProxyRequestTooLargeError as exc:
+            await client.aclose()
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Request body exceeds the configured "
+                    f"{proxy_config.max_request_size_mb} MiB limit"
+                ),
+            ) from exc
+        except ProxyRequestIdleTimeoutError as exc:
+            await client.aclose()
+            raise HTTPException(
+                status_code=408,
+                detail="Request body upload timed out",
+            ) from exc
+        except TimeoutError as exc:
+            await client.aclose()
+            raise HTTPException(
+                status_code=504,
+                detail="Personal runtime response headers timed out",
+            ) from exc
+        except httpx.TimeoutException as exc:
+            await client.aclose()
+            raise HTTPException(
+                status_code=504,
+                detail="Personal runtime proxy request timed out",
+            ) from exc
         except httpx.HTTPError as exc:
             await client.aclose()
             raise HTTPException(
@@ -1295,6 +1388,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
             return
         try:
             record = await ensure_personal_runtime(user)
+            target = runtime_url(
+                record,
+                scheme="ws",
+                path=f"/api/{path}",
+                query=websocket.url.query.encode("utf-8"),
+            )
+            proxy_config = app.state.hub_config.control_plane.proxy
             internal_token = await run_in_threadpool(
                 credential_vault.get_runtime_secret,
                 tenant_id=record.tenant_id,
@@ -1304,15 +1404,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
             if internal_token is None:
                 await websocket.close(code=1013)
                 return
-            target = f"ws://{record.host}:{record.port}/api/{path}"
-            if websocket.url.query:
-                target = f"{target}?{websocket.url.query}"
             await websocket_proxy.relay_websocket(
                 websocket,
-                target,
+                str(target),
                 headers={
                     "X-QwenPaw-Runtime-Token": internal_token,
                 },
+                max_size=(proxy_config.websocket_max_message_size_bytes),
             )
         except Exception:  # pylint: disable=broad-exception-caught
             logging.exception("Personal runtime WebSocket proxy failed")

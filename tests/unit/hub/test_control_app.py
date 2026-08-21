@@ -3,6 +3,7 @@
 
 from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
+from dataclasses import replace
 import gzip
 from pathlib import Path
 import sqlite3
@@ -24,6 +25,7 @@ from qwenpaw.hub.config import (
     ControlPlaneConfig,
     HubConfig,
     RateLimitConfig,
+    RuntimeProxyConfig,
 )
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
@@ -697,6 +699,138 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes["items"][0]["state"] == "running"
         assert runtimes["items"][0]["owner_user_id"]
         assert runtimes["items"][0]["metadata"]["hub_default"] is True
+
+
+def test_runtime_create_rejects_endpoint_overrides(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        response = client.post(
+            "/api/hub/runtimes",
+            json={
+                "runtime_id": "external-runtime",
+                "host": "192.0.2.10",
+                "port": 8088,
+            },
+            headers=_headers(token),
+        )
+
+    assert response.status_code == 422
+
+
+def test_proxy_rejects_non_loopback_runtime_record(tmp_path: Path) -> None:
+    calls = 0
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        del request
+        calls += 1
+        return httpx.Response(200, stream=_ProxyStream())
+
+    transport = httpx.MockTransport(proxy_handler)
+    with _client(tmp_path, transport) as client:
+        token = _register(client, "owner")
+        headers = _headers(token)
+        assert client.get("/api/probe", headers=headers).status_code == 200
+        service = client.app.state.runtime_service
+        record = service.registry.list()[0]
+        service.registry.save(replace(record, host="192.0.2.10"))
+
+        response = client.get("/api/probe", headers=headers)
+
+    assert response.status_code == 503
+    assert "loopback-only" in response.json()["detail"]
+    assert calls == 1
+
+
+def test_proxy_rejects_declared_request_body_over_limit(
+    tmp_path: Path,
+) -> None:
+    called = False
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        del request
+        called = True
+        return httpx.Response(200, stream=_ProxyStream())
+
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            proxy=RuntimeProxyConfig(max_request_size_mb=1),
+        ),
+    )
+    transport = httpx.MockTransport(proxy_handler)
+    with _client(tmp_path, transport, hub_config=config) as client:
+        token = _register(client, "owner")
+        response = client.post(
+            "/api/runtime-probe",
+            content=b"x" * (1024 * 1024 + 1),
+            headers=_headers(token),
+        )
+
+    assert response.status_code == 413
+    assert called is False
+
+
+def test_proxy_times_out_waiting_for_response_headers(
+    tmp_path: Path,
+) -> None:
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        await request.aread()
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, stream=_ProxyStream())
+
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            proxy=RuntimeProxyConfig(
+                response_header_timeout_seconds=0.01,
+            ),
+        ),
+    )
+    transport = httpx.MockTransport(proxy_handler)
+    with _client(tmp_path, transport, hub_config=config) as client:
+        token = _register(client, "owner")
+        response = client.post(
+            "/api/runtime-probe",
+            content=b"request",
+            headers=_headers(token),
+        )
+
+    assert response.status_code == 504
+
+
+def test_proxy_does_not_time_out_stream_after_response_headers(
+    tmp_path: Path,
+) -> None:
+    class _SlowResponseStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            await asyncio.sleep(0.05)
+            yield b"event: complete\n\n"
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            stream=_SlowResponseStream(),
+            headers={"Content-Type": "text/event-stream"},
+        )
+
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            proxy=RuntimeProxyConfig(
+                response_header_timeout_seconds=0.01,
+            ),
+        ),
+    )
+    transport = httpx.MockTransport(proxy_handler)
+    with _client(tmp_path, transport, hub_config=config) as client:
+        token = _register(client, "owner")
+        response = client.get(
+            "/api/runtime-events",
+            headers=_headers(token),
+        )
+
+    assert response.status_code == 200
+    assert response.text == "event: complete\n\n"
 
 
 def test_deleted_personal_runtime_is_recreated_on_next_proxy(

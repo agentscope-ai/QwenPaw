@@ -134,6 +134,7 @@ async def test_relay_cancels_upstream_pump_after_client_disconnect(
         cast(Any, client),
         "ws://runtime/api/ws",
         headers={"X-QwenPaw-Runtime-Token": "secret"},
+        max_size=16 * 1024 * 1024,
     )
 
     assert client.accepted_protocol == "chat"
@@ -142,6 +143,7 @@ async def test_relay_cancels_upstream_pump_after_client_disconnect(
     assert captured["additional_headers"] == {
         "X-QwenPaw-Runtime-Token": "secret",
     }
+    assert captured["max_size"] == 16 * 1024 * 1024
 
 
 @pytest.mark.asyncio
@@ -161,6 +163,7 @@ async def test_relay_cancels_client_pump_after_upstream_disconnect(
         cast(Any, client),
         "ws://runtime/api/ws",
         headers={"X-QwenPaw-Runtime-Token": "secret"},
+        max_size=16 * 1024 * 1024,
     )
 
     assert client.sent == ["reply"]

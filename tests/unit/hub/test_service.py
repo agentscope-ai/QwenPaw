@@ -200,6 +200,19 @@ def test_runtime_id_rejects_cross_platform_directory_collisions(
     assert service.registry.list() == []
 
 
+def test_managed_runtime_rejects_non_loopback_host(tmp_path: Path) -> None:
+    service = _service(tmp_path, HubConfig())
+    created = service.create(_spec("runtime-a"))
+    service.registry.save(
+        replace(created, host="192.0.2.10"),
+    )
+
+    with pytest.raises(ValueError, match="loopback-only"):
+        service.start(created.runtime_id)
+
+    assert service.get(created.runtime_id).state is RuntimeState.CREATED
+
+
 def test_running_runtime_limit_is_global(tmp_path: Path) -> None:
     service = _service(
         tmp_path,

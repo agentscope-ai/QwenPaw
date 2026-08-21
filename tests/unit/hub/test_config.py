@@ -13,6 +13,7 @@ from qwenpaw.hub.config import (
     HubConfigStore,
     RuntimeCapacityConfig,
     RuntimeConfig,
+    RuntimeProxyConfig,
     load_hub_config,
 )
 from qwenpaw.hub.credentials import TenantCredentialVault
@@ -31,6 +32,12 @@ control_plane:
     enabled: false
   security:
     ip_blacklist: [192.0.2.4, 2001:db8::/64]
+  proxy:
+    max_request_size_mb: 2048
+    request_idle_timeout_seconds: 90
+    response_header_timeout_seconds: 600
+    connect_timeout_seconds: 15
+    websocket_max_message_size_mb: 32
 runtime:
   provisioner: local
 capacity:
@@ -52,6 +59,13 @@ capacity:
         "192.0.2.4/32",
         "2001:db8::/64",
     ]
+    assert config.control_plane.proxy == RuntimeProxyConfig(
+        max_request_size_mb=2048,
+        request_idle_timeout_seconds=90,
+        response_header_timeout_seconds=600,
+        connect_timeout_seconds=15,
+        websocket_max_message_size_mb=32,
+    )
 
 
 def test_docker_yaml_fields_round_trip_without_panel_only_values(
@@ -135,6 +149,11 @@ runtime:
             "version: 1\ncontrol_plane:\n"
             "  public_base_url: https://example.com#fragment",
             "query or fragment",
+        ),
+        (
+            "version: 1\ncontrol_plane:\n"
+            "  proxy:\n    max_request_size_mb: 0",
+            "greater than or equal to 1",
         ),
     ],
 )

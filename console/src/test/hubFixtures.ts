@@ -107,6 +107,13 @@ export function hubSettings(overrides: Partial<HubSettings> = {}): HubSettings {
             block_seconds: 3600,
           },
         },
+        proxy: {
+          max_request_size_mb: 1024,
+          request_idle_timeout_seconds: 60,
+          response_header_timeout_seconds: 300,
+          connect_timeout_seconds: 10,
+          websocket_max_message_size_mb: 16,
+        },
       },
       runtime: {
         provisioner: "local",
