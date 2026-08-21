@@ -25,10 +25,11 @@ def test_plugins_list(app_server) -> None:
 @pytest.mark.p1
 def test_plugins_available(app_server) -> None:
     """Test GET /api/plugins/available returns available plugins."""
-    response = app_server.api_request("GET", "/api/plugins/available")
+    response = app_server.api_request("GET", "/api/plugins/catalog")
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, list)
+    assert isinstance(data, dict)
+    assert isinstance(data.get("plugins"), list)
 
 
 @pytest.mark.integration

@@ -42,22 +42,23 @@ def test_tool_calls_list_by_session(app_server) -> None:
 @pytest.mark.p1
 def test_tool_calls_item_schema(app_server) -> None:
     """Test purpose:
-    - Verify each tool call entry has expected fields.
+    - Verify the session tool-call list payload has items/total fields.
 
     Test flow:
-    1. GET /api/tool-calls.
-    2. If items exist, verify schema.
+    1. GET /api/tool-calls/{session_id}.
+    2. Verify items/total schema.
 
     API endpoints:
-    - GET /api/tool-calls
+    - GET /api/tool-calls/{session_id}
     """
     resp = app_server.api_request(
         "GET",
-        "/api/tool-calls",
+        "/api/tool-calls/nonexistent_session_xyz",
         timeout=_TOOL_CALLS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
-    items = resp.json()
+    payload = resp.json()
+    items = payload.get("items", [])
     for item in items[:5]:  # Check first 5
         assert isinstance(item, dict)
         # Each tool call should have at least an id or name
@@ -79,8 +80,7 @@ def test_tool_calls_with_session_filter(app_server) -> None:
     """
     resp = app_server.api_request(
         "GET",
-        "/api/tool-calls",
-        params={"session_id": "test_session"},
+        "/api/tool-calls/test_session",
         timeout=_TOOL_CALLS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()

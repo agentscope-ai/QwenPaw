@@ -1,60 +1,72 @@
 # -*- coding: utf-8 -*-
-"""Integration tests for Fork API endpoints.
+"""Integration tests for the Fork API endpoint.
+
+Upstream ships exactly one fork route: POST /api/fork/agent (internal,
+localhost-only, used by spawn_subagent(fork=True)). It creates a fork
+session file (and a git worktree when the project dir is a repo) and
+returns the fork identifiers.
 
 Tests cover:
-- GET /api/fork: get fork status
-- POST /api/fork: create fork
-- GET /api/fork/list: list forks
+- POST /api/fork/agent: create a fork session for an absent parent
+- POST /api/fork/agent: validation errors for missing fields
 """
 
 import pytest
+from helpers import default_http_timeout
+
+_FORK_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_fork_status(app_server) -> None:
-    """Test GET /api/fork returns fork status."""
-    response = app_server.api_request("GET", "/api/fork/agent")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, dict)
+def test_fork_agent_creates_fork_session(app_server) -> None:
+    """Test purpose:
+    - Verify POST /api/fork/agent with a complete body returns the fork
+      identifiers (fork_session_id / worktree fields).
+
+    API endpoints:
+    - POST /api/fork/agent
+    """
+    resp = app_server.api_request(
+        "POST",
+        "/api/fork/agent",
+        json={
+            "agent_id": "default",
+            "parent_session_id": "integ-nonexistent-parent",
+        },
+        timeout=_FORK_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    data = resp.json()
+    assert "fork_session_id" in data
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_fork_list(app_server) -> None:
-    """Test GET /api/fork/list returns fork list."""
-    response = app_server.api_request("GET", "/api/fork/list")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
+def test_fork_agent_empty_body_rejected(app_server) -> None:
+    """Test purpose:
+    - Verify POST /api/fork/agent with an empty body is rejected (422).
+
+    API endpoints:
+    - POST /api/fork/agent
+    """
+    resp = app_server.api_request(
+        "POST", "/api/fork/agent", json={}, timeout=_FORK_TIMEOUT
+    )
+    assert resp.status_code == 422, app_server.logs_tail()
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_fork_create_invalid(app_server) -> None:
-    """Test POST /api/fork with invalid request."""
-    response = app_server.api_request("POST", "/api/fork/agent", json={})
-    # Should return 400 or 422 for missing required fields
-    assert response.status_code in [400, 422]
+def test_fork_agent_missing_parent_rejected(app_server) -> None:
+    """Test purpose:
+    - Verify POST /api/fork/agent without parent_session_id is rejected.
 
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_fork_list_pagination(app_server) -> None:
-    """Test fork list pagination."""
-    response = app_server.api_request("GET", "/api/fork/list?limit=5&offset=0")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-    assert len(data) <= 5
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_fork_list_empty_filter(app_server) -> None:
-    """Test fork list with empty filter."""
-    response = app_server.api_request("GET", "/api/fork/list?status=")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
+    API endpoints:
+    - POST /api/fork/agent
+    """
+    resp = app_server.api_request(
+        "POST", "/api/fork/agent", json={"agent_id": "default"},
+        timeout=_FORK_TIMEOUT,
+    )
+    assert resp.status_code == 422, app_server.logs_tail()

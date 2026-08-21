@@ -54,7 +54,7 @@ def test_approval_pending_item_schema(app_server) -> None:
     """
     resp = app_server.api_request(
         "GET",
-        "/api/approval",
+        "/api/approval/list",
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
@@ -81,7 +81,7 @@ def test_approval_approve_nonexistent(app_server) -> None:
     resp = app_server.api_request(
         "POST",
         "/api/approval/approve",
-        json={"id": "nonexistent_approval_xyz"},
+        json={"request_id": "nonexistent_approval_xyz", "session_id": "integ_session"},
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code in (404, 400), app_server.logs_tail()
@@ -103,7 +103,7 @@ def test_approval_deny_nonexistent(app_server) -> None:
     resp = app_server.api_request(
         "POST",
         "/api/approval/deny",
-        json={"id": "nonexistent_approval_xyz"},
+        json={"request_id": "nonexistent_approval_xyz", "session_id": "integ_session"},
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code in (404, 400), app_server.logs_tail()
@@ -125,7 +125,7 @@ def test_approval_dismiss_nonexistent(app_server) -> None:
     resp = app_server.api_request(
         "POST",
         "/api/approval/approve",
-        json={"id": "nonexistent_approval_xyz"},
+        json={"request_id": "nonexistent_approval_xyz", "session_id": "integ_session"},
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code in (404, 400), app_server.logs_tail()

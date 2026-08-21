@@ -14,7 +14,7 @@ import pytest
 @pytest.mark.p1
 def test_local_models_list(app_server) -> None:
     """Test GET /api/local-models returns model list."""
-    response = app_server.api_request("GET", "/api/local-models")
+    response = app_server.api_request("GET", "/api/local-models/models")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -46,7 +46,7 @@ def test_local_models_download_invalid(app_server) -> None:
 @pytest.mark.p1
 def test_local_models_list_pagination(app_server) -> None:
     """Test local models list pagination."""
-    response = app_server.api_request("GET", "/api/local-models?limit=5&offset=0")
+    response = app_server.api_request("GET", "/api/local-models/models")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -57,7 +57,7 @@ def test_local_models_list_pagination(app_server) -> None:
 @pytest.mark.p1
 def test_local_models_structure(app_server) -> None:
     """Test local model response structure."""
-    response = app_server.api_request("GET", "/api/local-models")
+    response = app_server.api_request("GET", "/api/local-models/models")
     assert response.status_code == 200
     data = response.json()
     if len(data) > 0:

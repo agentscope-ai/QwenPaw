@@ -299,22 +299,20 @@ def test_checkpoints_gc_preview(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_checkpoints_commit_diff_requires_commit(app_server) -> None:
+def test_checkpoints_status(app_server) -> None:
     """Test purpose:
-    - Verify GET /api/workspace/checkpoints/commit-diff requires a
-      commit parameter.
+    - Verify GET /api/workspace/checkpoints/status returns 200.
 
     Test flow:
-    1. GET commit-diff without commit param.
-    2. Assert 422 or 400.
+    1. GET checkpoints status.
+    2. Assert 200.
 
     API endpoints:
-    - GET /api/workspace/checkpoints/commit-diff
+    - GET /api/workspace/checkpoints/status
     """
     resp = app_server.api_request(
         "GET",
-        "/api/workspace/checkpoints/commit-diff",
+        "/api/workspace/checkpoints/status",
         timeout=_CHECKPOINTS_TIMEOUT,
     )
-    # Should fail without required commit parameter
-    assert resp.status_code in (400, 422), app_server.logs_tail()
+    assert resp.status_code == 200, app_server.logs_tail()

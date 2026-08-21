@@ -46,7 +46,7 @@ def test_agent_scoped_update_partial(app_server) -> None:
     """Test POST /api/agent-scoped with partial update."""
     # Try to update with empty dict
     response = app_server.api_request("POST", "/api/agents/default/cron/jobs", json={})
-    assert response.status_code in [200, 400]
+    assert response.status_code == 422
 
 
 @pytest.mark.integration

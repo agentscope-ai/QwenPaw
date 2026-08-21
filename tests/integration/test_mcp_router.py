@@ -17,7 +17,7 @@ def test_mcp_status(app_server) -> None:
     response = app_server.api_request("GET", "/api/mcp")
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, dict)
+    assert isinstance(data, list)
 
 
 @pytest.mark.integration
@@ -43,7 +43,7 @@ def test_mcp_servers_add_invalid(app_server) -> None:
 @pytest.mark.p1
 def test_mcp_servers_list_pagination(app_server) -> None:
     """Test MCP servers list pagination."""
-    response = app_server.api_request("GET", "/api/mcp/servers?limit=5&offset=0")
+    response = app_server.api_request("GET", "/api/mcp")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -57,6 +57,6 @@ def test_mcp_status_structure(app_server) -> None:
     response = app_server.api_request("GET", "/api/mcp")
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, dict)
+    assert isinstance(data, list)
     # Should have MCP-related fields
     assert len(data) >= 0

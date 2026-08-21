@@ -1,69 +1,66 @@
 # -*- coding: utf-8 -*-
 """Integration tests for Agent Status API endpoints.
 
+The agent-status router is mounted under the agent-scoped prefix, so the
+real path is /api/agents/{agentId}/agent-status.
+
 Tests cover:
-- GET /api/agent-status: get agent status
-- GET /api/agent-status/{agent_id}: get specific agent status
+- GET /api/agents/{agentId}/agent-status: get agent runtime status
 """
 
 import pytest
+from helpers import default_http_timeout
+
+_STATUS_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_agent_status_list(app_server) -> None:
-    """Test GET /api/agent-status returns agent status list."""
-    response = app_server.api_request("GET", "/api/agent-status")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
+def test_agent_status_get(app_server) -> None:
+    """Test purpose:
+    - Verify GET /api/agents/default/agent-status returns runtime status.
 
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_agent_status_get_specific(app_server) -> None:
-    """Test GET /api/agent-status/{agent_id} returns specific agent status."""
-    # First get list to find an agent_id
-    list_response = app_server.api_request("GET", "/api/agent-status")
-    assert list_response.status_code == 200
-    agents = list_response.json()
-
-    if len(agents) > 0:
-        agent_id = agents[0].get("id") or agents[0].get("agent_id")
-        if agent_id:
-            response = app_server.api_request("GET", f"/api/agent-status/{agent_id}")
-            assert response.status_code == 200
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_agent_status_get_nonexistent(app_server) -> None:
-    """Test GET /api/agent-status/{agent_id} with non-existent agent."""
-    url = "/api/agent-status/nonexistent-agent-12345"
-    response = app_server.api_request("GET", url)
-    # Should return 404 or similar error
-    assert response.status_code in [404, 400]
+    API endpoints:
+    - GET /api/agents/{agentId}/agent-status
+    """
+    resp = app_server.api_request(
+        "GET", "/api/agents/default/agent-status", timeout=_STATUS_TIMEOUT
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    data = resp.json()
+    assert isinstance(data, dict)
 
 
 @pytest.mark.integration
 @pytest.mark.p1
 def test_agent_status_structure(app_server) -> None:
-    """Test agent status response structure."""
-    response = app_server.api_request("GET", "/api/agent-status")
-    assert response.status_code == 200
-    data = response.json()
-    if len(data) > 0:
-        agent = data[0]
-        assert isinstance(agent, dict)
-        # Should have status-related fields
-        assert "id" in agent or "agent_id" in agent
+    """Test purpose:
+    - Verify the status payload is a dict with runtime fields.
+
+    API endpoints:
+    - GET /api/agents/{agentId}/agent-status
+    """
+    resp = app_server.api_request(
+        "GET", "/api/agents/default/agent-status", timeout=_STATUS_TIMEOUT
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    data = resp.json()
+    assert isinstance(data, dict)
+    assert len(data) > 0
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_agent_status_with_filter(app_server) -> None:
-    """Test GET /api/agent-status with filter."""
-    response = app_server.api_request("GET", "/api/agent-status?status=active")
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
+def test_agent_status_second_agent(app_server) -> None:
+    """Test purpose:
+    - Verify the status endpoint also serves the bundled QA agent.
+
+    API endpoints:
+    - GET /api/agents/{agentId}/agent-status
+    """
+    resp = app_server.api_request(
+        "GET",
+        "/api/agents/QwenPaw_QA_Agent_0.2/agent-status",
+        timeout=_STATUS_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()

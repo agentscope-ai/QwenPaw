@@ -46,7 +46,7 @@ def test_access_control_update_partial(app_server) -> None:
     """Test POST /api/access-control with partial update."""
     # Try to update with empty dict
     response = app_server.api_request("POST", "/api/access-control/pending/approve", json={})
-    assert response.status_code in [200, 400]
+    assert response.status_code == 422
 
 
 @pytest.mark.integration

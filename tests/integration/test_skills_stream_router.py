@@ -16,7 +16,7 @@ def test_skills_stream_status(app_server) -> None:
     response = app_server.api_request("GET", "/api/skills/workspaces")
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, dict)
+    assert isinstance(data, list)
 
 
 @pytest.mark.integration
@@ -35,7 +35,7 @@ def test_skills_stream_status_structure(app_server) -> None:
     response = app_server.api_request("GET", "/api/skills/workspaces")
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, dict)
+    assert isinstance(data, list)
     # Should have stream-related fields
     assert len(data) >= 0
 
