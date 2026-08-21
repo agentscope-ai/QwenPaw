@@ -1,13 +1,13 @@
 import { useState } from "react";
+import { Form, Card, Switch, InputNumber, Input } from "@agentscope-ai/design";
 import {
-  Form,
-  Card,
-  Switch,
-  InputNumber,
-  Input,
-  Button,
-} from "@agentscope-ai/design";
-import { AlertTriangle, ChevronRight, ExternalLink } from "lucide-react";
+  AlertTriangle,
+  ChevronRight,
+  ExternalLink,
+  Gauge,
+  HeartPulse,
+  ListTodo,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api";
 import type { ReMeLightMemoryConfig } from "@/api/types/agent";
@@ -58,9 +58,12 @@ export function ReMeLightMemoryCard() {
     reindexing,
     setReindexing,
     runtimeStatus,
+    diagnosticsStatus,
     checkMemoryStatus,
   } = useMemoryMaintenance();
-  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusView, setStatusView] = useState<"tasks" | "diagnostics" | null>(
+    null,
+  );
   const [dailyPaperExpanded, setDailyPaperExpanded] = useState(false);
 
   const rebuildMemoryIndex = () => {
@@ -89,22 +92,25 @@ export function ReMeLightMemoryCard() {
     });
   };
 
-  const inspectMemoryStatus = () => {
-    setStatusOpen(true);
-    void checkMemoryStatus();
+  const inspectMemoryStatus = (view: "tasks" | "diagnostics") => {
+    setStatusView(view);
+    void checkMemoryStatus(view === "diagnostics");
   };
   const statusLoading = runtimeStatus.type === "checking";
-  const memoryStatus =
-    runtimeStatus.type === "healthy" ? runtimeStatus.data : null;
+  const runtime = runtimeStatus.type === "healthy" ? runtimeStatus.data : null;
+  const diagnostics =
+    diagnosticsStatus.type === "healthy" ? diagnosticsStatus.data : null;
   const statusError =
     runtimeStatus.type === "error" ? runtimeStatus.message : "";
-  const backendStatus = memoryStatus?.runtime.worker.status;
+  const diagnosticsError =
+    diagnosticsStatus.type === "error" ? diagnosticsStatus.message : "";
+  const backendStatus = runtime?.worker.status;
   const statusBadgeType =
     backendStatus === "error"
       ? "error"
       : backendStatus === "busy" ||
         backendStatus === "stopping" ||
-        memoryStatus?.runtime.reindexing
+        runtime?.reindexing
       ? "checking"
       : runtimeStatus.type;
   const statusBadge = {
@@ -128,7 +134,7 @@ export function ReMeLightMemoryCard() {
   const statusBadgeLabel =
     backendStatus === "error"
       ? t("agentConfig.memoryStatusNeedsAttention")
-      : backendStatus === "busy" || memoryStatus?.runtime.reindexing
+      : backendStatus === "busy" || runtime?.reindexing
       ? t("agentConfig.memoryStatusBusy")
       : backendStatus === "stopping"
       ? t("agentConfig.memoryStatusStopping")
@@ -137,13 +143,12 @@ export function ReMeLightMemoryCard() {
   const workerStatusLabel = backendStatus
     ? t(`agentConfig.memoryWorkerStatus.${backendStatus}`)
     : "—";
-  const queueHint = memoryStatus
+  const queueHint = runtime
     ? t("agentConfig.memoryQueueSummary", {
-        running: memoryStatus.runtime.worker.tasks_running,
-        pending: memoryStatus.runtime.worker.queue_pending,
+        running: runtime.worker.tasks_running,
+        pending: runtime.worker.queue_pending,
       })
     : "—";
-  const autoMemoryStatus = memoryStatus?.runtime.auto_memory;
   const remeConfig = Form.useWatch(["reme_light_memory_config"], form) as
     | ReMeLightMemoryConfig
     | undefined;
@@ -173,85 +178,98 @@ export function ReMeLightMemoryCard() {
           <div>
             <h3>{t("agentConfig.memoryOverviewTitle")}</h3>
             <p>{t("agentConfig.memoryPageDescription")}</p>
-            <div className={styles.memoryReferences}>
-              <span>{t("agentConfig.memoryPoweredBy")}</span>
-              <a
-                href="https://github.com/agentscope-ai/ReMe"
-                target="_blank"
-                rel="noreferrer"
-              >
-                ReMe
-              </a>
-              <i />
-              <a
-                href="https://qwenpaw.agentscope.io/docs/memory"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("agentConfig.memoryDocumentation")}
-              </a>
-            </div>
           </div>
         </div>
         <div className={styles.memoryOverviewGrid}>
           <div
-            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewActionItem}`}
+            className={`${styles.memoryOverviewItem} ${styles.memoryServiceStatusItem}`}
           >
-            <div>
-              <span>{t("agentConfig.memoryRuntimeStatus")}</span>
+            <span className={styles.memoryOverviewLabel}>
+              <HeartPulse size={14} aria-hidden="true" />
+              {t("agentConfig.memoryRuntimeStatus")}
+            </span>
+            <div className={styles.memoryServiceStatusLine}>
               <strong
                 className={`${styles.memoryStatusBadge} ${statusBadge.className}`}
               >
                 <i />
                 {statusBadgeLabel}
               </strong>
+              <div className={styles.memoryReferences}>
+                <span>{t("agentConfig.memoryPoweredBy")}</span>
+                <a
+                  href="https://github.com/agentscope-ai/ReMe"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  ReMe
+                </a>
+                <i />
+                <a
+                  href="https://qwenpaw.agentscope.io/docs/memory"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("agentConfig.memoryDocumentation")}
+                </a>
+              </div>
             </div>
-            <Button
-              className={styles.memoryStatusButton}
-              onClick={inspectMemoryStatus}
-              loading={statusLoading}
-            >
-              {t("agentConfig.remeStatusView")}
-            </Button>
           </div>
-          <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.memoryBackgroundTasks")}</span>
+
+          <button
+            type="button"
+            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewClickableItem}`}
+            onClick={() => inspectMemoryStatus("tasks")}
+          >
+            <span className={styles.memoryOverviewLabel}>
+              <ListTodo size={14} aria-hidden="true" />
+              {t("agentConfig.memoryBackgroundTasks")}
+            </span>
             <strong>{workerStatusLabel}</strong>
             <small>{queueHint}</small>
-          </div>
-          <div className={styles.memoryOverviewItem}>
-            <span>{t("agentConfig.memoryPendingTurns")}</span>
-            <strong>
-              {autoMemoryStatus
-                ? autoMemoryStatus.enabled
-                  ? autoMemoryStatus.pending_turns
-                  : t("agentConfig.memoryStatusDisabled")
-                : "—"}
-            </strong>
-            <small>
-              {autoMemoryStatus?.enabled
-                ? t("agentConfig.memoryPendingTurnsHint", {
-                    sessions: autoMemoryStatus.sessions_with_pending,
-                    interval: autoMemoryStatus.interval,
-                  })
-                : t("agentConfig.memoryAutoRecordDisabledHint")}
-            </small>
-          </div>
-          <div
-            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewMaintenance}`}
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewClickableItem}`}
+            onClick={() => inspectMemoryStatus("diagnostics")}
+          >
+            <span className={styles.memoryOverviewLabel}>
+              <Gauge size={14} aria-hidden="true" />
+              {t("agentConfig.memoryDiagnostics")}
+            </span>
+            <div className={styles.memoryOverviewMetrics}>
+              <div>
+                <small>{t("agentConfig.memoryComponentsMetric")}</small>
+                <strong>{diagnostics?.components_total ?? "—"}</strong>
+              </div>
+              <div>
+                <small>{t("agentConfig.memoryProcessMetric")}</small>
+                <strong>{diagnostics?.process_rss ?? "—"}</strong>
+              </div>
+            </div>
+            <small>{t("agentConfig.memoryDiagnosticsHint")}</small>
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.memoryOverviewItem} ${styles.memoryOverviewClickableItem} ${styles.memoryOverviewMaintenance}`}
+            onClick={rebuildMemoryIndex}
+            disabled={reindexing}
+            aria-busy={reindexing}
           >
             <div>
               <span>
-                <AlertTriangle size={16} aria-hidden="true" />
+                <AlertTriangle size={14} aria-hidden="true" />
                 {t("agentConfig.memoryMaintenanceEyebrow")}
               </span>
               <strong>{t("agentConfig.memoryMaintenanceTitle")}</strong>
               <small>{t("agentConfig.memoryMaintenanceDescription")}</small>
             </div>
-            <Button onClick={rebuildMemoryIndex} loading={reindexing}>
-              {t("agentConfig.rebuildMemoryIndex")}
-            </Button>
-          </div>
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
         </div>
       </section>
 
@@ -640,16 +658,19 @@ export function ReMeLightMemoryCard() {
       </div>
 
       <ReMeStatusModal
-        open={statusOpen}
-        loading={statusLoading}
-        error={statusError}
-        memoryStatus={memoryStatus}
+        view={statusView}
+        loading={
+          statusView === "diagnostics"
+            ? diagnosticsStatus.type === "checking"
+            : statusLoading
+        }
+        error={statusView === "diagnostics" ? diagnosticsError : statusError}
+        runtime={runtime}
+        diagnostics={diagnostics}
         statusBadge={statusBadge}
         statusBadgeLabel={statusBadgeLabel}
-        workerStatusLabel={workerStatusLabel}
-        queueHint={queueHint}
-        onRefresh={inspectMemoryStatus}
-        onClose={() => setStatusOpen(false)}
+        onRefresh={() => void checkMemoryStatus(statusView === "diagnostics")}
+        onClose={() => setStatusView(null)}
       />
     </Card>
   );

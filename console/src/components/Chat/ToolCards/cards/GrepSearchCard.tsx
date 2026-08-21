@@ -34,7 +34,10 @@ const GrepSearchCard: React.FC<GrepSearchCardProps> = ({
   }
 
   const resultText = stringifyResult(content.result);
-  const lineCount = countLines(resultText);
+  const hasNoMatches = resultText
+    .trim()
+    .startsWith("No matches found for pattern:");
+  const lineCount = hasNoMatches ? 0 : countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (

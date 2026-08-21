@@ -13,7 +13,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from json_repair import repair_json
 
@@ -28,6 +28,8 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
+from ..utils.io_utils import read_json, write_json_atomic
+from ..utils.logging import sanitize_log_value
 from .config import (
     Config,
     HeartbeatConfig,
@@ -35,7 +37,6 @@ from .config import (
     LastDispatchConfig,
     load_agent_config,
     migrate_channel_display_fields,
-    save_agent_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,11 @@ _config_cache: Optional[Config] = None
 _config_mtime: Optional[float] = None
 _config_lock = threading.RLock()
 
-# Agent config cache: {agent_id: (config, mtime)}
-# Using Any for forward reference to AgentProfileConfig
-_agent_config_cache: dict[str, tuple[Any, float]] = {}
+# Agent config cache entries are defined in config.py to avoid importing the
+# large AgentProfileConfig model here during module initialization.
+_agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
+_last_dispatch_lock = threading.Lock()
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -581,8 +583,7 @@ def _load_and_validate_config(
                 f".{uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
             )
             shutil.copy2(config_path, backup_path)
-            with open(config_path, "w", encoding="utf-8") as file:
-                json.dump(migrated_data, file, indent=2, ensure_ascii=False)
+            write_json_atomic(config_path, migrated_data)
             logger.warning(
                 "Migrated legacy channel configuration in %s (backup: %s)",
                 config_path,
@@ -607,23 +608,22 @@ def load_config(config_path: Optional[Path] = None) -> Config:
     if config_path is None:
         config_path = get_config_path()
 
-    if not config_path.is_file():
-        return Config()
-
-    # Check mtime to see if we can use cached config
-    try:
-        current_mtime = config_path.stat().st_mtime
-    except OSError:
-        return Config()
-
     with _config_lock:
+        if not config_path.is_file():
+            return Config()
+
+        try:
+            current_mtime = config_path.stat().st_mtime
+        except OSError:
+            return Config()
+
         # Return cached config if mtime hasn't changed
         if (
             _config_cache is not None
             and _config_mtime is not None
             and _config_mtime == current_mtime
         ):
-            return _config_cache
+            return _config_cache.model_copy(deep=True)
 
         # Need to reload config from disk
         data = _read_config_data(config_path)
@@ -632,12 +632,12 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         else:
             config = _load_and_validate_config(config_path, data)
 
-        _config_cache = config
+        _config_cache = config.model_copy(deep=True)
         try:
             _config_mtime = config_path.stat().st_mtime
         except OSError:
             _config_mtime = current_mtime
-        return config
+        return config.model_copy(deep=True)
 
 
 def strict_validate_config_file(
@@ -681,24 +681,36 @@ def strict_validate_config_file(
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
-    """Save the config to the file and invalidate cache."""
+    """Atomically save a detached config and publish it to the cache."""
     global _config_cache, _config_mtime
 
     if config_path is None:
         config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as file:
-        json.dump(
-            config.model_dump(mode="json", by_alias=True),
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    # Invalidate cache after saving
+    candidate = config.model_copy(deep=True)
     with _config_lock:
-        _config_cache = None
-        _config_mtime = None
+        write_json_atomic(
+            config_path,
+            candidate.model_dump(mode="json", by_alias=True),
+        )
+        _config_cache = candidate.model_copy(deep=True)
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = None
+
+
+def mutate_config(
+    mutator: Callable[[Config], None],
+    config_path: Optional[Path] = None,
+) -> Config:
+    """Apply one root-config mutation as an atomic transaction."""
+    if config_path is None:
+        config_path = get_config_path()
+    with _config_lock:
+        candidate = load_config(config_path)
+        mutator(candidate)
+        save_config(candidate, config_path)
+        return candidate.model_copy(deep=True)
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
@@ -743,16 +755,22 @@ def update_last_dispatch(
     """
     if agent_id is not None:
         try:
-            agent_config = load_agent_config(agent_id)
-            agent_config.last_dispatch = LastDispatchConfig(
+            config = load_config()
+            agent_ref = config.agents.profiles[agent_id]
+            workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+            dispatch = LastDispatchConfig(
                 channel=channel,
                 user_id=user_id,
                 session_id=session_id,
             )
-            save_agent_config(agent_id, agent_config)
+            _write_last_dispatch_state(workspace_dir, dispatch)
             return
         except Exception:
-            pass
+            logger.exception(
+                f"Failed to update last dispatch state for agent "
+                f"{agent_id}",
+            )
+            return
 
     # Legacy: update root config
     config = load_config()
@@ -762,6 +780,67 @@ def update_last_dispatch(
         session_id=session_id,
     )
     save_config(config)
+
+
+def _last_dispatch_state_path(workspace_dir: Path) -> Path:
+    """Return the runtime dispatch state path for one agent workspace."""
+    return workspace_dir / "state" / "last_dispatch.json"
+
+
+def _write_last_dispatch_state(
+    workspace_dir: Path,
+    dispatch: LastDispatchConfig,
+) -> None:
+    """Atomically persist one agent's latest dispatch target."""
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        write_json_atomic(
+            state_path,
+            dispatch.model_dump(exclude_none=True),
+        )
+
+
+def _migrate_last_dispatch_state(
+    workspace_dir: Path,
+    legacy_dispatch: object,
+) -> None:
+    """Publish legacy dispatch state without replacing valid new state."""
+    if legacy_dispatch is None:
+        return
+
+    dispatch = LastDispatchConfig.model_validate(legacy_dispatch)
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        if state_path.exists():
+            try:
+                LastDispatchConfig.model_validate(read_json(state_path))
+                return
+            except Exception:
+                logger.warning(
+                    f"Replacing invalid last dispatch state at {state_path}",
+                )
+        write_json_atomic(
+            state_path,
+            dispatch.model_dump(exclude_none=True),
+        )
+
+
+def read_last_dispatch(agent_id: str) -> Optional[LastDispatchConfig]:
+    """Read one agent's dedicated last-dispatch runtime state."""
+    try:
+        config = load_config()
+        agent_ref = config.agents.profiles[agent_id]
+        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+        state_path = _last_dispatch_state_path(workspace_dir)
+        with _last_dispatch_lock:
+            if not state_path.exists():
+                return None
+            return LastDispatchConfig.model_validate(read_json(state_path))
+    except Exception:
+        logger.exception(
+            f"Failed to read last dispatch state for agent {agent_id}",
+        )
+        return None
 
 
 # In-process cache for the current server's API address.
@@ -916,8 +995,9 @@ def sanitize_mcp_clients(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                f"Agent '{agent_id}': skipping invalid "
-                f"MCP client '{key}': {exc}",
+                f"Agent '{sanitize_log_value(agent_id)}': skipping invalid "
+                f"MCP client '{sanitize_log_value(key)}': "
+                f"{sanitize_log_value(exc)}",
             )
             bad_keys.append(key)
     for key in bad_keys:

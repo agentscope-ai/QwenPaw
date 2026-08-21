@@ -27,7 +27,7 @@ from .embedding_model import (
 )
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
-from ..model_factory import create_model_and_formatter
+from ..model_factory import create_model_and_formatter_async
 from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
 from ...config import load_config
@@ -63,6 +63,38 @@ INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
+
+
+def _is_successful_noop_inbox_result(name: str, response: Any) -> bool:
+    """Return whether a successful memory job made no meaningful change.
+
+    Unknown or incomplete metadata deliberately fails open so notification
+    behavior stays compatible across ReMe versions.  Failures are never
+    treated as no-ops because they remain useful to surface to the user.
+    """
+    if not bool(getattr(response, "success", False)):
+        return False
+
+    metadata = getattr(response, "metadata", None)
+    if not isinstance(metadata, dict):
+        return False
+
+    if name == "auto_memory":
+        return metadata.get("modified") is False
+
+    if name == "auto_dream":
+        dream = metadata.get("dream")
+        if not isinstance(dream, dict):
+            return False
+        # Require both fields to be present as empty lists.  This suppresses
+        # only a definitive no-op and avoids hiding results from older ReMe
+        # versions whose metadata contract may be less detailed.
+        return (
+            dream.get("changed_paths") == []
+            and dream.get("deleted_paths") == []
+        )
+
+    return False
 
 
 def _to_reme_session_id(session_id: str) -> str:
@@ -226,6 +258,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return build_memory_guidance_prompt(
             agent_config.language,
             memory_search_enabled=cfg.memory_search_enabled,
+            daily_dir=getattr(cfg, "daily_dir", "memory"),
+            digest_dir=getattr(cfg, "digest_dir", "digest"),
         )
 
     def get_memory_config(self) -> Any:
@@ -283,7 +317,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if self._reme is None:
             return
 
-        model, _formatter = create_model_and_formatter(self.agent_id)
+        model, _formatter = await create_model_and_formatter_async(
+            self.agent_id,
+        )
         await self._reme.update_component(
             "as_llm",
             "default",
@@ -499,14 +535,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             INBOX_EMITTED_METADATA_KEY,
         ):
             return False
-        if (
-            name == "auto_memory"
-            and isinstance(response_metadata, dict)
-            and response_metadata.get("modified") is False
-        ):
+        if _is_successful_noop_inbox_result(name, response):
             logger.info(
-                "ReMe job result inbox push skipped; no memory change: "
-                "agent_id=%s job_name=%s modified=False",
+                "ReMe job result inbox push skipped; successful no-op: "
+                "agent_id=%s job_name=%s",
                 self.agent_id,
                 name,
             )
@@ -1128,6 +1160,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             query=query,
             max_results=cap,
             text=text,
+            estimate_divisor=self._resolve_token_estimate_divisor(
+                agent_config,
+            ),
         )
         return {
             "query": query,

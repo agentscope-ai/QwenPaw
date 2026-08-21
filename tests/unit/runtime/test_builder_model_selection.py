@@ -17,4 +17,7 @@ def test_builder_delegates_model_resolution_to_factory() -> None:
         result = AgentBuilder().build_model(SimpleNamespace(id="agent-1"))
 
     assert result == (model, None)
-    create_model.assert_called_once_with(agent_id="agent-1")
+    create_model.assert_called_once_with(
+        agent_id="agent-1",
+        agent_config=SimpleNamespace(id="agent-1"),
+    )

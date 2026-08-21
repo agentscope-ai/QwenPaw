@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
 
 logger = logging.getLogger(__name__)
@@ -299,10 +300,10 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         logger.info(
             "/model switch: agent=%s session=%s provider=%s model=%s",
-            context.agent_id,
-            context.session_id,
-            provider_id,
-            model_id,
+            sanitize_log_value(context.agent_id),
+            sanitize_log_value(context.session_id),
+            sanitize_log_value(provider_id),
+            sanitize_log_value(model_id),
         )
 
         return (
@@ -344,9 +345,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         source: ModelSource = (
             "agent"
             if model_context.agent_slot
-            else "global"
-            if model_context.global_slot
-            else "none"
+            else "global" if model_context.global_slot else "none"
         )
         update_current_model_context(fallback_model, source)
         if fallback_model is None:
@@ -408,7 +407,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         # Find model
         model_info = None
-        for model in provider.models + provider.extra_models:
+        for model in provider.all_models():
             if model.id == model_id:
                 model_info = model
                 break

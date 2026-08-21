@@ -1,4 +1,5 @@
 import type { ModelSlotConfig } from "../../api/types";
+import type { ExtendedSession } from "../../stores/sessionListStore";
 
 const KEY_PREFIX = "qwenpaw-session-model-override:";
 
@@ -52,6 +53,41 @@ export function migratePendingModelOverride(
   if (!value) return;
   setPendingModelOverride(agentId, toSessionId, value);
   setPendingModelOverride(agentId, fromSessionId, null);
+}
+
+export function getPersistedModelOverride(
+  sessions: ExtendedSession[],
+  ...sessionIds: Array<string | undefined>
+): ModelSlotConfig | null {
+  const identities = new Set(sessionIds.filter((value) => Boolean(value)));
+  if (identities.size === 0) return null;
+
+  const session = sessions.find((item) =>
+    [item.id, item.realId, item.sessionId].some((value) =>
+      value ? identities.has(value) : false,
+    ),
+  );
+  const runtimeContext = session?.meta?.runtime_context;
+  if (!runtimeContext || typeof runtimeContext !== "object") return null;
+
+  const value = (runtimeContext as Record<string, unknown>).model_slot_override;
+  if (!value || typeof value !== "object") return null;
+  const slot = value as Record<string, unknown>;
+  return typeof slot.provider_id === "string" && typeof slot.model === "string"
+    ? { provider_id: slot.provider_id, model: slot.model }
+    : null;
+}
+
+export function modelSlotsEqual(
+  left: ModelSlotConfig | null | undefined,
+  right: ModelSlotConfig | null | undefined,
+): boolean {
+  return (
+    Boolean(left) &&
+    Boolean(right) &&
+    left?.provider_id === right?.provider_id &&
+    left?.model === right?.model
+  );
 }
 
 export function withPendingModelOverride(

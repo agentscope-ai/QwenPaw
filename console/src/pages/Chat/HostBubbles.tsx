@@ -32,7 +32,6 @@ import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntim
 import Images from "@agentscope-ai/chat/lib/DefaultCards/Images";
 import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
 import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
-import Audios from "@agentscope-ai/chat/lib/DefaultCards/Audios";
 import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
@@ -49,6 +48,8 @@ import type {
   ChatRequestData,
   ChatResponseData,
 } from "../../plugins/registry/types";
+import { DownloadableAudios } from "../../components/Chat/MediaDownload";
+import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -121,7 +122,7 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
             );
           case AgentScopeRuntimeContentType.AUDIO:
             return (
-              <Audios
+              <DownloadableAudios
                 key={index}
                 data={[
                   { src: formatMediaURL(item.audio_url || item.data) || "" },
@@ -196,6 +197,9 @@ function DefaultHostResponseCard({
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
       {contentAppend}
+      {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+        <ResponseArtifactList messages={messages} />
+      ) : null}
       <ResponseActions data={data} isLast={isLast} />
     </>
   );

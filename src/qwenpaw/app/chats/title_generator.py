@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
 from .models import ChatUpdate
@@ -80,11 +81,15 @@ async def generate_and_update_title(
     try:
         # Local imports keep this module's import cost low and avoid a
         # circular dependency between routers and the agents package.
-        from ...agents.model_factory import create_model_and_formatter
+        from ...agents.model_factory import create_model_and_formatter_async
         from ...config.config import load_agent_config
 
         try:
-            cfg = load_agent_config(workspace.agent_id).running
+            agent_config = await run_sync_io(
+                load_agent_config,
+                workspace.agent_id,
+            )
+            cfg = agent_config.running
         except (ValueError, AppBaseException) as exc:
             logger.debug(
                 "Title generation skipped: agent config unavailable (%s)",
@@ -103,8 +108,9 @@ async def generate_and_update_title(
             timeout = title_cfg.timeout_seconds
 
             try:
-                model, _ = create_model_and_formatter(
+                model, _ = await create_model_and_formatter_async(
                     agent_id=workspace.agent_id,
+                    agent_config=agent_config,
                 )
             except (ValueError, AppBaseException) as exc:
                 # Same exception shape as ``skills_stream.get_model``: missing

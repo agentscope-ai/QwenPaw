@@ -27,7 +27,12 @@ import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import type {
+  ProviderInfo,
+  ModelInfo,
+  ModelSlotConfig,
+  SkillSpec,
+} from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -56,6 +61,12 @@ import {
 import { wrapReplayFastForward } from "./replayFastForward";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import {
+  buildFallbackSystemMessage,
+  modelFallbackEventKey,
+  parseModelFallbackEvents,
+  type ModelFallbackEvent,
+} from "./fallbackNotice";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
@@ -72,6 +83,7 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 import {
@@ -105,7 +117,9 @@ import {
   withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import {
+  getPersistedModelOverride,
   migratePendingModelOverride,
+  modelSlotsEqual,
   setPendingModelOverride,
   withPendingModelOverride,
 } from "../../features/model-selection/pendingModelOverride";
@@ -135,6 +149,8 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
+  // One-line rationale the agent emitted before requesting this tool call.
+  reasoning?: string;
   // Approval-scope choice (console-only). When isGeneralized is true the
   // card offers Approve Pattern (similar) vs Approve Exact (exact).
   isGeneralized?: boolean;
@@ -212,6 +228,26 @@ import {
 // Background queue sender — keeps sending after ChatPage unmounts.
 // Supports multiple concurrent sessions: each session has its own controller.
 // ---------------------------------------------------------------------------
+
+async function clearConfirmedPendingModelOverride(
+  agentId: string,
+  pendingSessionId: string,
+  modelSlot: ModelSlotConfig,
+  ...sessionIds: Array<string | undefined>
+): Promise<void> {
+  if (useAgentStore.getState().selectedAgent !== agentId) return;
+  const nextSessions =
+    (await sessionApi.refreshSessionList()) as ExtendedSession[];
+  syncSessionsGlobal(nextSessions);
+  const persisted = getPersistedModelOverride(
+    nextSessions,
+    pendingSessionId,
+    ...sessionIds,
+  );
+  if (modelSlotsEqual(persisted, modelSlot)) {
+    setPendingModelOverride(agentId, pendingSessionId, null);
+  }
+}
 
 const _bgAborts = new Map<string, AbortController>();
 
@@ -457,9 +493,6 @@ async function startBackgroundQueue(
         if (projectRequest.projectDir) {
           setPendingProjectDirectory(queueAgentId, queueKey, null);
         }
-        if (modelRequest.modelSlot) {
-          setPendingModelOverride(queueAgentId, queueKey, null);
-        }
         fetchStarted = true;
 
         // Drain the stream; reaching `done` means the backend persisted the
@@ -470,6 +503,16 @@ async function startBackgroundQueue(
             const r = await reader.read();
             if (r.done) break;
           }
+        }
+        if (!ctrl.signal.aborted && modelRequest.modelSlot) {
+          await clearConfirmedPendingModelOverride(
+            queueAgentId,
+            queueKey,
+            modelRequest.modelSlot,
+            chatIdForStatus,
+            item.backendSessionId,
+            backendSessionId,
+          ).catch(() => {});
         }
         fetchSucceeded = !ctrl.signal.aborted;
       } catch {
@@ -1330,6 +1373,8 @@ export default function ChatPage() {
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
+  const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
+  const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
@@ -1732,6 +1777,7 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
+        reasoning: approval.reasoning,
         isGeneralized: approval.is_generalized,
         exactTarget: approval.exact_target,
         similarTarget: approval.similar_target,
@@ -2488,6 +2534,7 @@ export default function ChatPage() {
       // agent store and claims the new epoch synchronously with the change,
       // so in-flight results owned by the previous agent are stale by now.
 
+      useTurnUsageStore.getState().invalidateTurn();
       // Immediately block the queue sender. window.currentSessionId is a
       // global that still holds the PREVIOUS agent's session_id until the
       // SDK finishes reloading. Without this guard, scheduleNextSend could
@@ -2555,6 +2602,8 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      pendingFallbackEventsRef.current = [];
+      pendingFallbackEventKeysRef.current.clear();
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
@@ -2618,6 +2667,12 @@ export default function ChatPage() {
       const refreshModelAfterResponse = /^\/model(?:\s|$)/i.test(submittedText);
 
       const identity = sessionApi.getSessionIdentity();
+      const usageTurn = useTurnUsageStore
+        .getState()
+        .beginTurn(
+          selectedAgent,
+          identity.sessionId || session?.session_id || "",
+        );
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
         session_id: identity.sessionId || session?.session_id || "",
@@ -2642,7 +2697,7 @@ export default function ChatPage() {
 
       let projectSessionId: string | null = null;
       let appliedProjectDir: string | null = null;
-      let appliedModelOverride = false;
+      let appliedModelOverride: ModelSlotConfig | null = null;
 
       if (clientMessageId && Array.isArray(requestBody.input)) {
         const requestInput = [...requestBody.input] as Array<
@@ -2682,7 +2737,7 @@ export default function ChatPage() {
           backendChatId,
         );
         requestBody = modelRequest.requestBody;
-        appliedModelOverride = modelRequest.modelSlot !== null;
+        appliedModelOverride = modelRequest.modelSlot;
       } else if (Object.keys(backendControlsRef.current).length > 0) {
         const currentContext =
           requestBody.request_context &&
@@ -2742,15 +2797,20 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, () => {
-        if (appliedModelOverride && projectSessionId) {
-          void sessionApi
-            .refreshSessionList()
-            .then((nextSessions) => {
-              syncSessionsGlobal(nextSessions as ExtendedSession[]);
-              setPendingModelOverride(selectedAgent, projectSessionId, null);
-            })
-            .catch(() => {});
+      return wrapChatResponseUsageStream(response, chatRef, usageTurn, () => {
+        if (
+          response.ok &&
+          !refreshModelAfterResponse &&
+          appliedModelOverride &&
+          projectSessionId
+        ) {
+          void clearConfirmedPendingModelOverride(
+            selectedAgent,
+            projectSessionId,
+            appliedModelOverride,
+            backendChatId,
+            requestChatId,
+          ).catch(() => {});
         }
         if (refreshModelAfterResponse) {
           window.dispatchEvent(
@@ -3362,6 +3422,13 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          for (const event of parseModelFallbackEvents(payload)) {
+            const key = modelFallbackEventKey(event);
+            if (pendingFallbackEventKeysRef.current.has(key)) continue;
+            pendingFallbackEventKeysRef.current.add(key);
+            pendingFallbackEventsRef.current.push(event);
+          }
+
           if (payloadCompletesResponse(payload)) {
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
@@ -3382,6 +3449,27 @@ export default function ChatPage() {
                   content: [{ type: "text", text: trailing || errorMsg }],
                 },
               ];
+            }
+            if (pendingFallbackEventsRef.current.length > 0) {
+              const fallbackMessage = buildFallbackSystemMessage(
+                pendingFallbackEventsRef.current,
+                (event) =>
+                  t("chat.modelFallbackNotice", {
+                    from: `${event.from_provider_id || ""}:${
+                      event.from_model_id || ""
+                    }`.replace(/^:/, ""),
+                    to: `${event.to_provider_id || ""}:${
+                      event.to_model_id || ""
+                    }`.replace(/^:/, ""),
+                    reason: event.reason_kind || "unknown",
+                  }),
+              );
+              const output = Array.isArray(payload.output)
+                ? payload.output
+                : [];
+              payload.output = [fallbackMessage, ...output];
+              pendingFallbackEventsRef.current = [];
+              pendingFallbackEventKeysRef.current.clear();
             }
           }
 
@@ -3435,6 +3523,12 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          const usageTurn = useTurnUsageStore
+            .getState()
+            .beginTurn(
+              selectedAgent,
+              reconnectIdentity.sessionId || data.session_id,
+            );
           headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
@@ -3453,6 +3547,7 @@ export default function ChatPage() {
           return wrapChatResponseUsageStream(
             wrapReplayFastForward(response),
             chatRef,
+            usageTurn,
           );
         },
       },
@@ -3463,6 +3558,7 @@ export default function ChatPage() {
         // compose plugin slots otherwise.
         AgentScopeRuntimeRequestCard: HostRequestCard,
         AgentScopeRuntimeResponseCard: HostResponseCard,
+        Audios: DownloadableAudios,
         ...pluginCards,
       },
       actions: {
@@ -3697,6 +3793,7 @@ export default function ChatPage() {
               findingsCount={request.findingsCount}
               findingsSummary={request.findingsSummary}
               toolParams={request.toolParams}
+              reasoning={request.reasoning}
               createdAt={request.createdAt}
               timeoutSeconds={request.timeoutSeconds}
               sessionId={request.sessionId}

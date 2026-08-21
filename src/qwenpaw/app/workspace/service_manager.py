@@ -23,6 +23,8 @@ from typing import (
     Union,
 )
 
+from ...utils.logging import sanitize_log_value
+
 if TYPE_CHECKING:
     from .workspace import Workspace
 
@@ -50,6 +52,9 @@ class ServiceDescriptor:
         concurrent_init: Whether this can be initialized concurrently
         optional: If True, a failure during start logs but does not abort
             the workspace; the service is simply absent.
+        require_clean_stop: If True, a stop failure is propagated after the
+            manager has attempted to stop every service.  Use for services
+            whose live worker would conflict with a replacement workspace.
     """
 
     name: str
@@ -74,6 +79,7 @@ class ServiceDescriptor:
     priority: int = 100
     concurrent_init: bool = True
     optional: bool = False
+    require_clean_stop: bool = False
 
 
 class ServiceManager:
@@ -211,7 +217,8 @@ class ServiceManager:
 
         elapsed = time.perf_counter() - t0
         logger.debug(
-            f"All services started for {self.workspace.agent_id} "
+            "All services started for "
+            f"{sanitize_log_value(self.workspace.agent_id)} "
             f"in {elapsed:.3f}s",
         )
 
@@ -253,21 +260,24 @@ class ServiceManager:
             if elapsed > 0.05:
                 logger.debug(
                     f"Service '{name}' ready for "
-                    f"{self.workspace.agent_id} ({elapsed:.3f}s)",
+                    f"{sanitize_log_value(self.workspace.agent_id)} "
+                    f"({elapsed:.3f}s)",
                 )
 
         except Exception as e:
             if descriptor.optional:
                 logger.warning(
                     f"Optional service '{name}' failed to start for "
-                    f"{self.workspace.agent_id} (continuing without it): {e}",
+                    f"{sanitize_log_value(self.workspace.agent_id)} "
+                    f"(continuing without it): {sanitize_log_value(e)}",
                 )
                 self.reused_services.discard(name)
                 self.services.pop(name, None)
                 return
             logger.exception(
                 f"Failed to start service '{name}' "
-                f"for {self.workspace.agent_id}: {e}",
+                f"for {sanitize_log_value(self.workspace.agent_id)}: "
+                f"{sanitize_log_value(e)}",
             )
             raise
 
@@ -399,7 +409,7 @@ class ServiceManager:
 
         logger.debug(
             f"Service '{descriptor.name}' started for "
-            f"{self.workspace.agent_id}",
+            f"{sanitize_log_value(self.workspace.agent_id)}",
         )
 
     async def stop_all(self, final: bool = False) -> None:
@@ -409,8 +419,9 @@ class ServiceManager:
             final: If True, stop ALL services including reusable ones.
                    If False (default), skip reusable services (for reload).
 
-        Reused services are skipped. Errors are logged but don't stop
-        the shutdown process.
+        Reused services are skipped. Errors are logged while every service is
+        attempted; failures from ``require_clean_stop`` services are then
+        propagated so the workspace cannot commit a false stopped state.
         """
         logger.debug(
             f"Stopping {len(self.services)} services "
@@ -418,6 +429,7 @@ class ServiceManager:
         )
 
         priority_groups = self._group_by_priority()
+        clean_stop_errors: List[tuple[str, Exception]] = []
 
         # Stop in reverse priority order
         for priority in sorted(priority_groups.keys(), reverse=True):
@@ -438,6 +450,16 @@ class ServiceManager:
                     logger.warning(
                         f"Error stopping service '{desc.name}': {result}",
                     )
+                    if desc.require_clean_stop:
+                        clean_stop_errors.append((desc.name, result))
+
+        if clean_stop_errors:
+            details = "; ".join(
+                f"{name}: {error}" for name, error in clean_stop_errors
+            )
+            raise RuntimeError(
+                f"Required services did not stop cleanly: {details}",
+            )
 
     async def _stop_service(
         self,

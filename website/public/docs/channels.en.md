@@ -543,6 +543,9 @@ NapCat  ──reverse WS──▶  QwenPaw (:6199/ws)
 | `ws_host`                | string | `127.0.0.1` | WebSocket server listen address. Loopback by default so the port is not reachable from the network       |
 | `ws_port`                | int    | `6199`      | WebSocket server listen port                                                                             |
 | `access_token`           | string | `""`        | Shared token sent by the OneBot client. **Required when `ws_host` is not a loopback address**            |
+| `media_base64`           | bool   | `false`     | Encode local outbound media as Base64 before sending it to the OneBot client                             |
+| `media_base64_max_mb`    | int    | `10`        | Maximum size in MB for Base64-encoded outbound media; larger files use their original path               |
+| `media_download_max_mb`  | int    | `50`        | Maximum size in MB for each remote inbound media file downloaded from the OneBot client                  |
 | `share_session_in_group` | bool   | `false`     | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
 ### Security
@@ -570,18 +573,6 @@ lets anyone drive your agent.
 > `0.0.0.0`, **set `access_token`**, and point the NapCat reverse WS URL at
 > `ws://qwenpaw:6199/ws` (using the service name). Do not publish port 6199 to
 > the host, or publish it as `127.0.0.1:6199:6199` so it stays local.
-
-**Multimodal support:**
-
-| Type  | Receive | Send |
-| ----- | ------- | ---- |
-| Text  | ✓       | ✓    |
-| Image | ✓       | ✓    |
-| Audio | 🚧      | ✓    |
-| Video | 🚧      | ✓    |
-| File  | ✓       | ✓    |
-
-> **Note:** Audio and video are received at the channel level, but require QwenPaw's transcription provider (`transcription_provider_type`) to be configured for the LLM to process them. Without transcription, voice messages are shown as placeholders.
 
 ---
 
@@ -907,17 +898,19 @@ Find `channels.matrix` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
   "bot_prefix": "[BOT]",
   "homeserver": "https://matrix.org",
   "user_id": "@mybot:matrix.org",
-  "access_token": "syt_..."
+  "access_token": "syt_...",
+  "share_session_in_group": true
 }
 ```
 
 **Matrix-specific fields:**
 
-| Field          | Type   | Default         | Description                                        |
-| -------------- | ------ | --------------- | -------------------------------------------------- |
-| `homeserver`   | string | `""` (required) | Matrix server address (e.g., `https://matrix.org`) |
-| `user_id`      | string | `""` (required) | Bot User ID (e.g., `@mybot:matrix.org`)            |
-| `access_token` | string | `""` (required) | Bot access token (starts with `syt_`)              |
+| Field                    | Type   | Default         | Description                                                                                                   |
+| ------------------------ | ------ | --------------- | ------------------------------------------------------------------------------------------------------------- |
+| `homeserver`             | string | `""` (required) | Matrix server address (e.g., `https://matrix.org`)                                                            |
+| `user_id`                | string | `""` (required) | Bot User ID (e.g., `@mybot:matrix.org`)                                                                       |
+| `access_token`           | string | `""` (required) | Bot access token (starts with `syt_`)                                                                         |
+| `share_session_in_group` | bool   | `true`          | If `true`, all members in a group room share one session; if `false`, each member gets an independent session |
 
 Save the file; the channel will reload automatically if QwenPaw is already running.
 
@@ -930,6 +923,7 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 - Matrix supports multimodal messages (text, images, videos, audio, and files). Attachments are received via `mxc://` media URLs and uploaded to the homeserver, then sent as native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - Only rooms the bot has already joined are monitored. Invite the bot to a room before sending messages.
 - For self-hosted homeservers, set `homeserver` to your server's base URL (e.g. `https://matrix.example.com`).
+- Group rooms share one session by default to preserve the previous behavior. Set `share_session_in_group` to `false` to give each member an independent conversation context. Direct messages keep their existing room-based session identity.
 
 ---
 
@@ -1693,6 +1687,7 @@ done). **✗** = not supported (not possible on this channel).
 | Slack      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| OneBot     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeCom      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -1717,6 +1712,9 @@ Notes:
   possible on this channel).
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;
   currently text + link-only.
+- **OneBot**: Receives and localizes images, video, audio, and files; sends
+  media through native OneBot segments. Local outbound media can optionally
+  be encoded as Base64.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports receiving and sending text, image, voice, video, and file.
 - **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending supports text, images, files, and videos; audio files (e.g., MP3) are not supported due to iLink API limitations.

@@ -70,15 +70,25 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **其他配置：**
 
-| 变量                                 | 默认值         | 说明                                                            |
-| ------------------------------------ | -------------- | --------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀        |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                       |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _（自动检测）_ | 控制台前端静态文件路径                                          |
+| 变量                                   | 默认值         | 说明                                                                                 |
+| -------------------------------------- | -------------- | ------------------------------------------------------------------------------------ |
+| `QWENPAW_LOG_LEVEL`                    | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`）                      |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀                             |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                                            |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`       | 触发记忆压缩的字符阈值                                                               |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`            | 压缩后保留的最近消息数                                                               |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                                           |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`           | `view_image` 远程图片下载上限（MiB）。接受任意正整数；非法值、`0` 或负数回退到默认值 |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _（自动检测）_ | 控制台前端静态文件路径                                                               |
+
+**LLM 流式超时：**
+
+| 变量                                       | 默认值 | 说明                                                                               |
+| ------------------------------------------ | ------ | ---------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`   | 等待首个携带内容的 chunk 时，累计等待上游流的最长秒数；设为 `0` 时禁用首段超时     |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`   | 首个内容到达后，连续携带内容的 chunk 之间累计等待上游流的最长秒数；设为 `0` 时禁用 |
+
+这两个超时只累计等待上游流的时间，不包含下游消费者背压造成的暂停。空控制 chunk 不会切换阶段或刷新预算。环境变量在进程启动时读取，修改后需要重启 QwenPaw。
 
 **安全与认证：**
 
@@ -98,6 +108,8 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 1. **全局配置** - `~/.qwenpaw/config.json`（提供商、环境变量、智能体列表）
 2. **智能体配置** - `~/.qwenpaw/workspaces/{agent_id}/agent.json`（每个智能体的独立配置）
+
+QwenPaw 会在单个服务进程内串行写入智能体配置，并拒绝基于旧磁盘快照的保存。原子文件替换可避免出现不完整 JSON。外部编辑器不参与该进程锁，因此在最终校验与替换之间发生的外部修改不属于严格一致性保证；收到 409 冲突后，请重新加载配置再重试。
 
 ### 全局 config.json
 
@@ -122,26 +134,20 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
     "port": 8088
   },
   "show_tool_details": true,
-  "user_timezone": "Asia/Shanghai",
-  "last_dispatch": {
-    "channel": "console",
-    "user_id": "user1",
-    "session_id": "session123"
-  }
+  "user_timezone": "Asia/Shanghai"
 }
 ```
 
 **全局 config.json 字段说明：**
 
-| 字段                  | 类型           | 默认值         | 说明                                             |
-| --------------------- | -------------- | -------------- | ------------------------------------------------ |
-| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                              |
-| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id）            |
-| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址                |
-| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口                    |
-| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情            |
-| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`）            |
-| `last_dispatch`       | object \| null | `null`         | 最近一次消息分发目标（用于心跳 `target="last"`） |
+| 字段                  | 类型           | 默认值         | 说明                                  |
+| --------------------- | -------------- | -------------- | ------------------------------------- |
+| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                   |
+| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id） |
+| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址     |
+| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口         |
+| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情 |
+| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`） |
 
 **`agents.profiles[agent_id]`** 引用字段：
 
@@ -237,8 +243,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -378,8 +383,8 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `resource_dir`                   | string      | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录                                                    |
 | `daily_dir`                      | string      | `"memory"`       | 每日记忆子目录                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | digest 记忆子目录                                                                                 |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否将 Auto-Memory 结果推送到收件箱                                                               |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | 是否将 Auto-Dream 结果推送到收件箱                                                                |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否在 Auto-Memory 实际改变记忆或执行失败时推送到收件箱                                           |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | 是否在 Auto-Dream 实际改变记忆或执行失败时推送到收件箱                                            |
 | `daily_paper_inbox_push_enabled` | bool        | `true`           | 是否将 Daily Paper 结果推送到收件箱                                                               |
 | `auto_memory_interval`           | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
 | `dream_cron_enabled`             | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
@@ -521,9 +526,10 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 ---
 
-#### `last_dispatch` — 最近一次消息分发目标
+#### `state/last_dispatch.json` — 最近一次消息分发状态
 
 记录最近用户消息来源，用于心跳 `target = "last"` 时的消息发送。
+该运行状态位于智能体工作区，不属于 `agent.json` 配置。
 
 | 字段         | 类型   | 默认值 | 说明                                     |
 | ------------ | ------ | ------ | ---------------------------------------- |
@@ -531,7 +537,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `user_id`    | string | `""`   | 该频道中的用户 ID                        |
 | `session_id` | string | `""`   | 会话/对话 ID                             |
 
-自动更新，无需手动配置。
+系统以原子写方式自动更新，无需手动配置。
 
 ---
 

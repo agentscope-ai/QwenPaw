@@ -9,14 +9,19 @@ the local-file (``file://`` / ``url``) and in-memory (``base64``) source
 shapes, for both wire formats.
 """
 
-# pylint: disable=protected-access
-from agentscope.message import DataBlock, URLSource
+# pylint: disable=protected-access,mixed-line-endings
+from typing import Any, Callable
 
+import pytest
+from agentscope.message import DataBlock, Msg, URLSource
+
+from qwenpaw.agents import model_factory
 from qwenpaw.agents.model_factory import (
     MAX_INLINE_MEDIA_BYTES,
     _format_anthropic_video_data_block,
     _format_openai_video_block,
     _replace_video_placeholders,
+    _video_oversize_placeholder,
 )
 
 
@@ -27,21 +32,67 @@ def _write_video(tmp_path, name: str, size: int) -> str:
     return f"file://{path}"
 
 
+async def _format_prepared_local_video(
+    formatter: Callable[..., Any],
+    block: Any,
+    base_formatter_class: type,
+    *,
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+    **kwargs: Any,
+) -> Any:
+    """Call a pure formatter helper after async media preparation."""
+    is_dict_block = isinstance(block, dict)
+    if is_dict_block:
+        source = block["source"]
+        block = DataBlock(
+            source=URLSource(
+                url=source["url"],
+                media_type=source.get("media_type", "video/mp4"),
+            ),
+        )
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[block],
+    )
+    await model_factory._prepare_media_sources(
+        [msg],
+        base_formatter_class,
+        max_bytes=max_bytes,
+    )
+    prepared = msg.content[0]
+    if getattr(prepared, "type", None) == "text":
+        return prepared.model_dump()
+    if is_dict_block:
+        prepared = prepared.model_dump()
+    return formatter(prepared, **kwargs)
+
+
 # --------------------------------------------------------------------- OpenAI
 
 
-def test_openai_url_video_under_cap_is_inlined(tmp_path) -> None:
-    url = _write_video(tmp_path, "small.mp4", MAX_INLINE_MEDIA_BYTES)
+@pytest.mark.asyncio
+async def test_openai_url_video_under_cap_is_inlined(tmp_path) -> None:
+    url = _write_video(tmp_path, "small.mp4", MAX_INLINE_MEDIA_BYTES - 1024)
     block = {"source": {"type": "url", "url": url}}
-    out = _format_openai_video_block(block)
+    out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIChatFormatter,
+    )
     assert out["type"] == "video_url"
     assert out["video_url"]["url"].startswith("data:video/mp4;base64,")
 
 
-def test_openai_url_video_over_cap_is_placeholder(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_openai_url_video_over_cap_is_placeholder(tmp_path) -> None:
     url = _write_video(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
     block = {"source": {"type": "url", "url": url}}
-    out = _format_openai_video_block(block)
+    out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIChatFormatter,
+    )
     assert out["type"] == "text"
     assert "video omitted from model context" in out["text"]
     assert str(MAX_INLINE_MEDIA_BYTES + 1) in out["text"]
@@ -90,18 +141,30 @@ def test_openai_remote_url_video_is_passed_through() -> None:
 # ------------------------------------------------------------------ Anthropic
 
 
-def test_anthropic_url_video_over_cap_is_placeholder(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_anthropic_url_video_over_cap_is_placeholder(tmp_path) -> None:
     url = _write_video(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
     block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
-    out = _format_anthropic_video_data_block(block)
+    assert model_factory.AnthropicChatFormatter is not None
+    out = await _format_prepared_local_video(
+        _format_anthropic_video_data_block,
+        block,
+        model_factory.AnthropicChatFormatter,
+    )
     assert out["type"] == "text"
     assert "video omitted from model context" in out["text"]
 
 
-def test_anthropic_url_video_under_cap_is_inlined(tmp_path) -> None:
-    url = _write_video(tmp_path, "small.mp4", MAX_INLINE_MEDIA_BYTES)
+@pytest.mark.asyncio
+async def test_anthropic_url_video_under_cap_is_inlined(tmp_path) -> None:
+    url = _write_video(tmp_path, "small.mp4", MAX_INLINE_MEDIA_BYTES - 1024)
     block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
-    out = _format_anthropic_video_data_block(block)
+    assert model_factory.AnthropicChatFormatter is not None
+    out = await _format_prepared_local_video(
+        _format_anthropic_video_data_block,
+        block,
+        model_factory.AnthropicChatFormatter,
+    )
     assert out["type"] == "video"
     assert out["source"]["type"] == "base64"
     assert out["source"]["media_type"] == "video/mp4"
@@ -176,10 +239,16 @@ def test_openai_response_api_remote_url() -> None:
     assert out["video_url"] == "https://example.com/v.mp4"
 
 
-def test_openai_response_api_local_file(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_openai_response_api_local_file(tmp_path) -> None:
     url = _write_video(tmp_path, "small.mp4", 64)
     block = {"source": {"type": "url", "url": url}}
-    out = _format_openai_video_block(block, response_api=True)
+    out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIResponseFormatter,
+        response_api=True,
+    )
     assert out["type"] == "input_video"
     assert out["video_url"].startswith("data:video/mp4;base64,")
 
@@ -304,3 +373,117 @@ def test_replace_placeholders_non_match_untouched() -> None:
     item = _first_content_item(msgs)
     assert item["type"] == "input_text"
     assert item["text"] == "hello"
+
+
+# ------------------------------------------------------- configurable cap
+
+
+@pytest.mark.asyncio
+async def test_openai_url_video_over_default_but_under_custom_cap(
+    tmp_path,
+) -> None:
+    """A 3 MB video exceeds a 2 MB default but fits a 50 MB provider cap."""
+    url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
+    block = {"source": {"type": "url", "url": url}}
+
+    # Default 2 MB cap -> placeholder.
+    default_out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIChatFormatter,
+    )
+    assert default_out["type"] == "text"
+    assert "video omitted from model context" in default_out["text"]
+
+    # Provider-raised cap -> inlined (issue #7060).
+    custom_out = await _format_prepared_local_video(
+        _format_openai_video_block,
+        block,
+        model_factory.OpenAIChatFormatter,
+        max_bytes=50 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video_url"
+    assert custom_out["video_url"]["url"].startswith(
+        "data:video/mp4;base64,",
+    )
+
+
+def test_openai_base64_video_honors_custom_cap() -> None:
+    """base64 sources must also respect a configurable cap."""
+    import base64
+
+    data = base64.b64encode(b"\x00" * (3 * 1024 * 1024)).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+
+    default_out = _format_openai_video_block(block)
+    assert default_out["type"] == "text"
+
+    custom_out = _format_openai_video_block(
+        block,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video_url"
+
+
+def test_openai_base64_video_zero_cap_disables_capping() -> None:
+    """``max_inline_media_bytes <= 0`` must disable the cap (issue #7060)."""
+    import base64
+
+    data = base64.b64encode(b"\x00" * (3 * 1024 * 1024)).decode()
+    block = {
+        "source": {
+            "type": "base64",
+            "media_type": "video/mp4",
+            "data": data,
+        },
+    }
+
+    # Default cap -> placeholder.
+    assert _format_openai_video_block(block)["type"] == "text"
+
+    # Zero cap -> no capping, video inlined.
+    out = _format_openai_video_block(block, max_inline_media_bytes=0)
+    assert out["type"] == "video_url"
+    assert out["video_url"]["url"].startswith("data:video/mp4;base64,")
+
+
+@pytest.mark.asyncio
+async def test_anthropic_url_video_honors_custom_cap(tmp_path) -> None:
+    """Anthropic path: provider cap must override the hardcoded 2 MB."""
+    url = _write_video(tmp_path, "mid.mp4", 3 * 1024 * 1024)
+    block = DataBlock(source=URLSource(url=url, media_type="video/mp4"))
+
+    default_out = await _format_prepared_local_video(
+        _format_anthropic_video_data_block,
+        block,
+        model_factory.AnthropicChatFormatter,
+    )
+    assert default_out["type"] == "text"
+    assert "video omitted from model context" in default_out["text"]
+
+    custom_out = await _format_prepared_local_video(
+        _format_anthropic_video_data_block,
+        block,
+        model_factory.AnthropicChatFormatter,
+        max_bytes=50 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert custom_out["type"] == "video"
+    assert custom_out["source"]["type"] == "base64"
+
+
+def test_oversize_placeholder_reports_custom_limit() -> None:
+    """The placeholder text must echo the configurable cap, not 2 MB."""
+    out = _video_oversize_placeholder(
+        3 * 1024 * 1024,
+        max_inline_media_bytes=50 * 1024 * 1024,
+    )
+    assert "52428800 bytes" in out["text"]
+    assert "2097152" not in out["text"]

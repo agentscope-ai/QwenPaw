@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  getPersistedModelOverride,
   getPendingModelOverride,
   migratePendingModelOverride,
+  modelSlotsEqual,
   setPendingModelOverride,
   withPendingModelOverride,
 } from "./pendingModelOverride";
+import type { ExtendedSession } from "../../stores/sessionListStore";
 
 describe("pendingModelOverride", () => {
   beforeEach(() => sessionStorage.clear());
@@ -62,5 +65,49 @@ describe("pendingModelOverride", () => {
     expect(
       withPendingModelOverride({ input: [] }, "agent-a", "new", undefined),
     ).toEqual({ requestBody: { input: [] }, modelSlot: null });
+  });
+
+  it("finds a persisted override through any session identity", () => {
+    const sessions = [
+      {
+        id: "display-id",
+        name: "Chat",
+        messages: [],
+        realId: "backend-id",
+        sessionId: "channel-session-id",
+        meta: {
+          runtime_context: {
+            model_slot_override: {
+              provider_id: "openai",
+              model: "gpt-4o",
+            },
+          },
+        },
+      } as ExtendedSession,
+    ];
+
+    expect(getPersistedModelOverride(sessions, "backend-id")).toEqual({
+      provider_id: "openai",
+      model: "gpt-4o",
+    });
+    expect(getPersistedModelOverride(sessions, "channel-session-id")).toEqual({
+      provider_id: "openai",
+      model: "gpt-4o",
+    });
+  });
+
+  it("only treats the exact persisted slot as confirmed", () => {
+    expect(
+      modelSlotsEqual(
+        { provider_id: "openai", model: "gpt-4o" },
+        { provider_id: "openai", model: "gpt-4o" },
+      ),
+    ).toBe(true);
+    expect(
+      modelSlotsEqual(
+        { provider_id: "openai", model: "gpt-4o" },
+        { provider_id: "openai", model: "gpt-4.1" },
+      ),
+    ).toBe(false);
   });
 });

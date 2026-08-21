@@ -5,6 +5,7 @@
 
 import asyncio
 import locale
+import logging
 import os
 import re
 import signal
@@ -32,8 +33,145 @@ from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
 
+_logger = logging.getLogger(__name__)
+
 _SHELL_OUTPUT_MAX_BYTES = 1024 * 1024
 _SHELL_OUTPUT_DRAIN_GRACE_SECS = 10.0
+_WINDOWS_PROCESS_REAP_SECS = 0.5
+_WINDOWS_PROCESS_KILL_REAP_SECS = 5.0
+
+# Maximum combined disk usage for stdout + stderr temp files (default 10 MB).
+# When exceeded during the poll loop the process tree is killed.
+# Configurable via environment variable QWENPAW_SHELL_MAX_OUTPUT_BYTES.
+_SHELL_MAX_DISK_BYTES: int = int(
+    os.environ.get("QWENPAW_SHELL_MAX_OUTPUT_BYTES", 10 * 1024 * 1024),
+)
+
+
+# ─── Windows Job Object helpers ──────────────────────────────────────────
+# A Job Object ensures that ALL descendants (even those that break the PID
+# tree via CREATE_NEW_PROCESS_GROUP or CREATE_BREAKAWAY_FROM_JOB) are killed
+# reliably on timeout/cancel via TerminateJobObject.
+
+
+def _create_job_object_win32():
+    """Create a Windows Job Object for child process containment.
+
+    Returns the job handle, or None on failure (graceful degradation).
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        import ctypes.wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+        h_job = kernel32.CreateJobObjectW(None, None)
+        if not h_job:
+            return None
+
+        # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", ctypes.wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", ctypes.wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", ctypes.wintypes.DWORD),
+                ("SchedulingClass", ctypes.wintypes.DWORD),
+            ]
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_uint64),
+                ("WriteOperationCount", ctypes.c_uint64),
+                ("OtherOperationCount", ctypes.c_uint64),
+                ("ReadTransferCount", ctypes.c_uint64),
+                ("WriteTransferCount", ctypes.c_uint64),
+                ("OtherTransferCount", ctypes.c_uint64),
+            ]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo", IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = 0x2000
+        # JobObjectExtendedLimitInformation = 9
+        ok = kernel32.SetInformationJobObject(
+            h_job,
+            9,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        )
+        if not ok:
+            kernel32.CloseHandle(h_job)
+            return None
+        return h_job
+    except Exception as e:
+        _logger.debug(
+            "Job object creation failed (degrading gracefully): %s",
+            e,
+        )
+        return None
+
+
+def _assign_process_to_job_win32(job_handle, proc_handle) -> bool:
+    """Assign a process to an existing job object. Returns True on success."""
+    if job_handle is None:
+        return False
+    try:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+        return bool(kernel32.AssignProcessToJobObject(job_handle, proc_handle))
+    except Exception:
+        return False
+
+
+def _terminate_job_win32(job_handle) -> None:
+    """Terminate all processes in the job object."""
+    if job_handle is None:
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+        kernel32.TerminateJobObject(job_handle, 1)
+    except Exception as e:
+        _logger.warning("TerminateJobObject failed: %s", e)
+
+
+def _close_job_handle_win32(job_handle) -> None:
+    """Close the job object handle (if KILL_ON_JOB_CLOSE is set, this
+    also terminates all remaining members)."""
+    if job_handle is None:
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+        kernel32.CloseHandle(job_handle)
+    except Exception:
+        pass
+
+
+def _get_process_handle_from_popen(proc: subprocess.Popen):
+    """Extract the native Windows process handle from a Popen object."""
+    if sys.platform != "win32":
+        return None
+    # CPython exposes _handle on Windows Popen objects
+    return getattr(proc, "_handle", None)
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -41,16 +179,31 @@ def _kill_process_tree_win32(pid: int) -> None:
 
     Uses ``taskkill /F /T`` which forcefully terminates the entire process
     tree, including grandchild processes that ``Popen.kill()`` would miss.
+    Logs failures instead of silently swallowing them.
     """
     try:
-        subprocess.call(
+        result = subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(pid)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             timeout=10,
+            check=False,
         )
-    except Exception:
-        pass
+        if result.returncode != 0:
+            stderr_text = result.stderr.decode(
+                "utf-8",
+                errors="replace",
+            ).strip()
+            _logger.debug(
+                "taskkill /F /T /PID %d returned %d: %s",
+                pid,
+                result.returncode,
+                stderr_text,
+            )
+    except subprocess.TimeoutExpired:
+        _logger.warning("taskkill /F /T /PID %d timed out", pid)
+    except OSError as e:
+        _logger.warning("taskkill /F /T /PID %d failed: %s", pid, e)
 
 
 def _windows_shell_creationflags() -> int:
@@ -223,19 +376,35 @@ def _open_windows_temp_output(prefix: str) -> tuple[Any, BinaryIO]:
     sharing and marks the file for automatic deletion when the final inherited
     handle closes.  The separate reader has its own file position, so reading
     captured output cannot disturb a descendant that still holds the writer.
+
+    We avoid ``NamedTemporaryFile(delete=True)`` because on Python < 3.12 its
+    ``close()`` calls ``os.unlink()`` which removes the directory entry even
+    while inherited handles keep the file alive — breaking the delete-on-close
+    contract we rely on.
     """
-    # The handle must outlive this helper and be inherited by the child.
-    # pylint: disable-next=consider-using-with
-    writer = tempfile.NamedTemporaryFile(
-        mode="w+b",
-        prefix=prefix,
-        delete=True,
-    )
+    # Create the temp file path without auto-delete; we rely solely on
+    # O_TEMPORARY (FILE_FLAG_DELETE_ON_CLOSE) for cleanup.
+    fd, name = tempfile.mkstemp(prefix=prefix)
+    os.close(fd)
+    writer = None
+    writer_fd: int | None = None
     reader_fd: int | None = None
     try:
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-        flags |= getattr(os, "O_TEMPORARY", 0)
-        reader_fd = os.open(writer.name, flags)
+        w_flags = (
+            os.O_RDWR
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_TEMPORARY", 0)
+        )
+        writer_fd = os.open(name, w_flags)
+        writer = os.fdopen(writer_fd, "w+b")
+        writer_fd = None
+
+        r_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_TEMPORARY", 0)
+        )
+        reader_fd = os.open(name, r_flags)
         reader = os.fdopen(reader_fd, "rb")
         reader_fd = None
         return writer, reader
@@ -245,8 +414,18 @@ def _open_windows_temp_output(prefix: str) -> tuple[Any, BinaryIO]:
                 os.close(reader_fd)
             except OSError:
                 pass
+        if writer_fd is not None:
+            try:
+                os.close(writer_fd)
+            except OSError:
+                pass
+        if writer is not None:
+            try:
+                writer.close()
+            except OSError:
+                pass
         try:
-            writer.close()
+            os.unlink(name)
         except OSError:
             pass
         raise
@@ -337,7 +516,42 @@ def _extract_powershell_command(cmd: str) -> tuple[str | None, str]:
     return ps_exe, inner
 
 
-# pylint: disable=too-many-branches, too-many-statements
+def _check_output_disk_size(
+    stdout_path: str | None,
+    stderr_path: str | None,
+    stdout_reader: BinaryIO | None,
+    stderr_reader: BinaryIO | None,
+) -> int:
+    """Return combined byte size of stdout + stderr temp output on disk.
+
+    Uses fstat on readers (Windows) or stat on paths (POSIX) to avoid
+    opening new file descriptors.
+    """
+    total = 0
+    if stdout_reader is not None:
+        try:
+            total += os.fstat(stdout_reader.fileno()).st_size
+        except OSError:
+            pass
+    elif stdout_path is not None:
+        try:
+            total += os.stat(stdout_path).st_size
+        except OSError:
+            pass
+    if stderr_reader is not None:
+        try:
+            total += os.fstat(stderr_reader.fileno()).st_size
+        except OSError:
+            pass
+    elif stderr_path is not None:
+        try:
+            total += os.stat(stderr_path).st_size
+        except OSError:
+            pass
+    return total
+
+
+# pylint: disable=too-many-branches, too-many-statements, too-many-locals
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
@@ -402,6 +616,8 @@ def _execute_subprocess_sync(
     stderr_file = None
     stdout_reader = None
     stderr_reader = None
+    proc: subprocess.Popen | None = None
+    job_handle = None
 
     try:
         if shell_executable and _is_powershell(shell_executable):
@@ -445,6 +661,14 @@ def _execute_subprocess_sync(
             creationflags=_windows_shell_creationflags(),
         )
 
+        # Assign to a Job Object for reliable tree kill (Windows only).
+        # Degradation: if this fails, taskkill is still used as fallback.
+        if sys.platform == "win32":
+            job_handle = _create_job_object_win32()
+            proc_handle = _get_process_handle_from_popen(proc)
+            if job_handle and proc_handle:
+                _assign_process_to_job_win32(job_handle, proc_handle)
+
         # Parent copies are no longer needed — the child inherited its own
         # handles via CreateProcess.  Closing here avoids holding the files
         # open longer than necessary.
@@ -455,10 +679,13 @@ def _execute_subprocess_sync(
 
         timed_out = False
         stopped = False
+        output_exceeded = False
         deadline = (
             None if timeout is None else time.monotonic() + max(0.0, timeout)
         )
         poll_secs = 0.2
+        # Check disk size every ~1s (every 5 poll iterations)
+        disk_check_counter = 0
         while True:
             if stop_event is not None and stop_event.is_set():
                 stopped = True
@@ -475,16 +702,47 @@ def _execute_subprocess_sync(
                 proc.wait(timeout=wait_for)
                 break
             except subprocess.TimeoutExpired:
-                continue
+                pass
 
-        if timed_out or stopped:
+            # Periodic disk usage check for output temp files
+            disk_check_counter += 1
+            if disk_check_counter >= 5:
+                disk_check_counter = 0
+                disk_size = _check_output_disk_size(
+                    stdout_path,
+                    stderr_path,
+                    stdout_reader,
+                    stderr_reader,
+                )
+                if disk_size > _SHELL_MAX_DISK_BYTES:
+                    _logger.warning(
+                        "Shell output exceeded disk cap (%d > %d bytes), "
+                        "killing process tree (pid=%d)",
+                        disk_size,
+                        _SHELL_MAX_DISK_BYTES,
+                        proc.pid,
+                    )
+                    output_exceeded = True
+                    break
+
+        if timed_out or stopped or output_exceeded:
+            # Prefer job object termination (kills all descendants)
+            if job_handle:
+                _terminate_job_win32(job_handle)
             _kill_process_tree_win32(proc.pid)
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=_WINDOWS_PROCESS_REAP_SECS)
             except subprocess.TimeoutExpired:
                 try:
                     proc.kill()
                 except OSError:
+                    pass
+                try:
+                    # Bounded: a child stuck in uninterruptible kernel
+                    # I/O must cost a leaked handle, not a worker thread
+                    # parked forever.
+                    proc.wait(timeout=_WINDOWS_PROCESS_KILL_REAP_SECS)
+                except (OSError, subprocess.TimeoutExpired):
                     pass
 
         if stdout_reader is not None and stderr_reader is not None:
@@ -509,6 +767,16 @@ def _execute_subprocess_sync(
         if stopped:
             # Async side replaces with cancel/timeout stderr via cancel_reason.
             return -1, stdout_str, stderr_str
+        if output_exceeded:
+            cap_msg = (
+                f"Command output exceeded the disk cap of "
+                f"{_SHELL_MAX_DISK_BYTES} bytes and was terminated."
+            )
+            if stderr_str:
+                stderr_str = f"{stderr_str}\n{cap_msg}"
+            else:
+                stderr_str = cap_msg
+            return -1, stdout_str, stderr_str
         if timed_out:
             timeout_msg = (
                 f"Command execution exceeded the timeout of {timeout} seconds."
@@ -523,8 +791,18 @@ def _execute_subprocess_sync(
         return returncode, stdout_str, stderr_str
 
     except Exception as e:
+        # Kill child if it was spawned but an unexpected error occurred
+        if proc is not None:
+            try:
+                if job_handle:
+                    _terminate_job_win32(job_handle)
+                _kill_process_tree_win32(proc.pid)
+                proc.kill()
+            except OSError:
+                pass
         return -1, "", str(e)
     finally:
+        _close_job_handle_win32(job_handle)
         for f in (
             stdout_file,
             stderr_file,
@@ -540,8 +818,12 @@ def _execute_subprocess_sync(
             if path is not None:
                 try:
                     os.unlink(path)
-                except OSError:
-                    pass
+                except OSError as unlink_err:
+                    _logger.warning(
+                        "Failed to unlink temp file %s: %s",
+                        path,
+                        unlink_err,
+                    )
 
 
 # Extra seconds added to the tool-call deadline to accommodate first-time
@@ -1058,9 +1340,7 @@ async def execute_shell_command(
         sandbox_config,
         SandboxConfig,
     ):
-        import logging as _logging
-
-        _logging.getLogger(__name__).warning(
+        _logger.warning(
             "[sandbox] Received sandbox_config of type %s instead of "
             "SandboxConfig dataclass; discarding and falling back to "
             "direct execution (no sandbox). If this was intended to "
@@ -1140,9 +1420,7 @@ async def execute_shell_command(
             ],
         )
 
-    import logging as _logging
-
-    _logging.getLogger(__name__).debug(
+    _logger.debug(
         "[sandbox] SKIP: sandbox_config is None, executing directly",
     )
 
