@@ -628,6 +628,7 @@ def _video_oversize_placeholder(
     size: int,
     *,
     response_api: bool = False,
+    max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
 ) -> dict:
     """Text placeholder substituted for a video that exceeds
     the inline cap.
@@ -650,13 +651,17 @@ def _video_oversize_placeholder(
         "text": (
             "[video omitted from model context: "
             f"local file is {size} bytes, exceeds "
-            f"inline limit of {MAX_INLINE_MEDIA_BYTES}"
+            f"inline limit of {max_inline_media_bytes}"
             " bytes]"
         ),
     }
 
 
-def _format_anthropic_video_data_block(block: Any) -> dict | None:
+def _format_anthropic_video_data_block(
+    block: Any,
+    *,
+    max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
+) -> dict | None:
     """Format a 2.0 ``DataBlock`` of video media for Anthropic-compatible APIs.
 
     agentscope's stock Anthropic formatter drops every non-image
@@ -678,8 +683,11 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
     if data_attr is not None:
         # base64 length -> approximate raw byte count.
         size = len(data_attr or "") * 3 // 4
-        if size > MAX_INLINE_MEDIA_BYTES:
-            return _video_oversize_placeholder(size)
+        if 0 < max_inline_media_bytes < size:
+            return _video_oversize_placeholder(
+                size,
+                max_inline_media_bytes=max_inline_media_bytes,
+            )
         return {
             "type": "video",
             "source": {
@@ -717,6 +725,7 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
 def _format_openai_video_block(
     video_block: dict,
     response_api: bool = False,
+    max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
 ) -> dict:
     """Format a video block for OpenAI-compatible API.
 
@@ -748,10 +757,11 @@ def _format_openai_video_block(
     if source["type"] == "base64":
         media_type = source["media_type"]
         size = len(source.get("data") or "") * 3 // 4
-        if size > MAX_INLINE_MEDIA_BYTES:
+        if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,
                 response_api=response_api,
+                max_inline_media_bytes=max_inline_media_bytes,
             )
         url = f"data:{media_type};base64,{source['data']}"
     elif source["type"] == "url":
@@ -785,6 +795,7 @@ def _replace_video_placeholders(
     video_subs: dict[str, dict],
     *,
     response_api: bool = False,
+    max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
 ) -> None:
     """Replace video placeholder text blocks with formatted
     video blocks in OpenAI-formatted messages.
@@ -813,6 +824,7 @@ def _replace_video_placeholders(
                     _format_openai_video_block(
                         video_subs[item["text"]],
                         response_api=response_api,
+                        max_inline_media_bytes=max_inline_media_bytes,
                     ),
                 )
             else:
@@ -922,6 +934,7 @@ def _promote_tool_result_videos(
     messages: list[dict],
     *,
     response_api: bool = False,
+    max_inline_media_bytes: int = MAX_INLINE_MEDIA_BYTES,
 ) -> list[dict]:
     """Inject promoted video user messages after tool result messages.
 
@@ -985,7 +998,13 @@ def _promote_tool_result_videos(
     new_messages: list[dict] = []
     for fmt_msg in messages:
         new_messages.append(fmt_msg)
-        tcid = fmt_msg.get("tool_call_id")
+        # OpenAI chat format: tool results carry `tool_call_id`. Responses API:
+        # only the `function_call_output` item is the tool result — the
+        # assistant `function_call` item also has `call_id` but must NOT be
+        # treated as a result (would duplicate the promoted video).
+        if fmt_msg.get("type") == "function_call":
+            continue
+        tcid = fmt_msg.get("tool_call_id") or fmt_msg.get("call_id")
         if not isinstance(tcid, str) or tcid not in promotions:
             continue
         tool_name, videos = promotions[tcid]
@@ -1009,6 +1028,7 @@ def _promote_tool_result_videos(
                 _format_openai_video_block(
                     vid_block,
                     response_api=response_api,
+                    max_inline_media_bytes=max_inline_media_bytes,
                 ),
             )
         promoted.append(
@@ -1416,7 +1436,12 @@ def _create_file_block_support_formatter(
                 seen.add(key)
 
             if media_type.startswith("video/"):
-                return _format_anthropic_video_data_block(block)
+                return _format_anthropic_video_data_block(
+                    block,
+                    max_inline_media_bytes=(
+                        getattr(self, "max_bytes", MAX_INLINE_MEDIA_BYTES)
+                    ),
+                )
             return super()._format_anthropic_data_block(block)
 
         # pylint: disable=too-many-branches, too-many-statements
@@ -1531,6 +1556,9 @@ def _create_file_block_support_formatter(
                         messages,
                         video_subs,
                         response_api=_is_response_formatter,
+                        max_inline_media_bytes=(
+                            getattr(self, "max_bytes", MAX_INLINE_MEDIA_BYTES)
+                        ),
                     )
                     _restore_video_blocks(normalized_msgs, video_subs)
 
@@ -1543,6 +1571,9 @@ def _create_file_block_support_formatter(
                         normalized_msgs,
                         messages,
                         response_api=_is_response_formatter,
+                        max_inline_media_bytes=(
+                            getattr(self, "max_bytes", MAX_INLINE_MEDIA_BYTES)
+                        ),
                     )
             finally:
                 _FORMATTER_SEEN_MEDIA_KEYS.reset(seen_media_token)
@@ -2132,9 +2163,18 @@ def _create_formatter_instance(
         GeminiChatFormatter,
         OpenAIResponseFormatter,
     )
-    if isinstance(base_formatter, _promote_types):
+    is_promote_type = isinstance(base_formatter, _promote_types)
+    if is_promote_type:
         kwargs["promote_tool_result_images"] = True
-    return formatter_class(**kwargs)
+    formatter = formatter_class(**kwargs)
+    if is_promote_type:
+        # ``promote_tool_result_images`` is not a Pydantic field of the
+        # agentscope formatter, so ``extra="ignore"`` silently drops it
+        # from constructor kwargs (AgentScope 2.0.6 no longer accepts it).
+        # Set it on the constructed instance directly so the promotion
+        # gate inside ``FileBlockSupportFormatter.format`` stays effective.
+        object.__setattr__(formatter, "promote_tool_result_images", True)
+    return formatter
 
 
 def _install_model_formatter(

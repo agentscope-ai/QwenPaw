@@ -30,7 +30,7 @@ const resolveInitialProviders = (): Set<string> => {
 export interface MarketSearchState {
   providers: MarketProviderInfo[];
   selectedProviderKeys: Set<string>;
-  toggleProvider: (key: string) => void;
+  setSelectedProviders: (keys: string[]) => void;
   categories: MarketCategory[];
   category: string;
   setCategory: (id: string) => void;
@@ -48,6 +48,7 @@ export interface MarketSearchState {
   autoLoadMore: () => void;
   /** Set when a batch errored, so the sentinel stops auto-retrying. */
   autoLoadBlocked: boolean;
+  refresh: () => void;
   retry: () => void;
 }
 
@@ -150,13 +151,8 @@ export function useMarketSearch(): MarketSearchState {
     setCategoryState(id);
   }, []);
 
-  const toggleProvider = useCallback((key: string) => {
-    setSelectedProviderKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const setSelectedProviders = useCallback((keys: string[]) => {
+    setSelectedProviderKeys(new Set(keys));
   }, []);
 
   // Persist the provider selection so it survives a page refresh.
@@ -246,6 +242,26 @@ export function useMarketSearch(): MarketSearchState {
     [applyResponse, setAutoLoadBlocked],
   );
 
+  const refresh = useCallback(() => {
+    const initialPages: Record<string, number> = {};
+    const nextCursors: Record<string, number | null> = {};
+    for (const key of providerKeyList) {
+      initialPages[key] = 1;
+      nextCursors[key] = 1;
+    }
+    cursorsRef.current = nextCursors;
+    totalsRef.current = {};
+    setAutoLoadBlocked(false);
+    runFetch(debouncedQuery, initialPages, false, lang, category);
+  }, [
+    providerKeyList,
+    debouncedQuery,
+    lang,
+    category,
+    runFetch,
+    setAutoLoadBlocked,
+  ]);
+
   const fetchNextPages = useCallback(() => {
     const pages: Record<string, number> = {};
     for (const [key, cursor] of Object.entries(cursorsRef.current)) {
@@ -316,7 +332,7 @@ export function useMarketSearch(): MarketSearchState {
   return {
     providers,
     selectedProviderKeys,
-    toggleProvider,
+    setSelectedProviders,
     categories,
     category,
     setCategory,
@@ -331,6 +347,7 @@ export function useMarketSearch(): MarketSearchState {
     loadMore,
     autoLoadMore,
     autoLoadBlocked,
+    refresh,
     retry,
   };
 }

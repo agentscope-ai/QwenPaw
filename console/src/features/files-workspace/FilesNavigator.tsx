@@ -18,9 +18,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  File,
-  FileCode2,
-  FileText,
   Folder,
   FolderOpen,
   GripVertical,
@@ -48,6 +45,7 @@ import {
   projectRootPath,
   workspaceRoots,
 } from "./directorySources";
+import FileGlyph from "./FileGlyph";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -93,30 +91,6 @@ const MANAGE_DIRS_KEY = "__manage_project_dirs__";
 function basenameOf(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, "");
   return trimmed.split(/[\\/]/).pop() || trimmed;
-}
-
-function FileGlyph({ name }: { name: string }) {
-  const extension = name.split(".").pop()?.toLowerCase();
-  if (["md", "mdx", "txt", "log", "csv"].includes(extension ?? "")) {
-    return <FileText size={15} />;
-  }
-  if (
-    [
-      "py",
-      "ts",
-      "tsx",
-      "js",
-      "jsx",
-      "go",
-      "rs",
-      "java",
-      "html",
-      "css",
-    ].includes(extension ?? "")
-  ) {
-    return <FileCode2 size={15} />;
-  }
-  return <File size={15} />;
 }
 
 function ProfileFileRow({

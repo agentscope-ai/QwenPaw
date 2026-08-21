@@ -880,11 +880,15 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     auto_memory_inbox_push_enabled: bool = Field(
         default=True,
-        description="Whether to push auto-memory results to the inbox",
+        description=(
+            "Whether to push auto-memory changes and failures to the inbox"
+        ),
     )
     auto_dream_inbox_push_enabled: bool = Field(
         default=True,
-        description="Whether to push auto-dream results to the inbox",
+        description=(
+            "Whether to push auto-dream changes and failures to the inbox"
+        ),
     )
     daily_paper_inbox_push_enabled: bool = Field(
         default=True,

@@ -251,7 +251,7 @@ These live under `running.reme_light_memory_config` in `agent.json`. For the com
 | ----------------------------------- | -------------- | ---------------------------------------------------------------- |
 | `dream_cron_enabled`                | `true`         | Enable scheduled Auto-Dream                                      |
 | `dream_cron`                        | `"0 23 * * *"` | Five-field cron; the run starts after a random 0–60 second delay |
-| `auto_dream_inbox_push_enabled`     | `true`         | Send successful or failed Auto-Dream summaries to Inbox          |
+| `auto_dream_inbox_push_enabled`     | `true`         | Send Auto-Dream changes and failures to Inbox                    |
 | `auto_memory_interval`              | `5`            | Run Auto-Memory after every N user turns                         |
 | `auto_memory_search_config.enabled` | `false`        | Search memory automatically before every normal user request     |
 

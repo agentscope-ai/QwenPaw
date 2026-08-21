@@ -156,7 +156,19 @@ def browser_context(browser: Browser, request: pytest.FixtureRequest) -> Generat
             "height": config.browser.viewport_height,
         } if video_dir else None,
     )
-    
+
+    # Pre-dismiss the "Try Desktop Mode" onboarding tour (v2.1.0-beta+).
+    # The tour renders a transparent spotlight overlay that intercepts all
+    # pointer events on first visit, breaking every click-driven test.
+    # Same pattern as the last-used-agent localStorage pinning in gotchas.
+    context.add_init_script(
+        """
+        try {
+            localStorage.setItem('qwenpaw.desktop-mode-hint.dismissed', '1');
+        } catch (e) {}
+        """
+    )
+
     yield context
     
     logger.info(f"Closing browser context for test: {test_name}")

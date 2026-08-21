@@ -233,13 +233,19 @@ jobs:
           python-version: "3.11"
 
       - name: Pack plugins and build index
+        # qwenpaw-creator and datapaw are released through their own
+        # version-driven pipelines (creator-release.yml,
+        # datapaw-release.yml pending); datapaw additionally needs its
+        # vendored context console staged before packing, so packing it
+        # here fails pack_requires validation by design.
         run: |
           python scripts/pack/generate_plugin_metadata.py \
             --plugins-root plugins \
             --dist dist/plugins \
             --metadata-out dist/plugins/index.json \
             --cdn-prefix /files/plugins \
-            --exclude qwenpaw-creator
+            --exclude qwenpaw-creator \
+            --exclude datapaw
 
       - name: Upload plugins dist
         uses: actions/upload-artifact@v4

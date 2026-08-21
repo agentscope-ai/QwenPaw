@@ -388,6 +388,22 @@ LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
     min_value=10.0,
 )
 
+# Maximum upstream wait (seconds) for the first content-bearing stream chunk.
+# Set to 0 to disable the first-content timeout.
+LLM_STREAM_FIRST_CONTENT_TIMEOUT = EnvVarLoader.get_float(
+    "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
+    30.0,
+    min_value=0.0,
+)
+
+# Maximum upstream wait (seconds) between later content-bearing stream chunks.
+# Set to 0 to disable the steady-state idle timeout.
+LLM_STREAM_IDLE_TIMEOUT = EnvVarLoader.get_float(
+    "QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
+    30.0,
+    min_value=0.0,
+)
+
 # Tool guard approval timeout (seconds).
 try:
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = max(

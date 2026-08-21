@@ -85,6 +85,16 @@ async def _stream(
         raise error
 
 
+async def _idle_stream(
+    state: dict[str, int],
+) -> AsyncGenerator[ChatResponse, None]:
+    try:
+        await asyncio.Event().wait()
+        yield _response("unreachable")
+    finally:
+        state["closed"] += 1
+
+
 def _response(text: str) -> ChatResponse:
     return ChatResponse(
         content=[{"type": "text", "text": text}],
@@ -113,6 +123,59 @@ async def test_falls_back_on_transient_error_before_output() -> None:
             "reason_kind": "transient",
         },
     ]
+
+
+async def test_stream_idle_timeout_falls_back_after_retries() -> None:
+    _limiters.clear()
+    state = {"closed": 0}
+    try:
+        primary = FakeModel(
+            "primary",
+            lambda: _idle_stream(state),
+        )
+        retried_primary = RetryChatModel(
+            primary,
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=1,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+            stream_first_content_timeout=0.15,
+            stream_idle_timeout=0.15,
+        )
+        fallback = FakeModel(
+            "fallback",
+            lambda: _stream(_response("ok")),
+        )
+        model = FallbackChatModel([retried_primary, fallback])
+
+        response = await model(messages=[], tools=[])
+        chunks = [chunk async for chunk in response]
+
+        assert chunks[-1].content[0]["text"] == "ok"
+        assert primary.calls == 2
+        assert fallback.calls == 1
+        assert state["closed"] == 2
+        assert chunks[-1].metadata["qwenpaw_model_fallbacks"] == [
+            {
+                "type": "model_fallback",
+                "from_provider_id": "",
+                "from_model_id": "primary",
+                "to_provider_id": "",
+                "to_model_id": "fallback",
+                "reason_kind": "transient",
+            },
+        ]
+    finally:
+        _limiters.clear()
 
 
 async def test_falls_back_when_primary_model_is_not_found() -> None:
@@ -213,7 +276,10 @@ async def test_falls_back_after_empty_stream_control_chunk() -> None:
     primary = FakeModel(
         "primary",
         lambda: _stream(
-            ChatResponse(content=[], is_last=False),
+            ChatResponse(
+                content=[{"type": "text", "text": ""}],
+                is_last=False,
+            ),
             error=HttpError(503),
         ),
     )
@@ -272,7 +338,10 @@ class ClosableModel(FakeModel):
 
     async def _stream(self) -> AsyncGenerator[ChatResponse, None]:
         try:
-            yield _response("partial")
+            yield ChatResponse(
+                content=[{"type": "text", "text": "partial"}],
+                is_last=False,
+            )
             await self.release.wait()
         except asyncio.CancelledError:
             self.cancelled = True

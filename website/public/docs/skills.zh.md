@@ -194,15 +194,27 @@ CLI 支持相同的基于 URL 的导入方式：
 **指定工作区：** 指定单个智能体工作区时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
 
 ```bash
-qwenpaw skills install <skill_url>
+qwenpaw skills install <skill_url> --pool
 qwenpaw skills install <skill_url> --agent-id <agent_id>
 ```
 
 CLI 也支持从共享技能池或单个工作区卸载技能：
 
 ```bash
-qwenpaw skills uninstall <skill_name>
+qwenpaw skills uninstall <skill_name> --pool
 qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
+```
+
+Workspace 技能可以按精确名称直接启用或禁用，也可以用支持即时文本过滤的复选界面
+批量配置。Pool 是独立的共享作用域，可在支持的命令中用 `--pool` 选择；它没有
+启用/禁用状态，因此 `config`、`enable`、`disable` 只支持 workspace：
+
+```bash
+qwenpaw skills enable <skill_name>... --agent-id <agent_id>
+qwenpaw skills disable <skill_name>... --agent-id <agent_id>
+qwenpaw skills list --status enabled --agent-id <agent_id>
+qwenpaw skills list --pool
+qwenpaw skills info <skill_name> --pool
 ```
 
 #### 步骤

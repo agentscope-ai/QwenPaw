@@ -437,6 +437,58 @@ def test_agentscope_msg_to_message_timestamp_uses_process_local_tz():
 # ---------------------------------------------------------------------------
 
 
+def test_agentscope_msg_to_message_exposes_finished_at():
+    """Issue #6826: the API must expose the real reply-end time so the
+    frontend can display it instead of the created_at alias."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "done"}],
+        created_at="2026-08-10T12:52:57.000000",
+        finished_at="2026-08-10T12:54:03.000000",
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with (
+        patch(
+            "qwenpaw.app.chats.utils.load_config",
+            return_value=SimpleNamespace(user_timezone="Asia/Shanghai"),
+        ),
+        patch(
+            "qwenpaw.app.chats.utils._process_local_tz",
+            return_value=shanghai,
+        ),
+    ):
+        [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["finished_at"] == "2026-08-10T12:54:03+08:00"
+    # timestamp (created_at alias) keeps its existing behaviour.
+    assert message.metadata["timestamp"] == "2026-08-10T12:52:57+08:00"
+
+
+def test_agentscope_msg_to_message_finished_at_none_when_absent():
+    """Legacy sessions without the stamp fall back to timestamp."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "legacy"}],
+        created_at="2026-08-10T12:52:57.000000",
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with (
+        patch(
+            "qwenpaw.app.chats.utils.load_config",
+            return_value=SimpleNamespace(user_timezone="Asia/Shanghai"),
+        ),
+        patch(
+            "qwenpaw.app.chats.utils._process_local_tz",
+            return_value=shanghai,
+        ),
+    ):
+        [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["finished_at"] is None
+
+
 def test_clean_title_strips_quotes_and_punctuation():
     assert _clean_title('"Hello World,"') == "Hello World"
 

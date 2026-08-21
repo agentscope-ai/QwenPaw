@@ -28,9 +28,9 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v2.0.0 五大方面能力升级：",
-    "sub1": "为 QwenPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
-    "releaseNote": "QwenPaw v2.0.0版本全新发布",
+    "sub": "v2.1.0 智能体能力全面扩展：",
+    "sub1": "带来 QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 接入、Browser/Computer Use，以及检查点恢复与长任务续接能力",
+    "releaseNote": "QwenPaw v2.1.0版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始",
     "quickTry": "快速体验"
@@ -65,21 +65,37 @@
     "sub": "记忆与个性化由你掌控。",
     "learnMore": "了解更多",
     "cards": {
-      "agentOs": {
-        "title": "Agent OS",
-        "desc": "QwenPaw 2.0 以类操作系统的 Harness 架构连接模型与应用，将 Agent 从独立应用升级为开放的智能基座。未来还将持续推出面向不同场景的 QwenPaw 小程序与轻量应用。"
+      "osShell": {
+        "title": "QwenPaw OS Shell",
+        "desc": "将对话、智能体空间、应用与系统配置装进一张可自由排列的 AI 桌面。通过多窗口、启动器与 Dock，在同一个工作现场并行处理对话、文件和专业应用。"
       },
-      "tui": {
-        "title": "终端交互",
-        "desc": "基于 Textual 打造全屏终端聊天体验，支持流式输出、工具调用渲染与会话管理，并与控制台及各频道共享会话和记忆。"
+      "workspace": {
+        "title": "工作区管理",
+        "desc": "统一文件工作区将项目文件、档案、日记与知识库集中在 Files 中。可为当前会话自由选择工作目录，并在同一界面完成文件预览、编辑、对比、上传与下载。"
       },
-      "scrollContext": {
-        "title": "滚动上下文",
-        "desc": "每轮对话实时写入 SQLite。窗口满时通过索引驱逐腾出空间，不摘要、不丢弃原文；历史内容可随时按需回溯，确保上下文信息完整保留。"
+      "creator": {
+        "title": "内容创作",
+        "desc": "QwenPaw Creator 让多个专业智能体协同完成从创意、素材到成片的制作流程，并支持对片段、字幕、动效与资产进行精准修改和手动编辑。"
       },
-      "loopEngineering": {
-        "title": "循环工程",
-        "desc": "Agent 执行逻辑从硬编码走向可编排：当前可通过插件接口灵活组合流程，未来还将以 “Oh-My-Paw” 官方插件持续提供更多循环控制方案，让同一个 Agent 按场景切换行为模式。"
+      "thirdPartyAgents": {
+        "title": "第三方智能体接入",
+        "desc": "在 QwenPaw 中直接创建和使用 Codex、Qoder 智能体，共享统一的工作区、聊天入口与能力控制面，同时保留各自的模型、执行循环和权限体系。"
+      },
+      "browserUse": {
+        "title": "Browser-use",
+        "desc": "驱动真实浏览器完成网页访问、信息读取、点击与表单填写。既可启动独立浏览器，也可连接你已经登录的 Chrome，并在登录或验证环节将操作交还给你。"
+      },
+      "computerUse": {
+        "title": "Computer-use",
+        "desc": "让智能体操作 Windows 与 macOS 上经过授权的桌面应用，完成窗口识别、点击、输入、滚动与拖拽，并通过按应用授权和人工接管机制保留控制权。"
+      },
+      "checkpoint": {
+        "title": "工作区恢复",
+        "desc": "Checkpoint 可保存对话状态，并按需纳入长期记忆和指定工作区文件。恢复前可预览变化，在不改写项目 Git 历史的情况下回到正确时间线。"
+      },
+      "scroll": {
+        "title": "长任务续接",
+        "desc": "QwenPaw Scroll 将完整交互轨迹保存为可搜索、可回溯的持久记录，让智能体在超长对话中找回关键证据、保持任务状态并持续推进。"
       }
     }
   },
@@ -240,7 +256,8 @@
       "dingtalk": "钉钉",
       "xiaohongshu": "小红书",
       "wechat": "微信公众号",
-      "douyin": "抖音"
+      "douyin": "抖音",
+      "bilibili": "哔哩哔哩"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED，保留所有权利。",
     "poweredBy": {

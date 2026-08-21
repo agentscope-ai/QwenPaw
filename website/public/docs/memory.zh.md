@@ -327,10 +327,10 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 | 配置项                                  | 默认值         | 说明                                                               |
 | --------------------------------------- | -------------- | ------------------------------------------------------------------ |
 | `auto_memory_interval`                  | `5`            | 每累计 N 个用户回合触发 Auto-Memory；`null` 或 `<= 0` 关闭周期触发 |
-| `auto_memory_inbox_push_enabled`        | `true`         | 记忆实际变化后，把 Auto-Memory 结果推送到 Inbox                    |
+| `auto_memory_inbox_push_enabled`        | `true`         | Auto-Memory 实际改变记忆或执行失败后推送到 Inbox                   |
 | `dream_cron_enabled`                    | `true`         | 启用定时 Auto-Dream                                                |
 | `dream_cron`                            | `"0 23 * * *"` | 五段式 cron；实际运行前会随机延迟 0–60 秒                          |
-| `auto_dream_inbox_push_enabled`         | `true`         | 把 Auto-Dream 结果推送到 Inbox                                     |
+| `auto_dream_inbox_push_enabled`         | `true`         | Auto-Dream 实际改变记忆或执行失败后推送到 Inbox                    |
 | `daily_paper_cron_enabled`              | `false`        | 启用定时 Daily Paper                                               |
 | `daily_paper_cron`                      | `"0 9 * * *"`  | Daily Paper 的五段式 cron                                          |
 | `daily_paper_use_hf_mirror`             | `false`        | 通过 Hugging Face 镜像获取论文信息                                 |

@@ -102,15 +102,25 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                  |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
+| Variable                               | Default         | Description                                                                                                                       |
+| -------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                    | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)                                                                   |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB`                                                      |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`             | Number of rotated log backups to retain; `0` disables backups                                                                     |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`        | Character threshold to trigger memory compaction                                                                                  |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`             | Number of recent messages to keep after compaction                                                                                |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)                                                       |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`            | Remote image download limit for `view_image` in MiB. Any positive integer is accepted; invalid/nonpositive values use the default |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _(auto-detect)_ | Console frontend static files path                                                                                                |
+
+**LLM streaming timeouts:**
+
+| Variable                                   | Default | Description                                                                                                                     |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                    |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout |
+
+These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
 **Security & Authentication:**
 
@@ -431,8 +441,8 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
 | `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream results to the inbox                                                                                                                                  |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
 | `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
 | `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
 | `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |

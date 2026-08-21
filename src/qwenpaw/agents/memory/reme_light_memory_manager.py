@@ -65,6 +65,38 @@ MAX_INBOX_BODY_CHARS = 4000
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
 
 
+def _is_successful_noop_inbox_result(name: str, response: Any) -> bool:
+    """Return whether a successful memory job made no meaningful change.
+
+    Unknown or incomplete metadata deliberately fails open so notification
+    behavior stays compatible across ReMe versions.  Failures are never
+    treated as no-ops because they remain useful to surface to the user.
+    """
+    if not bool(getattr(response, "success", False)):
+        return False
+
+    metadata = getattr(response, "metadata", None)
+    if not isinstance(metadata, dict):
+        return False
+
+    if name == "auto_memory":
+        return metadata.get("modified") is False
+
+    if name == "auto_dream":
+        dream = metadata.get("dream")
+        if not isinstance(dream, dict):
+            return False
+        # Require both fields to be present as empty lists.  This suppresses
+        # only a definitive no-op and avoids hiding results from older ReMe
+        # versions whose metadata contract may be less detailed.
+        return (
+            dream.get("changed_paths") == []
+            and dream.get("deleted_paths") == []
+        )
+
+    return False
+
+
 def _to_reme_session_id(session_id: str) -> str:
     """Return a fixed-length, cross-platform ReMe storage identifier.
 
@@ -503,14 +535,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             INBOX_EMITTED_METADATA_KEY,
         ):
             return False
-        if (
-            name == "auto_memory"
-            and isinstance(response_metadata, dict)
-            and response_metadata.get("modified") is False
-        ):
+        if _is_successful_noop_inbox_result(name, response):
             logger.info(
-                "ReMe job result inbox push skipped; no memory change: "
-                "agent_id=%s job_name=%s modified=False",
+                "ReMe job result inbox push skipped; successful no-op: "
+                "agent_id=%s job_name=%s",
                 self.agent_id,
                 name,
             )
