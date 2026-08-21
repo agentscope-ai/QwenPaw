@@ -28,13 +28,13 @@ datapaw 是 [QwenPaw-Data](https://github.com/agentscope-ai/QwenPaw-Data) 在 Qw
 ## 界面截图
 
 <p align="center">
-  <img src="assets/screenshots/cm-graph.png" alt="元数据图谱可视化" width="900" />
+  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw/main/plugins/apps/datapaw/assets/screenshots/cm-graph.png" alt="元数据图谱可视化" width="900" />
   <br/>
   <em>元数据图谱：语义模型、维度、指标与血缘关系</em>
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/analysis-result.png" alt="端到端分析结果" width="900" />
+  <img src="https://raw.githubusercontent.com/agentscope-ai/QwenPaw/main/plugins/apps/datapaw/assets/screenshots/analysis-result.png" alt="端到端分析结果" width="900" />
   <br/>
   <em>端到端分析：自然语言提问 → 受控 SQL → 可追溯答案</em>
 </p>
