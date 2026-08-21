@@ -7,7 +7,6 @@ export interface TokenUsageRecord {
   completion_tokens: number;
   call_count: number;
   agent_id?: string | null;
-  tool_calls?: number;
 }
 
 /** Per-model (has provider_id, model) or per-date (no provider_id, model) stats. */
@@ -17,7 +16,6 @@ export interface TokenUsageStats {
   prompt_tokens: number;
   completion_tokens: number;
   call_count: number;
-  tool_calls?: number;
 }
 
 export interface TokenUsageSummary {

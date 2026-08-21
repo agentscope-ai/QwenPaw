@@ -25,7 +25,6 @@ class _UsageEvent(NamedTuple):
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
     agent_id: str = ""
-    tool_calls: int = 0
 
 
 class TokenUsageBuffer:
@@ -211,13 +210,11 @@ def _apply_event(cache: dict, ev: _UsageEvent) -> None:
             "completion_tokens": 0,
             "call_count": 0,
             "agent_id": ev.agent_id,
-            "tool_calls": 0,
         },
     )
     entry["prompt_tokens"] += ev.prompt_tokens
     entry["completion_tokens"] += ev.completion_tokens
     entry["call_count"] += 1
-    entry["tool_calls"] = (entry.get("tool_calls") or 0) + ev.tool_calls
 
 
 __all__ = ["TokenUsageBuffer", "_UsageEvent"]

@@ -36,7 +36,6 @@ class TokenUsageStats(BaseModel):
     prompt_tokens: int = Field(0, ge=0)
     completion_tokens: int = Field(0, ge=0)
     call_count: int = Field(0, ge=0)
-    tool_calls: int = Field(0, ge=0)
 
 
 class TokenUsageRecord(TokenUsageStats):
@@ -137,7 +136,6 @@ class TokenUsageManager:
 
         Convenience async wrapper around ``enqueue()`` for callers that
         prefer the original async interface (e.g. tests, skill tools).
-        This path always records ``tool_calls=0``.
 
         Args:
             provider_id: ID of the provider (e.g. "dashscope", "openai").
@@ -161,7 +159,6 @@ class TokenUsageManager:
                     timespec="seconds",
                 ),
                 agent_id=_usage_agent_id(),
-                tool_calls=0,
             ),
         )
 
@@ -206,7 +203,6 @@ class TokenUsageManager:
                         completion_tokens=entry.get("completion_tokens", 0),
                         call_count=entry.get("call_count", 0),
                         agent_id=rec_agent,
-                        tool_calls=entry.get("tool_calls") or 0,
                     ),
                 )
             current += timedelta(days=1)
@@ -256,7 +252,6 @@ class TokenUsageManager:
             pt = r.prompt_tokens
             ct = r.completion_tokens
             calls = r.call_count
-            tools = r.tool_calls
             total_prompt += pt
             total_completion += ct
             total_calls += calls
@@ -273,13 +268,11 @@ class TokenUsageManager:
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "call_count": 0,
-                    "tool_calls": 0,
                 },
             )
             bm["prompt_tokens"] += pt
             bm["completion_tokens"] += ct
             bm["call_count"] += calls
-            bm["tool_calls"] += tools
 
             # Aggregate by date
             bd = by_date_raw.setdefault(
@@ -288,13 +281,11 @@ class TokenUsageManager:
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "call_count": 0,
-                    "tool_calls": 0,
                 },
             )
             bd["prompt_tokens"] += pt
             bd["completion_tokens"] += ct
             bd["call_count"] += calls
-            bd["tool_calls"] += tools
 
         return TokenUsageSummary(
             total_prompt_tokens=total_prompt,

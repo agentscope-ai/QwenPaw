@@ -13,7 +13,6 @@ interface AggregatedData {
       prompt_tokens: number;
       completion_tokens: number;
       call_count: number;
-      tool_calls: number;
     }
   >;
   by_date: Record<
@@ -22,17 +21,15 @@ interface AggregatedData {
       prompt_tokens: number;
       completion_tokens: number;
       call_count: number;
-      tool_calls: number;
     }
   >;
   by_agent: Record<
     string,
     {
-      agent_id: string | null;
+      agent_id: string;
       prompt_tokens: number;
       completion_tokens: number;
       call_count: number;
-      tool_calls: number;
     }
   >;
   by_date_model: Record<
@@ -67,15 +64,9 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       const pt = r.prompt_tokens;
       const ct = r.completion_tokens;
       const calls = r.call_count;
-      const tools = r.tool_calls ?? 0;
       const providerId = r.provider_id;
       const agentId = r.agent_id;
-      const agentKey =
-        agentId == null
-          ? "__historic__"
-          : agentId === ""
-            ? "__unattributed__"
-            : agentId;
+      const agentKey = agentId ? agentId : "__unattributed__";
       totalPrompt += pt;
       totalCompletion += ct;
       totalCalls += calls;
@@ -88,40 +79,34 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
           prompt_tokens: 0,
           completion_tokens: 0,
           call_count: 0,
-          tool_calls: 0,
         };
       }
       byModel[modelKey].prompt_tokens += pt;
       byModel[modelKey].completion_tokens += ct;
       byModel[modelKey].call_count += calls;
-      byModel[modelKey].tool_calls += tools;
 
       if (!byDate[r.date]) {
         byDate[r.date] = {
           prompt_tokens: 0,
           completion_tokens: 0,
           call_count: 0,
-          tool_calls: 0,
         };
       }
       byDate[r.date].prompt_tokens += pt;
       byDate[r.date].completion_tokens += ct;
       byDate[r.date].call_count += calls;
-      byDate[r.date].tool_calls += tools;
 
       if (!byAgent[agentKey]) {
         byAgent[agentKey] = {
-          agent_id: agentId ?? null,
+          agent_id: agentId || "",
           prompt_tokens: 0,
           completion_tokens: 0,
           call_count: 0,
-          tool_calls: 0,
         };
       }
       byAgent[agentKey].prompt_tokens += pt;
       byAgent[agentKey].completion_tokens += ct;
       byAgent[agentKey].call_count += calls;
-      byAgent[agentKey].tool_calls += tools;
 
       if (!byDateModel[r.date]) {
         byDateModel[r.date] = {};

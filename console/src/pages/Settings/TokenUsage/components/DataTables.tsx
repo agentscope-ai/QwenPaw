@@ -1,5 +1,4 @@
 import { Card, Table } from "@agentscope-ai/design";
-import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
 import styles from "../index.module.less";
@@ -8,7 +7,6 @@ interface TokenRow {
   prompt_tokens: number;
   completion_tokens: number;
   call_count: number;
-  tool_calls: number;
 }
 
 interface ByModelData extends TokenRow {
@@ -37,8 +35,6 @@ function tokenStatColumns<T extends TokenRow>(titles: {
   completion: string;
   total: string;
   calls: string;
-  toolCalls: string;
-  toolCallsHint: string;
 }) {
   return [
     {
@@ -72,17 +68,6 @@ function tokenStatColumns<T extends TokenRow>(titles: {
       render: (v: number) => formatCompact(v),
       sorter: (a: T, b: T) => a.call_count - b.call_count,
     },
-    {
-      title: (
-        <Tooltip title={titles.toolCallsHint}>
-          <span>{titles.toolCalls}</span>
-        </Tooltip>
-      ),
-      dataIndex: "tool_calls",
-      key: "tool_calls",
-      render: (v: number) => formatCompact(v),
-      sorter: (a: T, b: T) => a.tool_calls - b.tool_calls,
-    },
   ];
 }
 
@@ -97,8 +82,6 @@ export function DataTables({
     completion: t("tokenUsage.completionTokens"),
     total: t("tokenUsage.totalTokens"),
     calls: t("tokenUsage.totalCalls"),
-    toolCalls: t("tokenUsage.toolCalls"),
-    toolCallsHint: t("tokenUsage.toolCallsHint"),
   };
 
   return (

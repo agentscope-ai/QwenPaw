@@ -1138,9 +1138,6 @@
     "totalCalls": "Lượt gọi LLM",
     "byAgent": "Theo Agent",
     "agent": "Agent",
-    "toolCalls": "Lời gọi công cụ",
-    "toolCallsHint": "Đếm theo khối tool_call trong phản hồi mô hình, khác với thống kê Agent.",
-    "historicAgent": "Agent lịch sử",
     "unattributed": "Chưa gán",
     "noData": "Chưa có dữ liệu",
     "period": "Khoảng thời gian"

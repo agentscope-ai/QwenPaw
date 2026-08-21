@@ -92,7 +92,6 @@ function TokenUsagePage() {
       prompt_tokens: stats.prompt_tokens,
       completion_tokens: stats.completion_tokens,
       call_count: stats.call_count,
-      tool_calls: stats.tool_calls,
     }));
   }, [aggregatedData?.by_model]);
 
@@ -105,7 +104,6 @@ function TokenUsagePage() {
         prompt_tokens: stats.prompt_tokens,
         completion_tokens: stats.completion_tokens,
         call_count: stats.call_count,
-        tool_calls: stats.tool_calls,
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [aggregatedData?.by_date]);
@@ -116,9 +114,7 @@ function TokenUsagePage() {
       .map(([key, stats]) => {
         const agentId = stats.agent_id;
         let agent: string;
-        if (agentId == null) {
-          agent = t("tokenUsage.historicAgent");
-        } else if (agentId === "") {
+        if (!agentId) {
           agent = t("tokenUsage.unattributed");
         } else {
           const profile = agentsById.get(agentId);
@@ -130,7 +126,6 @@ function TokenUsagePage() {
           prompt_tokens: stats.prompt_tokens,
           completion_tokens: stats.completion_tokens,
           call_count: stats.call_count,
-          tool_calls: stats.tool_calls,
         };
       })
       .sort(

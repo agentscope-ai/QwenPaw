@@ -9,7 +9,6 @@ from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
-from agentscope.model import ChatResponse, ChatUsage
 
 from qwenpaw.app.agent_context import peek_current_agent_id
 from qwenpaw.token_usage.buffer import (
@@ -26,15 +25,11 @@ from qwenpaw.token_usage.manager import (
     TokenUsageSummary,
     _usage_agent_id,
 )
-from qwenpaw.token_usage.model_wrapper import (
-    TokenRecordingModelWrapper,
-    _count_tool_calls,
-)
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 from qwenpaw.token_usage.storage import load_data, save_data_sync
 
 _EMPTY_AGENT_KEY = "\x1f".join(("", "openai", "gpt-4"))
 _NAMED_AGENT_KEY = "\x1f".join(("bot-a", "openai", "gpt-4"))
-_USAGE = ChatUsage(input_tokens=1, output_tokens=1, time=0)
 
 
 def _ev(**kwargs) -> _UsageEvent:
@@ -60,14 +55,6 @@ def _row(**kwargs) -> dict:
     }
     base.update(kwargs)
     return base
-
-
-def _tool(tid: str) -> dict:
-    return {"type": "tool_call", "id": tid}
-
-
-def _resp(content, *, is_last=False, usage=None):
-    return ChatResponse(id="r1", content=content, is_last=is_last, usage=usage)
 
 
 # =============================================================================
@@ -112,8 +99,8 @@ class TestApplyEvent:
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
 
-    def test_apply_event_keys_and_null_tool_calls(self):
-        """Named/empty ids stay off the legacy row; null tools coalesce."""
+    def test_apply_event_does_not_merge_into_legacy_row(self):
+        """Named/empty agent ids stay off the legacy provider:model row."""
         cache = {
             "2026-04-24": {
                 "openai:gpt-4": _row(prompt_tokens=10, completion_tokens=5),
@@ -121,25 +108,22 @@ class TestApplyEvent:
                     prompt_tokens=0,
                     completion_tokens=0,
                     agent_id="",
-                    tool_calls=None,
                 ),
             },
         }
-        _apply_event(cache, _ev(agent_id="bot-a", tool_calls=2))
+        _apply_event(cache, _ev(agent_id="bot-a"))
         _apply_event(
             cache,
             _ev(
                 agent_id="",
                 prompt_tokens=1,
                 completion_tokens=1,
-                tool_calls=2,
             ),
         )
         day = cache["2026-04-24"]
         assert day["openai:gpt-4"]["call_count"] == 1
         assert day[_NAMED_AGENT_KEY]["agent_id"] == "bot-a"
         assert day[_EMPTY_AGENT_KEY]["agent_id"] == ""
-        assert day[_EMPTY_AGENT_KEY]["tool_calls"] == 2
         assert day[_EMPTY_AGENT_KEY]["call_count"] == 2
 
 
@@ -413,7 +397,6 @@ class TestTokenUsageStats:
         assert stats.prompt_tokens == 0
         assert stats.completion_tokens == 0
         assert stats.call_count == 0
-        assert stats.tool_calls == 0
 
     def test_custom_values(self):
         """Should accept custom values."""
@@ -449,7 +432,6 @@ class TestTokenUsageModels:
         assert record.provider_id == "openai"
         assert record.model == "gpt-4"
         assert record.agent_id is None
-        assert record.tool_calls == 0
 
     def test_empty_summary(self):
         """Should create empty summary with defaults."""
@@ -667,12 +649,12 @@ class TestTokenUsageManagerCore:
         await manager.stop()
 
     @pytest.mark.asyncio
-    async def test_get_details_null_tool_calls_defaults_zero(
+    async def test_get_details_legacy_and_agent_rows(
         self,
         tmp_path,
         monkeypatch,
     ):
-        """Legacy / null tool_calls must not fail Pydantic validation."""
+        """Legacy rows stay unattributed; agent keys keep model and id."""
         monkeypatch.setattr(
             "qwenpaw.token_usage.manager.WORKING_DIR",
             tmp_path,
@@ -688,10 +670,9 @@ class TestTokenUsageManagerCore:
                         "k": _row(
                             provider_id="o",
                             model_name="m",
-                            tool_calls=None,
                         ),
                         _EMPTY_AGENT_KEY: _row(model_name=""),
-                        _NAMED_AGENT_KEY: _row(agent_id="bot-a", tool_calls=3),
+                        _NAMED_AGENT_KEY: _row(agent_id="bot-a"),
                     },
                 },
             ),
@@ -703,14 +684,12 @@ class TestTokenUsageManagerCore:
             start_date=date(2026, 4, 24),
             end_date=date(2026, 4, 24),
         )
-        assert rows[0].tool_calls == 0
         assert rows[0].agent_id is None
         missing = next(r for r in rows if r.provider_id == "openai")
         assert missing.model == "gpt-4"
         assert "\x1f" not in missing.model
         named = next(r for r in rows if r.agent_id == "bot-a")
         assert named.model == "gpt-4"
-        assert named.tool_calls == 3
         await manager.stop()
 
 
@@ -733,32 +712,6 @@ class TestTokenRecordingModelWrapper:
         model = MagicMock()
         model.model = "gpt-4"
         return TokenRecordingModelWrapper("openai", model), captured
-
-    async def _drain_stream(self, wrapper, chunks):
-        async def gen():
-            for chunk in chunks:
-                yield chunk
-
-        async for _ in wrapper._wrap_stream(gen()):
-            pass
-
-    def test_count_tool_calls(self):
-        assert _count_tool_calls({"content": [_tool("a"), _tool("b")]}) == 2
-        assert _count_tool_calls({"content": (_tool("c"),)}) == 1
-        assert (
-            _count_tool_calls(
-                {"content": [{"type": "tool_call", "call_id": "d"}]},
-            )
-            == 1
-        )
-        assert (
-            _count_tool_calls(
-                {"content": [{"type": "tool_use", "id": "e"}]},
-            )
-            == 1
-        )
-        assert _count_tool_calls({"usage": {}}) is None
-        assert _count_tool_calls({"content": []}) is None
 
     def test_init_wraps_model(self, tmp_path, monkeypatch):
         """Should wrap a ChatModelBase instance."""
@@ -842,50 +795,6 @@ class TestTokenRecordingModelWrapper:
         )
         assert peek_current_agent_id() == ""
         assert _usage_agent_id() == ""
-
-    @pytest.mark.asyncio
-    async def test_wrap_stream_tool_call_counts(self, tmp_path, monkeypatch):
-        """Text is_last unions; snapshot last; empty last keeps union."""
-        text_last = _resp(
-            [{"type": "text", "text": "x"}],
-            is_last=True,
-            usage=_USAGE,
-        )
-        cases = (
-            ([_resp([_tool("a")]), _resp([_tool("b")]), text_last], 2),
-            ([_resp([_tool("a"), _tool("b")], is_last=True, usage=_USAGE)], 2),
-            (
-                [
-                    _resp([_tool("a"), _tool("b")]),
-                    _resp([], is_last=True, usage=_USAGE),
-                ],
-                2,
-            ),
-            (
-                [
-                    _resp([_tool("a")]),
-                    _resp([_tool("b")]),
-                    _resp(
-                        [_tool("a"), _tool("b")],
-                        is_last=True,
-                        usage=_USAGE,
-                    ),
-                ],
-                2,
-            ),
-            (
-                [
-                    _resp([{"type": "tool_call"}]),
-                    _resp([{"type": "tool_call"}]),
-                    text_last,
-                ],
-                1,
-            ),
-        )
-        for chunks, expected in cases:
-            wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
-            await self._drain_stream(wrapper, chunks)
-            assert captured[0].tool_calls == expected
 
     def test_record_usage_includes_context_and_threshold(
         self,
