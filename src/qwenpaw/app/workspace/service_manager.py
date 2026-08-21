@@ -366,13 +366,57 @@ class ServiceManager:
         if descriptor.init_args:
             init_kwargs = descriptor.init_args(self.workspace)
 
-        # Offload synchronous constructor to thread pool to avoid blocking
-        # the event loop during background startup.
-        service = await asyncio.to_thread(
+        def register_service(service: Any) -> None:
+            self.services[descriptor.name] = service
+
+        # A running thread cannot be cancelled.  Delay propagation of task
+        # cancellation until construction has finished, and register the
+        # resulting instance first so workspace cleanup retains ownership.
+        service = await self._run_sync_to_completion(
             partial(service_cls, **init_kwargs),
+            on_success=register_service,
         )
-        self.services[descriptor.name] = service
         return service
+
+    @staticmethod
+    async def _run_sync_to_completion(
+        func: Callable[[], Any],
+        on_success: Optional[Callable[[Any], None]] = None,
+    ) -> Any:
+        """Run synchronous lifecycle work without abandoning its thread.
+
+        Cancelling a task waiting on ``asyncio.to_thread`` does not stop a
+        thread that is already running.  Shield the worker and defer
+        cancellation until it completes.  ``on_success`` runs before the
+        cancellation is propagated, allowing a newly constructed service to
+        be registered for cleanup.
+        """
+        worker = asyncio.create_task(asyncio.to_thread(func))
+        cancellation: Optional[asyncio.CancelledError] = None
+
+        while True:
+            try:
+                result = await asyncio.shield(worker)
+                break
+            except asyncio.CancelledError as error:
+                if worker.cancelled():
+                    if cancellation is not None:
+                        raise cancellation from error
+                    raise
+                if cancellation is None:
+                    cancellation = error
+            except BaseException as error:
+                if cancellation is not None:
+                    raise cancellation from error
+                raise
+
+        if on_success is not None:
+            on_success(result)
+
+        if cancellation is not None:
+            raise cancellation
+
+        return result
 
     async def _run_post_init(
         self,
@@ -431,7 +475,7 @@ class ServiceManager:
         if asyncio.iscoroutinefunction(start_fn):
             await start_fn()
         else:
-            await asyncio.to_thread(start_fn)
+            await self._run_sync_to_completion(start_fn)
 
         logger.debug(
             f"Service '{descriptor.name}' started for "

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,6 +15,11 @@ from qwenpaw.app.workspace.service_manager import (
     ServiceManager,
 )
 from qwenpaw.app.workspace.workspace import Workspace
+
+
+async def _wait_for_thread_event(event: threading.Event) -> None:
+    while not event.is_set():
+        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -191,6 +197,141 @@ async def test_workspace_cancels_concurrent_starts_before_cleanup(
     assert slow_start_cancelled.is_set()
     assert state.closed is True
     assert state.active is False
+
+
+@pytest.mark.asyncio
+async def test_workspace_waits_for_sync_constructor_before_cleanup(
+    monkeypatch,
+    tmp_path,
+):
+    constructor_entered = threading.Event()
+    release_constructor = threading.Event()
+    failure_raised = asyncio.Event()
+    state = SimpleNamespace(constructed=0, closed=0)
+
+    class _SlowConstructorService:
+        def __init__(self) -> None:
+            constructor_entered.set()
+            release_constructor.wait()
+            state.constructed += 1
+
+        def close(self) -> None:
+            state.closed += 1
+
+    class _FailingService:
+        async def start(self) -> None:
+            await _wait_for_thread_event(constructor_entered)
+            failure_raised.set()
+            raise RuntimeError("concurrent service failed")
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    for name, service_class, start_method, stop_method in (
+        ("slow", _SlowConstructorService, None, "close"),
+        ("failing", _FailingService, "start", None),
+    ):
+        workspace._service_manager.register(
+            ServiceDescriptor(
+                name=name,
+                service_class=service_class,
+                start_method=start_method,
+                stop_method=stop_method,
+                priority=1,
+                concurrent_init=True,
+            ),
+        )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    start_task = asyncio.create_task(workspace.start())
+    await failure_raised.wait()
+    await asyncio.sleep(0)
+
+    try:
+        assert not start_task.done()
+        assert "slow" not in workspace._service_manager.services
+    finally:
+        release_constructor.set()
+
+    with pytest.raises(RuntimeError, match="concurrent service failed"):
+        await asyncio.wait_for(start_task, timeout=0.5)
+
+    assert state.constructed == 1
+    assert state.closed == 1
+    assert "slow" in workspace._service_manager.services
+
+
+@pytest.mark.asyncio
+async def test_workspace_waits_for_sync_start_before_cleanup(
+    monkeypatch,
+    tmp_path,
+):
+    start_entered = threading.Event()
+    release_start = threading.Event()
+    failure_raised = asyncio.Event()
+    state = SimpleNamespace(
+        start_finished=False,
+        stop_called=False,
+        start_stop_overlapped=False,
+    )
+
+    class _SlowStartService:
+        def start(self) -> None:
+            start_entered.set()
+            release_start.wait()
+            state.start_finished = True
+
+        def close(self) -> None:
+            state.stop_called = True
+            state.start_stop_overlapped = not state.start_finished
+
+    class _FailingService:
+        async def start(self) -> None:
+            await _wait_for_thread_event(start_entered)
+            failure_raised.set()
+            raise RuntimeError("concurrent service failed")
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    for name, service_class in (
+        ("slow", _SlowStartService),
+        ("failing", _FailingService),
+    ):
+        workspace._service_manager.register(
+            ServiceDescriptor(
+                name=name,
+                service_class=service_class,
+                start_method="start",
+                stop_method="close",
+                priority=1,
+                concurrent_init=True,
+            ),
+        )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    start_task = asyncio.create_task(workspace.start())
+    await failure_raised.wait()
+    await asyncio.sleep(0)
+
+    try:
+        assert not start_task.done()
+        assert state.stop_called is False
+    finally:
+        release_start.set()
+
+    with pytest.raises(RuntimeError, match="concurrent service failed"):
+        await asyncio.wait_for(start_task, timeout=0.5)
+
+    assert state.start_finished is True
+    assert state.stop_called is True
+    assert state.start_stop_overlapped is False
 
 
 @pytest.mark.asyncio
