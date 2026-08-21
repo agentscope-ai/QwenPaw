@@ -9,4 +9,23 @@ describe("host card SDK contract", () => {
     expect(typeof HostRequestCard).toBe("function");
     expect(typeof HostResponseCard).toBe("function");
   });
+
+  it("forwards SDK card functions to stable memoized components", () => {
+    const requestProps = { data: {} as never };
+    const responseProps = { data: {} as never, isLast: false };
+
+    const requestElement = HostRequestCard(requestProps);
+    const responseElement = HostResponseCard(responseProps);
+
+    expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
+    expect(responseElement.type).toBe(HostResponseCard(responseProps).type);
+    expect(requestElement.type).toHaveProperty(
+      "$$typeof",
+      Symbol.for("react.memo"),
+    );
+    expect(responseElement.type).toHaveProperty(
+      "$$typeof",
+      Symbol.for("react.memo"),
+    );
+  });
 });
