@@ -124,7 +124,7 @@ async def test_guarded_write_stdin_works_when_sandbox_is_enabled(tmp_path):
         permission = await tool.check_permissions(
             {"session_id": "term_demo", "chars": "echo hello\n"},
         )
-        result = await tool(
+        result = await tool.__call__(
             session_id="term_demo",
             chars="echo hello\n",
             yield_time_ms=0,
@@ -133,7 +133,7 @@ async def test_guarded_write_stdin_works_when_sandbox_is_enabled(tmp_path):
         current_terminal_manager.reset(manager_token)
 
     assert permission.behavior is PermissionBehavior.ALLOW
-    assert tool._qp_sandbox_mode is False
+    assert getattr(tool, "_qp_sandbox_mode") is False
     assert result.state is ToolResultState.SUCCESS
     assert result.metadata["session_id"] == "term_demo"
     assert manager.calls[0][0:2] == ("term_demo", "echo hello\n")
@@ -145,10 +145,10 @@ async def test_adapter_fails_closed_for_unsupported_sandbox_parameter():
         return session_id
 
     tool = PolicyGuardedTool(control_tool, governor=None, request_context={})
-    tool._qp_sandbox_mode = True
-    tool._qp_sandbox_config = object()
+    setattr(tool, "_qp_sandbox_mode", True)
+    setattr(tool, "_qp_sandbox_config", object())
 
-    result = await tool(session_id="term_demo")
+    result = await tool.__call__(session_id="term_demo")
 
     assert result.state is ToolResultState.DENIED
     assert result.metadata["error_code"] == "sandbox_config_unsupported"

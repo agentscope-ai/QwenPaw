@@ -403,14 +403,17 @@ async def _policy_tool_call(
         sandbox_config = getattr(self, "_qp_sandbox_config", None)
         if sandbox_config is not None:
             func = getattr(self, "_func", None)
-            try:
-                parameters = inspect.signature(func).parameters
-                accepts_config = "sandbox_config" in parameters or any(
-                    param.kind is inspect.Parameter.VAR_KEYWORD
-                    for param in parameters.values()
-                )
-            except (TypeError, ValueError):
+            if not callable(func):
                 accepts_config = False
+            else:
+                try:
+                    parameters = inspect.signature(func).parameters
+                    accepts_config = "sandbox_config" in parameters or any(
+                        param.kind is inspect.Parameter.VAR_KEYWORD
+                        for param in parameters.values()
+                    )
+                except (TypeError, ValueError):
+                    accepts_config = False
             if not accepts_config:
                 tool_name = getattr(self, "name", "Unknown")
                 logger.error(
