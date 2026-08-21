@@ -685,10 +685,12 @@ export default function HubPage() {
                   <div>
                     <strong>{t("hub.runtimes.unavailableTitle")}</strong>
                     <span>
-                      {t("hub.runtimes.unavailableDescription", {
-                        provisioner: defaultProvisioner,
-                        reason: runtimeUnavailableReason,
-                      })}
+                      {me?.role === "admin"
+                        ? t("hub.runtimes.unavailableDescription", {
+                            provisioner: defaultProvisioner,
+                            reason: runtimeUnavailableReason,
+                          })
+                        : t("hub.runtimes.unavailableUserDescription")}
                     </span>
                   </div>
                 </div>

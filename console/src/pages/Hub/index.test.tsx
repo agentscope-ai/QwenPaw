@@ -120,6 +120,30 @@ describe("HubPage", () => {
     expect(alert).toHaveTextContent('"provisioner":"local"');
   });
 
+  it("does not expose the backend reason to non-administrators", async () => {
+    vi.mocked(hubApi.me).mockResolvedValue(hubUser({ role: "user" }));
+    vi.mocked(hubApi.getHealth).mockResolvedValue(
+      hubHealth({
+        status: "degraded",
+        runtime_available: false,
+        provisioner_statuses: {
+          local: {
+            available: false,
+            reason: "Cannot connect to /var/run/docker.sock.",
+            security_level: "unavailable",
+          },
+        },
+      }),
+    );
+
+    renderHubPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("hub.runtimes.unavailableUserDescription");
+    expect(alert).not.toHaveTextContent("/var/run/docker.sock");
+    expect(alert).not.toHaveTextContent('"provisioner":"local"');
+  });
+
   it("queries the server when runtime search changes", async () => {
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));
