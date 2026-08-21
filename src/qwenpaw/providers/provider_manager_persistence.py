@@ -1113,12 +1113,22 @@ class ProviderManagerPersistenceMixin(
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes
 
         builtin_model_ids = {model.id for model in builtin.models}
+        unavailable_model_ids = getattr(
+            builtin,
+            "_UNAVAILABLE_MODEL_IDS",
+            frozenset(),
+        )
         builtin.extra_models = [
             model
             for model in provider.extra_models
             if model.id not in builtin_model_ids
+            and model.id not in unavailable_model_ids
         ]
-        builtin.discovered_models = provider.discovered_models
+        builtin.discovered_models = [
+            model
+            for model in provider.discovered_models
+            if model.id not in unavailable_model_ids
+        ]
         builtin.models_last_synced_at = provider.models_last_synced_at
         builtin.models_last_sync_error = provider.models_last_sync_error
         builtin.models_syncing = False

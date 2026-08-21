@@ -26,6 +26,7 @@ from qwenpaw.providers.capping_formatter import (
 from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
+    OpenCodeProvider,
     OpenAIProvider,
 )
 from qwenpaw.providers.openai_response_provider import OpenAIResponseProvider
@@ -158,6 +159,30 @@ def test_builtin_restore_preserves_catalog_free_flags() -> None:
     ProviderManager._restore_builtin_provider(builtin, stored)
 
     assert [model.is_free for model in builtin.models] == [True, False]
+
+
+def test_builtin_restore_drops_provider_unavailable_models() -> None:
+    builtin = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        models=[ModelInfo(id="mimo-v2.5-free", name="Mimo")],
+    )
+    stored = builtin.model_copy(deep=True)
+    stored.extra_models = [
+        ModelInfo(id="nemotron-3-super-free", name="Nemotron Super"),
+        ModelInfo(id="user-model", name="User Model"),
+    ]
+    stored.discovered_models = [
+        ModelInfo(id="deepseek-v4-flash-free", name="DeepSeek Flash"),
+        ModelInfo(id="remote-model", name="Remote Model"),
+    ]
+
+    ProviderManager._restore_builtin_provider(builtin, stored)
+
+    assert [model.id for model in builtin.extra_models] == ["user-model"]
+    assert [model.id for model in builtin.discovered_models] == [
+        "remote-model",
+    ]
 
 
 async def test_add_custom_provider_and_reload_from_storage(

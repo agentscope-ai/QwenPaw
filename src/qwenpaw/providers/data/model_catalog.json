@@ -955,8 +955,8 @@
         "relay_reasoning": true
       },
       {
-        "id": "poolside/laguna-m.1:free",
-        "name": "Poolside Laguna M.1",
+        "id": "poolside/laguna-s-2.1:free",
+        "name": "Poolside Laguna S 2.1",
         "supports_image": false,
         "supports_video": false,
         "probe_source": "documentation",
@@ -972,8 +972,8 @@
         "relay_reasoning": true
       },
       {
-        "id": "poolside/laguna-xs.2:free",
-        "name": "Poolside Laguna XS.2",
+        "id": "poolside/laguna-xs-2.1:free",
+        "name": "Poolside Laguna XS 2.1",
         "supports_image": false,
         "supports_video": false,
         "probe_source": "documentation",
@@ -1004,43 +1004,9 @@
         "max_input_length_configured": false,
         "generate_kwargs": {},
         "relay_reasoning": true
-      },
-      {
-        "id": "nex-agi/nex-n2-pro:free",
-        "name": "Nex N2 Pro",
-        "supports_image": false,
-        "supports_video": false,
-        "probe_source": "documentation",
-        "is_free": true,
-        "source": "builtin",
-        "availability_status": "unverified",
-        "availability_retryable": true,
-        "config_overrides": [],
-        "max_tokens": 8192,
-        "max_input_length": 131072,
-        "max_input_length_configured": false,
-        "generate_kwargs": {},
-        "relay_reasoning": true
       }
     ],
     "OPENCODE_MODELS": [
-      {
-        "id": "deepseek-v4-flash-free",
-        "name": "DeepSeek V4 Flash",
-        "supports_image": false,
-        "supports_video": false,
-        "probe_source": "documentation",
-        "is_free": true,
-        "source": "builtin",
-        "availability_status": "unverified",
-        "availability_retryable": true,
-        "config_overrides": [],
-        "max_tokens": 8192,
-        "max_input_length": 131072,
-        "max_input_length_configured": false,
-        "generate_kwargs": {},
-        "relay_reasoning": true
-      },
       {
         "id": "mimo-v2.5-free",
         "name": "Mimo V2.5",
@@ -1061,23 +1027,6 @@
       {
         "id": "nemotron-3-ultra-free",
         "name": "Nemotron 3 Ultra",
-        "supports_image": false,
-        "supports_video": false,
-        "probe_source": "documentation",
-        "is_free": true,
-        "source": "builtin",
-        "availability_status": "unverified",
-        "availability_retryable": true,
-        "config_overrides": [],
-        "max_tokens": 8192,
-        "max_input_length": 131072,
-        "max_input_length_configured": false,
-        "generate_kwargs": {},
-        "relay_reasoning": true
-      },
-      {
-        "id": "nemotron-3-super-free",
-        "name": "Nemotron 3 Super",
         "supports_image": false,
         "supports_video": false,
         "probe_source": "documentation",
