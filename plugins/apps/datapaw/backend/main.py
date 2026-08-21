@@ -24,6 +24,7 @@ if __package__ and __package__.startswith("plugin_"):
     from .backend.runtime import (
         context_python,
         context_working_dir,
+        runtime_packages_available,
         skill_layers,
         skills_root,
     )
@@ -34,6 +35,7 @@ else:
     from backend.runtime import (  # noqa: E402
         context_python,
         context_working_dir,
+        runtime_packages_available,
         skill_layers,
         skills_root,
     )
@@ -68,6 +70,7 @@ _context_service = app.managed_service(
     health_path="/api/health",
     cwd=context_working_dir(),
     env={
+        **os.environ,
         "DATAPAW_API_TOKEN": _context_token,
         "DATAPAW_CLIENT_API_TOKEN": _context_token,
     },
@@ -77,7 +80,8 @@ _context_service = app.managed_service(
     display_name="Context API",
     capabilities=("context-search", "semantic-grounding", "governed-query"),
     runtime_remediation=(
-        "Provision the plugin runtime with scripts/setup-dev.sh, or set "
+        "Install the runtime from PyPI (scripts/setup-pypi.sh) or from the "
+        "QwenPaw-Data workspace (scripts/setup-dev.sh); alternatively set "
         "DATAPAW_CONTEXT_MODE=external with DATAPAW_CONTEXT_URL and "
         "DATAPAW_CONTEXT_TOKEN"
     ),
@@ -120,16 +124,27 @@ def _context_runtime_issue() -> dict[str, str] | None:
             }
         return None
     if not _context_service.runtime_available():
+        if runtime_packages_available():
+            remediation = (
+                "The datapaw runtime packages are installed, but the "
+                "chosen Python interpreter is not available. Set "
+                "DATAPAW_CONTEXT_PYTHON to a valid interpreter, or set "
+                "DATAPAW_CONTEXT_MODE=external with DATAPAW_CONTEXT_URL "
+                "and DATAPAW_CONTEXT_TOKEN"
+            )
+        else:
+            remediation = (
+                "Install the runtime from PyPI: scripts/setup-pypi.sh; or "
+                "from source: scripts/setup-dev.sh; or set "
+                "DATAPAW_CONTEXT_MODE=external with DATAPAW_CONTEXT_URL and "
+                "DATAPAW_CONTEXT_TOKEN"
+            )
         return {
             "code": "RUNTIME_MISSING",
             "message": (
                 "No managed context runtime is provisioned for this install"
             ),
-            "remediation": (
-                "Provision the plugin runtime with scripts/setup-dev.sh, "
-                "or set DATAPAW_CONTEXT_MODE=external with "
-                "DATAPAW_CONTEXT_URL and DATAPAW_CONTEXT_TOKEN"
-            ),
+            "remediation": remediation,
         }
     return None
 
