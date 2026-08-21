@@ -1,36 +1,28 @@
-import {
-  normalizePathForCompare,
-  samePath,
-} from "../project-directory/pathEquivalence";
 import type { WorkspaceRoot } from "./types";
 
 /**
- * Canonical form of a directory path for comparison.
+ * Prefix addressing a non-primary bound project directory by path.
  *
- * Delegates to the shared rule rather than folding drive letters here: the
- * old local version lower-cased `C:/…` only, so a Windows UNC path compared
- * case-sensitively and one share showed up as two roots, and it disagreed
- * with the picker's own comparison on every other platform.
+ * Stays a path rather than an opaque id: the backend resolves it by
+ * filesystem identity, and a persisted editor tab holds this token, so an id
+ * that changed across a remount would orphan the tab it names.
  */
-export function normalizeDirectoryPath(path: string): string {
-  return normalizePathForCompare(path);
-}
-
-export function directoriesMatch(
-  projectDirectory: string,
-  workspaceDirectory: string,
-): boolean {
-  return (
-    Boolean(projectDirectory) && samePath(projectDirectory, workspaceDirectory)
-  );
-}
-
-/** Prefix addressing a non-primary bound project directory by path. */
 const EXTRA_PROJECT_ROOT_PREFIX = "project:";
 
 /** Minimal shape of a bound directory; `ProjectDirEntry` satisfies it. */
 export interface BoundDirLike {
   path: string;
+  /**
+   * Whether this entry is the agent workspace, as decided by the server.
+   *
+   * The client used to answer this by comparing `entry.path` against the
+   * workspace path with a case fold chosen from the server's platform. That
+   * is wrong in both directions — on a case-sensitive volume it merged two
+   * real directories, and not folding merged nothing on a volume that folds —
+   * and the symptom was one directory appearing as two switcher roots with
+   * two sets of editor tabs. The server compares inodes instead.
+   */
+  is_workspace?: boolean;
 }
 
 /** Whether a root points at a project directory rather than the workspace. */
@@ -77,15 +69,12 @@ export function projectRootFor(
  * a caller reconciling its current root against this list conclude, during the
  * first render, that the project root does not exist and switch away from it.
  */
-export function workspaceRoots(
-  dirs: readonly BoundDirLike[],
-  workspaceDirectory: string,
-): WorkspaceRoot[] {
+export function workspaceRoots(dirs: readonly BoundDirLike[]): WorkspaceRoot[] {
   if (dirs.length === 0) return [];
   const roots: WorkspaceRoot[] = [];
   dirs.forEach((entry, index) => {
     if (!entry.path) return;
-    const root: WorkspaceRoot = directoriesMatch(entry.path, workspaceDirectory)
+    const root: WorkspaceRoot = entry.is_workspace
       ? "workspace"
       : projectRootFor(entry.path, index === 0);
     if (!roots.includes(root)) roots.push(root);

@@ -2149,7 +2149,7 @@
     "download": "Baixar",
     "downloadFailed": "Falha ao baixar o arquivo",
     "resize": "Redimensionar painel de arquivos",
-    "loadFailed": "Falha ao carregar o arquivo. Verifique se ele ainda está no workspace do agente atual.",
+    "loadFailed": "Falha ao carregar o arquivo. Verifique se ele ainda está no diretório de trabalho principal do workspace do agente atual.",
     "previewUnavailable": "Preview indisponível. Metadados e download continuam disponíveis.",
     "mentionInChat": "Mencionar no Chat",
     "expandWorkspace": "Expandir workspace",

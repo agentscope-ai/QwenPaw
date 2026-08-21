@@ -152,6 +152,18 @@ class ProjectDirEntryView(BaseModel):
             "entry stays fully usable)."
         ),
     )
+    is_workspace: bool = Field(
+        default=False,
+        description=(
+            "Whether this entry is the agent's own workspace directory. "
+            "Decided here by filesystem identity, because the client "
+            "cannot: comparing the two paths as text splits one directory "
+            "into two roots on a case-sensitive volume and merges two "
+            "distinct ones on a folding volume. The Files switcher "
+            "collapses such an entry onto its own 'workspace' root rather "
+            "than giving it a second one with its own editor tabs."
+        ),
+    )
 
 
 class ProjectDirsResponse(BaseModel):
@@ -176,15 +188,6 @@ class ProjectDirsResponse(BaseModel):
         description=(
             "The agent-level default directory (single value), for "
             "showing inheritance"
-        ),
-    )
-    path_case_insensitive: bool = Field(
-        description=(
-            "Whether this server's platform folds case when comparing "
-            "directory paths. Clients must use this instead of guessing "
-            "from the browser they run in: folding unconditionally makes "
-            "a Linux server report /srv/Repo as already bound when "
-            "/srv/repo is, and the user can never bind both."
         ),
     )
 
@@ -218,7 +221,6 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
     from ...config.config import load_agent_config
     from ...services.project_directory import (
         nested_root_pairs,
-        path_case_insensitive,
         resolve_effective_project_dirs,
         session_project_dirs_raw_from_meta,
     )
@@ -254,12 +256,15 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
                     "label": entry.label,
                     "exists": entry.exists,
                     "nested_with": nearest.get(index),
+                    # Compared by key, not by path text: these are the same
+                    # directory exactly when they reach the same entry.
+                    "is_workspace": bool(entry.key)
+                    and entry.key == resolved.workspace_key,
                 }
                 for index, entry in enumerate(resolved.dirs)
             ],
             "source": resolved.source,
             "agent_project_dir": agent_dir,
-            "path_case_insensitive": path_case_insensitive(),
         }
 
     return await asyncio.to_thread(_build)

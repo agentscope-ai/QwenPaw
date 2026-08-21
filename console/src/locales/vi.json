@@ -1261,7 +1261,7 @@
     "download": "Tải xuống",
     "downloadFailed": "Không thể tải tệp xuống",
     "resize": "Đổi kích thước ngăn tệp",
-    "loadFailed": "Không thể tải tệp. Hãy kiểm tra tệp trong không gian làm việc của tác nhân hiện tại.",
+    "loadFailed": "Không thể tải tệp. Hãy kiểm tra tệp vẫn nằm trong thư mục làm việc chính của không gian làm việc tác nhân hiện tại.",
     "previewUnavailable": "Không thể Preview. Siêu dữ liệu và tải xuống vẫn khả dụng.",
     "mentionInChat": "Đề cập trong Chat",
     "expandWorkspace": "Mở rộng workspace",

@@ -180,35 +180,6 @@ def dir_key(raw: Any, rules: Optional[NameRules] = None) -> str:
     return _NAME_KEY_PREFIX + (rules or _FALLBACK_RULES).key(str(path))
 
 
-def path_case_insensitive() -> bool:
-    """Whether directory comparisons fold case on this server's platform.
-
-    Published to clients so the console applies the **server's** rule
-    rather than guessing from the browser it happens to run in. Folding
-    unconditionally would report ``/srv/Repo`` as already bound when
-    ``/srv/repo`` is, and a Linux user could never bind both.
-
-    Deliberately the coarse platform answer: it describes the whole server
-    in one boolean, and a mixed set of volumes has no single correct value
-    to send.
-
-    The backend does not decide anything on this. It compares directories
-    by filesystem identity (:func:`dir_key`), so a case-sensitive volume
-    on a folding OS is handled correctly there while this still reports
-    the platform's default. The console is therefore *more* eager to call
-    a directory already-bound than the backend is: it may refuse to add a
-    second root that the backend would accept, which is a visible-but-safe
-    failure — no directory is bound wrongly, and the user is not shown
-    files from one they never picked.
-
-    Replacing it means sending each root its own comparison key instead of
-    one server-wide flag. That is a client-visible protocol change and is
-    tracked separately; until then the console's rule is documented in
-    ``console/src/features/project-directory/pathEquivalence.ts``.
-    """
-    return not _FALLBACK_RULES.case_sensitive
-
-
 def same_dir_normalized(
     a: Path,
     b: Path,
@@ -599,19 +570,19 @@ def resolve_effective_project_dirs(
         )
         for entry in entries
     )
-    workspace_exists = True
-    workspace_key = ""
-    if not dirs:
-        # Only the fallback primary reads these, so skip the syscall when
-        # the list already has a primary of its own.
-        workspace_exists, workspace_identity = dir_stat(normalized_workspace)
-        workspace_key = (
-            f"{_IDENTITY_KEY_PREFIX}"
-            f"{workspace_identity[0]}:{workspace_identity[1]}"
-            if workspace_identity is not None
-            else _NAME_KEY_PREFIX
-            + _FALLBACK_RULES.key(str(normalized_workspace))
-        )
+    # One stat for the workspace, always. The fallback primary needs it, and
+    # so does every caller that has to answer "is this bound entry the agent
+    # workspace?" — the Files switcher collapses such an entry onto its own
+    # ``workspace`` root, and comparing the two paths as strings is what used
+    # to split one directory into two roots with two sets of editor tabs.
+    # It is the agent's own storage, so the syscall is local and hot.
+    workspace_exists, workspace_identity = dir_stat(normalized_workspace)
+    workspace_key = (
+        f"{_IDENTITY_KEY_PREFIX}"
+        f"{workspace_identity[0]}:{workspace_identity[1]}"
+        if workspace_identity is not None
+        else _NAME_KEY_PREFIX + _FALLBACK_RULES.key(str(normalized_workspace))
+    )
     return ResolvedProjectDirs(
         dirs=dirs,
         source=source,
@@ -741,7 +712,6 @@ __all__ = [
     "normalize_dir_entry_list",
     "normalize_project_dir",
     "normalize_project_dir_list",
-    "path_case_insensitive",
     "resolve_effective_project_dir",
     "resolve_effective_project_dirs",
     "same_dir_normalized",

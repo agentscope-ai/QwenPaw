@@ -2447,7 +2447,7 @@
     "download": "Download",
     "downloadFailed": "File download failed",
     "resize": "Resize Files drawer",
-    "loadFailed": "Failed to load the file. Check that it is still in the current agent workspace.",
+    "loadFailed": "Failed to load the file. Check that it is still in the primary working directory of the current agent workspace.",
     "previewUnavailable": "Preview is unavailable. Metadata and download remain available.",
     "mentionInChat": "Mention in Chat",
     "expandWorkspace": "Expand workspace",

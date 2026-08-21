@@ -154,7 +154,7 @@ export default function FilesWorkspace({
           }
         };
 
-        workspaceRoots(boundDirs, workspaceDirectory).forEach((root) => {
+        workspaceRoots(boundDirs).forEach((root) => {
           const directory =
             root === "workspace"
               ? workspaceDirectory

@@ -33,6 +33,15 @@ export interface ProjectDirEntry {
   label: string | null;
   exists: boolean;
   nested_with: string | null;
+  /**
+   * Whether this entry is the agent's own workspace directory.
+   *
+   * Decided by the server from filesystem identity, because the client
+   * cannot: comparing the two paths as text splits one directory into two
+   * roots on a case-sensitive volume — two switcher entries, two sets of
+   * editor tabs — and merges two distinct ones on a folding volume.
+   */
+  is_workspace: boolean;
 }
 
 /** Effective project-directory list for a chat, plus provenance. */
@@ -40,13 +49,6 @@ export interface ChatProjectDirs {
   project_dirs: ProjectDirEntry[];
   source: ChatProjectDirSource;
   agent_project_dir: string | null;
-  /**
-   * Whether the server's platform folds case when comparing paths. Feed it
-   * to `setPathCaseInsensitive` — the client must not reimplement the rule,
-   * since folding on a case-sensitive server hides one of two real
-   * directories from the user.
-   */
-  path_case_insensitive: boolean;
 }
 
 /** One entry as sent to the server when setting the list. */

@@ -44,7 +44,6 @@ import SessionProjectDirectory from "../project-directory/SessionProjectDirector
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
 import {
-  directoriesMatch,
   isProjectRoot,
   projectRootPath,
   workspaceRoots,
@@ -496,12 +495,16 @@ export default function FilesNavigator({
             label: null,
             exists: true,
             nested_with: null,
+            // This is only the pre-fetch fallback. Both values come from the
+            // same API response here; the server-provided entry replaces it
+            // once the bound-directory snapshot has loaded.
+            is_workspace: projectDirectory === workspaceDirectory,
           },
         ]
       : [];
     if (extraRootsPending || boundDirs.length === 0) return fallback;
     return boundDirs;
-  }, [boundDirs, extraRootsPending, projectDirectory]);
+  }, [boundDirs, extraRootsPending, projectDirectory, workspaceDirectory]);
 
   /** How many bound directories the switcher cannot offer yet.
    *
@@ -513,17 +516,11 @@ export default function FilesNavigator({
       extraRootsPending
         ? boundDirs
             .slice(1)
-            .filter(
-              (entry) =>
-                entry.path && !directoriesMatch(entry.path, workspaceDirectory),
-            ).length
+            .filter((entry) => entry.path && !entry.is_workspace).length
         : 0,
-    [boundDirs, extraRootsPending, workspaceDirectory],
+    [boundDirs, extraRootsPending],
   );
-  const roots = useMemo(
-    () => workspaceRoots(rootDirs, workspaceDirectory),
-    [rootDirs, workspaceDirectory],
-  );
+  const roots = useMemo(() => workspaceRoots(rootDirs), [rootDirs]);
   const profileFiles = useMemo(
     () => selectProfileFiles(allProfileFiles, enabledFiles),
     [allProfileFiles, enabledFiles],
@@ -542,15 +539,16 @@ export default function FilesNavigator({
           // A session with nothing bound resolves its primary to the workspace,
           // which collapses onto this root — so the tag belongs here too, or
           // the switcher would show no primary at all.
-          primary: directoriesMatch(
-            rootDirs[0]?.path ?? "",
-            workspaceDirectory,
-          ),
+          primary: Boolean(rootDirs[0]?.is_workspace),
         };
       }
       const rootPath = projectRootPath(root);
+      // Exact match: `rootPath` was copied verbatim out of one of these
+      // entries by `projectRootFor`, so there is no spelling to reconcile —
+      // and folding case here could match the wrong entry when two bound
+      // roots differ only in case, which a case-sensitive volume allows.
       const index = rootPath
-        ? rootDirs.findIndex((entry) => directoriesMatch(entry.path, rootPath))
+        ? rootDirs.findIndex((entry) => entry.path === rootPath)
         : 0;
       const entry = index >= 0 ? rootDirs[index] : undefined;
       const path = entry?.path ?? rootPath ?? projectDirectory;

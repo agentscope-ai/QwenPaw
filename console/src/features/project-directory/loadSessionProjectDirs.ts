@@ -12,7 +12,6 @@ import {
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { getPendingProjectDirs } from "./pendingProjectDirectory";
-import { setPathCaseInsensitive } from "./pathEquivalence";
 
 export interface SessionProjectDirsSnapshot {
   /** Effective list, primary first. Never empty. */
@@ -26,7 +25,10 @@ function pendingEntry(path: string, label: string | null): ProjectDirEntry {
   // `exists: true` because the pick came from the server-side browser, which
   // only lists real directories. Claiming "missing" here would flag a
   // perfectly good directory before the first message validates it.
-  return { path, label, exists: true, nested_with: null };
+  // `is_workspace: false` because a pick made in the directory browser is a
+  // project directory, and the only consumer of the flag — the Files
+  // switcher — has no extra roots to collapse on a chat this new anyway.
+  return { path, label, exists: true, nested_with: null, is_workspace: false };
 }
 
 /**
@@ -45,9 +47,6 @@ export async function loadSessionProjectDirs(
 ): Promise<SessionProjectDirsSnapshot> {
   if (chatId) {
     const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
-    // Adopt the server's path-comparison rule before anyone compares paths:
-    // this is the earliest point both the picker and the navigator have it.
-    setPathCaseInsensitive(next.path_case_insensitive);
     if (next.project_dirs.length > 0) {
       return {
         dirs: next.project_dirs,
@@ -65,6 +64,10 @@ export async function loadSessionProjectDirs(
           label: null,
           exists: single.exists,
           nested_with: null,
+          // The plural endpoint reported nothing bound, which means the
+          // primary *is* the workspace — that is what the fallback resolves
+          // to, so the flag is known here without asking again.
+          is_workspace: true,
         },
       ],
       source: next.source,
@@ -84,7 +87,6 @@ export async function loadSessionProjectDirs(
 
   // Nothing pending: the agent default is the starting point.
   const next = await projectDirectoryApi.get();
-  setPathCaseInsensitive(next.path_case_insensitive);
   return {
     dirs: [
       {
@@ -92,6 +94,9 @@ export async function loadSessionProjectDirs(
         label: null,
         exists: next.exists ?? true,
         nested_with: null,
+        // The agent default either is the workspace or is a directory of its
+        // own, and this endpoint already says which — no path comparison.
+        is_workspace: next.is_workspace_default,
       },
     ],
     source: next.is_workspace_default ? "workspace_fallback" : "agent",

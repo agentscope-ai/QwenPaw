@@ -122,8 +122,6 @@ async def get_project(request: Request) -> dict:
     workspace = await get_agent_for_request(request)
 
     def _snapshot() -> dict:
-        from ...services.project_directory import path_case_insensitive
-
         coding_dir = get_agent_project_dir(workspace)
         workspace_dir = workspace.workspace_dir
         is_workspace = coding_dir.resolve() == workspace_dir.resolve()
@@ -133,9 +131,6 @@ async def get_project(request: Request) -> dict:
             "is_workspace_default": is_workspace,
             "workspace_dir": str(workspace_dir),
             "exists": coding_dir.exists(),
-            # Published so the console compares paths the way this server
-            # does instead of guessing from the browser it runs in.
-            "path_case_insensitive": path_case_insensitive(),
         }
 
     return await asyncio.to_thread(_snapshot)

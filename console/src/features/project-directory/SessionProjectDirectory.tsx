@@ -33,7 +33,6 @@ import type {
 import styles from "./SessionProjectDirectory.module.less";
 import { setPendingProjectDirectory } from "./pendingProjectDirectory";
 import { loadSessionProjectDirs } from "./loadSessionProjectDirs";
-import { samePath, setPathCaseInsensitive } from "./pathEquivalence";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
 import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
 
@@ -47,13 +46,25 @@ function basenameOf(path: string): string {
   return trimmed.split(/[\\/]/).pop() || trimmed || path;
 }
 
-/** Exact path compare — only separators are normalised, never case.
+/** Path compare for the picker — separators normalised, case never folded.
  *
- *  Deliberately not the shared {@link samePath}: that one folds case where
- *  the *filesystem* does, which is the right question for "is this already
- *  bound". Here the question is "did the user change the text", and on a
- *  case-sensitive server `/srv/Repo` → `/srv/repo` is a real re-bind that
- *  must not be mistaken for "unchanged". */
+ *  The console does not fold case any more. It used to, using a flag the
+ *  server derived from `sys.platform`, which was wrong for a case-sensitive
+ *  APFS volume, a Windows per-directory flag, or a network mount whose rule
+ *  differs from its host: the picker then reported `/srv/repo` as already
+ *  bound when `/srv/Repo` was, and refused a directory the user could
+ *  legitimately add.
+ *
+ *  Every comparison left in this file is between two spellings that came
+ *  from the same place, where exact text is the right test:
+ *
+ *  - the draft list against the saved one, asking "did the user change this
+ *    slot" — and `/srv/Repo` → `/srv/repo` is a real re-bind there, not a
+ *    no-op, so folding would silently drop the save;
+ *  - a queued pick against the entry it was copied from, for the highlight.
+ *
+ *  {@link isBound} is the one place that compares a path the user typed, and
+ *  it is documented there as a hint: the server decides, by inode. */
 function exactSamePath(a: string, b: string): boolean {
   const norm = (value: string) =>
     value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
@@ -173,7 +184,6 @@ export default function SessionProjectDirectory({
   const refresh = useCallback(async () => {
     if (isAgentScope) {
       const next = await projectDirectoryApi.get();
-      setPathCaseInsensitive(next.path_case_insensitive);
       const fallback: EffectiveProjectDirectory = {
         project_dir: next.path,
         source: next.is_workspace_default ? "workspace_fallback" : "agent",
@@ -288,7 +298,7 @@ export default function SessionProjectDirectory({
       info?.source === "workspace_fallback" &&
       dirs.length === appliedDirs.length &&
       dirs.every((entry, index) =>
-        samePath(entry.path, appliedDirs[index]?.path ?? ""),
+        exactSamePath(entry.path, appliedDirs[index]?.path ?? ""),
       ),
     [appliedDirs, dirs, info?.source],
   );
@@ -343,9 +353,17 @@ export default function SessionProjectDirectory({
   };
 
   // ── Session scope: the bound directory list ──────────────────────────
-  /** Whether a path is already in the list. */
+  /** Whether a path is already in the list — a hint, not the verdict.
+   *
+   *  Exact text, so a path the user typed with different case than the bound
+   *  spelling is not recognised here. That is deliberate: the client cannot
+   *  know whether the filesystem folds case, and the two ways of being wrong
+   *  are not equal. Guessing "already bound" refuses a directory the user is
+   *  entitled to add, with no recourse; guessing "not bound" merely offers a
+   *  candidate that the server then collapses into the entry it duplicates,
+   *  because the server compares by inode. */
   const isBound = (path: string) =>
-    dirs.some((entry) => samePath(entry.path, path));
+    dirs.some((entry) => exactSamePath(entry.path, path));
 
   /** Queue a single-clicked folder as the next one to bind. */
   const selectPending = (path: string) => {
@@ -414,6 +432,10 @@ export default function SessionProjectDirectory({
       label: null,
       exists: true,
       nested_with: null,
+      // A directory picked in the browser is a project directory. Only the
+      // server can say otherwise, and it will on the next load — the flag is
+      // read by the Files switcher, which has nothing to collapse until then.
+      is_workspace: false,
     };
     setDirs((current) =>
       isUntouchedFallback ? [entry, ...current] : [...current, entry],
@@ -477,7 +499,6 @@ export default function SessionProjectDirectory({
         chatId,
         payload,
       );
-      setPathCaseInsensitive(saved.path_case_insensitive);
       applyList(saved.project_dirs, saved);
       setPendingPath("");
       setOpen(false);
@@ -728,7 +749,7 @@ export default function SessionProjectDirectory({
             {projects.slice(0, 6).map((project) => {
               const selected = isAgentScope
                 ? selectedRecentPath === project.path
-                : samePath(pendingPath, project.path);
+                : exactSamePath(pendingPath, project.path);
               return (
                 <button
                   type="button"
@@ -870,7 +891,7 @@ export default function SessionProjectDirectory({
             {browser?.dirs.map((directory) => {
               const selected = isAgentScope
                 ? !selectedRecentPath && draft === directory.path
-                : samePath(pendingPath, directory.path);
+                : exactSamePath(pendingPath, directory.path);
               return (
                 <button
                   type="button"

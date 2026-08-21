@@ -2412,7 +2412,7 @@
     "download": "Unduh",
     "downloadFailed": "Unduhan file gagal",
     "resize": "Ubah ukuran panel file",
-    "loadFailed": "Gagal memuat file. Pastikan file masih berada di ruang kerja agen saat ini.",
+    "loadFailed": "Gagal memuat file. Pastikan file masih berada di direktori kerja utama pada ruang kerja agen saat ini.",
     "previewUnavailable": "Preview tidak tersedia. Metadata dan unduhan tetap tersedia.",
     "mentionInChat": "Sebutkan di Chat",
     "expandWorkspace": "Perluas workspace",
