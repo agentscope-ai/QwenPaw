@@ -1,0 +1,118 @@
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.filterTag {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border-radius: 16px;
+  background: var(--color-bg-container, #ffffff);
+  color: var(--color-text-secondary, rgba(20, 20, 19, 0.58));
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+
+  &:hover {
+    border-color: var(--color-border, #d8d4cf);
+    color: var(--color-text, rgba(20, 20, 19, 0.88));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, #ff7a00);
+    outline-offset: 1px;
+  }
+}
+
+.filterTagActive {
+  border-color: var(--color-fill-secondary, #e8e6e3);
+  background: var(--color-fill-secondary, #e8e6e3);
+  color: var(--color-text, rgba(20, 20, 19, 0.88));
+  font-weight: 500;
+}
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.search {
+  width: min(320px, 100%);
+}
+
+.controlActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sort {
+  width: 168px;
+}
+
+.iconButton {
+  width: 32px;
+  padding: 0;
+}
+
+.searchHint {
+  margin: -8px 0 12px;
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+}
+
+:global(.dark-mode) {
+  .filterTag {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: #1f1f1f;
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover:not(.filterTagActive) {
+      border-color: rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .filterTagActive {
+    border-color: rgba(255, 127, 22, 0.5);
+    background: rgba(255, 127, 22, 0.18);
+    color: #ffad66;
+  }
+}
+
+@media (max-width: 767px) {
+  .controlRow {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .controlActions {
+    width: 100%;
+  }
+
+  .sort {
+    min-width: 0;
+    flex: 1;
+    width: auto;
+  }
+}

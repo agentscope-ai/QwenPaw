@@ -92,12 +92,22 @@ ENV PATH="/app/venv/bin:$PATH"
 
 COPY pyproject.toml setup.py README.md ./
 COPY src ./src
+COPY packages/qwenpawmail-mcp/src/qwenpawmail_mcp ./packages/qwenpawmail-mcp/src/qwenpawmail_mcp
 COPY website/public/docs/ ./src/qwenpaw/docs/
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
 COPY --from=uv-src /uv /bin/uv
-RUN uv pip install --no-cache-dir . && rm -rf ./build
+# Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
+# at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
+# wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
+# kicks in and the import works. The proven failure mode is an *in-place*
+# upgrade of a legacy setuptools (seen on the macOS CI runners, and possible
+# in any environment upgrading an existing install): it can leave a
+# half-removed pkg_resources (module present, declare_namespace gone), which
+# raises an AttributeError the fallback does not catch — crashing the Feishu
+# channel. The pin keeps every environment in the known-good state.
+RUN uv pip install --no-cache-dir . "setuptools<82" && rm -rf ./build
 
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.

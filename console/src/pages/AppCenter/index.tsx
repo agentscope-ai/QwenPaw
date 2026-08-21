@@ -23,19 +23,25 @@ import type { MenuProps } from "antd";
 import {
   AppWindow,
   BadgeCheck,
+  CircleX,
   LayoutGrid,
   Search,
   RefreshCw,
   Info,
-  RotateCcw,
   Store,
   X,
 } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { MarketplaceHeader } from "@/pages/Market/components/MarketplaceHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
+import type { InstallPluginResult } from "../../api/modules/plugin";
 import { useRoutes } from "../../plugins/registry/hooks";
-import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
+import { loadPawApp } from "../../plugins/usePluginLoader";
+import { removePluginAppState } from "../../os/osCleanup";
+import {
+  getPawAppIdFromPath,
+  setActivePawAppId,
+} from "../../plugins/pawapp-sdk/context";
 import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
@@ -57,7 +63,6 @@ const { Option } = Select;
 
 /** URL-persisted App Center views; unknown values fall back to installed. */
 type AppCenterView = "installed" | "official" | "market";
-
 // Featured installed apps (e.g. Creator) are pinned to the top of the grid.
 // Lower index = higher placement.
 const FEATURED_APP_IDS = ["qwenpaw-creator"];
@@ -123,6 +128,15 @@ export default function AppCenterPage() {
     }
   };
 
+  const handleMarketInstalled = async (result: InstallPluginResult) => {
+    if (apps.some((app) => app.id === result.id)) {
+      window.location.reload();
+      return;
+    }
+    await loadPawApp(result.id);
+    await fetchApps();
+  };
+
   useEffect(() => {
     fetchApps();
   }, []);
@@ -168,16 +182,24 @@ export default function AppCenterPage() {
 
   const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
 
-  // Resolve the registered route component for the active app so it can be
-  // rendered inline (no full-page navigation).
   const activeRoute = useMemo(() => {
     if (!activeApp) return null;
     const target = appTarget(activeApp);
-    return routes.find((r) => r.path === target) ?? null;
+    return routes.find((route) => route.path === target) ?? null;
   }, [activeApp, routes]);
 
-  const handleAppClick = (app: AppCardData) => {
+  const handleAppClick = async (app: AppCardData) => {
     const target = appTarget(app);
+    try {
+      await loadPawApp(app.id, target);
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("appCenter.appLoadFailed", "Failed to load app"),
+      );
+      return;
+    }
     if (isOsPath(window.location.pathname)) {
       window.history.pushState(
         withOsPawAppHistoryState(window.history.state, app.id),
@@ -208,10 +230,14 @@ export default function AppCenterPage() {
       setActiveApp(null);
       return;
     }
+    if (window.history.state?.pawappInline === true) {
+      window.history.back();
+      return;
+    }
     window.history.pushState(
       {},
       "",
-      addRouterBasename(window.location.pathname, "/apps"),
+      addRouterBasename(window.location.pathname, "/market"),
     );
     setActiveApp(null);
   };
@@ -231,6 +257,7 @@ export default function AppCenterPage() {
       onOk: async () => {
         try {
           await pawappApi.uninstall(app.id);
+          removePluginAppState(app.id);
           message.success(t("appCenter.uninstallSuccess", "App uninstalled"));
           await fetchApps();
         } catch (err) {
@@ -250,7 +277,7 @@ export default function AppCenterPage() {
     const onPop = (event: PopStateEvent) => {
       const appId = isOsPath(window.location.pathname)
         ? getOsPawAppIdFromHistoryState(event.state)
-        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+        : getPawAppIdFromPath(window.location.pathname);
       if (!appId) {
         setActiveApp(null);
         return;
@@ -276,20 +303,8 @@ export default function AppCenterPage() {
   // ── Embedded app view ─────────────────────────────────────────────────────
   if (activeApp) {
     const AppComponent = activeRoute?.Component;
-
     // App menu items
     const appMenuItems: MenuProps["items"] = [
-      {
-        key: "refresh",
-        icon: <RotateCcw size={14} />,
-        label: t("appCenter.refreshApp", "刷新应用"),
-        onClick: () => {
-          // Force reload by unmounting and remounting the app component
-          setActiveApp(null);
-          setTimeout(() => setActiveApp(activeApp), 0);
-          message.success(t("appCenter.appRefreshed", "应用已刷新"));
-        },
-      },
       {
         key: "about",
         icon: <Info size={14} />,
@@ -361,16 +376,7 @@ export default function AppCenterPage() {
             onClick={handleBack}
             title={t("appCenter.backToListHint", "返回应用列表 (ESC)")}
           >
-            <svg
-              className={styles.capsuleCloseIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            >
-              <circle cx="12" cy="12" r="9" />
-            </svg>
+            <CircleX className={styles.capsuleCloseIcon} size={20} />
           </button>
         </div>
 
@@ -384,7 +390,7 @@ export default function AppCenterPage() {
               image={<AppWindow size={48} strokeWidth={1} />}
               description={t(
                 "appCenter.appNotLoaded",
-                "This app is not loaded yet. Open it once from the sidebar, then retry.",
+                "This app is not loaded yet.",
               )}
               style={{ marginTop: 48 }}
             />
@@ -430,14 +436,15 @@ export default function AppCenterPage() {
             </Select>
           )}
           <div className={styles.toolbarSpacer} />
-          <button
+          <Button
+            type="default"
             className={styles.refreshBtn}
+            icon={<RefreshCw size={14} />}
             onClick={fetchApps}
+            disabled={loading}
             aria-label={t("common.refresh", "Refresh")}
             title={t("common.refresh", "Refresh")}
-          >
-            <RefreshCw size={15} />
-          </button>
+          />
         </div>
       )}
 
@@ -494,7 +501,7 @@ export default function AppCenterPage() {
           )}
         </Empty>
       ) : (
-        <div className={styles.gridLarge}>
+        <div className={styles.grid}>
           {filteredApps.map((app) => (
             <AppCard
               key={app.id}
@@ -510,7 +517,7 @@ export default function AppCenterPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader current={t("nav.apps", "Apps")} />
+      <MarketplaceHeader activeSection="apps" />
 
       <div className={styles.pageBody}>
         <div className={styles.pageInner}>
@@ -570,8 +577,7 @@ export default function AppCenterPage() {
             ]}
           />
 
-          {/* External-data views are mounted (chunk + request) only while
-              the user is actually on the corresponding tab. */}
+          {/* Market data is mounted (chunk + request) only while active. */}
           {view === "official" ? (
             <Suspense
               fallback={
@@ -580,7 +586,10 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket channel="official" onInstalled={fetchApps} />
+              <AppMarket
+                channel="official"
+                onInstalled={handleMarketInstalled}
+              />
             </Suspense>
           ) : view === "market" ? (
             <Suspense
@@ -590,7 +599,7 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket onInstalled={fetchApps} />
+              <AppMarket onInstalled={handleMarketInstalled} />
             </Suspense>
           ) : (
             installedContent

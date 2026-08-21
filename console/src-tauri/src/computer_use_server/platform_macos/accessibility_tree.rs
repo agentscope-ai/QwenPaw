@@ -19,7 +19,7 @@ use std::ffi::c_void;
 
 use super::super::state::{
     accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
-    WindowInfo,
+    WindowInfo, ACCESSIBILITY_MAX_ELEMENTS,
 };
 use super::{_AXUIElementGetWindow, target_is_frontmost, transient_surface_points};
 
@@ -923,7 +923,7 @@ fn walk_accessibility(
     visited: &mut Vec<AXUIElement>,
     scope: &ElementScope,
 ) {
-    if depth > max_depth || descriptions.len() >= 300 {
+    if depth > max_depth || descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS {
         return;
     }
     // AXChildren and AXVisibleChildren can return distinct references for one
@@ -1000,6 +1000,7 @@ fn walk_accessibility(
             "value": value,
             "role": role,
             "control_type_name": control_type_name,
+            "depth": depth,
             "identifier": identifier,
             "help": help,
             "enabled": enabled,

@@ -4,80 +4,127 @@ import {
   Link2,
   LoaderCircle,
   Maximize2,
+  Orbit,
   RefreshCw,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { agentsApi } from "../../api/modules/agents";
+import SpriteText from "three-spritetext";
+import {
+  ACESFilmicToneMapping,
+  AmbientLight,
+  BackSide,
+  Color,
+  DirectionalLight,
+  FogExp2,
+  Group,
+  HemisphereLight,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  SphereGeometry,
+  SRGBColorSpace,
+  TorusGeometry,
+  type PerspectiveCamera,
+} from "three";
 import type {
-  MemoryGraphEdge,
-  MemoryGraphNode,
-  MemoryGraphSnapshot,
-} from "../../api/types";
+  ForceGraph3DInstance,
+  LinkObject,
+  NodeObject,
+} from "3d-force-graph";
+import { agentsApi } from "../../api/modules/agents";
+import type { MemoryGraphNode, MemoryGraphSnapshot } from "../../api/types";
 import type { MemorySection } from "../../api/types/workspace";
 import type { MemoryGraphRoot } from "./types";
 import styles from "./MemoryGraphView.module.less";
 
-interface PositionedNode extends MemoryGraphNode {
+interface GraphNode extends NodeObject {
   degree: number;
-  layer: 0 | 1 | 2;
-  x: number;
-  y: number;
-  radius: number;
-}
-
-interface GraphLabel {
   id: string;
-  text: string;
-  width: number;
-  x: number;
-  y: number;
+  isRoot: boolean;
+  isRootDirect: boolean;
+  memory: MemoryGraphNode;
 }
 
-interface PositionedGraph {
-  nodes: PositionedNode[];
-  byId: Map<string, PositionedNode>;
-  labels: GraphLabel[];
+interface GraphLink extends LinkObject<GraphNode> {
+  id: string;
+  source: string | GraphNode;
+  target: string | GraphNode;
+  targetAnchor: string | null;
 }
 
-interface NodeOffset {
-  x: number;
-  y: number;
+interface GraphModel {
+  byId: Map<string, GraphNode>;
+  links: GraphLink[];
+  nodes: GraphNode[];
+  reciprocalEdges: Set<string>;
 }
 
-interface DragSession {
-  baseOffsets: Record<string, NodeOffset>;
-  followers: Map<string, number>;
-  pointerId: number;
-  start: NodeOffset;
+interface GraphPalette {
+  active: string;
+  ambientLight: string;
+  direct: string;
+  edge: string;
+  edgeActive: string;
+  edgeMuted: string;
+  fillLight: string;
+  hover: string;
+  isDark: boolean;
+  keyLight: string;
+  label: string;
+  labelBackground: string;
+  labelBorder: string;
+  muted: string;
+  root: string;
+  surface: string;
+  file: string;
 }
 
-const GRAPH_WIDTH = 1080;
-const GRAPH_HEIGHT = 680;
-const GRAPH_PADDING = 54;
-const INNER_RING_RADIUS = 164;
-const OUTER_RING_RADIUS = GRAPH_HEIGHT / 2 - GRAPH_PADDING - 16;
+interface OrbitControlsLike {
+  autoRotate: boolean;
+  autoRotateSpeed: number;
+  dampingFactor: number;
+  enableDamping: boolean;
+  maxDistance: number;
+  minDistance: number;
+  target: { x: number; y: number; z: number };
+  graphFitDistance?: number;
+}
+
+interface GraphNodeVisual {
+  core: Mesh<SphereGeometry, MeshStandardMaterial>;
+  glow: Mesh<SphereGeometry, MeshBasicMaterial>;
+  label: SpriteText | null;
+  orbit: Mesh<TorusGeometry, MeshBasicMaterial>;
+}
+
+interface ChargeForceLike {
+  strength: (strength: number) => unknown;
+}
+
+interface LinkForceLike {
+  distance: (distance: number) => unknown;
+  strength: (strength: number) => unknown;
+}
+
+const EMPTY_GRAPH: MemoryGraphSnapshot = {
+  version: 1,
+  nodes: [],
+  edges: [],
+};
+const GRAPH_ZOOM_MIN_DISTANCE_FLOOR = 78;
+const GRAPH_ZOOM_MIN_DISTANCE_RATIO = 0.72;
+const GRAPH_ZOOM_MAX_DISTANCE_FLOOR = 420;
+const GRAPH_ZOOM_MAX_DISTANCE_CEILING = 3600;
+const GRAPH_ZOOM_MAX_DISTANCE_MULTIPLIER = 1.8;
 
 function nodeLabel(node: MemoryGraphNode): string {
   return (
     node.name || node.path.split("/").pop()?.replace(/\.md$/i, "") || node.path
   );
-}
-
-function shortLabel(node: MemoryGraphNode): string {
-  const label = nodeLabel(node);
-  if (/^[a-f\d]{24,}$/i.test(label))
-    return `${label.slice(0, 7)}…${label.slice(-4)}`;
-  return label.length > 25 ? `${label.slice(0, 22)}…` : label;
 }
 
 function nodeFileTarget(
@@ -88,8 +135,6 @@ function nodeFileTarget(
     return { section: node.section, path: node.relative_path };
   }
 
-  // Older graph endpoints did not include navigation metadata. Keep the
-  // standard ReMe/QwenPaw roots openable while the backend is being upgraded.
   const normalizedPath = node.path.replace(/\\/g, "/").replace(/^\/+/, "");
   const conventionalRoots: Array<[MemorySection, string]> = [
     ["digest", "digest/"],
@@ -104,15 +149,6 @@ function nodeFileTarget(
   return null;
 }
 
-function graphDegrees(snapshot: MemoryGraphSnapshot): Map<string, number> {
-  const degree = new Map(snapshot.nodes.map((node) => [node.id, 0]));
-  snapshot.edges.forEach((edge) => {
-    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
-    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
-  });
-  return degree;
-}
-
 function graphBelowRoot(
   snapshot: MemoryGraphSnapshot,
   root: MemoryGraphRoot,
@@ -122,6 +158,7 @@ function graphBelowRoot(
       node.id === `virtual:${root}` || (node.virtual && node.name === root),
   );
   if (!rootNode) return { ...snapshot, nodes: [], edges: [] };
+
   const outgoing = new Map<string, string[]>();
   snapshot.edges.forEach((edge) => {
     outgoing.set(edge.source, [
@@ -139,6 +176,7 @@ function graphBelowRoot(
       queue.push(target);
     });
   }
+
   return {
     ...snapshot,
     nodes: snapshot.nodes
@@ -152,234 +190,512 @@ function graphBelowRoot(
   };
 }
 
-function downstreamFollowers(
-  rootId: string,
+function toGraphModel(
   snapshot: MemoryGraphSnapshot,
-): Map<string, number> {
-  const outgoing = new Map<string, string[]>();
+  root: MemoryGraphRoot,
+): GraphModel {
+  const degree = new Map(snapshot.nodes.map((node) => [node.id, 0]));
   snapshot.edges.forEach((edge) => {
-    outgoing.set(edge.source, [
-      ...(outgoing.get(edge.source) ?? []),
-      edge.target,
-    ]);
+    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
   });
-  const followers = new Map<string, number>([[rootId, 1]]);
-  const queue: Array<{ id: string; depth: number }> = [
-    { id: rootId, depth: 0 },
-  ];
-  while (queue.length > 0) {
-    const current = queue.shift() as { id: string; depth: number };
-    (outgoing.get(current.id) ?? []).forEach((target) => {
-      if (followers.has(target)) return;
-      const depth = current.depth + 1;
-      followers.set(target, Math.max(0.2, 0.68 ** depth));
-      queue.push({ id: target, depth });
-    });
-  }
-  return followers;
-}
 
-function pointerGraphPosition(
-  event: ReactPointerEvent<SVGGElement>,
-  zoom: number,
-): NodeOffset {
-  const bounds = event.currentTarget.ownerSVGElement?.getBoundingClientRect();
-  if (!bounds || bounds.width === 0 || bounds.height === 0) {
-    return { x: event.clientX, y: event.clientY };
-  }
-  const viewX = ((event.clientX - bounds.left) / bounds.width) * GRAPH_WIDTH;
-  const viewY = ((event.clientY - bounds.top) / bounds.height) * GRAPH_HEIGHT;
-  return {
-    x: GRAPH_WIDTH / 2 + (viewX - GRAPH_WIDTH / 2) / zoom,
-    y: GRAPH_HEIGHT / 2 + (viewY - GRAPH_HEIGHT / 2) / zoom,
-  };
-}
-
-/** Lay out the category tree in stable, parent-owned radial sectors. */
-function layoutGraph(snapshot: MemoryGraphSnapshot): PositionedGraph {
-  const degree = graphDegrees(snapshot);
-  const root =
-    snapshot.nodes.find((node) => node.virtual) ??
-    snapshot.nodes.find((node) => node.id.startsWith("virtual:")) ??
-    snapshot.nodes[0];
-  const nodes: PositionedNode[] = snapshot.nodes.map((node) => {
-    const itemDegree = degree.get(node.id) ?? 0;
-    return {
-      ...node,
-      virtual: node.id === root?.id ? true : node.virtual,
-      degree: itemDegree,
-      layer: node.id === root?.id ? 0 : 2,
-      x: GRAPH_WIDTH / 2,
-      y: GRAPH_HEIGHT / 2,
-      radius:
-        node.id === root?.id || node.virtual
-          ? 11
-          : node.indexed
-          ? Math.min(9, 4 + Math.sqrt(itemDegree) * 1.35)
-          : 4,
-    };
-  });
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-
-  if (root) {
-    const outgoing = new Map<string, string[]>();
-    snapshot.edges.forEach((edge) => {
-      if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) return;
-      outgoing.set(edge.source, [
-        ...(outgoing.get(edge.source) ?? []),
-        edge.target,
-      ]);
-    });
-    const inner = [...new Set(outgoing.get(root.id) ?? [])]
-      .filter((id) => id !== root.id && nodeById.has(id))
-      .sort(
-        (left, right) =>
-          (degree.get(right) ?? 0) - (degree.get(left) ?? 0) ||
-          left.localeCompare(right),
-      );
-    const innerSet = new Set(inner);
-    const outer = nodes
-      .filter((node) => node.id !== root.id && !innerSet.has(node.id))
-      .map((node) => node.id);
-    const startAngle = -Math.PI / 2;
-    const innerAngles = new Map<string, number>();
-    inner.forEach((id, index) => {
-      const angle =
-        startAngle + (index / Math.max(1, inner.length)) * Math.PI * 2;
-      innerAngles.set(id, angle);
-      const node = nodeById.get(id);
-      if (!node) return;
-      node.layer = 1;
-      node.x = GRAPH_WIDTH / 2 + Math.cos(angle) * INNER_RING_RADIUS;
-      node.y = GRAPH_HEIGHT / 2 + Math.sin(angle) * INNER_RING_RADIUS;
-    });
-
-    // Assign every outer node to its nearest inner branch for stable ordering.
-    // The final positions still use equal angular spacing on the outer ring.
-    const branchOwner = new Map(inner.map((id) => [id, id]));
-    const branchQueue = [...inner];
-    while (branchQueue.length > 0) {
-      const current = branchQueue.shift() as string;
-      (outgoing.get(current) ?? []).forEach((target) => {
-        if (target === root.id || branchOwner.has(target)) return;
-        branchOwner.set(target, branchOwner.get(current) as string);
-        branchQueue.push(target);
-      });
-    }
-    outer.sort((left, right) => {
-      const leftOwnerAngle = innerAngles.get(branchOwner.get(left) ?? "");
-      const rightOwnerAngle = innerAngles.get(branchOwner.get(right) ?? "");
-      const normalized = (angle: number | undefined) =>
-        angle === undefined
-          ? Number.POSITIVE_INFINITY
-          : (angle - startAngle + Math.PI * 2) % (Math.PI * 2);
-      return (
-        normalized(leftOwnerAngle) - normalized(rightOwnerAngle) ||
-        (degree.get(right) ?? 0) - (degree.get(left) ?? 0) ||
-        left.localeCompare(right)
-      );
-    });
-    outer.forEach((id, index) => {
-      const angle =
-        startAngle + (index / Math.max(1, outer.length)) * Math.PI * 2;
-      const node = nodeById.get(id);
-      if (!node) return;
-      node.layer = 2;
-      node.x = GRAPH_WIDTH / 2 + Math.cos(angle) * OUTER_RING_RADIUS;
-      node.y = GRAPH_HEIGHT / 2 + Math.sin(angle) * OUTER_RING_RADIUS;
-    });
-  }
-
-  const labelLimit = Math.min(
-    10,
-    Math.max(5, Math.ceil(Math.sqrt(nodes.length) * 1.5)),
+  const rootNode = snapshot.nodes.find(
+    (node) =>
+      node.id === `virtual:${root}` || (node.virtual && node.name === root),
   );
-  const occupied: Array<{
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-  }> = [];
-  const labels: GraphLabel[] = [];
-  const labelCandidates = [...nodes].sort(
-    (left, right) =>
-      Number(Boolean(right.virtual)) - Number(Boolean(left.virtual)) ||
-      right.degree - left.degree ||
-      left.id.localeCompare(right.id),
+  const rootDirectIds = new Set(
+    snapshot.edges
+      .filter(
+        (edge) => edge.source === rootNode?.id || edge.target === rootNode?.id,
+      )
+      .map((edge) =>
+        edge.source === rootNode?.id ? edge.target : edge.source,
+      ),
   );
-  labelCandidates.slice(0, labelLimit * 2).forEach((node) => {
-    if (labels.length >= labelLimit) return;
-    const text = shortLabel(node);
-    const width = Math.min(176, text.length * 6.4 + 14);
-    const placements = [node.y + node.radius + 18, node.y - node.radius - 10];
-    const y = placements.find((candidateY) => {
-      const box = {
-        left: node.x - width / 2,
-        right: node.x + width / 2,
-        top: candidateY - 12,
-        bottom: candidateY + 3,
-      };
-      return !occupied.some(
-        (other) =>
-          box.left < other.right &&
-          box.right > other.left &&
-          box.top < other.bottom &&
-          box.bottom > other.top,
-      );
-    });
-    if (y === undefined) return;
-    occupied.push({
-      left: node.x - width / 2,
-      right: node.x + width / 2,
-      top: y - 12,
-      bottom: y + 3,
-    });
-    labels.push({ id: node.id, text, width, x: node.x, y });
-  });
 
-  const positioned: PositionedNode[] = nodes.map((node) => ({
-    id: node.id,
-    path: node.path,
-    name: node.name,
-    description: node.description,
-    indexed: node.indexed,
-    virtual: node.virtual,
-    degree: node.degree,
-    layer: node.layer,
-    x: node.x,
-    y: node.y,
-    radius: node.radius,
+  const nodes = snapshot.nodes.map<GraphNode>((memory) => ({
+    degree: degree.get(memory.id) ?? 0,
+    fx: memory.virtual ? 0 : undefined,
+    fy: memory.virtual ? 0 : undefined,
+    fz: memory.virtual ? 0 : undefined,
+    id: memory.id,
+    isRoot: memory.id === rootNode?.id,
+    isRootDirect: rootDirectIds.has(memory.id),
+    memory,
   }));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const edgeKeys = new Set(
+    snapshot.edges.map((edge) => `${edge.source}\u0000${edge.target}`),
+  );
+  const reciprocalEdges = new Set(
+    [...edgeKeys].filter((key) => {
+      const [source, target] = key.split("\u0000");
+      return edgeKeys.has(`${target}\u0000${source}`);
+    }),
+  );
+  const links = snapshot.edges.map<GraphLink>((edge, index) => ({
+    id: `${edge.source}:${edge.target}:${edge.target_anchor ?? ""}:${index}`,
+    source: edge.source,
+    target: edge.target,
+    targetAnchor: edge.target_anchor,
+  }));
+
+  return { byId, links, nodes, reciprocalEdges };
+}
+
+function graphNeighborIds(
+  snapshot: MemoryGraphSnapshot | null,
+  nodeId: string,
+): Set<string> {
+  const neighbors = new Set<string>();
+  if (!nodeId) return neighbors;
+  (snapshot?.edges ?? []).forEach((edge) => {
+    if (edge.source === nodeId) neighbors.add(edge.target);
+    if (edge.target === nodeId) neighbors.add(edge.source);
+  });
+  return neighbors;
+}
+
+function endpointId(endpoint: GraphLink["source"]): string {
+  return typeof endpoint === "object" ? endpoint.id : String(endpoint);
+}
+
+function cssColorChannels(color: string): [number, number, number] | null {
+  const hex = color.match(/^#([\da-f]{3}|[\da-f]{6})$/i)?.[1];
+  if (hex) {
+    const normalized =
+      hex.length === 3
+        ? hex
+            .split("")
+            .map((channel) => `${channel}${channel}`)
+            .join("")
+        : hex;
+    return [0, 2, 4].map((offset) =>
+      Number.parseInt(normalized.slice(offset, offset + 2), 16),
+    ) as [number, number, number];
+  }
+  const rgb = color.match(
+    /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/i,
+  );
+  return rgb ? (rgb.slice(1, 4).map(Number) as [number, number, number]) : null;
+}
+
+function opaqueThemeColor(color: string, surface: string): string {
+  const rgba = color.match(
+    /^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i,
+  );
+  if (!rgba?.[4]) return color;
+  const alpha = Math.min(1, Math.max(0, Number(rgba[4])));
+  const background = cssColorChannels(surface) ?? [255, 253, 251];
+  const foreground = rgba.slice(1, 4).map(Number);
+  const composite = foreground.map((channel, index) => {
+    return Math.round(channel * alpha + background[index] * (1 - alpha));
+  });
+  return `rgb(${composite.join(", ")})`;
+}
+
+function isDarkSurface(color: string): boolean {
+  const channels = cssColorChannels(color);
+  if (!channels) return false;
+  const [red, green, blue] = channels.map((channel) => channel / 255);
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance < 0.28;
+}
+
+function graphPalette(element: HTMLElement): GraphPalette {
+  const computed = window.getComputedStyle(element);
+  const value = (name: string, fallback: string) =>
+    computed.getPropertyValue(name).trim() || fallback;
+  const surface = value("--graph-3d-surface", "#fffdfb");
+  const opaqueValue = (name: string, fallback: string) =>
+    opaqueThemeColor(value(name, fallback), surface);
   return {
-    nodes: positioned,
-    byId: new Map(positioned.map((node) => [node.id, node])),
-    labels,
+    active: opaqueValue("--graph-3d-active", "#d9650b"),
+    ambientLight: opaqueValue("--graph-3d-ambient-light", "#eee7e1"),
+    direct: opaqueValue("--graph-3d-direct", "#389e5c"),
+    edge: opaqueValue("--graph-3d-edge", "#d8cec6"),
+    edgeActive: opaqueValue("--graph-3d-edge-active", "#d9650b"),
+    edgeMuted: opaqueValue("--graph-3d-edge-muted", "#eee7e1"),
+    fillLight: opaqueValue("--graph-3d-fill-light", "#fff2e8"),
+    hover: opaqueValue("--graph-3d-hover", "#ff9a45"),
+    isDark: isDarkSurface(surface),
+    keyLight: opaqueValue("--graph-3d-key-light", "#fffdfb"),
+    label: opaqueValue("--graph-3d-label", "#292522"),
+    labelBackground: value("--graph-3d-label-background", "#fffdfb"),
+    labelBorder: opaqueValue("--graph-3d-label-border", "#ffc58f"),
+    muted: opaqueValue("--graph-3d-muted", "#c7bfb8"),
+    root: opaqueValue("--graph-3d-root", "#ff7f16"),
+    surface,
+    file: opaqueValue("--graph-3d-file", "#71665e"),
   };
 }
 
-function edgePath(
-  edge: MemoryGraphEdge,
-  graph: PositionedGraph,
-  reciprocalEdges: Set<string>,
-): string {
-  const source = graph.byId.get(edge.source);
-  const target = graph.byId.get(edge.target);
-  if (!source || !target) return "";
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const distance = Math.max(1, Math.hypot(dx, dy));
-  const startX = source.x + (dx / distance) * (source.radius + 2);
-  const startY = source.y + (dy / distance) * (source.radius + 2);
-  const endX = target.x - (dx / distance) * (target.radius + 6);
-  const endY = target.y - (dy / distance) * (target.radius + 6);
-  if (!reciprocalEdges.has(`${edge.source}\u0000${edge.target}`)) {
-    return `M ${startX} ${startY} L ${endX} ${endY}`;
+function baseNodeColor(node: GraphNode, palette: GraphPalette): string {
+  if (node.isRoot) return palette.root;
+  if (node.isRootDirect) return palette.direct;
+  return palette.file;
+}
+
+function graphNodeRadius(node: GraphNode): number {
+  if (node.isRoot) return 4.8;
+  if (node.isRootDirect) return 3.55;
+  if (!node.memory.indexed) return 2.55;
+  return Math.min(3.35, 2.7 + Math.sqrt(node.degree) * 0.24);
+}
+
+function graphNodeValue(node: GraphNode): number {
+  return graphNodeRadius(node) ** 3;
+}
+
+function graphLabelText(node: GraphNode): string {
+  const label = nodeLabel(node.memory);
+  return label.length > 22 ? `${label.slice(0, 21)}…` : label;
+}
+
+function shouldRenderGraphLabel(node: GraphNode, nodeCount: number): boolean {
+  return nodeCount <= 42 || node.isRoot || node.degree >= 4;
+}
+
+function createGraphLights(palette: GraphPalette) {
+  const ambient = new AmbientLight(
+    palette.ambientLight,
+    palette.isDark ? 1.45 : 1.25,
+  );
+  const hemisphere = new HemisphereLight(
+    palette.keyLight,
+    palette.ambientLight,
+    palette.isDark ? 1.22 : 1.05,
+  );
+  const key = new DirectionalLight(
+    palette.keyLight,
+    palette.isDark ? 2.7 : 2.3,
+  );
+  key.position.set(110, 150, 190);
+  const fill = new DirectionalLight(
+    palette.fillLight,
+    palette.isDark ? 1.08 : 0.82,
+  );
+  fill.position.set(-120, -55, -90);
+  return [ambient, hemisphere, key, fill];
+}
+
+function createGraphNodeVisual(
+  node: GraphNode,
+  palette: GraphPalette,
+  nodeCount: number,
+): { object: Group; visual: GraphNodeVisual } {
+  const radius = graphNodeRadius(node);
+  const segments = nodeCount > 220 ? 14 : 24;
+  const object = new Group();
+  const baseColor = baseNodeColor(node, palette);
+  const coreMaterial = new MeshStandardMaterial({
+    color: baseColor,
+    emissive: new Color(baseColor),
+    emissiveIntensity: node.isRoot ? 0.14 : node.isRootDirect ? 0.07 : 0.03,
+    metalness: node.isRoot || node.isRootDirect ? 0.08 : 0.035,
+    opacity: node.memory.indexed || node.isRoot ? 1 : 0.74,
+    roughness: node.isRoot ? 0.38 : node.isRootDirect ? 0.46 : 0.58,
+    transparent: !node.memory.indexed,
+    wireframe: !node.memory.indexed && !node.isRoot,
+  });
+  const core = new Mesh(
+    new SphereGeometry(radius, segments, Math.max(10, segments - 6)),
+    coreMaterial,
+  );
+  object.add(core);
+
+  const orbitMaterial = new MeshBasicMaterial({
+    color: node.isRoot ? palette.root : palette.active,
+    depthWrite: false,
+    opacity: node.isRoot ? 0.42 : 0,
+    transparent: true,
+  });
+  const orbit = new Mesh(
+    new TorusGeometry(radius * 1.43, radius * 0.035, 8, 44),
+    orbitMaterial,
+  );
+  orbit.rotation.set(Math.PI * 0.38, Math.PI * 0.12, Math.PI * 0.08);
+  orbit.visible = node.isRoot;
+  object.add(orbit);
+
+  const glowMaterial = new MeshBasicMaterial({
+    color: palette.active,
+    depthWrite: false,
+    opacity: 0,
+    side: BackSide,
+    transparent: true,
+  });
+  const glow = new Mesh(
+    new SphereGeometry(radius * 1.28, 18, 12),
+    glowMaterial,
+  );
+  glow.visible = false;
+  object.add(glow);
+
+  let label: SpriteText | null = null;
+  if (shouldRenderGraphLabel(node, nodeCount)) {
+    label = new SpriteText(
+      graphLabelText(node),
+      node.isRoot ? 4.3 : 3.7,
+      palette.label,
+    );
+    label.backgroundColor = node.isRoot
+      ? palette.labelBackground
+      : "transparent";
+    label.borderColor = palette.labelBorder;
+    label.borderRadius = 1.1;
+    label.borderWidth = node.isRoot ? 0.14 : 0;
+    label.fontFace = "Inter, ui-sans-serif, system-ui, sans-serif";
+    label.fontSize = 76;
+    label.fontWeight = node.isRoot ? "650" : "560";
+    label.padding = node.isRoot ? [1.05, 0.68] : [0.32, 0.1];
+    label.position.set(0, -(radius + 3.6), 0);
+    label.renderOrder = 4;
+    label.material.depthTest = false;
+    label.material.depthWrite = false;
+    label.material.toneMapped = false;
+    object.add(label);
   }
-  const direction = edge.source.localeCompare(edge.target) < 0 ? 1 : -1;
-  const curve = 16 * direction;
-  const midX = (startX + endX) / 2 - (dy / distance) * curve;
-  const midY = (startY + endY) / 2 + (dx / distance) * curve;
-  return `M ${startX} ${startY} Q ${midX} ${midY} ${endX} ${endY}`;
+
+  return { object, visual: { core, glow, label, orbit } };
+}
+
+function applyGraphVisualState(
+  graph: ForceGraph3DInstance<GraphNode, GraphLink>,
+  model: GraphModel,
+  visuals: Map<string, GraphNodeVisual>,
+  palette: GraphPalette,
+  selectedId: string,
+  selectedNeighbors: Set<string>,
+  reducedMotion: boolean,
+) {
+  model.nodes.forEach((node) => {
+    const visual = visuals.get(node.id);
+    if (!visual) return;
+    const isSelected = node.id === selectedId;
+    const isNeighbor = selectedNeighbors.has(node.id);
+    const isMuted = Boolean(selectedId) && !isSelected && !isNeighbor;
+    const baseColor = baseNodeColor(node, palette);
+    const nodeColor = isSelected
+      ? palette.active
+      : isMuted
+      ? palette.muted
+      : baseColor;
+
+    visual.core.material.color.set(nodeColor);
+    visual.core.material.emissive.set(isSelected ? palette.active : baseColor);
+    visual.core.material.emissiveIntensity = isSelected
+      ? 0.32
+      : node.isRoot
+      ? 0.13
+      : node.isRootDirect
+      ? 0.07
+      : 0.03;
+    visual.core.material.opacity = isMuted
+      ? 0.24
+      : node.memory.indexed || node.isRoot
+      ? 1
+      : 0.74;
+    visual.core.material.transparent = isMuted || !node.memory.indexed;
+    visual.core.material.needsUpdate = true;
+
+    visual.orbit.visible = isSelected || node.isRoot;
+    visual.orbit.material.color.set(isSelected ? palette.active : palette.root);
+    visual.orbit.material.opacity = isSelected ? 0.78 : isMuted ? 0.12 : 0.42;
+    visual.glow.visible = isSelected;
+    visual.glow.material.color.set(palette.active);
+    visual.glow.material.opacity = isSelected ? 0.13 : 0;
+
+    if (visual.label) {
+      visual.label.visible =
+        !selectedId || isSelected || isNeighbor || node.isRoot;
+      visual.label.color = isSelected
+        ? palette.active
+        : isMuted
+        ? palette.muted
+        : palette.label;
+      visual.label.backgroundColor =
+        node.isRoot || isSelected ? palette.labelBackground : "transparent";
+      visual.label.borderColor = isSelected
+        ? palette.active
+        : palette.labelBorder;
+      visual.label.borderWidth = node.isRoot || isSelected ? 0.14 : 0;
+      visual.label.material.opacity = isMuted ? 0.3 : 1;
+    }
+  });
+
+  const isActiveLink = (link: GraphLink) => {
+    const source = endpointId(link.source);
+    const target = endpointId(link.target);
+    return source === selectedId || target === selectedId;
+  };
+  const showAmbientParticles = model.links.length <= 160;
+
+  graph
+    .linkColor((link) => {
+      if (!selectedId) return palette.edge;
+      if (isActiveLink(link)) return palette.edgeActive;
+      return palette.edgeMuted;
+    })
+    .linkWidth((link) => {
+      if (!selectedId) return 0.42;
+      return isActiveLink(link) ? 1.05 : 0.08;
+    })
+    .linkDirectionalArrowLength((link) => {
+      if (!selectedId) return 2.15;
+      return isActiveLink(link) ? 3.25 : 0.8;
+    })
+    .linkDirectionalArrowColor((link) => {
+      if (!selectedId) return palette.edge;
+      if (isActiveLink(link)) return palette.edgeActive;
+      return palette.edgeMuted;
+    })
+    .linkDirectionalParticles((link) => {
+      if (reducedMotion) return 0;
+      if (!selectedId) return showAmbientParticles ? 1 : 0;
+      return isActiveLink(link) ? 2 : 0;
+    })
+    .linkDirectionalParticleSpeed(reducedMotion ? 0 : 0.0026)
+    .linkDirectionalParticleWidth((link) => {
+      if (!selectedId) return 0.62;
+      return isActiveLink(link) ? 0.9 : 0;
+    })
+    .linkDirectionalParticleColor((link) =>
+      selectedId && isActiveLink(link) ? palette.active : palette.edgeActive,
+    );
+}
+
+function setHoveredGraphNodeColor(
+  visuals: Map<string, GraphNodeVisual>,
+  node: GraphNode | null,
+  previousNode: GraphNode | null,
+  palette: GraphPalette,
+  selectedId: string,
+  selectedNeighbors: Set<string>,
+) {
+  [node, previousNode].forEach((candidate) => {
+    if (!candidate || candidate.id === selectedId) return;
+    const visual = visuals.get(candidate.id);
+    if (!visual) return;
+    const isHovered = candidate.id === node?.id;
+    const isMuted = Boolean(selectedId) && !selectedNeighbors.has(candidate.id);
+    const color = isHovered
+      ? palette.hover
+      : isMuted
+      ? palette.muted
+      : baseNodeColor(candidate, palette);
+
+    visual.core.material.color.set(color);
+    visual.core.material.emissive.set(color);
+    visual.core.material.needsUpdate = true;
+  });
+}
+
+function applyGraphZoomLimits(
+  graph: ForceGraph3DInstance<GraphNode, GraphLink>,
+  fitDistance: number,
+) {
+  const controls = graph.controls() as OrbitControlsLike;
+  controls.graphFitDistance = fitDistance;
+  controls.minDistance = Math.max(
+    GRAPH_ZOOM_MIN_DISTANCE_FLOOR,
+    fitDistance * GRAPH_ZOOM_MIN_DISTANCE_RATIO,
+  );
+  controls.maxDistance = Math.max(
+    fitDistance,
+    Math.min(
+      GRAPH_ZOOM_MAX_DISTANCE_CEILING,
+      Math.max(
+        GRAPH_ZOOM_MAX_DISTANCE_FLOOR,
+        fitDistance * GRAPH_ZOOM_MAX_DISTANCE_MULTIPLIER,
+      ),
+    ),
+  );
+
+  const camera = graph.camera() as PerspectiveCamera;
+  const requiredFarPlane = controls.maxDistance * 1.6;
+  if (camera.far < requiredFarPlane) {
+    camera.far = requiredFarPlane;
+    camera.updateProjectionMatrix();
+  }
+}
+
+function fitGraphModel(
+  graph: ForceGraph3DInstance<GraphNode, GraphLink>,
+  nodes: GraphNode[],
+  duration: number,
+) {
+  const positioned = nodes.filter(
+    (node) =>
+      Number.isFinite(node.x) &&
+      Number.isFinite(node.y) &&
+      Number.isFinite(node.z),
+  );
+  if (positioned.length < 2) {
+    if (nodes.length < 2) {
+      applyGraphZoomLimits(
+        graph,
+        GRAPH_ZOOM_MIN_DISTANCE_FLOOR / GRAPH_ZOOM_MIN_DISTANCE_RATIO,
+      );
+    }
+    graph.zoomToFit(duration, 64);
+    return;
+  }
+
+  const bounds = positioned.reduce(
+    (current, node) => ({
+      maxX: Math.max(current.maxX, Number(node.x)),
+      maxY: Math.max(current.maxY, Number(node.y)),
+      maxZ: Math.max(current.maxZ, Number(node.z)),
+      minX: Math.min(current.minX, Number(node.x)),
+      minY: Math.min(current.minY, Number(node.y)),
+      minZ: Math.min(current.minZ, Number(node.z)),
+    }),
+    {
+      maxX: -Infinity,
+      maxY: -Infinity,
+      maxZ: -Infinity,
+      minX: Infinity,
+      minY: Infinity,
+      minZ: Infinity,
+    },
+  );
+  const target = {
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2,
+    z: (bounds.minZ + bounds.maxZ) / 2,
+  };
+  const camera = graph.camera() as PerspectiveCamera;
+  const viewRadius = Math.max(
+    ...positioned.map((node) =>
+      Math.hypot(
+        Number(node.x) - target.x,
+        Number(node.y) - target.y,
+        Number(node.z) - target.z,
+      ),
+    ),
+    30,
+  );
+  const distance = (viewRadius / Math.tan((camera.fov * Math.PI) / 360)) * 0.92;
+  applyGraphZoomLimits(graph, distance);
+  const currentCamera = graph.cameraPosition();
+  const offset = {
+    x: currentCamera.x - target.x,
+    y: currentCamera.y - target.y,
+    z: currentCamera.z - target.z,
+  };
+  const offsetLength = Math.hypot(offset.x, offset.y, offset.z) || 1;
+
+  graph.cameraPosition(
+    {
+      x: target.x + (offset.x / offsetLength) * distance,
+      y: target.y + (offset.y / offsetLength) * distance,
+      z: target.z + (offset.z / offsetLength) * distance,
+    },
+    target,
+    duration,
+  );
 }
 
 export default function MemoryGraphView({
@@ -392,19 +708,28 @@ export default function MemoryGraphView({
   onOpenFile: (section: MemorySection, path: string) => void;
 }) {
   const { t } = useTranslation();
+  const canvasLabel = t("files.memoryGraphCanvasLabel");
   const [snapshot, setSnapshot] = useState<MemoryGraphSnapshot | null>(null);
   const [snapshotAgentId, setSnapshotAgentId] = useState("");
   const [selectedId, setSelectedId] = useState("");
-  const [hoveredId, setHoveredId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [offsets, setOffsets] = useState<Record<string, NodeOffset>>({});
-  const [draggingId, setDraggingId] = useState("");
-  const [draggedIds, setDraggedIds] = useState<string[]>([]);
-  const dragSession = useRef<DragSession | null>(null);
-  const didDrag = useRef(false);
+  const [graphReady, setGraphReady] = useState(false);
+  const [renderError, setRenderError] = useState(false);
+  const [renderSequence, setRenderSequence] = useState(0);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const graphRef = useRef<ForceGraph3DInstance<GraphNode, GraphLink> | null>(
+    null,
+  );
+  const nodeVisualsRef = useRef(new Map<string, GraphNodeVisual>());
+  const autoRotateRef = useRef(autoRotate);
+  const selectedIdRef = useRef(selectedId);
+  const hoveredIdRef = useRef("");
   const requestSequence = useRef(0);
+  autoRotateRef.current = autoRotate;
+  selectedIdRef.current = selectedId;
 
   const load = useCallback(
     async (clearSnapshot = false) => {
@@ -416,19 +741,11 @@ export default function MemoryGraphView({
         setSnapshotAgentId("");
       }
       setSelectedId("");
-      setOffsets({});
-      setZoom(1);
-      setDraggingId("");
-      setDraggedIds([]);
-      dragSession.current = null;
       try {
         const next = await agentsApi.getMemoryGraph(agentId);
         if (sequence !== requestSequence.current) return;
         setSnapshot(next);
         setSnapshotAgentId(agentId);
-        setSelectedId((current) =>
-          next.nodes.some((node) => node.id === current) ? current : "",
-        );
       } catch {
         if (sequence !== requestSequence.current) return;
         setError(true);
@@ -448,110 +765,373 @@ export default function MemoryGraphView({
 
   useEffect(() => {
     setSelectedId("");
-    setHoveredId("");
-    setOffsets({});
-    setZoom(1);
   }, [root]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncPreference = () => setReducedMotion(query.matches);
+    syncPreference();
+    query.addEventListener("change", syncPreference);
+    return () => query.removeEventListener("change", syncPreference);
+  }, []);
 
   const currentSnapshot = snapshotAgentId === agentId ? snapshot : null;
   const graphSnapshot = useMemo(
     () => (currentSnapshot ? graphBelowRoot(currentSnapshot, root) : null),
     [currentSnapshot, root],
   );
-
-  const baseGraph = useMemo(
-    () => layoutGraph(graphSnapshot ?? { version: 1, nodes: [], edges: [] }),
-    [graphSnapshot],
+  const graphModel = useMemo(
+    () => toGraphModel(graphSnapshot ?? EMPTY_GRAPH, root),
+    [graphSnapshot, root],
   );
-  const graph = useMemo(() => {
-    const nodes = baseGraph.nodes.map((node) => ({
-      ...node,
-      x: node.x + (offsets[node.id]?.x ?? 0),
-      y: node.y + (offsets[node.id]?.y ?? 0),
-    }));
-    return {
-      nodes,
-      byId: new Map(nodes.map((node) => [node.id, node])),
-      labels: baseGraph.labels.map((label) => ({
-        ...label,
-        x: label.x + (offsets[label.id]?.x ?? 0),
-        y: label.y + (offsets[label.id]?.y ?? 0),
-      })),
-    };
-  }, [baseGraph, offsets]);
-  const activeId = hoveredId || selectedId;
+  const selectedNeighbors = useMemo(
+    () => graphNeighborIds(graphSnapshot, selectedId),
+    [graphSnapshot, selectedId],
+  );
+  const visualStateRef = useRef({
+    selectedId,
+    selectedNeighbors,
+  });
+  visualStateRef.current = { selectedId, selectedNeighbors };
   const selected = graphSnapshot?.nodes.find((node) => node.id === selectedId);
   const selectedFileTarget = selected ? nodeFileTarget(selected) : null;
   const inbound =
     graphSnapshot?.edges.filter((edge) => edge.target === selectedId) ?? [];
   const outbound =
     graphSnapshot?.edges.filter((edge) => edge.source === selectedId) ?? [];
-  const activeNeighbors = useMemo(() => {
-    const neighbors = new Set<string>();
-    (graphSnapshot?.edges ?? []).forEach((edge) => {
-      if (edge.source === activeId) neighbors.add(edge.target);
-      if (edge.target === activeId) neighbors.add(edge.source);
-    });
-    return neighbors;
-  }, [activeId, graphSnapshot]);
-  const reciprocalEdges = useMemo(() => {
-    const keys = new Set(
-      (graphSnapshot?.edges ?? []).map(
-        (edge) => `${edge.source}\u0000${edge.target}`,
-      ),
-    );
-    return new Set(
-      [...keys].filter((key) => {
-        const [source, target] = key.split("\u0000");
-        return keys.has(`${target}\u0000${source}`);
-      }),
-    );
-  }, [graphSnapshot]);
-  const draggedSet = useMemo(() => new Set(draggedIds), [draggedIds]);
 
-  const startDrag = (event: ReactPointerEvent<SVGGElement>, nodeId: string) => {
-    if (event.button !== 0 || !graphSnapshot) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const followers = downstreamFollowers(nodeId, graphSnapshot);
-    dragSession.current = {
-      baseOffsets: { ...offsets },
-      followers,
-      pointerId: event.pointerId,
-      start: pointerGraphPosition(event, zoom),
+  const focusGraphNode = useCallback(
+    (nodeId: string) => {
+      const graph = graphRef.current;
+      const node = graphModel.byId.get(nodeId);
+      selectedIdRef.current = nodeId;
+      setSelectedId(nodeId);
+      if (!graph || !node) return;
+
+      const target = {
+        x: Number(node.x ?? node.fx ?? 0),
+        y: Number(node.y ?? node.fy ?? 0),
+        z: Number(node.z ?? node.fz ?? 0),
+      };
+      const camera = graph.cameraPosition();
+      const offset = {
+        x: camera.x - target.x,
+        y: camera.y - target.y,
+        z: camera.z - target.z,
+      };
+      const length = Math.hypot(offset.x, offset.y, offset.z) || 1;
+      const distance = node.isRoot ? 185 : 118;
+      const controls = graph.controls() as OrbitControlsLike;
+      controls.minDistance = Math.min(controls.minDistance, distance);
+      graph.cameraPosition(
+        {
+          x: target.x + (offset.x / length) * distance,
+          y: target.y + (offset.y / length) * distance,
+          z: target.z + (offset.z / length) * distance,
+        },
+        target,
+        reducedMotion ? 0 : 720,
+      );
+    },
+    [graphModel.byId, reducedMotion],
+  );
+
+  const fitGraph = useCallback(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    fitGraphModel(graph, graphModel.nodes, reducedMotion ? 0 : 520);
+  }, [graphModel.nodes, reducedMotion]);
+
+  const zoomGraph = useCallback(
+    (factor: number) => {
+      const graph = graphRef.current;
+      if (!graph) return;
+      const camera = graph.cameraPosition();
+      const controls = graph.controls() as OrbitControlsLike;
+      const selectedNode = graphModel.byId.get(selectedId);
+      const target = selectedNode
+        ? {
+            x: Number(selectedNode.x ?? selectedNode.fx ?? 0),
+            y: Number(selectedNode.y ?? selectedNode.fy ?? 0),
+            z: Number(selectedNode.z ?? selectedNode.fz ?? 0),
+          }
+        : {
+            x: Number(controls.target.x),
+            y: Number(controls.target.y),
+            z: Number(controls.target.z),
+          };
+      const currentDistance = Math.hypot(
+        camera.x - target.x,
+        camera.y - target.y,
+        camera.z - target.z,
+      );
+      const nextDistance = Math.min(
+        controls.maxDistance,
+        Math.max(controls.minDistance, currentDistance * factor),
+      );
+      const scale = currentDistance > 0 ? nextDistance / currentDistance : 1;
+      graph.cameraPosition(
+        {
+          x: target.x + (camera.x - target.x) * scale,
+          y: target.y + (camera.y - target.y) * scale,
+          z: target.z + (camera.z - target.z) * scale,
+        },
+        target,
+        reducedMotion ? 0 : 220,
+      );
+    },
+    [graphModel.byId, reducedMotion, selectedId],
+  );
+
+  useEffect(() => {
+    const container = sceneRef.current;
+    if (!container || graphModel.nodes.length === 0) return;
+    const nodeVisuals = nodeVisualsRef.current;
+
+    let cancelled = false;
+    let graph: ForceGraph3DInstance<GraphNode, GraphLink> | null = null;
+    let initialFrame = 0;
+    let resizeFrame = 0;
+    let handleWindowResize: (() => void) | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let themeObserver: MutationObserver | null = null;
+    setGraphReady(false);
+    setRenderError(false);
+    nodeVisuals.clear();
+
+    void import("3d-force-graph")
+      .then(({ default: ForceGraph3D }) => {
+        if (cancelled) return;
+        const palette = graphPalette(container);
+        const createdGraph = new ForceGraph3D(container, {
+          controlType: "orbit",
+          rendererConfig: {
+            alpha: false,
+            antialias: true,
+            powerPreference: "high-performance",
+          },
+        }) as unknown as ForceGraph3DInstance<GraphNode, GraphLink>;
+        graph = createdGraph;
+        graphRef.current = createdGraph;
+
+        const resize = () => {
+          if (!graph) return;
+          const bounds = container.getBoundingClientRect();
+          graph
+            .width(Math.max(1, Math.round(bounds.width || 960)))
+            .height(Math.max(1, Math.round(bounds.height || 620)));
+        };
+        const applyTheme = () => {
+          if (!graph) return;
+          const nextPalette = graphPalette(container);
+          graph.backgroundColor(nextPalette.surface);
+          graph.scene().fog = new FogExp2(
+            nextPalette.surface,
+            nextPalette.isDark ? 0.00085 : 0.0016,
+          );
+          graph.renderer().toneMappingExposure = nextPalette.isDark
+            ? 1.1
+            : 0.98;
+          graph.lights(createGraphLights(nextPalette));
+          applyGraphVisualState(
+            graph,
+            graphModel,
+            nodeVisuals,
+            nextPalette,
+            visualStateRef.current.selectedId,
+            visualStateRef.current.selectedNeighbors,
+            reducedMotion,
+          );
+        };
+        const resizeAndFit = () => {
+          resize();
+          window.cancelAnimationFrame(resizeFrame);
+          resizeFrame = window.requestAnimationFrame(() => {
+            if (!selectedIdRef.current) {
+              if (graph) {
+                fitGraphModel(graph, graphModel.nodes, reducedMotion ? 0 : 220);
+              }
+            }
+          });
+        };
+        handleWindowResize = resizeAndFit;
+
+        createdGraph
+          .showNavInfo(false)
+          .backgroundColor(palette.surface)
+          .numDimensions(3)
+          .nodeId("id")
+          .nodeRelSize(1)
+          .nodeVal(graphNodeValue)
+          .nodeOpacity(1)
+          .nodeResolution(24)
+          .nodeThreeObject((node) => {
+            const { object, visual } = createGraphNodeVisual(
+              node,
+              palette,
+              graphModel.nodes.length,
+            );
+            nodeVisuals.set(node.id, visual);
+            return object;
+          })
+          .nodeThreeObjectExtend(false)
+          .nodeLabel(() => "")
+          .linkOpacity(0.64)
+          .linkResolution(4)
+          .linkDirectionalArrowRelPos(0.94)
+          .linkDirectionalArrowResolution(10)
+          .linkDirectionalParticleResolution(6)
+          .linkCurvature((link) => {
+            const source = endpointId(link.source);
+            const target = endpointId(link.target);
+            if (!graphModel.reciprocalEdges.has(`${source}\u0000${target}`)) {
+              return 0;
+            }
+            return source.localeCompare(target) < 0 ? 0.12 : -0.12;
+          })
+          .enableNodeDrag(false)
+          .enableNavigationControls(true)
+          .d3AlphaDecay(0.038)
+          .d3VelocityDecay(0.3)
+          .warmupTicks(52)
+          .cooldownTicks(160)
+          .onNodeHover((node, previousNode) => {
+            const nextHoveredId = node?.id ?? "";
+            if (hoveredIdRef.current === nextHoveredId) return;
+            setHoveredGraphNodeColor(
+              nodeVisuals,
+              node,
+              previousNode,
+              graphPalette(container),
+              selectedIdRef.current,
+              graphNeighborIds(graphSnapshot, selectedIdRef.current),
+            );
+            hoveredIdRef.current = nextHoveredId;
+          })
+          .onNodeClick((node) => focusGraphNode(node.id))
+          .onBackgroundClick(() => {
+            selectedIdRef.current = "";
+            setSelectedId("");
+          })
+          .graphData({ nodes: graphModel.nodes, links: graphModel.links });
+
+        (
+          createdGraph.d3Force("charge") as ChargeForceLike | undefined
+        )?.strength(-108);
+        const linkForce = createdGraph.d3Force("link") as
+          | LinkForceLike
+          | undefined;
+        linkForce?.distance(72);
+        linkForce?.strength(0.46);
+
+        const controls = createdGraph.controls() as OrbitControlsLike;
+        controls.autoRotate = autoRotateRef.current && !reducedMotion;
+        controls.autoRotateSpeed = 0.14;
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.minDistance = GRAPH_ZOOM_MIN_DISTANCE_FLOOR;
+        controls.maxDistance = GRAPH_ZOOM_MAX_DISTANCE_CEILING;
+
+        const renderer = createdGraph.renderer();
+        renderer.outputColorSpace = SRGBColorSpace;
+        renderer.toneMapping = ACESFilmicToneMapping;
+        renderer.toneMappingExposure = palette.isDark ? 1.1 : 0.98;
+        const camera = createdGraph.camera() as PerspectiveCamera;
+        camera.fov = 44;
+        camera.near = 0.1;
+        camera.far = GRAPH_ZOOM_MAX_DISTANCE_CEILING * 1.6;
+        camera.updateProjectionMatrix();
+        createdGraph.scene().fog = new FogExp2(
+          palette.surface,
+          palette.isDark ? 0.00085 : 0.0016,
+        );
+        createdGraph.lights(createGraphLights(palette));
+
+        const canvas = renderer.domElement;
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute("aria-label", canvasLabel);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        resize();
+        resizeObserver = new ResizeObserver(resizeAndFit);
+        resizeObserver.observe(container);
+        window.addEventListener("resize", handleWindowResize);
+        themeObserver = new MutationObserver(applyTheme);
+        themeObserver.observe(document.documentElement, {
+          attributeFilter: ["class"],
+          attributes: true,
+        });
+        initialFrame = window.requestAnimationFrame(() => {
+          if (graph) fitGraphModel(graph, graphModel.nodes, 0);
+        });
+        createdGraph.onEngineStop(() => {
+          if (graph) {
+            fitGraphModel(graph, graphModel.nodes, reducedMotion ? 0 : 480);
+          }
+        });
+        setGraphReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setRenderError(true);
+      });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(initialFrame);
+      window.cancelAnimationFrame(resizeFrame);
+      if (handleWindowResize) {
+        window.removeEventListener("resize", handleWindowResize);
+      }
+      resizeObserver?.disconnect();
+      themeObserver?.disconnect();
+      graph?._destructor();
+      nodeVisuals.clear();
+      hoveredIdRef.current = "";
+      if (graphRef.current === graph) graphRef.current = null;
+      container.replaceChildren();
     };
-    didDrag.current = false;
-    setDraggingId(nodeId);
-    setDraggedIds([...followers.keys()]);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
+  }, [
+    canvasLabel,
+    focusGraphNode,
+    graphModel,
+    graphSnapshot,
+    reducedMotion,
+    renderSequence,
+  ]);
 
-  const moveDrag = (event: ReactPointerEvent<SVGGElement>) => {
-    const session = dragSession.current;
-    if (!session || session.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    const pointer = pointerGraphPosition(event, zoom);
-    const dx = pointer.x - session.start.x;
-    const dy = pointer.y - session.start.y;
-    if (Math.hypot(dx, dy) > 2) didDrag.current = true;
-    const next = { ...session.baseOffsets };
-    session.followers.forEach((factor, id) => {
-      const base = session.baseOffsets[id] ?? { x: 0, y: 0 };
-      next[id] = { x: base.x + dx * factor, y: base.y + dy * factor };
-    });
-    setOffsets(next);
-  };
+  useEffect(() => {
+    const graph = graphRef.current;
+    const container = sceneRef.current;
+    if (!graph || !container || !graphReady) return;
+    applyGraphVisualState(
+      graph,
+      graphModel,
+      nodeVisualsRef.current,
+      graphPalette(container),
+      selectedId,
+      selectedNeighbors,
+      reducedMotion,
+    );
+  }, [graphModel, graphReady, reducedMotion, selectedId, selectedNeighbors]);
 
-  const endDrag = (event: ReactPointerEvent<SVGGElement>) => {
-    const session = dragSession.current;
-    if (!session || session.pointerId !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    dragSession.current = null;
-    setDraggingId("");
-    setDraggedIds([]);
-  };
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const controls = graph.controls() as OrbitControlsLike;
+    controls.autoRotate = autoRotate && !reducedMotion;
+  }, [autoRotate, graphReady, reducedMotion]);
+
+  useEffect(() => {
+    if (selectedId) return;
+    const graph = graphRef.current;
+    if (!graph) return;
+    const controls = graph.controls() as OrbitControlsLike;
+    if (controls.graphFitDistance === undefined) return;
+    controls.minDistance = Math.max(
+      GRAPH_ZOOM_MIN_DISTANCE_FLOOR,
+      controls.graphFitDistance * GRAPH_ZOOM_MIN_DISTANCE_RATIO,
+    );
+  }, [selectedId]);
 
   if (loading && !currentSnapshot) {
     return (
@@ -595,31 +1175,50 @@ export default function MemoryGraphView({
         <div className={styles.toolbarActions}>
           <button
             type="button"
-            onClick={() => setZoom((current) => Math.max(0.7, current - 0.15))}
+            onClick={() => zoomGraph(1.18)}
             aria-label={t("files.memoryGraphZoomOut")}
+            title={t("files.memoryGraphZoomOut")}
           >
-            <ZoomOut size={15} />
+            <ZoomOut size={16} />
           </button>
           <button
             type="button"
-            onClick={() => setZoom((current) => Math.min(1.6, current + 0.15))}
+            onClick={() => zoomGraph(0.84)}
             aria-label={t("files.memoryGraphZoomIn")}
+            title={t("files.memoryGraphZoomIn")}
           >
-            <ZoomIn size={15} />
+            <ZoomIn size={16} />
           </button>
           <button
             type="button"
-            onClick={() => setZoom(1)}
+            onClick={fitGraph}
             aria-label={t("files.memoryGraphFit")}
+            title={t("files.memoryGraphFit")}
           >
-            <Maximize2 size={15} />
+            <Maximize2 size={16} />
+          </button>
+          <button
+            type="button"
+            className={autoRotate && !reducedMotion ? styles.actionActive : ""}
+            onClick={() => setAutoRotate((current) => !current)}
+            aria-label={t("files.memoryGraphAutoRotate")}
+            aria-pressed={autoRotate && !reducedMotion}
+            disabled={reducedMotion}
+            title={
+              reducedMotion
+                ? t("files.memoryGraphMotionReduced")
+                : t("files.memoryGraphAutoRotate")
+            }
+          >
+            <Orbit size={16} />
           </button>
           <button
             type="button"
             onClick={() => void load()}
             aria-label={t("common.refresh")}
+            title={t("common.refresh")}
           >
-            <RefreshCw className={loading ? styles.spin : ""} size={15} />
+            <RefreshCw className={loading ? styles.spin : ""} size={16} />
           </button>
         </div>
       </header>
@@ -635,208 +1234,55 @@ export default function MemoryGraphView({
             selected ? styles.contentWithDetails : ""
           }`}
         >
-          <div className={styles.canvas} onClick={() => setSelectedId("")}>
-            <svg viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`} role="img">
-              <title>{t("files.memoryGraph")}</title>
-              <defs>
-                <marker
-                  id="memory-graph-arrow"
-                  viewBox="0 0 10 10"
-                  refX="9"
-                  refY="5"
-                  markerWidth="5"
-                  markerHeight="5"
-                  orient="auto-start-reverse"
+          <div className={styles.canvas}>
+            <div
+              ref={sceneRef}
+              className={styles.scene}
+              data-testid="memory-graph-3d"
+            />
+            {!graphReady && !renderError && (
+              <div className={styles.canvasState} role="status">
+                <LoaderCircle className={styles.spin} size={18} />
+                {t("files.memoryGraphRendering")}
+              </div>
+            )}
+            {renderError && (
+              <div className={styles.canvasState} role="alert">
+                <CircleAlert size={18} />
+                <span>{t("files.memoryGraphRenderFailed")}</span>
+                <button
+                  type="button"
+                  onClick={() => setRenderSequence((current) => current + 1)}
                 >
-                  <path d="M 0 0 L 10 5 L 0 10 z" />
-                </marker>
-              </defs>
-              <g
-                transform={`translate(${GRAPH_WIDTH / 2} ${
-                  GRAPH_HEIGHT / 2
-                }) scale(${zoom}) translate(${-GRAPH_WIDTH / 2} ${
-                  -GRAPH_HEIGHT / 2
-                })`}
-              >
-                <g
-                  className={styles.orbitGuides}
-                  data-testid="memory-graph-orbits"
-                  aria-hidden="true"
+                  {t("common.retry")}
+                </button>
+              </div>
+            )}
+            <div className={styles.accessibleNodes}>
+              {graphModel.nodes.map((node) => (
+                <button
+                  type="button"
+                  key={node.id}
+                  aria-label={nodeLabel(node.memory)}
+                  aria-pressed={node.id === selectedId}
+                  onClick={() => focusGraphNode(node.id)}
                 >
-                  <circle
-                    cx={GRAPH_WIDTH / 2}
-                    cy={GRAPH_HEIGHT / 2}
-                    r={INNER_RING_RADIUS}
-                  />
-                  {graph.nodes.some((node) => node.layer === 2) && (
-                    <circle
-                      cx={GRAPH_WIDTH / 2}
-                      cy={GRAPH_HEIGHT / 2}
-                      r={OUTER_RING_RADIUS}
-                    />
-                  )}
-                </g>
-                <g className={styles.edges}>
-                  {graphSnapshot?.edges.map((edge) => {
-                    const related =
-                      edge.source === activeId || edge.target === activeId;
-                    return (
-                      <path
-                        key={`${edge.source}:${edge.target}:${
-                          edge.target_anchor ?? ""
-                        }`}
-                        d={edgePath(edge, graph, reciprocalEdges)}
-                        pathLength={1}
-                        className={`${related ? styles.edgeActive : ""} ${
-                          activeId && !related ? styles.edgeMuted : ""
-                        } ${
-                          draggingId &&
-                          draggedSet.has(edge.source) &&
-                          draggedSet.has(edge.target)
-                            ? styles.edgeDragging
-                            : ""
-                        }`}
-                        markerEnd="url(#memory-graph-arrow)"
-                      >
-                        <title>
-                          {edge.source} → {edge.target}
-                          {edge.target_anchor ? `#${edge.target_anchor}` : ""}
-                        </title>
-                      </path>
-                    );
-                  })}
-                </g>
-                <g className={styles.nodes}>
-                  {graph.nodes.map((node, index) => {
-                    const active = node.id === activeId;
-                    const related = activeNeighbors.has(node.id);
-                    const muted = Boolean(activeId) && !active && !related;
-                    return (
-                      <g
-                        key={node.id}
-                        className={`${styles.node} ${
-                          node.virtual
-                            ? styles.nodeRoot
-                            : node.indexed
-                            ? styles.nodeIndexed
-                            : styles.nodeUnresolved
-                        } ${node.degree >= 5 ? styles.nodeHub : ""} ${
-                          node.degree <= 1 ? styles.nodeLeaf : ""
-                        } ${node.layer === 2 ? styles.nodeOuter : ""} ${
-                          node.layer === 1 ? styles.nodeInner : ""
-                        } ${active ? styles.nodeActive : ""} ${
-                          related ? styles.nodeRelated : ""
-                        } ${muted ? styles.nodeMuted : ""} ${
-                          node.id === draggingId ? styles.nodeDragging : ""
-                        } ${
-                          draggingId &&
-                          node.id !== draggingId &&
-                          draggedSet.has(node.id)
-                            ? styles.nodeFollowing
-                            : ""
-                        }`}
-                        style={{
-                          transform: `translate(${node.x}px, ${node.y}px)`,
-                          animationDelay: `${Math.min(index, 24) * 14}ms`,
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={nodeLabel(node)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (didDrag.current) {
-                            didDrag.current = false;
-                            return;
-                          }
-                          setSelectedId(node.id);
-                        }}
-                        onPointerDown={(event) => startDrag(event, node.id)}
-                        onPointerMove={moveDrag}
-                        onPointerUp={endDrag}
-                        onPointerCancel={endDrag}
-                        onMouseEnter={() => setHoveredId(node.id)}
-                        onMouseLeave={() => setHoveredId("")}
-                        onFocus={() => setHoveredId(node.id)}
-                        onBlur={() => setHoveredId("")}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedId(node.id);
-                          }
-                        }}
-                      >
-                        <circle
-                          className={styles.nodeHalo}
-                          r={node.radius + 6}
-                        />
-                        <circle className={styles.nodeDot} r={node.radius} />
-                        <title>{node.path}</title>
-                      </g>
-                    );
-                  })}
-                </g>
-                <g className={styles.labels}>
-                  {graph.labels
-                    .filter((label) => label.id !== activeId)
-                    .map((label) => (
-                      <g
-                        key={label.id}
-                        style={{
-                          transform: `translate(${label.x}px, ${label.y}px)`,
-                        }}
-                        className={
-                          activeId && !activeNeighbors.has(label.id)
-                            ? styles.labelMuted
-                            : ""
-                        }
-                      >
-                        <rect
-                          x={-label.width / 2}
-                          y={-13}
-                          width={label.width}
-                          height={19}
-                          rx={6}
-                        />
-                        <text textAnchor="middle">{label.text}</text>
-                      </g>
-                    ))}
-                  {activeId &&
-                    graph.byId.get(activeId) &&
-                    (() => {
-                      const node = graph.byId.get(activeId) as PositionedNode;
-                      const text = shortLabel(node);
-                      const width = Math.min(190, text.length * 6.8 + 18);
-                      return (
-                        <g
-                          style={{
-                            transform: `translate(${node.x}px, ${
-                              node.y + node.radius + 22
-                            }px)`,
-                          }}
-                          className={styles.activeLabel}
-                        >
-                          <rect
-                            x={-width / 2}
-                            y={-14}
-                            width={width}
-                            height={21}
-                            rx={7}
-                          />
-                          <text textAnchor="middle">{text}</text>
-                        </g>
-                      );
-                    })()}
-                </g>
-              </g>
-            </svg>
+                  {nodeLabel(node.memory)}
+                </button>
+              ))}
+            </div>
             <div className={styles.legend}>
               <span>
-                <i data-kind="indexed" />
-                {t("files.memoryGraphIndexed")}
+                <i data-kind="root" />
+                {t("files.memoryGraphRoot")}
               </span>
               <span>
-                <i data-kind="unresolved" />
-                {t("files.memoryGraphUnresolved")}
+                <i data-kind="direct" />
+                {t("files.memoryGraphRootDirect")}
+              </span>
+              <span>
+                <i data-kind="file" />
+                {t("files.memoryGraphOtherFile")}
               </span>
               <span>
                 <b>→</b>
@@ -847,17 +1293,27 @@ export default function MemoryGraphView({
 
           {selected && (
             <aside className={styles.details}>
-              <span
-                className={styles.nodeStatus}
-                data-indexed={selected.indexed}
-                data-virtual={selected.virtual}
-              >
-                {selected.virtual
-                  ? root
-                  : selected.indexed
-                  ? t("files.memoryGraphIndexed")
-                  : t("files.memoryGraphUnresolved")}
-              </span>
+              <header className={styles.detailsHeader}>
+                <span
+                  className={styles.nodeStatus}
+                  data-indexed={selected.indexed}
+                  data-virtual={selected.virtual}
+                >
+                  {selected.virtual
+                    ? root
+                    : selected.indexed
+                    ? t("files.memoryGraphIndexed")
+                    : t("files.memoryGraphUnresolved")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId("")}
+                  aria-label={t("files.memoryGraphCloseDetails")}
+                  title={t("files.memoryGraphCloseDetails")}
+                >
+                  <X size={15} />
+                </button>
+              </header>
               <h2>{nodeLabel(selected)}</h2>
               <code>{selected.path}</code>
               {selected.description && <p>{selected.description}</p>}
@@ -884,11 +1340,11 @@ export default function MemoryGraphView({
                   <button
                     type="button"
                     key={`${edge.target}:${edge.target_anchor ?? ""}`}
-                    onClick={() => setSelectedId(edge.target)}
+                    onClick={() => focusGraphNode(edge.target)}
                   >
                     <span>
                       {nodeLabel(
-                        graph.byId.get(edge.target) ?? {
+                        graphModel.byId.get(edge.target)?.memory ?? {
                           ...selected,
                           name: "",
                           path: edge.target,
@@ -909,11 +1365,11 @@ export default function MemoryGraphView({
                   <button
                     type="button"
                     key={`${edge.source}:${edge.target_anchor ?? ""}`}
-                    onClick={() => setSelectedId(edge.source)}
+                    onClick={() => focusGraphNode(edge.source)}
                   >
                     <span>
                       {nodeLabel(
-                        graph.byId.get(edge.source) ?? {
+                        graphModel.byId.get(edge.source)?.memory ?? {
                           ...selected,
                           name: "",
                           path: edge.source,

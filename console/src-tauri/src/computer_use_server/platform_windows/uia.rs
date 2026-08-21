@@ -8,15 +8,18 @@ use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
     IUIAutomationSelectionItemPattern, IUIAutomationTextEditPattern, IUIAutomationTextPattern,
-    IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId, UIA_SelectionItemPatternId,
-    UIA_TextEditPatternId, UIA_TextPatternId, UIA_ValuePatternId,
+    IUIAutomationTreeWalker, IUIAutomationValuePattern, UIA_InvokePatternId,
+    UIA_SelectionItemPatternId, UIA_TextEditPatternId, UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::super::state::{
     accessibility_revision, element_line, truncate_document_text, Observation, PendingAction,
-    WindowInfo, DOC_TEXT_MAX,
+    ACCESSIBILITY_MAX_ELEMENTS, DOC_TEXT_MAX,
 };
+use super::window::observation_windows;
+
+const ACCESSIBILITY_MAX_DEPTH: usize = 40;
 
 /// Map a UI Automation control-type identifier to a human-readable role
 /// name so callers can recognise actionable controls (for example an
@@ -125,29 +128,37 @@ impl FocusedTextInput {
 pub(crate) fn focused_text_input(
     observation: &Observation,
 ) -> Result<FocusedTextInput, (&'static str, String)> {
-    let element = observation
-        .elements
-        .values()
-        .find(|element| {
-            unsafe { element.CurrentHasKeyboardFocus() }
-                .map(|focused| focused.as_bool())
-                .unwrap_or(false)
-        })
-        .ok_or((
+    let automation: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }.map_err(|_| {
+            (
+                "focus_not_editable",
+                "UI Automation could not read the current keyboard focus.".to_string(),
+            )
+        })?;
+    let element = unsafe { automation.GetFocusedElement() }.map_err(|_| {
+        (
             "focus_not_editable",
             "The observed window has no focused text input.".to_string(),
-        ))?;
-    if !element_belongs_to_window(element, observation.window.hwnd) {
+        )
+    })?;
+    if !element_belongs_to_window(&element, observation.input_hwnd) {
         return Err((
             "stale_observation",
             "Keyboard focus no longer belongs to the observed window.".to_string(),
         ));
     }
-    let writable_value =
-        unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
-            .ok()
-            .and_then(|pattern| unsafe { pattern.CurrentIsReadOnly() }.ok())
-            .is_some_and(|read_only| !read_only.as_bool());
+    if !observation
+        .elements
+        .values()
+        .any(|observed| same_element(&automation, observed, &element))
+    {
+        return Err((
+            "stale_observation",
+            "Keyboard focus changed after the window was observed; observe it again before typing."
+                .to_string(),
+        ));
+    }
+    let writable_value = writable_value_pattern(&element).is_some();
     let text_edit = unsafe {
         element.GetCurrentPatternAs::<IUIAutomationTextEditPattern>(UIA_TextEditPatternId)
     }
@@ -159,8 +170,8 @@ pub(crate) fn focused_text_input(
         ));
     }
     Ok(FocusedTextInput {
-        before: element_text_snapshot(element),
-        element: element.clone(),
+        before: element_text_snapshot(&element),
+        element,
     })
 }
 
@@ -184,39 +195,142 @@ fn text_replacement_observed(before: &str, after: &str, text: &str) -> bool {
 }
 
 pub(crate) fn collect_accessibility(
-    window: &WindowInfo,
+    input_hwnd: isize,
 ) -> Result<(Value, HashMap<String, IUIAutomationElement>), String> {
     let automation: IUIAutomation = unsafe {
         CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
             .map_err(|error| format!("UI Automation is unavailable: {error}"))?
     };
-    let root = unsafe { automation.ElementFromHandle(HWND(window.hwnd as _)) }
+    let root = unsafe { automation.ElementFromHandle(HWND(input_hwnd as _)) }
         .map_err(|error| format!("UI Automation could not inspect the window: {error}"))?;
-    let condition = unsafe { automation.CreateTrueCondition() }
-        .map_err(|error| format!("UI Automation condition failed: {error}"))?;
-    let items = unsafe { root.FindAll(TreeScope_Subtree, &condition) }
-        .map_err(|error| format!("UI Automation enumeration failed: {error}"))?;
-    let count = unsafe { items.Length() }
-        .map_err(|error| format!("UI Automation item count failed: {error}"))?
-        .clamp(0, 300);
-    let mut elements = HashMap::new();
-    let mut descriptions = Vec::new();
-    // The focused element is picked out of this window's own subtree, so it
-    // can never describe another application's UI.
-    let mut focused: Option<(String, IUIAutomationElement)> = None;
-    for index in 0..count {
-        let element = match unsafe { items.GetElement(index) } {
-            Ok(element) => element,
-            Err(_) => continue,
+    let walker = unsafe { automation.ControlViewWalker() }
+        .map_err(|error| format!("UI Automation tree is unavailable: {error}"))?;
+    let raw_walker = unsafe { automation.RawViewWalker() }
+        .map_err(|error| format!("UI Automation raw tree is unavailable: {error}"))?;
+    let focused_target = unsafe { automation.GetFocusedElement() }
+        .ok()
+        .filter(|element| element_belongs_to_window_with(&raw_walker, element, input_hwnd));
+    let mut collector = AccessibilityCollector::new(&automation, &walker, focused_target.clone());
+    collector.collect(root, 0);
+    if collector.focused.is_none() {
+        if let Some(element) = focused_target {
+            let depth = element_depth_with(&raw_walker, &element, input_hwnd);
+            collector.publish(element, depth, true);
+        }
+    }
+    // Summary fields are best-effort: a missing one is simply omitted so an
+    // observation never fails because a control withheld its text.
+    let mut accessibility = serde_json::Map::new();
+    accessibility.insert("available".to_string(), json!(true));
+    if let Some((line, element)) = collector.focused.as_ref() {
+        accessibility.insert("focused_element".to_string(), json!(line));
+        if let Some(text) = element_text(element) {
+            accessibility.insert("document_text".to_string(), json!(text));
+        }
+    }
+    accessibility.insert("elements".to_string(), json!(collector.descriptions));
+    Ok((Value::Object(accessibility), collector.elements))
+}
+
+struct AccessibilityCollector<'a> {
+    automation: &'a IUIAutomation,
+    walker: &'a IUIAutomationTreeWalker,
+    focused_target: Option<IUIAutomationElement>,
+    elements: HashMap<String, IUIAutomationElement>,
+    descriptions: Vec<Value>,
+    focused: Option<(String, IUIAutomationElement)>,
+}
+
+impl<'a> AccessibilityCollector<'a> {
+    fn new(
+        automation: &'a IUIAutomation,
+        walker: &'a IUIAutomationTreeWalker,
+        focused_target: Option<IUIAutomationElement>,
+    ) -> Self {
+        Self {
+            automation,
+            walker,
+            focused_target,
+            elements: HashMap::new(),
+            descriptions: Vec::new(),
+            focused: None,
+        }
+    }
+
+    fn collect(&mut self, element: IUIAutomationElement, depth: usize) {
+        if depth > ACCESSIBILITY_MAX_DEPTH || self.descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS
+        {
+            return;
+        }
+        self.publish(element.clone(), depth, false);
+        if depth == ACCESSIBILITY_MAX_DEPTH {
+            return;
+        }
+        let Ok(mut child) = (unsafe { self.walker.GetFirstChildElement(&element) }) else {
+            return;
         };
+        loop {
+            self.collect(child.clone(), depth + 1);
+            if self.descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS {
+                return;
+            }
+            let Ok(next) = (unsafe { self.walker.GetNextSiblingElement(&child) }) else {
+                return;
+            };
+            if same_element(self.automation, &child, &next) {
+                return;
+            }
+            child = next;
+        }
+    }
+
+    fn publish(&mut self, element: IUIAutomationElement, depth: usize, reserve_focus: bool) {
+        let focused = self
+            .focused_target
+            .as_ref()
+            .is_some_and(|target| same_element(self.automation, target, &element));
         let name = unsafe { element.CurrentName() }
             .map(|value| value.to_string())
             .unwrap_or_default();
         let automation_id = unsafe { element.CurrentAutomationId() }
             .map(|value| value.to_string())
             .unwrap_or_default();
-        if name.is_empty() && automation_id.is_empty() {
-            continue;
+        let settable = writable_value_pattern(&element).is_some();
+        let actions = if unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+        }
+        .is_ok()
+        {
+            vec!["Invoke"]
+        } else {
+            Vec::new()
+        };
+        if name.is_empty()
+            && automation_id.is_empty()
+            && !focused
+            && !settable
+            && actions.is_empty()
+        {
+            return;
+        }
+        if self.descriptions.len() >= ACCESSIBILITY_MAX_ELEMENTS {
+            if !reserve_focus {
+                return;
+            }
+            let removed = format!("uia-{}", ACCESSIBILITY_MAX_ELEMENTS - 1);
+            self.descriptions.pop();
+            self.elements.remove(&removed);
+        }
+        let element_id = format!("uia-{}", self.descriptions.len());
+        let control_type = unsafe { element.CurrentControlType() }
+            .map(|value| value.0)
+            .unwrap_or_default();
+        let control_type_name = control_type_name(control_type);
+        if focused {
+            self.focused = Some((
+                element_line(&element_id, control_type_name, &name),
+                element.clone(),
+            ));
         }
         let bounds = unsafe { element.CurrentBoundingRectangle() }.unwrap_or_default();
         let selected = unsafe {
@@ -228,55 +342,43 @@ pub(crate) fn collect_accessibility(
                 .map(|value| value.as_bool())
                 .unwrap_or(false)
         };
-        let actions = if unsafe {
-            element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
-        }
-        .is_ok()
-        {
-            vec!["Invoke"]
-        } else {
-            Vec::new()
-        };
-        let element_id = format!("uia-{index}");
-        let control_type = unsafe { element.CurrentControlType() }
-            .map(|value| value.0)
-            .unwrap_or_default();
-        if focused.is_none()
-            && unsafe { element.CurrentHasKeyboardFocus() }
-                .map(|value| value.as_bool())
-                .unwrap_or(false)
-        {
-            focused = Some((
-                element_line(&element_id, control_type_name(control_type), &name),
-                element.clone(),
-            ));
-        }
-        descriptions.push(json!({
+        self.descriptions.push(json!({
             "id": element_id,
             "name": name,
             "automation_id": automation_id,
             "control_type": control_type,
-            "control_type_name": control_type_name(control_type),
+            "control_type_name": control_type_name,
+            "depth": depth,
             "enabled": unsafe { element.CurrentIsEnabled() }.map(|value| value.as_bool()).unwrap_or(false),
             "offscreen": unsafe { element.CurrentIsOffscreen() }.map(|value| value.as_bool()).unwrap_or(true),
             "selected": selected,
+            "settable": settable,
+            "focused": focused,
             "actions": actions,
             "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom],
         }));
-        elements.insert(element_id, element);
+        self.elements.insert(element_id, element);
     }
-    // Summary fields are best-effort: a missing one is simply omitted so an
-    // observation never fails because a control withheld its text.
-    let mut accessibility = serde_json::Map::new();
-    accessibility.insert("available".to_string(), json!(true));
-    if let Some((line, element)) = focused.as_ref() {
-        accessibility.insert("focused_element".to_string(), json!(line));
-        if let Some(text) = element_text(element) {
-            accessibility.insert("document_text".to_string(), json!(text));
-        }
-    }
-    accessibility.insert("elements".to_string(), json!(descriptions));
-    Ok((Value::Object(accessibility), elements))
+}
+
+fn writable_value_pattern(element: &IUIAutomationElement) -> Option<IUIAutomationValuePattern> {
+    let pattern =
+        unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+            .ok()?;
+    unsafe { pattern.CurrentIsReadOnly() }
+        .ok()
+        .is_some_and(|value| !value.as_bool())
+        .then_some(pattern)
+}
+
+fn same_element(
+    automation: &IUIAutomation,
+    first: &IUIAutomationElement,
+    second: &IUIAutomationElement,
+) -> bool {
+    unsafe { automation.CompareElements(first, second) }
+        .map(|value| value.as_bool())
+        .unwrap_or(false)
 }
 
 pub(crate) fn element_point(
@@ -425,7 +527,7 @@ fn accessibility_element<'a>(
         "element_not_found",
         "Element is not available in this observation.".to_string(),
     ))?;
-    if !element_belongs_to_window(element, observation.window.hwnd) {
+    if !element_belongs_to_window(element, observation.input_hwnd) {
         return Err((
             "stale_observation",
             "The element is no longer part of the observed window; observe it again.".to_string(),
@@ -451,7 +553,14 @@ pub(crate) fn validate_observation(
         "stale_observation",
         "The observation had no accessibility revision; observe the window again.".to_string(),
     ))?;
-    let (current, _) = collect_accessibility(&observation.window).map_err(|error| {
+    let current_input = observation_windows(&observation.window).input_hwnd;
+    if current_input != observation.input_hwnd {
+        return Err((
+            "stale_observation",
+            "The active interface surface changed; observe the window again.".to_string(),
+        ));
+    }
+    let (current, _) = collect_accessibility(current_input).map_err(|error| {
         (
             "stale_observation",
             format!("The observed accessibility surface is unavailable: {error}"),
@@ -476,18 +585,34 @@ fn element_belongs_to_window(element: &IUIAutomationElement, hwnd: isize) -> boo
         Ok(walker) => walker,
         Err(_) => return false,
     };
+    element_belongs_to_window_with(&walker, element, hwnd)
+}
+
+fn element_belongs_to_window_with(
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+    hwnd: isize,
+) -> bool {
+    element_depth_with(walker, element, hwnd) < 64
+}
+
+fn element_depth_with(
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+    hwnd: isize,
+) -> usize {
     let expected = HWND(hwnd as _);
     let mut current = element.clone();
-    for _ in 0..64 {
+    for depth in 0..64 {
         if unsafe { current.CurrentNativeWindowHandle() }.ok() == Some(expected) {
-            return true;
+            return depth;
         }
         let Ok(parent) = (unsafe { walker.GetParentElement(&current) }) else {
-            return false;
+            break;
         };
         current = parent;
     }
-    false
+    64
 }
 
 #[cfg(test)]

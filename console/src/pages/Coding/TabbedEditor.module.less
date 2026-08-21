@@ -9,13 +9,22 @@
 
 // ---- Tab bar ---------------------------------------------------------------
 .tabBar {
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  overflow-x: auto;
-  overflow-y: hidden;
+  align-items: stretch;
   flex-shrink: 0;
+  min-width: 0;
+  height: 42px;
   background: var(--header-background, #fafafa);
   border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+}
+
+.tabViewport {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -23,33 +32,60 @@
   }
 }
 
+.tabRail {
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+}
+
 .tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px 5px 12px;
-  font-size: 12px;
+  gap: 6px;
+  min-width: 112px;
+  max-width: 176px;
+  flex: 0 1 176px;
+  padding: 0 9px 0 12px;
+  font-size: 11px;
   font-family: "SFMono-Regular", Consolas, monospace;
   color: var(--text-secondary, rgba(0, 0, 0, 0.45));
   white-space: nowrap;
   cursor: pointer;
   border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
   background: transparent;
-  transition: background 0.12s;
-  min-width: 0;
-  flex-shrink: 0;
-  max-width: 200px;
+  outline: none;
+  transition:
+    background 0.12s,
+    color 0.12s;
 
   &:hover {
     background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
     color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px
+      var(--files-accent-soft, rgba(243, 107, 33, 0.2));
   }
 }
 
 .tabActive {
   background: var(--body-background, #fff);
   color: var(--text-primary, rgba(0, 0, 0, 0.88));
-  border-bottom: 2px solid var(--files-accent, #f36b21);
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: 11px;
+    bottom: 0;
+    left: 11px;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--files-accent, #f36b21);
+  }
 }
 
 .tabName {
@@ -67,11 +103,6 @@
   flex-shrink: 0;
 }
 
-// Tab with pending diff — subtle teal left border
-.tabDiff {
-  border-left: 2px solid var(--info-color, #13c2c2) !important;
-}
-
 .diffDot {
   color: var(--info-color, #13c2c2);
   flex-shrink: 0;
@@ -81,12 +112,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border: none;
   background: transparent;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 5px;
   color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
   padding: 0;
   flex-shrink: 0;
@@ -107,6 +138,320 @@
     background: var(--item-hover-bg, rgba(0, 0, 0, 0.08));
     color: var(--text-primary, rgba(0, 0, 0, 0.88));
     opacity: 1 !important;
+  }
+}
+
+.tabControls {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 7px;
+  border-left: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  background: var(--header-background, #fafafa);
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -32px;
+    width: 32px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--header-background, #fafafa)
+    );
+  }
+}
+
+.tabControlBtn,
+.openFilesBtn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s,
+    border-color 0.12s;
+
+  &:hover {
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.05));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--files-accent-soft, rgba(243, 107, 33, 0.25));
+    outline-offset: 1px;
+  }
+}
+
+.tabControlBtn {
+  width: 26px;
+  padding: 0;
+}
+
+.openFilesBtn {
+  position: relative;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.09));
+  background: var(--body-background, rgba(255, 255, 255, 0.72));
+  font-size: 11px;
+}
+
+.openFilesBtnActive {
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  border-color: var(--border-color, rgba(0, 0, 0, 0.16));
+  background: var(--body-background, #fff);
+}
+
+.openFilesLabel {
+  white-space: nowrap;
+}
+
+.tabCount {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 5px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  background: var(--item-hover-bg, rgba(0, 0, 0, 0.06));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.openFilesPanel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 8px;
+  width: min(390px, calc(100% - 16px));
+  max-height: min(520px, calc(100vh - 180px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.14));
+  border-radius: 12px;
+  background: var(--body-background, #fff);
+  box-shadow: 0 20px 58px rgba(18, 24, 21, 0.18);
+  animation: openFilesIn 0.14s ease-out;
+}
+
+@media (hover: none) {
+  .closeBtn,
+  .openFileClose {
+    opacity: 0.6;
+  }
+}
+
+@keyframes openFilesIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.openFilesHeader {
+  padding: 14px 14px 11px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+}
+
+.openFilesTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+
+  strong {
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+    font-size: 10px;
+  }
+}
+
+.openFilesSearch {
+  position: relative;
+  display: block;
+
+  > svg {
+    position: absolute;
+    z-index: 1;
+    top: 10px;
+    left: 10px;
+    color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+    pointer-events: none;
+  }
+
+  input {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px 0 32px;
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.09));
+    border-radius: 8px;
+    outline: none;
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--header-background, #fafafa);
+    font-size: 12px;
+
+    &::placeholder {
+      color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+    }
+
+    &:focus {
+      border-color: var(--files-accent, #f36b21);
+      box-shadow: 0 0 0 3px var(--files-accent-soft, rgba(243, 107, 33, 0.12));
+      background: var(--body-background, #fff);
+    }
+  }
+}
+
+.openFilesList {
+  min-height: 72px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.openFileItem {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  border-radius: 8px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+
+  &:hover {
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+
+    .openFileClose {
+      opacity: 1;
+    }
+  }
+}
+
+.openFileItemActive {
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  background: var(--files-accent-soft, rgba(243, 107, 33, 0.1));
+}
+
+.openFileMain {
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  > svg {
+    flex: 0 0 auto;
+  }
+}
+
+.openFileCopy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.openFileName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.openFilePath {
+  overflow: hidden;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.openFileClose {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.07));
+    opacity: 1;
+  }
+}
+
+.openFilesEmpty {
+  padding: 30px 12px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  font-size: 12px;
+  text-align: center;
+}
+
+.openFilesFooter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+  background: var(--header-background, #fafafa);
+
+  button {
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+    background: transparent;
+    font-size: 11px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: var(--text-primary, rgba(0, 0, 0, 0.88));
+      background: var(--body-background, #fff);
+    }
+
+    &:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
   }
 }
 
@@ -238,6 +583,16 @@
 }
 
 @container (max-width: 760px) {
+  .tab {
+    min-width: 104px;
+    max-width: 142px;
+    flex-basis: 142px;
+  }
+
+  .openFilesLabel {
+    display: none;
+  }
+
   .fileName {
     max-width: 120px;
   }
@@ -259,6 +614,34 @@
 }
 
 @container (max-width: 520px) {
+  .scrollControl {
+    display: none;
+  }
+
+  .tabControls {
+    padding: 0 5px;
+  }
+
+  .openFilesBtn {
+    width: 34px;
+    padding: 0;
+  }
+
+  .tabCount {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 8px;
+  }
+
+  .openFilesPanel {
+    right: 6px;
+    width: calc(100% - 12px);
+  }
+
   .fileName {
     display: none;
   }
@@ -419,6 +802,107 @@
   .tabBar {
     background: #1a1a1a;
     border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .tabControls::before {
+    background: linear-gradient(90deg, transparent, #1a1a1a);
+  }
+
+  .tabControls {
+    border-left-color: rgba(255, 255, 255, 0.08);
+    background: #1a1a1a;
+  }
+
+  .tabControlBtn,
+  .openFilesBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.88);
+      background: rgba(255, 255, 255, 0.07);
+    }
+  }
+
+  .openFilesBtn {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .tabCount {
+    color: rgba(255, 255, 255, 0.68);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .openFilesPanel {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #232323;
+    box-shadow: 0 20px 58px rgba(0, 0, 0, 0.45);
+  }
+
+  .openFilesHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .openFilesTitleRow {
+    strong {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    span {
+      color: rgba(255, 255, 255, 0.6);
+    }
+  }
+
+  .openFilesSearch > svg {
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .openFilesSearch input {
+    color: rgba(255, 255, 255, 0.88);
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    &:focus {
+      border-color: #ff914d;
+      background: rgba(255, 255, 255, 0.07);
+    }
+  }
+
+  .openFileItem {
+    color: rgba(255, 255, 255, 0.58);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.88);
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .openFileItemActive {
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(243, 107, 33, 0.16);
+  }
+
+  .openFilePath,
+  .openFilesEmpty {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .openFilesFooter {
+    border-top-color: rgba(255, 255, 255, 0.08);
+    background: #1d1d1d;
+
+    button {
+      color: rgba(255, 255, 255, 0.58);
+
+      &:hover:not(:disabled) {
+        color: rgba(255, 255, 255, 0.88);
+        background: rgba(255, 255, 255, 0.07);
+      }
+    }
   }
 
   .tab {

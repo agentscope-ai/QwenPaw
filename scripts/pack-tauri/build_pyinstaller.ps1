@@ -130,7 +130,16 @@ Write-Host ""
 
 # Install project dependencies (ensures ALL runtime deps are importable)
 Write-Host "== Installing project dependencies ==" -ForegroundColor Yellow
-Install-PythonPackages -Packages @("-e", ".[full]")
+# Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
+# at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
+# wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
+# kicks in and the import works. The proven failure mode is an *in-place*
+# upgrade of a legacy setuptools (seen on the macOS CI runners, and possible
+# in any environment upgrading an existing install): it can leave a
+# half-removed pkg_resources (module present, declare_namespace gone), which
+# raises an AttributeError the fallback does not catch — crashing the Feishu
+# channel. The pin keeps every environment in the known-good state.
+Install-PythonPackages -Packages @("-e", ".[full]", "setuptools<82")
 Write-Host "Project dependencies installed with full extras" -ForegroundColor Green
 
 # Fix agent-client-protocol namespace collision
@@ -169,6 +178,8 @@ Write-Host ""
 $BACKEND_DIR = Join-Path $DIST "pyinstaller\qwenpaw-backend"
 $BACKEND_EXE = Join-Path $BACKEND_DIR "qwenpaw-backend.exe"
 $CLI_EXE = Join-Path $BACKEND_DIR "qwenpaw.exe"
+$MODEL_CATALOG = Join-Path $BACKEND_DIR `
+    "_internal\qwenpaw\providers\data\model_catalog.json"
 if (-not (Test-Path $BACKEND_DIR)) {
     Write-Host "ERROR: Backend bundle directory not found at $BACKEND_DIR" -ForegroundColor Red
     exit 1
@@ -179,6 +190,11 @@ if (-not (Test-Path $BACKEND_EXE)) {
 }
 if (-not (Test-Path $CLI_EXE)) {
     Write-Host "ERROR: CLI executable not found at $CLI_EXE" -ForegroundColor Red
+    exit 1
+}
+if (-not (Test-Path $MODEL_CATALOG)) {
+    Write-Host "ERROR: Model catalog not found at $MODEL_CATALOG" `
+        -ForegroundColor Red
     exit 1
 }
 

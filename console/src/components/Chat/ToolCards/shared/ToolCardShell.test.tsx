@@ -46,6 +46,14 @@ const runningContent: ToolCallContent = {
   status: "calling",
 };
 
+const streamingInputContent: ToolCallContent = {
+  ...runningContent,
+  inputProgress: {
+    preview: '{"path":"notes.txt"}',
+    truncated: false,
+  },
+};
+
 describe("ToolCardShell lazy body", () => {
   it("opens file-facing results by default when requested", () => {
     render(
@@ -111,6 +119,32 @@ describe("ToolCardShell lazy body", () => {
     expect(label).toHaveTextContent(title.trim());
   });
 
+  it("replaces the spinner node when the tool finishes", () => {
+    const { container, rerender } = render(
+      <ToolCardShell
+        content={runningContent}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+        isStreaming
+      />,
+    );
+    const spinner = container.querySelector('[class*="toolCallSpinner"]');
+
+    expect(spinner).not.toBeNull();
+
+    rerender(
+      <ToolCardShell
+        content={content}
+        icon={<span data-testid="completion-icon" />}
+        title="Shell"
+      />,
+    );
+
+    const completionIcon = screen.getByTestId("completion-icon");
+    expect(spinner).not.toBeInTheDocument();
+    expect(completionIcon.parentElement).not.toBe(spinner);
+  });
+
   it("mounts the body only after the first expansion", () => {
     const { container } = render(
       <ToolCardShell content={content} icon={<span />} title="Shell">
@@ -147,5 +181,25 @@ describe("ToolCardShell lazy body", () => {
     expect(metadata).not.toBeNull();
     expect(metadata).toHaveTextContent("Parameters");
     expect(metadata).toHaveTextContent("Runtime");
+  });
+
+  it("keeps streaming input quiet in the summary and preserves its preview", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={streamingInputContent}
+        icon={<span />}
+        title="Read file"
+        isStreaming
+        defaultExpanded
+      />,
+    );
+
+    const summary = container.querySelector("summary");
+    expect(summary).toHaveTextContent("tool.loading");
+    expect(summary).not.toHaveTextContent("tool.inputProgress");
+    const previewTitle = screen.getByText("tool.rawInputPreview");
+    const previewBlock = previewTitle.parentElement?.parentElement;
+    expect(previewBlock).toHaveTextContent("path");
+    expect(previewBlock).toHaveTextContent("notes.txt");
   });
 });

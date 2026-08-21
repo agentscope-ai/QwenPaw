@@ -14,7 +14,13 @@ import threading
 import time
 from typing import Any, Literal, Mapping
 
-from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    TextBlock,
+    ToolResultState,
+    URLSource,
+)
 from agentscope.tool import ToolChunk
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
@@ -28,6 +34,7 @@ _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
 _rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
+_MAX_ACCESSIBILITY_DEPTH = 40
 
 ComputerUseAction = Literal[
     "list_apps",
@@ -124,9 +131,8 @@ def _without_screenshot_urls(
 
     Screenshots are attached as image blocks; repeating the base64 data
     URL inside the JSON text block would double a multi-megabyte payload
-    and pollute the model's text context. Post-action observations remain
-    available natively but omit their image metadata until an explicit visual
-    observation requests the attachment.
+    and pollute the model's text context. Post-action refreshes are semantic
+    and do not capture images; a visual target starts with a fresh observation.
     """
     screenshots = payload.get("screenshots")
     if not isinstance(screenshots, list):
@@ -152,25 +158,16 @@ def _element_line(element: Mapping[str, Any]) -> str:
     """Render one accessibility element as a single compact line.
 
     Only the model reads these elements, so the JSON scaffolding around
-    them is pure overhead. Windows reports pixel ``bounds`` and macOS
-    reports a control ``value`` instead, so the locator part is chosen from
-    whichever the platform actually provided rather than assumed.
+    them is pure overhead. Coordinates come from the current screenshot;
+    accessibility lines expose only semantic element metadata.
     """
     parts = [
         str(element.get("id") or "?"),
         str(element.get("control_type_name") or element.get("role") or "?"),
         f'"{element.get("name") or ""}"',
     ]
-    bounds = element.get("bounds")
     value = element.get("value")
-    if isinstance(bounds, (list, tuple)) and len(bounds) == 4:
-        try:
-            left, top, right, bottom = (int(edge) for edge in bounds)
-        except (TypeError, ValueError):
-            pass
-        else:
-            parts.append(f"screen@{(left + right) // 2},{(top + bottom) // 2}")
-    elif isinstance(value, str) and value:
+    if isinstance(value, str) and value:
         parts.append(f"={value}")
     identifier = element.get("identifier") or element.get("automation_id")
     if isinstance(identifier, str) and identifier:
@@ -192,7 +189,13 @@ def _element_line(element: Mapping[str, Any]) -> str:
         names = [str(action) for action in actions if str(action)]
         if names:
             parts.append(f"[actions={','.join(names)}]")
-    return " ".join(parts)
+    depth = element.get("depth")
+    indent = (
+        "  " * min(depth, _MAX_ACCESSIBILITY_DEPTH)
+        if isinstance(depth, int) and not isinstance(depth, bool) and depth > 0
+        else ""
+    )
+    return indent + " ".join(parts)
 
 
 def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -215,6 +218,18 @@ def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return {**payload, "accessibility": compact}
 
 
+def _screenshot_source(url: str) -> Base64Source | URLSource:
+    header, separator, data = url.partition(",")
+    if (
+        separator
+        and header.casefold().startswith("data:")
+        and ";base64" in header.casefold()
+    ):
+        media_type = header[5:].split(";", 1)[0] or "image/*"
+        return Base64Source(data=data, media_type=media_type)
+    return URLSource(url=url, media_type="image/*")
+
+
 def _response(
     payload: Mapping[str, Any],
     *,
@@ -230,10 +245,7 @@ def _response(
             ):
                 content.append(
                     DataBlock(
-                        source=URLSource(
-                            url=screenshot["url"],
-                            media_type="image/*",
-                        ),
+                        source=_screenshot_source(screenshot["url"]),
                     ),
                 )
     content.append(
@@ -263,6 +275,7 @@ def _error(code: str, message: str) -> ToolChunk:
         "observation_required",
         "stale_observation",
         "target_not_at_point",
+        "unknown_screenshot",
         "user_intervention",
     }:
         payload["requires_observe"] = True
@@ -291,6 +304,7 @@ async def computer_use(
     action: ComputerUseAction,
     app: str = "",
     window_id: str = "",
+    screenshot_id: str = "",
     element_id: str = "",
     x: int = 0,
     y: int = 0,
@@ -317,9 +331,12 @@ async def computer_use(
     observation after every successful action; native rejects stale state.
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     platform-native application path.
-    Use ``begin_text_edit`` -- never ``click`` or ``invoke`` -- on an observed
-    menu command that opens a native text editor, including rename and
-    create-and-name commands. Then use the returned observation for ``type``.
+    ``observe_window`` returns screenshots and accessibility text.
+    Coordinate actions require the ``id`` of an attached screenshot as
+    ``screenshot_id``; coordinates are local to that image.
+    Inspect the replacement observation after an action changes selection,
+    focus, menus, editors, dialogs, or windows. Confirm editable focus before
+    typing, and observe again after committing an edit.
     """
     # Each early return maps to one refusal reason the model must be able to
     # tell apart, so they are reported individually rather than merged.
@@ -351,6 +368,7 @@ async def computer_use(
             action,
             app=app,
             window_id=window_id,
+            screenshot_id=screenshot_id,
             element_id=element_id,
             x=x,
             y=y,
@@ -439,6 +457,7 @@ def _native_request(
         if element_id:
             params["element_id"] = element_id
         else:
+            params["screenshot_id"] = _screenshot_id(values)
             params["x"] = values["x"]
             params["y"] = values["y"]
         params["button"] = (
@@ -447,7 +466,11 @@ def _native_request(
         params["count"] = 2 if action == "double_click" else values["count"]
         return "click", params, False
     if action == "scroll":
-        params = {"x": values["x"], "y": values["y"]}
+        params = {
+            "screenshot_id": _screenshot_id(values),
+            "x": values["x"],
+            "y": values["y"],
+        }
         params["delta_y"] = values["delta_y"]
         return action, params, False
     if action == "drag":
@@ -470,6 +493,7 @@ def _native_request(
             )
         else:
             params.update(
+                screenshot_id=_screenshot_id(values),
                 start_x=values["start_x"],
                 start_y=values["start_y"],
                 end_x=values["end_x"],
@@ -518,3 +542,12 @@ def _native_request(
         "double_click, right_click, scroll, drag, type, press_key, invoke, "
         "begin_text_edit, set_value, sequence, wait, stop.",
     )
+
+
+def _screenshot_id(values: Mapping[str, Any]) -> str:
+    screenshot_id = str(values.get("screenshot_id") or "").strip()
+    if not screenshot_id:
+        raise ValueError(
+            "Coordinate input requires screenshot_id from observe_window.",
+        )
+    return screenshot_id

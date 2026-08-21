@@ -24,7 +24,6 @@ export const getFileIcon = (filePath: string) => {
     "file_reader",
     "browser",
     "guidance",
-    "himalaya",
     "dingtalk_channel",
   ]);
 

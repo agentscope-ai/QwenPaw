@@ -11,8 +11,27 @@ from agentscope.model import ChatModelBase, OpenAIResponseModel
 
 from .capping_formatter import _CappingOpenAIResponseFormatter
 from .openai_provider import OpenAIProvider
+from .provider import ModelConnectionResult
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+_NONE_REASONING_EFFORT_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-5.6",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+    },
+)
+
+
+def _supports_none_reasoning_effort(model_name: str) -> bool:
+    """Whether a documented model accepts ``reasoning.effort=none``."""
+    canonical_name = model_name.rsplit("/", 1)[-1].lower()
+    return canonical_name in _NONE_REASONING_EFFORT_MODELS
 
 
 def _extract_response_text(response: Any) -> str:
@@ -81,8 +100,6 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
-        # Pop the neutral ``disable_thinking`` flag
-        generate_kwargs.pop("disable_thinking", None)
         max_tokens = generate_kwargs.pop("max_tokens", None)
         if (
             max_tokens is not None
@@ -90,6 +107,17 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        disable_thinking = merged.pop("disable_thinking", False)
+        inherited_max_tokens = merged.pop("max_tokens", None)
+        if (
+            inherited_max_tokens is not None
+            and "max_output_tokens" not in merged
+        ):
+            merged["max_output_tokens"] = inherited_max_tokens
+        if disable_thinking:
+            merged.pop("reasoning", None)
+            if _supports_none_reasoning_effort(model_name):
+                merged["reasoning"] = {"effort": "none"}
         return await super()._call_api(
             model_name,
             messages,
@@ -131,16 +159,19 @@ class OpenAIResponseProvider(OpenAIProvider):
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a model is reachable via the Responses API."""
         from openai import APIError
 
         model_id = (model_id or "").strip()
         if not model_id:
-            return False, "Empty model ID"
+            return ModelConnectionResult(
+                success=False,
+                message="Empty model ID",
+            )
 
+        client = self._client(timeout=timeout)
         try:
-            client = self._client(timeout=timeout)
             res = await client.responses.create(
                 model=model_id,
                 input="ping",
@@ -148,16 +179,32 @@ class OpenAIResponseProvider(OpenAIProvider):
                 max_output_tokens=20,
                 stream=True,
             )
-            async for _ in res:
-                break
-            return True, ""
-        except APIError:
-            return False, f"API error when connecting to model '{model_id}'"
-        except Exception:
-            return (
-                False,
-                f"Unknown exception when connecting to model '{model_id}'",
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.close()
+            return ModelConnectionResult(success=True)
+        except APIError as exc:
+            status = getattr(exc, "status_code", None)
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "API error when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+                http_status=status if isinstance(status, int) else None,
             )
+        except Exception as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "Unknown exception when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+            )
+        finally:
+            await self._close_client(client)
 
     # Responses API's max_output_tokens includes reasoning
     # tokens, so reasoning models (o-series, gpt-5) can
@@ -182,7 +229,7 @@ class OpenAIResponseProvider(OpenAIProvider):
 
         logger.info(
             "Image probe (responses) start: model=%s url=%s",
-            model_id,
+            sanitize_log_value(model_id),
             self.base_url,
         )
         start_time = time.monotonic()
@@ -223,8 +270,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             status = getattr(e, "status_code", None)
@@ -235,11 +282,13 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
     async def _try_video_url(
         self,
@@ -306,7 +355,7 @@ class OpenAIResponseProvider(OpenAIProvider):
             if status == 400:
                 logger.debug(
                     "Video probe format rejected (400): %s",
-                    e,
+                    sanitize_log_value(e),
                 )
                 return None
             elapsed = time.monotonic() - start_time
@@ -314,8 +363,8 @@ class OpenAIResponseProvider(OpenAIProvider):
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Video {label}: {e}"
@@ -323,11 +372,13 @@ class OpenAIResponseProvider(OpenAIProvider):
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
-                model_id,
-                e,
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
                 elapsed,
             )
             return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import OpenAICredential

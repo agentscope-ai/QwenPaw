@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabbedEditor from "./TabbedEditor";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
@@ -158,6 +164,63 @@ describe("TabbedEditor tab context menu", () => {
       expect(useCodingTabsStore.getState().activeTabByAgent[SCOPE_KEY]).toBe(
         "two.txt",
       );
+    });
+  });
+
+  it("closes a tab with the middle mouse button", async () => {
+    render(<Harness onSaveFile={vi.fn(async () => undefined)} />);
+
+    fireEvent(
+      screen.getByRole("tab", { name: /two\.txt/i }),
+      new MouseEvent("auxclick", { bubbles: true, button: 1 }),
+    );
+
+    await waitFor(() => {
+      expect(
+        useCodingTabsStore
+          .getState()
+          .tabsByAgent[SCOPE_KEY].map((tab) => tab.path),
+      ).toEqual(["one.txt", "three.txt"]);
+    });
+  });
+
+  it("searches and activates a file from the open-files panel", async () => {
+    render(<Harness onSaveFile={vi.fn(async () => undefined)} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /openFiles|已打开文件/i }),
+    );
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("searchbox"), {
+      target: { value: "two" },
+    });
+
+    expect(within(dialog).getByText("two.txt")).toBeInTheDocument();
+    expect(within(dialog).queryByText("three.txt")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText("two.txt"));
+
+    await waitFor(() => {
+      expect(useCodingTabsStore.getState().activeTabByAgent[SCOPE_KEY]).toBe(
+        "two.txt",
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("closes every tab from the open-files panel", async () => {
+    render(<Harness onSaveFile={vi.fn(async () => undefined)} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /openFiles|已打开文件/i }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /closeAllTabs|关闭全部标签页/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(useCodingTabsStore.getState().tabsByAgent[SCOPE_KEY]).toEqual([]);
     });
   });
 });

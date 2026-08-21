@@ -14,6 +14,8 @@ import type { TourProps } from "antd";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { ChevronDown, MessageSquareText } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
@@ -80,7 +82,7 @@ const INBOX_BADGE_POLLING_MS = 6000;
 const SIMPLE_MODE_WHITELIST = new Set([
   "core.files",
   "core.inbox",
-  "core.app-center",
+  "core.marketplace",
   "core.cron-jobs",
   "core.agent-config",
   "core.models",
@@ -136,6 +138,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [desktopModeHintOpen, setDesktopModeHintOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
+  const [simpleAgentFunctionsExpanded, setSimpleAgentFunctionsExpanded] =
+    useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
@@ -192,6 +197,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       ...flattenMenu(settingsMenu, routes, 16),
     ];
   }, [agentMenu, settingsMenu, routes, sidebarMode]);
+  const simpleInboxEntry = simpleFlatNav.find(
+    (entry) => entry.key === "core.inbox",
+  );
+  const simpleFoldedNav = simpleFlatNav.filter(
+    (entry) => entry.key !== "core.inbox",
+  );
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -529,7 +540,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const siderWidth = collapsed ? (isMobile ? 56 : 72) : 240;
   const isChatActive = selectedKey === "core.chat";
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
@@ -537,6 +547,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // On mobile, the expanded sidebar shows sessions (like simple mode) instead
   // of the full menu — matching the desktop history panel UX.
   const isSimpleExpanded = (sidebarMode === "simple" || isMobile) && !collapsed;
+  const siderWidth = collapsed
+    ? isMobile
+      ? 56
+      : 72
+    : sidebarMode === "simple" && !isMobile
+    ? 280
+    : 240;
 
   return (
     <Sider
@@ -591,70 +608,135 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         </nav>
       ) : isSimpleExpanded ? (
         <>
-          {/* Simple mode: flat nav items + session list */}
-          <div className={styles.agentScopedSection}>
+          {/* Simple mode: agent context and navigation share one panel. */}
+          <div
+            className={`${styles.agentScopedSection} ${styles.simpleAgentPanel}`}
+          >
             <div className={styles.agentSelectorContainer}>
               <AgentSelector collapsed={collapsed} />
             </div>
-            {/* Flat nav items (no groups) */}
-            <div className={styles.simpleNavItems}>
-              {simpleFlatNav.map((entry) => {
-                const isInbox = entry.key === "core.inbox";
-                const isActive = selectedKey === entry.key;
-                return (
-                  <button
-                    key={entry.key}
-                    className={`${styles.simpleNavItem} ${
-                      isActive ? styles.simpleNavItemActive : ""
-                    }${
-                      isInbox && effectiveShake ? ` ${styles.inboxShake}` : ""
-                    }`}
-                    onMouseEnter={isInbox ? handleInboxHover : undefined}
-                    onClick={() => {
-                      if (entry.href) {
-                        window.open(
-                          entry.href,
-                          "_blank",
-                          "noopener,noreferrer",
-                        );
-                      } else {
-                        navigate(entry.path);
-                      }
-                    }}
-                  >
-                    {isInbox ? (
-                      <span
-                        style={{
-                          position: "relative",
-                          display: "inline-flex",
-                        }}
-                      >
-                        {entry.icon ?? <SparkEmailLine size={16} />}
-                        {hasInboxUnread && (
-                          <span
-                            style={{
-                              position: "absolute",
-                              top: -1,
-                              right: -3,
-                              width: 6,
-                              height: 6,
-                              borderRadius: "50%",
-                              background: inboxDotColor,
-                            }}
-                          />
-                        )}
-                      </span>
-                    ) : (
-                      entry.icon
-                    )}
-                    <span>{entry.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              className={`${styles.simpleNavItem} ${styles.simpleChatItem} ${
+                isChatActive ? styles.simpleNavItemActive : ""
+              }`}
+              onClick={() => navigate(chatPath)}
+            >
+              <MessageSquareText size={16} />
+              <span>{t("nav.chat")}</span>
+            </button>
+            {simpleInboxEntry && (
+              <button
+                type="button"
+                className={`${styles.simpleNavItem} ${styles.simpleInboxItem} ${
+                  selectedKey === simpleInboxEntry.key
+                    ? styles.simpleNavItemActive
+                    : ""
+                }${effectiveShake ? ` ${styles.inboxShake}` : ""}`}
+                onMouseEnter={handleInboxHover}
+                onClick={() => {
+                  if (simpleInboxEntry.href) {
+                    window.open(
+                      simpleInboxEntry.href,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
+                  } else {
+                    navigate(simpleInboxEntry.path);
+                  }
+                }}
+              >
+                <span className={styles.simpleInboxIcon}>
+                  {simpleInboxEntry.icon ?? <SparkEmailLine size={16} />}
+                  {hasInboxUnread && (
+                    <span
+                      className={styles.simpleInboxUnreadDot}
+                      style={{ background: inboxDotColor }}
+                    />
+                  )}
+                </span>
+                <span>{simpleInboxEntry.label}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.simpleAgentDisclosure}
+              aria-expanded={simpleAgentFunctionsExpanded}
+              aria-controls="simple-agent-functions"
+              aria-label={t(
+                "sidebar.toggleAgentNavigation",
+                "Expand or collapse agent navigation",
+              )}
+              onClick={() =>
+                setSimpleAgentFunctionsExpanded((expanded) => !expanded)
+              }
+            >
+              <span className={styles.simpleAgentDisclosureLine} />
+              <motion.span
+                className={styles.simpleAgentDisclosureHandle}
+                animate={{ rotate: simpleAgentFunctionsExpanded ? 180 : 0 }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 0.22, ease: [0.22, 0.78, 0.24, 1] }
+                }
+              >
+                <ChevronDown size={14} />
+              </motion.span>
+              <span className={styles.simpleAgentDisclosureLine} />
+            </button>
+            <AnimatePresence initial={false}>
+              {simpleAgentFunctionsExpanded && (
+                <motion.div
+                  key="simple-agent-functions"
+                  id="simple-agent-functions"
+                  className={styles.simpleAgentFunctionsMotion}
+                  initial={
+                    prefersReducedMotion
+                      ? false
+                      : { height: 0, opacity: 0, y: -4 }
+                  }
+                  animate={{ height: "auto", opacity: 1, y: 0 }}
+                  exit={{ height: 0, opacity: 0, y: -4 }}
+                  transition={
+                    prefersReducedMotion
+                      ? { duration: 0 }
+                      : { duration: 0.24, ease: [0.22, 0.78, 0.24, 1] }
+                  }
+                >
+                  <div className={styles.simpleNavItems}>
+                    {simpleFoldedNav.map((entry) => {
+                      const isActive = selectedKey === entry.key;
+                      return (
+                        <button
+                          key={entry.key}
+                          className={`${styles.simpleNavItem} ${
+                            isActive ? styles.simpleNavItemActive : ""
+                          }`}
+                          onClick={() => {
+                            if (entry.href) {
+                              window.open(
+                                entry.href,
+                                "_blank",
+                                "noopener,noreferrer",
+                              );
+                            } else {
+                              navigate(entry.path);
+                            }
+                          }}
+                        >
+                          {entry.icon}
+                          <span>{entry.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Session list — fills remaining space */}
+          {/* Session list — fills the primary space. */}
           <SidebarSessionList
             onNewChat={handleNewChat}
             onSessionClick={handleSidebarSessionClick}

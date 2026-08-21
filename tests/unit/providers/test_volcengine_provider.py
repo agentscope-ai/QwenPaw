@@ -32,7 +32,7 @@ def test_volcengine_provider_configs() -> None:
     )
     assert PROVIDER_VOLCENGINE_CN.freeze_url is True
     assert PROVIDER_VOLCENGINE_CN.support_connection_check is True
-    assert PROVIDER_VOLCENGINE_CN.support_model_discovery is False
+    assert PROVIDER_VOLCENGINE_CN.support_model_discovery is True
 
     assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.id == "volcengine-cn-codingplan"
     assert (

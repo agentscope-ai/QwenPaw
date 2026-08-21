@@ -3,15 +3,20 @@ import { Dropdown, Input } from "antd";
 import type { InputRef } from "antd";
 import { useTranslation } from "react-i18next";
 import {
-  SparkMoreLine,
-  SparkDeleteLine,
-  SparkEditLine,
-  SparkMarkLine,
-  SparkMarkFill,
-  SparkAistorageLine,
-} from "@agentscope-ai/icons";
+  Archive,
+  Bot,
+  Clock3,
+  FolderInput,
+  GripVertical,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from "lucide-react";
 import { ChannelIcon } from "../../pages/Control/Channels/components";
 import type { ChatStatus } from "../../api/types/chat";
+import type { ChatGroup } from "../../api/types/chat";
 import styles from "./sessionItem.module.less";
 
 export interface SessionItemProps {
@@ -22,8 +27,11 @@ export interface SessionItemProps {
   channelLabel?: string;
   chatStatus?: ChatStatus;
   generating?: boolean;
-  pinned?: boolean;
   archived?: boolean;
+  pinned?: boolean;
+  source?: "chat" | "cron" | "subagent";
+  groupId?: string | null;
+  groups?: ChatGroup[];
   time?: string; // Only used by the drawer variant
 
   // -- State --
@@ -39,8 +47,9 @@ export interface SessionItemProps {
   onClick?: (sessionId: string) => void;
   onEdit?: (sessionId: string, currentName: string) => void;
   onDelete?: (sessionId: string) => void;
-  onPin?: (sessionId: string) => void;
   onArchive?: (sessionId: string) => void;
+  onPin?: (sessionId: string, pinned: boolean) => void;
+  onMove?: (sessionId: string, groupId: string) => void;
   onEditChange?: (value: string) => void;
   onEditSubmit?: () => void;
   onEditCancel?: () => void;
@@ -53,8 +62,11 @@ const SessionItem: React.FC<SessionItemProps> = ({
   channelLabel,
   chatStatus,
   generating,
-  pinned,
   archived,
+  pinned = false,
+  source,
+  groupId,
+  groups = [],
   time,
   active,
   disabled,
@@ -64,8 +76,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onClick,
   onEdit,
   onDelete,
-  onPin,
   onArchive,
+  onPin,
+  onMove,
   onEditChange,
   onEditSubmit,
   onEditCancel,
@@ -76,6 +89,11 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const isComposingRef = useRef(false);
 
   const inProgress = generating === true || chatStatus === "running";
+  const isSubagent = source === "subagent";
+  const isCron = source === "cron";
+  const sourceLabel = isCron
+    ? t("chat.groups.cronShort", "Cron")
+    : t("chat.groups.subagentShort", "Subagent");
   const isIdle = !inProgress && !!chatStatus;
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
@@ -103,26 +121,33 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const dropdownItems = useMemo(
     () => [
       {
-        key: "pin",
-        icon: pinned ? (
-          <SparkMarkFill size={14} />
-        ) : (
-          <SparkMarkLine size={14} />
-        ),
-        label: pinned
-          ? t("chat.contextMenu.unpin", "Unpin")
-          : t("chat.contextMenu.pin", "Pin"),
-        onClick: () => onPin?.(sessionId),
-      },
-      {
         key: "rename",
-        icon: <SparkEditLine size={14} />,
+        icon: <Pencil size={14} />,
         label: t("chat.contextMenu.rename", "Rename"),
         onClick: handleStartEdit,
       },
       {
+        key: "pin",
+        icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
+        label: pinned
+          ? t("chat.contextMenu.unpin", "Unpin")
+          : t("chat.contextMenu.pin", "Pin"),
+        onClick: () => onPin?.(sessionId, !pinned),
+      },
+      {
+        key: "move",
+        icon: <FolderInput size={14} />,
+        label: t("chat.contextMenu.moveToGroup", "Move to group"),
+        children: groups.map((group) => ({
+          key: `move-${group.id}`,
+          label: group.name,
+          disabled: group.id === groupId,
+          onClick: () => onMove?.(sessionId, group.id),
+        })),
+      },
+      {
         key: "archive",
-        icon: <SparkAistorageLine size={14} />,
+        icon: <Archive size={14} />,
         label: archived
           ? t("sessions.archive.unaction", "Unarchive")
           : t("sessions.archive.action", "Archive"),
@@ -131,20 +156,23 @@ const SessionItem: React.FC<SessionItemProps> = ({
       { type: "divider" as const },
       {
         key: "delete",
-        icon: <SparkDeleteLine size={14} />,
+        icon: <Trash2 size={14} />,
         label: t("chat.contextMenu.delete", "Delete"),
         danger: true,
         onClick: () => onDelete?.(sessionId),
       },
     ],
     [
-      pinned,
       archived,
+      pinned,
       sessionId,
       t,
-      onPin,
       onArchive,
+      onPin,
       onDelete,
+      groupId,
+      groups,
+      onMove,
       handleStartEdit,
     ],
   );
@@ -161,7 +189,13 @@ const SessionItem: React.FC<SessionItemProps> = ({
     .join(" ");
 
   const itemContent = (
-    <div className={cls} onClick={handleClick} role="button" tabIndex={0}>
+    <div
+      className={cls}
+      data-pinned={pinned}
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+    >
       {/* Drawer variant: timeline indicator */}
       {variant === "drawer" && <div className={styles.iconPlaceholder} />}
 
@@ -236,6 +270,12 @@ const SessionItem: React.FC<SessionItemProps> = ({
         {variant === "drawer" && (
           <div className={styles.metaRow}>
             {time && <span className={styles.time}>{time}</span>}
+            {(isSubagent || isCron) && (
+              <span className={styles.sourceTag}>
+                {isCron ? <Clock3 size={11} /> : <Bot size={11} />}
+                <span>{sourceLabel}</span>
+              </span>
+            )}
             {(channelKey || channelLabel) && (
               <span
                 className={styles.channelTag}
@@ -260,6 +300,34 @@ const SessionItem: React.FC<SessionItemProps> = ({
         </span>
       )}
 
+      {!editing && variant === "sidebar" && (isSubagent || isCron) && (
+        <span className={styles.sourceIcon} title={sourceLabel}>
+          {isCron ? <Clock3 size={13} /> : <Bot size={13} />}
+        </span>
+      )}
+
+      {!editing && pinned && (
+        <span
+          className={styles.pinMark}
+          title={t("chat.group.pinned", "Pinned")}
+        >
+          <Pin size={11} />
+        </span>
+      )}
+
+      {!editing && (
+        <span
+          className={styles.dragHint}
+          title={t(
+            "chat.groups.dragSessionHint",
+            "Press and hold to move this conversation",
+          )}
+          aria-hidden
+        >
+          <GripVertical size={12} />
+        </span>
+      )}
+
       {/* More button — unified for both variants */}
       {!editing && (
         <Dropdown
@@ -269,7 +337,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
           onOpenChange={setDropdownOpen}
         >
           <span className={styles.moreBtn} onClick={(e) => e.stopPropagation()}>
-            <SparkMoreLine size={14} />
+            <MoreHorizontal size={14} />
           </span>
         </Dropdown>
       )}

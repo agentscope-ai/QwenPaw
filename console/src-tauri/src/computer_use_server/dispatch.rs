@@ -181,6 +181,15 @@ pub(super) fn dispatch_request(
         _ => {}
     }
 
+    #[cfg(windows)]
+    if requests_text_edit(method, &params) {
+        return Err((
+            "unsupported_operation",
+            "This platform cannot begin text editing through an element invocation; use an observed semantic action or a platform-standard shortcut, then observe editable focus."
+                .to_string(),
+        ));
+    }
+
     enforce_pending_action(state, method)?;
 
     // A launch names an application rather than a window. Observation creates
@@ -261,14 +270,14 @@ pub(super) fn dispatch_request(
         .and_then(|observation| observation.accessibility_revision);
     let active_before = changes_window_state(method).then(active_window).flatten();
     #[cfg(target_os = "macos")]
-    let transient_text_candidate = requests_transient_text(method, &params)
+    let transient_text_candidate = requests_text_edit(method, &params)
         && element_is_transient_menu_item(observation(state, observation_id)?, &params)?;
     let mut pending_action: Option<PendingAction> = None;
     let mut completed_pending_action = false;
     let mut result = match method {
         "observe_window" => {
             state.settle_before_observe(window.hwnd);
-            observe_window(state, &window)
+            observe_window(state, &window, true)
         }
         "close_window" => close_window(&window),
         "click" => click(observation(state, observation_id)?, &params),
@@ -357,6 +366,7 @@ pub(super) fn dispatch_request(
             needs_user_idle,
         )
     }) {
+        state.note_action(active_after);
         return Ok(action_handoff(result, active_after));
     }
     // Keep the safety boundary -- the input observation has already been
@@ -412,8 +422,7 @@ fn mark_transient_text_ready(state: &mut ServerState, refreshed: Option<&Value>)
     true
 }
 
-#[cfg(target_os = "macos")]
-fn requests_transient_text(method: &str, params: &serde_json::Map<String, Value>) -> bool {
+fn requests_text_edit(method: &str, params: &serde_json::Map<String, Value>) -> bool {
     method == "invoke_element"
         && params.get("expects_text_input").and_then(Value::as_bool) == Some(true)
 }
@@ -426,7 +435,10 @@ fn refresh_after_action(state: &mut ServerState, previous: &WindowInfo) -> Optio
         return None;
     }
     state.settle_before_observe(current.hwnd);
-    observe_window(state, &current).ok()
+    // Replacement observations keep semantic state current without paying to
+    // encode images that the action response does not attach. A later
+    // coordinate action starts with an explicit visual observation.
+    observe_window(state, &current, false).ok()
 }
 
 fn parse_input_steps(
@@ -731,8 +743,9 @@ fn requires_user_idle_on_mac(method: &str, target_is_frontmost: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::state::WindowInfo;
+    use super::super::state::{ScreenshotTarget, WindowInfo};
     use super::*;
+    use std::io::Cursor;
 
     fn observation(hwnd: isize) -> Observation {
         Observation {
@@ -745,9 +758,18 @@ mod tests {
                 title: String::new(),
                 class_name: String::new(),
             },
-            bounds: [0, 0, 100, 100],
-            display_width: 100,
-            display_height: 100,
+            window_bounds: [0, 0, 100, 100],
+            screenshots: std::collections::HashMap::from([(
+                "screenshot-1".to_string(),
+                ScreenshotTarget {
+                    hwnd,
+                    bounds: [0, 0, 100, 100],
+                    display_width: 100,
+                    display_height: 100,
+                },
+            )]),
+            #[cfg(windows)]
+            input_hwnd: hwnd,
             accessibility_revision: None,
             #[cfg(target_os = "macos")]
             transient_text_ready: false,
@@ -771,27 +793,42 @@ mod tests {
         assert!(!take_transient_text_ready(&mut state, Some("observed")).unwrap());
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn only_explicit_text_edit_invocation_requests_transient_input() {
+    fn only_explicit_text_edit_invocation_requests_an_editor() {
         let ordinary = json!({"element_id": "ax-1"});
         let text_edit = json!({
             "element_id": "ax-1",
             "expects_text_input": true,
         });
 
-        assert!(!requests_transient_text(
+        assert!(!requests_text_edit(
             "invoke_element",
             ordinary.as_object().unwrap(),
         ));
-        assert!(!requests_transient_text(
-            "click",
-            text_edit.as_object().unwrap(),
-        ));
-        assert!(requests_transient_text(
+        assert!(!requests_text_edit("click", text_edit.as_object().unwrap()));
+        assert!(requests_text_edit(
             "invoke_element",
             text_edit.as_object().unwrap(),
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_text_edit_before_resolving_an_observation() {
+        let message = json!({
+            "protocol_version": PROTOCOL_VERSION,
+            "method": "invoke_element",
+            "params": {
+                "element_id": "uia-1",
+                "expects_text_input": true,
+            },
+        });
+        let mut connection = Cursor::new(Vec::new());
+
+        let error = dispatch_request(&mut connection, &mut ServerState::default(), &message)
+            .expect_err("Windows must not treat an invoke as a text editor");
+
+        assert_eq!(error.0, "unsupported_operation");
     }
 
     #[test]

@@ -14,14 +14,41 @@ import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
 
 
-def _make_provider() -> GeminiProvider:
+def _make_provider(**overrides) -> GeminiProvider:
+    config = {
+        "id": "gemini",
+        "name": "Gemini",
+        "base_url": "https://generativelanguage.googleapis.com",
+        "api_key": "gem-test",
+        "chat_model": "GeminiChatModel",
+    }
+    config.update(overrides)
     return GeminiProvider(
-        id="gemini",
-        name="Gemini",
-        base_url="https://generativelanguage.googleapis.com",
-        api_key="gem-test",
-        chat_model="GeminiChatModel",
+        **config,
     )
+
+
+def test_chat_model_configures_persistent_client_headers(monkeypatch) -> None:
+    captured: list[dict] = []
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace()),
+    )
+
+    def create_client(**kwargs):
+        captured.append(kwargs)
+        return fake_client
+
+    monkeypatch.setattr(gemini_provider_module.genai, "Client", create_client)
+
+    model = _make_provider(
+        custom_headers={"X-QwenPaw-Test": "enabled"},
+    ).get_chat_model_instance("gemini-2.5-flash")
+
+    assert model.client is fake_client
+    assert len(captured) == 1
+    assert captured[0]["http_options"].headers == {
+        "X-QwenPaw-Test": "enabled",
+    }
 
 
 async def test_summary_limit_is_adapted_without_mutating_thinking(
@@ -124,6 +151,7 @@ class _AsyncIter:
 
     def __init__(self, items):
         self._items = iter(items)
+        self.closed = False
 
     def __aiter__(self):
         return self
@@ -133,6 +161,18 @@ class _AsyncIter:
             return next(self._items)
         except StopIteration as exc:
             raise StopAsyncIteration from exc
+
+    async def aclose(self):
+        self.closed = True
+
+
+class _AsyncClient:
+    def __init__(self, models):
+        self.models = models
+        self.closed = False
+
+    async def aclose(self):
+        self.closed = True
 
 
 # -- check_connection --------------------------------------------------------
@@ -205,6 +245,8 @@ async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
         SimpleNamespace(
             name="models/gemini-2.5-flash",
             display_name="Gemini 2.5 Flash",
+            input_token_limit=1_048_576,
+            output_token_limit=65_536,
         ),
         SimpleNamespace(
             name="models/gemini-2.5-flash",
@@ -230,6 +272,8 @@ async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
 
     assert [m.id for m in models] == ["gemini-2.5-flash", "gemini-2.5-pro"]
     assert [m.name for m in models] == ["Gemini 2.5 Flash", "gemini-2.5-pro"]
+    assert models[0].max_input_length_auto_detected == 1_048_576
+    assert models[0].max_tokens == 65_536
     assert not provider.models
 
 
@@ -275,15 +319,15 @@ async def test_fetch_models_generic_exception_returns_empty(
 async def test_check_model_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     captured: list[dict] = []
+    stream = _AsyncIter([])
 
     class FakeModels:
         async def generate_content_stream(self, **kwargs):
             captured.append(kwargs)
-            return _AsyncIter([])
+            return stream
 
-    fake_client = SimpleNamespace(
-        aio=SimpleNamespace(models=FakeModels()),
-    )
+    async_client = _AsyncClient(FakeModels())
+    fake_client = SimpleNamespace(aio=async_client)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
     ok, msg = await provider.check_model_connection(
@@ -296,6 +340,8 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert len(captured) == 1
     assert captured[0]["model"] == "gemini-2.5-flash"
     assert captured[0]["contents"] == "ping"
+    assert stream.closed is True
+    assert async_client.closed is True
 
 
 async def test_check_model_connection_empty_model_id_returns_false() -> None:

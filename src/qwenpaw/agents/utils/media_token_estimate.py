@@ -52,9 +52,10 @@ def estimate_inline_media_tokens(media_type: str, data: str) -> int:
 
 def estimate_data_url_tokens(url: str) -> int | None:
     """Estimate tokens if ``url`` is a whole-string base64 data URL."""
-    if not url or not url.lstrip().startswith("data:"):
+    stripped = (url or "").strip()
+    if not stripped.lower().startswith("data:"):
         return None
-    match = _DATA_URL_RE.match(url.strip())
+    match = _DATA_URL_RE.fullmatch(stripped)
     if match is None:
         return None
     return estimate_inline_media_tokens(match.group(1), match.group(2))
@@ -64,7 +65,8 @@ def iter_data_url_spans(
     text: str,
 ) -> list[tuple[int, int, str, str]]:
     """Return ``(start, end, media_type, payload)`` for data URLs in text."""
-    if "data:" not in text or ";base64," not in text:
+    lowered = text.lower()
+    if "data:" not in lowered or ";base64," not in lowered:
         return []
     return [
         (m.start(), m.end(), m.group(1), m.group(2))

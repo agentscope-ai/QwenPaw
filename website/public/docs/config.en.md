@@ -102,15 +102,25 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                  |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
+| Variable                               | Default         | Description                                                                                                                       |
+| -------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                    | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)                                                                   |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB`                                                      |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`             | Number of rotated log backups to retain; `0` disables backups                                                                     |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`        | Character threshold to trigger memory compaction                                                                                  |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`             | Number of recent messages to keep after compaction                                                                                |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)                                                       |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`            | Remote image download limit for `view_image` in MiB. Any positive integer is accepted; invalid/nonpositive values use the default |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _(auto-detect)_ | Console frontend static files path                                                                                                |
+
+**LLM streaming timeouts:**
+
+| Variable                                   | Default | Description                                                                                                                     |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                    |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout |
+
+These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
 **Security & Authentication:**
 
@@ -140,6 +150,13 @@ Starting from **v0.1.0**, configuration is split into two layers:
 
 1. **Global config** - `~/.qwenpaw/config.json` (providers, environment variables, agent list)
 2. **Agent config** - `~/.qwenpaw/workspaces/{agent_id}/agent.json` (per-agent settings)
+
+QwenPaw serializes agent configuration writes within its single server
+process and rejects saves based on an older on-disk snapshot. Atomic file
+replacement prevents partial JSON. External editors do not participate in
+this lock, so changes made during the final validation-and-replace interval
+are outside the strict consistency guarantee; reload before retrying a 409
+conflict.
 
 ### Global config.json
 
@@ -174,15 +191,14 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                       |
-| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
+| Field                 | Type           | Default             | Description                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -278,8 +294,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -423,11 +438,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `metadata_dir`                   | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
 | `session_dir`                    | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
 | `mem_session_dir`                | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
-| `resource_dir`                   | string      | `"resource"`     | Subdirectory for external assets                                                                                                                                                 |
+| `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
 | `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
 | `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream results to the inbox                                                                                                                                  |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
 | `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
 | `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
 | `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
@@ -439,9 +454,13 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `memory_search_enabled`          | bool        | `true`           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
 | `auto_memory_search_config`      | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
 | `embedding_model_config`         | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
+| `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
-> maintenance API described in [Rebuilding the Memory Search Index](./memory#rebuilding-the-memory-search-index).
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#Rebuilding-the-Index).
+
+The deprecated `inbox_push_enabled` field is accepted only for migration. Its value initializes any missing per-job
+Inbox switches, then the field is excluded from serialized configuration.
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
@@ -458,12 +477,21 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
 | `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
 | `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                    |
+| `dimensions`       | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches        |
 | `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                                                               |
+| `use_dimensions`   | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                    |
 | `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                            |
+| `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
 | `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
+
+`use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
+disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
+the model's actual output dimensions. Disable `use_dimensions` for OpenAI-compatible services, including some vLLM
+deployments, that do not support this request parameter.
+
+Each Embedding input is truncated separately before the request according to `max_input_length`. This is a
+character-based estimate: Chinese, CJK, and other full-width characters use a more conservative weight with a safety
+margin. ReMe does not invoke the model tokenizer to calculate an exact token count.
 
 Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 
@@ -475,10 +503,23 @@ Vector retrieval is enabled only when the selected backend has the minimum runna
 
 When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
-These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read directly from
-`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. Embedded ReMe
-component settings, such as directories and embedding configuration, require restarting the agent process so the ReMe
-application is constructed with the new configuration.
+These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read on demand, such as
+auto-memory cadence and auto-search limits, apply to later turns after saving. An Embedding save is
+transactional: QwenPaw persists the submitted running config, then tries to apply it to the live ReMe runtime. If the
+current service fingerprint was successfully tested, the running embedding model can be replaced in place; otherwise
+QwenPaw recreates the embedded ReMe application. If neither path succeeds, it rolls back the submitted fields when it
+can do so without overwriting a concurrent edit and reports an error. Saving always schedules the normal Agent reload,
+so no manual restart is required. An Embedding change is rejected with HTTP `409` while an index rebuild is active.
+
+Changes to `backend`, normalized `base_url`, `model_name`, `dimensions`, or `use_dimensions` set `needs_reindex=true`.
+Changing only the API key or cache/batch limits does not. A hot vector-space change clears the Embedding cache, but it
+does **not** rebuild existing file vectors automatically. Complete the explicit Console or maintenance-API rebuild;
+only a successful rebuild for the still-current vector-space fingerprint clears `needs_reindex`.
+
+The Console's Embedding **Enabled/Disabled** status is calculated in real time from the current unsaved form. It only
+indicates whether the Backend, model name, and required credentials meet the enable conditions above; it does not prove
+that the service is reachable or that the draft has been applied to the running agent. **Verified** means a real test
+request succeeded. Changes affect runtime state only after the configuration is saved.
 
 ---
 
@@ -567,9 +608,11 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 
 ---
 
-#### `last_dispatch` — Last message dispatch target
+#### `state/last_dispatch.json` — Last message dispatch state
 
 Records the last user message source, used for sending messages when heartbeat `target = "last"`.
+This runtime state lives in the agent workspace and is not part of
+`agent.json` configuration.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |
@@ -577,7 +620,7 @@ Records the last user message source, used for sending messages when heartbeat `
 | `user_id`    | string | `""`    | User ID in that channel                       |
 | `session_id` | string | `""`    | Session/conversation ID                       |
 
-Auto-updated; no manual configuration needed.
+It is updated atomically by the system; no manual configuration is needed.
 
 ---
 
@@ -737,7 +780,7 @@ Memory search relies on vector embeddings for semantic retrieval.
 
 Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Embedding Models](./embedding) for full configuration details.
 
 ---
 

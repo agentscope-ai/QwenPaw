@@ -4,16 +4,13 @@
 # pylint: disable=protected-access
 
 import base64
-import io
 
 import pytest
 from agentscope.message import (
     Base64Source,
     DataBlock,
     Msg,
-    ToolResultBlock,
 )
-from PIL import Image
 
 from qwenpaw.agents.utils.as_msg_handler import AsMsgHandler
 from qwenpaw.agents.utils.estimate_token_counter import EstimatedTokenCounter
@@ -22,12 +19,6 @@ from qwenpaw.agents.utils.media_token_estimate import (
     VIDEO_FALLBACK_TOKENS,
     estimate_inline_media_tokens,
 )
-
-
-def _png_b64() -> str:
-    buf = io.BytesIO()
-    Image.new("RGB", (32, 32), color=(0, 0, 0)).save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 @pytest.mark.asyncio
@@ -94,22 +85,25 @@ async def test_tool_result_blocks_dispatch_by_mime():
 
 
 @pytest.mark.asyncio
-async def test_string_tool_result_data_url_not_counted_as_text():
-    payload = _png_b64()
-    data_url = f"data:image/png;base64,{payload}"
-    msg = Msg(
-        name="assistant",
-        role="assistant",
-        content=[
-            ToolResultBlock(
-                type="tool_result",
-                id="t1",
-                name="read_image",
-                output=data_url,
-            ),
-        ],
-    )
-    stat = await AsMsgHandler(EstimatedTokenCounter()).stat_message(msg)
+@pytest.mark.parametrize(
+    "kind",
+    ("string", "text_block", "scheme_upper", "base64_upper"),
+)
+async def test_tool_result_text_data_url_not_counted_as_text(kind):
+    payload = "A" * (1024 * 1024)
+    if kind == "scheme_upper":
+        data_url = f"DATA:image/png;base64,{payload}"
+    elif kind == "base64_upper":
+        data_url = f"data:image/png;BASE64,{payload}"
+    else:
+        data_url = f"data:image/png;base64,{payload}"
+    handler = AsMsgHandler(EstimatedTokenCounter())
+    if kind == "text_block":
+        output = [{"type": "text", "text": data_url}]
+    else:
+        output = data_url
+    _, tokens = await handler._format_tool_result_output(output)
     expected = estimate_inline_media_tokens("image/png", payload)
-    assert stat.total_tokens == expected
-    assert stat.total_tokens < len(data_url) // 4
+    assert tokens == expected
+    assert tokens < 10_000
+    assert tokens != len(data_url) // 4

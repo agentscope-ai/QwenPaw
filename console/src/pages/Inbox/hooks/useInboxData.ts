@@ -83,6 +83,8 @@ const mapEventToPushMessage = (
       ? "wechat"
       : event.source_type === "skill_autoupdate"
       ? "skill"
+      : event.source_type === "mail"
+      ? "email"
       : "email",
   channelName:
     event.source_type === "heartbeat"
@@ -93,6 +95,8 @@ const mapEventToPushMessage = (
       ? "Cron"
       : event.source_type === "skill_autoupdate"
       ? "Auto Sync"
+      : event.source_type === "mail"
+      ? "Mail"
       : "System",
   title:
     event.source_type === "skill_autoupdate"
@@ -179,7 +183,14 @@ export const useInboxData = () => {
         limit: INBOX_EVENT_QUERY_LIMIT,
         source_types: [...PUSH_MESSAGE_SOURCES],
       });
-      const events = [...(res?.events || [])].filter(isPushMessageEvent);
+      const events = [...(res?.events || [])].filter(
+        (event) =>
+          isPushMessageEvent(event) &&
+          // Pending-approval mail events are handled in the mail access
+          // control drawer; keep them out of the push message list.
+          (event.payload as Record<string, unknown> | undefined)?.acl_status !==
+            "pending",
+      );
       events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       const nextItems: PushMessage[] = events.map((event) =>
         mapEventToPushMessage(event, resolveAgentNameRef.current, tRef.current),
@@ -256,9 +267,8 @@ export const useInboxData = () => {
     const unreadIds = pushMessagesRef.current
       .filter((message) => !message.read)
       .map((m) => m.id);
-    if (!unreadIds.length) {
-      return 0;
-    }
+    // Always call the backend — there may be unread events hidden from the
+    // local list (e.g. ACL pending notifications filtered client-side).
     await api.markInboxRead({ all: true });
     setPushMessages((prev) =>
       prev.map((message) =>

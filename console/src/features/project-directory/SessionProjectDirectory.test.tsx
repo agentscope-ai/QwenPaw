@@ -6,11 +6,13 @@ import SessionProjectDirectory from "./SessionProjectDirectory";
 
 const {
   mockBrowseDirs,
+  mockCreateDirectory,
   mockGetSessionDirectory,
   mockListProjects,
   mockSetSessionDirectory,
 } = vi.hoisted(() => ({
   mockBrowseDirs: vi.fn(),
+  mockCreateDirectory: vi.fn(),
   mockGetSessionDirectory: vi.fn(),
   mockListProjects: vi.fn(),
   mockSetSessionDirectory: vi.fn(),
@@ -19,6 +21,7 @@ const {
 vi.mock("../../api/modules/projectDirectory", () => ({
   projectDirectoryApi: {
     browseDirs: mockBrowseDirs,
+    createDirectory: mockCreateDirectory,
     get: vi.fn(),
     list: mockListProjects,
     set: vi.fn(),
@@ -69,6 +72,10 @@ describe("SessionProjectDirectory", () => {
       current: "/projects",
       parent: "/",
       dirs: [{ name: "custom", path: "/projects/custom" }],
+    });
+    mockCreateDirectory.mockResolvedValue({
+      name: "reports",
+      path: "/projects/reports",
     });
   });
 
@@ -122,6 +129,35 @@ describe("SessionProjectDirectory", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  it("creates a folder in the browsed directory and selects it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.createDirectory",
+      }),
+    );
+    await user.type(
+      screen.getByPlaceholderText("projectDirectory.directoryNamePlaceholder"),
+      "reports",
+    );
+    await user.click(screen.getByRole("button", { name: "common.confirm" }));
+
+    await waitFor(() => {
+      expect(mockCreateDirectory).toHaveBeenCalledWith("/projects", "reports");
+      expect(
+        screen.getByPlaceholderText("projectDirectory.pathPlaceholder"),
+      ).toHaveValue("/projects/reports");
+    });
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/projects", false);
   });
 
   it("uses Apply as the only confirmation after directory navigation", async () => {

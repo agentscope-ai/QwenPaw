@@ -1,22 +1,17 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Input, Select, Spin, Typography, Alert, Tag } from "antd";
-import { Download, RefreshCw, Package } from "lucide-react";
+import { Alert, Button, Input, Spin, Tag, Typography } from "antd";
+import { Download, Package, RefreshCw } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
 import { useOfficialPlugins } from "../hooks/useOfficialPlugins";
+import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
 import styles from "./OfficialPluginList.module.less";
+import cardStyles from "./MarketPluginList.module.less";
+import toolbarStyles from "./PluginListToolbar.module.less";
 
 const { Text } = Typography;
 
-/**
- * Resolve the best-matching description from `description_i18n` based on
- * the current i18n language. Falls back to the default `description` field.
- *
- * Matching strategy:
- *   1. Exact match (e.g. "zh" → "zh", "zh-CN" → "zh-CN")
- *   2. Prefix match (e.g. "zh" → "zh-CN", "en" → "en-US")
- *   3. Fallback to `description`
- */
 function pickLocalizedDescription(
   entry: OfficialPluginCatalogEntry,
   language: string,
@@ -26,20 +21,20 @@ function pickLocalizedDescription(
     return entry.description || "";
   }
 
-  // Exact match
-  if (i18nMap[language]) {
-    return i18nMap[language];
-  }
+  if (i18nMap[language]) return i18nMap[language];
 
-  // Prefix match: "zh" matches "zh-CN", "en" matches "en-US"
   const prefix = language.split("-")[0].toLowerCase();
   for (const key of Object.keys(i18nMap)) {
-    if (key.toLowerCase().startsWith(prefix)) {
-      return i18nMap[key];
-    }
+    if (key.toLowerCase().startsWith(prefix)) return i18nMap[key];
   }
 
   return entry.description || "";
+}
+
+function kindLabelKey(kind: string): string {
+  return `pluginManager.kind${kind.charAt(0).toUpperCase()}${kind
+    .slice(1)
+    .toLowerCase()}`;
 }
 
 interface OfficialPluginListProps {
@@ -49,7 +44,9 @@ interface OfficialPluginListProps {
 export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
   const { t, i18n } = useTranslation();
   const [nameFilter, setNameFilter] = useState("");
-  const [kindFilter, setKindFilter] = useState<string | undefined>(undefined);
+  const [kindFilter, setKindFilter] = useState<string | undefined>();
+  const [viewMode, setViewMode] = useState<PluginViewMode>("card");
+  const isMobile = useIsMobile();
 
   const {
     loading,
@@ -61,58 +58,118 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
   } = useOfficialPlugins({ onInstalled });
 
   const filteredPlugins = useMemo(() => {
+    const keyword = nameFilter.trim().toLocaleLowerCase();
     return plugins.filter((entry) => {
       const matchesName =
-        !nameFilter ||
-        entry.name.toLowerCase().includes(nameFilter.toLowerCase());
+        !keyword || entry.name.toLocaleLowerCase().includes(keyword);
       const matchesKind =
         !kindFilter || entry.kind?.toLowerCase() === kindFilter;
       return matchesName && matchesKind;
     });
-  }, [plugins, nameFilter, kindFilter]);
+  }, [kindFilter, nameFilter, plugins]);
 
-  const kindOptions = useMemo(() => {
-    const kinds = [...new Set(plugins.map((p) => p.kind).filter(Boolean))];
-    return kinds.map((kind) => ({
-      value: kind!.toLowerCase(),
-      label: t(
-        `pluginManager.kind${kind!.charAt(0).toUpperCase()}${kind!
-          .slice(1)
-          .toLowerCase()}`,
-        { defaultValue: kind },
-      ),
-    }));
-  }, [plugins, t]);
+  const kindOptions = useMemo(
+    () => [...new Set(plugins.map((plugin) => plugin.kind).filter(Boolean))],
+    [plugins],
+  );
+
+  const renderKindTag = (entry: OfficialPluginCatalogEntry) =>
+    entry.kind ? (
+      <Tag
+        color={entry.kind.toLowerCase() === "bundle" ? "purple" : "blue"}
+        style={{ margin: 0, fontSize: 11 }}
+      >
+        {t(kindLabelKey(entry.kind), { defaultValue: entry.kind })}
+      </Tag>
+    ) : null;
+
+  const renderStatusTag = (entry: OfficialPluginCatalogEntry) => {
+    if (entry.upgrade_available) {
+      return (
+        <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
+          {t("pluginManager.catalogUpgrade")}
+        </Tag>
+      );
+    }
+    if (entry.installed) {
+      return (
+        <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
+          {t("pluginManager.catalogInstalled")}
+        </Tag>
+      );
+    }
+    return null;
+  };
+
+  const renderInstallButton = (entry: OfficialPluginCatalogEntry) => (
+    <Button
+      type={entry.installed && !entry.upgrade_available ? "default" : "primary"}
+      icon={<Download size={14} />}
+      loading={installingId === entry.id}
+      disabled={installingId !== null && installingId !== entry.id}
+      onClick={() => void handleInstall(entry)}
+    >
+      {entry.upgrade_available
+        ? t("pluginManager.catalogUpgradeBtn")
+        : entry.installed
+        ? t("pluginManager.catalogReinstall")
+        : t("pluginManager.catalogInstall")}
+    </Button>
+  );
 
   return (
     <div className={styles.catalogSection}>
-      <div className={styles.catalogToolbar}>
-        <div className={styles.catalogFilters}>
-          <Input
-            placeholder={t("pluginManager.filterByName")}
-            allowClear
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            style={{ width: 220 }}
-          />
-          <Select
-            placeholder={t("pluginManager.filterByKind")}
-            allowClear
-            value={kindFilter}
-            onChange={(val) => setKindFilter(val)}
-            options={kindOptions}
-            style={{ width: 150 }}
-          />
-        </div>
-        <Button
-          type="default"
-          size="small"
-          icon={<RefreshCw size={14} />}
-          onClick={() => void loadCatalog()}
-          disabled={loading}
+      <div className={toolbarStyles.filterRow}>
+        <button
+          type="button"
+          className={`${toolbarStyles.filterTag} ${
+            !kindFilter ? toolbarStyles.filterTagActive : ""
+          }`}
+          onClick={() => setKindFilter(undefined)}
         >
-          {t("pluginManager.catalogRefresh")}
-        </Button>
+          {t("pluginManager.marketAll")}
+        </button>
+        {kindOptions.map((kind) => {
+          const normalizedKind = kind.toLowerCase();
+          return (
+            <button
+              type="button"
+              key={kind}
+              className={`${toolbarStyles.filterTag} ${
+                kindFilter === normalizedKind
+                  ? toolbarStyles.filterTagActive
+                  : ""
+              }`}
+              onClick={() => setKindFilter(normalizedKind)}
+            >
+              {t(kindLabelKey(kind), { defaultValue: kind })}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={toolbarStyles.controlRow}>
+        <Input
+          className={toolbarStyles.search}
+          placeholder={t("pluginManager.filterByName")}
+          allowClear
+          value={nameFilter}
+          onChange={(event) => setNameFilter(event.target.value)}
+        />
+        <div className={toolbarStyles.controlActions}>
+          <Button
+            type="default"
+            className={toolbarStyles.iconButton}
+            icon={<RefreshCw size={14} />}
+            onClick={() => void loadCatalog()}
+            disabled={loading}
+            aria-label={t("pluginManager.catalogRefresh")}
+            title={t("pluginManager.catalogRefresh")}
+          />
+          {!isMobile && (
+            <PluginViewToggle value={viewMode} onChange={setViewMode} />
+          )}
+        </div>
       </div>
 
       {catalogError && (
@@ -128,77 +185,78 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         {!loading && filteredPlugins.length === 0 && !catalogError && (
           <Text type="secondary">{t("pluginManager.catalogEmpty")}</Text>
         )}
-        <div className={styles.catalogList}>
-          {filteredPlugins.map((entry) => (
-            <div className={styles.catalogRow} key={entry.id}>
-              <div className={styles.catalogIcon}>
-                <Package size={18} />
-              </div>
-              <div className={styles.catalogInfo}>
-                <div className={styles.catalogNameRow}>
-                  <Text strong>{entry.name}</Text>
-                  {entry.kind && (
-                    <Tag
-                      color={
-                        entry.kind.toLowerCase() === "bundle"
-                          ? "purple"
-                          : "blue"
-                      }
-                      style={{ margin: 0, fontSize: 11 }}
-                    >
-                      {t(
-                        `pluginManager.kind${entry.kind
-                          .charAt(0)
-                          .toUpperCase()}${entry.kind.slice(1).toLowerCase()}`,
-                        { defaultValue: entry.kind },
-                      )}
-                    </Tag>
-                  )}
-                  {entry.installed && !entry.upgrade_available && (
-                    <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
-                      {t("pluginManager.catalogInstalled")}
-                    </Tag>
-                  )}
-                  {entry.upgrade_available && (
-                    <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>
-                      {t("pluginManager.catalogUpgrade")}
-                    </Tag>
-                  )}
-                </div>
-                {(entry.description || entry.description_i18n) && (
-                  <div className={styles.catalogDescription}>
-                    {pickLocalizedDescription(entry, i18n.language)}
+        {isMobile || viewMode === "card" ? (
+          <div className={cardStyles.cardGrid}>
+            {filteredPlugins.map((entry) => (
+              <article
+                className={cardStyles.pluginCard}
+                key={entry.id}
+                aria-label={entry.name}
+              >
+                <div className={cardStyles.cardTopRow}>
+                  <div className={cardStyles.cardIcon}>
+                    <Package size={18} />
                   </div>
-                )}
-                <div className={styles.catalogMeta}>
-                  v{entry.version}
-                  {entry.size ? ` · ${entry.size}` : ""}
-                  {entry.author ? ` · ${entry.author}` : ""}
+                  {renderStatusTag(entry)}
+                </div>
+                <div className={cardStyles.cardTitleRow}>
+                  <Text
+                    strong
+                    ellipsis={{ tooltip: entry.name }}
+                    className={cardStyles.cardTitle}
+                  >
+                    {entry.name}
+                  </Text>
+                  {renderKindTag(entry)}
+                </div>
+                <div className={cardStyles.cardDescription}>
+                  {pickLocalizedDescription(entry, i18n.language) ||
+                    t("market.noDescription")}
+                </div>
+                <div className={cardStyles.cardFooter}>
+                  <span className={cardStyles.cardMetadata}>
+                    v{entry.version}
+                    {entry.size ? ` · ${entry.size}` : ""}
+                    {entry.author ? ` · ${entry.author}` : ""}
+                  </span>
+                </div>
+                <div className={cardStyles.cardActions}>
+                  {renderInstallButton(entry)}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.catalogList}>
+            {filteredPlugins.map((entry) => (
+              <div className={styles.catalogRow} key={entry.id}>
+                <div className={styles.catalogIcon}>
+                  <Package size={18} />
+                </div>
+                <div className={styles.catalogInfo}>
+                  <div className={styles.catalogNameRow}>
+                    <Text strong>{entry.name}</Text>
+                    {renderKindTag(entry)}
+                    {renderStatusTag(entry)}
+                  </div>
+                  {(entry.description || entry.description_i18n) && (
+                    <div className={styles.catalogDescription}>
+                      {pickLocalizedDescription(entry, i18n.language)}
+                    </div>
+                  )}
+                  <div className={styles.catalogMeta}>
+                    v{entry.version}
+                    {entry.size ? ` · ${entry.size}` : ""}
+                    {entry.author ? ` · ${entry.author}` : ""}
+                  </div>
+                </div>
+                <div className={styles.catalogActions}>
+                  {renderInstallButton(entry)}
                 </div>
               </div>
-              <div className={styles.catalogActions}>
-                <Button
-                  type={
-                    entry.installed && !entry.upgrade_available
-                      ? "default"
-                      : "primary"
-                  }
-                  size="small"
-                  icon={<Download size={14} />}
-                  loading={installingId === entry.id}
-                  disabled={installingId !== null && installingId !== entry.id}
-                  onClick={() => void handleInstall(entry)}
-                >
-                  {entry.upgrade_available
-                    ? t("pluginManager.catalogUpgradeBtn")
-                    : entry.installed
-                    ? t("pluginManager.catalogReinstall")
-                    : t("pluginManager.catalogInstall")}
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Spin>
     </div>
   );
