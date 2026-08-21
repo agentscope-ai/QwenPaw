@@ -293,11 +293,6 @@ class ServiceManager:
 
         except Exception as e:
             if descriptor.optional:
-                logger.warning(
-                    f"Optional service '{name}' failed to start for "
-                    f"{sanitize_log_value(self.workspace.agent_id)} "
-                    f"(continuing without it): {sanitize_log_value(e)}",
-                )
                 # A post_init hook may already have published a partially
                 # initialized service.  Keep ownership until cleanup has
                 # completed; otherwise pop() would make it unreachable by
@@ -311,16 +306,26 @@ class ServiceManager:
                         preserve_reused=True,
                     )
                     cleanup_succeeded = True
-                except Exception:
+                except Exception as cleanup_error:
                     logger.warning(
-                        "Failed to clean up optional service '%s'",
+                        "Failed to clean up optional service '%s'; "
+                        "aborting workspace startup",
                         name,
                         exc_info=True,
                     )
+                    # Keep the instance registered so Workspace.start() can
+                    # retry cleanup, but do not expose it through a workspace
+                    # that was reported as successfully started.
+                    raise cleanup_error from e
                 finally:
                     self.reused_services.discard(name)
                     if cleanup_succeeded:
                         self.services.pop(name, None)
+                logger.warning(
+                    f"Optional service '{name}' failed to start for "
+                    f"{sanitize_log_value(self.workspace.agent_id)} "
+                    f"(continuing without it): {sanitize_log_value(e)}",
+                )
                 return
             logger.exception(
                 f"Failed to start service '{name}' "
@@ -593,7 +598,8 @@ class ServiceManager:
         if preserve_reused and name in self.reused_services:
             logger.debug(
                 f"Preserved borrowed service '{name}' "
-                f"while stopping {self.workspace.agent_id}",
+                "while stopping "
+                f"{sanitize_log_value(self.workspace.agent_id)}",
             )
             return
 

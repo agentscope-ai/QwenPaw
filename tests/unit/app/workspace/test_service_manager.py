@@ -460,6 +460,52 @@ async def test_optional_service_is_cleaned_before_removal():
 
 
 @pytest.mark.asyncio
+async def test_optional_cleanup_failure_aborts_workspace_start(
+    monkeypatch,
+    tmp_path,
+):
+    close_attempts = 0
+
+    class _PartiallyStartedService:
+        async def close(self) -> None:
+            nonlocal close_attempts
+            close_attempts += 1
+            if close_attempts == 1:
+                raise RuntimeError("optional cleanup failed")
+
+    service = _PartiallyStartedService()
+
+    async def failing_factory(_workspace, _service, publish):
+        publish(service)
+        raise RuntimeError("optional startup failed")
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    workspace._service_manager.register(
+        ServiceDescriptor(
+            name="optional",
+            post_init=failing_factory,
+            stop_method="close",
+            optional=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    with pytest.raises(RuntimeError, match="optional cleanup failed"):
+        await workspace.start()
+
+    assert not workspace._started
+    assert close_attempts == 2
+    # The failed instance remains owned for cleanup, but the workspace never
+    # becomes a successfully started candidate that can serve requests.
+    assert workspace._service_manager.services["optional"] is service
+
+
+@pytest.mark.asyncio
 async def test_workspace_cleans_up_when_start_is_cancelled(
     monkeypatch,
     tmp_path,
