@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import shutil
 import socket
@@ -119,6 +120,7 @@ def _read_roots() -> list[Path]:
         Path(sys.prefix).resolve(),
         source_root,
     }
+    roots.update(Path(path).resolve() for path in mimetypes.knownfiles)
     if source_root.name == "src":
         repository_root = source_root.parent
         roots.add(repository_root / "packages" / "qwenpawmail-mcp" / "src")

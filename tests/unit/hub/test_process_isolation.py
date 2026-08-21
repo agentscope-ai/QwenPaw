@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for fail-closed Hub runtime process isolation."""
 
+import mimetypes
 import subprocess
 import sys
 import threading
@@ -277,6 +278,26 @@ def test_macos_profile_does_not_allow_global_file_reads(
 
     assert "\n(allow file-read*)\n" not in f"\n{profile}\n"
     assert f'(allow file-read* (subpath "{runtime_root}"))' in profile
+
+
+def test_macos_profile_allows_system_mime_types(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mime_types = tmp_path / "system" / "mime.types"
+    mime_types.parent.mkdir()
+    mime_types.write_text("text/plain txt", encoding="utf-8")
+    monkeypatch.setattr(mimetypes, "knownfiles", [str(mime_types)])
+    isolator = MacOSSeatbeltIsolator()
+
+    profile = isolator._profile(  # pylint: disable=protected-access
+        _record(tmp_path),
+    )
+    allowed_path = isolator._escape(  # pylint: disable=protected-access
+        mime_types,
+    )
+
+    assert f'(allow file-read* (subpath "{allowed_path}"))' in profile
 
 
 @pytest.mark.skipif(
