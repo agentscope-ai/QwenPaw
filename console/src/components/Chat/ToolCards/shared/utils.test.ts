@@ -13,6 +13,7 @@ import {
   formatMemorySearch,
   getMediaInfo,
   hasMultimediaPreview,
+  shortFileName,
 } from "./utils";
 import type { ToolCallContent } from "./types";
 
@@ -30,6 +31,33 @@ const translate = ((key: string) => {
 
   return translations[key] ?? key;
 }) as TFunction;
+
+describe("shortFileName", () => {
+  it("extracts a filename from a POSIX path", () => {
+    expect(shortFileName("/tmp/report.txt")).toBe("report.txt");
+  });
+
+  it("extracts a filename from a Windows path", () => {
+    expect(shortFileName("C:\\Users\\test\\report.txt")).toBe("report.txt");
+  });
+
+  it("strips URL query and hash and decodes the filename", () => {
+    expect(
+      shortFileName(
+        "https://example.com/QA%E6%B5%8B%E8%AF%95.md?download=1#preview",
+      ),
+    ).toBe("QA测试.md");
+  });
+
+  it("keeps malformed percent sequences verbatim", () => {
+    expect(shortFileName("file:///tmp/100%_done.md")).toBe("100%_done.md");
+  });
+
+  it("returns no filename for inline data and blob URLs", () => {
+    expect(shortFileName("data:text/plain;base64,abc")).toBe("");
+    expect(shortFileName("blob:https://example.com/id")).toBe("");
+  });
+});
 
 describe("formatMemorySearch", () => {
   it("renders memory search results as readable markdown cards", () => {

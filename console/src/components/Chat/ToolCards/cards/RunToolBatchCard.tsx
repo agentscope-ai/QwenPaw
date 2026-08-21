@@ -8,7 +8,6 @@ import {
   stringifyResult,
   toDisplayUrl,
   getFileExtFromPath,
-  fileNameFromUrl,
 } from "../shared/utils";
 import type { DefaultBlockProps } from "../shared";
 
@@ -252,7 +251,6 @@ function extractMediaFromBlocks(result: unknown): MediaInfo[] {
       (typeof item.file_name === "string" && item.file_name) ||
       (typeof item.name === "string" && item.name) ||
       (typeof item.title === "string" && item.title) ||
-      fileNameFromUrl(rawUrl) ||
       shortFileName(rawUrl);
     const ext = getFileExtFromPath(rawUrl);
     const type =

@@ -27,19 +27,11 @@ export function toDisplayUrl(url: string): string {
 
 /** Extract short file name from a path */
 export function shortFileName(filePath: string): string {
-  const parts = filePath.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || filePath;
-}
-
-/**
- * Last path segment of a URL, percent-decoded for display.
- *
- * Non-ASCII names reach the frontend percent-encoded because agentscope
- * types `URLSource.url` as a pydantic `AnyUrl`, which encodes them on
- * serialization. Returns "" when no segment can be derived (data:/blob:).
- */
-export function fileNameFromUrl(url: string): string {
-  return mediaFilenameFromUrl(url, "");
+  const filename = mediaFilenameFromUrl(filePath, "");
+  if (filename) return filename;
+  return filePath.startsWith("data:") || filePath.startsWith("blob:")
+    ? ""
+    : filePath;
 }
 
 /** Count lines in a string */
@@ -257,8 +249,8 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
 
   const name =
     fromResult?.filename ||
-    fileNameFromUrl(rawUrl) ||
-    paramPath.split("/").pop() ||
+    shortFileName(rawUrl) ||
+    shortFileName(paramPath) ||
     "file";
   const ext = getFileExtFromPath(name);
   const mediaType = classifyMediaType(ext);
