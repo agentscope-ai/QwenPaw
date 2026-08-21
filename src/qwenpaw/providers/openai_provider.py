@@ -906,9 +906,13 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """OpenCode provider with dynamic free model detection."""
 
     _FREE_SUFFIX = "-free"
-    _UNAVAILABLE_MODEL_IDS: ClassVar[frozenset[str]] = frozenset(
+    _PAID_MODEL_IDS: ClassVar[frozenset[str]] = frozenset(
         {
             "deepseek-v4-flash-free",
+        },
+    )
+    _UNAVAILABLE_MODEL_IDS: ClassVar[frozenset[str]] = frozenset(
+        {
             "nemotron-3-super-free",
         },
     )
@@ -917,13 +921,16 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
         self,
         timeout: float = 5,
     ) -> List[ModelInfo]:
-        """Exclude models that OpenCode lists but no longer serves."""
+        """Classify listed paid models and exclude unsupported IDs."""
         models = await super().fetch_models(timeout=timeout)
-        return [
-            model
-            for model in models
-            if model.id not in self._UNAVAILABLE_MODEL_IDS
-        ]
+        result: List[ModelInfo] = []
+        for model in models:
+            if model.id in self._UNAVAILABLE_MODEL_IDS:
+                continue
+            if model.id in self._PAID_MODEL_IDS:
+                model.is_free = False
+            result.append(model)
+        return result
 
 
 class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
