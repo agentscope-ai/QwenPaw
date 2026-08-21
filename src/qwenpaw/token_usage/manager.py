@@ -19,10 +19,9 @@ logger = logging.getLogger(__name__)
 def _usage_agent_id() -> str:
     """ContextVar agent id only; empty when unset."""
     try:
-        # pylint: disable=protected-access
-        from ..app.agent_context import _current_agent_id
+        from ..app.agent_context import peek_current_agent_id
 
-        return _current_agent_id.get() or ""
+        return peek_current_agent_id()
     except Exception:
         logger.warning(
             "token_usage: failed to read agent id",

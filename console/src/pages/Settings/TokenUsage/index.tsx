@@ -112,26 +112,33 @@ function TokenUsagePage() {
 
   const byAgentData = useMemo(() => {
     if (!aggregatedData?.by_agent) return [];
-    return Object.entries(aggregatedData.by_agent).map(([key, stats]) => {
-      const agentId = stats.agent_id;
-      let agent: string;
-      if (agentId == null) {
-        agent = t("tokenUsage.historicAgent");
-      } else if (agentId === "") {
-        agent = t("tokenUsage.unattributed");
-      } else {
-        const profile = agentsById.get(agentId);
-        agent = profile ? getAgentDisplayName(profile, t) : agentId;
-      }
-      return {
-        key,
-        agent,
-        prompt_tokens: stats.prompt_tokens,
-        completion_tokens: stats.completion_tokens,
-        call_count: stats.call_count,
-        tool_calls: stats.tool_calls,
-      };
-    });
+    return Object.entries(aggregatedData.by_agent)
+      .map(([key, stats]) => {
+        const agentId = stats.agent_id;
+        let agent: string;
+        if (agentId == null) {
+          agent = t("tokenUsage.historicAgent");
+        } else if (agentId === "") {
+          agent = t("tokenUsage.unattributed");
+        } else {
+          const profile = agentsById.get(agentId);
+          agent = profile ? getAgentDisplayName(profile, t) : agentId;
+        }
+        return {
+          key,
+          agent,
+          prompt_tokens: stats.prompt_tokens,
+          completion_tokens: stats.completion_tokens,
+          call_count: stats.call_count,
+          tool_calls: stats.tool_calls,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.prompt_tokens +
+          b.completion_tokens -
+          (a.prompt_tokens + a.completion_tokens),
+      );
   }, [aggregatedData?.by_agent, agentsById, t]);
 
   const pageHeader = (

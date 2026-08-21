@@ -10,14 +10,12 @@ from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
+from ..agents.utils.tool_message_utils import _TOOL_CALL_TYPES
 from ..utils.model_response import safe_attr
 from .buffer import _UsageEvent
 from .manager import _usage_agent_id, get_token_usage_manager
 
 logger = logging.getLogger(__name__)
-
-# Must stay aligned with agents.utils.tool_message_utils._TOOL_CALL_TYPES.
-_TOOL_CALL_TYPES = ("tool_use", "tool_call")
 
 
 def _content_blocks(result: Any) -> Sequence[Any] | None:
@@ -233,13 +231,13 @@ class TokenRecordingModelWrapper(ChatModelBase):
                     if ids is not None:
                         named, n_anon = ids
                         if named or n_anon:
-                            # Last frame with tools: AgentScope snapshot.
-                            # 0-tool last unions deltas (last-is-delta compat).
+                            # Last-with-tools: snapshot. Else named union;
+                            # anon = last tool-bearing frame.
                             if safe_attr(chunk, "is_last"):
                                 last_complete_calls = len(named) + n_anon
                             else:
                                 seen |= named
-                                anon += n_anon
+                                anon = n_anon
                 except Exception:
                     if not count_warned:
                         count_warned = True
