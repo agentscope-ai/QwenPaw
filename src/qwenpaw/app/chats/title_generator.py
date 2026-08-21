@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
@@ -41,11 +42,23 @@ TITLE_PROMPT = (
 
 MAX_INPUT_CHARS = 500
 MAX_TITLE_CHARS = 60
+_INLINE_REASONING_BLOCK_RE = re.compile(
+    r"<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
+    + r".*?</(?P=tag)\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_UNTERMINATED_REASONING_BLOCK_RE = re.compile(
+    r"<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>.*\Z",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 def _clean_title(raw: str) -> str:
     """Normalize model output into a single-line title."""
-    title = raw.strip().splitlines()[0] if raw.strip() else ""
+    answer = _INLINE_REASONING_BLOCK_RE.sub("", raw).strip()
+    if _UNTERMINATED_REASONING_BLOCK_RE.search(answer):
+        return ""
+    title = answer.splitlines()[0] if answer else ""
     title = title.strip().strip("\"'`“”‘’")
     while title and title[-1] in ".,;:!?":
         title = title[:-1].rstrip()
@@ -137,11 +150,7 @@ async def generate_and_update_title(
             ]
 
             raw_title = await asyncio.wait_for(
-                consume_model_response(
-                    model,
-                    messages,
-                    disable_thinking=True,
-                ),
+                consume_model_response(model, messages),
                 timeout=timeout,
             )
             title = _clean_title(raw_title)

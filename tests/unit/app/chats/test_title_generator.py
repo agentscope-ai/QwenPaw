@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for asynchronous chat-title generation."""
 
 from types import SimpleNamespace
+
+import pytest
 
 from qwenpaw.app.chats import title_generator
 
@@ -20,8 +23,10 @@ class _ChatManager:
         return SimpleNamespace(id=chat_id, name=patch.name)
 
 
-async def test_title_generation_disables_thinking(monkeypatch):
-    """Utility title calls should not ask reasoning models to think."""
+async def test_title_generation_keeps_thinking_out_of_persisted_title(
+    monkeypatch,
+):
+    """Reasoning may run, but only the final answer becomes the title."""
     seen_kwargs = {}
     chat_manager = _ChatManager()
     workspace = SimpleNamespace(
@@ -52,7 +57,10 @@ async def test_title_generation_disables_thinking(monkeypatch):
         assert received_model is model
         assert messages[-1].content[0].text == "How do I deploy QwenPaw?"
         seen_kwargs.update(kwargs)
-        return "Deploying QwenPaw"
+        return (
+            "<think>Here's a thinking process about the request.</think>\n"
+            "Deploying QwenPaw"
+        )
 
     monkeypatch.setattr(title_generator, "run_sync_io", fake_run_sync_io)
     monkeypatch.setattr(
@@ -72,5 +80,28 @@ async def test_title_generation_disables_thinking(monkeypatch):
         placeholder_name="How do I d",
     )
 
-    assert seen_kwargs == {"disable_thinking": True}
+    assert not seen_kwargs
     assert chat_manager.updated_title == "Deploying QwenPaw"
+
+
+def test_clean_title_rejects_unterminated_inline_reasoning():
+    assert (
+        title_generator._clean_title(
+            "<think>Here's a thinking process without a final answer",
+        )
+        == ""
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "<think>reasoning</think>\nDeploying QwenPaw",
+        "<thinking>reasoning</thinking>\nDeploying QwenPaw",
+        "<analysis>reasoning</analysis>\nDeploying QwenPaw",
+        "<reasoning>reasoning</reasoning>\nDeploying QwenPaw",
+        "<THINK mode='deep'>reasoning</THINK>\nDeploying QwenPaw",
+    ],
+)
+def test_clean_title_strips_common_inline_reasoning_formats(raw):
+    assert title_generator._clean_title(raw) == "Deploying QwenPaw"
