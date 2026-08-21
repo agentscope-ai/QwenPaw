@@ -303,28 +303,28 @@ Hub 分别记录观察状态、期望状态和启动权限，避免用户访问�
 
 ## 配置字段总览
 
-| 字段                                             | 说明                                   |
-| ------------------------------------------------ | -------------------------------------- |
-| `version`                                        | 配置结构版本，当前必须为 `1`           |
-| `control_plane.public_base_url`                  | 浏览器实际访问地址和 OAuth 回调基址    |
-| `control_plane.registration.enabled`             | 是否允许自助注册                       |
-| `control_plane.registration.default_role`        | 注册账户角色，当前固定为 `user`        |
-| `control_plane.security.ip_blacklist`            | IP 地址或 CIDR 黑名单                  |
-| `control_plane.security.trusted_proxy_ips`       | 可以提供真实客户端地址的代理           |
-| `control_plane.security.login_rate_limit`        | 登录失败限流                           |
-| `control_plane.security.registration_rate_limit` | 注册限流                               |
-| `control_plane.proxy.max_request_size_mb`        | 代理请求体上限，默认 1024 MiB          |
-| `control_plane.proxy.request_idle_timeout_seconds` | 请求体连续无数据超时，默认 60 秒      |
-| `control_plane.proxy.response_header_timeout_seconds` | 运行环境响应头超时，默认 300 秒   |
-| `control_plane.proxy.connect_timeout_seconds`    | 连接运行环境超时，默认 10 秒           |
-| `control_plane.proxy.websocket_max_message_size_mb` | WebSocket 单条消息上限，默认 16 MiB |
-| `runtime.provisioner`                            | `local` 或 `docker`                    |
-| `runtime.docker.source`                          | `docker_hub`、`aliyun_acr` 或 `custom` |
-| `runtime.docker.image`                           | 完整镜像引用                           |
-| `runtime.docker.pull_policy`                     | `always`、`if_not_present` 或 `never`  |
-| `runtime.docker.*_limit`                         | 容器 CPU、内存和 PID 上限              |
-| `runtime.docker.shm_size_mb`                     | 容器共享内存大小                       |
-| `capacity.max_running_runtimes`                  | Hub 全局并发运行数量上限               |
+| 字段                                                  | 说明                                   |
+| ----------------------------------------------------- | -------------------------------------- |
+| `version`                                             | 配置结构版本，当前必须为 `1`           |
+| `control_plane.public_base_url`                       | 浏览器实际访问地址和 OAuth 回调基址    |
+| `control_plane.registration.enabled`                  | 是否允许自助注册                       |
+| `control_plane.registration.default_role`             | 注册账户角色，当前固定为 `user`        |
+| `control_plane.security.ip_blacklist`                 | IP 地址或 CIDR 黑名单                  |
+| `control_plane.security.trusted_proxy_ips`            | 可以提供真实客户端地址的代理           |
+| `control_plane.security.login_rate_limit`             | 登录失败限流                           |
+| `control_plane.security.registration_rate_limit`      | 注册限流                               |
+| `control_plane.proxy.max_request_size_mb`             | 代理请求体上限，默认 1024 MiB          |
+| `control_plane.proxy.request_idle_timeout_seconds`    | 请求体连续无数据超时，默认 60 秒       |
+| `control_plane.proxy.response_header_timeout_seconds` | 运行环境响应头超时，默认 300 秒        |
+| `control_plane.proxy.connect_timeout_seconds`         | 连接运行环境超时，默认 10 秒           |
+| `control_plane.proxy.websocket_max_message_size_mb`   | WebSocket 单条消息上限，默认 16 MiB    |
+| `runtime.provisioner`                                 | `local` 或 `docker`                    |
+| `runtime.docker.source`                               | `docker_hub`、`aliyun_acr` 或 `custom` |
+| `runtime.docker.image`                                | 完整镜像引用                           |
+| `runtime.docker.pull_policy`                          | `always`、`if_not_present` 或 `never`  |
+| `runtime.docker.*_limit`                              | 容器 CPU、内存和 PID 上限              |
+| `runtime.docker.shm_size_mb`                          | 容器共享内存大小                       |
+| `capacity.max_running_runtimes`                       | Hub 全局并发运行数量上限               |
 
 配置采用严格校验，未知字段会导致启动或保存失败，避免拼写错误被静默忽略。Local 模式不会应用 Docker 设置，但会保留它们，方便之后切换回 Docker。
 
