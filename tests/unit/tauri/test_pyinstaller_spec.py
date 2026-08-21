@@ -51,8 +51,30 @@ def _data_directories() -> set[tuple[str, str]]:
     return set()
 
 
+def _analysis_path_names() -> set[str]:
+    tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"))
+    analysis = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "Analysis"
+    )
+    pathex = next(
+        keyword.value
+        for keyword in analysis.keywords
+        if keyword.arg == "pathex"
+    )
+    return {node.id for node in ast.walk(pathex) if isinstance(node, ast.Name)}
+
+
 def test_desktop_spec_collects_pawapp_sdk_for_runtime_loaded_plugins():
     assert "qwenpaw.pawapp" in _collected_submodule_packages()
+
+
+def test_desktop_spec_collects_qwenpawmail_from_nested_source_root():
+    assert "qwenpawmail_mcp" in _collected_submodule_packages()
+    assert "MAIL_MCP_SRC" in _analysis_path_names()
 
 
 def test_desktop_spec_collects_provider_catalog_data():

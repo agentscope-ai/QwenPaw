@@ -71,22 +71,22 @@ describe("AppCard", () => {
     );
   });
 
-  it("exposes an always-visible more-actions button that does not open the app", () => {
+  it("opens the app from the card action", () => {
     const onClick = vi.fn();
     const onUninstall = vi.fn();
     render(
       <AppCard app={makeApp()} onClick={onClick} onUninstall={onUninstall} />,
     );
 
-    const moreBtn = screen.getByRole("button", {
-      name: "appCenter.moreActions",
-    });
-    fireEvent.click(moreBtn);
+    fireEvent.click(screen.getByRole("button", { name: "appCenter.openApp" }));
 
-    expect(onClick).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "demo-app" }),
+    );
+    expect(onUninstall).not.toHaveBeenCalled();
   });
 
-  it("triggers uninstall from the more-actions menu without opening the app", async () => {
+  it("triggers uninstall from the card action without opening the app", () => {
     const onClick = vi.fn();
     const onUninstall = vi.fn();
     render(
@@ -94,9 +94,8 @@ describe("AppCard", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "appCenter.moreActions" }),
+      screen.getByRole("button", { name: "appCenter.uninstall" }),
     );
-    fireEvent.click(await screen.findByText("appCenter.uninstall"));
 
     expect(onUninstall).toHaveBeenCalledWith(
       expect.objectContaining({ id: "demo-app" }),
@@ -104,11 +103,14 @@ describe("AppCard", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("hides the more-actions button when uninstall is not available", () => {
+  it("hides uninstall when it is not available but keeps open available", () => {
     render(<AppCard app={makeApp()} onClick={vi.fn()} />);
 
     expect(
-      screen.queryByRole("button", { name: "appCenter.moreActions" }),
+      screen.queryByRole("button", { name: "appCenter.uninstall" }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "appCenter.openApp" }),
+    ).toBeInTheDocument();
   });
 });

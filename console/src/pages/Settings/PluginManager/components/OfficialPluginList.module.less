@@ -94,3 +94,38 @@
   align-items: center;
   gap: 8px;
 }
+
+@media (max-width: 768px) {
+  .catalogRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+
+  .catalogInfo {
+    width: calc(100% - 48px);
+  }
+
+  .catalogDescription {
+    display: -webkit-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .catalogMeta {
+    overflow-wrap: anywhere;
+  }
+
+  .catalogActions {
+    width: 100%;
+    padding-left: 48px;
+
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
+      min-width: 0;
+      flex: 1;
+    }
+  }
+}

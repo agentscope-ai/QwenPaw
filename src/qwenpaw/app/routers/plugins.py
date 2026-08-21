@@ -1001,6 +1001,8 @@ async def search_market_plugins(
     search: Optional[str] = None,
     category: Optional[str] = None,
     sort_by: Optional[str] = None,
+    is_featured: Optional[bool] = None,
+    is_trending: Optional[bool] = None,
 ):
     """Proxy plugin search to AgentScope Platform to avoid CORS."""
     import httpx
@@ -1015,6 +1017,10 @@ async def search_market_plugins(
         params["category"] = category
     if sort_by:
         params["sort_by"] = sort_by
+    if is_featured is not None:
+        params["is_featured"] = is_featured
+    if is_trending is not None:
+        params["is_trending"] = is_trending
 
     try:
         async with httpx.AsyncClient(
