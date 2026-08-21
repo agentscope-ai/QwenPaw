@@ -276,6 +276,39 @@
   padding: 28px 30px 48px;
 }
 
+.runtimeUnavailable {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, #c4463a 28%, var(--hub-border));
+  border-radius: 12px;
+  color: #9f3028;
+  background: color-mix(in srgb, #c4463a 7%, var(--hub-surface));
+
+  > svg {
+    flex: 0 0 auto;
+    margin-top: 1px;
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    font-size: 12px;
+  }
+
+  span {
+    margin-top: 4px;
+    color: var(--hub-muted);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+}
+
 .pageHeader {
   display: flex;
   align-items: flex-end;

@@ -95,6 +95,31 @@ describe("HubPage", () => {
     expect(screen.getByText("100%", { exact: false })).toBeInTheDocument();
   });
 
+  it("shows the backend reason when the runtime is unavailable", async () => {
+    vi.mocked(hubApi.getHealth).mockResolvedValue(
+      hubHealth({
+        status: "degraded",
+        runtime_available: false,
+        provisioner_statuses: {
+          local: {
+            available: false,
+            reason: "Sandbox executable is missing or unsupported.",
+            security_level: "unavailable",
+          },
+        },
+      }),
+    );
+
+    renderHubPage();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("hub.runtimes.unavailableTitle");
+    expect(alert).toHaveTextContent(
+      "Sandbox executable is missing or unsupported.",
+    );
+    expect(alert).toHaveTextContent('"provisioner":"local"');
+  });
+
   it("queries the server when runtime search changes", async () => {
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.runtimes"));

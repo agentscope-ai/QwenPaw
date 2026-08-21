@@ -39,6 +39,7 @@ import {
   ScrollText,
   Search,
   Settings2,
+  ShieldAlert,
   ShieldBan,
   Sun,
   Trash2,
@@ -575,6 +576,12 @@ export default function HubPage() {
   ];
 
   const runtimeAvailable = health?.runtime_available === true;
+  const defaultProvisioner = health?.default_provisioner;
+  const defaultProvisionerStatus = defaultProvisioner
+    ? health?.provisioner_statuses[defaultProvisioner]
+    : undefined;
+  const runtimeUnavailableReason =
+    defaultProvisionerStatus?.reason || t("hub.runtimes.preflightFailed");
   const logout = () => {
     clearAuthToken();
     window.location.assign("/login");
@@ -672,6 +679,20 @@ export default function HubPage() {
             <Skeleton active />
           ) : (
             <>
+              {health && !runtimeAvailable && (
+                <div className={styles.runtimeUnavailable} role="alert">
+                  <ShieldAlert size={20} />
+                  <div>
+                    <strong>{t("hub.runtimes.unavailableTitle")}</strong>
+                    <span>
+                      {t("hub.runtimes.unavailableDescription", {
+                        provisioner: defaultProvisioner,
+                        reason: runtimeUnavailableReason,
+                      })}
+                    </span>
+                  </div>
+                </div>
+              )}
               {section === "overview" && overview && (
                 <OverviewPanel overview={overview} t={t} />
               )}
