@@ -93,7 +93,11 @@ export function DataTables({
         >
           <Table
             columns={[
-              { title: t("tokenUsage.model"), dataIndex: "model", key: "model" },
+              {
+                title: t("tokenUsage.model"),
+                dataIndex: "model",
+                key: "model",
+              },
               ...tokenStatColumns<ByModelData>(tokenTitles),
             ]}
             dataSource={byModelData}
@@ -129,7 +133,11 @@ export function DataTables({
         >
           <Table
             columns={[
-              { title: t("tokenUsage.agent"), dataIndex: "agent", key: "agent" },
+              {
+                title: t("tokenUsage.agent"),
+                dataIndex: "agent",
+                key: "agent",
+              },
               ...tokenStatColumns<ByAgentData>(tokenTitles),
             ]}
             dataSource={byAgentData}
