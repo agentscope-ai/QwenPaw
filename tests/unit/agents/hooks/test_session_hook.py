@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agentscope.message import Msg
 import pytest
 
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
@@ -77,6 +78,43 @@ async def test_normal_request_loads_and_saves_session_state():
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is True
     assert ctx.mode_state == {"mission": {"active": True}}
     assert session.saved_payload["mode_state"] == ctx.mode_state
+
+
+async def test_session_load_removes_v210_runtime_context_but_keeps_messages():
+    session = _FakeSession()
+    legacy_context = Msg(
+        name="system",
+        role="user",
+        content=[{"type": "text", "text": "old dynamic page context"}],
+    )
+    real_user = Msg(
+        name="user",
+        role="user",
+        content=[{"type": "text", "text": "real question"}],
+    )
+    real_system = Msg(
+        name="system",
+        role="system",
+        content=[{"type": "text", "text": "system prompt"}],
+    )
+    session.load_payload = {
+        "state": {
+            "context": [
+                legacy_context.model_dump(mode="json"),
+                real_user.model_dump(mode="json"),
+                real_system.model_dump(mode="json"),
+            ],
+        },
+    }
+    ctx = _ctx(session, ephemeral=False)
+
+    await SessionLoadHook().run(ctx)
+
+    context = ctx.session_state["state"]["context"]
+    assert [(message["name"], message["role"]) for message in context] == [
+        ("user", "user"),
+        ("system", "system"),
+    ]
 
 
 async def test_failed_session_save_does_not_mark_turn_as_persisted():

@@ -20,6 +20,10 @@ import uuid
 from typing import Any, AsyncGenerator
 
 from ..exceptions import ConfigurationException
+from ..constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    RUNTIME_CONTEXT_MESSAGE_TAG,
+)
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -28,6 +32,8 @@ from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
 
 logger = logging.getLogger(__name__)
+
+_APPLIED_CONTEXT_MESSAGE_ID_KEY = "_runtime_context_message_id"
 
 
 class Runtime:
@@ -133,6 +139,11 @@ class Runtime:
                 )
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
+
+                # AgentScope appends reply_stream inputs to agent context.
+                # Dynamic context is request-local and must be removed before
+                # POST_RESPONSE hooks persist the session.
+                self._remove_applied_context_injection(ctx)
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
@@ -278,6 +289,8 @@ class Runtime:
             envelope = getattr(ctx, "_envelope", None)
             if envelope is not None:
                 self._inject_partial_response(agent, envelope)
+
+            self._remove_applied_context_injection(ctx)
 
             from ._state_utils import StateProxy
 
@@ -532,13 +545,42 @@ class Runtime:
                         text="\n\n".join(parts),
                     ),
                 ],
+                metadata={
+                    QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG,
+                },
             )
             ctx.input_msgs.insert(0, hint_msg)
+            ctx.extras[_APPLIED_CONTEXT_MESSAGE_ID_KEY] = hint_msg.id
         except Exception:
             logger.debug(
                 "runtime: failed to inject context: %d items",
                 len(parts),
             )
+
+    @staticmethod
+    def _remove_applied_context_injection(ctx: HookContext) -> bool:
+        """Remove this request's exact dynamic-context message from state."""
+        message_id = ctx.extras.pop(
+            _APPLIED_CONTEXT_MESSAGE_ID_KEY,
+            None,
+        )
+        if not message_id:
+            return False
+
+        agent = getattr(ctx, "agent", None)
+        state = getattr(agent, "state", None) if agent is not None else None
+        context = getattr(state, "context", None) if state is not None else None
+        if not isinstance(context, list):
+            return False
+
+        kept = [
+            message
+            for message in context
+            if getattr(message, "id", None) != message_id
+        ]
+        removed = len(kept) != len(context)
+        context[:] = kept
+        return removed
 
 
 __all__ = ["Runtime"]
