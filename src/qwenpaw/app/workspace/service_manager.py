@@ -204,9 +204,7 @@ class ServiceManager:
 
             # Start concurrent services in parallel
             if concurrent:
-                await asyncio.gather(
-                    *[self._start_service(desc) for desc in concurrent],
-                )
+                await self._start_concurrent_services(concurrent)
 
             # Start sequential services one by one
             for desc in sequential:
@@ -221,6 +219,34 @@ class ServiceManager:
             f"{sanitize_log_value(self.workspace.agent_id)} "
             f"in {elapsed:.3f}s",
         )
+
+    async def _start_concurrent_services(
+        self,
+        descriptors: List[ServiceDescriptor],
+    ) -> None:
+        """Start a priority group, cancelling siblings on first failure."""
+        tasks = [
+            asyncio.create_task(self._start_service(descriptor))
+            for descriptor in descriptors
+        ]
+        pending = set(tasks)
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                # Keep exception selection deterministic when several starts
+                # finish in the same event-loop iteration.
+                for task in tasks:
+                    if task in done:
+                        task.result()
+        except BaseException:
+            for task in pending:
+                task.cancel()
+            # Await every task so simultaneous failures are retrieved too.
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def _start_service(self, descriptor: ServiceDescriptor) -> None:
         """Start a single service.
@@ -412,12 +438,21 @@ class ServiceManager:
             f"{sanitize_log_value(self.workspace.agent_id)}",
         )
 
-    async def stop_all(self, final: bool = False) -> None:
+    async def stop_all(
+        self,
+        final: bool = False,
+        preserve_reused: bool = False,
+    ) -> None:
         """Stop all services in reverse priority order.
 
         Args:
             final: If True, stop ALL services including reusable ones.
                    If False (default), skip reusable services (for reload).
+            preserve_reused: Keep services borrowed from another workspace
+                alive.  This is used when an uncommitted replacement
+                workspace must be discarded: its own services need final
+                cleanup, but entries in ``reused_services`` still belong to
+                the workspace that is serving requests.
 
         Reused services are skipped. Errors are logged while every service is
         attempted; failures from ``require_clean_stop`` services are then
@@ -438,7 +473,11 @@ class ServiceManager:
             # Stop all services in this priority group concurrently
             results = await asyncio.gather(
                 *[
-                    self._stop_service(desc, final=final)
+                    self._stop_service(
+                        desc,
+                        final=final,
+                        preserve_reused=preserve_reused,
+                    )
                     for desc in descriptors
                 ],
                 return_exceptions=True,
@@ -465,6 +504,7 @@ class ServiceManager:
         self,
         descriptor: ServiceDescriptor,
         final: bool = False,
+        preserve_reused: bool = False,
     ) -> None:
         """Stop a single service.
 
@@ -472,8 +512,17 @@ class ServiceManager:
             descriptor: Service descriptor
             final: If True, stop service even if reusable.
                    If False, skip reusable services (for reload).
+            preserve_reused: Skip a service borrowed from another workspace,
+                even during final cleanup of this workspace.
         """
         name = descriptor.name
+
+        if preserve_reused and name in self.reused_services:
+            logger.debug(
+                f"Preserved borrowed service '{name}' "
+                f"while stopping {self.workspace.agent_id}",
+            )
+            return
 
         # Skip reusable services UNLESS this is final shutdown
         # (may be transferred to new instance during reload)

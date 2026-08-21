@@ -88,7 +88,10 @@ async def test_stale_reload_aborts_when_config_changes_mid_build(manager):
 
     assert await reload_task is False
     assert mgr.agents["agent"] is old_instance
-    new_instance.stop.assert_awaited()
+    new_instance.stop.assert_awaited_once_with(
+        final=True,
+        preserve_reused=True,
+    )
 
 
 async def test_reload_swaps_when_no_write_intervenes(manager):

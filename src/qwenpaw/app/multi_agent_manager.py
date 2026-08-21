@@ -575,7 +575,7 @@ class MultiAgentManager:
             )
             # Try to clean up the failed new instance
             try:
-                await new_instance.stop()
+                await new_instance.stop(final=True, preserve_reused=True)
             except Exception:
                 pass  # Best effort cleanup
             # Old instance is still running and serving requests
@@ -590,7 +590,7 @@ class MultiAgentManager:
                     f"Agent {agent_id} was removed during reload, "
                     f"stopping new instance",
                 )
-                await new_instance.stop()
+                await new_instance.stop(final=True, preserve_reused=True)
                 return False
 
             if self._config_generations.get(agent_id, 0) != generation:
@@ -603,7 +603,7 @@ class MultiAgentManager:
                     f"Discarding stale reload for {agent_id}: "
                     f"configuration changed during rebuild",
                 )
-                await new_instance.stop()
+                await new_instance.stop(final=True, preserve_reused=True)
                 return False
 
             # Swap instances atomically
