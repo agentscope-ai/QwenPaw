@@ -9,11 +9,15 @@ import shlex
 import shutil
 import sys
 import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from qwenpaw.terminal import BackgroundCapture, TerminalSessionManager
+from qwenpaw.terminal.models import SessionState
+from qwenpaw.terminal.session import TerminalSession
 
 
 def test_capture_is_bounded_and_reports_omitted_bytes():
@@ -40,6 +44,72 @@ def test_capture_can_discard_startup_noise_without_resetting_cursor():
     chunk = capture.poll(cursor, 32)
     assert chunk.data == b"command-output"
     assert chunk.omitted_bytes == 0
+
+
+# This deterministic stream-boundary test intentionally drives the session's
+# parser state without starting an OS-specific backend.
+# pylint: disable=protected-access
+def test_completion_marker_is_hidden_at_every_stream_split():
+    token = "a" * 24
+    user_output = b"user"
+
+    for line_ending in (b"\n", b"\r\n"):
+        marker = f"\x1eQWENPAW_DONE_{token}:0\x1f".encode() + line_ending
+        for split_at in range(1, len(marker)):
+            _assert_completion_marker_split(
+                token,
+                marker,
+                split_at,
+                user_output,
+            )
+
+
+def _assert_completion_marker_split(
+    token: str,
+    marker: bytes,
+    split_at: int,
+    user_output: bytes,
+) -> None:
+    capture = BackgroundCapture()
+    backend = SimpleNamespace(
+        capture=capture,
+        supervisor=SimpleNamespace(returncode=None),
+        tty=True,
+        degraded=False,
+    )
+    session = TerminalSession("term_test", backend, "/bin/sh")
+    session._wrap_command("true", token)
+    session.state = SessionState.RUNNING
+    session._command_started_at = time.monotonic()
+
+    capture.append(user_output + marker[:split_at])
+    session._refresh_state()
+    outputs: list[str] = []
+    while True:
+        before = session._public_cursor
+        partial = session._make_result(1)
+        outputs.append(partial.output)
+        assert partial.original_bytes == len(user_output), split_at
+        if partial.next_cursor == before:
+            break
+
+    assert partial.running is True, split_at
+    capture.append(marker[split_at:])
+    session._refresh_state()
+    for _ in range(len(marker) + 2):
+        final = session._make_result(1)
+        outputs.append(final.output)
+        if final.output_drained:
+            break
+
+    assert final.output_drained is True, split_at
+    assert final.exit_code == 0, split_at
+    assert final.original_bytes == len(user_output), split_at
+    assert "".join(outputs) == user_output.decode(), split_at
+    assert "\x1e" not in "".join(outputs), split_at
+
+
+# pylint: enable=protected-access
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,9 @@ class TerminalSession:
         self._command_started = 0
         self._public_cursor = 0
         self._marker = b""
+        self._marker_prefix = b""
         self._marker_re: re.Pattern[bytes] | None = None
+        self._marker_candidate_start: int | None = None
         self._marker_span: tuple[int, int] | None = None
         self._exit_code: int | None = None
         self._command_started_at = 0.0
@@ -101,8 +103,9 @@ class TerminalSession:
                 f"printf '\\036{marker}:%s\\037\\n' \"$__qwenpaw_ec\"\n"
             )
         self._marker = marker.encode("ascii")
+        self._marker_prefix = b"\x1e" + self._marker + b":"
         self._marker_re = re.compile(
-            rb"\x1e" + re.escape(self._marker) + rb":(-?\d+)\x1f(?:\r?\n)?",
+            re.escape(self._marker_prefix) + rb"(-?\d+)\x1f\r?\n",
         )
         return script.encode("utf-8")
 
@@ -126,6 +129,7 @@ class TerminalSession:
             self._command_started = self.backend.capture.end_cursor
             self._public_cursor = self._command_started
             self._exit_code = None
+            self._marker_candidate_start = None
             self._marker_span = None
             self._timed_out = False
             self._input_buffer.clear()
@@ -151,6 +155,7 @@ class TerminalSession:
         match = self._marker_re.search(retained) if self._marker_re else None
         if match:
             self._exit_code = int(match.group(1))
+            self._marker_candidate_start = None
             self._marker_span = (
                 retained_start + match.start(),
                 retained_start + match.end(),
@@ -161,9 +166,30 @@ class TerminalSession:
                 self._timeout_task.cancel()
                 self._timeout_task = None
         elif self.backend.supervisor.returncode is not None:
+            # Without a complete marker, a marker-like suffix is ordinary
+            # process output and must no longer be withheld.
+            self._marker_candidate_start = None
             self._exit_code = self.backend.supervisor.returncode
             self.state = SessionState.CLOSED
             self._command_owner = None
+        else:
+            candidate = self._marker_candidate_offset(retained)
+            self._marker_candidate_start = (
+                None if candidate is None else retained_start + candidate
+            )
+
+    def _marker_candidate_offset(self, data: bytes) -> int | None:
+        """Locate a complete or trailing partial marker prefix."""
+        if not self._marker_prefix:
+            return None
+        complete = data.find(self._marker_prefix)
+        if complete >= 0:
+            return complete
+        max_overlap = min(len(data), len(self._marker_prefix) - 1)
+        for size in range(max_overlap, 0, -1):
+            if data.endswith(self._marker_prefix[:size]):
+                return len(data) - size
+        return None
 
     async def _enforce_timeout(self, timeout: float) -> None:
         try:
@@ -267,25 +293,32 @@ class TerminalSession:
         chunk_start = chunk.cursor - len(chunk.data)
         next_cursor = chunk.cursor
         data = chunk.data
+        pending_marker_bytes = 0
         if self._marker_span is not None:
             marker_start, marker_end = self._marker_span
             left_end = max(0, min(len(data), marker_start - chunk_start))
             right_start = max(0, min(len(data), marker_end - chunk_start))
             if marker_start < chunk.cursor and marker_end > chunk_start:
                 data = data[:left_end] + data[right_start:]
+                next_cursor = max(next_cursor, marker_end)
             if next_cursor == marker_start:
                 # The user-output chunk ended exactly before the protocol
                 # marker. Consume the marker without requiring an extra empty
                 # poll whose only purpose would be protocol housekeeping.
                 next_cursor = marker_end
-        else:
-            protocol_prefix = b"\x1eQWENPAW_DONE_"
-            prefix_at = data.find(protocol_prefix)
-            if prefix_at >= 0:
-                # Do not expose or consume a partial protocol marker. Once the
-                # suffix arrives, refresh_state records its exact span.
-                data = data[:prefix_at]
-                next_cursor = chunk_start + prefix_at
+        elif self._marker_candidate_start is not None:
+            marker_start = self._marker_candidate_start
+            if marker_start < chunk.cursor:
+                visible_end = max(
+                    0,
+                    min(len(data), marker_start - chunk_start),
+                )
+                data = data[:visible_end]
+                next_cursor = marker_start
+            pending_marker_bytes = max(
+                0,
+                self.backend.capture.end_cursor - marker_start,
+            )
         self._public_cursor = next_cursor
         running = self.state in {
             SessionState.RUNNING,
@@ -296,7 +329,10 @@ class TerminalSession:
             marker_bytes = self._marker_span[1] - self._marker_span[0]
         original_bytes = max(
             0,
-            chunk.original_bytes - self._command_started - marker_bytes,
+            chunk.original_bytes
+            - self._command_started
+            - marker_bytes
+            - pending_marker_bytes,
         )
         pending_bytes = max(0, self.backend.capture.end_cursor - next_cursor)
         if chunk.omitted_bytes:
