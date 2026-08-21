@@ -293,6 +293,7 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
                 "(allow network-inbound "
                 f'(local ip "localhost:{record.port}"))'
             ),
+            "(allow file-read-metadata)",
             '(allow file-read-data (literal "/"))',
         ]
         available_paths = {path for path in read_paths if path.exists()}

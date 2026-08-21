@@ -266,17 +266,17 @@ def test_macos_profile_does_not_allow_global_file_reads(
     tmp_path: Path,
 ) -> None:
     record = _record(tmp_path)
+    isolator = MacOSSeatbeltIsolator()
 
-    profile = (
-        MacOSSeatbeltIsolator()._profile(  # pylint: disable=protected-access
-            record,
-        )
+    profile = isolator._profile(  # pylint: disable=protected-access
+        record,
+    )
+    runtime_root = isolator._escape(  # pylint: disable=protected-access
+        record.working_dir.parent,
     )
 
     assert "\n(allow file-read*)\n" not in f"\n{profile}\n"
-    assert f'(allow file-read* (subpath "{record.working_dir.parent}"))' in (
-        profile
-    )
+    assert f'(allow file-read* (subpath "{runtime_root}"))' in profile
 
 
 @pytest.mark.skipif(
