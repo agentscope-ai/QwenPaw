@@ -51,7 +51,10 @@ def test_fork_agent_empty_body_rejected(app_server) -> None:
     - POST /api/fork/agent
     """
     resp = app_server.api_request(
-        "POST", "/api/fork/agent", json={}, timeout=_FORK_TIMEOUT
+        "POST",
+        "/api/fork/agent",
+        json={},
+        timeout=_FORK_TIMEOUT,
     )
     assert resp.status_code == 422, app_server.logs_tail()
 
@@ -66,7 +69,9 @@ def test_fork_agent_missing_parent_rejected(app_server) -> None:
     - POST /api/fork/agent
     """
     resp = app_server.api_request(
-        "POST", "/api/fork/agent", json={"agent_id": "default"},
+        "POST",
+        "/api/fork/agent",
+        json={"agent_id": "default"},
         timeout=_FORK_TIMEOUT,
     )
     assert resp.status_code == 422, app_server.logs_tail()

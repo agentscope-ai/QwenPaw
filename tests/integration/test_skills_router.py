@@ -39,7 +39,9 @@ def test_skills_list_with_filters(app_server) -> None:
 @pytest.mark.p1
 def test_skills_get_nonexistent(app_server) -> None:
     """Test GET /api/skills/{skill_id} with non-existent skill."""
-    response = app_server.api_request("GET", "/api/skills/nonexistent-skill-id-12345")
+    response = app_server.api_request(
+        "GET", "/api/skills/nonexistent-skill-id-12345"
+    )
     # Should return 404 or similar error
     assert response.status_code in [404, 400]
 

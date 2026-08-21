@@ -21,7 +21,9 @@ def test_healthz(app_server) -> None:
     API endpoints:
     - GET /api/healthz
     """
-    resp = app_server.api_request("GET", "/api/healthz", timeout=_HEALTHZ_TIMEOUT)
+    resp = app_server.api_request(
+        "GET", "/api/healthz", timeout=_HEALTHZ_TIMEOUT
+    )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
     assert isinstance(data, dict)
@@ -37,7 +39,9 @@ def test_healthz_structure(app_server) -> None:
     API endpoints:
     - GET /api/healthz
     """
-    resp = app_server.api_request("GET", "/api/healthz", timeout=_HEALTHZ_TIMEOUT)
+    resp = app_server.api_request(
+        "GET", "/api/healthz", timeout=_HEALTHZ_TIMEOUT
+    )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
     assert data.get("status") == "ok"

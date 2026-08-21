@@ -13,7 +13,10 @@ import pytest
 @pytest.mark.p1
 def test_project_directory_get(app_server) -> None:
     """Test GET /api/workspace/project-directory returns directory info."""
-    response = app_server.api_request("GET", "/api/workspace/project-directory")
+    response = app_server.api_request(
+        "GET",
+        "/api/workspace/project-directory",
+    )
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, dict)
@@ -22,8 +25,9 @@ def test_project_directory_get(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_project_directory_create_ignores_extra_fields(app_server) -> None:
-    """Test POST /api/workspace/project-directory/create ignores extra body fields."""
-    response = app_server.api_request("POST",
+    """Test create ignores extra body fields (only name is consumed)."""
+    response = app_server.api_request(
+        "POST",
         "/api/workspace/project-directory/create",
         json={"name": "integ_proj", "path": "/no/such/path"},
     )
@@ -36,7 +40,11 @@ def test_project_directory_create_ignores_extra_fields(app_server) -> None:
 def test_project_directory_create_valid_name(app_server) -> None:
     """Test POST /api/workspace/project-directory/create with a name."""
     url = "/api/workspace/project-directory/create"
-    response = app_server.api_request("POST", url, json={"name": "integ_proj_tmp"})
+    response = app_server.api_request(
+        "POST",
+        url,
+        json={"name": "integ_proj_tmp"},
+    )
     # A valid name creates the project directory (200 with its path)
     assert response.status_code == 200
 
@@ -45,7 +53,10 @@ def test_project_directory_create_valid_name(app_server) -> None:
 @pytest.mark.p1
 def test_project_directory_get_structure(app_server) -> None:
     """Test project directory response structure."""
-    response = app_server.api_request("GET", "/api/workspace/project-directory")
+    response = app_server.api_request(
+        "GET",
+        "/api/workspace/project-directory",
+    )
     assert response.status_code == 200
     data = response.json()
     # Should have path-related fields
@@ -56,7 +67,8 @@ def test_project_directory_get_structure(app_server) -> None:
 @pytest.mark.p1
 def test_project_directory_set_relative_path(app_server) -> None:
     """Test POST /api/workspace/project-directory with relative path."""
-    response = app_server.api_request("POST",
+    response = app_server.api_request(
+        "POST",
         "/api/workspace/project-directory/create",
         json={"name": "integ_rel_tmp"},
     )

@@ -34,7 +34,8 @@ def test_git_branches_list(app_server) -> None:
 @pytest.mark.p1
 def test_git_checkout_invalid(app_server) -> None:
     """Test POST /api/git/checkout with invalid branch."""
-    response = app_server.api_request("POST", 
+    response = app_server.api_request(
+        "POST",
         "/api/workspace/git/checkout",
         json={"branch": "nonexistent-branch-12345"},
     )

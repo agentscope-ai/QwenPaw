@@ -34,7 +34,8 @@ def test_local_models_get_nonexistent(app_server) -> None:
 @pytest.mark.p1
 def test_local_models_download_invalid(app_server) -> None:
     """Test POST /api/local-models/download with invalid model."""
-    response = app_server.api_request("POST", 
+    response = app_server.api_request(
+        "POST",
         "/api/local-models/models/download",
         json={"model_id": "no-such-model"},
     )
@@ -71,6 +72,8 @@ def test_local_models_structure(app_server) -> None:
 @pytest.mark.p1
 def test_local_models_download_missing_id(app_server) -> None:
     """Test POST /api/local-models/download without model_id."""
-    response = app_server.api_request("POST", "/api/local-models/models/download", json={})
+    response = app_server.api_request(
+        "POST", "/api/local-models/models/download", json={}
+    )
     # Should return 400 or 422
     assert response.status_code in [400, 422]

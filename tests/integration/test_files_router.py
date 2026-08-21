@@ -77,7 +77,8 @@ def test_files_preview_path_traversal_blocked(app_server) -> None:
         "/api/files/preview/../../../etc/passwd",
         timeout=_FILES_TIMEOUT,
     )
-    # allow_preview_outside_workspace defaults to True; sensitive guard still applies
+    # allow_preview_outside_workspace defaults to True; the sensitive
+    # file guard still applies
     assert resp.status_code in (200, 403, 404), app_server.logs_tail()
 
 

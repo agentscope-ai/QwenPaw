@@ -47,7 +47,9 @@ def test_plugins_list_with_status_filter(app_server) -> None:
 @pytest.mark.p1
 def test_plugins_get_nonexistent(app_server) -> None:
     """Test GET /api/plugins/{plugin_id} with non-existent plugin."""
-    response = app_server.api_request("GET", "/api/plugins/nonexistent-plugin-12345")
+    response = app_server.api_request(
+        "GET", "/api/plugins/nonexistent-plugin-12345"
+    )
     # Should return 404 or similar error
     assert response.status_code in [404, 400]
 
@@ -56,7 +58,8 @@ def test_plugins_get_nonexistent(app_server) -> None:
 @pytest.mark.p1
 def test_plugins_install_invalid(app_server) -> None:
     """Test POST /api/plugins/install with invalid plugin."""
-    response = app_server.api_request("POST", 
+    response = app_server.api_request(
+        "POST",
         "/api/plugins/install",
         json={"plugin_id": "no-such-plugin"},
     )
@@ -68,7 +71,9 @@ def test_plugins_install_invalid(app_server) -> None:
 @pytest.mark.p1
 def test_plugins_uninstall_nonexistent(app_server) -> None:
     """Test DELETE /api/plugins/{plugin_id} with non-existent plugin."""
-    response = app_server.api_request("DELETE", "/api/plugins/nonexistent-plugin-12345")
+    response = app_server.api_request(
+        "DELETE", "/api/plugins/nonexistent-plugin-12345"
+    )
     # Should return 404 or similar error
     assert response.status_code in [404, 400]
 

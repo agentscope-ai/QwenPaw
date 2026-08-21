@@ -84,7 +84,10 @@ def test_approval_approve_nonexistent(app_server) -> None:
     resp = app_server.api_request(
         "POST",
         "/api/approval/approve",
-        json={"request_id": "nonexistent_approval_xyz", "session_id": "integ_session"},
+        json={
+            "request_id": "nonexistent_approval_xyz",
+            "session_id": "integ_session",
+        },
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code in (404, 400), app_server.logs_tail()
@@ -106,7 +109,10 @@ def test_approval_deny_nonexistent(app_server) -> None:
     resp = app_server.api_request(
         "POST",
         "/api/approval/deny",
-        json={"request_id": "nonexistent_approval_xyz", "session_id": "integ_session"},
+        json={
+            "request_id": "nonexistent_approval_xyz",
+            "session_id": "integ_session",
+        },
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code in (404, 400), app_server.logs_tail()
@@ -128,7 +134,10 @@ def test_approval_dismiss_nonexistent(app_server) -> None:
     resp = app_server.api_request(
         "POST",
         "/api/approval/approve",
-        json={"request_id": "nonexistent_approval_xyz", "session_id": "integ_session"},
+        json={
+            "request_id": "nonexistent_approval_xyz",
+            "session_id": "integ_session",
+        },
         timeout=_APPROVAL_TIMEOUT,
     )
     assert resp.status_code in (404, 400), app_server.logs_tail()

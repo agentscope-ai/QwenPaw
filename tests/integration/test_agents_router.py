@@ -23,7 +23,9 @@ def test_agents_list(app_server) -> None:
     API endpoints:
     - GET /api/agents
     """
-    resp = app_server.api_request("GET", "/api/agents", timeout=_AGENTS_TIMEOUT)
+    resp = app_server.api_request(
+        "GET", "/api/agents", timeout=_AGENTS_TIMEOUT
+    )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
     assert isinstance(data, dict)
@@ -40,7 +42,9 @@ def test_agents_get_nonexistent(app_server) -> None:
     - GET /api/agents/{agentId}
     """
     resp = app_server.api_request(
-        "GET", "/api/agents/nonexistent-agent-12345", timeout=_AGENTS_TIMEOUT
+        "GET",
+        "/api/agents/nonexistent-agent-12345",
+        timeout=_AGENTS_TIMEOUT,
     )
     assert resp.status_code == 404, app_server.logs_tail()
 
@@ -55,7 +59,10 @@ def test_agents_create_invalid(app_server) -> None:
     - POST /api/agents
     """
     resp = app_server.api_request(
-        "POST", "/api/agents", json={}, timeout=_AGENTS_TIMEOUT
+        "POST",
+        "/api/agents",
+        json={},
+        timeout=_AGENTS_TIMEOUT,
     )
     assert resp.status_code in (400, 409, 422), app_server.logs_tail()
 
@@ -69,7 +76,9 @@ def test_agents_list_item_schema(app_server) -> None:
     API endpoints:
     - GET /api/agents
     """
-    resp = app_server.api_request("GET", "/api/agents", timeout=_AGENTS_TIMEOUT)
+    resp = app_server.api_request(
+        "GET", "/api/agents", timeout=_AGENTS_TIMEOUT
+    )
     assert resp.status_code == 200, app_server.logs_tail()
     agents = resp.json().get("agents", [])
     assert len(agents) > 0
@@ -88,7 +97,9 @@ def test_agents_get_default(app_server) -> None:
     - GET /api/agents/{agentId}
     """
     resp = app_server.api_request(
-        "GET", "/api/agents/default", timeout=_AGENTS_TIMEOUT
+        "GET",
+        "/api/agents/default",
+        timeout=_AGENTS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()

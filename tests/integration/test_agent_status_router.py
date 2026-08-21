@@ -24,7 +24,9 @@ def test_agent_status_get(app_server) -> None:
     - GET /api/agents/{agentId}/agent-status
     """
     resp = app_server.api_request(
-        "GET", "/api/agents/default/agent-status", timeout=_STATUS_TIMEOUT
+        "GET",
+        "/api/agents/default/agent-status",
+        timeout=_STATUS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
@@ -41,7 +43,9 @@ def test_agent_status_structure(app_server) -> None:
     - GET /api/agents/{agentId}/agent-status
     """
     resp = app_server.api_request(
-        "GET", "/api/agents/default/agent-status", timeout=_STATUS_TIMEOUT
+        "GET",
+        "/api/agents/default/agent-status",
+        timeout=_STATUS_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()

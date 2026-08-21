@@ -33,7 +33,11 @@ def test_backup_create(app_server) -> None:
 @pytest.mark.p1
 def test_backup_delete_nonexistent(app_server) -> None:
     """Test DELETE /api/backup/{backup_id} with non-existent backup."""
-    response = app_server.api_request("POST", "/api/backups/delete", json={"ids": ["nonexistent-backup-12345"]})
+    response = app_server.api_request(
+        "POST",
+        "/api/backups/delete",
+        json={"ids": ["nonexistent-backup-12345"]},
+    )
     # delete returns 200 with per-id results; unknown ids land in "failed"
     assert response.status_code == 200
 
