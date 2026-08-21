@@ -13,7 +13,7 @@ Request processing is handled by ``Runtime`` (see ``stream_query``).
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, AsyncGenerator, Iterable, Optional
+from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
@@ -378,6 +378,7 @@ class Workspace:
         def _init_local_workspace(
             ws: "Workspace",
             _service: Any,
+            _publish: Callable[[Any], None],
         ) -> "QwenPawLocalWorkspace":
             return ws._local_workspace  # pylint: disable=protected-access
 

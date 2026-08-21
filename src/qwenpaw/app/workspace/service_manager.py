@@ -7,6 +7,7 @@ for all workspace services (MemoryManager, ChatManager, etc.).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from dataclasses import dataclass, field
@@ -42,7 +43,10 @@ class ServiceDescriptor:
         name: Unique service identifier (e.g., 'memory_manager')
         service_class: Class to instantiate (e.g., MemoryManager)
         init_args: Callable that returns init kwargs for the service
-        post_init: Optional hook called after creation (for setup logic)
+        post_init: Optional hook called after creation (for setup logic).
+            Hooks that create a service before awaiting must call the supplied
+            publisher before that first cancellable await so the manager owns
+            the instance and can clean it up.
         start_method: Name of method to call after creation (e.g., 'start')
         stop_method: Name of method to call during shutdown (e.g., 'stop')
         reusable: Whether this service can be reused across reloads
@@ -61,10 +65,7 @@ class ServiceDescriptor:
     service_class: Optional[Union[type, Callable[["Workspace"], type]]] = None
     init_args: Optional[Callable[[Workspace], dict]] = None
     post_init: Optional[
-        Union[
-            Callable[[Workspace, Any], None],
-            Callable[[Workspace, Any], Awaitable[Any]],
-        ]
+        Callable[[Workspace, Any, Callable[[Any], None]], Any]
     ] = None
     start_method: Optional[str] = None
     stop_method: Optional[str] = None
@@ -146,7 +147,7 @@ class ServiceManager:
         if descriptor.reload_func is not None:
             try:
                 result = descriptor.reload_func(self.workspace, instance)
-                if asyncio.iscoroutine(result):
+                if inspect.isawaitable(result):
                     await result
                 logger.debug(f"Called reload_func for service '{name}'")
             except Exception as e:
@@ -297,8 +298,29 @@ class ServiceManager:
                     f"{sanitize_log_value(self.workspace.agent_id)} "
                     f"(continuing without it): {sanitize_log_value(e)}",
                 )
-                self.reused_services.discard(name)
-                self.services.pop(name, None)
+                # A post_init hook may already have published a partially
+                # initialized service.  Keep ownership until cleanup has
+                # completed; otherwise pop() would make it unreachable by
+                # the workspace's later stop_all().  Borrowed services still
+                # belong to the workspace currently serving requests.
+                cleanup_succeeded = False
+                try:
+                    await self._stop_service(
+                        descriptor,
+                        final=True,
+                        preserve_reused=True,
+                    )
+                    cleanup_succeeded = True
+                except Exception:
+                    logger.warning(
+                        "Failed to clean up optional service '%s'",
+                        name,
+                        exc_info=True,
+                    )
+                finally:
+                    self.reused_services.discard(name)
+                    if cleanup_succeeded:
+                        self.services.pop(name, None)
                 return
             logger.exception(
                 f"Failed to start service '{name}' "
@@ -437,8 +459,15 @@ class ServiceManager:
         if not descriptor.post_init:
             return service
 
-        result = descriptor.post_init(self.workspace, service)
-        if asyncio.iscoroutine(result):
+        def publish_service(instance: Any) -> None:
+            self.services[name] = instance
+
+        result = descriptor.post_init(
+            self.workspace,
+            service,
+            publish_service,
+        )
+        if inspect.isawaitable(result):
             result = await result
 
         # Capture service from post_init return value or self.services

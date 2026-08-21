@@ -335,6 +335,131 @@ async def test_workspace_waits_for_sync_start_before_cleanup(
 
 
 @pytest.mark.asyncio
+async def test_workspace_cleans_up_published_async_factory_on_sibling_failure(
+    monkeypatch,
+    tmp_path,
+):
+    factory_created = asyncio.Event()
+    closed = AsyncMock()
+
+    class _FactoryResource:
+        async def close(self) -> None:
+            await closed()
+
+    async def slow_factory(_workspace, _service, publish):
+        resource = _FactoryResource()
+        publish(resource)
+        factory_created.set()
+        await asyncio.Event().wait()
+        return resource
+
+    async def failing_factory(_workspace, _service, _publish):
+        await factory_created.wait()
+        raise RuntimeError("concurrent factory failed")
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    for name, factory, stop_method in (
+        ("slow", slow_factory, "close"),
+        ("failing", failing_factory, None),
+    ):
+        workspace._service_manager.register(
+            ServiceDescriptor(
+                name=name,
+                post_init=factory,
+                stop_method=stop_method,
+                priority=1,
+                concurrent_init=True,
+            ),
+        )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    with pytest.raises(RuntimeError, match="concurrent factory failed"):
+        await workspace.start()
+
+    assert "slow" in workspace._service_manager.services
+    closed.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_workspace_cleans_up_published_async_factory_when_cancelled(
+    monkeypatch,
+    tmp_path,
+):
+    factory_created = asyncio.Event()
+    closed = AsyncMock()
+
+    class _FactoryResource:
+        async def close(self) -> None:
+            await closed()
+
+    async def blocking_factory(_workspace, _service, publish):
+        resource = _FactoryResource()
+        publish(resource)
+        factory_created.set()
+        await asyncio.Event().wait()
+        return resource
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    workspace._service_manager.register(
+        ServiceDescriptor(
+            name="blocking",
+            post_init=blocking_factory,
+            stop_method="close",
+            concurrent_init=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    start_task = asyncio.create_task(workspace.start())
+    await factory_created.wait()
+    start_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+
+    assert "blocking" in workspace._service_manager.services
+    closed.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_optional_service_is_cleaned_before_removal():
+    closed = AsyncMock()
+
+    class _PartiallyStartedService:
+        async def close(self) -> None:
+            await closed()
+
+    async def failing_factory(_workspace, _service, publish):
+        publish(_PartiallyStartedService())
+        raise RuntimeError("optional startup failed")
+
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager.register(
+        ServiceDescriptor(
+            name="optional",
+            post_init=failing_factory,
+            stop_method="close",
+            optional=True,
+        ),
+    )
+
+    await manager.start_all()
+
+    closed.assert_awaited_once_with()
+    assert "optional" not in manager.services
+
+
+@pytest.mark.asyncio
 async def test_workspace_cleans_up_when_start_is_cancelled(
     monkeypatch,
     tmp_path,
