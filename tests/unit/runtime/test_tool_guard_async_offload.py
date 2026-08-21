@@ -160,3 +160,58 @@ async def test_write_stdin_allow_authorizes_exact_guarded_snapshot():
         "echo safe\n",
     )
     manager.discard_input.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_raw_terminal_capability_requires_approval_in_auto_mode():
+    """The real raw guardian must reach approval outside guarded tools."""
+    from agentscope.permission import PermissionBehavior, PermissionDecision
+
+    from qwenpaw.runtime.tool_guard import _guarded_tool_check_permissions
+    from qwenpaw.security.tool_guard.guardians.terminal_guardian import (
+        TerminalCapabilityGuardian,
+    )
+
+    guardian = TerminalCapabilityGuardian()
+    engine = MagicMock()
+    engine.enabled = True
+    engine.is_denied.return_value = False
+    engine.is_guarded.return_value = False
+    engine.guard.side_effect = lambda tool_name, params, **_kwargs: (
+        ToolGuardResult(
+            tool_name=tool_name,
+            params=params,
+            findings=guardian.guard(tool_name, params),
+        )
+    )
+    engine.should_auto_deny_result.return_value = False
+    tool = SimpleNamespace(
+        name="execute_shell_command",
+        _resolve_execution_level=lambda: "auto",
+        _qp_agent_id="agent-test",
+        _qp_request_context={},
+    )
+    allowed = PermissionDecision(
+        behavior=PermissionBehavior.ALLOW,
+        message="approved",
+    )
+
+    with (
+        patch(
+            "qwenpaw.security.tool_guard.engine.get_guard_engine",
+            return_value=engine,
+        ),
+        patch(
+            "qwenpaw.runtime.tool_guard._ask_user_approval",
+            new_callable=AsyncMock,
+            return_value=allowed,
+        ) as ask,
+    ):
+        decision = await _guarded_tool_check_permissions(
+            tool,
+            {"command": "less file", "input_mode": "raw"},
+        )
+
+    assert decision.behavior is PermissionBehavior.ALLOW
+    ask.assert_awaited_once()
+    assert engine.guard.call_args.kwargs["only_always_run"] is True

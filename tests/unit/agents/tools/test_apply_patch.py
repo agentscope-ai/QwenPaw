@@ -38,6 +38,7 @@ def test_managed_terminal_schema_accepts_provider_numeric_strings():
         assert "string" in types
 
     assert stdin_properties["interrupt"]["type"] == "boolean"
+    assert execute_properties["input_mode"]["enum"] == ["line", "raw"]
 
 
 @pytest.mark.asyncio

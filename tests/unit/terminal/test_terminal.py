@@ -6,7 +6,9 @@ from __future__ import annotations
 import asyncio
 import os
 import shlex
+import shutil
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -215,6 +217,132 @@ async def test_interactive_input_fragments_are_withheld_until_newline(
         assert final.running is False
         assert final.exit_code == 0
         assert first.output + final.output == "name: hello QwenPaw\r\n"
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX PTY behavior")
+async def test_raw_input_mode_delivers_single_key_without_newline(tmp_path):
+    manager = TerminalSessionManager(tmp_path)
+    program = (
+        "import os,sys,termios,tty; fd=sys.stdin.fileno(); "
+        "old=termios.tcgetattr(fd); tty.setcbreak(fd); "
+        "print('ready', flush=True); "
+        "value=os.read(fd,1); termios.tcsetattr(fd,termios.TCSADRAIN,old); "
+        "print('key:' + value.decode(), flush=True)"
+    )
+    command = f"{shlex.quote(sys.executable)} -u -c {shlex.quote(program)}"
+    first = await manager.execute(
+        command,
+        session_id=None,
+        shell="/bin/sh",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        tty=True,
+        persistent=True,
+        input_mode="raw",
+        timeout=5,
+        yield_time=2,
+        max_output_bytes=64 * 1024,
+    )
+    try:
+        assert first.running is True
+        assert first.output == "ready\r\n"
+        preview = await manager.preview_input(first.session_id, "q")
+        assert preview == "q"
+        await manager.authorize_input(first.session_id, "q", preview)
+
+        final = await manager.interact(
+            first.session_id,
+            "q",
+            yield_time=2,
+            max_output_bytes=64 * 1024,
+            terminate=False,
+        )
+
+        assert final.running is False
+        assert final.exit_code == 0
+        assert "key:q\r\n" in first.output + final.output
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_manager_async_factory_resolves_workspace_off_event_loop(
+    tmp_path,
+    monkeypatch,
+):
+    loop_thread = threading.get_ident()
+    resolve_threads: list[int] = []
+    real_resolve = Path.resolve
+
+    def tracked_resolve(path, *args, **kwargs):
+        resolve_threads.append(threading.get_ident())
+        return real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", tracked_resolve)
+
+    manager = await TerminalSessionManager.from_workspace(tmp_path)
+    try:
+        assert manager.workspace_dir == real_resolve(tmp_path)
+        assert resolve_threads
+        assert loop_thread not in resolve_threads
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform != "win32", reason="requires PowerShell")
+async def test_persistent_powershell_does_not_reuse_stale_native_exit_code(
+    tmp_path,
+):
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if shell is None:
+        pytest.skip("PowerShell is unavailable")
+    manager = TerminalSessionManager(tmp_path)
+    first = await manager.execute(
+        "cmd.exe /d /c exit 7",
+        session_id=None,
+        shell=shell,
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        tty=True,
+        persistent=True,
+        timeout=5,
+        yield_time=2,
+        max_output_bytes=64 * 1024,
+    )
+    try:
+        assert first.exit_code == 7
+        second = await manager.execute(
+            "Write-Output ok",
+            session_id=first.session_id,
+            shell=shell,
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            tty=True,
+            persistent=True,
+            timeout=5,
+            yield_time=2,
+            max_output_bytes=64 * 1024,
+        )
+        assert second.output == "ok\r\n"
+        assert second.exit_code == 0
+
+        failed = await manager.execute(
+            "Write-Error failed",
+            session_id=first.session_id,
+            shell=shell,
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            tty=True,
+            persistent=True,
+            timeout=5,
+            yield_time=2,
+            max_output_bytes=64 * 1024,
+        )
+        assert failed.exit_code == 1
     finally:
         await manager.shutdown()
 

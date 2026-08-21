@@ -16,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, BinaryIO, Optional
+from typing import Any, BinaryIO, Literal, Optional
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
@@ -35,7 +35,10 @@ from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
 from ...terminal import SessionResult, TerminalSessionManager
-from ...terminal.input_policy import normalize_terminal_input
+from ...terminal.input_policy import (
+    TerminalInputMode,
+    normalize_terminal_input,
+)
 from ...terminal.manager import UnknownSessionError
 
 _logger = logging.getLogger(__name__)
@@ -1275,6 +1278,7 @@ async def execute_shell_command(
     yield_time_ms: int | str | None = None,
     max_output_bytes: int | str | None = None,
     tty: bool = True,
+    input_mode: Literal["line", "raw"] = "line",
 ) -> ToolChunk:
     """Execute a shell command and return its output.
 
@@ -1318,6 +1322,12 @@ async def execute_shell_command(
             POSIX and cmd/PowerShell/pwsh on Windows. Other shells explicitly
             use the degraded pipe backend. Windows also degrades when ConPTY
             is unavailable.
+        input_mode (`Literal["line", "raw"]`):
+            Managed-session input capability. ``line`` accumulates fragments
+            for stateful command guarding and sends complete lines. ``raw``
+            requires explicit capability approval when ToolGuard is active
+            and sends each approved fragment immediately for TUI, cbreak and
+            control-character input.
 
     Returns:
         `ToolChunk`:
@@ -1396,7 +1406,22 @@ async def execute_shell_command(
         )
         sandbox_config = None
 
-    managed = persistent or session_id is not None or yield_time_ms is not None
+    try:
+        input_mode = TerminalInputMode.parse(input_mode).value
+    except ValueError as exc:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[TextBlock(type="text", text=str(exc))],
+            metadata={"error_code": "invalid_terminal_input_mode"},
+        )
+
+    managed = (
+        persistent
+        or session_id is not None
+        or yield_time_ms is not None
+        or input_mode == TerminalInputMode.RAW.value
+    )
     if managed:
         if sandbox_config is not None:
             return ToolChunk(
@@ -1417,7 +1442,7 @@ async def execute_shell_command(
             )
         manager = get_current_terminal_manager()
         if manager is None:
-            manager = TerminalSessionManager(working_dir)
+            manager = await TerminalSessionManager.from_workspace(working_dir)
             set_current_terminal_manager(manager)
         try:
             effective_yield_ms = _bounded_tool_int(
@@ -1442,6 +1467,7 @@ async def execute_shell_command(
                 env=env,
                 tty=tty,
                 persistent=persistent,
+                input_mode=input_mode,
                 timeout=float(timeout),
                 yield_time=effective_yield_ms / 1000,
                 max_output_bytes=effective_max_bytes,
@@ -1706,7 +1732,10 @@ async def write_stdin(
         chars (`str`):
             Input to write. An empty string polls without writing. A whole
             value of ETX, ``\\u0003``, ``\\x03``, ``&#3;`` or ``&#x3;`` is
-            treated as Ctrl-C instead of literal terminal input.
+            treated as Ctrl-C instead of literal terminal input. Delivery
+            follows the ``input_mode`` selected by the command currently
+            running in this session: line mode waits for a line boundary;
+            raw mode sends each approved fragment immediately.
         yield_time_ms (`int | str`):
             Maximum wait for new output or command completion.
         max_output_bytes (`int | str | None`):

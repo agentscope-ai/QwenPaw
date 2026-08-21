@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from enum import Enum
+
 _MAX_PENDING_INPUT_CHARS = 64 * 1024
 
 CTRL_C_INPUT_ALIASES = frozenset(
@@ -15,6 +17,23 @@ CTRL_C_INPUT_ALIASES = frozenset(
         "&#x03;",
     },
 )
+
+
+class TerminalInputMode(str, Enum):
+    """Security and delivery semantics for managed terminal input."""
+
+    LINE = "line"
+    RAW = "raw"
+
+    @classmethod
+    def parse(cls, value: str | "TerminalInputMode") -> "TerminalInputMode":
+        """Validate a tool or internal input-mode value."""
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError as exc:
+            raise ValueError("input_mode must be 'line' or 'raw'") from exc
 
 
 def normalize_terminal_input(chars: str, *, interrupt: bool) -> str:
@@ -40,9 +59,17 @@ class TerminalInputBuffer:
             )
         return combined
 
-    def commit(self, fragment: str) -> str:
-        """Append input and return only complete lines ready for delivery."""
+    def commit(
+        self,
+        fragment: str,
+        *,
+        mode: TerminalInputMode = TerminalInputMode.LINE,
+    ) -> str:
+        """Commit one fragment according to line or raw capability mode."""
         combined = self.preview(fragment)
+        if mode is TerminalInputMode.RAW:
+            self._pending = ""
+            return combined
         boundary = max(combined.rfind("\n"), combined.rfind("\r"))
         if boundary < 0:
             self._pending = combined

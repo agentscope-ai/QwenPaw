@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -13,21 +12,7 @@ from typing import Any
 from ...utils.io_utils import run_sync_io
 from ..capture import BackgroundCapture
 from ..process_tree import terminate_windows_process_tree
-
-
-def _basename(shell: str) -> str:
-    return shell.replace("\\", "/").rsplit("/", 1)[-1].lower()
-
-
-def _command_line(shell: str) -> str:
-    name = _basename(shell)
-    if name in {"cmd", "cmd.exe"}:
-        argv = [shell, "/D", "/Q", "/K"]
-    elif name in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
-        argv = [shell, "-NoLogo", "-NoProfile"]
-    else:
-        argv = [shell]
-    return subprocess.list2cmdline(argv)
+from ..shells import shell_spec
 
 
 class _WinPtySupervisor:
@@ -111,7 +96,7 @@ class WindowsConPtyBackend:
 
         process = await run_sync_io(
             PtyProcess.spawn,
-            _command_line(shell),
+            shell_spec(shell).windows_conpty_argv(),
             cwd=str(cwd),
             env=env,
         )

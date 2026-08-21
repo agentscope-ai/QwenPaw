@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from pathlib import Path
+
 import pytest
 
 from qwenpaw.patching import PatchError, apply_patch_document, parse_patch
@@ -145,3 +148,35 @@ def test_commit_failure_rolls_back_files_and_created_directories(
     assert not second.parent.exists()
     assert not list(tmp_path.rglob("*.patch-stage"))
     assert not list(tmp_path.rglob("*.patch-backup"))
+
+
+@pytest.mark.asyncio
+async def test_patch_path_resolution_stays_off_event_loop(
+    tmp_path,
+    monkeypatch,
+):
+    target = tmp_path / "value.txt"
+    target.write_text("before\n", encoding="utf-8")
+    patch = parse_patch(
+        """*** Begin Patch
+*** Update File: value.txt
+@@
+-before
++after
+*** End Patch""",
+    )
+    loop_thread = threading.get_ident()
+    resolve_threads: list[int] = []
+    real_resolve = Path.resolve
+
+    def tracked_resolve(path, *args, **kwargs):
+        resolve_threads.append(threading.get_ident())
+        return real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", tracked_resolve)
+
+    await apply_patch_document(tmp_path, patch)
+
+    assert target.read_text(encoding="utf-8") == "after\n"
+    assert resolve_threads
+    assert loop_thread not in resolve_threads

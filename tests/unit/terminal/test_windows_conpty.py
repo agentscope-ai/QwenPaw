@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 
 import psutil
 import pytest
@@ -84,6 +85,35 @@ async def test_conpty_terminates_complete_windows_process_tree(monkeypatch):
     assert [pid for pid, _thread in tree_kills] == [process.pid]
     assert tree_kills[0][1] != loop_thread
     assert process.closed is True
+
+
+@pytest.mark.asyncio
+async def test_conpty_spawn_passes_space_path_as_unquoted_argv(
+    monkeypatch,
+    tmp_path,
+):
+    process = _FakePtyProcess()
+    captured: dict[str, object] = {}
+
+    class FakePtyProcess:
+        @staticmethod
+        def spawn(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return process
+
+    monkeypatch.setitem(
+        sys.modules,
+        "winpty",
+        SimpleNamespace(PtyProcess=FakePtyProcess),
+    )
+    shell = r"C:\Program Files\PowerShell\7\pwsh.exe"
+
+    backend = await WindowsConPtyBackend.spawn(shell, tmp_path, {}, 1024)
+    try:
+        assert captured["argv"] == [shell, "-NoLogo", "-NoProfile"]
+    finally:
+        await backend.close()
 
 
 @pytest.mark.asyncio

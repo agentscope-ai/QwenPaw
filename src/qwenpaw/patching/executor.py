@@ -9,7 +9,7 @@ import shutil
 from contextlib import AsyncExitStack
 from pathlib import Path
 
-from ..utils.io_utils import get_path_lock, run_sync_io
+from ..utils.io_utils import get_resolved_path_lock, run_sync_io
 from .errors import PatchError
 from .models import PatchDocument, PatchPlan, PatchResult
 from .planner import build_plan, resolve_patch_paths
@@ -122,7 +122,7 @@ async def apply_patch_document(
     lock_paths = sorted(set(resolved.values()), key=str)
     async with AsyncExitStack() as stack:
         for path in lock_paths:
-            await stack.enter_async_context(get_path_lock(path))
+            await stack.enter_async_context(get_resolved_path_lock(path))
 
         def plan_and_commit() -> PatchPlan:
             plan = build_plan(document, resolved)

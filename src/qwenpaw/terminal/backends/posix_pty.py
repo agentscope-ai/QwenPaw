@@ -16,6 +16,7 @@ from pathlib import Path
 from ...utils.io_utils import run_sync_io
 from ..capture import BackgroundCapture
 from ..process_tree import ProcessSupervisor
+from ..shells import shell_spec
 
 
 def _open_pty() -> tuple[int, int]:
@@ -66,22 +67,8 @@ def _interrupt_foreground(fd: int, session_id: int) -> None:
             pass
 
 
-def _shell_name(shell: str) -> str:
-    return shell.replace("\\", "/").rsplit("/", 1)[-1].lower()
-
-
-def _interactive_argv(shell: str) -> list[str]:
-    """Start a predictable interactive shell without user prompt plugins."""
-    name = _shell_name(shell)
-    if name == "zsh":
-        return [shell, "-f", "-i"]
-    if name == "bash":
-        return [shell, "--noprofile", "--norc", "--noediting", "-i"]
-    return [shell, "-i"]
-
-
 def _startup_script(shell: str, marker: str) -> bytes:
-    name = _shell_name(shell)
+    name = shell_spec(shell).name
     if name == "zsh":
         setup = (
             "unsetopt zle prompt_cr prompt_sp 2>/dev/null; PS1=''; PS2=''; "
@@ -136,7 +123,7 @@ class PosixPtyBackend:
         )
         try:
             process = await asyncio.create_subprocess_exec(
-                *_interactive_argv(shell),
+                *shell_spec(shell).posix_pty_argv(),
                 stdin=slave,
                 stdout=slave,
                 stderr=slave,

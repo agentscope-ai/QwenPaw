@@ -29,6 +29,7 @@ from .guardians.rule_guardian import (
     SharedSafetyToolGuardian,
 )
 from .guardians.shell_evasion_guardian import ShellEvasionGuardian
+from .guardians.terminal_guardian import TerminalCapabilityGuardian
 from .models import ToolGuardResult
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ class ToolGuardEngine:
                 "Failed to initialise SharedSafetyToolGuardian: %s",
                 exc,
             )
+        guardians.append(TerminalCapabilityGuardian())
         try:
             guardians.append(FilePathToolGuardian())
         except Exception as exc:  # pragma: no cover

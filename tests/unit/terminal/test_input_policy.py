@@ -6,6 +6,7 @@ import pytest
 from qwenpaw.terminal import backends
 from qwenpaw.terminal.input_policy import (
     TerminalInputBuffer,
+    TerminalInputMode,
     normalize_terminal_input,
 )
 from qwenpaw.terminal.shells import supports_native_tty
@@ -18,6 +19,13 @@ def test_input_buffer_withholds_fragments_until_line_is_complete():
     assert buffer.preview("tive.txt\n") == "rm /tmp/sensitive.txt\n"
     assert buffer.commit("tive.txt\n") == "rm /tmp/sensitive.txt\n"
     assert buffer.preview("next") == "next"
+
+
+def test_input_buffer_delivers_raw_keys_and_control_characters_immediately():
+    buffer = TerminalInputBuffer()
+
+    assert buffer.commit("q", mode=TerminalInputMode.RAW) == "q"
+    assert buffer.commit("\x04", mode=TerminalInputMode.RAW) == "\x04"
 
 
 def test_terminal_input_normalizes_ctrl_c_aliases():

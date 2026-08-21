@@ -55,6 +55,15 @@ def _path_lock_key(path: Path | str) -> str:
     return os.path.normcase(str(Path(path).resolve(strict=False)))
 
 
+def _path_lock_from_key(key: str) -> asyncio.Lock:
+    """Return the lock registered for a precomputed canonical key."""
+    lock = _PATH_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _PATH_LOCKS[key] = lock
+    return lock
+
+
 def get_path_lock(path: Path | str) -> asyncio.Lock:
     """Return the process-local lock for one normalized filesystem path.
 
@@ -65,12 +74,20 @@ def get_path_lock(path: Path | str) -> asyncio.Lock:
     QwenPaw currently runs one application worker, so all supported writers
     share this lock registry. No OS-level file lock is needed in that model.
     """
-    key = _path_lock_key(path)
-    lock = _PATH_LOCKS.get(key)
-    if lock is None:
-        lock = asyncio.Lock()
-        _PATH_LOCKS[key] = lock
-    return lock
+    return _path_lock_from_key(_path_lock_key(path))
+
+
+def get_resolved_path_lock(path: Path | str) -> asyncio.Lock:
+    """Return a lock for an already-canonical absolute path.
+
+    Unlike :func:`get_path_lock`, this function performs no filesystem
+    resolution. Use it only when the path was resolved in a worker thread or
+    otherwise came from a trusted canonicalization boundary.
+    """
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        raise ValueError("resolved path lock requires an absolute path")
+    return _path_lock_from_key(os.path.normcase(str(resolved)))
 
 
 def get_sync_path_lock(path: Path | str) -> threading.RLock:

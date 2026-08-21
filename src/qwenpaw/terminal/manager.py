@@ -10,9 +10,11 @@ import sys
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Self
 
-from ..utils.io_utils import run_async_to_completion
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from .backends import spawn_terminal_backend
+from .input_policy import TerminalInputMode
 from .models import SessionResult, SessionState
 from .session import CancellationRecovery, TerminalSession
 
@@ -31,8 +33,12 @@ class TerminalSessionManager:
         max_sessions: int = 16,
         idle_ttl_seconds: float = 1800.0,
         max_retained_bytes: int = 1024 * 1024,
+        _workspace_dir_is_resolved: bool = False,
     ) -> None:
-        self.workspace_dir = Path(workspace_dir).resolve()
+        path = Path(workspace_dir)
+        self.workspace_dir = (
+            path if _workspace_dir_is_resolved else path.resolve()
+        )
         self.max_sessions = max_sessions
         self.idle_ttl_seconds = idle_ttl_seconds
         self.max_retained_bytes = max_retained_bytes
@@ -42,6 +48,26 @@ class TerminalSessionManager:
         self._creating = 0
         self._expiry_handles: dict[str, asyncio.TimerHandle] = {}
         self._expiry_tasks: dict[str, asyncio.Task[None]] = {}
+
+    @classmethod
+    async def from_workspace(
+        cls,
+        workspace_dir: str | Path,
+        *,
+        max_sessions: int = 16,
+        idle_ttl_seconds: float = 1800.0,
+        max_retained_bytes: int = 1024 * 1024,
+    ) -> Self:
+        """Create a manager without resolving paths on the event loop."""
+        path = Path(workspace_dir)
+        resolved = await run_sync_io(path.resolve, strict=False)
+        return cls(
+            resolved,
+            max_sessions=max_sessions,
+            idle_ttl_seconds=idle_ttl_seconds,
+            max_retained_bytes=max_retained_bytes,
+            _workspace_dir_is_resolved=True,
+        )
 
     @property
     def active_sessions(self) -> int:
@@ -196,6 +222,7 @@ class TerminalSessionManager:
         env: dict[str, str],
         tty: bool,
         persistent: bool,
+        input_mode: str | TerminalInputMode = TerminalInputMode.LINE,
         timeout: float,
         yield_time: float,
         max_output_bytes: int,
@@ -213,6 +240,7 @@ class TerminalSessionManager:
             result = await session.execute(
                 command,
                 persistent=persistent,
+                input_mode=input_mode,
                 timeout=timeout,
                 yield_time=yield_time,
                 max_output_bytes=max_output_bytes,

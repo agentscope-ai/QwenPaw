@@ -11,19 +11,7 @@ from typing import Any
 
 from ..capture import BackgroundCapture
 from ..process_tree import ProcessSupervisor
-
-
-def _basename(shell: str) -> str:
-    return shell.replace("\\", "/").rsplit("/", 1)[-1].lower()
-
-
-def _argv(shell: str) -> list[str]:
-    name = _basename(shell)
-    if name in {"cmd", "cmd.exe"}:
-        return [shell, "/D", "/Q", "/K"]
-    if name in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
-        return [shell, "-NoLogo", "-NoProfile", "-Command", "-"]
-    return [shell]
+from ..shells import shell_spec
 
 
 class PipeTerminalBackend:
@@ -60,7 +48,7 @@ class PipeTerminalBackend:
         else:
             kwargs["start_new_session"] = True
         process = await asyncio.create_subprocess_exec(
-            *_argv(shell),
+            *shell_spec(shell).pipe_argv(windows=sys.platform == "win32"),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

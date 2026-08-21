@@ -11,7 +11,7 @@ import sys
 import time
 
 from .backends.base import TerminalBackend
-from .input_policy import TerminalInputBuffer
+from .input_policy import TerminalInputBuffer, TerminalInputMode
 from .models import SessionResult, SessionState
 from .shells import shell_kind
 from .text_stream import TerminalTextStream
@@ -53,6 +53,7 @@ class TerminalSession:
         self._authorized_input: tuple[str, str] | None = None
         self._text_stream = TerminalTextStream()
         self._command_owner: asyncio.Task[object] | None = None
+        self.input_mode = TerminalInputMode.LINE
 
     @property
     def tty(self) -> bool:
@@ -72,10 +73,22 @@ class TerminalSession:
             script = f"{command}\r\necho \x1e{marker}:%errorlevel%\x1f\r\n"
         elif kind == "powershell":
             script = (
-                f"& {{ {command} }}; $__qwenpaw_ec=$LASTEXITCODE; "
-                f"if ($null -eq $__qwenpaw_ec) {{$__qwenpaw_ec=0}}; "
+                "& {\r\n$LASTEXITCODE=$null; "
+                "$__qwenpaw_ok=$true; $__qwenpaw_native=$null\r\n"
+                "try {\r\n"
+                f"{command}\r\n"
+                "$__qwenpaw_ok=$?; $__qwenpaw_native=$LASTEXITCODE\r\n"
+                "} catch {\r\n"
+                "$__qwenpaw_ok=$false; "
+                "$__qwenpaw_native=$LASTEXITCODE; Write-Error $_\r\n"
+                "} finally {\r\n"
+                "if ($__qwenpaw_ok) {$__qwenpaw_ec=0} "
+                "elseif ($null -ne $__qwenpaw_native -and "
+                "[int]$__qwenpaw_native -ne 0) "
+                "{$__qwenpaw_ec=[int]$__qwenpaw_native} "
+                "else {$__qwenpaw_ec=1}; "
                 f'[Console]::Out.WriteLine("`u001e{marker}:'
-                '$__qwenpaw_ec`u001f")\r\n'
+                '$__qwenpaw_ec`u001f")\r\n}\r\n}\r\n'
             )
         else:
             # Keep the command and completion protocol in one parsed shell
@@ -98,6 +111,7 @@ class TerminalSession:
         command: str,
         *,
         persistent: bool,
+        input_mode: str | TerminalInputMode = TerminalInputMode.LINE,
         timeout: float,
         yield_time: float,
         max_output_bytes: int,
@@ -108,6 +122,7 @@ class TerminalSession:
                 raise RuntimeError(f"session is {self.state.value}, not idle")
             token = secrets.token_hex(12)
             self.persistent = persistent
+            self.input_mode = TerminalInputMode.parse(input_mode)
             self._command_started = self.backend.capture.end_cursor
             self._public_cursor = self._command_started
             self._exit_code = None
@@ -345,7 +360,7 @@ class TerminalSession:
                             "terminal input changed after its security check",
                         )
                     self._authorized_input = None
-                ready = self._input_buffer.commit(chars)
+                ready = self._input_buffer.commit(chars, mode=self.input_mode)
                 if not ready:
                     return self._make_result(max_output_bytes)
                 await self.backend.write(ready.encode("utf-8"))
