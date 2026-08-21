@@ -131,6 +131,9 @@ def test_windows_boundary_uses_private_writable_mounts(
     assert sandbox.config.allow_read_all is False
     assert sandbox.config.network_allow == ["*"]
     assert writable == {
+        record.working_dir / "tmp",
+        record.working_dir / "appdata" / "roaming",
+        record.working_dir / "appdata" / "local",
         record.secret_dir,
         record.backup_dir,
         record.log_file.parent,

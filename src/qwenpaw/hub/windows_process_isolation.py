@@ -68,6 +68,18 @@ class WindowsAppContainerIsolator(ProcessIsolator):
         ]
         mounts.extend(
             [
+                MountSpec(
+                    str(record.working_dir / "tmp"),
+                    writable=True,
+                ),
+                MountSpec(
+                    str(record.working_dir / "appdata" / "roaming"),
+                    writable=True,
+                ),
+                MountSpec(
+                    str(record.working_dir / "appdata" / "local"),
+                    writable=True,
+                ),
                 MountSpec(str(record.secret_dir), writable=True),
                 MountSpec(str(record.backup_dir), writable=True),
                 MountSpec(str(record.log_file.parent), writable=True),
@@ -249,15 +261,25 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             f"qwenpaw-hub-forbidden-{os.getpid()}"
         )
         written = record.working_dir / ".isolation-written"
+        staging = record.working_dir / "tmp" / ".isolation-staging"
         allowed.write_text("allowed", encoding="utf-8")
         forbidden.write_text("forbidden", encoding="utf-8")
         script = (
+            "import shutil\n"
             "from pathlib import Path\n"
             f"allowed = Path({str(allowed)!r})\n"
             f"forbidden = Path({str(forbidden)!r})\n"
             f"written = Path({str(written)!r})\n"
+            f"staging = Path({str(staging)!r})\n"
             "assert allowed.read_text(encoding='utf-8') == 'allowed'\n"
             "written.write_text('ok', encoding='utf-8')\n"
+            "nested = staging / 'nested'\n"
+            "nested.mkdir(parents=True)\n"
+            "payload = nested / 'payload.txt'\n"
+            "payload.write_text('nested', encoding='utf-8')\n"
+            "assert payload.read_text(encoding='utf-8') == 'nested'\n"
+            "shutil.rmtree(staging)\n"
+            "assert not staging.exists()\n"
             "try:\n"
             "    forbidden.read_bytes()\n"
             "except (FileNotFoundError, PermissionError):\n"
@@ -284,3 +306,4 @@ class WindowsAppContainerIsolator(ProcessIsolator):
             allowed.unlink(missing_ok=True)
             forbidden.unlink(missing_ok=True)
             written.unlink(missing_ok=True)
+            shutil.rmtree(staging, ignore_errors=True)
