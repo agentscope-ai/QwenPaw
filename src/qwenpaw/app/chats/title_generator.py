@@ -137,7 +137,11 @@ async def generate_and_update_title(
             ]
 
             raw_title = await asyncio.wait_for(
-                consume_model_response(model, messages),
+                consume_model_response(
+                    model,
+                    messages,
+                    disable_thinking=True,
+                ),
                 timeout=timeout,
             )
             title = _clean_title(raw_title)
