@@ -39,7 +39,9 @@ def _sigbreak_to_keyboard_interrupt(signum, frame):
 if hasattr(signal, "SIGBREAK"):
     signal.signal(signal.SIGBREAK, _sigbreak_to_keyboard_interrupt)
 
-# Emulate ``python -m qwenpaw app <args...>``: argv[0] is the program
-# name, the rest is passed through untouched.
-sys.argv = ["qwenpaw", "app", *sys.argv[1:]]
+# Emulate ``python -m qwenpaw app <args...>``.  The fixture invokes this
+# wrapper as ``python _coverage_app_main.py app --host ...``, so the
+# subcommand and its flags are already in sys.argv[1:]; only argv[0]
+# (the wrapper path) needs replacing with the program name.
+sys.argv = ["qwenpaw", *sys.argv[1:]]
 runpy.run_module("qwenpaw", run_name="__main__")
