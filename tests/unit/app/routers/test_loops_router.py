@@ -428,3 +428,60 @@ def test_create_rejects_unicode_casefold_name(client, workspace) -> None:
     assert response.json()["detail"] == "Mode name exists"
     save.assert_not_called()
     reload.assert_not_called()
+
+
+def test_loop_catalog_excludes_non_exclusive_modes(client, workspace) -> None:
+    """Modes with ``exclusive = False`` (coaching modes that compose with
+    any loop) are not listed: selecting one would make the composer prefix
+    every message with its slash command."""
+    from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+    async def handler(_ctx, _args):
+        return None
+
+    class Coaching:
+        name = "coach"
+        exclusive = False
+
+        @staticmethod
+        def commands():
+            return [CommandSpec(name="coach", handler=handler)]
+
+        @staticmethod
+        def is_active(_ctx):
+            return False
+
+    class ExclusivePlugin:
+        name = "review"
+
+        @staticmethod
+        def commands():
+            return [CommandSpec(name="review", handler=handler)]
+
+        @staticmethod
+        def is_active(_ctx):
+            return False
+
+    workspace.plugins.modes = [Coaching(), ExclusivePlugin()]
+
+    response = client[0].get("/api/loops")
+
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()]
+    assert "plugin:coach" not in ids
+    assert "plugin:review" in ids
+
+
+def test_loop_catalog_lists_advisor_mode(client, workspace) -> None:
+    """Advisor Mode is selectable from the composer like /goal."""
+    from qwenpaw.modes.advisor import AdvisorMode
+
+    workspace.plugins.modes = [AdvisorMode()]
+
+    response = client[0].get("/api/loops")
+
+    assert response.status_code == 200
+    advisor = next(m for m in response.json() if m["id"] == "plugin:advisor")
+    assert advisor["slash_command"] == "advisor"
+    assert advisor["name"] == "Advisor"
+    assert advisor["name_i18n"]["zh-CN"] == "顾问"

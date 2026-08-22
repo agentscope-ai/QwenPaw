@@ -2015,6 +2015,46 @@ class CodingModeConfig(BaseModel):
     )
 
 
+class AdvisorModeConfig(BaseModel):
+    """Configuration for Advisor Mode (stored in agent.json).
+
+    In Advisor Mode the agent's main model acts as a "teacher": it writes
+    a strategic plan before the agent's first step and is consulted again
+    when the agent keeps failing. The agent itself runs on the cheaper
+    ``subagent_model`` when one is configured.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Advisor Mode for this agent",
+    )
+    plan_enabled: bool = Field(
+        default=True,
+        description=(
+            "Ask the advisor for a plan before the agent's first step"
+        ),
+    )
+    followup_enabled: bool = Field(
+        default=True,
+        description=(
+            "Consult the advisor again mid-run when repeated tool "
+            "failures are detected"
+        ),
+    )
+    on_demand_enabled: bool = Field(
+        default=True,
+        description=(
+            "Expose a consult_advisor tool so the agent can ask the "
+            "advisor on its own"
+        ),
+    )
+    max_consults: int = Field(
+        default=3,
+        ge=0,
+        description="Maximum on-demand consultations per conversation",
+    )
+
+
 class FallbackPolicyConfig(BaseModel):
     """Policy controlling cross-model fallback targets."""
 
@@ -2345,6 +2385,10 @@ class AgentProfileConfig(BaseModel):
     coding_mode: CodingModeConfig = Field(
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
+    )
+    advisor_mode: AdvisorModeConfig = Field(
+        default_factory=AdvisorModeConfig,
+        description="Advisor Mode configuration for this agent",
     )
     mail: Optional[AgentMailConfig] = Field(
         default=None,
