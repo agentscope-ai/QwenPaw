@@ -2109,6 +2109,7 @@
       "high": "High"
     },
     "subagentModel": "Sub-agent model",
+    "subagentModelAdvisorHint": "Advisor Mode is on: this model runs the agent while the main model acts as its advisor.",
     "sameAsPrimary": "Same as primary",
     "enableFallback": "Enable model fallback",
     "fallbackScope": "Fallback scope",
@@ -2660,6 +2661,14 @@
     "enhancedCodeCapability": "Enhanced code capability",
     "enhancedCodeCapabilityTooltip": "Adds code-oriented tools without changing the project directory.",
     "enhancedCodeCapabilityDescription": "Enable AST, LSP, code prompts, Git context and source control.",
+    "advisorMode": "Advisor Mode",
+    "advisorModeTooltip": "The main model writes a plan before the agent starts and steps in when it keeps failing; the agent itself runs on the sub-agent model.",
+    "advisorModeDescription": "Let the main model plan and supervise this agent (experimental).",
+    "advisorModePlan": "Opening plan: the advisor writes a plan before the agent's first step",
+    "advisorModeFollowup": "Mid-run auto intervention: the harness watches tool results and calls the advisor when the agent keeps failing",
+    "advisorModeOnDemand": "Let the agent proactively ask the advisor via the consult_advisor tool",
+    "advisorModeModels": "Advisor: {{teacher}} · Agent: {{student}}",
+    "advisorModeNoStudent": "main model (set a sub-agent model to run the agent on a cheaper one)",
     "description": "Configure agent runtime parameters",
     "reactAgentTitle": "ReAct Agent",
     "llmRetryTitle": "LLM Auto Retry",
@@ -2726,6 +2735,7 @@
       "defaultTab": "Default",
       "goalTab": "Goal",
       "missionTab": "Mission",
+      "advisorTab": "Advisor",
       "defaultDescription": "The standard guarded ReAct loop used outside an explicit mode.",
       "goalDescription": "A bounded persistent loop for concrete, verifiable goals.",
       "missionDescription": "A persistent pipeline for longer-running, multi-step missions.",
@@ -4285,6 +4295,10 @@
     "compatWarningTitle": "Compatibility Warning",
     "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
     "compatWarningConfirm": "Install anyway"
+  },
+  "advisorMode": {
+    "badge": "Advisor",
+    "badgeTooltip": "Advisor Mode is on: the main model plans and supervises this agent."
   },
   "codingMode": {
     "title": "Coding Mode",

@@ -1799,6 +1799,7 @@
     }
   },
   "modelSelector": {
+    "subagentModelAdvisorHint": "Modo Conselheiro ativo: este modelo executa o agente enquanto o modelo principal atua como conselheiro.",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
     "noFreeModels": "Nenhum modelo gratuito disponível",
@@ -2328,6 +2329,14 @@
     "enhancedCodeCapability": "Aprimorar capacidade de código",
     "enhancedCodeCapabilityTooltip": "Adiciona ferramentas de código sem alterar o diretório do projeto.",
     "enhancedCodeCapabilityDescription": "Ative AST, LSP, prompts de código, contexto Git e controle de versão.",
+    "advisorMode": "Modo Conselheiro",
+    "advisorModeTooltip": "O modelo principal escreve um plano antes de o agente começar e intervém quando ele continua falhando; o agente em si roda no modelo de subagente.",
+    "advisorModeDescription": "Deixe o modelo principal planejar e supervisionar este agente (experimental).",
+    "advisorModePlan": "Plano inicial: o conselheiro escreve um plano antes do primeiro passo do agente",
+    "advisorModeFollowup": "Intervenção automática durante a execução: o harness monitora os resultados das ferramentas e chama o conselheiro quando o agente continua falhando",
+    "advisorModeOnDemand": "Permitir que o agente pergunte proativamente ao conselheiro pela ferramenta consult_advisor",
+    "advisorModeModels": "Conselheiro: {{teacher}} · Agente: {{student}}",
+    "advisorModeNoStudent": "modelo principal (defina um modelo de subagente para rodar o agente em um modelo mais barato)",
     "description": "Configure Agente runtime parameters",
     "reactAgentTitle": "React Agente",
     "llmRetryTitle": "LLM Automatico Tentar novamente",
@@ -2394,6 +2403,7 @@
       "defaultTab": "Padrão",
       "goalTab": "Meta",
       "missionTab": "Missão",
+      "advisorTab": "Conselheiro",
       "defaultDescription": "Loop ReAct protegido padrão usado fora de um modo explícito.",
       "goalDescription": "Loop persistente e limitado para metas verificáveis.",
       "missionDescription": "Pipeline persistente para missões longas e com várias etapas.",
@@ -3933,6 +3943,10 @@
     "actions": "Acoes",
     "optional": " (opcional)",
     "required": " (obrigatorio)"
+  },
+  "advisorMode": {
+    "badge": "Conselheiro",
+    "badgeTooltip": "Modo Conselheiro ativo: o modelo principal planeja e supervisiona este agente."
   },
   "codingMode": {
     "title": "Modo de Codificação",

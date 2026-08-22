@@ -1638,6 +1638,7 @@
     "retry": "再試行"
   },
   "modelSelector": {
+    "subagentModelAdvisorHint": "アドバイザーモードが有効です: このモデルがエージェントを実行し、メインモデルがアドバイザーを務めます。",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
     "noFreeModels": "利用可能な無料モデルがありません",
@@ -2090,6 +2091,14 @@
     "enhancedCodeCapability": "コード能力を強化",
     "enhancedCodeCapabilityTooltip": "プロジェクトディレクトリを変更せずにコードツールを追加します。",
     "enhancedCodeCapabilityDescription": "AST、LSP、コードプロンプト、Gitコンテキスト、ソース管理を有効にします。",
+    "advisorMode": "アドバイザーモード",
+    "advisorModeTooltip": "メインモデルがエージェントの開始前に計画を作成し、失敗が続くと介入します。エージェント自体はサブエージェントモデルで動作します。",
+    "advisorModeDescription": "メインモデルにこのエージェントの計画と監督を任せます（実験的）。",
+    "advisorModePlan": "開始時の計画: エージェントの最初のステップの前にアドバイザーが計画を作成する",
+    "advisorModeFollowup": "実行中の自動介入: ハーネスがツール結果を監視し、失敗が続くとアドバイザーを呼び出す",
+    "advisorModeOnDemand": "エージェントが consult_advisor ツールで自発的にアドバイザーに質問できるようにする",
+    "advisorModeModels": "アドバイザー: {{teacher}} · エージェント: {{student}}",
+    "advisorModeNoStudent": "メインモデル（サブエージェントモデルを設定すると、より安価なモデルでエージェントを実行できます）",
     "description": "エージェントのランタイムパラメーターを設定します",
     "reactAgentTitle": "ReActエージェント",
     "llmRetryTitle": "LLM自動再試行",
@@ -2156,6 +2165,7 @@
       "defaultTab": "デフォルト",
       "goalTab": "ゴール",
       "missionTab": "ミッション",
+      "advisorTab": "アドバイザー",
       "defaultDescription": "明示的なモード以外で使用する標準の保護付き ReAct Loop。",
       "goalDescription": "具体的で検証可能なゴール向けの持続 Loop。",
       "missionDescription": "長時間の複数ステップミッション向けパイプライン。",
@@ -3871,6 +3881,10 @@
     "actions": "操作",
     "optional": "（任意）",
     "required": "（必須）"
+  },
+  "advisorMode": {
+    "badge": "アドバイザー",
+    "badgeTooltip": "アドバイザーモードが有効です: メインモデルがこのエージェントを計画・監督します。"
   },
   "codingMode": {
     "title": "コーディングモード",

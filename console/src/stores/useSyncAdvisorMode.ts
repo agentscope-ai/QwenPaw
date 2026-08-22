@@ -1,0 +1,57 @@
+import { useEffect } from "react";
+import { useAgentStore } from "./agentStore";
+import { useAdvisorModeStore } from "./advisorModeStore";
+import { advisorModeApi } from "../api/modules/advisorMode";
+
+/**
+ * Pull Advisor Mode state for the selected agent from the backend.
+ * agent.json is the source of truth — the store is in-memory only, so
+ * without this hook the UI would show stale or empty state across reloads
+ * and tabs.
+ *
+ * Mount once at a top-level component (e.g. MainLayout) so every route
+ * sees a populated store.
+ */
+export function useSyncAdvisorMode(): void {
+  const { selectedAgent } = useAgentStore();
+  const setAdvisorMode = useAdvisorModeStore((s) => s.setAdvisorMode);
+
+  useEffect(() => {
+    if (!selectedAgent) return;
+    let cancelled = false;
+    const startRevision =
+      useAdvisorModeStore.getState().advisorModeRevisionByAgent[
+        selectedAgent
+      ] ?? 0;
+    const stillCurrent = () =>
+      (useAdvisorModeStore.getState().advisorModeRevisionByAgent[
+        selectedAgent
+      ] ?? 0) === startRevision;
+    void advisorModeApi
+      .get()
+      .then((state) => {
+        if (cancelled || !stillCurrent()) return;
+        setAdvisorMode(selectedAgent, state);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Log so a misconfigured backend is visible — then mark the agent
+        // initialized with safe defaults so the UI does not stay disabled
+        // forever on any GET failure.
+        console.warn("Failed to sync advisor mode state:", err);
+        if (stillCurrent()) {
+          setAdvisorMode(selectedAgent, {
+            enabled: false,
+            plan_enabled: true,
+            followup_enabled: true,
+            on_demand_enabled: true,
+            teacher_model: null,
+            student_model: null,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent, setAdvisorMode]);
+}

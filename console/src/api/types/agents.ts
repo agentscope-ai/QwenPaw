@@ -115,6 +115,7 @@ export interface AgentProfileConfig {
   };
   subagent_model?: ModelSlotConfig | null;
   thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
+  advisor_mode?: AdvisorModeConfig;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -124,6 +125,14 @@ export interface AgentProfileConfig {
   tools?: unknown;
   security?: unknown;
   mail?: AgentMailConfig | null;
+}
+
+export interface AdvisorModeConfig {
+  enabled: boolean;
+  plan_enabled: boolean;
+  followup_enabled: boolean;
+  on_demand_enabled: boolean;
+  max_consults: number;
 }
 
 export interface AgentModelSettingsPatch {

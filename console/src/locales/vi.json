@@ -1553,6 +1553,7 @@
     "currentAgentLlmCallsTooltip": "Số lượt trợ lý có metadata sử dụng đã ghi nhận của agent hiện tại (không phải số lời gọi API thô; phiên cũ có thể hiển thị 0)"
   },
   "modelSelector": {
+    "subagentModelAdvisorHint": "Chế độ cố vấn đang bật: mô hình này chạy agent, còn mô hình chính đóng vai trò cố vấn.",
     "placeholder": "Chọn mô hình",
     "searchPlaceholder": "Tìm kiếm mô hình...",
     "noModels": "Không có mô hình nào",
@@ -1673,6 +1674,10 @@
     "author": "Tác giả",
     "noMatchingPlugins": "Không có plugin nào khớp với bộ lọc hiện tại",
     "loadError": "Tải plugin thất bại"
+  },
+  "advisorMode": {
+    "badge": "Cố vấn",
+    "badgeTooltip": "Chế độ cố vấn đang bật: mô hình chính lập kế hoạch và giám sát agent này."
   },
   "codingMode": {
     "title": "Chế độ Lập trình",
@@ -1828,6 +1833,14 @@
     "enhancedCodeCapability": "Tăng cường khả năng lập trình",
     "enhancedCodeCapabilityTooltip": "Thêm công cụ mã mà không đổi thư mục dự án.",
     "enhancedCodeCapabilityDescription": "Bật AST, LSP, prompt mã, ngữ cảnh Git và quản lý mã nguồn.",
+    "advisorMode": "Chế độ cố vấn",
+    "advisorModeTooltip": "Mô hình chính lập kế hoạch trước khi agent bắt đầu và can thiệp khi agent liên tục thất bại; bản thân agent chạy trên mô hình sub-agent.",
+    "advisorModeDescription": "Để mô hình chính lập kế hoạch và giám sát agent này (thử nghiệm).",
+    "advisorModePlan": "Kế hoạch mở đầu: cố vấn lập kế hoạch trước bước đầu tiên của agent",
+    "advisorModeFollowup": "Tự động can thiệp giữa chừng: harness theo dõi kết quả công cụ và gọi cố vấn khi agent liên tục thất bại",
+    "advisorModeOnDemand": "Cho phép agent chủ động hỏi cố vấn qua công cụ consult_advisor",
+    "advisorModeModels": "Cố vấn: {{teacher}} · Agent: {{student}}",
+    "advisorModeNoStudent": "mô hình chính (đặt mô hình sub-agent để chạy agent trên mô hình rẻ hơn)",
     "description": "Cấu hình các tham số runtime của agent",
     "visualCompactCollapseLabel": "Nén trực quan",
     "visualCompactDescription": "Nén ngữ cảnh cũ và dài thành các trang trực quan để giảm token đầu vào. Hội thoại gần đây vẫn ở dạng văn bản.",
@@ -1905,6 +1918,7 @@
       "defaultTab": "Mặc định",
       "goalTab": "Mục tiêu",
       "missionTab": "Nhiệm vụ",
+      "advisorTab": "Cố vấn",
       "defaultDescription": "Loop ReAct được bảo vệ tiêu chuẩn ngoài chế độ cụ thể.",
       "goalDescription": "Loop liên tục có giới hạn cho mục tiêu có thể xác minh.",
       "missionDescription": "Pipeline liên tục cho nhiệm vụ dài và nhiều bước.",

@@ -2033,6 +2033,7 @@
       "high": "高"
     },
     "subagentModel": "Sub-agent 模型",
+    "subagentModelAdvisorHint": "顾问模式已开启：该模型运行智能体，主模型担任顾问。",
     "sameAsPrimary": "与主模型相同",
     "enableFallback": "启用模型降级",
     "fallbackScope": "降级范围",
@@ -2518,6 +2519,14 @@
     "enhancedCodeCapability": "增强代码能力",
     "enhancedCodeCapabilityTooltip": "增加代码工具，但不会改变项目目录。",
     "enhancedCodeCapabilityDescription": "启用 AST、LSP、代码提示词、Git 上下文和源码管理。",
+    "advisorMode": "顾问模式",
+    "advisorModeTooltip": "主模型在智能体开始前写好计划，并在其反复失败时介入；智能体本身使用 Sub-agent 模型运行。",
+    "advisorModeDescription": "让主模型为该智能体规划并督导（实验性）。",
+    "advisorModePlan": "开场计划：智能体迈出第一步前先由顾问写计划",
+    "advisorModeFollowup": "中途自动介入：harness 监测工具结果，智能体反复失败时自动召唤顾问",
+    "advisorModeOnDemand": "允许智能体通过 consult_advisor 工具主动向顾问提问",
+    "advisorModeModels": "顾问：{{teacher}} · 智能体：{{student}}",
+    "advisorModeNoStudent": "主模型（设置 Sub-agent 模型后可用更便宜的模型运行智能体）",
     "description": "配置智能体运行参数",
     "reactAgentTitle": "ReAct 智能体",
     "llmRetryTitle": "LLM 自动重试",
@@ -2584,6 +2593,7 @@
       "defaultTab": "默认",
       "goalTab": "目标",
       "missionTab": "任务",
+      "advisorTab": "顾问",
       "defaultDescription": "未启用显式模式时使用的标准受控 ReAct Loop。",
       "goalDescription": "面向具体、可验证目标的有界持续 Loop。",
       "missionDescription": "面向长时、多步骤任务的持续执行流程。",
@@ -4303,6 +4313,10 @@
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
     "compatWarningConfirm": "仍然安装"
+  },
+  "advisorMode": {
+    "badge": "顾问",
+    "badgeTooltip": "顾问模式已开启：主模型为该智能体规划并督导。"
   },
   "codingMode": {
     "title": "编程模式",

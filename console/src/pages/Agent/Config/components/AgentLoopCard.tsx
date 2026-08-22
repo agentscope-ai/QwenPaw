@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AdvisorModeTab } from "./AdvisorModeTab";
 import {
   Card,
   Form,
@@ -1605,6 +1606,16 @@ export function AgentLoopCard() {
         </span>
       ),
       children: <MissionModeTab />,
+    },
+    {
+      key: "advisor",
+      label: (
+        <span className={loopStyles.builtInTab}>
+          <Lock size={12} />
+          {t("agentConfig.loopMode.advisorTab", "Advisor")}
+        </span>
+      ),
+      children: <AdvisorModeTab />,
     },
     ...customModes.map((mode, index) => ({
       key: `custom:${mode.id}`,

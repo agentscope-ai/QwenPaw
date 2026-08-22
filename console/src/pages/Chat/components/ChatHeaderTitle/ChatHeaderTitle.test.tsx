@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatHeaderTitle from "./index";
 import styles from "./index.module.less";
+import { useAgentStore } from "@/stores/agentStore";
+import { useAdvisorModeStore } from "@/stores/advisorModeStore";
 
 const { mockUseChatAnywhereSessionsState } = vi.hoisted(() => ({
   mockUseChatAnywhereSessionsState: vi.fn(),
@@ -75,5 +77,41 @@ describe("ChatHeaderTitle", () => {
         ".qwenpaw-dropdown, .ant-dropdown",
       ),
     ).toHaveClass(styles.sessionDropdown);
+  });
+
+  it("shows the Advisor badge when Advisor Mode is on for the agent", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [{ id: "sess-1", name: "My Chat" }],
+      currentSessionId: "sess-1",
+    });
+    useAgentStore.setState({ selectedAgent: "a1", agents: [] });
+    useAdvisorModeStore.getState().setAdvisorMode("a1", {
+      enabled: true,
+      plan_enabled: true,
+      followup_enabled: true,
+      on_demand_enabled: true,
+      teacher_model: null,
+      student_model: null,
+    });
+    renderWithProviders(<ChatHeaderTitle />);
+    expect(screen.getByTestId("advisor-mode-badge")).toBeInTheDocument();
+  });
+
+  it("hides the Advisor badge when Advisor Mode is off", () => {
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: [{ id: "sess-1", name: "My Chat" }],
+      currentSessionId: "sess-1",
+    });
+    useAgentStore.setState({ selectedAgent: "a1", agents: [] });
+    useAdvisorModeStore.getState().setAdvisorMode("a1", {
+      enabled: false,
+      plan_enabled: true,
+      followup_enabled: true,
+      on_demand_enabled: true,
+      teacher_model: null,
+      student_model: null,
+    });
+    renderWithProviders(<ChatHeaderTitle />);
+    expect(screen.queryByTestId("advisor-mode-badge")).toBeNull();
   });
 });

@@ -841,6 +841,7 @@
     "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
+    "subagentModelAdvisorHint": "Mode Penasihat aktif: model ini menjalankan agen sementara model utama menjadi penasihatnya.",
     "selectModel": "Pilih model",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
     "noFreeModels": "Tidak ada model gratis tersedia",
@@ -1878,6 +1879,10 @@
       "refreshSuccess": "Log disegarkan",
       "copyBackend": "Salin log backend"
     }
+  },
+  "advisorMode": {
+    "badge": "Penasihat",
+    "badgeTooltip": "Mode Penasihat aktif: model utama merencanakan dan mengawasi agen ini."
   },
   "codingMode": {
     "title": "Mode Coding",
@@ -2994,6 +2999,14 @@
     "enhancedCodeCapability": "Kemampuan kode lanjutan",
     "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
     "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
+    "advisorMode": "Mode Penasihat",
+    "advisorModeTooltip": "Model utama menyusun rencana sebelum agen mulai dan turun tangan saat agen terus gagal; agen sendiri berjalan pada model sub-agen.",
+    "advisorModeDescription": "Biarkan model utama merencanakan dan mengawasi agen ini (eksperimental).",
+    "advisorModePlan": "Rencana awal: penasihat menyusun rencana sebelum langkah pertama agen",
+    "advisorModeFollowup": "Intervensi otomatis di tengah jalan: harness memantau hasil alat dan memanggil penasihat saat agen terus gagal",
+    "advisorModeOnDemand": "Izinkan agen bertanya secara proaktif kepada penasihat melalui alat consult_advisor",
+    "advisorModeModels": "Penasihat: {{teacher}} · Agen: {{student}}",
+    "advisorModeNoStudent": "model utama (atur model sub-agen untuk menjalankan agen pada model yang lebih murah)",
     "description": "Konfigurasi parameter runtime agen",
     "reactAgentTitle": "Agen ReAct",
     "llmRetryTitle": "Coba Ulang LLM Otomatis",
@@ -3060,6 +3073,7 @@
       "defaultTab": "Default",
       "goalTab": "Tujuan",
       "missionTab": "Misi",
+      "advisorTab": "Penasihat",
       "defaultDescription": "Loop ReAct terjaga standar di luar mode eksplisit.",
       "goalDescription": "Loop persisten berbatas untuk tujuan yang dapat diverifikasi.",
       "missionDescription": "Pipeline persisten untuk misi panjang dan bertahap.",
