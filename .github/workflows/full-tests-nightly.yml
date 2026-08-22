@@ -365,6 +365,23 @@ jobs:
               # tolerate that — the combined value is what matters.
               coverage xml --data-file=.coverage.integration \
                 -o coverage.integration.xml || [ "$?" -eq 2 ]
+              # Fail-closed guard: a collection that ran but recorded
+              # zero executed lines is a silent failure, not coverage.
+              # Historically the Windows data file uploaded fine while
+              # holding 752 file entries and 0 executed lines, masked
+              # by the combined report. Make that loud.
+              # Fail-closed guard: a collection that ran but recorded
+              # zero executed lines is a silent failure, not coverage.
+              # Historically the Windows data file uploaded fine while
+              # holding 752 file entries and 0 executed lines, masked
+              # by the combined report. Make that loud: the line_bits
+              # table holds every executed line, so an empty table
+              # means the flush path dropped all data. Any anomaly
+              # (missing table, corrupt file) also fails loud here.
+              if ! python -c "import sqlite3, sys; conn = sqlite3.connect('.coverage.integration'); n = conn.execute('SELECT COUNT(*) FROM line_bits').fetchone()[0]; conn.close(); print(f'[coverage guard] {n} executed-line rows recorded'); sys.exit(0 if n > 0 else 1)"; then
+                echo "::error::Integration coverage collection ran but recorded 0 executed lines - the flush path is silently dropping data"
+                PYTEST_RC=1
+              fi
             else
               echo "::warning::Integration coverage data file missing despite QWENPAW_INTEGRATION_COVERAGE=1 (session may have crashed before coverage flush)"
             fi

@@ -18,6 +18,10 @@ FROM ${UV_IMAGE} AS uv-src
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE}
 
+ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="2.1.1b1"
+LABEL io.qwenpaw.managed-runtime-boundary.version=\
+${QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION}
+
 # ENV variables
 ENV NODE_ENV=production
 ENV WORKSPACE_DIR=/app

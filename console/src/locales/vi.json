@@ -265,6 +265,328 @@
     "timeoutHint": "Backend không phản hồi. Vui lòng thử lại hoặc kiểm tra nhật ký.",
     "retry": "Thử lại"
   },
+  "hub": {
+    "brand": {
+      "title": "Quản trị Hub",
+      "subtitle": "Không gian làm việc cục bộ",
+      "controlPlane": "Trung tâm điều khiển"
+    },
+    "navigation": {
+      "workspace": "Không gian làm việc",
+      "overview": "Tổng quan",
+      "runtimes": "Môi trường chạy",
+      "users": "Người dùng",
+      "credentials": "Thông tin xác thực",
+      "audit": "Nhật ký kiểm tra",
+      "settings": "Cài đặt hệ thống"
+    },
+    "actions": {
+      "backToQwenPaw": "Quay lại QwenPaw",
+      "useLightTheme": "Dùng giao diện sáng",
+      "useDarkTheme": "Sử dụng chủ đề tối",
+      "signOut": "Đăng xuất",
+      "start": "Khởi động",
+      "stop": "Dừng",
+      "disable": "Vô hiệu hóa",
+      "rebuild": "Tạo lại",
+      "enableAndStart": "Kích hoạt và khởi động"
+    },
+    "roles": {
+      "admin": "Quản trị viên",
+      "user": "người dùng"
+    },
+    "userStates": {
+      "active": "Hoạt động",
+      "disabled": "Đã tắt"
+    },
+    "runtimeStates": {
+      "created": "Đã tạo",
+      "starting": "Đang khởi động",
+      "running": "Đang chạy",
+      "stopped": "Đã dừng",
+      "failed": "Lỗi"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "Chủ sở hữu có thể khởi động lại",
+      "admin_only": "Bị quản trị viên khóa"
+    },
+    "errors": {
+      "actionFailed": "Hành động không thành công",
+      "createFailed": "Tạo không thành công",
+      "updateFailed": "Cập nhật không thành công",
+      "saveFailed": "Lưu không thành công",
+      "pullTimedOut": "Đã hết thời gian chờ kéo ảnh"
+    },
+    "messages": {
+      "runtimeCreated": "Đã tạo môi trường chạy",
+      "accountCreated": "Đã tạo tài khoản",
+      "credentialStored": "Đã lưu trữ thông tin xác thực",
+      "settingsSaved": "Đã lưu cài đặt trung tâm",
+      "imagePulled": "Quá trình kéo hình ảnh Docker đã hoàn tất"
+    },
+    "validation": {
+      "required": "Trường này là bắt buộc",
+      "runtimeIdInvalid": "Sử dụng 1–64 chữ cái, số, dấu chấm, dấu gạch dưới hoặc dấu gạch ngang, bắt đầu bằng một chữ cái hoặc số",
+      "passwordMin": "Mật khẩu phải chứa ít nhất tám ký tự",
+      "credentialNameInvalid": "Sử dụng tên biến môi trường viết hoa, chẳng hạn như OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Quản trị Hub",
+      "title": "Tổng quan môi trường chạy",
+      "description": "Mỗi người dùng có một môi trường chạy riêng; tệp và khóa được tách biệt với nhau.",
+      "newRuntime": "Tạo môi trường chạy",
+      "managed": "Môi trường được quản lý",
+      "localBoundaries": "Ranh giới tiến trình cục bộ",
+      "runningNow": "Đang chạy",
+      "needsAttention": "Thời gian chạy {{count}} cần được chú ý",
+      "healthy": "Tất cả môi trường đều hoạt động bình thường",
+      "isolationPolicy": "Chính sách cách ly",
+      "available": "Có sẵn",
+      "unavailable": "Không có sẵn",
+      "failClosed": "Chặn khi có lỗi",
+      "noFallback": "Không chạy khi thiếu sandbox",
+      "executionBlocked": "Môi trường chạy đã bị chặn",
+      "isolationTitle": "Cách ly cục bộ có chặn khi lỗi",
+      "isolationDescription": "Toàn bộ cây quy trình thời gian chạy được đóng hộp cát. Nếu đầu dò cách ly gốc không thành công, QwenPaw sẽ từ chối khởi động nó.",
+      "unavailableTitle": "Phụ trợ thời gian chạy an toàn không có sẵn",
+      "unavailableDescription": "{{provisioner}} không khả dụng: {{reason}} Kiểm tra cài đặt backend, trạng thái hoạt động và cấu hình hệ thống, sau đó khởi động lại QwenPaw Hub.",
+      "unavailableUserDescription": "Backend runtime tạm thời không khả dụng. Hãy liên hệ với quản trị viên.",
+      "preflightFailed": "Kiểm tra bảo mật không thành công.",
+      "localEndpoint": "Điểm cuối cục bộ · {{endpoint}}",
+      "provisioner": "Kiểu thực thi",
+      "localExecution": "Cách ly cục bộ",
+      "dockerExecution": "Vùng chứa Docker",
+      "security": "Bảo vệ",
+      "tenant": "Đối tượng thuê",
+      "removeTitle": "Xóa {{id}}?",
+      "removeDescription": "Đăng ký bị xóa; dữ liệu thời gian chạy được giữ lại.",
+      "disableTitle": "Tắt {{id}}?",
+      "disableDescription": "Quá trình sẽ dừng và chủ sở hữu không thể khởi động lại cho đến khi quản trị viên kích hoạt nó.",
+      "rebuildTitle": "Xây dựng lại {{id}} với hình ảnh hiện tại?",
+      "rebuildDescription": "Vùng chứa sẽ được thay thế bằng hình ảnh trong cài đặt hệ thống. Không gian làm việc, bí mật và bản sao lưu liên tục được giữ lại.",
+      "emptyTitle": "Chưa có thời gian chạy",
+      "emptyDescription": "Tạo thời gian chạy QwenPaw cục bộ bị cô lập đầu tiên."
+    },
+    "users": {
+      "eyebrow": "Nhận dạng và truy cập",
+      "title": "Quyền truy cập của người dùng",
+      "description": "Tạo tài khoản cục bộ, chỉ định quyền truy cập quản trị và thu hồi phiên từ một nơi.",
+      "addAccount": "Thêm tài khoản",
+      "publicRegistration": "Đăng ký công khai",
+      "publicRegistrationDescription": "Khi bị tắt, chỉ quản trị viên mới có thể tạo tài khoản.",
+      "currentAccountProtected": "Tài khoản hiện tại được bảo vệ",
+      "empty": "Không có người dùng nào phù hợp với các bộ lọc này"
+    },
+    "credentials": {
+      "eyebrow": "Kho thông tin xác thực theo đối tượng thuê",
+      "title": "Thông tin xác thực",
+      "description": "Lưu trữ khóa của nhà cung cấp bên trong phạm vi thời gian chạy hoặc đối tượng thuê rõ ràng. Các giá trị bí mật được mã hóa và không bao giờ được API trả về.",
+      "storeCredential": "Lưu trữ thông tin xác thực",
+      "updated": "Đã cập nhật {{date}}",
+      "deleteTitle": "Xóa {{name}}?",
+      "deleteDescription": "Thời gian chạy sử dụng thông tin xác thực này có thể ngừng hoạt động.",
+      "emptyTitle": "Chưa có thông tin xác thực",
+      "emptyDescription": "Lưu trữ khóa API trong phạm vi thời gian chạy hoặc đối tượng thuê.",
+      "encrypted": "Được mã hóa khi lưu; không thể đọc bản rõ"
+    },
+    "overview": {
+      "eyebrow": "Buồng lái vận hành",
+      "title": "Tổng quan hoạt động của Hub",
+      "description": "Tìm hiểu tình trạng của Hub bằng cách sử dụng trạng thái thời gian chạy thực, tài nguyên máy chủ và sự kiện kiểm tra.",
+      "availability": "Tính khả dụng của thời gian chạy",
+      "availabilityDetail": "{{running}} của thời gian chạy {{total}} hiện đang trực tuyến",
+      "totalRuntimes": "Tổng số môi trường",
+      "failedCount": "Thời gian chạy {{count}} cần được chú ý",
+      "totalUsers": "Người dùng trung tâm",
+      "managedLocally": "Quản lý quyền truy cập và nhận dạng cục bộ",
+      "hostResources": "Tài nguyên máy chủ",
+      "liveSnapshot": "Ảnh chụp nhanh trực tiếp hiện tại",
+      "memory": "Bộ nhớ",
+      "dataDisk": "Đĩa dữ liệu",
+      "recentActivity": "Hoạt động gần đây",
+      "auditBacked": "Được hỗ trợ bởi nhật ký kiểm tra liên tục",
+      "systemHealthy": "Tất cả các hệ thống hoạt động",
+      "systemDegraded": "Hệ thống xuống cấp",
+      "localIsolation": "Thực thi cách ly cục bộ"
+    },
+    "table": {
+      "searchRuntimes": "Tìm kiếm thời gian chạy, chủ sở hữu hoặc điểm cuối",
+      "searchUsers": "Tìm kiếm tên người dùng hoặc ID người dùng",
+      "searchCredentials": "Tìm kiếm tên hoặc phạm vi thông tin xác thực",
+      "searchAudit": "Tìm kiếm diễn viên hoặc tài nguyên",
+      "allStates": "Tất cả trạng thái",
+      "allOwners": "Tất cả chủ sở hữu",
+      "allExecutions": "Tất cả các kiểu thực thi",
+      "allRoles": "Tất cả vai trò",
+      "allUserStates": "Tất cả trạng thái người dùng",
+      "allScopes": "Tất cả phạm vi",
+      "allActions": "Mọi hành động",
+      "runtime": "Môi trường chạy",
+      "status": "Trạng thái",
+      "owner": "Người sở hữu",
+      "endpoint": "Điểm cuối",
+      "execution": "Cách chạy",
+      "updated": "Đã cập nhật",
+      "user": "Người dùng",
+      "role": "Vai trò",
+      "created": "Ngày tạo",
+      "credential": "Thông tin xác thực",
+      "scope": "Phạm vi",
+      "event": "Sự kiện",
+      "actor": "Người thực hiện",
+      "resource": "Tài nguyên",
+      "result": "Kết quả",
+      "time": "Thời gian",
+      "total": "{{total}} mục"
+    },
+    "audit": {
+      "eyebrow": "An ninh và quản trị",
+      "title": "Nhật ký kiểm tra",
+      "description": "Xem xét ai đã thực hiện từng hành động quản lý Hub, mục tiêu, kết quả và thời gian thực hiện. Các giá trị nhạy cảm không bao giờ được kiểm tra.",
+      "empty": "Chưa có sự kiện quản lý nào"
+    },
+    "settings": {
+      "eyebrow": "Cấu hình nền tảng",
+      "title": "Cài đặt hệ thống",
+      "description": "Quản lý cấu hình Hub hoàn chỉnh từ một nguồn thông tin chính xác đã được kiểm tra. Các thay đổi có hiệu lực ngay lập tức và tồn tại trong suốt quá trình khởi động lại.",
+      "save": "Lưu cài đặt",
+      "meta": "Bản sửa đổi {{revision}} · Đã cập nhật {{date}}",
+      "tabs": {
+        "access": "Bảo mật truy cập",
+        "runtime": "Thời gian chạy"
+      },
+      "access": {
+        "title": "Truy cập và đăng ký",
+        "description": "Định cấu hình chính sách tài khoản công cộng và địa chỉ Hub có thể truy cập được bằng trình duyệt.",
+        "publicBaseUrl": "URL cơ sở công khai",
+        "publicBaseUrlHint": "Được sử dụng cho các lệnh gọi lại OAuth. Chỉ để trống đối với các triển khai chỉ lặp lại.",
+        "registration": "Đăng ký công khai",
+        "registrationHint": "Khi bị tắt, chỉ quản trị viên mới có thể tạo tài khoản.",
+        "defaultRole": "Vai trò đăng ký mặc định",
+        "defaultRoleHint": "Tài khoản tự đăng ký luôn là người dùng thông thường để bảo mật."
+      },
+      "security": {
+        "title": "Bảo vệ xác thực",
+        "description": "Hạn chế lạm dụng đăng nhập và đăng ký cũng như chặn địa chỉ hoặc mạng.",
+        "ipBlacklist": "danh sách đen IP",
+        "ipBlacklistHint": "Hỗ trợ IPv4, IPv6 và CIDR; nhấn Enter sau mỗi giá trị.",
+        "trustedProxyIps": "Proxy đảo ngược đáng tin cậy",
+        "trustedProxyIpsHint": "X-Forwarded-For chỉ được tin cậy khi được gửi bởi các địa chỉ này.",
+        "loginRateLimit": "Giới hạn tỷ lệ đăng nhập không thành công",
+        "loginRateLimitHint": "Tạm thời chặn các lần đăng nhập không thành công lặp lại từ một địa chỉ.",
+        "registrationRateLimit": "Giới hạn tỷ lệ đăng ký",
+        "registrationRateLimitHint": "Hạn chế các đợt tạo tài khoản mới từ một địa chỉ.",
+        "maxAttempts": "Số lần thử tối đa",
+        "windowSeconds": "Cửa sổ (giây)",
+        "blockSeconds": "Thời lượng chặn (giây)"
+      },
+      "runtime": {
+        "title": "Chính sách thời gian chạy",
+        "description": "Chọn chương trình phụ trợ thời gian chạy. Thời gian chạy hiện tại sẽ bật lần khởi động lại tiếp theo.",
+        "provisioner": "Phần phụ trợ thời gian chạy",
+        "localBackend": "Quy trình cục bộ",
+        "localBackendHint": "Chạy các tiến trình riêng biệt trực tiếp trên máy chủ này.",
+        "dockerBackend": "thùng chứa Docker",
+        "dockerBackendHint": "Chạy từng tài khoản trong vùng chứa được quản lý.",
+        "backendUnavailable": "Không có sẵn trên máy chủ này",
+        "localIsolationHint": "Chế độ cục bộ sử dụng các quy trình máy chủ và không sử dụng bất kỳ cài đặt hình ảnh Docker nào.",
+        "dockerIsolationHint": "Chế độ Docker áp dụng chính sách hình ảnh và tài nguyên bên dưới cho mọi tài khoản."
+      },
+      "docker": {
+        "title": "Chính sách Docker",
+        "description": "Quản lý tập trung hình ảnh, hành vi kéo và giới hạn tài nguyên trên mỗi vùng chứa. Người dùng không thể ghi đè các cài đặt này.",
+        "unavailable": "Công cụ Docker không khả dụng",
+        "source": "Nguồn hình ảnh",
+        "dockerHub": "Docker Hub chính thức",
+        "aliyunAcr": "Cơ quan đăng ký đám mây chính thức của Alibaba",
+        "custom": "Hình ảnh tùy chỉnh",
+        "customHint": "Nhập bất kỳ tham chiếu hình ảnh nào được chính sách cho phép.",
+        "customRegistry": "Đăng ký tùy chỉnh hoặc tham chiếu hình ảnh",
+        "localHost": "Hình ảnh cục bộ",
+        "localHostHint": "Sử dụng thẻ hình ảnh đã có trên máy chủ này.",
+        "noLocalImages": "Không tìm thấy hình ảnh địa phương được gắn thẻ",
+        "image": "Hình ảnh và thẻ",
+        "selectLocalImage": "Chọn thẻ hình ảnh cục bộ",
+        "selectedImage": "Hình ảnh hiệu quả",
+        "repository": "Kho lưu trữ",
+        "localStatus": "Trạng thái cục bộ",
+        "downloaded": "Đã tải xuống",
+        "notDownloaded": "Chưa tải xuống",
+        "pullPolicy": "Chính sách kéo tự động",
+        "ifNotPresent": "Kéo khi thiếu cục bộ",
+        "always": "Kéo trước lần sáng tạo đầu tiên",
+        "never": "Chỉ sử dụng hình ảnh địa phương",
+        "pullImage": "Kéo hình ảnh ngay bây giờ",
+        "localImages": "Tham chiếu hình ảnh cục bộ {{count}}",
+        "resources": "Giới hạn tài nguyên vùng chứa",
+        "cpuLimit": "lõi CPU",
+        "memoryLimit": "Bộ nhớ (MB)",
+        "pidsLimit": "Quy trình tối đa",
+        "shmSize": "Bộ nhớ dùng chung (MB)"
+      },
+      "quotas": {
+        "title": "Dung lượng thời gian chạy toàn cầu",
+        "description": "Mỗi người thuê sở hữu chính xác một thời gian chạy; điều này giới hạn thời gian chạy đồng thời trên Hub.",
+        "maxRunningRuntimes": "Thời gian chạy tối đa",
+        "unlimitedHint": "Trống có nghĩa là không giới hạn."
+      }
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "Thời gian chạy đã tạo",
+        "start": "Đã bắt đầu thời gian chạy",
+        "stop": "Đã dừng thời gian chạy",
+        "disable": "Thời gian chạy bị vô hiệu hóa",
+        "rebuild": "Thời gian chạy được xây dựng lại",
+        "delete": "Đã xóa thời gian chạy"
+      },
+      "image": {
+        "pull": "Đã kéo hình ảnh Docker"
+      },
+      "user": {
+        "create": "Người dùng đã tạo",
+        "update": "Người dùng đã cập nhật"
+      },
+      "credential": {
+        "store": "Thông tin xác thực được lưu trữ",
+        "delete": "Thông tin xác thực đã bị xóa"
+      },
+      "settings": {
+        "update": "Đã cập nhật cài đặt Hub"
+      },
+      "auth": {
+        "register": "Người dùng Hub đã đăng ký"
+      }
+    },
+    "auditOutcomes": {
+      "success": "Thành công",
+      "failure": "Sự thất bại"
+    },
+    "runtimeForm": {
+      "title": "Tạo thời gian chạy",
+      "hint": "Thời gian chạy bắt đầu bên trong hộp cát cục bộ gốc. Các tệp, bí mật và cây quy trình của nó tách biệt với những người dùng khác.",
+      "runtimeId": "ID thời gian chạy",
+      "startImmediately": "Bắt đầu ngay lập tức",
+      "submit": "Tạo thời gian chạy"
+    },
+    "userForm": {
+      "title": "Thêm tài khoản",
+      "hint": "Sử dụng mật khẩu tạm thời có ít nhất tám ký tự. Người dùng chỉ có thể truy cập thời gian chạy do người thuê cá nhân của họ sở hữu.",
+      "username": "Tên người dùng",
+      "temporaryPassword": "Mật khẩu tạm thời",
+      "role": "Vai trò",
+      "submit": "Tạo tài khoản"
+    },
+    "credentialForm": {
+      "title": "Lưu trữ thông tin xác thực",
+      "hint": "Phạm vi đối tượng thuê áp dụng cho tất cả thời gian chạy của bạn. Phạm vi thời gian chạy là ghi đè riêng tư cho một quy trình đã chọn.",
+      "scope": "Phạm vi",
+      "allRuntimes": "Tất cả thời gian chạy của tôi",
+      "environmentName": "Tên môi trường",
+      "secretValue": "Giá trị bí mật",
+      "submit": "Mã hóa và lưu trữ"
+    }
+  },
   "login": {
     "title": "Đăng nhập",
     "description": "Nhập mật khẩu để truy cập QwenPaw Console.",
@@ -302,7 +624,17 @@
     "saving": "Đang lưu...",
     "save": "Lưu thay đổi",
     "authDisabled": "Xác thực đang tắt — đổi mật khẩu không khả dụng",
-    "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
+    "wrongCurrentPassword": "Mật khẩu hiện tại không đúng",
+    "username": "Tên người dùng",
+    "passwordRequired": "Vui lòng nhập mật khẩu mới",
+    "hubPasswordPlaceholder": "Nhập ít nhất tám ký tự",
+    "runtimeTitle": "Môi trường cá nhân",
+    "runtimeDescription": "Khởi động lại môi trường nếu không gian làm việc không khả dụng. Tác vụ đang chạy sẽ bị gián đoạn nhưng dữ liệu đã lưu vẫn được giữ lại.",
+    "runtimeRestartConfirmTitle": "Khởi động lại môi trường?",
+    "runtimeRestartConfirmDescription": "Tác vụ đang chạy sẽ bị gián đoạn trong khi khởi động lại.",
+    "runtimeRestart": "Khởi động lại môi trường",
+    "runtimeRestartSuccess": "Đã khởi động lại môi trường",
+    "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
     "groups": {
