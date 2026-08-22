@@ -23,8 +23,14 @@ from agentscope.event import (
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    ToolResultEndEvent,
+    ToolResultStartEvent,
+    ToolResultTextDeltaEvent,
 )
-from agentscope.message import HintBlock, Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock, ToolResultState
 from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -186,6 +192,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
+        # Tool call + result pairs appended to the context by a
+        # middleware (e.g. an advisor plan), waiting to be surfaced to
+        # the UI by ``_reasoning``.
+        self._injected_exchanges: list[dict[str, str]] = []
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
         # native AgentScope compression (see compress_context /
@@ -949,6 +959,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
+                    for injected in self._drain_injected_exchange_events():
+                        yield injected
                     self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
@@ -1000,6 +1012,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
+                        for injected in self._drain_injected_exchange_events():
+                            yield injected
                         self._attach_fallback_notices(evt, fallback_sink)
                         yield evt
                 if model_key and learn_global_rejection:
@@ -1178,6 +1192,76 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return _is_media_block(block)
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Middleware-injected exchanges, surfaced to the UI as tool calls
+    # ------------------------------------------------------------------
+
+    def queue_injected_exchange(
+        self,
+        *,
+        call_id: str,
+        name: str,
+        arguments: str,
+        output: str,
+    ) -> None:
+        """Record a tool call + result pair that a middleware appended to
+        the context (for example an advisor plan).
+
+        ``_reasoning`` emits it as ordinary tool-call events before the
+        next model event, so the user sees it live; without this the
+        injected exchange only shows up when the session history is
+        reloaded.
+        """
+        queue = getattr(self, "_injected_exchanges", None)
+        if queue is None:
+            queue = self._injected_exchanges = []
+        queue.append(
+            {
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments or "",
+                "output": output or "",
+            },
+        )
+
+    def _drain_injected_exchange_events(self) -> Any:
+        """Yield the UI events for every queued injected exchange."""
+        queue = getattr(self, "_injected_exchanges", None)
+        if not queue:
+            return
+        reply_id = getattr(self.state, "reply_id", "") or ""
+        while queue:
+            item = queue.pop(0)
+            call_id = item["call_id"]
+            yield ToolCallStartEvent(
+                reply_id=reply_id,
+                tool_call_id=call_id,
+                tool_call_name=item["name"],
+            )
+            if item["arguments"]:
+                yield ToolCallDeltaEvent(
+                    reply_id=reply_id,
+                    tool_call_id=call_id,
+                    delta=item["arguments"],
+                )
+            yield ToolCallEndEvent(reply_id=reply_id, tool_call_id=call_id)
+            yield ToolResultStartEvent(
+                reply_id=reply_id,
+                tool_call_id=call_id,
+                tool_call_name=item["name"],
+            )
+            if item["output"]:
+                yield ToolResultTextDeltaEvent(
+                    reply_id=reply_id,
+                    tool_call_id=call_id,
+                    delta=item["output"],
+                )
+            yield ToolResultEndEvent(
+                reply_id=reply_id,
+                tool_call_id=call_id,
+                state=ToolResultState.SUCCESS,
+            )
+
     # Tool call enhancement: hint injection + hook registration
     # ------------------------------------------------------------------
 
