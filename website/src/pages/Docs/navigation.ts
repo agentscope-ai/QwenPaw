@@ -62,6 +62,10 @@ export const DOC_GROUPS: DocGroup[] = [
     ],
   },
   {
+    titleKey: "docs.groupHub",
+    children: [{ slug: "hub", titleKey: "docs.hub" }],
+  },
+  {
     titleKey: "docs.groupBrowserDesktop",
     children: [
       { slug: "browser", titleKey: "docs.browser" },

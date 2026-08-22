@@ -3172,6 +3172,328 @@
       }
     }
   },
+  "hub": {
+    "brand": {
+      "title": "Administração do Hub",
+      "subtitle": "Espaço de trabalho local",
+      "controlPlane": "Plano de controle"
+    },
+    "navigation": {
+      "workspace": "Espaço de trabalho",
+      "overview": "Operações",
+      "runtimes": "Tempos de execução",
+      "users": "Usuários",
+      "credentials": "Credenciais",
+      "audit": "Registro de auditoria",
+      "settings": "Configurações do sistema"
+    },
+    "actions": {
+      "backToQwenPaw": "Voltar para QwenPaw",
+      "useLightTheme": "Use tema claro",
+      "useDarkTheme": "Usar tema escuro",
+      "signOut": "Sair",
+      "start": "Iniciar",
+      "stop": "Parar",
+      "disable": "Desativar",
+      "rebuild": "Recriar",
+      "enableAndStart": "Ativar e iniciar"
+    },
+    "roles": {
+      "admin": "Administrador",
+      "user": "Usuário"
+    },
+    "userStates": {
+      "active": "Ativo",
+      "disabled": "Desabilitado"
+    },
+    "runtimeStates": {
+      "created": "Criado",
+      "starting": "Iniciando",
+      "running": "Em execução",
+      "stopped": "Parado",
+      "failed": "Falhou"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "O proprietário pode reiniciar",
+      "admin_only": "Bloqueado pelo administrador"
+    },
+    "errors": {
+      "actionFailed": "Falha na ação",
+      "createFailed": "Falha na criação",
+      "updateFailed": "Falha na atualização",
+      "saveFailed": "Falha ao salvar",
+      "pullTimedOut": "Tempo limite esgotado aguardando a extração da imagem"
+    },
+    "messages": {
+      "runtimeCreated": "Tempo de execução criado",
+      "accountCreated": "Conta criada",
+      "credentialStored": "Credencial armazenada",
+      "settingsSaved": "Configurações do hub salvas",
+      "imagePulled": "Extração de imagem Docker concluída"
+    },
+    "validation": {
+      "required": "Este campo é obrigatório",
+      "runtimeIdInvalid": "Use de 1 a 64 letras, números, pontos, sublinhados ou hifens, começando com uma letra ou número",
+      "passwordMin": "A senha deve conter pelo menos oito caracteres",
+      "credentialNameInvalid": "Use um nome de variável de ambiente em letras maiúsculas, como OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Administração do hub",
+      "title": "Visão geral do tempo de execução",
+      "description": "Cada usuário tem um ambiente de execução próprio, com arquivos e chaves separados dos demais.",
+      "newRuntime": "Novo tempo de execução",
+      "managed": "Tempos de execução gerenciados",
+      "localBoundaries": "Limites locais do processo",
+      "runningNow": "Correndo agora",
+      "needsAttention": "O tempo de execução {{count}} precisa de atenção",
+      "healthy": "Todos os estados observados são saudáveis",
+      "isolationPolicy": "Política de isolamento",
+      "available": "Disponível",
+      "unavailable": "Indisponível",
+      "failClosed": "Falha fechada",
+      "noFallback": "Nenhum substituto sem sandbox",
+      "executionBlocked": "A execução do tempo de execução está bloqueada",
+      "isolationTitle": "Isolamento local com falha fechada",
+      "isolationDescription": "Toda a árvore do processo de tempo de execução está em área restrita. Se a sonda de isolamento nativo falhar, QwenPaw se recusará a iniciá-la.",
+      "unavailableTitle": "Back-end de tempo de execução seguro indisponível",
+      "unavailableDescription": "{{provisioner}} está indisponível: {{reason}} Verifique a instalação, o status de execução e a configuração do sistema do backend e reinicie o QwenPaw Hub.",
+      "unavailableUserDescription": "O backend de runtime está temporariamente indisponível. Entre em contato com um administrador.",
+      "preflightFailed": "A simulação de segurança falhou.",
+      "localEndpoint": "Ponto de extremidade local · {{endpoint}}",
+      "provisioner": "Tipo de execução",
+      "localExecution": "Isolamento local",
+      "dockerExecution": "Contêiner Docker",
+      "security": "Segurança",
+      "tenant": "Inquilino",
+      "removeTitle": "Remover {{id}}?",
+      "removeDescription": "O registro é removido; os dados de tempo de execução são retidos.",
+      "disableTitle": "Desativar {{id}}?",
+      "disableDescription": "O processo será interrompido e o proprietário não poderá reiniciá-lo até que um administrador o habilite.",
+      "rebuildTitle": "Reconstruir {{id}} com a imagem atual?",
+      "rebuildDescription": "O contêiner será substituído usando a imagem nas configurações do sistema. Espaço de trabalho persistente, segredos e backups são mantidos.",
+      "emptyTitle": "Ainda não há tempos de execução",
+      "emptyDescription": "Crie o primeiro tempo de execução QwenPaw local isolado."
+    },
+    "users": {
+      "eyebrow": "Identidade e acesso",
+      "title": "Acesso do usuário",
+      "description": "Crie contas locais, atribua acesso administrativo e revogue sessões em um só lugar.",
+      "addAccount": "Adicionar conta",
+      "publicRegistration": "Registro público",
+      "publicRegistrationDescription": "Quando desativado, apenas administradores podem criar contas.",
+      "currentAccountProtected": "Conta atual protegida",
+      "empty": "Nenhum usuário corresponde a esses filtros"
+    },
+    "credentials": {
+      "eyebrow": "Cofre com escopo de locatário",
+      "title": "Credenciais",
+      "description": "Armazene chaves de provedor dentro de um locatário explícito ou escopo de tempo de execução. Os valores secretos são criptografados e nunca retornados pelo API.",
+      "storeCredential": "Salvar credencial",
+      "updated": "Atualizado em {{date}}",
+      "deleteTitle": "Excluir {{name}}?",
+      "deleteDescription": "Os tempos de execução que usam essa credencial podem parar de funcionar.",
+      "emptyTitle": "O cofre está vazio",
+      "emptyDescription": "Armazene uma chave API com escopo de locatário ou tempo de execução.",
+      "encrypted": "Criptografado em repouso; texto simples não pode ser lido"
+    },
+    "overview": {
+      "eyebrow": "Painel de operações",
+      "title": "Visão geral do Hub",
+      "description": "Entenda a integridade do Hub usando estado de tempo de execução real, recursos de host e eventos de auditoria.",
+      "availability": "Disponibilidade de tempo de execução",
+      "availabilityDetail": "{{running}} dos tempos de execução {{total}} estão atualmente online",
+      "totalRuntimes": "Total de ambientes",
+      "failedCount": "Os tempos de execução {{count}} precisam de atenção",
+      "totalUsers": "Usuários do hub",
+      "managedLocally": "Gerenciamento local de identidade e acesso",
+      "hostResources": "Recursos de hospedagem",
+      "liveSnapshot": "Instantâneo ao vivo atual",
+      "memory": "Memória",
+      "dataDisk": "Disco de dados",
+      "recentActivity": "Atividade recente",
+      "auditBacked": "Apoiado pelo log de auditoria persistente",
+      "systemHealthy": "Todos os sistemas funcionando",
+      "systemDegraded": "Sistema degradado",
+      "localIsolation": "Execução isolada local"
+    },
+    "table": {
+      "searchRuntimes": "Pesquise tempos de execução, proprietários ou endpoints",
+      "searchUsers": "Pesquise nomes de usuário ou IDs de usuário",
+      "searchCredentials": "Pesquisar nomes de credenciais ou escopos",
+      "searchAudit": "Pesquisar atores ou recursos",
+      "allStates": "Todos os estados",
+      "allOwners": "Todos os proprietários",
+      "allExecutions": "Todos os tipos de execução",
+      "allRoles": "Todas as funções",
+      "allUserStates": "Todos os estados do usuário",
+      "allScopes": "Todos os escopos",
+      "allActions": "Todas as ações",
+      "runtime": "Tempo de execução",
+      "status": "Status",
+      "owner": "Proprietário",
+      "endpoint": "Endpoint",
+      "execution": "Execução",
+      "updated": "Atualizado",
+      "user": "Usuário",
+      "role": "Função",
+      "created": "Criado",
+      "credential": "Credencial",
+      "scope": "Escopo",
+      "event": "Evento",
+      "actor": "Ator",
+      "resource": "Recurso",
+      "result": "Resultado",
+      "time": "Tempo",
+      "total": "{{total}} itens"
+    },
+    "audit": {
+      "eyebrow": "Segurança e governança",
+      "title": "Registro de auditoria",
+      "description": "Revise quem executou cada ação de gerenciamento do Hub, seu objetivo, resultado e prazo. Valores sensíveis nunca são auditados.",
+      "empty": "Ainda não há eventos de gerenciamento"
+    },
+    "settings": {
+      "eyebrow": "Configuração da plataforma",
+      "title": "Configurações do sistema",
+      "description": "Gerencie a configuração completa do Hub a partir de uma fonte confiável auditada. As alterações entram em vigor imediatamente e persistem durante as reinicializações.",
+      "save": "Salvar configurações",
+      "meta": "Revisão {{revision}} · {{date}} atualizado",
+      "tabs": {
+        "access": "Segurança de acesso",
+        "runtime": "Tempos de execução"
+      },
+      "access": {
+        "title": "Acesso e registro",
+        "description": "Configure o endereço do Hub acessível pelo navegador e a política de conta pública.",
+        "publicBaseUrl": "URL base pública",
+        "publicBaseUrlHint": "Usado para retornos de chamada OAuth. Deixe em branco apenas para implantações somente de loopback.",
+        "registration": "Registro público",
+        "registrationHint": "Quando desativado, apenas administradores podem criar contas.",
+        "defaultRole": "Função de registro padrão",
+        "defaultRoleHint": "As contas auto-registradas são sempre de usuários comuns por questões de segurança."
+      },
+      "security": {
+        "title": "Proteção de autenticação",
+        "description": "Limite o abuso de login e registro e bloqueie endereços ou redes.",
+        "ipBlacklist": "Lista negra de IP",
+        "ipBlacklistHint": "Suporta IPv4, IPv6 e CIDR; pressione Enter após cada valor.",
+        "trustedProxyIps": "Proxies reversos confiáveis",
+        "trustedProxyIpsHint": "X-Forwarded-For é confiável apenas quando enviado por esses endereços.",
+        "loginRateLimit": "Falha no limite de taxa de login",
+        "loginRateLimitHint": "Bloqueie temporariamente repetidas tentativas de login malsucedidas de um endereço.",
+        "registrationRateLimit": "Limite de taxa de registro",
+        "registrationRateLimitHint": "Restrinja a criação de novas contas a partir de um endereço.",
+        "maxAttempts": "Máximo de tentativas",
+        "windowSeconds": "Janela (segundos)",
+        "blockSeconds": "Duração do bloco (segundos)"
+      },
+      "runtime": {
+        "title": "Política de tempo de execução",
+        "description": "Selecione o back-end do tempo de execução. Os tempos de execução existentes são ativados na próxima reinicialização.",
+        "provisioner": "Back-end de tempo de execução",
+        "localBackend": "Processo local",
+        "localBackendHint": "Executa processos isolados diretamente neste host.",
+        "dockerBackend": "Contêiner Docker",
+        "dockerBackendHint": "Executa cada conta em um contêiner gerenciado.",
+        "backendUnavailable": "Indisponível neste host",
+        "localIsolationHint": "O modo local usa processos de host e não usa nenhuma configuração de imagem Docker.",
+        "dockerIsolationHint": "O modo Docker aplica a política de imagem e recursos abaixo a todas as contas."
+      },
+      "docker": {
+        "title": "Política Docker",
+        "description": "Gerencie centralmente a imagem, o comportamento de pull e os limites de recursos por contêiner. Os usuários não podem substituir essas configurações.",
+        "unavailable": "O mecanismo Docker não está disponível",
+        "source": "Fonte da imagem",
+        "dockerHub": "Docker Hub oficial",
+        "aliyunAcr": "Registro oficial do Alibaba Cloud",
+        "custom": "Imagem personalizada",
+        "customHint": "Insira qualquer referência de imagem permitida pela política.",
+        "customRegistry": "Registro personalizado ou referência de imagem",
+        "localHost": "Imagem local",
+        "localHostHint": "Use uma tag de imagem já presente neste host.",
+        "noLocalImages": "Nenhuma imagem local marcada foi encontrada",
+        "image": "Imagem e etiqueta",
+        "selectLocalImage": "Selecione uma tag de imagem local",
+        "selectedImage": "Imagem eficaz",
+        "repository": "Repositório",
+        "localStatus": "Situação local",
+        "downloaded": "Baixado",
+        "notDownloaded": "Não baixado",
+        "pullPolicy": "Política de pull automático",
+        "ifNotPresent": "Puxe quando estiver faltando localmente",
+        "always": "Puxe antes da primeira criação",
+        "never": "Use apenas imagens locais",
+        "pullImage": "Extraia a imagem agora",
+        "localImages": "Referências de imagem local {{count}}",
+        "resources": "Limites de recursos do contêiner",
+        "cpuLimit": "Núcleos de CPU",
+        "memoryLimit": "Memória (MB)",
+        "pidsLimit": "Máximo de processos",
+        "shmSize": "Memória compartilhada (MB)"
+      },
+      "quotas": {
+        "title": "Capacidade de tempo de execução global",
+        "description": "Cada locatário possui exatamente um runtime; isso limita os tempos de execução simultâneos no Hub.",
+        "maxRunningRuntimes": "Tempos máximos de execução",
+        "unlimitedHint": "Vazio significa ilimitado."
+      }
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "Tempo de execução criado",
+        "start": "Tempo de execução iniciado",
+        "stop": "Tempo de execução interrompido",
+        "disable": "Tempo de execução desativado",
+        "rebuild": "Tempo de execução reconstruído",
+        "delete": "Tempo de execução excluído"
+      },
+      "image": {
+        "pull": "Imagem Docker extraída"
+      },
+      "user": {
+        "create": "Usuário criado",
+        "update": "Usuário atualizado"
+      },
+      "credential": {
+        "store": "Credencial armazenada",
+        "delete": "Credencial excluída"
+      },
+      "settings": {
+        "update": "Configurações atualizadas do Hub"
+      },
+      "auth": {
+        "register": "Usuário registrado do Hub"
+      }
+    },
+    "auditOutcomes": {
+      "success": "Sucesso",
+      "failure": "Falha"
+    },
+    "runtimeForm": {
+      "title": "Criar tempo de execução",
+      "hint": "O tempo de execução começa dentro da sandbox local nativa. Seus arquivos, segredos e árvore de processos permanecem separados de outros usuários.",
+      "runtimeId": "ID do tempo de execução",
+      "startImmediately": "Comece imediatamente",
+      "submit": "Criar tempo de execução"
+    },
+    "userForm": {
+      "title": "Adicionar conta",
+      "hint": "Use uma senha temporária com pelo menos oito caracteres. O usuário só pode acessar tempos de execução pertencentes ao seu locatário pessoal.",
+      "username": "Nome de usuário",
+      "temporaryPassword": "Senha temporária",
+      "role": "Papel",
+      "submit": "Criar uma conta"
+    },
+    "credentialForm": {
+      "title": "Salvar credencial",
+      "hint": "O escopo do locatário se aplica a todos os seus tempos de execução. O escopo do tempo de execução é uma substituição privada para um processo selecionado.",
+      "scope": "Escopo",
+      "allRuntimes": "Todos os meus tempos de execução",
+      "environmentName": "Nome do ambiente",
+      "secretValue": "Valor secreto",
+      "submit": "Criptografar e armazenar"
+    }
+  },
   "login": {
     "title": "Login to QwenPaw",
     "registerTitle": "Criar Account",
@@ -3208,7 +3530,17 @@
     "wrongPassword": "Atual password is incorrect",
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
-    "usernameEmpty": "Username cannot be blank"
+    "usernameEmpty": "Username cannot be blank",
+    "username": "Nome de usuário",
+    "passwordRequired": "Digite uma nova senha",
+    "hubPasswordPlaceholder": "Digite pelo menos oito caracteres",
+    "runtimeTitle": "Ambiente pessoal",
+    "runtimeDescription": "Reinicie o ambiente se o espaço de trabalho ficar indisponível. As tarefas em execução serão interrompidas, mas os dados salvos serão mantidos.",
+    "runtimeRestartConfirmTitle": "Reiniciar o ambiente?",
+    "runtimeRestartConfirmDescription": "As tarefas em execução serão interrompidas durante a reinicialização.",
+    "runtimeRestart": "Reiniciar ambiente",
+    "runtimeRestartSuccess": "Ambiente reiniciado",
+    "runtimeRestartFailed": "Falha ao reiniciar o ambiente"
   },
   "approval": {
     "title": "Seguranca Approval Obrigatorio",

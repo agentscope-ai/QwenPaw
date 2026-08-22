@@ -3421,6 +3421,328 @@
       }
     }
   },
+  "hub": {
+    "brand": {
+      "title": "Hub 管理中心",
+      "subtitle": "本地工作空间",
+      "controlPlane": "控制中心"
+    },
+    "navigation": {
+      "workspace": "工作空间",
+      "overview": "运营总览",
+      "runtimes": "运行环境",
+      "users": "用户",
+      "credentials": "凭据",
+      "audit": "审计日志",
+      "settings": "系统设置"
+    },
+    "actions": {
+      "backToQwenPaw": "返回 QwenPaw",
+      "useLightTheme": "使用浅色主题",
+      "useDarkTheme": "使用深色主题",
+      "signOut": "退出登录",
+      "start": "启动",
+      "stop": "停止",
+      "disable": "禁用",
+      "rebuild": "重建",
+      "enableAndStart": "启用并启动"
+    },
+    "roles": {
+      "admin": "管理员",
+      "user": "普通用户"
+    },
+    "userStates": {
+      "active": "已启用",
+      "disabled": "已禁用"
+    },
+    "runtimeStates": {
+      "created": "已创建",
+      "starting": "启动中",
+      "running": "运行中",
+      "stopped": "已停止",
+      "failed": "失败"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "用户可重启",
+      "admin_only": "管理员锁定"
+    },
+    "errors": {
+      "actionFailed": "操作失败",
+      "createFailed": "创建失败",
+      "updateFailed": "更新失败",
+      "saveFailed": "保存失败",
+      "pullTimedOut": "镜像拉取等待超时"
+    },
+    "messages": {
+      "runtimeCreated": "运行环境已创建",
+      "accountCreated": "账号已创建",
+      "credentialStored": "凭据已保存",
+      "settingsSaved": "Hub 设置已保存",
+      "imagePulled": "Docker 镜像拉取完成"
+    },
+    "validation": {
+      "required": "此项为必填项",
+      "runtimeIdInvalid": "请输入 1–64 位字母、数字、点、下划线或连字符，并以字母或数字开头",
+      "passwordMin": "密码至少需要八个字符",
+      "credentialNameInvalid": "请输入大写环境变量名称，例如 OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Hub 管理中心",
+      "title": "运行环境概览",
+      "description": "每位用户拥有独立的运行环境，文件和密钥彼此分开。",
+      "newRuntime": "新建运行环境",
+      "managed": "托管运行环境",
+      "localBoundaries": "本地进程边界",
+      "runningNow": "当前运行",
+      "needsAttention": "{{count}} 个运行环境需要处理",
+      "healthy": "当前所有状态均正常",
+      "isolationPolicy": "隔离策略",
+      "available": "可用",
+      "unavailable": "不可用",
+      "failClosed": "失败即关闭",
+      "noFallback": "不回退到非沙箱模式",
+      "executionBlocked": "运行环境执行已被阻止",
+      "isolationTitle": "失败即关闭的本地隔离",
+      "isolationDescription": "整个运行环境进程树均在沙箱中执行。如果原生隔离探测失败，QwenPaw 将拒绝启动。",
+      "unavailableTitle": "安全运行后端不可用",
+      "unavailableDescription": "{{provisioner}} 不可用：{{reason}}。请检查该后端的安装、运行状态和系统配置，然后重启 QwenPaw Hub。",
+      "unavailableUserDescription": "运行后端暂不可用，请联系管理员。",
+      "preflightFailed": "安全预检失败",
+      "localEndpoint": "本地端点 · {{endpoint}}",
+      "provisioner": "运行方式",
+      "localExecution": "本机隔离",
+      "dockerExecution": "Docker 容器",
+      "security": "安全级别",
+      "tenant": "租户",
+      "removeTitle": "移除 {{id}}？",
+      "removeDescription": "仅移除注册记录，运行环境数据将保留。",
+      "disableTitle": "禁用 {{id}}？",
+      "disableDescription": "进程将被停止；在管理员重新启用之前，用户无法自行启动或重启。",
+      "rebuildTitle": "使用当前镜像重建 {{id}}？",
+      "rebuildDescription": "容器将被替换并使用系统设置中的当前镜像；持久化工作目录、密钥和备份会保留。",
+      "emptyTitle": "尚无运行环境",
+      "emptyDescription": "创建第一个隔离的本地 QwenPaw 运行环境。"
+    },
+    "users": {
+      "eyebrow": "身份与访问控制",
+      "title": "用户访问",
+      "description": "集中创建本地账号、分配管理员权限并撤销会话。",
+      "addAccount": "添加账号",
+      "publicRegistration": "开放注册",
+      "publicRegistrationDescription": "关闭后，仅管理员可以创建账号。",
+      "currentAccountProtected": "当前账户已保护",
+      "empty": "没有符合条件的用户"
+    },
+    "credentials": {
+      "eyebrow": "租户级保管箱",
+      "title": "凭据",
+      "description": "将 Provider 密钥保存到明确的租户或运行环境作用域。密钥值会加密保存，API 永不返回明文。",
+      "storeCredential": "保存凭据",
+      "updated": "更新于 {{date}}",
+      "deleteTitle": "删除 {{name}}？",
+      "deleteDescription": "使用此凭据的运行环境可能会停止工作。",
+      "emptyTitle": "保管箱为空",
+      "emptyDescription": "保存租户级或运行环境级 API Key。",
+      "encrypted": "已加密保存，不可读取明文"
+    },
+    "overview": {
+      "eyebrow": "运营控制台",
+      "title": "Hub 运行概览",
+      "description": "基于真实运行状态、主机资源和审计事件掌握 Hub 当前情况。",
+      "availability": "实例在线率",
+      "availabilityDetail": "{{running}} / {{total}} 个运行实例当前在线",
+      "totalRuntimes": "全部运行实例",
+      "failedCount": "{{count}} 个实例需要关注",
+      "totalUsers": "Hub 用户",
+      "managedLocally": "本地身份与权限管理",
+      "hostResources": "主机资源",
+      "liveSnapshot": "当前实时快照",
+      "memory": "内存",
+      "dataDisk": "数据盘",
+      "recentActivity": "最近活动",
+      "auditBacked": "来自持久化审计日志",
+      "systemHealthy": "系统运行正常",
+      "systemDegraded": "系统状态异常",
+      "localIsolation": "本机隔离运行方式"
+    },
+    "table": {
+      "searchRuntimes": "搜索实例、用户或端点",
+      "searchUsers": "搜索用户名或用户 ID",
+      "searchCredentials": "搜索凭据名称或作用域",
+      "searchAudit": "搜索操作人或资源",
+      "allStates": "全部状态",
+      "allOwners": "全部所有者",
+      "allExecutions": "全部运行方式",
+      "allRoles": "全部角色",
+      "allUserStates": "全部用户状态",
+      "allScopes": "全部作用域",
+      "allActions": "全部操作",
+      "runtime": "运行实例",
+      "status": "状态",
+      "owner": "所有者",
+      "endpoint": "端点",
+      "execution": "运行方式",
+      "updated": "最近更新",
+      "user": "用户",
+      "role": "角色",
+      "created": "创建时间",
+      "credential": "凭据",
+      "scope": "作用域",
+      "event": "事件",
+      "actor": "操作人",
+      "resource": "目标资源",
+      "result": "结果",
+      "time": "时间",
+      "total": "共 {{total}} 条"
+    },
+    "audit": {
+      "eyebrow": "安全与治理",
+      "title": "审计日志",
+      "description": "查看 Hub 管理操作的主体、目标、结果和发生时间。敏感值不会进入审计数据。",
+      "empty": "尚无管理操作记录"
+    },
+    "settings": {
+      "eyebrow": "平台配置",
+      "title": "系统设置",
+      "description": "在一个带审计的权威入口中管理完整 Hub 配置。修改会立即生效，并在服务重启后保留。",
+      "save": "保存设置",
+      "meta": "配置版本 {{revision}} · 更新于 {{date}}",
+      "tabs": {
+        "access": "访问安全",
+        "runtime": "运行环境"
+      },
+      "access": {
+        "title": "访问与注册",
+        "description": "配置浏览器可访问的 Hub 地址和公开账号策略。",
+        "publicBaseUrl": "公开访问地址",
+        "publicBaseUrlHint": "用于 OAuth 回调。只有纯本机部署才建议留空。",
+        "registration": "开放注册",
+        "registrationHint": "关闭后，仅管理员可以创建账号。",
+        "defaultRole": "默认注册角色",
+        "defaultRoleHint": "出于安全考虑，自助注册账号固定为普通用户。"
+      },
+      "security": {
+        "title": "登录防护",
+        "description": "限制登录和注册滥用，并按 IP 地址或网段阻止访问。",
+        "ipBlacklist": "IP 黑名单",
+        "ipBlacklistHint": "支持 IPv4、IPv6 和 CIDR；输入后按回车确认。",
+        "trustedProxyIps": "可信反向代理",
+        "trustedProxyIpsHint": "只有来自这些地址的 X-Forwarded-For 才会被信任。",
+        "loginRateLimit": "登录失败速率限制",
+        "loginRateLimitHint": "同一地址连续登录失败时，临时阻止其继续尝试。",
+        "registrationRateLimit": "注册速率限制",
+        "registrationRateLimitHint": "限制同一地址短时间内批量创建账号。",
+        "maxAttempts": "最大尝试次数",
+        "windowSeconds": "统计窗口（秒）",
+        "blockSeconds": "封禁时长（秒）"
+      },
+      "runtime": {
+        "title": "运行环境策略",
+        "description": "管理员统一选择运行环境后端；现有环境将在下次重启时切换。",
+        "provisioner": "运行环境后端",
+        "localBackend": "本机进程",
+        "localBackendHint": "直接在当前宿主机上运行隔离进程。",
+        "dockerBackend": "Docker 容器",
+        "dockerBackendHint": "为每个账户运行独立的托管容器。",
+        "backendUnavailable": "当前宿主机不可用",
+        "localIsolationHint": "本机模式使用宿主机进程，不会读取或应用任何 Docker 镜像设置。",
+        "dockerIsolationHint": "Docker 模式会把下方镜像与资源策略统一应用到所有账户。"
+      },
+      "docker": {
+        "title": "Docker 策略",
+        "description": "统一管理镜像、拉取规则和每个容器的资源上限。普通用户无法覆盖这些设置。",
+        "unavailable": "Docker 引擎不可用",
+        "source": "镜像源",
+        "dockerHub": "Docker Hub 官方源",
+        "aliyunAcr": "阿里云官方源",
+        "custom": "自定义镜像",
+        "customHint": "填写策略允许范围内的任意镜像引用。",
+        "customRegistry": "自定义仓库或镜像引用",
+        "localHost": "本机镜像",
+        "localHostHint": "使用宿主机已经下载并带有 Tag 的镜像。",
+        "noLocalImages": "宿主机暂无带 Tag 的本地镜像",
+        "image": "镜像与 Tag",
+        "selectLocalImage": "选择本机镜像 Tag",
+        "selectedImage": "实际使用镜像",
+        "repository": "镜像仓库",
+        "localStatus": "本机状态",
+        "downloaded": "已下载",
+        "notDownloaded": "未下载",
+        "pullPolicy": "自动拉取策略",
+        "ifNotPresent": "本地不存在时拉取",
+        "always": "每次首次创建前拉取",
+        "never": "仅使用本地镜像",
+        "pullImage": "立即拉取镜像",
+        "localImages": "本机已有 {{count}} 个镜像引用",
+        "resources": "容器资源上限",
+        "cpuLimit": "CPU 核数",
+        "memoryLimit": "内存（MB）",
+        "pidsLimit": "最大进程数",
+        "shmSize": "共享内存（MB）"
+      },
+      "quotas": {
+        "title": "全局运行容量",
+        "description": "每个租户固定拥有一个运行环境；这里只限制整个 Hub 同时运行的数量。",
+        "maxRunningRuntimes": "最多同时运行数",
+        "unlimitedHint": "留空表示不限制。"
+      }
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "创建运行实例",
+        "start": "启动运行实例",
+        "stop": "停止运行实例",
+        "disable": "禁用运行实例",
+        "rebuild": "重建运行实例",
+        "delete": "删除运行实例"
+      },
+      "image": {
+        "pull": "拉取 Docker 镜像"
+      },
+      "user": {
+        "create": "创建用户",
+        "update": "更新用户"
+      },
+      "credential": {
+        "store": "保存凭据",
+        "delete": "删除凭据"
+      },
+      "settings": {
+        "update": "更新 Hub 设置"
+      },
+      "auth": {
+        "register": "注册 Hub 用户"
+      }
+    },
+    "auditOutcomes": {
+      "success": "成功",
+      "failure": "失败"
+    },
+    "runtimeForm": {
+      "title": "创建运行环境",
+      "hint": "运行环境将在本机原生沙箱中启动，其文件、密钥和进程树与其他用户保持隔离。",
+      "runtimeId": "运行环境 ID",
+      "startImmediately": "立即启动",
+      "submit": "创建运行环境"
+    },
+    "userForm": {
+      "title": "添加账号",
+      "hint": "请设置至少八位的临时密码。该用户只能访问其个人租户拥有的运行环境。",
+      "username": "用户名",
+      "temporaryPassword": "临时密码",
+      "role": "角色",
+      "submit": "创建账号"
+    },
+    "credentialForm": {
+      "title": "保存凭据",
+      "hint": "租户作用域适用于你的全部运行环境；运行环境作用域可为单个进程提供私有覆盖。",
+      "scope": "作用域",
+      "allRuntimes": "我的全部运行环境",
+      "environmentName": "环境变量名称",
+      "secretValue": "密钥值",
+      "submit": "加密并保存"
+    }
+  },
   "login": {
     "title": "登录 QwenPaw",
     "registerTitle": "创建账户",
@@ -3431,6 +3753,8 @@
     "passwordRequired": "请输入密码",
     "submit": "登录",
     "register": "注册",
+    "returnToSignIn": "返回登录",
+    "createAccount": "创建账号",
     "failed": "登录失败，请检查您的凭据",
     "registerSuccess": "注册成功",
     "registerFailed": "注册失败",
@@ -3438,7 +3762,34 @@
     "logout": "退出登录",
     "logoutSuccess": "已成功退出",
     "sessionExpired": "会话已过期，请重新登录",
-    "unauthorized": "未授权，请登录"
+    "unauthorized": "未授权，请登录",
+    "switchLanguage": "切换语言",
+    "hubDisclaimerTitle": "自托管 Hub 安全提示",
+    "hubDisclaimerPoint1": "仅登录由你本人或可信组织运营的 Hub",
+    "hubDisclaimerPoint2": "管理员可能接触此实例存储或处理的数据",
+    "hubDisclaimerPoint3": "沙箱环境可能限制部分 QwenPaw 能力",
+    "hubDisclaimerAccept": "我已阅读并同意用户条款",
+    "hubDisclaimerAcceptPrefix": "我已阅读并同意",
+    "hubTerms": "《用户条款》",
+    "hubLinks": "QwenPaw 相关链接",
+    "officialWebsite": "官方网站",
+    "hubTermsTitle": "QwenPaw Hub 用户条款",
+    "hubTermsLead": "使用此独立部署的 QwenPaw Hub 实例前，请完整阅读以下条款。",
+    "hubTermsSection1Title": "一、可信部署",
+    "hubTermsSection1Body": "请仅使用由你本人或可信组织部署的 Hub。第三方 Hub 由其运营者独立管理，QwenPaw 项目无法验证该实例的身份、配置或安全性。",
+    "hubTermsSection2Title": "二、数据与管理员权限",
+    "hubTermsSection2Body": "实例运营者控制服务器、数据库、备份、日志和运行进程。管理员在技术上可能接触此实例存储或处理的对话、上传文件、凭据、配置及运行数据。",
+    "hubTermsSection3Title": "三、凭据与敏感信息",
+    "hubTermsSection3Body": "请仅提供完成工作所必需的凭据和数据，不要向不可信实例提交秘密信息。数据的存储、保留、备份、删除和安全事件处理策略由实例运营者决定。",
+    "hubTermsSection4Title": "四、沙箱与能力限制",
+    "hubTermsSection4Body": "QwenPaw 在 Hub 的隔离运行环境中工作。宿主机权限、设备、本地应用、网络和其他集成可能受限，因此 Hub 无法保证具备可信本地 QwenPaw 安装的全部能力。",
+    "hubTermsSection5Title": "五、合法与授权使用",
+    "hubTermsSection5Body": "你只能将本服务用于合法且已获授权的用途，并对自己的指令、上传内容、生成结果、外部服务使用，以及遵守实例运营规则和相关服务规则承担责任。",
+    "hubTermsSection6Title": "六、可用性与风险",
+    "hubTermsSection6Body": "服务可用性、数据保护、支持和恢复由实例运营者负责。请自行备份重要数据，并在依赖生成结果前进行核验。QwenPaw 项目贡献者不是第三方部署的运营者。",
+    "hubTermsEnd": "点击“同意并继续”，即表示你确认信任当前 Hub 的运营者，并理解上述数据、能力和使用边界。",
+    "hubTermsScrollHint": "请滚动至底部后继续",
+    "hubTermsAgree": "同意并继续"
   },
   "account": {
     "title": "账户管理",
@@ -3457,7 +3808,22 @@
     "wrongPassword": "当前密码不正确",
     "nothingToUpdate": "请输入新用户名或新密码",
     "passwordEmpty": "密码不能为空白",
-    "usernameEmpty": "用户名不能为空白"
+    "usernameEmpty": "用户名不能为空白",
+    "username": "用户名",
+    "passwordRequired": "请输入新密码",
+    "hubPasswordPlaceholder": "请输入至少八个字符",
+    "runtimeTitle": "个人运行环境",
+    "runtimeDescription": "工作空间不可用时可在此重启。正在运行的任务会被中断，已保存的数据不会删除。",
+    "runtimeRestartConfirmTitle": "确认重启运行环境？",
+    "runtimeRestartConfirmDescription": "正在运行的任务会被中断，运行环境就绪后页面将自动刷新。",
+    "runtimeRestart": "重启运行环境",
+    "runtimeRestarting": "正在重启运行环境…",
+    "runtimeRestartSuccess": "运行环境已重启",
+    "runtimeRestartFailed": "运行环境重启失败",
+    "runtimeStoppedTitle": "运行环境已停止",
+    "runtimeStoppedDescription": "管理员已停止进程。需要继续使用时，你可以手动重新启动。",
+    "runtimeDisabledTitle": "运行环境已被禁用",
+    "runtimeDisabledDescription": "管理员已禁止该运行环境启动，请联系管理员恢复使用。"
   },
   "voiceTranscription": {
     "title": "语音转写",

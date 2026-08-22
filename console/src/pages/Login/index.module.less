@@ -1,0 +1,218 @@
+.hubDisclaimer {
+  margin: 2px 0 16px;
+  padding: 13px 14px;
+  border: 1px solid #f1d5bc;
+  border-radius: 9px;
+  color: #5c4030;
+  background: #fff9f4;
+
+  :global(.ant-checkbox) {
+    margin-top: 2px;
+  }
+}
+
+.disclaimerPoints {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  color: #72594a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.consentText {
+  margin-left: 8px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+
+  button {
+    padding: 0;
+    border: 0;
+    color: #9b4b13;
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+.disclaimerHeading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #9b4b13;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hubLinks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid rgba(41, 24, 13, 0.09);
+
+  > span {
+    width: 1px;
+    height: 12px;
+    background: rgba(41, 24, 13, 0.14);
+  }
+
+  a,
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    color: #776c64;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    transition: color 160ms ease;
+
+    &:hover,
+    &:focus-visible {
+      color: #d95300;
+    }
+  }
+}
+
+@media (max-width: 380px) {
+  .hubLinks {
+    gap: 8px;
+
+    a,
+    button {
+      gap: 4px;
+      font-size: 11px;
+    }
+
+    svg {
+      display: none;
+    }
+  }
+}
+
+:global(html.dark-mode) .hubDisclaimer {
+  border-color: rgba(255, 157, 86, 0.25);
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 122, 26, 0.08);
+}
+
+:global(html.dark-mode) .disclaimerPoints {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+:global(html.dark-mode) .disclaimerHeading,
+:global(html.dark-mode) .consentText button {
+  color: #ff9d56;
+}
+
+:global(html.dark-mode) .hubLinks {
+  border-top-color: rgba(255, 255, 255, 0.09);
+
+  > span {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  a,
+  button {
+    color: rgba(255, 255, 255, 0.48);
+
+    &:hover,
+    &:focus-visible {
+      color: #ff9d56;
+    }
+  }
+}
+
+.termsModal {
+  :global(.ant-modal-content) {
+    padding: 24px;
+    border-radius: 12px;
+  }
+
+  :global(.ant-modal-title) {
+    font-size: 18px;
+  }
+}
+
+.termsScroll {
+  max-height: min(52vh, 430px);
+  margin-top: 18px;
+  padding: 0 16px 18px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: #4e443e;
+  scrollbar-gutter: stable;
+
+  section {
+    margin-top: 20px;
+  }
+
+  h3 {
+    margin: 0 0 7px;
+    color: #29180d;
+    font-size: 14px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.72;
+  }
+}
+
+.termsLead {
+  color: #72594a;
+}
+
+.termsEnd {
+  margin-top: 22px !important;
+  font-weight: 600;
+}
+
+.scrollHint {
+  margin: 12px 0 0;
+  color: #9b4b13;
+  font-size: 12px;
+  text-align: right;
+}
+
+:global(html.dark-mode) .termsScroll {
+  color: rgba(255, 255, 255, 0.66);
+
+  h3 {
+    color: rgba(255, 255, 255, 0.9);
+  }
+}
+
+:global(html.dark-mode) .termsLead {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+:global(html.dark-mode) .scrollHint {
+  color: #ff9d56;
+}
+
+@media (max-width: 520px) {
+  .termsModal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+
+    :global(.ant-modal-content) {
+      padding: 20px;
+    }
+  }
+
+  .termsScroll {
+    max-height: 55vh;
+  }
+}

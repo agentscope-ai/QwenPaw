@@ -279,6 +279,328 @@
     "fullMode": "Mode lengkap",
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },
+  "hub": {
+    "brand": {
+      "title": "Administrasi Hub",
+      "subtitle": "Ruang kerja lokal",
+      "controlPlane": "Pusat kendali"
+    },
+    "navigation": {
+      "workspace": "Ruang kerja",
+      "overview": "Operasi",
+      "runtimes": "Runtime",
+      "users": "Pengguna",
+      "credentials": "Kredensial",
+      "audit": "Catatan audit",
+      "settings": "Pengaturan sistem"
+    },
+    "actions": {
+      "backToQwenPaw": "Kembali ke QwenPaw",
+      "useLightTheme": "Gunakan tema terang",
+      "useDarkTheme": "Gunakan tema gelap",
+      "signOut": "Keluar",
+      "start": "Mulai",
+      "stop": "Hentikan",
+      "disable": "Nonaktifkan",
+      "rebuild": "Bangun ulang",
+      "enableAndStart": "Aktifkan dan mulai"
+    },
+    "roles": {
+      "admin": "Administrator",
+      "user": "Pengguna"
+    },
+    "userStates": {
+      "active": "Aktif",
+      "disabled": "Nonaktif"
+    },
+    "runtimeStates": {
+      "created": "Dibuat",
+      "starting": "Memulai",
+      "running": "Berjalan",
+      "stopped": "Dihentikan",
+      "failed": "Gagal"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "Pemilik dapat memulai kembali",
+      "admin_only": "Dikunci administrator"
+    },
+    "errors": {
+      "actionFailed": "Tindakan gagal",
+      "createFailed": "Pembuatan gagal",
+      "updateFailed": "Pembaruan gagal",
+      "saveFailed": "Gagal menyimpan",
+      "pullTimedOut": "Waktu habis menunggu penarikan gambar"
+    },
+    "messages": {
+      "runtimeCreated": "Runtime dibuat",
+      "accountCreated": "Akun dibuat",
+      "credentialStored": "Kredensial disimpan",
+      "settingsSaved": "Pengaturan hub disimpan",
+      "imagePulled": "Tarikan gambar Docker selesai"
+    },
+    "validation": {
+      "required": "Bidang ini wajib diisi",
+      "runtimeIdInvalid": "Gunakan 1–64 huruf, angka, titik, garis bawah, atau tanda hubung, dimulai dengan huruf atau angka",
+      "passwordMin": "Kata sandi harus mengandung setidaknya delapan karakter",
+      "credentialNameInvalid": "Gunakan nama variabel lingkungan dengan huruf besar, seperti OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Administrasi Hub",
+      "title": "Ringkasan runtime",
+      "description": "Setiap pengguna memiliki runtime terpisah; file dan kuncinya tidak tercampur.",
+      "newRuntime": "Runtime baru",
+      "managed": "Runtime terkelola",
+      "localBoundaries": "Batasan proses lokal",
+      "runningNow": "Sedang berjalan",
+      "needsAttention": "{{count}} runtime perlu diperhatikan",
+      "healthy": "Semua runtime dalam kondisi normal",
+      "isolationPolicy": "Kebijakan isolasi",
+      "available": "Tersedia",
+      "unavailable": "Tidak tersedia",
+      "failClosed": "Blokir saat gagal",
+      "noFallback": "Tidak berjalan tanpa sandbox",
+      "executionBlocked": "Runtime tidak dapat dijalankan",
+      "isolationTitle": "Isolasi lokal yang memblokir saat gagal",
+      "isolationDescription": "Seluruh pohon proses runtime di-sandbox. Jika pemeriksaan isolasi asli gagal, QwenPaw menolak untuk memulainya.",
+      "unavailableTitle": "Backend runtime yang aman tidak tersedia",
+      "unavailableDescription": "{{provisioner}} tidak tersedia: {{reason}} Periksa instalasi backend, status berjalan, dan konfigurasi sistem, lalu mulai ulang QwenPaw Hub.",
+      "unavailableUserDescription": "Backend runtime sementara tidak tersedia. Hubungi administrator.",
+      "preflightFailed": "Pemeriksaan keamanan gagal.",
+      "localEndpoint": "Titik akhir lokal · {{endpoint}}",
+      "provisioner": "Jenis eksekusi",
+      "localExecution": "Isolasi lokal",
+      "dockerExecution": "Kontainer Docker",
+      "security": "Keamanan",
+      "tenant": "Tenant",
+      "removeTitle": "Hapus {{id}}?",
+      "removeDescription": "Pendaftaran dihapus; data runtime dipertahankan.",
+      "disableTitle": "Nonaktifkan {{id}}?",
+      "disableDescription": "Proses akan berhenti dan pemilik tidak dapat memulai ulang hingga administrator mengaktifkannya.",
+      "rebuildTitle": "Bangun kembali {{id}} dengan gambar saat ini?",
+      "rebuildDescription": "Wadah akan diganti menggunakan gambar di pengaturan sistem. Ruang kerja persisten, rahasia, dan cadangan dipertahankan.",
+      "emptyTitle": "Belum ada runtime",
+      "emptyDescription": "Buat runtime QwenPaw lokal pertama yang terisolasi."
+    },
+    "users": {
+      "eyebrow": "Identitas dan akses",
+      "title": "Akses pengguna",
+      "description": "Buat akun lokal, tetapkan akses administratif, dan cabut sesi dari satu tempat.",
+      "addAccount": "Tambahkan akun",
+      "publicRegistration": "Pendaftaran publik",
+      "publicRegistrationDescription": "Jika dinonaktifkan, hanya administrator yang dapat membuat akun.",
+      "currentAccountProtected": "Akun saat ini dilindungi",
+      "empty": "Tidak ada pengguna yang cocok dengan filter ini"
+    },
+    "credentials": {
+      "eyebrow": "Penyimpanan kredensial per tenant",
+      "title": "Kredensial",
+      "description": "Simpan kunci penyedia di dalam cakupan penyewa atau runtime eksplisit. Nilai rahasia dienkripsi dan tidak pernah dikembalikan oleh API.",
+      "storeCredential": "Simpan kredensial",
+      "updated": "Diperbarui {{date}}",
+      "deleteTitle": "Hapus {{name}}?",
+      "deleteDescription": "Runtime yang menggunakan kredensial ini mungkin berhenti berfungsi.",
+      "emptyTitle": "Belum ada kredensial",
+      "emptyDescription": "Simpan kunci API untuk tenant atau runtime tertentu.",
+      "encrypted": "Dienkripsi saat disimpan; nilai aslinya tidak dapat dibaca"
+    },
+    "overview": {
+      "eyebrow": "Kokpit operasi",
+      "title": "Ikhtisar operasi hub",
+      "description": "Pahami kesehatan Hub menggunakan status runtime nyata, sumber daya host, dan peristiwa audit.",
+      "availability": "Ketersediaan runtime",
+      "availabilityDetail": "{{running}} dari {{total}} runtime sedang online",
+      "totalRuntimes": "Total runtime",
+      "failedCount": "{{count}} runtime perlu diperhatikan",
+      "totalUsers": "Pengguna Hub",
+      "managedLocally": "Identitas lokal dan manajemen akses",
+      "hostResources": "Sumber daya host",
+      "liveSnapshot": "Cuplikan langsung saat ini",
+      "memory": "Memori",
+      "dataDisk": "Disk data",
+      "recentActivity": "Aktivitas terkini",
+      "auditBacked": "Didukung oleh log audit yang persisten",
+      "systemHealthy": "Semua sistem beroperasi",
+      "systemDegraded": "Sistem terdegradasi",
+      "localIsolation": "Eksekusi terisolasi lokal"
+    },
+    "table": {
+      "searchRuntimes": "Cari runtime, pemilik, atau titik akhir",
+      "searchUsers": "Cari nama pengguna atau ID pengguna",
+      "searchCredentials": "Cari nama atau cakupan kredensial",
+      "searchAudit": "Cari aktor atau sumber daya",
+      "allStates": "Semua status",
+      "allOwners": "Semua pemilik",
+      "allExecutions": "Semua jenis eksekusi",
+      "allRoles": "Semua peran",
+      "allUserStates": "Semua status pengguna",
+      "allScopes": "Semua cakupan",
+      "allActions": "Semua tindakan",
+      "runtime": "Runtime",
+      "status": "Status",
+      "owner": "Pemilik",
+      "endpoint": "Titik akhir",
+      "execution": "Eksekusi",
+      "updated": "Diperbarui",
+      "user": "Pengguna",
+      "role": "Peran",
+      "created": "Dibuat",
+      "credential": "Kredensial",
+      "scope": "Cakupan",
+      "event": "Peristiwa",
+      "actor": "Aktor",
+      "resource": "Sumber daya",
+      "result": "Hasil",
+      "time": "Waktu",
+      "total": "item {{total}}"
+    },
+    "audit": {
+      "eyebrow": "Keamanan dan pemerintahan",
+      "title": "Catatan audit",
+      "description": "Tinjau siapa yang melakukan setiap tindakan pengelolaan Hub, target, hasil, dan waktunya. Nilai-nilai sensitif tidak pernah diaudit.",
+      "empty": "Belum ada peristiwa pengelolaan"
+    },
+    "settings": {
+      "eyebrow": "Konfigurasi platform",
+      "title": "Pengaturan sistem",
+      "description": "Kelola konfigurasi Hub lengkap dari satu sumber kebenaran yang diaudit. Perubahan akan segera berlaku dan tetap ada meskipun dimulai ulang.",
+      "save": "Simpan pengaturan",
+      "meta": "Revisi {{revision}} · Diperbarui {{date}}",
+      "tabs": {
+        "access": "Keamanan akses",
+        "runtime": "Waktu proses"
+      },
+      "access": {
+        "title": "Akses dan registrasi",
+        "description": "Konfigurasikan alamat Hub dan kebijakan akun publik yang dapat dijangkau browser.",
+        "publicBaseUrl": "URL basis publik",
+        "publicBaseUrlHint": "Digunakan untuk panggilan balik OAuth. Biarkan kosong hanya untuk penerapan loopback saja.",
+        "registration": "Pendaftaran publik",
+        "registrationHint": "Jika dinonaktifkan, hanya administrator yang dapat membuat akun.",
+        "defaultRole": "Peran pendaftaran default",
+        "defaultRoleHint": "Akun yang didaftarkan sendiri selalu menjadi pengguna biasa demi keamanan."
+      },
+      "security": {
+        "title": "Perlindungan otentikasi",
+        "description": "Batasi penyalahgunaan login dan registrasi dan blokir alamat atau jaringan.",
+        "ipBlacklist": "Daftar hitam IP",
+        "ipBlacklistHint": "Mendukung IPv4, IPv6 dan CIDR; tekan Enter setelah setiap nilai.",
+        "trustedProxyIps": "Proksi terbalik tepercaya",
+        "trustedProxyIpsHint": "X-Forwarded-For hanya dipercaya jika dikirim melalui alamat ini.",
+        "loginRateLimit": "Batas kecepatan login gagal",
+        "loginRateLimitHint": "Blokir sementara upaya masuk yang gagal berulang kali dari satu alamat.",
+        "registrationRateLimit": "Batasan tarif pendaftaran",
+        "registrationRateLimitHint": "Batasi semburan pembuatan akun baru dari satu alamat.",
+        "maxAttempts": "Upaya maksimal",
+        "windowSeconds": "Jendela (detik)",
+        "blockSeconds": "Durasi blok (detik)"
+      },
+      "runtime": {
+        "title": "Kebijakan waktu proses",
+        "description": "Pilih backend waktu proses. Runtime yang ada akan aktifkan ulang berikutnya.",
+        "provisioner": "Bagian belakang waktu proses",
+        "localBackend": "Proses lokal",
+        "localBackendHint": "Menjalankan proses terisolasi langsung di host ini.",
+        "dockerBackend": "wadah Docker",
+        "dockerBackendHint": "Menjalankan setiap akun dalam wadah terkelola.",
+        "backendUnavailable": "Tidak tersedia di host ini",
+        "localIsolationHint": "Mode lokal menggunakan proses host dan tidak menggunakan pengaturan gambar Docker apa pun.",
+        "dockerIsolationHint": "Mode Docker menerapkan kebijakan gambar dan sumber daya di bawah ini untuk setiap akun."
+      },
+      "docker": {
+        "title": "kebijakan Docker",
+        "description": "Kelola gambar, perilaku penarikan, dan batas sumber daya per kontainer secara terpusat. Pengguna tidak dapat mengabaikan pengaturan ini.",
+        "unavailable": "Mesin Docker tidak tersedia",
+        "source": "Sumber gambar",
+        "dockerHub": "Hub Docker Resmi",
+        "aliyunAcr": "Registri resmi Alibaba Cloud",
+        "custom": "Gambar khusus",
+        "customHint": "Masukkan referensi gambar apa pun yang diizinkan oleh kebijakan.",
+        "customRegistry": "Registri khusus atau referensi gambar",
+        "localHost": "Gambar lokal",
+        "localHostHint": "Gunakan tag gambar yang sudah ada di host ini.",
+        "noLocalImages": "Tidak ditemukan gambar lokal yang diberi tag",
+        "image": "Gambar dan tag",
+        "selectLocalImage": "Pilih tag gambar lokal",
+        "selectedImage": "Gambar yang efektif",
+        "repository": "Gudang",
+        "localStatus": "Status lokal",
+        "downloaded": "Diunduh",
+        "notDownloaded": "Tidak diunduh",
+        "pullPolicy": "Kebijakan penarikan otomatis",
+        "ifNotPresent": "Tarik ketika hilang secara lokal",
+        "always": "Tarik sebelum kreasi pertama",
+        "never": "Gunakan gambar lokal saja",
+        "pullImage": "Tarik gambar sekarang",
+        "localImages": "Referensi gambar lokal {{count}}",
+        "resources": "Batasan sumber daya kontainer",
+        "cpuLimit": "inti CPU",
+        "memoryLimit": "Memori (MB)",
+        "pidsLimit": "Proses maksimal",
+        "shmSize": "Memori bersama (MB)"
+      },
+      "quotas": {
+        "title": "Kapasitas waktu proses global",
+        "description": "Setiap penyewa memiliki satu runtime; ini membatasi runtime serentak di seluruh Hub.",
+        "maxRunningRuntimes": "Waktu proses berjalan maksimum",
+        "unlimitedHint": "Kosong artinya tidak terbatas."
+      }
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "Waktu proses yang dibuat",
+        "start": "Waktu proses dimulai",
+        "stop": "Menghentikan waktu proses",
+        "disable": "Waktu proses dinonaktifkan",
+        "rebuild": "Waktu proses yang dibangun kembali",
+        "delete": "Waktu proses dihapus"
+      },
+      "image": {
+        "pull": "Menarik gambar Docker"
+      },
+      "user": {
+        "create": "Pengguna yang dibuat",
+        "update": "Pengguna yang diperbarui"
+      },
+      "credential": {
+        "store": "Kredensial yang disimpan",
+        "delete": "Kredensial dihapus"
+      },
+      "settings": {
+        "update": "Pengaturan Hub yang diperbarui"
+      },
+      "auth": {
+        "register": "Pengguna Hub Terdaftar"
+      }
+    },
+    "auditOutcomes": {
+      "success": "Kesuksesan",
+      "failure": "Kegagalan"
+    },
+    "runtimeForm": {
+      "title": "Buat waktu proses",
+      "hint": "Waktu proses dimulai di dalam kotak pasir lokal asli. File, rahasia, dan pohon prosesnya tetap terpisah dari pengguna lain.",
+      "runtimeId": "ID Waktu Proses",
+      "startImmediately": "Mulai segera",
+      "submit": "Buat waktu proses"
+    },
+    "userForm": {
+      "title": "Tambahkan akun",
+      "hint": "Gunakan kata sandi sementara dengan minimal delapan karakter. Pengguna hanya dapat mengakses runtime yang dimiliki oleh penyewa pribadinya.",
+      "username": "Nama pengguna",
+      "temporaryPassword": "Kata sandi sementara",
+      "role": "Peran",
+      "submit": "Buat akun"
+    },
+    "credentialForm": {
+      "title": "Simpan kredensial",
+      "hint": "Cakupan penyewa berlaku untuk semua waktu proses Anda. Lingkup waktu proses adalah penggantian pribadi untuk satu proses yang dipilih.",
+      "scope": "Cakupan",
+      "allRuntimes": "Semua runtime saya",
+      "environmentName": "Nama lingkungan",
+      "secretValue": "Nilai rahasia",
+      "submit": "Enkripsi dan simpan"
+    }
+  },
   "login": {
     "title": "Masuk ke QwenPaw",
     "registerTitle": "Buat Akun",
@@ -1906,7 +2228,17 @@
     "wrongPassword": "Kata sandi saat ini salah",
     "nothingToUpdate": "Harap masukkan nama pengguna atau kata sandi baru",
     "passwordEmpty": "Kata sandi tidak boleh kosong",
-    "usernameEmpty": "Nama pengguna tidak boleh kosong"
+    "usernameEmpty": "Nama pengguna tidak boleh kosong",
+    "username": "Nama pengguna",
+    "passwordRequired": "Masukkan kata sandi baru",
+    "hubPasswordPlaceholder": "Masukkan minimal delapan karakter",
+    "runtimeTitle": "Runtime pribadi",
+    "runtimeDescription": "Mulai ulang runtime jika ruang kerja tidak tersedia. Tugas yang berjalan akan dihentikan, tetapi data tersimpan tetap dipertahankan.",
+    "runtimeRestartConfirmTitle": "Mulai ulang runtime?",
+    "runtimeRestartConfirmDescription": "Tugas yang berjalan akan dihentikan selama runtime dimulai ulang.",
+    "runtimeRestart": "Mulai ulang runtime",
+    "runtimeRestartSuccess": "Runtime berhasil dimulai ulang",
+    "runtimeRestartFailed": "Gagal memulai ulang runtime"
   },
   "voiceTranscription": {
     "title": "Transkripsi Suara",

@@ -3564,6 +3564,328 @@
       }
     }
   },
+  "hub": {
+    "brand": {
+      "title": "Hub administration",
+      "subtitle": "Local workspace",
+      "controlPlane": "Control plane"
+    },
+    "navigation": {
+      "workspace": "Workspace",
+      "overview": "Operations",
+      "runtimes": "Runtimes",
+      "users": "Users",
+      "credentials": "Credentials",
+      "audit": "Audit log",
+      "settings": "System settings"
+    },
+    "actions": {
+      "backToQwenPaw": "Back to QwenPaw",
+      "useLightTheme": "Use light theme",
+      "useDarkTheme": "Use dark theme",
+      "signOut": "Sign out",
+      "start": "Start",
+      "stop": "Stop",
+      "disable": "Disable",
+      "rebuild": "Rebuild",
+      "enableAndStart": "Enable and start"
+    },
+    "roles": {
+      "admin": "Administrator",
+      "user": "User"
+    },
+    "userStates": {
+      "active": "Active",
+      "disabled": "Disabled"
+    },
+    "runtimeStates": {
+      "created": "Created",
+      "starting": "Starting",
+      "running": "Running",
+      "stopped": "Stopped",
+      "failed": "Failed"
+    },
+    "runtimePolicies": {
+      "owner_allowed": "Owner can restart",
+      "admin_only": "Administrator locked"
+    },
+    "errors": {
+      "actionFailed": "Action failed",
+      "createFailed": "Create failed",
+      "updateFailed": "Update failed",
+      "saveFailed": "Save failed",
+      "pullTimedOut": "Timed out waiting for the image pull"
+    },
+    "messages": {
+      "runtimeCreated": "Runtime created",
+      "accountCreated": "Account created",
+      "credentialStored": "Credential stored",
+      "settingsSaved": "Hub settings saved",
+      "imagePulled": "Docker image pull completed"
+    },
+    "validation": {
+      "required": "This field is required",
+      "runtimeIdInvalid": "Use 1–64 letters, numbers, dots, underscores or hyphens, starting with a letter or number",
+      "passwordMin": "Password must contain at least eight characters",
+      "credentialNameInvalid": "Use an uppercase environment variable name, such as OPENAI_API_KEY"
+    },
+    "runtimes": {
+      "eyebrow": "Hub administration",
+      "title": "Runtime overview",
+      "description": "Each user has a separate runtime, with files and keys kept apart.",
+      "newRuntime": "New runtime",
+      "managed": "Managed runtimes",
+      "localBoundaries": "Local process boundaries",
+      "runningNow": "Running now",
+      "needsAttention": "{{count}} runtime needs attention",
+      "healthy": "All observed states are healthy",
+      "isolationPolicy": "Isolation policy",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "failClosed": "Fail closed",
+      "noFallback": "No unsandboxed fallback",
+      "executionBlocked": "Runtime execution is blocked",
+      "isolationTitle": "Fail-closed local isolation",
+      "isolationDescription": "The entire runtime process tree is sandboxed. If the native isolation probe fails, QwenPaw refuses to start it.",
+      "unavailableTitle": "Secure runtime backend unavailable",
+      "unavailableDescription": "{{provisioner}} is unavailable: {{reason}} Check the backend installation, running status, and system configuration, then restart QwenPaw Hub.",
+      "unavailableUserDescription": "The runtime backend is temporarily unavailable. Contact an administrator.",
+      "preflightFailed": "Security preflight failed.",
+      "localEndpoint": "Local endpoint · {{endpoint}}",
+      "provisioner": "Execution type",
+      "localExecution": "Local isolation",
+      "dockerExecution": "Docker container",
+      "security": "Security",
+      "tenant": "Tenant",
+      "removeTitle": "Remove {{id}}?",
+      "removeDescription": "Registration is removed; runtime data is retained.",
+      "disableTitle": "Disable {{id}}?",
+      "disableDescription": "The process will stop and the owner cannot restart it until an administrator enables it.",
+      "rebuildTitle": "Rebuild {{id}} with the current image?",
+      "rebuildDescription": "The container will be replaced using the image in system settings. Persistent workspace, secrets, and backups are retained.",
+      "emptyTitle": "No runtimes yet",
+      "emptyDescription": "Create the first isolated local QwenPaw runtime."
+    },
+    "users": {
+      "eyebrow": "Identity and access",
+      "title": "User access",
+      "description": "Create local accounts, assign administrative access and revoke sessions from one place.",
+      "addAccount": "Add account",
+      "publicRegistration": "Public registration",
+      "publicRegistrationDescription": "When disabled, only administrators can create accounts.",
+      "currentAccountProtected": "Current account protected",
+      "empty": "No users match these filters"
+    },
+    "credentials": {
+      "eyebrow": "Tenant-scoped vault",
+      "title": "Credentials",
+      "description": "Store provider keys inside an explicit tenant or runtime scope. Secret values are encrypted and never returned by the API.",
+      "storeCredential": "Store credential",
+      "updated": "Updated {{date}}",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDescription": "Runtimes using this credential may stop working.",
+      "emptyTitle": "Vault is empty",
+      "emptyDescription": "Store a tenant or runtime-scoped API key.",
+      "encrypted": "Encrypted at rest; plaintext cannot be read"
+    },
+    "overview": {
+      "eyebrow": "Operations cockpit",
+      "title": "Hub operations overview",
+      "description": "Understand Hub health using real runtime state, host resources and audit events.",
+      "availability": "Runtime availability",
+      "availabilityDetail": "{{running}} of {{total}} runtimes are currently online",
+      "totalRuntimes": "Total runtimes",
+      "failedCount": "{{count}} runtimes need attention",
+      "totalUsers": "Hub users",
+      "managedLocally": "Local identity and access management",
+      "hostResources": "Host resources",
+      "liveSnapshot": "Current live snapshot",
+      "memory": "Memory",
+      "dataDisk": "Data disk",
+      "recentActivity": "Recent activity",
+      "auditBacked": "Backed by the persistent audit log",
+      "systemHealthy": "All systems operational",
+      "systemDegraded": "System degraded",
+      "localIsolation": "Local isolated execution"
+    },
+    "table": {
+      "searchRuntimes": "Search runtimes, owners or endpoints",
+      "searchUsers": "Search usernames or user IDs",
+      "searchCredentials": "Search credential names or scopes",
+      "searchAudit": "Search actors or resources",
+      "allStates": "All states",
+      "allOwners": "All owners",
+      "allExecutions": "All execution types",
+      "allRoles": "All roles",
+      "allUserStates": "All user states",
+      "allScopes": "All scopes",
+      "allActions": "All actions",
+      "runtime": "Runtime",
+      "status": "Status",
+      "owner": "Owner",
+      "endpoint": "Endpoint",
+      "execution": "Execution",
+      "updated": "Updated",
+      "user": "User",
+      "role": "Role",
+      "created": "Created",
+      "credential": "Credential",
+      "scope": "Scope",
+      "event": "Event",
+      "actor": "Actor",
+      "resource": "Resource",
+      "result": "Result",
+      "time": "Time",
+      "total": "{{total}} items"
+    },
+    "audit": {
+      "eyebrow": "Security and governance",
+      "title": "Audit log",
+      "description": "Review who performed each Hub management action, its target, result and time. Sensitive values are never audited.",
+      "empty": "No management events yet"
+    },
+    "settings": {
+      "eyebrow": "Platform configuration",
+      "title": "System settings",
+      "description": "Manage the complete Hub configuration from one audited source of truth. Changes take effect immediately and persist across restarts.",
+      "save": "Save settings",
+      "meta": "Revision {{revision}} · Updated {{date}}",
+      "tabs": {
+        "access": "Access security",
+        "runtime": "Runtimes"
+      },
+      "access": {
+        "title": "Access and registration",
+        "description": "Configure the browser-reachable Hub address and public account policy.",
+        "publicBaseUrl": "Public base URL",
+        "publicBaseUrlHint": "Used for OAuth callbacks. Leave empty only for loopback-only deployments.",
+        "registration": "Public registration",
+        "registrationHint": "When disabled, only administrators can create accounts.",
+        "defaultRole": "Default registration role",
+        "defaultRoleHint": "Self-registered accounts are always ordinary users for security."
+      },
+      "security": {
+        "title": "Authentication protection",
+        "description": "Limit login and registration abuse and block addresses or networks.",
+        "ipBlacklist": "IP blacklist",
+        "ipBlacklistHint": "Supports IPv4, IPv6 and CIDR; press Enter after each value.",
+        "trustedProxyIps": "Trusted reverse proxies",
+        "trustedProxyIpsHint": "X-Forwarded-For is trusted only when sent by these addresses.",
+        "loginRateLimit": "Failed login rate limit",
+        "loginRateLimitHint": "Temporarily block repeated failed sign-in attempts from one address.",
+        "registrationRateLimit": "Registration rate limit",
+        "registrationRateLimitHint": "Restrict bursts of new account creation from one address.",
+        "maxAttempts": "Maximum attempts",
+        "windowSeconds": "Window (seconds)",
+        "blockSeconds": "Block duration (seconds)"
+      },
+      "runtime": {
+        "title": "Runtime policy",
+        "description": "Select the runtime backend. Existing runtimes switch on their next restart.",
+        "provisioner": "Runtime backend",
+        "localBackend": "Local process",
+        "localBackendHint": "Runs isolated processes directly on this host.",
+        "dockerBackend": "Docker container",
+        "dockerBackendHint": "Runs each account in a managed container.",
+        "backendUnavailable": "Unavailable on this host",
+        "localIsolationHint": "Local mode uses host processes and does not use any Docker image settings.",
+        "dockerIsolationHint": "Docker mode applies the image and resource policy below to every account."
+      },
+      "docker": {
+        "title": "Docker policy",
+        "description": "Centrally manage the image, pull behavior, and per-container resource limits. Users cannot override these settings.",
+        "unavailable": "Docker engine is unavailable",
+        "source": "Image source",
+        "dockerHub": "Official Docker Hub",
+        "aliyunAcr": "Official Alibaba Cloud registry",
+        "custom": "Custom image",
+        "customHint": "Enter any image reference allowed by policy.",
+        "customRegistry": "Custom registry or image reference",
+        "localHost": "Local image",
+        "localHostHint": "Use an image tag already present on this host.",
+        "noLocalImages": "No tagged local images found",
+        "image": "Image and tag",
+        "selectLocalImage": "Select a local image tag",
+        "selectedImage": "Effective image",
+        "repository": "Repository",
+        "localStatus": "Local status",
+        "downloaded": "Downloaded",
+        "notDownloaded": "Not downloaded",
+        "pullPolicy": "Automatic pull policy",
+        "ifNotPresent": "Pull when missing locally",
+        "always": "Pull before the first creation",
+        "never": "Use local images only",
+        "pullImage": "Pull image now",
+        "localImages": "{{count}} local image references",
+        "resources": "Container resource limits",
+        "cpuLimit": "CPU cores",
+        "memoryLimit": "Memory (MB)",
+        "pidsLimit": "Maximum processes",
+        "shmSize": "Shared memory (MB)"
+      },
+      "quotas": {
+        "title": "Global runtime capacity",
+        "description": "Each tenant owns exactly one runtime; this limits concurrent runtimes across the Hub.",
+        "maxRunningRuntimes": "Maximum running runtimes",
+        "unlimitedHint": "Empty means unlimited."
+      }
+    },
+    "auditActions": {
+      "runtime": {
+        "create": "Created runtime",
+        "start": "Started runtime",
+        "stop": "Stopped runtime",
+        "disable": "Disabled runtime",
+        "rebuild": "Rebuilt runtime",
+        "delete": "Deleted runtime"
+      },
+      "image": {
+        "pull": "Pulled Docker image"
+      },
+      "user": {
+        "create": "Created user",
+        "update": "Updated user"
+      },
+      "credential": {
+        "store": "Stored credential",
+        "delete": "Deleted credential"
+      },
+      "settings": {
+        "update": "Updated Hub settings"
+      },
+      "auth": {
+        "register": "Registered Hub user"
+      }
+    },
+    "auditOutcomes": {
+      "success": "Success",
+      "failure": "Failure"
+    },
+    "runtimeForm": {
+      "title": "Create runtime",
+      "hint": "The runtime starts inside the native local sandbox. Its files, secrets and process tree stay separate from other users.",
+      "runtimeId": "Runtime ID",
+      "startImmediately": "Start immediately",
+      "submit": "Create runtime"
+    },
+    "userForm": {
+      "title": "Add account",
+      "hint": "Use a temporary password with at least eight characters. The user can only access runtimes owned by their personal tenant.",
+      "username": "Username",
+      "temporaryPassword": "Temporary password",
+      "role": "Role",
+      "submit": "Create account"
+    },
+    "credentialForm": {
+      "title": "Store credential",
+      "hint": "Tenant scope applies to all of your runtimes. Runtime scope is a private override for one selected process.",
+      "scope": "Scope",
+      "allRuntimes": "All my runtimes",
+      "environmentName": "Environment name",
+      "secretValue": "Secret value",
+      "submit": "Encrypt and store"
+    }
+  },
   "login": {
     "title": "Login to QwenPaw",
     "registerTitle": "Create Account",
@@ -3574,6 +3896,8 @@
     "passwordRequired": "Please enter your password",
     "submit": "Login",
     "register": "Register",
+    "returnToSignIn": "Return to sign in",
+    "createAccount": "Create an account",
     "failed": "Login failed, please check your credentials",
     "registerSuccess": "Registration successful",
     "registerFailed": "Registration failed",
@@ -3581,7 +3905,34 @@
     "logout": "Logout",
     "logoutSuccess": "Logged out successfully",
     "sessionExpired": "Session expired, please login again",
-    "unauthorized": "Unauthorized, please login"
+    "unauthorized": "Unauthorized, please login",
+    "switchLanguage": "Switch language",
+    "hubDisclaimerTitle": "Self-hosted Hub notice",
+    "hubDisclaimerPoint1": "Only sign in to a Hub operated by you or an organization you trust",
+    "hubDisclaimerPoint2": "Administrators may access data stored or processed by this instance",
+    "hubDisclaimerPoint3": "The sandbox may limit some QwenPaw capabilities",
+    "hubDisclaimerAccept": "I have read and agree to the User Terms",
+    "hubDisclaimerAcceptPrefix": "I have read and agree to the ",
+    "hubTerms": "User Terms",
+    "hubLinks": "QwenPaw links",
+    "officialWebsite": "Official website",
+    "hubTermsTitle": "QwenPaw Hub User Terms",
+    "hubTermsLead": "Please read these terms before using this independently operated QwenPaw Hub instance.",
+    "hubTermsSection1Title": "1. Trusted deployment",
+    "hubTermsSection1Body": "Only use a Hub deployed by you or an organization you trust. A third-party Hub is independently operated; the QwenPaw project does not verify its identity, configuration, or security.",
+    "hubTermsSection2Title": "2. Data and administrator access",
+    "hubTermsSection2Body": "The instance operator controls the server, database, backups, logs, and runtime processes. Administrators may be technically able to access conversations, uploaded files, credentials, configuration, and runtime data stored or processed by this instance.",
+    "hubTermsSection3Title": "3. Credentials and sensitive information",
+    "hubTermsSection3Body": "Only provide credentials and data necessary for your work. Do not enter secrets into an untrusted instance. Storage, retention, backup, deletion, and incident handling policies are determined by the instance operator.",
+    "hubTermsSection4Title": "4. Sandbox and capability limits",
+    "hubTermsSection4Body": "QwenPaw runs in an isolated runtime in Hub. Host permissions, devices, local applications, network access, and other integrations may be restricted, so Hub cannot guarantee the full capabilities available in a trusted local QwenPaw installation.",
+    "hubTermsSection5Title": "5. Acceptable and authorized use",
+    "hubTermsSection5Body": "Use this service only for lawful and authorized purposes. You are responsible for your instructions, uploaded content, generated output, external service usage, and compliance with the rules of the instance operator and applicable services.",
+    "hubTermsSection6Title": "6. Availability and risk",
+    "hubTermsSection6Body": "Service availability, data protection, support, and recovery are the responsibility of the instance operator. Back up important data and review generated results before relying on them. The QwenPaw project contributors are not the operator of third-party deployments.",
+    "hubTermsEnd": "By selecting “Agree and continue”, you confirm that you trust this Hub operator and understand these data, capability, and usage boundaries.",
+    "hubTermsScrollHint": "Scroll to the bottom to continue",
+    "hubTermsAgree": "Agree and continue"
   },
   "account": {
     "title": "Account",
@@ -3600,7 +3951,22 @@
     "wrongPassword": "Current password is incorrect",
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
-    "usernameEmpty": "Username cannot be blank"
+    "usernameEmpty": "Username cannot be blank",
+    "username": "Username",
+    "passwordRequired": "Please enter a new password",
+    "hubPasswordPlaceholder": "Enter at least eight characters",
+    "runtimeTitle": "Personal runtime",
+    "runtimeDescription": "Restart your runtime if the workspace becomes unavailable. Running tasks will be interrupted, but stored data is retained.",
+    "runtimeRestartConfirmTitle": "Restart your runtime?",
+    "runtimeRestartConfirmDescription": "Running tasks will be interrupted while the runtime starts again.",
+    "runtimeRestart": "Restart runtime",
+    "runtimeRestarting": "Restarting runtime...",
+    "runtimeRestartSuccess": "Runtime restarted",
+    "runtimeRestartFailed": "Failed to restart runtime",
+    "runtimeStoppedTitle": "Your runtime is stopped",
+    "runtimeStoppedDescription": "An administrator stopped the process. Restart it when you are ready to continue.",
+    "runtimeDisabledTitle": "Your runtime is disabled",
+    "runtimeDisabledDescription": "An administrator has blocked this runtime from starting. Contact an administrator to restore access."
   },
   "approval": {
     "title": "Security Approval Required",
