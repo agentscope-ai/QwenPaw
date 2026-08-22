@@ -265,6 +265,9 @@ DOCS_ENABLED = EnvVarLoader.get_bool("QWENPAW_OPENAPI_DOCS", False)
 
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
+# Advisor Mode transcripts (plan + interventions), kept outside agent
+# workspaces so the agent's own file searches never surface them.
+ADVISOR_DIR = WORKING_DIR / "advisor"
 
 # Backup directory
 BACKUP_DIR = (
