@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { Dropdown } from "antd";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { Check } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useCodingMode } from "../../../../stores/codingModeStore";
+import { useAdvisorMode } from "../../../../stores/advisorModeStore";
 import styles from "./index.module.less";
 
 const MOBILE_BREAKPOINT_PX = 480;
@@ -11,6 +13,8 @@ const ChatHeaderTitle: React.FC = () => {
   const { sessions, currentSessionId, setCurrentSessionId } =
     useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
+  const { advisorMode } = useAdvisorMode();
+  const { t } = useTranslation();
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const chatName = currentSession?.name || "New Chat";
 
@@ -77,6 +81,17 @@ const ChatHeaderTitle: React.FC = () => {
     </span>
   );
 
+  // Small tag after the title while Advisor Mode is on for this agent.
+  const advisorBadge = advisorMode ? (
+    <span
+      className={styles.advisorBadge}
+      title={t("advisorMode.badgeTooltip")}
+      data-testid="advisor-mode-badge"
+    >
+      {t("advisorMode.badge")}
+    </span>
+  ) : null;
+
   // Hidden span used to measure intrinsic text width for the marquee decision.
   // Placed outside .chatName so it does not duplicate text for screen readers
   // or testing-library queries.
@@ -99,6 +114,7 @@ const ChatHeaderTitle: React.FC = () => {
     return (
       <>
         {titleContent}
+        {advisorBadge}
         {measureSpan}
       </>
     );
@@ -120,6 +136,7 @@ const ChatHeaderTitle: React.FC = () => {
         aria-expanded={open}
       >
         {titleContent}
+        {advisorBadge}
         {measureSpan}
       </button>
     </Dropdown>
