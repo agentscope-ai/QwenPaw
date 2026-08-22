@@ -1766,7 +1766,7 @@
     "totalCalls": "Total Calls",
     "toolCalls": "Tool Calls",
     "llmAndToolTrend": "LLM & Tool Call Trend (todos os agentes)",
-    "llmAndToolTrendTooltip": "Soma dos turnos do assistente com metadados e intents de ferramenta em todos os agentes. Nao e Total Calls (contagem bruta de API); sessoes antigas podem mostrar 0.",
+    "llmAndToolTrendTooltip": "Turnos do assistente com metadados de uso mais intents de ferramenta em todos os agentes. Nao e Total Calls (contagem bruta de API); sessoes antigas podem ter 0 turnos registrados.",
     "llmAndToolTrendLoadFailed": "Falha ao carregar tendencia de LLM e ferramentas",
     "recordedTurnsAllAgents": "Turnos registrados (todos os agentes)",
     "promptTokens": "Prompt Tokens",

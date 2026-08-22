@@ -1137,7 +1137,7 @@
     "totalTokens": "Tổng token",
     "toolCalls": "Lời gọi công cụ",
     "llmAndToolTrend": "Xu hướng LLM & công cụ (tất cả agent)",
-    "llmAndToolTrendTooltip": "Tổng lượt trợ lý đã ghi nhận và ý định gọi công cụ trên mọi agent. Không phải Total Calls (số lần gọi API thô); phiên cũ có thể hiện 0.",
+    "llmAndToolTrendTooltip": "Lượt trợ lý có metadata sử dụng cộng ý định gọi công cụ trên mọi agent. Không phải Total Calls (API thô); phiên cũ có thể 0 lượt ghi nhận.",
     "llmAndToolTrendLoadFailed": "Không tải được xu hướng LLM & công cụ",
     "recordedTurnsAllAgents": "Lượt đã ghi nhận (tất cả agent)",
     "noData": "Chưa có dữ liệu",

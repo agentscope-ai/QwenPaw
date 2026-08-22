@@ -12,7 +12,6 @@ import subprocess
 import sys
 import threading
 import uuid
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
@@ -911,21 +910,6 @@ def get_plugins_dir() -> Path:
     return PLUGINS_DIR
 
 
-def iter_profile_workspace_paths() -> Iterator[Path]:
-    """Yield configured workspace paths, skipping empty workspace_dir.
-
-    Does not touch the filesystem. Empty workspace_dir is skipped
-    before Path construction so Path("") is never treated as cwd.
-    """
-    config = load_config()
-    profiles = (config.agents.profiles if config.agents else {}) or {}
-    for ref in profiles.values():
-        raw = getattr(ref, "workspace_dir", "") or ""
-        if not raw:
-            continue
-        yield Path(str(raw)).expanduser()
-
-
 def get_agent_dirs() -> list[Path]:
     """Return list of all agent directories from config.
 
@@ -936,10 +920,17 @@ def get_agent_dirs() -> list[Path]:
     Returns:
         List of Path objects for each agent's workspace directory
     """
+    config = load_config()
+
     agent_dirs = []
-    for workspace_dir in iter_profile_workspace_paths():
-        if workspace_dir.exists() and (workspace_dir / "agent.json").exists():
-            agent_dirs.append(workspace_dir)
+    if config.agents and config.agents.profiles:
+        for profile in config.agents.profiles.values():
+            workspace_dir = Path(profile.workspace_dir)
+            if (
+                workspace_dir.exists()
+                and (workspace_dir / "agent.json").exists()
+            ):
+                agent_dirs.append(workspace_dir)
 
     return agent_dirs
 

@@ -1989,7 +1989,7 @@
     "totalCalls": "Total Calls",
     "toolCalls": "Tool Calls",
     "llmAndToolTrend": "LLM & Tool Call Trend (all agents)",
-    "llmAndToolTrendTooltip": "Sum of recorded assistant turns and tool-use intents across all agents' sessions. This is not Total Calls (raw API count); older sessions may show 0.",
+    "llmAndToolTrendTooltip": "Recorded assistant turns (usage metadata) plus tool-use intents across all agents. Not Total Calls (raw API count); older sessions may show 0 recorded turns.",
     "llmAndToolTrendLoadFailed": "Failed to load LLM & tool call trend",
     "recordedTurnsAllAgents": "Recorded Turns (all agents)",
     "promptTokens": "Prompt Tokens",

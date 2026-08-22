@@ -23,9 +23,12 @@ function dateQuery(params: GetAgentStatsParams): string {
 export const agentStatsApi = {
   getAgentStats: (params: GetAgentStatsParams) =>
     request<AgentStatsSummary>(`/agent-stats${dateQuery(params)}`),
-  getGlobalLlmToolTrend: (params: GetAgentStatsParams) =>
+  getGlobalLlmToolTrend: (
+    params: GetAgentStatsParams,
+    options?: { signal?: AbortSignal },
+  ) =>
     request<LlmToolDaily[]>(
       `/agent-stats/llm-tool-trend${dateQuery(params)}`,
-      { timeout: 60_000 },
+      { timeout: 60_000, signal: options?.signal },
     ),
 };

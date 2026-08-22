@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Iterator
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -17,7 +16,6 @@ import orjson
 from ..app.chats.repo import JsonChatRepository
 from ..token_usage import get_token_usage_manager
 from ..token_usage.turn_usage import TURN_USAGE_META_KEY
-from ..utils.io_utils import run_sync_io
 from .models import (
     AgentStatsSummary,
     ChannelStats,
@@ -66,32 +64,50 @@ def _extract_session_messages(session_data: dict) -> list:
     return []
 
 
-def _iter_messages_in_range(
+def _should_skip_by_content_range(
     session_data: dict,
     start_date_str: str,
     end_date_str: str,
-) -> Iterator[tuple[str, dict]]:
-    """Yield (date_str, msg_data) for calendar dates in the inclusive range."""
-    for msg_item in _extract_session_messages(session_data):
-        if isinstance(msg_item, list) and msg_item:
+) -> bool:
+    memories = _extract_session_messages(session_data)
+
+    if not memories:
+        return True
+
+    timestamps: list[str] = []
+    for msg_item in memories:
+        if isinstance(msg_item, list) and len(msg_item) > 0:
             msg_data = msg_item[0]
         elif isinstance(msg_item, dict):
             msg_data = msg_item
         else:
             continue
+
         if not isinstance(msg_data, dict):
             continue
+
         timestamp = msg_data.get("created_at") or msg_data.get("timestamp")
-        if not timestamp:
-            continue
-        date_str = str(timestamp)[:10]
-        if date_str < start_date_str or date_str > end_date_str:
-            continue
-        try:
-            date.fromisoformat(date_str)
-        except ValueError:
-            continue
-        yield date_str, msg_data
+        if timestamp:
+            timestamps.append(str(timestamp)[:10])
+
+    if not timestamps:
+        return True
+
+    first_date = min(timestamps)
+    last_date = max(timestamps)
+
+    if last_date < start_date_str or first_date > end_date_str:
+        logger.debug(
+            "Skipping session by content range [%s, %s] "
+            "outside target [%s, %s]",
+            first_date,
+            last_date,
+            start_date_str,
+            end_date_str,
+        )
+        return True
+
+    return False
 
 
 def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
@@ -115,28 +131,6 @@ def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
     return pt, ct
 
 
-def _assistant_turn_usage(msg_data: dict) -> tuple[int, int] | None:
-    """Return turn usage for an assistant message, or None."""
-    if msg_data.get("role") != "assistant":
-        return None
-    return _extract_turn_usage_tokens(msg_data)
-
-
-def _count_tool_use_blocks(content: object) -> int:
-    if not isinstance(content, list):
-        return 0
-    n = 0
-    for block in content:
-        btype = (
-            block.get("type")
-            if isinstance(block, dict)
-            else getattr(block, "type", None)
-        )
-        if btype in ("tool_use", "tool_call"):
-            n += 1
-    return n
-
-
 # pylint:disable=too-many-statements,too-many-branches
 def _process_session_file(
     session_data: dict,
@@ -154,6 +148,8 @@ def _process_session_file(
     agent_completion_tokens = 0
     agent_llm_calls = 0
     try:
+        memories = _extract_session_messages(session_data)
+
         stats = channel_stats.setdefault(
             channel,
             {
@@ -164,18 +160,33 @@ def _process_session_file(
             },
         )
 
-        for date_str, msg_data in _iter_messages_in_range(
-            session_data,
-            start_date_str,
-            end_date_str,
-        ):
+        for msg_item in memories:
+            if isinstance(msg_item, list) and len(msg_item) > 0:
+                msg_data = msg_item[0]
+            elif isinstance(msg_item, dict):
+                msg_data = msg_item
+            else:
+                continue
+
+            if not isinstance(msg_data, dict):
+                continue
+
+            timestamp = msg_data.get("created_at") or msg_data.get("timestamp")
+            if not timestamp:
+                continue
+
+            date_str = str(timestamp)[:10]
+            if date_str < start_date_str or date_str > end_date_str:
+                continue
             ds = daily_stats.get(date_str)
             if ds is None:
                 continue
+
             has_messages_in_range = True
             active_sessions.setdefault(date_str, set()).add(session_stem)
 
             role = msg_data.get("role", "")
+            content = msg_data.get("content", [])
 
             if role == "user":
                 ds["user_messages"] += 1
@@ -200,9 +211,16 @@ def _process_session_file(
                     ds["agent_completion_tokens"] += ct
                     ds["agent_llm_calls"] += 1
 
-            n_tools = _count_tool_use_blocks(msg_data.get("content", []))
-            ds["tool_calls"] += n_tools
-            tool_call_count += n_tools
+            if isinstance(content, list):
+                for block in content:
+                    btype = (
+                        block.get("type")
+                        if isinstance(block, dict)
+                        else getattr(block, "type", None)
+                    )
+                    if btype in ("tool_use", "tool_call"):
+                        ds["tool_calls"] += 1
+                        tool_call_count += 1
 
     except Exception as e:
         logger.warning("Failed to count messages in session: %s", e)
@@ -219,120 +237,6 @@ def _process_session_file(
     )
 
 
-async def _list_session_json_files(
-    sessions_dir: Path,
-    *,
-    strict: bool = False,
-) -> list[Path]:
-    session_files: list[Path] = []
-    try:
-        channel_names = await aiofiles.os.listdir(sessions_dir)
-    except FileNotFoundError:
-        return session_files
-    for channel_name in channel_names:
-        channel_path = sessions_dir / channel_name
-        try:
-            names = await aiofiles.os.listdir(channel_path)
-        except NotADirectoryError:
-            continue
-        except Exception as e:
-            logger.debug(
-                "Failed to scan channel directory %s: %s",
-                channel_path,
-                e,
-            )
-            if strict:
-                raise
-            continue
-        session_files.extend(
-            channel_path / name for name in names if name.endswith(".json")
-        )
-    return session_files
-
-
-async def _load_session_in_range(
-    session_file: Path,
-    start_date: date,
-    end_date: date,
-) -> dict | None:
-    if _should_skip_by_mtime(session_file, start_date, end_date):
-        return None
-    try:
-        async with aiofiles.open(session_file, encoding="utf-8") as f:
-            session_data = orjson.loads(await f.read())
-        if not isinstance(session_data, dict):
-            return None
-        return session_data
-    except Exception as e:
-        logger.debug("Failed to read session file %s: %s", session_file, e)
-        return None
-
-
-def _add_llm_tool_counts(
-    session_data: dict,
-    start_date_str: str,
-    end_date_str: str,
-    buckets: dict[str, dict[str, int]],
-) -> None:
-    try:
-        for date_str, msg_data in _iter_messages_in_range(
-            session_data,
-            start_date_str,
-            end_date_str,
-        ):
-            bucket = buckets.setdefault(
-                date_str,
-                {"agent_llm_calls": 0, "tool_calls": 0},
-            )
-            if _assistant_turn_usage(msg_data) is not None:
-                bucket["agent_llm_calls"] += 1
-            bucket["tool_calls"] += _count_tool_use_blocks(
-                msg_data.get("content", []),
-            )
-    except Exception as e:
-        logger.warning("Failed to count messages in session: %s", e)
-
-
-_LLM_TOOL_WORKSPACE_CONCURRENCY = 4
-_LLM_TOOL_ALL_FAILED = "llm/tool trend: all workspaces failed"
-_LLM_TOOL_SOME_FAILED = "llm/tool trend: some workspaces failed"
-
-
-def _stat_workspaces_sync() -> list[Path]:
-    """Workspaces for global stats, including disabled agents.
-
-    Same agent.json gate as get_agent_dirs, but missing paths are
-    skipped and other OSError fails the trend.
-    """
-    from ..config.utils import iter_profile_workspace_paths
-
-    seen: set[str] = set()
-    dirs: list[Path] = []
-    named = 0
-    io_failed = 0
-    for path in iter_profile_workspace_paths():
-        named += 1
-        try:
-            path.stat()
-            if not (path / "agent.json").exists():
-                continue
-            key = str(path.resolve())
-        except FileNotFoundError:
-            continue
-        except OSError:
-            io_failed += 1
-            continue
-        if key in seen:
-            continue
-        seen.add(key)
-        dirs.append(path)
-    if io_failed or (named and not dirs):
-        raise RuntimeError(
-            _LLM_TOOL_ALL_FAILED if not dirs else _LLM_TOOL_SOME_FAILED,
-        )
-    return dirs
-
-
 class AgentStatsService:
     """Service for computing agent statistics."""
 
@@ -342,8 +246,9 @@ class AgentStatsService:
         workspace_dir: Path,
         start_date: date,
         end_date: date,
+        *,
+        include_token_overlay: bool = True,
     ) -> AgentStatsSummary:
-        """Return stats for one workspace."""
         chats_file = workspace_dir / "chats.json"
         sessions_dir = workspace_dir / "sessions"
 
@@ -395,28 +300,75 @@ class AgentStatsService:
         # pylint: disable=too-many-nested-blocks
         if sessions_dir.exists():
             try:
-                session_files = await _list_session_json_files(sessions_dir)
-                fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
+                session_files = []
+
+                # Scan root sessions directory for legacy files
+                channel_names = await aiofiles.os.listdir(sessions_dir)
+                for channel_name in channel_names:
+                    channel_path = sessions_dir / channel_name
+                    if await aiofiles.os.path.isdir(channel_path):
+                        try:
+                            channel_files = await aiofiles.os.listdir(
+                                channel_path,
+                            )
+                            for channel_file in channel_files:
+                                session_file = channel_path / channel_file
+                                if session_file.name.endswith(".json"):
+                                    session_files.append(session_file)
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to scan channel directory %s: %s",
+                                channel_path,
+                                e,
+                            )
+
+                session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
 
                 async def _process_one(
                     session_file: Path,
                 ) -> tuple[int, bool, int, int, int]:
-                    async with fd_sem:
-                        session_data = await _load_session_in_range(
+                    async with session_fd_sem:
+                        if _should_skip_by_mtime(
                             session_file,
                             start_date,
                             end_date,
-                        )
-                        if session_data is None:
+                        ):
                             return 0, False, 0, 0, 0
+
+                        try:
+                            async with aiofiles.open(
+                                session_file,
+                                "r",
+                                encoding="utf-8",
+                            ) as f:
+                                session_data = orjson.loads(await f.read())
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to read session file %s: %s",
+                                session_file,
+                                e,
+                            )
+                            return 0, False, 0, 0, 0
+
+                        if _should_skip_by_content_range(
+                            session_data,
+                            start_date_str,
+                            end_date_str,
+                        ):
+                            return 0, False, 0, 0, 0
+
+                        stem = session_file.stem
+                        # Check if session is in a channel subdirectory
+                        channel = session_file.parent.name
+
                         return _process_session_file(
                             session_data,
                             start_date_str,
                             end_date_str,
                             daily_stats,
                             channel_stats,
-                            session_file.parent.name,
-                            session_file.stem,
+                            channel,
+                            stem,
                             active_sessions,
                         )
 
@@ -442,17 +394,24 @@ class AgentStatsService:
             except Exception as e:
                 logger.warning("Failed to load message statistics: %s", e)
 
-        token_summary = await get_token_usage_manager().get_summary(
-            start_date=start_date,
-            end_date=end_date,
-        )
-        for date_str, ts in token_summary.by_date.items():
-            if date_str in daily_stats:
-                daily_stats[date_str]["prompt_tokens"] = ts.prompt_tokens
-                daily_stats[date_str][
-                    "completion_tokens"
-                ] = ts.completion_tokens
-                daily_stats[date_str]["llm_calls"] = ts.call_count
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_llm_calls = 0
+        if include_token_overlay:
+            token_summary = await get_token_usage_manager().get_summary(
+                start_date=start_date,
+                end_date=end_date,
+            )
+            total_prompt_tokens = token_summary.total_prompt_tokens
+            total_completion_tokens = token_summary.total_completion_tokens
+            total_llm_calls = token_summary.total_calls
+            for date_str, ts in token_summary.by_date.items():
+                if date_str in daily_stats:
+                    daily_stats[date_str]["prompt_tokens"] = ts.prompt_tokens
+                    daily_stats[date_str][
+                        "completion_tokens"
+                    ] = ts.completion_tokens
+                    daily_stats[date_str]["llm_calls"] = ts.call_count
 
         for date_str, session_set in active_sessions.items():
             if date_str in daily_stats:
@@ -471,9 +430,9 @@ class AgentStatsService:
             total_messages=total_messages,
             total_user_messages=total_user_messages,
             total_assistant_messages=total_assistant_messages,
-            total_prompt_tokens=token_summary.total_prompt_tokens,
-            total_completion_tokens=token_summary.total_completion_tokens,
-            total_llm_calls=token_summary.total_calls,
+            total_prompt_tokens=total_prompt_tokens,
+            total_completion_tokens=total_completion_tokens,
+            total_llm_calls=total_llm_calls,
             total_tool_calls=total_tool_calls,
             by_date=[DailyStats.model_validate(ds) for ds in by_date],
             channel_stats=[
@@ -493,94 +452,44 @@ class AgentStatsService:
             agent_llm_calls=agent_llm_calls,
         )
 
-    async def _workspace_llm_tool(
-        self,
-        workspace_dir: Path,
-        start_date: date,
-        end_date: date,
-        session_fd_sem: asyncio.Semaphore,
-    ) -> dict[str, dict[str, int]]:
-        buckets: dict[str, dict[str, int]] = {}
-        sessions_dir = workspace_dir / "sessions"
-        session_files = await _list_session_json_files(
-            sessions_dir,
-            strict=True,
-        )
-        start_date_str = start_date.isoformat()
-        end_date_str = end_date.isoformat()
-
-        async def _one(session_file: Path) -> None:
-            async with session_fd_sem:
-                session_data = await _load_session_in_range(
-                    session_file,
-                    start_date,
-                    end_date,
-                )
-                if session_data is not None:
-                    _add_llm_tool_counts(
-                        session_data,
-                        start_date_str,
-                        end_date_str,
-                        buckets,
-                    )
-
-        await asyncio.gather(*[_one(sf) for sf in session_files])
-        return buckets
-
     async def get_global_llm_tool_by_date(
         self,
         start_date: date,
         end_date: date,
     ) -> list[LlmToolDaily]:
-        """Sum session LLM turns and tool calls across agent workspaces.
+        """Sum Agent Statistics daily LLM turns and tool calls."""
+        from ..config.utils import load_config
 
-        Includes disabled agents (historical usage). Does not overlay
-        global token-usage API call counts.
-        """
-        days = (end_date - start_date).days + 1
         totals: dict[str, dict[str, int]] = {}
+        days = (end_date - start_date).days + 1
         for i in range(days):
-            date_str = (start_date + timedelta(days=i)).isoformat()
-            totals[date_str] = {"agent_llm_calls": 0, "tool_calls": 0}
-
-        workspaces = await run_sync_io(_stat_workspaces_sync)
-        sem = asyncio.Semaphore(_LLM_TOOL_WORKSPACE_CONCURRENCY)
-        session_fd_sem = asyncio.Semaphore((os.cpu_count() or 4) * 2)
-
-        async def _one(path: Path) -> dict[str, dict[str, int]] | None:
-            async with sem:
-                try:
-                    return await self._workspace_llm_tool(
-                        path,
-                        start_date,
-                        end_date,
-                        session_fd_sem,
-                    )
-                except Exception:
-                    logger.warning(
-                        "agent_stats: failed llm/tool trend for %s",
-                        path,
-                        exc_info=True,
-                    )
-                    return None
-
-        results = await asyncio.gather(*[_one(p) for p in workspaces])
-        failed = sum(1 for daily in results if daily is None)
-        succeeded = len(results) - failed
-        if failed:
-            raise RuntimeError(
-                _LLM_TOOL_ALL_FAILED
-                if not succeeded
-                else _LLM_TOOL_SOME_FAILED,
+            totals[(start_date + timedelta(days=i)).isoformat()] = {
+                "agent_llm_calls": 0,
+                "tool_calls": 0,
+            }
+        config = load_config()
+        profiles = (config.agents.profiles if config.agents else {}) or {}
+        seen: set[str] = set()
+        for ref in profiles.values():
+            raw = getattr(ref, "workspace_dir", "") or ""
+            if not raw:
+                continue
+            path = Path(str(raw)).expanduser()
+            if not path.exists() or not (path / "agent.json").exists():
+                continue
+            key = str(path.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            summary = await self.get_summary(
+                path,
+                start_date,
+                end_date,
+                include_token_overlay=False,
             )
-        for daily in results:
-            for date_str, counts in daily.items():
-                bucket = totals.get(date_str)
-                if bucket is None:
-                    continue
-                bucket["agent_llm_calls"] += counts["agent_llm_calls"]
-                bucket["tool_calls"] += counts["tool_calls"]
-
+            for ds in summary.by_date:
+                totals[ds.date]["agent_llm_calls"] += ds.agent_llm_calls
+                totals[ds.date]["tool_calls"] += ds.tool_calls
         return [
             LlmToolDaily(date=date_str, **totals[date_str])
             for date_str in sorted(totals)

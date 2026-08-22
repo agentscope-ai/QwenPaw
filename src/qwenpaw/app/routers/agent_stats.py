@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from ...agent_stats import AgentStatsSummary, get_agent_stats_service
 from ...agent_stats.models import LlmToolDaily
@@ -82,7 +82,4 @@ async def get_global_llm_tool_trend(
 ) -> list[LlmToolDaily]:
     start_d, end_d = _resolved_date_range(start_date, end_date)
     service = get_agent_stats_service()
-    try:
-        return await service.get_global_llm_tool_by_date(start_d, end_d)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return await service.get_global_llm_tool_by_date(start_d, end_d)

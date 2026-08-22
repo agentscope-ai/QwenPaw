@@ -1816,7 +1816,7 @@
     "totalCalls": "Total Panggilan",
     "toolCalls": "Panggilan Alat",
     "llmAndToolTrend": "Tren Panggilan LLM & Alat (semua agen)",
-    "llmAndToolTrendTooltip": "Jumlah giliran asisten tercatat dan intent alat di semua sesi agen. Ini bukan Total Calls (jumlah API mentah); sesi lama mungkin menampilkan 0.",
+    "llmAndToolTrendTooltip": "Giliran asisten dengan metadata pemakaian plus intent alat di semua agen. Bukan Total Calls (jumlah API mentah); sesi lama mungkin 0 giliran tercatat.",
     "llmAndToolTrendLoadFailed": "Gagal memuat tren panggilan LLM & alat",
     "recordedTurnsAllAgents": "Giliran tercatat (semua agen)",
     "promptTokens": "Token Prompt",

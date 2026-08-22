@@ -17,6 +17,7 @@ import {
   ModelTrendChart,
   TokenTypeChart,
   DataTables,
+  EmptyState,
 } from "./components";
 import { useDataAggregation } from "./hooks/useDataAggregation";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
@@ -30,6 +31,7 @@ function lineChartChrome(
   startDate: Dayjs,
   endDate: Dayjs,
 ) {
+  const ymd = startDate.year() !== endDate.year();
   return {
     xField: "date",
     yField: "value",
@@ -52,15 +54,18 @@ function lineChartChrome(
     axis: {
       x: {
         range: [0, 1] as [number, number],
+        nice: true,
         tickCount,
         labelFormatter: (d: string) =>
-          startDate.year() !== endDate.year()
-            ? dayjs(d).format("YY/MM-DD")
-            : dayjs(d).format("MM-DD"),
+          dayjs(d).format(ymd ? "YY/MM-DD" : "MM-DD"),
         grid: null,
       },
       y: {
-        labelFormatter: (v: number) => formatCompact(v),
+        labelFormatter: (v: number) => {
+          if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+          if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
+          return String(v);
+        },
         grid: {
           line: {
             style: {
@@ -72,16 +77,7 @@ function lineChartChrome(
         },
       },
     },
-    legend: {
-      position: "top" as const,
-      itemMarker: "circle",
-      itemName: {
-        style: {
-          fill: isDark ? "rgba(255, 255, 255, 0.85)" : "#333",
-          fontSize: 12,
-        },
-      },
-    },
+    legend: { position: "top" as const, itemMarker: "circle" },
     color: colors,
   };
 }
@@ -101,19 +97,53 @@ function TokenUsagePage() {
   );
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
   const fetchIdRef = useRef(0);
+  const trendAbortRef = useRef<AbortController | null>(null);
+
+  const dateRange = useMemo(
+    () => ({
+      start_date: startDate.format("YYYY-MM-DD"),
+      end_date: endDate.format("YYYY-MM-DD"),
+    }),
+    [startDate, endDate],
+  );
+
+  const fetchTrend = useCallback(
+    async (fetchId: number) => {
+      trendAbortRef.current?.abort();
+      const controller = new AbortController();
+      trendAbortRef.current = controller;
+      setTrendLoading(true);
+      setTrendError(false);
+      try {
+        const data = await api.getGlobalLlmToolTrend(dateRange, {
+          signal: controller.signal,
+        });
+        if (fetchId !== fetchIdRef.current) return;
+        setLlmToolDays(data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        console.error("Failed to load llm/tool trend:", err);
+        if (fetchId !== fetchIdRef.current) return;
+        setLlmToolDays(null);
+        setTrendError(true);
+      } finally {
+        if (fetchId === fetchIdRef.current) {
+          setTrendLoading(false);
+        }
+      }
+    },
+    [dateRange],
+  );
 
   const fetchData = useCallback(async () => {
     const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setError(false);
-    setTrendLoading(true);
-    setTrendError(false);
-    const range = {
-      start_date: startDate.format("YYYY-MM-DD"),
-      end_date: endDate.format("YYYY-MM-DD"),
-    };
+    void fetchTrend(fetchId);
     try {
-      const detailsData = await api.getTokenUsageDetails(range);
+      const detailsData = await api.getTokenUsageDetails(dateRange);
       if (fetchId !== fetchIdRef.current) return;
       setRecords(detailsData);
     } catch (err) {
@@ -121,32 +151,13 @@ function TokenUsagePage() {
       if (fetchId !== fetchIdRef.current) return;
       message.error(t("tokenUsage.loadFailed"));
       setRecords([]);
-      setLlmToolDays(null);
-      setTrendLoading(false);
       setError(true);
-      return;
     } finally {
       if (fetchId === fetchIdRef.current) {
         setLoading(false);
       }
     }
-
-    try {
-      const data = await api.getGlobalLlmToolTrend(range);
-      if (fetchId !== fetchIdRef.current) return;
-      setLlmToolDays(data);
-    } catch (err) {
-      console.error("Failed to load llm/tool trend:", err);
-      if (fetchId !== fetchIdRef.current) return;
-      message.warning(t("tokenUsage.llmAndToolTrendLoadFailed"));
-      setLlmToolDays(null);
-      setTrendError(true);
-    } finally {
-      if (fetchId === fetchIdRef.current) {
-        setTrendLoading(false);
-      }
-    }
-  }, [startDate, endDate, message, t]);
+  }, [dateRange, fetchTrend, message, t]);
 
   useEffect(() => {
     fetchData();
@@ -234,19 +245,6 @@ function TokenUsagePage() {
     );
   }
 
-  if (error && records.length === 0) {
-    return (
-      <div className={styles.container}>
-        {pageHeader}
-        <LoadingState
-          message={t("tokenUsage.loadFailed")}
-          error
-          onRetry={fetchData}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className={styles.container}>
       {pageHeader}
@@ -262,22 +260,32 @@ function TokenUsagePage() {
           />
         </div>
 
-        {aggregatedData && (
-          <SummaryCards
-            totalCalls={aggregatedData.total_calls}
-            totalPromptTokens={aggregatedData.total_prompt_tokens}
-            totalCompletionTokens={aggregatedData.total_completion_tokens}
-            totalTokens={
-              aggregatedData.total_prompt_tokens +
-              aggregatedData.total_completion_tokens
-            }
+        {error ? (
+          <LoadingState
+            message={t("tokenUsage.loadFailed")}
+            error
+            onRetry={fetchData}
           />
-        )}
+        ) : (
+          <>
+            {aggregatedData && (
+              <SummaryCards
+                totalCalls={aggregatedData.total_calls}
+                totalPromptTokens={aggregatedData.total_prompt_tokens}
+                totalCompletionTokens={aggregatedData.total_completion_tokens}
+                totalTokens={
+                  aggregatedData.total_prompt_tokens +
+                  aggregatedData.total_completion_tokens
+                }
+              />
+            )}
 
-        <div className={styles.trendRow}>
-          <ModelTrendChart chartConfig={modelTrendConfig} />
-          <TokenTypeChart chartConfig={tokenTypeConfig} />
-        </div>
+            <div className={styles.trendRow}>
+              <ModelTrendChart chartConfig={modelTrendConfig} />
+              <TokenTypeChart chartConfig={tokenTypeConfig} />
+            </div>
+          </>
+        )}
 
         <Card
           className={styles.chartCard}
@@ -295,16 +303,21 @@ function TokenUsagePage() {
             <LoadingState
               message={t("tokenUsage.llmAndToolTrendLoadFailed")}
               error
-              onRetry={fetchData}
+              onRetry={() => {
+                void fetchTrend(++fetchIdRef.current);
+              }}
             />
           ) : (
             <Line {...llmToolConfig} />
           )}
         </Card>
 
-        {!tablesEmpty && (
-          <DataTables byModelData={byModelData} byDateData={byDateData} />
-        )}
+        {!error &&
+          (tablesEmpty ? (
+            <EmptyState message={t("tokenUsage.noData")} />
+          ) : (
+            <DataTables byModelData={byModelData} byDateData={byDateData} />
+          ))}
       </div>
     </div>
   );
