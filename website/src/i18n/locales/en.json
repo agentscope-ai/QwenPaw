@@ -310,6 +310,7 @@
     "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
     "import": "Import",
+    "advisorMode": "Advisor Mode",
     "models": "Models",
     "channels": "Channels",
     "skills": "Skills",
