@@ -1307,6 +1307,8 @@ class AgentBuilder:
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         4. VisualCompressionMiddleware — innermost pre-provider transform
+        5. Mode-contributed middlewares — e.g. AdvisorMiddleware from
+           Advisor Mode (innermost)
         """
         mws: list[Any] = []
 
@@ -1410,7 +1412,34 @@ class AgentBuilder:
             ),
         )
 
+        # Mode-contributed middlewares (innermost). Every registered mode
+        # that is active for this request may add request-scoped
+        # middlewares, e.g. Advisor Mode's AdvisorMiddleware.
+        mws.extend(AgentBuilder._collect_mode_middlewares(ctx, agent_config))
+
         return mws
+
+    @staticmethod
+    def _collect_mode_middlewares(
+        ctx: Any,
+        agent_config: Any,
+    ) -> list[Any]:
+        """Return the middlewares of every mode active for ``ctx``."""
+        plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
+        collected: list[Any] = []
+        for mode in getattr(plugins, "modes", None) or []:
+            name = getattr(mode, "name", "?")
+            try:
+                if not mode.is_active(ctx):
+                    continue
+                collected.extend(mode.middlewares(ctx, agent_config) or [])
+            except Exception:
+                _logger.warning(
+                    "mode '%s' middleware build failed",
+                    name,
+                    exc_info=True,
+                )
+        return collected
 
 
 __all__ = ["AgentBuilder"]
