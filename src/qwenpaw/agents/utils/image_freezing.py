@@ -29,6 +29,21 @@ _NATIVE_IMAGE_MEDIA_TYPES = frozenset(
     },
 )
 _PNG_CONVERTIBLE_IMAGE_FORMATS = frozenset({"BMP", "TIFF"})
+_MAX_IMAGE_PIXELS = 36_000_000
+
+
+def _image_pixel_limit_error(
+    image: Image.Image,
+    display_name: str,
+) -> str | None:
+    """Return an error when an image is too large for vision providers."""
+    pixels = image.width * image.height
+    if pixels > _MAX_IMAGE_PIXELS:
+        return (
+            f"Error: {display_name} has {pixels} pixels and exceeds the "
+            f"{_MAX_IMAGE_PIXELS}-pixel image limit."
+        )
+    return None
 
 
 def validate_image_bytes(
@@ -38,6 +53,9 @@ def validate_image_bytes(
     """Validate image bytes and return their detected media type."""
     try:
         with Image.open(BytesIO(image_bytes)) as image:
+            pixel_error = _image_pixel_limit_error(image, display_name)
+            if pixel_error:
+                return None, pixel_error
             normalized_format = (image.format or "").upper()
             media_type = Image.MIME.get(normalized_format)
             if (
@@ -98,6 +116,9 @@ def freeze_image_bytes(
 
     try:
         with Image.open(BytesIO(image_bytes)) as image:
+            pixel_error = _image_pixel_limit_error(image, display_name)
+            if pixel_error:
+                return None, pixel_error
             normalized_format = (image.format or "").upper()
             media_type = Image.MIME.get(normalized_format)
             if media_type in _NATIVE_IMAGE_MEDIA_TYPES:

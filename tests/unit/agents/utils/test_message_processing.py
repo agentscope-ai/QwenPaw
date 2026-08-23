@@ -7,6 +7,7 @@ Covers:
 - process_file_and_media_blocks_in_message
 """
 # pylint: disable=redefined-outer-name
+import io
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,6 +21,7 @@ from agentscope.message import (
 from PIL import Image
 
 from qwenpaw.agents.utils import message_processing
+from qwenpaw.agents.utils.image_freezing import freeze_image_bytes
 from qwenpaw.agents.utils.message_processing import (
     _process_audio_block,
     is_first_user_interaction,
@@ -329,6 +331,39 @@ class TestProcessLocalImageDataBlock:
         assert isinstance(second_msg.content[0].source, Base64Source)
         assert first_msg.content[0].source.data == first_source.data
         assert second_msg.content[0].source.data != first_source.data
+
+
+class TestFreezeImagePixelLimit:
+    """Oversized images are downgraded before reaching a provider."""
+
+    def test_rejects_image_over_provider_pixel_limit(self):
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (6001, 6000), color="red").save(
+            image_bytes,
+            format="JPEG",
+            quality=10,
+        )
+
+        frozen, error = freeze_image_bytes(image_bytes.getvalue(), "large.jpg")
+
+        assert frozen is None
+        assert error == (
+            "Error: large.jpg has 36006000 pixels and exceeds "
+            "the 36000000-pixel image limit."
+        )
+
+    def test_accepts_image_within_provider_pixel_limit(self):
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (6000, 6000), color="red").save(
+            image_bytes,
+            format="JPEG",
+            quality=10,
+        )
+
+        frozen, error = freeze_image_bytes(image_bytes.getvalue(), "valid.jpg")
+
+        assert error is None
+        assert frozen is not None
 
 
 class TestProcessFileAndMediaBlocks:
