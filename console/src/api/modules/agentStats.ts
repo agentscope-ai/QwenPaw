@@ -27,8 +27,8 @@ export const agentStatsApi = {
     params: GetAgentStatsParams,
     options?: { signal?: AbortSignal },
   ) =>
-    request<LlmToolDaily[]>(
-      `/agent-stats/llm-tool-trend${dateQuery(params)}`,
-      { timeout: 60_000, signal: options?.signal },
-    ),
+    request<LlmToolDaily[]>(`/agent-stats/llm-tool-trend${dateQuery(params)}`, {
+      timeout: 60_000,
+      signal: options?.signal,
+    }),
 };
