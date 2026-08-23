@@ -84,13 +84,35 @@ async def test_title_generation_keeps_thinking_out_of_persisted_title(
     assert chat_manager.updated_title == "Deploying QwenPaw"
 
 
-def test_clean_title_rejects_unterminated_inline_reasoning():
+def test_clean_title_rejects_unterminated_leading_reasoning():
     assert (
         title_generator._clean_title(
             "<think>Here's a thinking process without a final answer",
         )
         == ""
     )
+
+
+def test_clean_title_keeps_answer_before_unterminated_reasoning():
+    assert (
+        title_generator._clean_title(
+            "Deploying QwenPaw\n<think>truncated reasoning",
+        )
+        == "Deploying QwenPaw"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Understanding <think> Tags",
+        "Meaning of <think>foo</think>",
+        "Escaping <analysis> in XML",
+        "Use <reasoning> safely",
+    ],
+)
+def test_clean_title_preserves_reasoning_tags_in_answer(raw):
+    assert title_generator._clean_title(raw) == raw
 
 
 @pytest.mark.parametrize(

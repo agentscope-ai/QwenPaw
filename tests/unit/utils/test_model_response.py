@@ -92,6 +92,23 @@ def test_extract_response_text_prefers_typed_answer_over_combined_text():
     assert extract_response_text(response) == "Deploying QwenPaw"
 
 
+def test_extract_response_text_does_not_fall_back_from_thinking_only_content():
+    response = SimpleNamespace(
+        text="Here's a thinking process",
+        content=[
+            {"type": "thinking", "text": "Here's a thinking process"},
+        ],
+    )
+
+    assert extract_response_text(response) == ""
+
+
+def test_extract_response_text_falls_back_from_empty_content_list():
+    response = SimpleNamespace(text="Deploying QwenPaw", content=[])
+
+    assert extract_response_text(response) == "Deploying QwenPaw"
+
+
 async def test_consume_non_streaming():
     async def model(messages, **kw):
         return SimpleNamespace(text="done")

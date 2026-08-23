@@ -42,21 +42,23 @@ TITLE_PROMPT = (
 
 MAX_INPUT_CHARS = 500
 MAX_TITLE_CHARS = 60
-_INLINE_REASONING_BLOCK_RE = re.compile(
-    r"<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
+_LEADING_REASONING_BLOCK_RE = re.compile(
+    r"\A\s*<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
     + r".*?</(?P=tag)\s*>",
     flags=re.IGNORECASE | re.DOTALL,
 )
-_UNTERMINATED_REASONING_BLOCK_RE = re.compile(
-    r"<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>.*\Z",
+_LEADING_REASONING_TAG_RE = re.compile(
+    r"\A\s*<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>",
     flags=re.IGNORECASE | re.DOTALL,
 )
 
 
 def _clean_title(raw: str) -> str:
     """Normalize model output into a single-line title."""
-    answer = _INLINE_REASONING_BLOCK_RE.sub("", raw).strip()
-    if _UNTERMINATED_REASONING_BLOCK_RE.search(answer):
+    answer = raw.strip()
+    while match := _LEADING_REASONING_BLOCK_RE.match(answer):
+        answer = answer[match.end() :].lstrip()
+    if _LEADING_REASONING_TAG_RE.match(answer):
         return ""
     title = answer.splitlines()[0] if answer else ""
     title = title.strip().strip("\"'`“”‘’")

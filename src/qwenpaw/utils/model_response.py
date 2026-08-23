@@ -57,9 +57,11 @@ def extract_response_text(response: Any) -> str:
     """Pull text out of a ``ChatResponse``-like object or a stream chunk.
 
     Handles the ``.text`` scalar, a ``.content`` string, and the
-    list-of-text-blocks shape some providers return. Explicit reasoning and
-    thinking blocks are never treated as answer text, including non-standard
-    compatible-provider blocks that store their payload under ``text``.
+    list-of-text-blocks shape some providers return. A non-empty structured
+    ``content`` list is authoritative over an aggregate ``.text`` value.
+    Explicit reasoning and thinking blocks are never treated as answer text,
+    including non-standard compatible-provider blocks that store their
+    payload under ``text``.
     """
     if response is None:
         return ""
@@ -68,10 +70,11 @@ def extract_response_text(response: Any) -> str:
     content = safe_attr(response, "content")
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        answer = _first_text_in_list(content)
-        if answer:
-            return answer
+    if isinstance(content, list) and content:
+        # A non-empty structured response is authoritative. Falling back to
+        # an aggregate ``.text`` value when it contains only thinking blocks
+        # can re-introduce the reasoning text that was deliberately skipped.
+        return _first_text_in_list(content)
     text = safe_attr(response, "text")
     if isinstance(text, str) and text:
         return text
