@@ -24,6 +24,7 @@ import { useDataAggregation } from "./hooks/useDataAggregation";
 import { lineChartChrome } from "./hooks/lineChartChrome";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
+import { buildByDateRows } from "./tokenUsageRows";
 import styles from "./index.module.less";
 
 function TokenUsagePage() {
@@ -169,18 +170,10 @@ function TokenUsagePage() {
     }));
   }, [aggregatedData?.by_model]);
 
-  const byDateData = useMemo(() => {
-    if (!aggregatedData?.by_date) return [];
-    return Object.entries(aggregatedData.by_date)
-      .map(([date, stats]) => ({
-        key: date,
-        date,
-        prompt_tokens: stats.prompt_tokens,
-        completion_tokens: stats.completion_tokens,
-        call_count: stats.call_count,
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [aggregatedData?.by_date]);
+  const byDateData = useMemo(
+    () => buildByDateRows(aggregatedData?.by_date),
+    [aggregatedData?.by_date],
+  );
 
   const byAgentData = useMemo(() => {
     if (!aggregatedData?.by_agent) return [];
