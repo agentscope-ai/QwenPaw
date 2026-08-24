@@ -32,6 +32,22 @@ def navigate_to_workspace(page: Page):
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(3000)
 
+
+def reset_project_binding(api_context) -> None:
+    """Defensive reset: coding cases may leave a project directory bound,
+    which makes the files page show the (possibly empty) project tree
+    instead of the workspace tree the cases seed files into."""
+    api_context.post(
+        "/api/coding-mode",
+        data={"enabled": False},
+        headers={"X-Agent-Id": "default"},
+    )
+    api_context.put(
+        "/api/workspace/project-directory",
+        data={"path": None},
+        headers={"X-Agent-Id": "default"},
+    )
+
 def get_file_items(page: Page):
     """Get the file list; skip the test if empty."""
     items = page.locator(FILE_ITEM_SELECTOR).all()
@@ -487,6 +503,7 @@ class TestWorkspaceUploadDownload:
         test_name = request.node.name
 
         log_test_step("0. Seed a file so the tree has a row to open")
+        reset_project_binding(api_context)
         seed = api_context.put(
             "/api/workspace/files/e2e_files_seed.txt",
             data={"content": "e2e seed for FILE-004\n"},
@@ -762,6 +779,7 @@ class TestWorkspaceZipDownload:
         test_name = request.node.name
 
         log_test_step("Seed a file so the tree has a row to open")
+        reset_project_binding(api_context)
         seed = api_context.put(
             "/api/workspace/files/e2e_zip_seed.txt",
             data={"content": "e2e seed for FILE-P2-002\n"},
