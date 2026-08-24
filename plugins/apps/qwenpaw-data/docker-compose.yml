@@ -29,8 +29,8 @@ services:
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
     ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - neo4j-data:/data
     healthcheck:
@@ -49,7 +49,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qwenpaw-data-demo}
       POSTGRES_DB: ${POSTGRES_DB:-qwenpaw_data_demo}
     ports:
-      - "${POSTGRES_PORT:-55432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -70,7 +70,7 @@ services:
       QWENPAW_DATA_CM_NEO4J_USER: ${NEO4J_USER:-neo4j}
       QWENPAW_DATA_CM_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-qwenpaw-data-demo}
     ports:
-      - "${CONTEXT_PORT:-8765}:8765"
+      - "127.0.0.1:${CONTEXT_PORT:-8765}:8765"
     depends_on:
       neo4j:
         condition: service_healthy
@@ -111,7 +111,7 @@ services:
       QWENPAW_DATA_CONTEXT_URL: http://context:8765
       QWENPAW_DATA_CONTEXT_TOKEN: ${QWENPAW_DATA_CONTEXT_TOKEN:-qwenpaw-data-demo-token}
     ports:
-      - "${QWENPAW_PORT:-8088}:8088"
+      - "127.0.0.1:${QWENPAW_PORT:-8088}:8088"
     depends_on:
       context:
         condition: service_healthy

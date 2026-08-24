@@ -69,8 +69,13 @@ _context_service = app.managed_service(
     ),
     health_path="/api/health",
     cwd=context_working_dir(),
+    # Only pass plugin-owned overrides; the framework's
+    # ManagedService.start() already inherits os.environ.copy() and merges
+    # spec.env on top. Spreading **os.environ here would (a) freeze the
+    # snapshot at import time, pinning later env changes to stale values on
+    # restart, and (b) subject every inherited env var to
+    # _replace_placeholders(), silently rewriting literal {host}/{port}.
     env={
-        **os.environ,
         "QWENPAW_DATA_API_TOKEN": _context_token,
         "QWENPAW_DATA_CLIENT_API_TOKEN": _context_token,
     },
