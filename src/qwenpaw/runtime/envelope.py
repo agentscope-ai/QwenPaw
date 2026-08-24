@@ -764,7 +764,15 @@ class Envelope:
     # ------------------------------------------------------------------
 
     async def heartbeat(self) -> AsyncGenerator[Any, None]:
-        yield self._tag_seq(self._response)
+        from ..schemas import Event
+
+        # Heartbeats only keep the transport alive. Re-emitting the mutable
+        # response would serialize every completed tool result and media block
+        # again, and TaskTracker retains each SSE event for reconnect replay.
+        # A long idle period after several screenshots could therefore retain
+        # gigabytes of duplicate response snapshots.
+        heartbeat = Event(object="message", type="heartbeat")
+        yield self._tag_seq(heartbeat)
 
     # ------------------------------------------------------------------
     # Command short-circuit
