@@ -31,7 +31,7 @@
   ],
   "dependencies": [],
   "qwenpaw_version": {
-    "min": "2.0.1",
+    "min": "2.1.1b1",
     "max": "2.2.0"
   },
   "meta": {
