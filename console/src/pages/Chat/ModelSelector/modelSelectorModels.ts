@@ -18,6 +18,33 @@ export interface CandidateModel {
   model: ModelInfo;
 }
 
+export function splitProvidersByTier(providers: EligibleProvider[]): {
+  freeProviders: EligibleProvider[];
+  proProviders: EligibleProvider[];
+} {
+  const freeProviders: EligibleProvider[] = [];
+  const proProviders: EligibleProvider[] = [];
+  for (const provider of providers) {
+    const freeModels = provider.models.filter((model) => model.is_free);
+    const proModels = provider.is_free_tier
+      ? provider.models
+      : provider.models.filter((model) => !model.is_free);
+    if (freeModels.length > 0 || provider.is_free_tier) {
+      freeProviders.push({ ...provider, models: freeModels });
+    }
+    if (
+      proModels.length > 0 &&
+      (provider.has_api_key ||
+        provider.require_api_key === false ||
+        provider.is_custom ||
+        provider.is_local)
+    ) {
+      proProviders.push({ ...provider, models: proModels });
+    }
+  }
+  return { freeProviders, proProviders };
+}
+
 export function modelKey(providerId: string, modelId: string): string {
   return `${providerId}:${modelId}`;
 }

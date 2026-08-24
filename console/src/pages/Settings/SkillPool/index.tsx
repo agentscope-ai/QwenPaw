@@ -236,11 +236,12 @@ function SkillPoolPage() {
                 skill={skill}
                 isSelected={pool.selectedPoolSkills.has(skill.name)}
                 batchModeEnabled={pool.batchModeEnabled}
+                automationPending={pool.automationPendingSkills.has(skill.name)}
                 onToggleSelect={pool.togglePoolSelect}
                 onEdit={pool.openEdit}
                 onBroadcast={pool.openBroadcast}
                 onDelete={pool.handleDelete}
-                onToggleAutoUpdate={pool.handleToggleAutoUpdate}
+                onAutomationQuickAction={pool.handleAutomationQuickAction}
               />
             ))}
             {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
@@ -296,6 +297,7 @@ function SkillPoolPage() {
         mode={pool.mode}
         activeSkill={pool.activeSkill}
         loading={pool.detailLoading}
+        saving={pool.saving}
         skillName={pool.detailSkillName}
         form={pool.form}
         drawerContent={pool.drawerContent}
@@ -303,16 +305,18 @@ function SkillPoolPage() {
         configText={pool.configText}
         availableTags={pool.allTags}
         workspaces={pool.workspaces}
-        autoUpdateEnabled={pool.autoUpdateEnabled}
-        autoUpdateTargets={pool.autoUpdateTargets}
+        builtinAutoUpdateEnabled={pool.builtinAutoUpdateEnabled}
+        autoSyncEnabled={pool.autoSyncEnabled}
+        autoSyncTargets={pool.autoSyncTargets}
         onClose={pool.closeDrawer}
         onSave={pool.handleSavePoolSkill}
         onContentChange={pool.handleDrawerContentChange}
         onShowMarkdownChange={pool.setShowMarkdown}
         onConfigTextChange={pool.setConfigText}
         onChangeBuiltinLanguage={pool.handleBuiltinLanguageSwitch}
-        onAutoUpdateEnabledChange={pool.setAutoUpdateEnabled}
-        onAutoUpdateTargetsChange={pool.setAutoUpdateTargets}
+        onBuiltinAutoUpdateEnabledChange={pool.setBuiltinAutoUpdateEnabled}
+        onAutoSyncEnabledChange={pool.setAutoSyncEnabled}
+        onAutoSyncTargetsChange={pool.setAutoSyncTargets}
         validateFrontmatter={pool.validateFrontmatter}
       />
 

@@ -16,11 +16,14 @@ import type {
   BuiltinUpdateNotice,
   PoolSkillDetail,
   PoolSkillSpec,
+  SkillAutomationResponse,
+  SkillAutomationUpdate,
   WorkspaceSkillSummary,
 } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
 import { handleScanError, checkScanWarnings } from "../../../utils/scanError";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
+import { isSkillBuiltin } from "../../../utils/skill";
 import {
   parseFrontmatter,
   useConflictRenameModal,
@@ -62,6 +65,54 @@ type BroadcastConflict =
 
 const BUILTIN_NOTICE_ACK_STORAGE_KEY = "qwenpaw.skill-pool.builtin-notice.ack";
 
+function countAutomationAttentionItems(
+  result: SkillAutomationResponse,
+): number {
+  return (
+    (result.automation?.pool_failed?.length || 0) +
+    (result.automation?.sync_failed?.length || 0)
+  );
+}
+
+function haveSameTargets(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((target) => rightSet.has(target));
+}
+
+function buildAutomationUpdate({
+  builtin,
+  previousAutoUpdate,
+  autoUpdate,
+  previousAutoSync,
+  autoSync,
+  previousTargets,
+  targets,
+}: {
+  builtin: boolean;
+  previousAutoUpdate: boolean;
+  autoUpdate: boolean;
+  previousAutoSync: boolean;
+  autoSync: boolean;
+  previousTargets: string[];
+  targets: string[];
+}): SkillAutomationUpdate | null {
+  const autoUpdateChanged = builtin && autoUpdate !== previousAutoUpdate;
+  const targetsChanged = !haveSameTargets(targets, previousTargets);
+  const autoSyncChanged = autoSync !== previousAutoSync || targetsChanged;
+  if (!autoUpdateChanged && !autoSyncChanged) return null;
+
+  const update: SkillAutomationUpdate = {};
+  if (autoUpdateChanged) update.auto_update = autoUpdate;
+  if (autoSyncChanged) {
+    update.auto_sync = { enabled: autoSync };
+    if (autoSync || targetsChanged) {
+      update.auto_sync.targets = targets.length ? targets : null;
+    }
+  }
+  return update;
+}
+
 function readBuiltinNoticeAcknowledgement(): string {
   if (typeof window === "undefined") return "";
   try {
@@ -94,15 +145,19 @@ export function useSkillPool() {
   const [activeSkill, setActiveSkill] = useState<PoolSkillDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailSkillName, setDetailSkillName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [automationPendingSkills, setAutomationPendingSkills] = useState<
+    Set<string>
+  >(new Set());
   const detailRequestIdRef = useRef(0);
   const [broadcastInitialNames, setBroadcastInitialNames] = useState<string[]>(
     [],
   );
   const [configText, setConfigText] = useState("{}");
-  // Auto-update is staged in the edit drawer and applied on Save (like
-  // channels/tags/config); the card has a separate immediate quick-toggle.
-  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
-  const [autoUpdateTargets, setAutoUpdateTargets] = useState<string[]>([]);
+  const [builtinAutoUpdateEnabled, setBuiltinAutoUpdateEnabled] =
+    useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const [autoSyncTargets, setAutoSyncTargets] = useState<string[]>([]);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [importBuiltinModalOpen, setImportBuiltinModalOpen] = useState(false);
   const [builtinSources, setBuiltinSources] = useState<BuiltinImportSpec[]>([]);
@@ -236,8 +291,10 @@ export function useSkillPool() {
     setLoading(true);
     try {
       invalidateSkillCache({ pool: true, workspaces: true });
-      const [poolSkills, workspaceSummaries, notice] = await Promise.all([
-        api.refreshSkillPool(),
+      // Refresh runs Pool automation. Read the notice only after it completes
+      // so an auto-updated builtin cannot briefly leave a stale red dot.
+      const poolSkills = await api.refreshSkillPool();
+      const [workspaceSummaries, notice] = await Promise.all([
         api.listSkillWorkspaces(),
         api.getPoolBuiltinNotice(),
       ]);
@@ -276,8 +333,9 @@ export function useSkillPool() {
     setDetailSkillName("");
     setDrawerContent("");
     setConfigText("{}");
-    setAutoUpdateEnabled(false);
-    setAutoUpdateTargets([]);
+    setBuiltinAutoUpdateEnabled(false);
+    setAutoSyncEnabled(false);
+    setAutoSyncTargets([]);
     form.resetFields();
     form.setFieldsValue({
       name: "",
@@ -344,40 +402,44 @@ export function useSkillPool() {
     [t],
   );
 
-  const openEdit = async (skill: PoolSkillSpec) => {
-    const requestId = detailRequestIdRef.current + 1;
-    detailRequestIdRef.current = requestId;
-    setMode("edit");
-    setActiveSkill(null);
-    setDetailSkillName(skill.name);
-    setDetailLoading(true);
-    form.resetFields();
-    try {
-      const detail = await api.getPoolSkill(skill.name);
-      if (detailRequestIdRef.current !== requestId) return;
-      setActiveSkill(detail);
-      setDrawerContent(detail.content);
-      setConfigText(JSON.stringify(detail.config || {}, null, 2));
-      setAutoUpdateEnabled(Boolean(detail.auto_update));
-      setAutoUpdateTargets(detail.auto_update_targets ?? []);
-      form.setFieldsValue({
-        name: detail.name,
-        content: detail.content,
-        tags: detail.tags || [],
-      });
-    } catch (error) {
-      if (detailRequestIdRef.current !== requestId) return;
-      message.error(
-        error instanceof Error ? error.message : t("skills.loadFailed"),
-      );
-      setMode(null);
-      setDetailSkillName("");
-    } finally {
-      if (detailRequestIdRef.current === requestId) {
-        setDetailLoading(false);
+  const openEdit = useCallback(
+    async (skill: PoolSkillSpec) => {
+      const requestId = detailRequestIdRef.current + 1;
+      detailRequestIdRef.current = requestId;
+      setMode("edit");
+      setActiveSkill(null);
+      setDetailSkillName(skill.name);
+      setDetailLoading(true);
+      form.resetFields();
+      try {
+        const detail = await api.getPoolSkill(skill.name);
+        if (detailRequestIdRef.current !== requestId) return;
+        setActiveSkill(detail);
+        setDrawerContent(detail.content);
+        setConfigText(JSON.stringify(detail.config || {}, null, 2));
+        setBuiltinAutoUpdateEnabled(Boolean(detail.auto_update));
+        setAutoSyncEnabled(Boolean(detail.auto_sync));
+        setAutoSyncTargets(detail.auto_sync_targets ?? []);
+        form.setFieldsValue({
+          name: detail.name,
+          content: detail.content,
+          tags: detail.tags || [],
+        });
+      } catch (error) {
+        if (detailRequestIdRef.current !== requestId) return;
+        message.error(
+          error instanceof Error ? error.message : t("skills.loadFailed"),
+        );
+        setMode(null);
+        setDetailSkillName("");
+      } finally {
+        if (detailRequestIdRef.current === requestId) {
+          setDetailLoading(false);
+        }
       }
-    }
-  };
+    },
+    [form, message, t],
+  );
 
   const closeDrawer = useCallback(() => {
     detailRequestIdRef.current += 1;
@@ -619,7 +681,7 @@ export function useSkillPool() {
         );
       }
       closeImportBuiltin();
-      invalidateSkillCache({ pool: true });
+      invalidateSkillCache({ pool: true, workspaces: true });
       await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
@@ -694,7 +756,7 @@ export function useSkillPool() {
           }),
         );
         closeDrawer();
-        invalidateSkillCache({ pool: true });
+        invalidateSkillCache({ pool: true, workspaces: true });
         await loadData(true);
       } catch (error) {
         message.error(
@@ -707,30 +769,56 @@ export function useSkillPool() {
     [closeDrawer, confirmOverwrite, loadData, message, t],
   );
 
-  const handleToggleAutoUpdate = useCallback(
-    async (
-      skill: PoolSkillSpec,
-      enabled: boolean,
-      targets: string[] | null = null,
-    ) => {
+  const handleAutomationQuickAction = useCallback(
+    async (skill: PoolSkillSpec) => {
+      const builtin = isSkillBuiltin(skill.source);
+      const autoSync = Boolean(skill.auto_sync);
+      if (builtin && autoSync !== Boolean(skill.auto_update)) {
+        await openEdit(skill);
+        return;
+      }
+
+      setAutomationPendingSkills((current) => new Set(current).add(skill.name));
       try {
-        await api.updatePoolSkillAutoUpdate(skill.name, { enabled, targets });
-        message.success(
-          enabled
-            ? t("skillPool.autoUpdateEnabled", { name: skill.name })
-            : t("skillPool.autoUpdateDisabled", { name: skill.name }),
+        const enabled = !autoSync;
+        const response = await api.updatePoolSkillAutomation(
+          skill.name,
+          builtin
+            ? { auto_update: enabled, auto_sync: { enabled } }
+            : { auto_sync: { enabled } },
         );
+        const issueCount = countAutomationAttentionItems(response);
+        if (issueCount > 0) {
+          message.warning(
+            t("skillPool.automationNeedsAttention", { count: issueCount }),
+          );
+        } else {
+          const successKey = builtin
+            ? enabled
+              ? "skillPool.automationEnabled"
+              : "skillPool.automationDisabled"
+            : enabled
+            ? "skillPool.autoSyncEnabled"
+            : "skillPool.autoSyncDisabled";
+          message.success(t(successKey, { name: skill.name }));
+        }
         invalidateSkillCache({ pool: true, workspaces: true });
         await loadData(true);
       } catch (error) {
         message.error(
           error instanceof Error
             ? error.message
-            : t("skillPool.autoUpdateFailed"),
+            : t("skillPool.automationFailed"),
         );
+      } finally {
+        setAutomationPendingSkills((current) => {
+          const next = new Set(current);
+          next.delete(skill.name);
+          return next;
+        });
       }
     },
-    [loadData, message, t],
+    [loadData, message, openEdit, t],
   );
 
   const handleSavePoolSkill = async () => {
@@ -753,20 +841,20 @@ export function useSkillPool() {
 
     if (!skillName || !skillContent.trim()) return;
 
-    // A rename counts as an update: for auto-update skills it migrates every
+    // A rename counts as a change: for Auto Sync skills it migrates every
     // agent that has it.
-    // Non-auto-update skills leave agent copies untouched, so no confirm.
+    // Skills without Auto Sync leave agent copies untouched, so no confirm.
     if (
       mode === "edit" &&
       activeSkill &&
       skillName !== activeSkill.name &&
-      activeSkill.auto_update
+      activeSkill.auto_sync
     ) {
       const oldName = activeSkill.name;
       const pinned =
-        Array.isArray(activeSkill.auto_update_targets) &&
-        activeSkill.auto_update_targets.length
-          ? new Set(activeSkill.auto_update_targets)
+        Array.isArray(activeSkill.auto_sync_targets) &&
+        activeSkill.auto_sync_targets.length
+          ? new Set(activeSkill.auto_sync_targets)
           : null;
       const affected = workspaces.filter(
         (ws) =>
@@ -801,6 +889,7 @@ export function useSkillPool() {
     }
 
     const persistPoolSkill = async (overwrite = false) => {
+      let automationIssueCount = 0;
       const result =
         mode === "edit"
           ? await api.saveSkillPoolSkill({
@@ -828,37 +917,55 @@ export function useSkillPool() {
         await api.updatePoolSkillTags(result.name || skillName, newTags);
       }
       const finalName = result.name || skillName;
-      const prevAutoEnabled =
-        mode === "edit" ? Boolean(activeSkill?.auto_update) : false;
-      const prevAutoTargets =
-        (mode === "edit" ? activeSkill?.auto_update_targets : []) ?? [];
-      const autoUpdateChanged =
-        autoUpdateEnabled !== prevAutoEnabled ||
-        JSON.stringify(autoUpdateTargets) !== JSON.stringify(prevAutoTargets);
-      if (autoUpdateChanged) {
-        await api.updatePoolSkillAutoUpdate(finalName, {
-          enabled: autoUpdateEnabled,
-          targets:
-            autoUpdateEnabled && autoUpdateTargets.length
-              ? autoUpdateTargets
-              : null,
-        });
+      const remainsBuiltin = Boolean(
+        mode === "edit" &&
+          activeSkill &&
+          isSkillBuiltin(activeSkill.source) &&
+          finalName === activeSkill.name &&
+          skillContent === activeSkill.content,
+      );
+      const automationUpdate = buildAutomationUpdate({
+        builtin: remainsBuiltin,
+        previousAutoUpdate: Boolean(activeSkill?.auto_update),
+        autoUpdate: builtinAutoUpdateEnabled,
+        previousAutoSync:
+          mode === "edit" ? Boolean(activeSkill?.auto_sync) : false,
+        autoSync: autoSyncEnabled,
+        previousTargets:
+          (mode === "edit" ? activeSkill?.auto_sync_targets : []) ?? [],
+        targets: autoSyncTargets,
+      });
+
+      if (automationUpdate) {
+        const automationResult = await api.updatePoolSkillAutomation(
+          finalName,
+          automationUpdate,
+        );
+        automationIssueCount = countAutomationAttentionItems(automationResult);
       }
-      if (result.mode === "noop" && !tagsChanged && !autoUpdateChanged) {
+      if (result.mode === "noop" && !tagsChanged && !automationUpdate) {
         closeDrawer();
         return;
       }
       const savedAsNew =
         mode === "edit" && activeSkill && result.name !== activeSkill.name;
-      message.success(
-        savedAsNew
-          ? `${t("common.create")}: ${result.name}`
-          : mode === "edit"
-          ? t("common.save")
-          : t("common.create"),
-      );
+      if (automationIssueCount > 0) {
+        message.warning(
+          t("skillPool.automationNeedsAttention", {
+            count: automationIssueCount,
+          }),
+        );
+      } else {
+        message.success(
+          savedAsNew
+            ? `${t("common.create")}: ${result.name}`
+            : mode === "edit"
+            ? t("common.save")
+            : t("common.create"),
+        );
+      }
       closeDrawer();
-      invalidateSkillCache({ pool: true });
+      invalidateSkillCache({ pool: true, workspaces: true });
       await loadData(true);
       await checkScanWarnings(
         result.name || skillName,
@@ -868,6 +975,7 @@ export function useSkillPool() {
       );
     };
 
+    setSaving(true);
     try {
       await persistPoolSkill();
     } catch (error) {
@@ -915,6 +1023,8 @@ export function useSkillPool() {
       message.error(
         error instanceof Error ? error.message : t("common.save") + " failed",
       );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1128,6 +1238,8 @@ export function useSkillPool() {
     activeSkill,
     detailLoading,
     detailSkillName,
+    saving,
+    automationPendingSkills,
     broadcastInitialNames,
     configText,
     zipInputRef,
@@ -1155,10 +1267,12 @@ export function useSkillPool() {
     conflictRenameModal,
     setImportModalOpen,
     setConfigText,
-    autoUpdateEnabled,
-    autoUpdateTargets,
-    setAutoUpdateEnabled,
-    setAutoUpdateTargets,
+    builtinAutoUpdateEnabled,
+    autoSyncEnabled,
+    autoSyncTargets,
+    setBuiltinAutoUpdateEnabled,
+    setAutoSyncEnabled,
+    setAutoSyncTargets,
     setShowMarkdown,
     setFilterOpen,
     setViewMode,
@@ -1176,7 +1290,7 @@ export function useSkillPool() {
     handleBroadcast,
     handleImportBuiltins,
     handleBuiltinLanguageSwitch,
-    handleToggleAutoUpdate,
+    handleAutomationQuickAction,
     handleSavePoolSkill,
     handleDelete,
     handleZipImport,

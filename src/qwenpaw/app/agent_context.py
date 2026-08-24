@@ -244,6 +244,11 @@ def get_current_agent_id() -> str:
     return get_active_agent_id()
 
 
+def peek_current_agent_id() -> str:
+    """ContextVar only; empty when unset. No config fallback."""
+    return _current_agent_id.get() or ""
+
+
 def set_current_session_id(session_id: str) -> None:
     _current_session_id.set(session_id)
 
