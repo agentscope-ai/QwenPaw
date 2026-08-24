@@ -64,6 +64,20 @@ def test_completion_marker_is_hidden_at_every_stream_split():
             )
 
 
+def test_powershell_protocol_uses_cross_version_control_char_syntax():
+    backend = SimpleNamespace(tty=True, degraded=False)
+    session = TerminalSession("term_test", backend, "pwsh.exe")
+
+    wrapped = session._wrap_command("Write-Output ok", "a" * 24).decode()
+    probe = session._completion_probe().decode()
+
+    for script in (wrapped, probe):
+        assert "`u001e" not in script
+        assert "`u001f" not in script
+        assert "[char]0x1e" in script
+        assert "[char]0x1f" in script
+
+
 def _assert_completion_marker_split(
     token: str,
     marker: bytes,
@@ -384,14 +398,6 @@ async def test_persistent_powershell_does_not_reuse_stale_native_exit_code(
         max_output_bytes=64 * 1024,
     )
     try:
-        while first.running:
-            first = await manager.interact(
-                first.session_id,
-                "",
-                yield_time=5,
-                max_output_bytes=64 * 1024,
-                terminate=False,
-            )
         assert first.exit_code == 7
         second = await manager.execute(
             "Write-Output ok",
@@ -405,17 +411,7 @@ async def test_persistent_powershell_does_not_reuse_stale_native_exit_code(
             yield_time=2,
             max_output_bytes=64 * 1024,
         )
-        second_output = second.output
-        while second.running:
-            second = await manager.interact(
-                second.session_id,
-                "",
-                yield_time=5,
-                max_output_bytes=64 * 1024,
-                terminate=False,
-            )
-            second_output += second.output
-        assert second_output == "ok\r\n"
+        assert second.output == "ok\r\n"
         assert second.exit_code == 0
 
         failed = await manager.execute(
@@ -430,14 +426,6 @@ async def test_persistent_powershell_does_not_reuse_stale_native_exit_code(
             yield_time=2,
             max_output_bytes=64 * 1024,
         )
-        while failed.running:
-            failed = await manager.interact(
-                failed.session_id,
-                "",
-                yield_time=5,
-                max_output_bytes=64 * 1024,
-                terminate=False,
-            )
         assert failed.exit_code == 1
     finally:
         await manager.shutdown()

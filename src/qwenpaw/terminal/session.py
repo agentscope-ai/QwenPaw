@@ -89,8 +89,9 @@ class TerminalSession:
                 "[int]$__qwenpaw_native -ne 0) "
                 "{$__qwenpaw_ec=[int]$__qwenpaw_native} "
                 "else {$__qwenpaw_ec=1}; "
-                f'[Console]::Out.WriteLine("`u001e{marker}:'
-                '$__qwenpaw_ec`u001f")\r\n}\r\n}\r\n'
+                "[Console]::Out.WriteLine(([char]0x1e).ToString() + "
+                f'"{marker}:" + $__qwenpaw_ec + [char]0x1f)\r\n'
+                "}\r\n}\r\n"
             )
         else:
             # Keep the command and completion protocol in one parsed shell
@@ -213,8 +214,8 @@ class TerminalSession:
             return f"\r\necho \x1e{marker}:{exit_code}\x1f\r\n".encode()
         if kind == "powershell":
             return (
-                f'\r\n[Console]::Out.WriteLine("`u001e{marker}:'
-                f'{exit_code}`u001f")\r\n'
+                "\r\n[Console]::Out.WriteLine(([char]0x1e).ToString() + "
+                f'"{marker}:{exit_code}" + [char]0x1f)\r\n'
             ).encode()
         return (f"\nprintf '\\036{marker}:{exit_code}\\037\\n'\n").encode()
 
