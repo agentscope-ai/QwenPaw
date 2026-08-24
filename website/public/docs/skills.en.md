@@ -63,15 +63,18 @@ Pool-side operations:
   built-ins, upload from a workspace, or place files on disk manually.
 - **Edit / rename:** Saving a normal shared skill under the same name edits
   that pool entry in place. Saving it under a new name creates a renamed
-  entry. Builtin skills cannot be customized in place under the same name. To
-  customize a builtin, save it under a new name and keep the builtin slot
-  untouched.
+  entry. Editing a built-in's `SKILL.md` converts that Pool entry to a custom
+  skill, so future packaged updates cannot overwrite the edit.
 - **Conflict handling:** If save, import, upload, or broadcast would land on a
   name that already exists, QwenPaw returns a conflict instead of silently
   overwriting. The UI/API includes a suggested renamed target so you can retry
   with that name.
-- **Auto sync:** Once enabled for a skill, any change to its pool content is
-  pushed to the relevant workspaces automatically (see **Auto sync** below).
+- **Auto sync:** Once enabled for a skill, changes to its Pool `SKILL.md`
+  trigger a full copy to the relevant workspaces (see **Skill automation**
+  below).
+- **Auto update (built-ins only):** Once enabled, a different packaged
+  built-in version replaces its Skill Pool copy before optional workspace sync
+  runs (see **Skill automation** below).
 
 Adding skills to the pool:
 
@@ -97,7 +100,11 @@ Adding skills to the pool:
 
    In the pool UI, built-ins can show statuses such as **up-to-date** or
    **out-of-date**. Use **Update Built-in Skills** to add missing built-ins
-   or refresh out-of-date ones from the packaged source.
+   or refresh out-of-date ones from the packaged source. For a built-in that
+   is already in the Pool, you can instead enable **Auto Update** in its
+   details. Successful automatic updates no longer remain in the update-dot
+   count. New or missing built-ins still need to be imported, and removed
+   built-ins remain part of the existing manual review flow.
 
    The **Cron** built-in provides scheduled job management. Use the
    [CLI](./cli) (`qwenpaw cron`) or Console **Control → Cron Jobs**:
@@ -361,22 +368,67 @@ your workspace, **enabled by default**.
 `/make-skill` is itself a built-in skill — make sure it's enabled in
 your workspace via `/skills` before invoking.
 
-### Auto sync (Skill Pool & Workspace)
+### Skill automation: Auto Update and Auto Sync
 
-Turn on **Auto sync** for a pool skill and any change to its pool content is
-synced to the relevant workspaces automatically — no manual broadcast needed.
+The two automation stages are configured independently in a skill's details:
 
-- **How to enable:** Toggle it on the skill card in **Settings → Skill Pool**
-  (applies immediately), or enable it and pick associated agents in the skill
-  drawer (applies on save).
+```text
+packaged built-in -- Auto Update --> Skill Pool -- Auto Sync --> workspaces
+```
+
+- **Auto Update** is available only for built-in Pool skills. When its version
+  differs from the current packaged version, QwenPaw replaces the Pool copy
+  without a confirmation dialog. The Pool follows the installed package, so
+  this also applies after a package downgrade. It never automatically imports
+  a new or missing built-in, deletes a removed one, or overwrites a custom
+  skill.
+- **Auto Sync** is available for both built-in and custom Pool skills. A
+  `SKILL.md` change triggers a full copy to configured workspaces — no manual
+  broadcast is needed.
+- **Together:** if both are enabled, QwenPaw updates the Pool first and then
+  syncs the new version to workspaces. Auto Update alone changes only the Pool;
+  Auto Sync alone continues to propagate Pool edits without changing the
+  packaged version.
+- **Configuration names:** `auto_update` always means packaged built-in →
+  Skill Pool, while `auto_sync` always means Skill Pool → workspaces. New
+  settings are grouped under each skill's `automation` object in `skill.json`.
+  The former flat `auto_update` sync setting, targets, and synced hash remain
+  compatible and are normalized into `automation.auto_sync` on the next Pool
+  write. The new Auto Update switch remains off until the user enables it.
+
+  ```json
+  {
+    "automation": {
+      "auto_update": { "enabled": true },
+      "auto_sync": {
+        "enabled": true,
+        "targets": ["default"]
+      }
+    }
+  }
+  ```
+
+  Custom skills omit `auto_update`. Omitting `targets` keeps the default scope
+  of workspaces that already contain the skill.
+
+- **When checks run:** immediately after saving/enabling automation, at app
+  startup, and when you manually refresh the Skill Pool. Merely opening the
+  page is read-only and does not start polling or mutate skills.
 - **Sync scope:**
-  - **Default** (no associated agents configured): syncs only to workspaces that
-    **already have the skill**; agents that never had it are not installed.
-  - **Explicit agents:** syncs to exactly those agents; ones in the list that
-    lack the skill get it installed, while agents not listed are left untouched.
-- **Change detection:** based on the content of `SKILL.md`.
-- **Inbox notification:** each run posts one message to the [Inbox](./console)
-  listing which agents each skill was synced to (sender shown as "Skill Pool").
+  - **Default** (no associated agents configured): syncs only to workspaces
+    that **already have the skill**.
+  - **Explicit agents:** syncs exactly those agents; selected agents that lack
+    the skill get it installed. Turning Auto Sync off keeps this selection for
+    the next time it is enabled.
+- **Card shortcut:** custom skills use the existing card action to toggle Auto
+  Sync. For built-ins, the same single action turns both settings on or off.
+  If only one setting is on, the card shows a mixed state and opens the detail
+  drawer instead of guessing which setting to change.
+- **Status and notifications:** a successful automatic built-in update clears
+  that version's update dot. Failures and changes requiring manual review stay
+  visible. A built-in update run creates one combined [Inbox](./console)
+  message with the Pool version change and workspace sync results; standalone
+  Auto Sync runs keep their normal sync message.
 
 ---
 

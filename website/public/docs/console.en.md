@@ -416,7 +416,9 @@ Global skill management. More detail: [Skills](./skills).
 On this page you can:
 
 - Broadcast skills to specific agents
-- Update built-in skills to the latest version
+- Update built-in skills to the current packaged version
+- Configure built-in **Auto Update** (packaged version → Skill Pool) and
+  **Auto Sync** (Skill Pool → agent workspaces) independently in skill details
 - Add skills through the **Add Skill** entry: Create Skill, Upload via
   Zip, Upload via URL, or Browse Market (clicking **Save** in the market saves
   into the pool)
