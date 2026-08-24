@@ -87,6 +87,7 @@
     "installSuccess": "已安装",
     "installFailed": "安装失败",
     "installed": "已安装",
+    "update": "更新",
     "searchMarket": "搜索应用市场...",
     "marketFilters": "应用市场筛选",
     "filterAll": "全部",

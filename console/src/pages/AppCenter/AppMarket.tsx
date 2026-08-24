@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { openExternalLink } from "@/utils/openExternalLink";
+import { compareVersions } from "@/layouts/constants";
 import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
@@ -113,24 +114,28 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 
 interface AppMarketProps {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
-  installedAppIds?: ReadonlySet<string>;
+  installedAppVersions?: ReadonlyMap<string, string>;
   channel?: "official" | "community";
 }
 
-const EMPTY_INSTALLED_APP_IDS: ReadonlySet<string> = new Set();
+const EMPTY_INSTALLED_APP_VERSIONS: ReadonlyMap<string, string> = new Map();
 
-function isMarketEntryInstalled(
+function getInstalledVersion(
   entry: MarketPluginEntry,
-  installedAppIds: ReadonlySet<string>,
-): boolean {
+  installedAppVersions: ReadonlyMap<string, string>,
+): string | null {
   const normalizedId = entry.id.startsWith("@") ? entry.id.slice(1) : entry.id;
   const name = normalizedId.split("/").pop() ?? normalizedId;
-  return [entry.id, normalizedId, name].some((id) => installedAppIds.has(id));
+  for (const id of [entry.id, normalizedId, name]) {
+    const version = installedAppVersions.get(id);
+    if (version !== undefined) return version;
+  }
+  return null;
 }
 
 export function AppMarket({
   onInstalled,
-  installedAppIds = EMPTY_INSTALLED_APP_IDS,
+  installedAppVersions = EMPTY_INSTALLED_APP_VERSIONS,
   channel = "community",
 }: AppMarketProps) {
   const { t, i18n } = useTranslation();
@@ -456,10 +461,14 @@ export function AppMarket({
             <div className={styles.grid}>
               {plugins.map((entry) => {
                 const iconSrc = entry.logo_url || FEATURED_APP_ICONS[entry.id];
-                const isInstalled = isMarketEntryInstalled(
+                const installedVersion = getInstalledVersion(
                   entry,
-                  installedAppIds,
+                  installedAppVersions,
                 );
+                const isInstalled = installedVersion !== null;
+                const hasUpdate =
+                  isInstalled &&
+                  compareVersions(entry.version, installedVersion) > 0;
                 return (
                   <Card key={entry.id} className={styles.appCard}>
                     <div className={styles.cardIcon}>
@@ -515,26 +524,32 @@ export function AppMarket({
                         className={`${styles.cardActions} ${styles.cardHoverActions}`}
                       >
                         <Button
-                          type={isInstalled ? "default" : "primary"}
+                          type={
+                            isInstalled && !hasUpdate ? "default" : "primary"
+                          }
                           icon={
-                            isInstalled ? (
+                            isInstalled && !hasUpdate ? (
                               <BadgeCheck size={14} />
+                            ) : hasUpdate ? (
+                              <RefreshCw size={14} />
                             ) : (
                               <Download size={14} />
                             )
                           }
-                          loading={!isInstalled && installingId === entry.id}
+                          loading={installingId === entry.id}
                           disabled={
-                            isInstalled ||
+                            (isInstalled && !hasUpdate) ||
                             !versionChecked ||
                             (installingId !== null && installingId !== entry.id)
                           }
                           onClick={() => requestInstall(entry)}
                         >
-                          {isInstalled
-                            ? t("appCenter.installed", "Installed")
-                            : installingId === entry.id
+                          {installingId === entry.id
                             ? t("appCenter.installing", "安装中...")
+                            : isInstalled && !hasUpdate
+                            ? t("appCenter.installed", "Installed")
+                            : hasUpdate
+                            ? t("appCenter.update", "Update")
                             : t("appCenter.install", "安装")}
                         </Button>
                         <Button

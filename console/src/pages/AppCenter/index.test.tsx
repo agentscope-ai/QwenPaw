@@ -97,7 +97,7 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeMarketApp(id: string) {
+function makeMarketApp(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     display_name: id,
@@ -110,6 +110,7 @@ function makeMarketApp(id: string) {
     details_url: null,
     locales: { en: { description: id, category: "app" } },
     is_featured: false,
+    ...overrides,
   };
 }
 
@@ -236,7 +237,7 @@ describe("AppCenterPage", () => {
     );
   });
 
-  it("does not reinstall an installed market app", async () => {
+  it("does not reinstall an installed market app at the same version", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeMarketApp("alpha-app")],
       total: 1,
@@ -251,6 +252,25 @@ describe("AppCenterPage", () => {
     fireEvent.click(installedButton);
     expect(hoisted.installPlugin).not.toHaveBeenCalled();
     expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+  });
+
+  it("offers an update for an installed market app with a newer version", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app", { version: "2.0.0" })],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "alpha-app",
+      name: "Alpha App",
+    });
+    renderPage(["/market?view=market"]);
+
+    const updateButton = await screen.findByRole("button", {
+      name: "appCenter.update",
+    });
+    expect(updateButton).toBeEnabled();
+    fireEvent.click(updateButton);
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
   });
 
   it("returns to installed apps and preserves unrelated query params", async () => {

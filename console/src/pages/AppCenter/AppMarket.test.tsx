@@ -346,7 +346,7 @@ describe("AppMarket", () => {
 
     render(
       <AppMarket
-        installedAppIds={new Set(["installed-app"])}
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
         onInstalled={vi.fn()}
       />,
     );
@@ -366,7 +366,7 @@ describe("AppMarket", () => {
 
     render(
       <AppMarket
-        installedAppIds={new Set(["installed-app"])}
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
         onInstalled={vi.fn()}
       />,
     );
@@ -374,6 +374,31 @@ describe("AppMarket", () => {
     expect(
       await screen.findByRole("button", { name: "appCenter.installed" }),
     ).toBeDisabled();
+  });
+
+  it("offers an update when the market version is newer", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("installed-app", { version: "2.0.0" })],
+      total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "installed-app",
+      name: "installed-app",
+    });
+
+    render(
+      <AppMarket
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    const updateButton = await screen.findByRole("button", {
+      name: "appCenter.update",
+    });
+    expect(updateButton).toBeEnabled();
+    fireEvent.click(updateButton);
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
   });
 
   it("installs an app and notifies the parent to refresh", async () => {

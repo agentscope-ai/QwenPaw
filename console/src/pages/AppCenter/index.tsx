@@ -164,8 +164,8 @@ export default function AppCenterPage() {
     return Array.from(cats).sort();
   }, [apps]);
 
-  const installedAppIds = useMemo(
-    () => new Set(apps.map((app) => app.id)),
+  const installedAppVersions = useMemo(
+    () => new Map(apps.map((app) => [app.id, app.version])),
     [apps],
   );
 
@@ -593,7 +593,7 @@ export default function AppCenterPage() {
             >
               <AppMarket
                 channel="official"
-                installedAppIds={installedAppIds}
+                installedAppVersions={installedAppVersions}
                 onInstalled={handleMarketInstalled}
               />
             </Suspense>
@@ -606,7 +606,7 @@ export default function AppCenterPage() {
               }
             >
               <AppMarket
-                installedAppIds={installedAppIds}
+                installedAppVersions={installedAppVersions}
                 onInstalled={handleMarketInstalled}
               />
             </Suspense>

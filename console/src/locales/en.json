@@ -87,6 +87,7 @@
     "installSuccess": "Installed",
     "installFailed": "Install failed",
     "installed": "Installed",
+    "update": "Update",
     "searchMarket": "Search app market...",
     "marketFilters": "App market filters",
     "filterAll": "All",
