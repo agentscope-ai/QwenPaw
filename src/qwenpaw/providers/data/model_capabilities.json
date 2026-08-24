@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.07.29",
-  "published_at": "2026-07-29T00:00:00Z",
+  "catalog_version": "2026.08.24",
+  "published_at": "2026-08-24T00:00:00Z",
   "capabilities": [
     {
       "provider_id": "modelscope",
@@ -570,6 +570,38 @@
       "expected_video": false,
       "doc_url": "https://api-docs.deepseek.com/",
       "note": "DeepSeek-V4 Pro reasoning model: no multimodal"
+    },
+    {
+      "provider_id": "siliconflow-cn",
+      "model_id": "deepseek-ai/DeepSeek-V4-Flash",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.siliconflow.cn/models",
+      "note": "DeepSeek-V4 Flash supports tools but not visual input"
+    },
+    {
+      "provider_id": "siliconflow-cn",
+      "model_id": "deepseek-ai/DeepSeek-V4-Pro",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.siliconflow.cn/models",
+      "note": "DeepSeek-V4 Pro supports tools but not visual input"
+    },
+    {
+      "provider_id": "siliconflow-intl",
+      "model_id": "deepseek-ai/DeepSeek-V4-Flash",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.siliconflow.cn/models",
+      "note": "DeepSeek-V4 Flash supports tools but not visual input"
+    },
+    {
+      "provider_id": "siliconflow-intl",
+      "model_id": "deepseek-ai/DeepSeek-V4-Pro",
+      "expected_image": false,
+      "expected_video": false,
+      "doc_url": "https://www.siliconflow.cn/models",
+      "note": "DeepSeek-V4 Pro supports tools but not visual input"
     },
     {
       "provider_id": "gemini",

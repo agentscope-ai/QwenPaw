@@ -10,6 +10,7 @@ import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import (
     PROVIDER_SILICONFLOW_CN,
     PROVIDER_SILICONFLOW_INTL,
@@ -70,6 +71,50 @@ def test_siliconflow_registered_in_provider_manager(
     assert provider_intl is not None
     assert isinstance(provider_intl, OpenAIProvider)
     assert provider_intl.base_url == "https://api.siliconflow.com/v1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_id",
+    ["siliconflow-cn", "siliconflow-intl"],
+)
+async def test_discovered_deepseek_v4_models_are_text_only(
+    isolated_secret_dir,
+    monkeypatch,
+    provider_id,
+) -> None:
+    """Apply packaged capabilities during the discovery transaction."""
+    manager = ProviderManager()
+    provider = manager.get_provider(provider_id)
+    assert provider is not None
+
+    async def fetch_models(_self, timeout=5):
+        return [
+            ModelInfo(
+                id="deepseek-ai/DeepSeek-V4-Flash",
+                name="DeepSeek V4 Flash",
+            ),
+            ModelInfo(
+                id="deepseek-ai/DeepSeek-V4-Pro",
+                name="DeepSeek V4 Pro",
+            ),
+        ]
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
+
+    result = await manager.discover_provider_models(provider_id)
+
+    assert result.success is True
+    for model_id in (
+        "deepseek-ai/DeepSeek-V4-Flash",
+        "deepseek-ai/DeepSeek-V4-Pro",
+    ):
+        model = provider.get_discovered_model_info(model_id)
+        assert model is not None
+        assert model.supports_image is False
+        assert model.supports_video is False
+        assert model.supports_multimodal is False
+        assert model.probe_source == "documentation"
 
 
 @pytest.mark.asyncio

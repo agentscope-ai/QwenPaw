@@ -22,6 +22,7 @@ from .provider import (
     ProviderInfo,
 )
 from .provider_catalog import BUILTIN_PROVIDER_CATALOG_KEYS
+from .provider_annotations import ProviderAnnotationService
 from .provider_manager_host import ProviderManagerHost
 from .provider_discovery import (
     ProviderModelDiscoveryResult,
@@ -197,6 +198,9 @@ class ProviderManagerDiscoveryMixin(
             candidate.discovered_models = [
                 model.model_copy(deep=True) for model in models or []
             ]
+            ProviderAnnotationService(self._capability_registry).apply(
+                [candidate],
+            )
             candidate.models_last_synced_at = synced_at
             candidate.models_last_sync_error = None
         else:

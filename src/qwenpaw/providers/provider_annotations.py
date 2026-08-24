@@ -23,7 +23,11 @@ class ProviderAnnotationService:
     ) -> None:
         """Apply expected capabilities without overwriting probe results."""
         for provider in providers:
-            for model in provider.all_models():
+            candidates = [
+                *provider.all_models(),
+                *provider.discovered_models,
+            ]
+            for model in candidates:
                 if model.probe_source == "probed":
                     continue
                 if not refresh and model.supports_multimodal is not None:
