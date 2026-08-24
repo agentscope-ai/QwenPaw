@@ -26,6 +26,7 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from .request_context import is_ephemeral_request
 
 logger = logging.getLogger(__name__)
 
@@ -269,8 +270,6 @@ class Runtime:
          participate in the cancel lifecycle.  ``ctx._envelope`` should
          also be promoted to a first-class ``HookContext`` field.
         """
-        from ..hooks.session.session_hook import is_ephemeral_request
-
         if is_ephemeral_request(ctx):
             return
 
