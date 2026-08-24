@@ -49,6 +49,8 @@ export interface QueueItem {
   /** Backend session_id captured at enqueue time so background sender uses
    *  the correct session even after agent switch clears the session list. */
   backendSessionId?: string;
+  /** Immutable request parameters captured at enqueue time. */
+  bizParams?: Record<string, unknown>;
   userId?: string;
   channel?: string;
   status: QueueItemStatus;
@@ -64,6 +66,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  backendSessionId?: string;
+  bizParams?: Record<string, unknown>;
   userId?: string;
   channel?: string;
 }
@@ -365,11 +369,6 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     } catch {
       // ignore
     }
-    // Capture backend session_id so background sender targets the correct
-    // session even if the session list is cleared after agent switch.
-    const backendSessionId =
-      (window as unknown as { currentSessionId?: string }).currentSessionId ||
-      undefined;
     const item: QueueItem = {
       id: nextQueueId(),
       clientMessageId: createClientMessageId(),
@@ -379,7 +378,8 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       mentions: input.mentions,
       quote: input.quote,
       agentId,
-      backendSessionId,
+      backendSessionId: input.backendSessionId,
+      bizParams: input.bizParams ? structuredClone(input.bizParams) : undefined,
       userId: input.userId,
       channel: input.channel,
       status: "pending",

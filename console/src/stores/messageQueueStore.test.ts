@@ -168,17 +168,14 @@ describe("messageQueueStore", () => {
     expect(item.agentId).toBe("agent-x");
   });
 
-  it("enqueue captures backendSessionId from window.currentSessionId when set", () => {
-    (window as unknown as { currentSessionId?: string }).currentSessionId =
-      "backend-42";
-
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "hi" });
+  it("enqueue saves the explicitly captured backend session", () => {
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "hi",
+      backendSessionId: "backend-42",
+    });
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.backendSessionId).toBe("backend-42");
-
-    delete (window as unknown as { currentSessionId?: string })
-      .currentSessionId;
   });
 
   it("enqueue leaves agentId/backendSessionId undefined when none are set", () => {
@@ -187,6 +184,62 @@ describe("messageQueueStore", () => {
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.agentId).toBeUndefined();
     expect(item.backendSessionId).toBeUndefined();
+  });
+
+  it("enqueue clones and persists frozen business parameters", () => {
+    const bizParams = {
+      session_id: "session-a",
+      request_context: { source: "console_chat_queue" },
+    };
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "hi",
+      backendSessionId: "session-a",
+      bizParams,
+    });
+
+    bizParams.session_id = "session-b";
+    bizParams.request_context.source = "changed";
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.backendSessionId).toBe("session-a");
+    expect(item.bizParams).toEqual({
+      session_id: "session-a",
+      request_context: { source: "console_chat_queue" },
+    });
+
+    resetStore();
+    useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
+    expect(
+      useMessageQueueStore.getState().getQueue(SESSION_ID)[0].bizParams,
+    ).toEqual({
+      session_id: "session-a",
+      request_context: { source: "console_chat_queue" },
+    });
+  });
+
+  it("loads legacy queue items without business parameters", () => {
+    localStorage.setItem(
+      getStorageKey(SESSION_ID),
+      JSON.stringify({
+        items: [
+          {
+            id: "legacy-1",
+            text: "legacy",
+            backendSessionId: "session-a",
+            status: "pending",
+            retryCount: 0,
+            createdAt: 1,
+          },
+        ],
+        runState: "idle",
+      }),
+    );
+
+    useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.backendSessionId).toBe("session-a");
+    expect(item.bizParams).toBeUndefined();
   });
 
   it("enqueue carries userId and channel from the input", () => {

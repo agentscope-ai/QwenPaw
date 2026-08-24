@@ -2,6 +2,7 @@ import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
+  type IAgentScopeRuntimeWebUIInputData,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
@@ -208,6 +209,12 @@ import {
   requiresQwenPawModel,
   supportsAgentAttachments,
 } from "../../utils/agentBackend";
+import {
+  buildSubmissionBizParams,
+  enforceSubmissionSessionId,
+  getSubmissionChatId,
+  getSubmissionSessionId,
+} from "./submissionBizParams";
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -410,8 +417,13 @@ async function startBackgroundQueue(
         if (item.agentId) {
           authHeaders["X-Agent-Id"] = item.agentId;
         }
+        const frozenSessionId = getSubmissionSessionId(
+          item.bizParams,
+          item.backendSessionId || backendSessionId,
+        );
         const pendingRequest = withPendingProjectDirectory(
           {
+            ...item.bizParams,
             input: [
               {
                 role: "user",
@@ -424,7 +436,7 @@ async function startBackgroundQueue(
                 ],
               },
             ],
-            session_id: item.backendSessionId || backendSessionId,
+            session_id: frozenSessionId,
             user_id: item.userId || DEFAULT_USER_ID,
             channel: item.channel || DEFAULT_CHANNEL,
             stream: true,
@@ -1523,6 +1535,8 @@ export default function ChatPage() {
         chatRef.current?.input.submit({
           query: beginLoopModeSubmission(next.text),
           fileList: buildFileList(next),
+          biz_params:
+            next.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
         });
       });
     }, 500);
@@ -2022,6 +2036,12 @@ export default function ChatPage() {
       }
       const queueText = prepareLoopModeMessage(val);
       const enqueueIdentity = sessionApi.getSessionIdentity();
+      const backendSessionId = sessionApi.getBackendSessionId(queueSessionId);
+      const bizParams = buildSubmissionBizParams(backendSessionId, {
+        source: "console_chat_queue",
+        agent_id: selectedAgent,
+        chat_id: queueSessionId,
+      });
       useMessageQueueStore.getState().enqueue(queueSessionId, {
         text: queueText,
         attachments:
@@ -2033,6 +2053,8 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
+        backendSessionId,
+        bizParams,
         userId: enqueueIdentity.userId,
         channel: enqueueIdentity.channel,
       });
@@ -2047,7 +2069,7 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
-  }, [isChatActive, queueSessionId]);
+  }, [isChatActive, queueSessionId, selectedAgent]);
 
   const handleQueueRemove = useCallback(
     (id: string) => {
@@ -2088,6 +2110,8 @@ export default function ChatPage() {
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(item.text),
             fileList: buildFileList(item),
+            biz_params:
+              item.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }, 600);
@@ -2114,6 +2138,8 @@ export default function ChatPage() {
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(head.text),
             fileList: buildFileList(head),
+            biz_params:
+              head.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }
@@ -2139,6 +2165,8 @@ export default function ChatPage() {
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(target.text),
             fileList: buildFileList(target),
+            biz_params:
+              target.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }
@@ -2160,6 +2188,8 @@ export default function ChatPage() {
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(next.text),
             fileList: buildFileList(next),
+            biz_params:
+              next.bizParams as IAgentScopeRuntimeWebUIInputData["biz_params"],
           });
         });
       }
@@ -2603,19 +2633,24 @@ export default function ChatPage() {
           : [];
 
       const identity = sessionApi.getSessionIdentity();
+      const fallbackSessionId = identity.sessionId || session?.session_id || "";
+      const submissionSessionId = getSubmissionSessionId(
+        biz_params,
+        fallbackSessionId,
+      );
+
+      console.log("biz_params:", biz_params)
+      const submissionChatId = getSubmissionChatId(biz_params);
       const usageTurn = useTurnUsageStore
         .getState()
-        .beginTurn(
-          selectedAgent,
-          identity.sessionId || session?.session_id || "",
-        );
+        .beginTurn(selectedAgent, submissionSessionId);
       let requestBody: Record<string, unknown> = {
+        ...biz_params,
         input: rewrittenInput,
-        session_id: identity.sessionId || session?.session_id || "",
+        session_id: submissionSessionId,
         user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
         channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
         stream: true,
-        ...biz_params,
       };
 
       for (const entry of sortByOrder(
@@ -2655,8 +2690,9 @@ export default function ChatPage() {
           runningConfigApprovalLevel,
         );
         projectSessionId =
-          sessionApi.lastActiveChatId ??
+          submissionChatId ??
           chatIdRef.current ??
+          sessionApi.lastActiveChatId ??
           String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
           requestBody,
@@ -2677,10 +2713,19 @@ export default function ChatPage() {
         };
       }
 
-      const backendChatId =
-        sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
-        chatIdRef.current ??
-        String(requestBody.session_id || "");
+      requestBody = enforceSubmissionSessionId(
+        requestBody,
+        biz_params,
+        String(requestBody.session_id || fallbackSessionId),
+      );
+
+      const backendChatId = submissionChatId
+        ? sessionApi.getRealIdForSession(submissionChatId) ?? submissionChatId
+        : sessionApi.getRealIdForSession(
+            String(requestBody.session_id || ""),
+          ) ??
+          chatIdRef.current ??
+          String(requestBody.session_id || "");
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m) => m.role === "user")
@@ -2880,7 +2925,24 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async () => {
+    const handleBeforeSubmit = async (
+      data: IAgentScopeRuntimeWebUIInputData,
+    ) => {
+      const selectedSessionId =
+        chatIdRef.current ?? sessionApi.lastActiveChatId ?? "";
+      const backendSessionId = selectedSessionId
+        ? sessionApi.getBackendSessionId(selectedSessionId)
+        : "";
+      const bizParams = buildSubmissionBizParams(backendSessionId, {
+        source: "console_chat",
+        agent_id: selectedAgent,
+        chat_id: selectedSessionId,
+      });
+      data.biz_params = {
+        ...data.biz_params,
+        ...bizParams,
+      } as IAgentScopeRuntimeWebUIInputData["biz_params"];
+
       if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
@@ -2901,6 +2963,13 @@ export default function ChatPage() {
           ? prepareLoopModeMessage(val)
           : val;
         const enqueueIdentity = sessionApi.getSessionIdentity();
+        const queueBackendSessionId =
+          sessionApi.getBackendSessionId(queueSessionId);
+        const queueBizParams = buildSubmissionBizParams(queueBackendSessionId, {
+          source: "console_chat_queue",
+          agent_id: selectedAgent,
+          chat_id: queueSessionId,
+        });
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
           attachments:
@@ -2912,6 +2981,8 @@ export default function ChatPage() {
                   size: f.size,
                 }))
               : undefined,
+          backendSessionId: queueBackendSessionId,
+          bizParams: queueBizParams,
           userId: enqueueIdentity.userId,
           channel: enqueueIdentity.channel,
         });
