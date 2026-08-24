@@ -97,7 +97,7 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeMarketApp(id: string) {
+function makeMarketApp(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     display_name: id,
@@ -110,6 +110,7 @@ function makeMarketApp(id: string) {
     details_url: null,
     locales: { en: { description: id, category: "app" } },
     is_featured: false,
+    ...overrides,
   };
 }
 
@@ -213,7 +214,9 @@ describe("AppCenterPage", () => {
     renderPage(["/market?view=market"]);
 
     expect(
-      await screen.findByRole("button", { name: "appCenter.installed" }),
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
     ).toBeDisabled();
     expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
   });
@@ -236,20 +239,24 @@ describe("AppCenterPage", () => {
     );
   });
 
-  it("does not reinstall an installed market app", async () => {
+  it("updates an installed market app without loading an old bundle", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
-      plugins: [makeMarketApp("alpha-app")],
+      plugins: [makeMarketApp("alpha-app", { version: "1.1.0" })],
       total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "alpha-app",
+      name: "Alpha App",
     });
     renderPage(["/market?view=market"]);
     await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
 
-    const installedButton = await screen.findByRole("button", {
-      name: "appCenter.installed",
+    const updateButton = await screen.findByRole("button", {
+      name: "appCenter.update",
     });
-    expect(installedButton).toBeDisabled();
-    fireEvent.click(installedButton);
-    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+    expect(updateButton).toBeEnabled();
+    fireEvent.click(updateButton);
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
     expect(hoisted.loadPawApp).not.toHaveBeenCalled();
   });
 

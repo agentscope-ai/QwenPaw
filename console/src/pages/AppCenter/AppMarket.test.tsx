@@ -346,19 +346,19 @@ describe("AppMarket", () => {
 
     render(
       <AppMarket
-        installedAppIds={new Set(["installed-app"])}
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
         onInstalled={vi.fn()}
       />,
     );
 
     const installedButton = await screen.findByRole("button", {
-      name: "appCenter.installed",
+      name: "appCenter.installedStatus",
     });
     expect(installedButton).toBeDisabled();
     expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
   });
 
-  it("matches installed apps when the market uses an owner-qualified id", async () => {
+  it("does not match a community app by an unrelated owner-qualified id", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeEntry("@owner/installed-app")],
       total: 1,
@@ -366,14 +366,51 @@ describe("AppMarket", () => {
 
     render(
       <AppMarket
-        installedAppIds={new Set(["installed-app"])}
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("appCenter.install")).toBeInTheDocument();
+  });
+
+  it("matches official entries by their bundled app id", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("@owner/installed-app")],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        channel="official"
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
         onInstalled={vi.fn()}
       />,
     );
 
     expect(
-      await screen.findByRole("button", { name: "appCenter.installed" }),
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
     ).toBeDisabled();
+  });
+
+  it("offers an update when the market version is newer", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("installed-app", { version: "1.1.0" })],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        installedAppVersions={new Map([["installed-app", "1.0.0"]])}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "appCenter.update" }),
+    ).toBeEnabled();
   });
 
   it("installs an app and notifies the parent to refresh", async () => {

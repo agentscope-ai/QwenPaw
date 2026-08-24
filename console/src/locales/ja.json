@@ -93,6 +93,8 @@
     "installing": "インストール中",
     "installSuccess": "インストールしました",
     "installFailed": "インストールに失敗しました",
+    "installedStatus": "インストール済み",
+    "update": "アップデート",
     "searchMarket": "アプリマーケットを検索...",
     "marketFilters": "アプリマーケットのフィルター",
     "filterAll": "すべて",

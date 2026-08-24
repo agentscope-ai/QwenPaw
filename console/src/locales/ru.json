@@ -93,6 +93,8 @@
     "installing": "Установка",
     "installSuccess": "Установлено",
     "installFailed": "Не удалось установить",
+    "installedStatus": "Установлено",
+    "update": "Обновить",
     "searchMarket": "Поиск в магазине приложений...",
     "marketFilters": "Фильтры магазина приложений",
     "filterAll": "Все",

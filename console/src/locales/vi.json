@@ -95,6 +95,8 @@
     "installing": "Đang cài đặt",
     "installSuccess": "Đã cài đặt",
     "installFailed": "Cài đặt thất bại",
+    "installedStatus": "Đã cài đặt",
+    "update": "Cập nhật",
     "searchMarket": "Tìm kiếm trong chợ ứng dụng...",
     "marketFilters": "Bộ lọc chợ ứng dụng",
     "filterAll": "Tất cả",

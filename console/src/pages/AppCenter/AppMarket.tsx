@@ -36,6 +36,7 @@ import {
 import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { rootApi } from "@/api/modules/root";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
+import { getMarketAppState, type MarketAppState } from "@/utils/marketAppState";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -113,24 +114,15 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 
 interface AppMarketProps {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
-  installedAppIds?: ReadonlySet<string>;
+  installedAppVersions?: ReadonlyMap<string, string>;
   channel?: "official" | "community";
 }
 
-const EMPTY_INSTALLED_APP_IDS: ReadonlySet<string> = new Set();
-
-function isMarketEntryInstalled(
-  entry: MarketPluginEntry,
-  installedAppIds: ReadonlySet<string>,
-): boolean {
-  const normalizedId = entry.id.startsWith("@") ? entry.id.slice(1) : entry.id;
-  const name = normalizedId.split("/").pop() ?? normalizedId;
-  return [entry.id, normalizedId, name].some((id) => installedAppIds.has(id));
-}
+const EMPTY_INSTALLED_APP_VERSIONS: ReadonlyMap<string, string> = new Map();
 
 export function AppMarket({
   onInstalled,
-  installedAppIds = EMPTY_INSTALLED_APP_IDS,
+  installedAppVersions = EMPTY_INSTALLED_APP_VERSIONS,
   channel = "community",
 }: AppMarketProps) {
   const { t, i18n } = useTranslation();
@@ -456,10 +448,13 @@ export function AppMarket({
             <div className={styles.grid}>
               {plugins.map((entry) => {
                 const iconSrc = entry.logo_url || FEATURED_APP_ICONS[entry.id];
-                const isInstalled = isMarketEntryInstalled(
+                const marketState: MarketAppState = getMarketAppState(
                   entry,
-                  installedAppIds,
+                  installedAppVersions,
+                  channel,
                 );
+                const isInstalled = marketState === "installed";
+                const canUpdate = marketState === "update";
                 return (
                   <Card key={entry.id} className={styles.appCard}>
                     <div className={styles.cardIcon}>
@@ -519,6 +514,8 @@ export function AppMarket({
                           icon={
                             isInstalled ? (
                               <BadgeCheck size={14} />
+                            ) : canUpdate ? (
+                              <RefreshCw size={14} />
                             ) : (
                               <Download size={14} />
                             )
@@ -532,7 +529,9 @@ export function AppMarket({
                           onClick={() => requestInstall(entry)}
                         >
                           {isInstalled
-                            ? t("appCenter.installed", "Installed")
+                            ? t("appCenter.installedStatus", "Installed")
+                            : canUpdate
+                            ? t("appCenter.update", "Update")
                             : installingId === entry.id
                             ? t("appCenter.installing", "安装中...")
                             : t("appCenter.install", "安装")}

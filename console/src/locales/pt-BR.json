@@ -95,6 +95,8 @@
     "installing": "Instalando",
     "installSuccess": "Instalado",
     "installFailed": "Falha na instalação",
+    "installedStatus": "Instalado",
+    "update": "Atualizar",
     "searchMarket": "Pesquisar no mercado de aplicativos...",
     "marketFilters": "Filtros do mercado de aplicativos",
     "filterAll": "Todos",

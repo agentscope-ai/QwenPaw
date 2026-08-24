@@ -95,6 +95,8 @@
     "installing": "Menginstal",
     "installSuccess": "Terinstal",
     "installFailed": "Instalasi gagal",
+    "installedStatus": "Terpasang",
+    "update": "Perbarui",
     "searchMarket": "Cari di pasar aplikasi...",
     "marketFilters": "Filter pasar aplikasi",
     "filterAll": "Semua",
