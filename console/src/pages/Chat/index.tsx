@@ -202,6 +202,9 @@ import {
   type QueueItem,
   MAX_QUEUE_SIZE,
   STORAGE_PREFIX,
+  MESSAGE_QUEUE_STORAGE_VERSION,
+  getNewQueueKey,
+  isNewQueueKey,
   withSendLock,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
@@ -549,12 +552,17 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
     if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
     const sessionId = key.slice(STORAGE_PREFIX.length);
     if (sessionId === excludeSessionId) continue;
+    if (isNewQueueKey(sessionId)) continue;
     // Skip sessions already running a background sender
     if (_bgAborts.has(sessionId)) continue;
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw);
+      if (parsed.version !== MESSAGE_QUEUE_STORAGE_VERSION) {
+        localStorage.removeItem(key);
+        continue;
+      }
       const items: Array<{ status: string }> = parsed.items;
       if (!items || items.length === 0) continue;
       // Only start if there are actionable items
@@ -1193,26 +1201,34 @@ export default function ChatPage() {
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
-  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
+  const lastActiveChatId = sessionApi.lastActiveChatId;
+  const validLastActiveChatId =
+    lastActiveChatId &&
+    sessionApi.getSessionIdentity(lastActiveChatId).sessionId
+      ? lastActiveChatId
+      : undefined;
+  const activeSessionId = chatId ?? validLastActiveChatId ?? "new";
+  const queueSessionId =
+    activeSessionId === "new" ? getNewQueueKey(selectedAgent) : activeSessionId;
   const backendChatId = resolveBackendChatId(chatId);
   const pendingProjectDir = backendChatId
     ? undefined
-    : getPendingProjectDirectory(selectedAgent, queueSessionId) ?? undefined;
+    : getPendingProjectDirectory(selectedAgent, activeSessionId) ?? undefined;
   const sessionScope = useMemo<
     Extract<FilesWorkspaceScope, { kind: "session" }>
   >(
     () => ({
       kind: "session",
       agentId: selectedAgent,
-      sessionId: queueSessionId,
+      sessionId: activeSessionId,
       chatId: backendChatId,
       projectDirOverride: pendingProjectDir,
     }),
-    [backendChatId, pendingProjectDir, queueSessionId, selectedAgent],
+    [activeSessionId, backendChatId, pendingProjectDir, selectedAgent],
   );
   const currentSessionFilesScopeKey = sessionFilesScopeKey(
     selectedAgent,
-    queueSessionId,
+    activeSessionId,
   );
   const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
   const dispatchFilesDrawer = useCallback(
@@ -1417,14 +1433,14 @@ export default function ChatPage() {
 
   const syncLoopModeStatus = useCallback(() => {
     const backendSessionId =
-      queueSessionId !== "new"
-        ? sessionApi.getSessionIdentity(queueSessionId).sessionId
+      activeSessionId !== "new"
+        ? sessionApi.getSessionIdentity(activeSessionId).sessionId
         : "";
     return fetchActiveLoopMode({
       chatId,
       sessionId: backendSessionId,
     });
-  }, [chatId, queueSessionId]);
+  }, [activeSessionId, chatId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1461,7 +1477,7 @@ export default function ChatPage() {
     // Invalidate immediately so A→B never briefly filters/shows A's tasks.
     setBgBackendSessionId("");
 
-    if (!queueSessionId || queueSessionId === "new") {
+    if (!queueSessionId || isNewQueueKey(queueSessionId)) {
       stopBackgroundWatchersNotInSession("");
       return;
     }
@@ -2025,11 +2041,11 @@ export default function ChatPage() {
         return;
       }
       const queueText = prepareLoopModeMessage(val);
-      const enqueueIdentity = sessionApi.getSessionIdentity(queueSessionId);
+      const enqueueIdentity = sessionApi.getSessionIdentity(activeSessionId);
       const bizParams = buildSubmissionBizParams(enqueueIdentity, {
         source: "console_chat_queue",
         agent_id: selectedAgent,
-        chat_id: queueSessionId,
+        chat_id: activeSessionId,
         sdk_session_id: enqueueIdentity.sdkSessionId,
       });
       useMessageQueueStore.getState().enqueue(queueSessionId, {
@@ -2057,7 +2073,7 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
-  }, [isChatActive, queueSessionId, selectedAgent]);
+  }, [activeSessionId, isChatActive, queueSessionId, selectedAgent]);
 
   const handleQueueRemove = useCallback(
     (id: string) => {
@@ -2498,7 +2514,9 @@ export default function ChatPage() {
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
-        useMessageQueueStore.getState().migrateQueue("new", sessionId);
+        useMessageQueueStore
+          .getState()
+          .migrateQueue(getNewQueueKey(agentId), sessionId);
       } catch {
         // ignore
       }
@@ -2997,11 +3015,11 @@ export default function ChatPage() {
         const queueText = usesQwenPawBackend
           ? prepareLoopModeMessage(val)
           : val;
-        const enqueueIdentity = sessionApi.getSessionIdentity(queueSessionId);
+        const enqueueIdentity = sessionApi.getSessionIdentity(activeSessionId);
         const queueBizParams = buildSubmissionBizParams(enqueueIdentity, {
           source: "console_chat_queue",
           agent_id: selectedAgent,
-          chat_id: queueSessionId,
+          chat_id: activeSessionId,
           sdk_session_id: enqueueIdentity.sdkSessionId,
         });
         useMessageQueueStore.getState().enqueue(queueSessionId, {
@@ -3650,6 +3668,7 @@ export default function ChatPage() {
     usesQwenPawBackend,
     supportsAttachments,
     runningConfigApprovalLevel,
+    activeSessionId,
     queueSessionId,
     onFileCardClick,
     whisperChecked,

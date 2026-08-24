@@ -3,6 +3,8 @@ import {
   useMessageQueueStore,
   STORAGE_PREFIX,
   getStorageKey,
+  getNewQueueKey,
+  isNewQueueKey,
   removeQueueFromStorage,
   nextQueueId,
   MAX_QUEUE_SIZE,
@@ -64,6 +66,13 @@ describe("messageQueueStore", () => {
 
   it("getStorageKey concatenates prefix + sessionId", () => {
     expect(getStorageKey("abc")).toBe("qwenpaw:message-queue:abc");
+  });
+
+  it("namespaces new-chat queues by agent", () => {
+    expect(getNewQueueKey("agent-a")).toBe("new:agent-a");
+    expect(getNewQueueKey("agent-b")).not.toBe(getNewQueueKey("agent-a"));
+    expect(isNewQueueKey(getNewQueueKey("agent-a"))).toBe(true);
+    expect(isNewQueueKey("session-1")).toBe(false);
   });
 
   it("MAX_QUEUE_SIZE is 50", () => {
@@ -149,6 +158,7 @@ describe("messageQueueStore", () => {
     expect(parsed.items).toHaveLength(1);
     expect(parsed.items[0].text).toBe("persisted");
     expect(parsed.runState).toBe("idle");
+    expect(parsed.version).toBe(2);
   });
 
   it("enqueue rejects when the queue is already at MAX_QUEUE_SIZE", () => {
@@ -334,7 +344,8 @@ describe("messageQueueStore", () => {
   });
 
   it("migrateQueue binds the new placeholder to the SDK local session", () => {
-    useMessageQueueStore.getState().enqueue("new", {
+    const newQueueKey = getNewQueueKey("agent-a");
+    useMessageQueueStore.getState().enqueue(newQueueKey, {
       agentId: "agent-a",
       text: "queued",
       bizParams: {
@@ -350,7 +361,7 @@ describe("messageQueueStore", () => {
       },
     });
 
-    useMessageQueueStore.getState().migrateQueue("new", "local-1");
+    useMessageQueueStore.getState().migrateQueue(newQueueKey, "local-1");
 
     expect(
       useMessageQueueStore.getState().getQueue("local-1")[0].bizParams,
@@ -361,6 +372,36 @@ describe("messageQueueStore", () => {
         sdk_session_id: "local-1",
       },
     });
+  });
+
+  it("migrates only the new-chat queue for the matching agent", () => {
+    const agentAKey = getNewQueueKey("agent-a");
+    const agentBKey = getNewQueueKey("agent-b");
+    useMessageQueueStore.getState().enqueue(agentAKey, {
+      ...TEST_QUEUE_IDENTITY,
+      agentId: "agent-a",
+      text: "from-a",
+    });
+    useMessageQueueStore.getState().enqueue(agentBKey, {
+      ...TEST_QUEUE_IDENTITY,
+      agentId: "agent-b",
+      text: "from-b",
+    });
+
+    useMessageQueueStore.getState().migrateQueue(agentBKey, "local-b");
+
+    expect(
+      useMessageQueueStore
+        .getState()
+        .getQueue(agentAKey)
+        .map((item) => item.text),
+    ).toEqual(["from-a"]);
+    expect(
+      useMessageQueueStore
+        .getState()
+        .getQueue("local-b")
+        .map((item) => item.text),
+    ).toEqual(["from-b"]);
   });
 
   it("migrateQueue updates the chat UUID without changing backend or SDK identity", () => {
@@ -605,6 +646,21 @@ describe("messageQueueStore", () => {
     useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
 
     expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toEqual([]);
+  });
+
+  it("loadFromStorage removes an unversioned legacy queue", () => {
+    localStorage.setItem(
+      getStorageKey(SESSION_ID),
+      JSON.stringify({
+        items: [{ id: "legacy", text: "old", status: "pending" }],
+        runState: "idle",
+      }),
+    );
+
+    useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
+
+    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toEqual([]);
+    expect(localStorage.getItem(getStorageKey(SESSION_ID))).toBeNull();
   });
 
   // ---------------------------------------------------------------------------

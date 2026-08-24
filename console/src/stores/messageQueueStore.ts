@@ -71,11 +71,54 @@ export interface QueueItemInput {
 // ---------------------------------------------------------------------------
 
 export const STORAGE_PREFIX = "qwenpaw:message-queue:";
+export const MESSAGE_QUEUE_STORAGE_VERSION = 2;
+const NEW_QUEUE_PREFIX = "new:";
 
 /** Shape persisted in localStorage per session */
 interface PersistedQueue {
+  version: typeof MESSAGE_QUEUE_STORAGE_VERSION;
   items: QueueItem[];
   runState: QueueRunState;
+}
+
+export function getNewQueueKey(agentId: string): string {
+  return `${NEW_QUEUE_PREFIX}${agentId}`;
+}
+
+export function isNewQueueKey(sessionId: string): boolean {
+  return sessionId.startsWith(NEW_QUEUE_PREFIX);
+}
+
+function isQueueItem(value: unknown): value is QueueItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<QueueItem>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.text === "string" &&
+    typeof item.agentId === "string" &&
+    !!item.bizParams &&
+    typeof item.bizParams === "object" &&
+    (item.status === "pending" ||
+      item.status === "sending" ||
+      item.status === "failed" ||
+      item.status === "sent") &&
+    typeof item.retryCount === "number" &&
+    typeof item.createdAt === "number"
+  );
+}
+
+function isPersistedQueue(value: unknown): value is PersistedQueue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const queue = value as Partial<PersistedQueue>;
+  return (
+    queue.version === MESSAGE_QUEUE_STORAGE_VERSION &&
+    Array.isArray(queue.items) &&
+    queue.items.every(isQueueItem) &&
+    (queue.runState === "idle" ||
+      queue.runState === "running" ||
+      queue.runState === "paused" ||
+      queue.runState === "error")
+  );
 }
 
 export function getStorageKey(sessionId: string): string {
@@ -85,9 +128,10 @@ export function getStorageKey(sessionId: string): string {
 function readQueueFromStorage(sessionId: string): PersistedQueue | null {
   try {
     const saved = localStorage.getItem(getStorageKey(sessionId));
-    if (saved) {
-      return JSON.parse(saved) as PersistedQueue;
-    }
+    if (!saved) return null;
+    const parsed: unknown = JSON.parse(saved);
+    if (isPersistedQueue(parsed)) return parsed;
+    localStorage.removeItem(getStorageKey(sessionId));
   } catch {
     // ignore
   }
@@ -103,7 +147,11 @@ function writeQueueToStorage(
     if (items.length > 0) {
       localStorage.setItem(
         getStorageKey(sessionId),
-        JSON.stringify({ items, runState }),
+        JSON.stringify({
+          version: MESSAGE_QUEUE_STORAGE_VERSION,
+          items,
+          runState,
+        }),
       );
     } else {
       localStorage.removeItem(getStorageKey(sessionId));
@@ -148,7 +196,7 @@ function migrateQueueItemIdentity(
       : {};
   const chatId = requestContext.chat_id;
   const sdkSessionId = requestContext.sdk_session_id;
-  const isNewPlaceholder = fromSessionId === "new";
+  const isNewPlaceholder = isNewQueueKey(fromSessionId);
 
   return {
     ...item,
@@ -157,8 +205,11 @@ function migrateQueueItemIdentity(
       ...(isNewPlaceholder ? { session_id: toSessionId } : {}),
       request_context: {
         ...requestContext,
-        ...(chatId === fromSessionId ? { chat_id: toSessionId } : {}),
-        ...(isNewPlaceholder && sdkSessionId === fromSessionId
+        ...(chatId === fromSessionId || (isNewPlaceholder && chatId === "new")
+          ? { chat_id: toSessionId }
+          : {}),
+        ...(isNewPlaceholder &&
+        (sdkSessionId === fromSessionId || sdkSessionId === "new")
           ? { sdk_session_id: toSessionId }
           : {}),
       },
