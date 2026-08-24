@@ -152,7 +152,15 @@ class ContextGateway:
                 headers=headers,
                 **kwargs,
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except (
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            RuntimeError,
+        ) as exc:
+            # RuntimeError covers ManagedService.base_url raising when the
+            # context sidecar has not finished starting (or has exited). The
+            # client exists because the gateway startup hook already ran, so
+            # the earlier "Context gateway is not ready" branch is skipped.
             raise HTTPException(
                 status_code=503,
                 detail="Context service is unavailable",
