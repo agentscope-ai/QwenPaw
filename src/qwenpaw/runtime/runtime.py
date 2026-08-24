@@ -43,9 +43,11 @@ class Runtime:
         *,
         workspace: Any,
         app_services: Any,
+        agent_config_override: Any = None,
     ) -> None:
         self.workspace = workspace
         self.app_services = app_services
+        self.agent_config_override = agent_config_override
 
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -267,6 +269,11 @@ class Runtime:
          participate in the cancel lifecycle.  ``ctx._envelope`` should
          also be promoted to a first-class ``HookContext`` field.
         """
+        from ..hooks.session.session_hook import is_ephemeral_request
+
+        if is_ephemeral_request(ctx):
+            return
+
         agent = getattr(ctx, "agent", None)
         if agent is None:
             return
@@ -500,6 +507,7 @@ class Runtime:
             workspace=self.workspace,
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
+            agent_config=self.agent_config_override,
         )
 
     @staticmethod

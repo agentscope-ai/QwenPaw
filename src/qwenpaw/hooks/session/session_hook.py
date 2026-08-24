@@ -20,7 +20,8 @@ from .signals import SESSION_SAVE_SUCCEEDED_KEY
 logger = logging.getLogger(__name__)
 
 
-def _is_ephemeral_request(ctx: HookContext) -> bool:
+def is_ephemeral_request(ctx: HookContext) -> bool:
+    """Return whether a request must avoid persisted session state."""
     request = ctx.request
     request_context = getattr(request, "request_context", None)
     if isinstance(request_context, dict):
@@ -40,7 +41,7 @@ class SessionLoadHook(LifecycleHook):
     priority = 10
 
     async def run(self, ctx: HookContext) -> HookResult:
-        if _is_ephemeral_request(ctx):
+        if is_ephemeral_request(ctx):
             return HookResult()
         if ctx.workspace is None:
             return HookResult()
@@ -85,7 +86,7 @@ class SessionSaveHook(LifecycleHook):
 
     async def run(self, ctx: HookContext) -> HookResult:
         ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = False
-        if _is_ephemeral_request(ctx):
+        if is_ephemeral_request(ctx):
             return HookResult()
         if ctx.workspace is None or ctx.agent is None:
             return HookResult()
@@ -112,4 +113,4 @@ class SessionSaveHook(LifecycleHook):
         return HookResult()
 
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+__all__ = ["SessionLoadHook", "SessionSaveHook", "is_ephemeral_request"]

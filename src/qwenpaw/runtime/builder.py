@@ -274,7 +274,9 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = await run_sync_io(load_agent_config, agent_id)
+        agent_config = getattr(ctx, "agent_config", None)
+        if agent_config is None:
+            agent_config = await run_sync_io(load_agent_config, agent_id)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,

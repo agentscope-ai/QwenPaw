@@ -253,7 +253,7 @@ def test_stdout_json_and_default_context(monkeypatch) -> None:
     assert data["status"] == "success"
     assert "usage" in data
     assert "elapsed_seconds" in data
-    assert "_headless_tool_guard" not in captured_ctx
+    assert "approval_level" not in captured_ctx
     assert "_headless_skills_dir" not in captured_ctx
 
 
@@ -298,9 +298,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
             "QWENPAW_TOOL_GUARD_ENABLED",
         )
         captured["env_skills_dir"] = os.environ.get("QWENPAW_SKILLS_DIR")
-        captured["guard_bypassed"] = (
-            ctx.get("_headless_tool_guard", "true").lower() == "false"
-        )
+        captured["guard_bypassed"] = ctx.get("approval_level") == "off"
         return {
             "status": "success",
             "response": "ok",
@@ -327,7 +325,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
 
     ctx = captured["request_context"]
-    assert ctx["_headless_tool_guard"] == "false"
+    assert ctx["approval_level"] == "off"
     assert "_headless_skills_dir" not in ctx
     assert ctx["session_id"] == "headless-task"
     assert ctx["agent_id"] == "e2e"
@@ -417,49 +415,152 @@ def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):
 # ── _run_task ────────────────────────────────────────────────────────
 
 
-async def test_run_task_sends_a_valid_user_message(monkeypatch) -> None:
-    """``_run_task`` must build a message AgentScope 2.0 accepts.
-
-    ``Msg.content`` is typed ``list[ContentBlock]``, so a bare string
-    raises a pydantic ``ValidationError`` that the surrounding
-    ``except Exception`` turns into ``status="error"`` — the task never
-    reaches the agent.
-    """
-    from qwenpaw.config.config import AgentProfileConfig
+async def test_run_task_uses_bootstrapped_workspace_runtime(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Headless tasks must use the same workspace-backed runtime contract."""
+    from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+    from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
     from qwenpaw.cli.task_cmd import _run_task
-
-    captured: dict = {}
-
-    class _FakeAgent:
-        model = None
-
-        async def reply(self, msgs):
-            captured["msgs"] = list(msgs)
-            reply = MagicMock()
-            reply.get_text_content.return_value = "done"
-            return reply
-
-    class _FakeBuilder:
-        async def build(self, _ctx):
-            return _FakeAgent()
-
-    monkeypatch.setattr(
-        "qwenpaw.runtime.builder.AgentBuilder",
-        _FakeBuilder,
+    from qwenpaw.schemas import (
+        AgentResponse,
+        Message,
+        Role,
+        RunStatus,
+        TextContent,
     )
 
+    calls: list[str] = []
+    captured: dict = {}
+
+    class _FakeAppServices:
+        async def start(self):
+            calls.append("app.start")
+
+        async def stop(self):
+            calls.append("app.stop")
+
+    class _FakeWorkspace:
+        def __init__(self, *, agent_id, workspace_dir):
+            captured["agent_id"] = agent_id
+            captured["workspace_dir"] = workspace_dir
+
+        def bootstrap_plugins(self, **kwargs):
+            captured["bootstrap"] = kwargs
+
+        def set_app_services(self, app_services):
+            captured["workspace_app_services"] = app_services
+
+        async def start(self, *, headless=False):
+            captured["workspace_headless"] = headless
+            calls.append("workspace.start")
+
+        async def stop(self, final=True):
+            captured["workspace_stop_final"] = final
+            calls.append("workspace.stop")
+
+    class _FakeBootstrapFactory:
+        @staticmethod
+        def build_bootstrap_kwargs(app_services):
+            captured["bootstrap_app_services"] = app_services
+            return {"builtin_tool_funcs": ["tool"]}
+
+    class _FakeRuntime:
+        def __init__(
+            self,
+            *,
+            workspace,
+            app_services,
+            agent_config_override,
+        ):
+            captured["runtime_workspace"] = workspace
+            captured["runtime_app_services"] = app_services
+            captured["runtime_config"] = agent_config_override
+
+        async def run(self, request):
+            captured["request"] = request
+            yield AgentResponse(
+                output=[
+                    Message(
+                        role=Role.ASSISTANT,
+                        content=[TextContent(text="done")],
+                        status=RunStatus.Completed,
+                    ),
+                ],
+                status=RunStatus.Completed,
+                usage={"input_tokens": 2, "output_tokens": 1},
+            )
+
+    class _ForbiddenLegacyBuilder:
+        async def build(self, _ctx):
+            raise AssertionError("_run_task bypassed the workspace runtime")
+
+    monkeypatch.setattr(
+        "qwenpaw.app.app_services.AppServiceManager",
+        _FakeAppServices,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.Workspace",
+        _FakeWorkspace,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.bootstrap_factory.WorkspaceBootstrapFactory",
+        _FakeBootstrapFactory,
+    )
+    monkeypatch.setattr("qwenpaw.runtime.Runtime", _FakeRuntime)
+    monkeypatch.setattr(
+        "qwenpaw.runtime.builder.AgentBuilder",
+        _ForbiddenLegacyBuilder,
+    )
+
+    config = AgentProfileConfig(
+        id="default",
+        name="Default",
+        workspace_dir=str(tmp_path),
+        active_model=ModelSlotConfig(provider_id="test", model="model"),
+    )
     result = await _run_task(
         instruction="do the thing",
-        agent_config=AgentProfileConfig(id="default", name="Default"),
-        request_context={},
-        max_iters=1,
+        agent_config=config,
+        request_context={
+            "agent_id": "default",
+            "approval_level": "off",
+        },
+        max_iters=7,
         timeout=30,
         output_dir=None,
     )
 
-    assert result["status"] == "success"
-    assert result["response"] == "done"
-    msg = captured["msgs"][0]
-    assert msg.role == "user"
-    assert msg.content[0].type == "text"
-    assert msg.content[0].text == "do the thing"
+    assert result == {
+        "status": "success",
+        "elapsed_seconds": result["elapsed_seconds"],
+        "response": "done",
+        "usage": {"input_tokens": 2, "output_tokens": 1},
+    }
+    assert calls == [
+        "app.start",
+        "workspace.start",
+        "workspace.stop",
+        "app.stop",
+    ]
+    assert captured["bootstrap"] == {"builtin_tool_funcs": ["tool"]}
+    assert (
+        captured["bootstrap_app_services"] is captured["runtime_app_services"]
+    )
+    assert (
+        captured["workspace_app_services"] is captured["runtime_app_services"]
+    )
+    assert captured["runtime_workspace"] is not None
+    assert captured["workspace_headless"] is True
+    assert captured["workspace_stop_final"] is True
+    assert captured["runtime_config"].running.max_iters == 7
+    assert (
+        captured["runtime_config"].running.loop.iteration.max_iterations == 7
+    )
+    request = captured["request"]
+    assert request.input[0].role == Role.USER
+    assert request.input[0].content[0].type.value == "text"
+    assert request.input[0].content[0].text == "do the thing"
+    assert request.request_context["approval_level"] == "off"
+    assert request.request_context[ACP_EPHEMERAL_META_KEY] is True
