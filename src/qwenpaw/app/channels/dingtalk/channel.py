@@ -77,6 +77,7 @@ from .constants import (
 from .content_utils import (
     parse_data_url,
     session_param_from_webhook_url,
+    shared_group_session_id_from_conversation_id,
     short_session_id_from_conversation_id,
 )
 from .handler import DingTalkChannelHandler
@@ -368,10 +369,13 @@ class DingTalkChannel(BaseChannel):
         sender_id: str,
         channel_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Session_id = short suffix of conversation_id for cron lookup."""
+        """Resolve session_id from conversation metadata."""
         meta = channel_meta or {}
         cid = meta.get("conversation_id")
         if cid:
+            # Shared groups need full-ID entropy because user_id is "group".
+            if meta.get("is_group") and self.share_session_in_group:
+                return shared_group_session_id_from_conversation_id(cid)
             return short_session_id_from_conversation_id(cid)
         return f"{self.channel}:{sender_id}"
 
@@ -2503,12 +2507,12 @@ class DingTalkChannel(BaseChannel):
             payload = it if isinstance(it, dict) else {}
             merged_parts.extend(payload.get("content_parts") or [])
             m = payload.get("meta") or {}
+            # Keep first sender identity; refresh only delivery metadata.
             for k in (
                 "conversation_id",
                 "session_webhook",
                 "session_webhook_expired_time",
                 "conversation_type",
-                "sender_staff_id",
             ):
                 if k in m:
                     merged_meta[k] = m[k]

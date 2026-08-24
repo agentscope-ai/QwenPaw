@@ -985,6 +985,15 @@ class TestDingTalkResolveSession:
 # =============================================================================
 
 
+def _shared_sid(conversation_id: str) -> str:
+    """Expected shared-group session_id for a conversation_id."""
+    from qwenpaw.app.channels.dingtalk.content_utils import (
+        shared_group_session_id_from_conversation_id,
+    )
+
+    return shared_group_session_id_from_conversation_id(conversation_id)
+
+
 class TestDingTalkShareSessionInGroup:
     """Tests for per-user vs shared context in group chats."""
 
@@ -1040,7 +1049,8 @@ class TestDingTalkShareSessionInGroup:
         )
 
         assert request.user_id == "group"
-        assert request.session_id == "Y7890XYZ"
+        assert request.session_id == _shared_sid("cidQWERTY7890XYZ")
+        assert request.session_id != "Y7890XYZ"
 
     def test_shared_user_id_has_no_underscore(
         self,
@@ -1056,9 +1066,10 @@ class TestDingTalkShareSessionInGroup:
             session_id=request.session_id,
         )
 
-        assert to_handle == "dingtalk:sw:group_Y7890XYZ"
+        sid = _shared_sid("cidQWERTY7890XYZ")
+        assert to_handle == f"dingtalk:sw:group_{sid}"
         fallback = channel._suffix_only_webhook_key(to_handle)
-        assert fallback == "dingtalk:sw:Y7890XYZ"
+        assert fallback == f"dingtalk:sw:{sid}"
 
     def test_dm_unaffected_by_sharing(self, dingtalk_channel_shared_group):
         """Direct messages keep their own user_id when sharing is on."""
@@ -1082,7 +1093,7 @@ class TestDingTalkShareSessionInGroup:
             self._group_payload(),
         )
 
-        assert key == "Y7890XYZ"
+        assert key == _shared_sid("cidQWERTY7890XYZ")
 
     def test_debounce_key_shared_dm_keeps_sender(
         self,
@@ -1112,6 +1123,87 @@ class TestDingTalkShareSessionInGroup:
         )
 
         assert channel.share_session_in_group is True
+
+    def test_merge_two_members_keeps_first_sender_identity(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Merging members must not mix sender identity fields."""
+        channel = dingtalk_channel_shared_group
+        alice = self._group_payload()
+        alice["meta"]["sender_staff_id"] = "staff_alice"
+        alice["meta"]["user_name"] = "Alice"
+        bob = self._group_payload()
+        bob["sender_id"] = "Bob#5678"
+        bob["acl_sender_id"] = "staff_bob"
+        bob["meta"]["sender_staff_id"] = "staff_bob"
+        bob["meta"]["user_name"] = "Bob"
+
+        merged = channel.merge_native_items([alice, bob])
+
+        assert merged["sender_id"] == "Alice#1234"
+        assert merged["acl_sender_id"] == "staff_alice"
+        assert merged["meta"]["user_name"] == "Alice"
+        assert merged["meta"]["sender_staff_id"] == "staff_alice"
+
+    def test_merge_two_members_tracks_newest_session(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Conversation/webhook state still follows the newest item."""
+        channel = dingtalk_channel_shared_group
+        alice = self._group_payload()
+        alice["meta"]["session_webhook"] = "https://old.example"
+        bob = self._group_payload()
+        bob["sender_id"] = "Bob#5678"
+        bob["meta"]["session_webhook"] = "https://new.example"
+
+        merged = channel.merge_native_items([alice, bob])
+
+        assert merged["meta"]["session_webhook"] == "https://new.example"
+        assert merged["meta"]["batched_count"] == 2
+
+    def test_shared_groups_with_same_suffix_stay_separate(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Groups sharing an 8-char suffix stay isolated."""
+        channel = dingtalk_channel_shared_group
+        first = self._group_payload()
+        first["meta"]["conversation_id"] = "cidAAAASAME8888"
+        second = self._group_payload()
+        second["meta"]["conversation_id"] = "cidBBBBSAME8888"
+
+        req_a = channel.build_agent_request_from_native(first)
+        req_b = channel.build_agent_request_from_native(second)
+
+        assert first["meta"]["conversation_id"][-8:] == (
+            second["meta"]["conversation_id"][-8:]
+        )
+        assert req_a.session_id != req_b.session_id
+        assert channel.get_debounce_key(first) != channel.get_debounce_key(
+            second,
+        )
+
+    def test_shared_session_id_is_underscore_free(
+        self,
+        dingtalk_channel_shared_group,
+    ):
+        """Hash must stay "_"-free for the webhook fallback key split."""
+        channel = dingtalk_channel_shared_group
+        request = channel.build_agent_request_from_native(
+            self._group_payload(),
+        )
+
+        assert "_" not in request.session_id
+
+    def test_isolated_mode_keeps_short_suffix(self, dingtalk_channel):
+        """Isolated mode keeps the legacy suffix (no state migration)."""
+        request = dingtalk_channel.build_agent_request_from_native(
+            self._group_payload(),
+        )
+
+        assert request.session_id == "Y7890XYZ"
 
 
 # =============================================================================
