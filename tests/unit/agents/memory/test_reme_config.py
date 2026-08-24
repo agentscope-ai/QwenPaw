@@ -42,6 +42,16 @@ def test_reme_file_processing_is_limited_to_10_mb() -> None:
         assert cfg["jobs"][job_name]["max_file_bytes"] == 10 * 1024 * 1024
 
 
+def test_reme_compacts_deferred_index_deletions_daily() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert cfg["jobs"]["optimize_index_cron"] == {
+        "backend": "cron",
+        "cron": "0 2 * * *",
+        "steps": [{"backend": "optimize_index_step"}],
+    }
+
+
 def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
     cfg = _config_for_embedding(EmbeddingModelConfig())
 

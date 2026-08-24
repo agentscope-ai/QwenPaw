@@ -84,6 +84,11 @@ def _base_config() -> dict[str, Any]:
                     },
                 ],
             },
+            "optimize_index_cron": {
+                "backend": "cron",
+                "cron": "0 2 * * *",
+                "steps": [{"backend": "optimize_index_step"}],
+            },
             "version": {
                 "backend": "base",
                 "description": "return reme package version",
