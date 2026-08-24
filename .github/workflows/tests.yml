@@ -8,6 +8,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - 'setup.py'
+      - 'deploy/Dockerfile'
       - '.github/workflows/tests.yml'
   pull_request:
     branches: [main, master, dev, develop]
@@ -16,6 +17,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - 'setup.py'
+      - 'deploy/Dockerfile'
       - '.github/workflows/tests.yml'
   workflow_dispatch:
     inputs:
@@ -77,6 +79,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Linux isolation dependency
+        if: |
+          runner.os == 'Linux' &&
+          matrix.python-version == '3.11'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if sysctl kernel.apparmor_restrict_unprivileged_userns \
+            >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Set up Node.js (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        shell: bash
+        run: |
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -86,14 +122,8 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          # Slim install for the unit tier: unit tests neither serve the
-          # console frontend nor require the optional heavy extras
-          # (whisper/torch, codex, qoder). Optional-dependency tests are
-          # guarded with pytest.importorskip and still run in the nightly
-          # full sweep, which keeps the full extra. Keeping this job lean
-          # cuts the Windows matrix entry from tens of minutes to a few.
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test]"
+          pip install -e ".[dev,test,full]"
 
       - name: Run unit tests
         shell: bash
@@ -111,6 +141,15 @@ jobs:
           else
             pytest tests/unit -v
           fi
+
+      - name: Run Hub Local runtime E2E
+        if: matrix.python-version == '3.11'
+        shell: bash
+        env:
+          QWENPAW_LOCAL_RUNTIME_E2E: '1'
+        run: |
+          python -m pip install --no-deps --force-reinstall .
+          pytest tests/e2e/test_hub_local_runtime.py -v
 
       - name: Upload unit coverage data
         if: |

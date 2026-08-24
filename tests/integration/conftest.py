@@ -427,6 +427,25 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     # another process (e.g. a mock server in a parallel test) can steal
     # it while the app is still starting. Retry the whole launch on a
     # fresh port instead of serving requests from the wrong process.
+    # On Windows with subprocess coverage enabled, launch the app through
+    # a wrapper that maps SIGBREAK to KeyboardInterrupt.  CPython installs
+    # a Python-level handler only for SIGINT (Modules/signalmodule.c);
+    # SIGBREAK keeps the CRT default action, and neither uvicorn nor
+    # QwenPaw registers a SIGBREAK handler, so the CTRL_BREAK_EVENT sent
+    # by _shutdown_app would terminate the process without running
+    # atexit -- coverage's save never happens and all recorded data is
+    # dropped (forensics: fork runs 31666657171 / 31671241854, tracer
+    # active yet 752 files with 0 executed lines).  Raising
+    # KeyboardInterrupt instead puts shutdown on the same graceful path
+    # POSIX enjoys with SIGINT, so atexit runs and coverage flushes.
+    # Non-coverage launches are unchanged.
+    app_launcher = [sys.executable, "-m", "qwenpaw"]
+    if sys.platform == "win32" and _integration_coverage_requested():
+        app_launcher = [
+            sys.executable,
+            str(Path(__file__).parent / "_coverage_app_main.py"),
+        ]
+
     max_attempts = 3
     port = _find_free_port(host)
     while True:
@@ -435,9 +454,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         # teardown below.
         process = subprocess.Popen(  # pylint: disable=consider-using-with
             [
-                sys.executable,
-                "-m",
-                "qwenpaw",
+                *app_launcher,
                 "app",
                 "--host",
                 host,

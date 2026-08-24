@@ -998,7 +998,13 @@ def _promote_tool_result_videos(
     new_messages: list[dict] = []
     for fmt_msg in messages:
         new_messages.append(fmt_msg)
-        tcid = fmt_msg.get("tool_call_id")
+        # OpenAI chat format: tool results carry `tool_call_id`. Responses API:
+        # only the `function_call_output` item is the tool result — the
+        # assistant `function_call` item also has `call_id` but must NOT be
+        # treated as a result (would duplicate the promoted video).
+        if fmt_msg.get("type") == "function_call":
+            continue
+        tcid = fmt_msg.get("tool_call_id") or fmt_msg.get("call_id")
         if not isinstance(tcid, str) or tcid not in promotions:
             continue
         tool_name, videos = promotions[tcid]
@@ -2157,9 +2163,18 @@ def _create_formatter_instance(
         GeminiChatFormatter,
         OpenAIResponseFormatter,
     )
-    if isinstance(base_formatter, _promote_types):
+    is_promote_type = isinstance(base_formatter, _promote_types)
+    if is_promote_type:
         kwargs["promote_tool_result_images"] = True
-    return formatter_class(**kwargs)
+    formatter = formatter_class(**kwargs)
+    if is_promote_type:
+        # ``promote_tool_result_images`` is not a Pydantic field of the
+        # agentscope formatter, so ``extra="ignore"`` silently drops it
+        # from constructor kwargs (AgentScope 2.0.6 no longer accepts it).
+        # Set it on the constructed instance directly so the promotion
+        # gate inside ``FileBlockSupportFormatter.format`` stays effective.
+        object.__setattr__(formatter, "promote_tool_result_images", True)
+    return formatter
 
 
 def _install_model_formatter(
