@@ -45,8 +45,12 @@ class TestResolveFilePath:
     @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
     def test_absolute_path_unchanged(self, mock_base):
         import sys
+        from pathlib import Path
 
-        mock_base.return_value = None
+        # get_tool_base_dir() always returns a Path (project → workspace
+        # → WORKING_DIR), so the stub must too: on Windows a drive-less
+        # POSIX path is *not* absolute and gets joined against the base.
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("/tmp/test.txt")
         # On Unix, path stays as-is; on Windows, it may get a
         # drive prefix (e.g. C:\tmp\test.txt)
@@ -65,7 +69,9 @@ class TestResolveFilePath:
 
     @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
     def test_tilde_expansion(self, mock_base):
-        mock_base.return_value = None
+        from pathlib import Path
+
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("~/test.txt")
         assert "~" not in result
         assert result.endswith("test.txt")

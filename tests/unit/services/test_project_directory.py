@@ -7,6 +7,7 @@ import pytest
 
 from qwenpaw.config.config import migrate_project_directory_config
 from qwenpaw.services.project_directory import (
+    normalize_project_dir,
     resolve_effective_project_dir,
     session_project_dir,
 )
@@ -42,12 +43,11 @@ def test_resolver_priority(tmp_path: Path) -> None:
 def test_session_project_dir_uses_controlled_namespace() -> None:
     """Unrelated Chat metadata cannot become a directory override."""
     assert session_project_dir({"project_dir": "/wrong"}) is None
-    assert (
-        session_project_dir(
-            {"runtime_context": {"project_dir": "/project"}},
-        )
-        == "/project"
-    )
+    # The stored value comes back normalized for the running platform:
+    # on Windows a drive-less path picks up the current drive.
+    assert session_project_dir(
+        {"runtime_context": {"project_dir": "/project"}},
+    ) == str(normalize_project_dir("/project"))
 
 
 @pytest.mark.parametrize(

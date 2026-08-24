@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -195,7 +196,17 @@ class ToolRegistry:
         if self._types.get(tool_name) == "file" and workspace_dir:
             if not path:
                 path = workspace_dir
-            elif not os.path.isabs(path):
+            elif not Path(path).is_absolute():
+                # ``Path.is_absolute()`` rather than ``os.path.isabs()``:
+                # the answer must be the one the *tool* uses, or the policy
+                # is evaluated against a path the tool never touches. They
+                # disagree on Windows for a drive-less rooted path such as
+                # ``/Windows/system32`` — pathlib always calls it relative
+                # (no drive) and resolves it against the workspace drive,
+                # while ``os.path.isabs()`` called it absolute before
+                # Python 3.13 and left it drive-less, so a DENY pattern
+                # like ``C:\Windows\**`` no longer matched the target the
+                # tool would actually write to.
                 path = os.path.join(workspace_dir, path)
             # Collapse ``.``/``..`` segments lexically so relative paths
             # that climb back into the project still match ALLOW rules
