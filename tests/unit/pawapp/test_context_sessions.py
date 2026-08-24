@@ -25,11 +25,22 @@ async def test_pawapp_dialogues_are_catalogued_and_scoped(tmp_path) -> None:
     manager = ChatManager(
         repo=JsonChatRepository(tmp_path / "chats.json"),
     )
-    legacy = ChatSpec(
+    # Bare app-level session under the current namespace; adopted on sight.
+    bare_app = ChatSpec(
         session_id="pawapp:qwenpaw-data",
         user_id="default",
         channel="console",
-        name="Old transcript",
+        name="Bare app session",
+    )
+    # Pre-rename DataPaw session. The rename is a clean break: the old
+    # pawapp:datapaw namespace is intentionally NOT adopted, so this record
+    # must not surface in the upgraded app's session list.
+    pre_rename = ChatSpec(
+        session_id="pawapp:datapaw",
+        user_id="default",
+        channel="console",
+        name="Pre-rename transcript",
+        meta={"pawapp": {"app_id": "datapaw", "agent_id": "datapaw"}},
     )
     foreign = ChatSpec(
         session_id="pawapp:qwenpaw-data:dialogue:foreign",
@@ -38,7 +49,8 @@ async def test_pawapp_dialogues_are_catalogued_and_scoped(tmp_path) -> None:
         name="Another app's record",
         meta={"pawapp": {"app_id": "another", "agent_id": "qwenpaw-data"}},
     )
-    await manager.create_chat(legacy)
+    await manager.create_chat(bare_app)
+    await manager.create_chat(pre_rename)
     await manager.create_chat(foreign)
     context = PawAppContext(
         app_id="qwenpaw-data",
@@ -60,14 +72,18 @@ async def test_pawapp_dialogues_are_catalogued_and_scoped(tmp_path) -> None:
     unpinned = await context.pin_chat_session(created["id"], pinned=False)
     archived = await context.archive_chat_session(created["id"])
 
-    assert [session["id"] for session in sessions] == [legacy.id]
+    # Only the bare app session is catalogued; the pre-rename pawapp:datapaw
+    # record and the foreign app's record are both out of scope.
+    assert [session["id"] for session in sessions] == [bare_app.id]
     assert sessions[0]["pinned"] is False
-    adopted = await manager.get_chat(legacy.id)
+    adopted = await manager.get_chat(bare_app.id)
     assert adopted is not None
     assert adopted.meta["pawapp"] == {
         "app_id": "qwenpaw-data",
         "agent_id": "qwenpaw-data",
     }
+    # The pre-rename record is left in storage untouched, just not surfaced.
+    assert await manager.get_chat(pre_rename.id) is not None
     assert created["session_id"].startswith("pawapp:qwenpaw-data:dialogue:")
     assert renamed is not None and renamed["name"] == "March GAAP"
     assert pinned is not None and pinned["pinned"] is True
@@ -75,6 +91,9 @@ async def test_pawapp_dialogues_are_catalogued_and_scoped(tmp_path) -> None:
     assert archived is not None and archived["archived"] is True
     assert context.is_app_session_id("pawapp:qwenpaw-data")
     assert context.is_app_session_id("pawapp:qwenpaw-data:dialogue:1")
+    # Clean break: the old DataPaw namespace is rejected.
+    assert not context.is_app_session_id("pawapp:datapaw")
+    assert not context.is_app_session_id("pawapp:datapaw:dialogue:1")
     assert not context.is_app_session_id("pawapp:another:dialogue:1")
 
 

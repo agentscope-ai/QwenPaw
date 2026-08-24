@@ -145,7 +145,12 @@ jobs:
           repository: agentscope-ai/QwenPaw-Data
           # Pinned for reproducible vendoring; bump together with the
           # plugin version, or override per-run via the data_ref input.
-          ref: ${{ github.event.inputs.data_ref || 'v0.2.0' }}
+          # Pinned to the QwenPaw-Data rename commit (PR
+          # agentscope-ai/QwenPaw-Data#32, branch chore/rename-qwenpaw-data):
+          # no tag or main commit carries the renamed
+          # packages/qwenpaw-data-context/frontend layout yet. Once #32
+          # merges and is tagged, move this default to that tag.
+          ref: ${{ github.event.inputs.data_ref || '99ef4f31f6fbf6ded6596c1e4aa7a3c8105946d7' }}
           path: qwenpaw-data
 
       - name: Set up Python
