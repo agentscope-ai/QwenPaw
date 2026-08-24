@@ -319,8 +319,20 @@ describe("ChatSessionDrawer", () => {
 
   it("delete clears the message queue for both local id and backend id", async () => {
     const { useMessageQueueStore } = await import("@/stores/messageQueueStore");
-    useMessageQueueStore.getState().enqueue("s1", { text: "local" });
-    useMessageQueueStore.getState().enqueue("uuid-1", { text: "backend" });
+    useMessageQueueStore
+      .getState()
+      .enqueue("s1", {
+        agentId: "default",
+        bizParams: { session_id: "sid", user_id: "u", channel: "console" },
+        text: "local",
+      });
+    useMessageQueueStore
+      .getState()
+      .enqueue("uuid-1", {
+        agentId: "default",
+        bizParams: { session_id: "sid", user_id: "u", channel: "console" },
+        text: "backend",
+      });
     expect(useMessageQueueStore.getState().getQueue("s1")).toHaveLength(1);
     expect(useMessageQueueStore.getState().getQueue("uuid-1")).toHaveLength(1);
 

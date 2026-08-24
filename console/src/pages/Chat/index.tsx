@@ -211,9 +211,11 @@ import {
 } from "../../utils/agentBackend";
 import {
   buildSubmissionBizParams,
-  enforceSubmissionSessionId,
+  enforceSubmissionIdentity,
+  getSubmissionAgentId,
   getSubmissionChatId,
-  getSubmissionSessionId,
+  getSubmissionIdentity,
+  getSubmissionSdkSessionId,
 } from "./submissionBizParams";
 
 // ---------------------------------------------------------------------------
@@ -335,11 +337,25 @@ function clearSenderAttachments(): void {
   }, 0);
 }
 
-async function startBackgroundQueue(
-  queueKey: string,
-  backendSessionId: string,
-  chatIdForStatus: string,
-) {
+function isQueueSubmissionTargetActive(
+  item: QueueItem,
+  expectedQueueKey: string,
+  currentQueueKey: string,
+): boolean {
+  if (expectedQueueKey !== currentQueueKey) return false;
+  const queuedAgentId = getSubmissionAgentId(item.bizParams);
+  if (
+    queuedAgentId &&
+    queuedAgentId !== useAgentStore.getState().selectedAgent
+  ) {
+    return false;
+  }
+  const queuedChatId = getSubmissionChatId(item.bizParams);
+  const routeChatId = getSessionIdFromPath(window.location.pathname);
+  return !queuedChatId || !routeChatId || queuedChatId === routeChatId;
+}
+
+async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
   // Stop only THIS session's previous background sender (if any)
   stopBackgroundQueue(queueKey);
   if (useMessageQueueStore.getState().getQueue(queueKey).length === 0) return;
@@ -417,10 +433,11 @@ async function startBackgroundQueue(
         if (item.agentId) {
           authHeaders["X-Agent-Id"] = item.agentId;
         }
-        const frozenSessionId = getSubmissionSessionId(
-          item.bizParams,
-          item.backendSessionId || backendSessionId,
-        );
+        const submissionIdentity = getSubmissionIdentity(item.bizParams, {
+          sessionId: "",
+          userId: DEFAULT_USER_ID,
+          channel: DEFAULT_CHANNEL,
+        });
         const pendingRequest = withPendingProjectDirectory(
           {
             ...item.bizParams,
@@ -436,9 +453,9 @@ async function startBackgroundQueue(
                 ],
               },
             ],
-            session_id: frozenSessionId,
-            user_id: item.userId || DEFAULT_USER_ID,
-            channel: item.channel || DEFAULT_CHANNEL,
+            session_id: submissionIdentity.sessionId,
+            user_id: submissionIdentity.userId,
+            channel: submissionIdentity.channel,
             stream: true,
           },
           queueAgentId,
@@ -537,9 +554,7 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw);
-      const items: Array<{ status: string }> = Array.isArray(parsed)
-        ? parsed
-        : parsed.items;
+      const items: Array<{ status: string }> = parsed.items;
       if (!items || items.length === 0) continue;
       // Only start if there are actionable items
       const hasPending = items.some(
@@ -547,37 +562,28 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
       );
       if (!hasPending) continue;
       // Check runState: respect paused queues
-      const runState = Array.isArray(parsed) ? "idle" : parsed.runState;
+      const runState = parsed.runState;
       if (runState === "paused") continue;
     } catch {
       continue;
     }
-    // For background sending, resolve the actual session_id the backend
-    // expects (chat.session_id), which may differ from the localStorage key
-    // (chat.id). Prefer the snapshot stored in the queue item (captured at
-    // enqueue time) because the session list may have been cleared after an
-    // agent switch. Fall back to sessionApi lookup, then to the key itself.
-    let backendSessionId: string | undefined;
+    // Queue items carry their immutable backend identity, so background
+    // sending never needs the current page or session list as a fallback.
+    let queueBizParams: Record<string, unknown> | undefined;
     try {
       const raw2 = localStorage.getItem(key);
       if (raw2) {
         const parsed2 = JSON.parse(raw2);
-        const itemsArr: Array<{ backendSessionId?: string }> = Array.isArray(
-          parsed2,
-        )
-          ? parsed2
-          : parsed2.items;
-        backendSessionId = itemsArr?.[0]?.backendSessionId || undefined;
+        const itemsArr: Array<{ bizParams: Record<string, unknown> }> =
+          parsed2.items;
+        queueBizParams = itemsArr?.[0]?.bizParams;
       }
     } catch {
       // ignore
     }
-    if (!backendSessionId) {
-      backendSessionId = sessionApi.getBackendSessionId(sessionId);
-    }
-    const chatIdForStatus =
-      sessionApi.getRealIdForSession(sessionId) || sessionId;
-    startBackgroundQueue(sessionId, backendSessionId, chatIdForStatus);
+    if (!queueBizParams) continue;
+    const chatIdForStatus = getSubmissionChatId(queueBizParams) || sessionId;
+    startBackgroundQueue(sessionId, chatIdForStatus);
   }
 }
 
@@ -588,14 +594,6 @@ interface SessionInfo {
   user_id?: string;
   channel?: string;
 }
-
-interface CustomWindow extends Window {
-  currentSessionId?: string;
-  currentUserId?: string;
-  currentChannel?: string;
-}
-
-declare const window: CustomWindow;
 
 interface CommandSuggestion {
   command: string;
@@ -1418,10 +1416,9 @@ export default function ChatPage() {
 
   const syncLoopModeStatus = useCallback(() => {
     const backendSessionId =
-      window.currentSessionId ||
-      (queueSessionId !== "new"
-        ? sessionApi.getBackendSessionId(queueSessionId)
-        : "");
+      queueSessionId !== "new"
+        ? sessionApi.getSessionIdentity(queueSessionId).sessionId
+        : "";
     return fetchActiveLoopMode({
       chatId,
       sessionId: backendSessionId,
@@ -1435,8 +1432,7 @@ export default function ChatPage() {
     if (chatId) {
       void fetchActiveLoopMode({
         chatId,
-        sessionId:
-          window.currentSessionId || sessionApi.getBackendSessionId(chatId),
+        sessionId: sessionApi.getSessionIdentity(chatId).sessionId,
         signal: controller.signal,
       });
     }
@@ -1472,8 +1468,7 @@ export default function ChatPage() {
     let cancelled = false;
 
     const resolveBackendSessionId = async (): Promise<string> => {
-      // Prefer sessionApi mapping; do not trust window.currentSessionId here —
-      // it can briefly still hold the previous session after a switch.
+      // Wait until the explicit queue key resolves in the current session list.
       for (let i = 0; i < 20 && !cancelled; i++) {
         const mapped = sessionApi.getBackendSessionId(queueSessionId);
         const knownInList =
@@ -1518,20 +1513,21 @@ export default function ChatPage() {
       // cross-tab broadcast will refresh our queue and the next loading→idle
       // transition will retry.
       void withSendLock(queueSessionId, () => {
+        if (
+          !isQueueSubmissionTargetActive(
+            next,
+            queueSessionId,
+            queueSessionIdRef.current,
+          )
+        )
+          return;
         // Re-check: another tab may have already removed this item via
         // broadcast, or a session switch may have happened.
         const fresh = useMessageQueueStore.getState().getQueue(queueSessionId);
         if (fresh.length === 0 || fresh[0].id !== next.id) return;
+        if (!chatRef.current) return;
         useMessageQueueStore.getState().setCurrentSendingId(next.id);
         useMessageQueueStore.getState().remove(queueSessionId, next.id);
-        // Force-set window.currentSessionId from the queue item's snapshot
-        // so customFetch uses the correct session_id, even if the global
-        // was overwritten by a recent agent switch.
-        if (next.backendSessionId) {
-          (
-            window as unknown as { currentSessionId?: string }
-          ).currentSessionId = next.backendSessionId;
-        }
         chatRef.current?.input.submit({
           query: beginLoopModeSubmission(next.text),
           fileList: buildFileList(next),
@@ -1696,7 +1692,9 @@ export default function ChatPage() {
   const prevApprovalKeyRef = useRef("");
 
   useEffect(() => {
-    const currentSessionId = window.currentSessionId || chatId || "";
+    const currentSessionId = chatId
+      ? sessionApi.getSessionIdentity(chatId).sessionId || chatId
+      : "";
 
     // When no session ID is available yet, use the first approval's
     // root_session_id as a hint (handles the race where approval arrives
@@ -1951,19 +1949,10 @@ export default function ChatPage() {
         // Use captured queueSessionId from this effect instance, not the
         // ref (which may already point to the next session after re-render).
         const queueKey = currentQueueSessionId;
-        const backendSessionId =
-          sessionApi.getBackendSessionId(queueKey) || queueKey;
-        // Skip if no real backend session yet (e.g. "new" chat that never
-        // resolved an id) — the items remain in storage to be picked up by
-        // the next foreground load.
-        if (backendSessionId) {
-          // Resolve the chat UUID for status polling. queueKey may be a
-          // local timestamp if the URL hasn't been replaced yet; in that
-          // case sessionApi keeps the real backend UUID under realId.
-          const chatIdForStatus =
-            sessionApi.getRealIdForSession(queueKey) || queueKey;
-          startBackgroundQueue(queueKey, backendSessionId, chatIdForStatus);
-        }
+        const firstItem = remaining[0];
+        const chatIdForStatus =
+          getSubmissionChatId(firstItem.bizParams) || queueKey;
+        startBackgroundQueue(queueKey, chatIdForStatus);
       }
     };
   }, [queueSessionId]);
@@ -2035,12 +2024,12 @@ export default function ChatPage() {
         return;
       }
       const queueText = prepareLoopModeMessage(val);
-      const enqueueIdentity = sessionApi.getSessionIdentity();
-      const backendSessionId = sessionApi.getBackendSessionId(queueSessionId);
-      const bizParams = buildSubmissionBizParams(backendSessionId, {
+      const enqueueIdentity = sessionApi.getSessionIdentity(queueSessionId);
+      const bizParams = buildSubmissionBizParams(enqueueIdentity, {
         source: "console_chat_queue",
         agent_id: selectedAgent,
         chat_id: queueSessionId,
+        sdk_session_id: enqueueIdentity.sdkSessionId,
       });
       useMessageQueueStore.getState().enqueue(queueSessionId, {
         text: queueText,
@@ -2053,10 +2042,8 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
-        backendSessionId,
         bizParams,
-        userId: enqueueIdentity.userId,
-        channel: enqueueIdentity.channel,
+        agentId: selectedAgent,
       });
       // Clear tracked attachments after enqueuing
       pendingFileListRef.current = [];
@@ -2096,17 +2083,26 @@ export default function ChatPage() {
     (item: QueueItem) => {
       if (!isOwnerRef.current) return;
       if (runtimeLoadingBridgeRef.current?.getLoading?.()) {
-        const sessionId = window.currentSessionId || chatIdRef.current;
+        const sessionId = queueSessionId;
         if (sessionId) {
           const resolvedId =
             sessionApi.getRealIdForSession(sessionId) ?? sessionId;
           chatApi.stopChat(resolvedId).catch(() => {});
         }
       }
-      useMessageQueueStore.getState().remove(queueSessionId, item.id);
       setTimeout(() => {
         void withSendLock(queueSessionId, () => {
+          if (
+            !isQueueSubmissionTargetActive(
+              item,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(item.id);
+          useMessageQueueStore.getState().remove(queueSessionId, item.id);
           chatRef.current?.input.submit({
             query: beginLoopModeSubmission(item.text),
             fileList: buildFileList(item),
@@ -2133,6 +2129,15 @@ export default function ChatPage() {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
           const head = q[0];
+          if (
+            !isQueueSubmissionTargetActive(
+              head,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(head.id);
           useMessageQueueStore.getState().remove(queueSessionId, head.id);
           chatRef.current?.input.submit({
@@ -2160,6 +2165,15 @@ export default function ChatPage() {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           const target = q.find((it) => it.id === id);
           if (!target) return;
+          if (
+            !isQueueSubmissionTargetActive(
+              target,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(id);
           useMessageQueueStore.getState().remove(queueSessionId, id);
           chatRef.current?.input.submit({
@@ -2183,6 +2197,15 @@ export default function ChatPage() {
           const q = useMessageQueueStore.getState().getQueue(queueSessionId);
           if (q.length === 0) return;
           const next = q[0];
+          if (
+            !isQueueSubmissionTargetActive(
+              next,
+              queueSessionId,
+              queueSessionIdRef.current,
+            )
+          )
+            return;
+          if (!chatRef.current) return;
           useMessageQueueStore.getState().setCurrentSendingId(next.id);
           useMessageQueueStore.getState().remove(queueSessionId, next.id);
           chatRef.current?.input.submit({
@@ -2339,6 +2362,11 @@ export default function ChatPage() {
       } catch {
         // ignore migration errors
       }
+      const activeReference =
+        chatIdRef.current ?? sessionApi.lastActiveChatId ?? "";
+      const activeSdkSessionId =
+        sessionApi.getSessionIdentity(activeReference).sdkSessionId;
+      if (activeSdkSessionId !== tempId) return;
       lastSessionIdRef.current = realId;
       sessionApi.trackNavigatedSession(
         realId,
@@ -2507,18 +2535,8 @@ export default function ChatPage() {
       // so in-flight results owned by the previous agent are stale by now.
 
       useTurnUsageStore.getState().invalidateTurn();
-      // Immediately block the queue sender. window.currentSessionId is a
-      // global that still holds the PREVIOUS agent's session_id until the
-      // SDK finishes reloading. Without this guard, scheduleNextSend could
-      // fire during the reload window and send a queued item to the wrong
-      // agent's conversation.
+      // Immediately block the queue sender while the SDK reloads ownership.
       setChatLoading(true);
-
-      // Window identity globals are only rewritten when another session
-      // loads, so reset them explicitly — otherwise the new agent inherits
-      // the previous agent's session/channel (possibly a deleted channel)
-      // and the first message of a fresh chat would carry it.
-      sessionApi.resetWindowIdentity();
 
       // Save current chat ID for the agent we're leaving.
       // Skip temporary local timestamp ids — they are not real backend
@@ -2576,16 +2594,36 @@ export default function ChatPage() {
     }): Promise<Response> => {
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
+      const { input = [], biz_params } = data;
+      const session: SessionInfo = input[input.length - 1]?.session || {};
+      const submissionChatId = getSubmissionChatId(biz_params);
+      const fallbackIdentity = sessionApi.getSessionIdentity(
+        submissionChatId ||
+          session?.session_id ||
+          chatIdRef.current ||
+          sessionApi.lastActiveChatId,
+      );
+      const submissionIdentity = getSubmissionIdentity(biz_params, {
+        sessionId: fallbackIdentity.sessionId || session?.session_id || "",
+        userId: fallbackIdentity.userId || session?.user_id || DEFAULT_USER_ID,
+        channel:
+          fallbackIdentity.channel || session?.channel || DEFAULT_CHANNEL,
+      });
+      const submissionSdkSessionId =
+        getSubmissionSdkSessionId(biz_params) || fallbackIdentity.sdkSessionId;
+      const submissionAgentId =
+        getSubmissionAgentId(biz_params) || selectedAgent;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
+        "X-Agent-Id": submissionAgentId,
       };
 
       if (usesQwenPawBackend) {
         try {
           const activeModels = await providerApi.getActiveModels({
             scope: "effective",
-            agent_id: selectedAgent,
+            agent_id: submissionAgentId,
           });
           if (
             !activeModels?.active_llm?.provider_id ||
@@ -2606,11 +2644,9 @@ export default function ChatPage() {
       if (submittedValue !== null) {
         clearSubmittedSenderInput(submittedValue);
         pendingSenderClearRef.current = null;
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
+        localStorage.removeItem(getDraftStorageKey(submissionAgentId));
       }
 
-      const { input = [], biz_params } = data;
-      const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const clientMessageId =
@@ -2632,24 +2668,15 @@ export default function ChatPage() {
           ? [rewrittenLastMsg]
           : [];
 
-      const identity = sessionApi.getSessionIdentity();
-      const fallbackSessionId = identity.sessionId || session?.session_id || "";
-      const submissionSessionId = getSubmissionSessionId(
-        biz_params,
-        fallbackSessionId,
-      );
-
-      console.log("biz_params:", biz_params)
-      const submissionChatId = getSubmissionChatId(biz_params);
       const usageTurn = useTurnUsageStore
         .getState()
-        .beginTurn(selectedAgent, submissionSessionId);
+        .beginTurn(submissionAgentId, submissionIdentity.sessionId);
       let requestBody: Record<string, unknown> = {
         ...biz_params,
         input: rewrittenInput,
-        session_id: submissionSessionId,
-        user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
-        channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
+        session_id: submissionIdentity.sessionId,
+        user_id: submissionIdentity.userId,
+        channel: submissionIdentity.channel,
         stream: true,
       };
 
@@ -2659,7 +2686,7 @@ export default function ChatPage() {
         const next = entry.item.transform({
           payload: requestBody,
           sessionId: String(requestBody.session_id || ""),
-          selectedAgent,
+          selectedAgent: submissionAgentId,
         });
         if (next && typeof next === "object") {
           requestBody = next;
@@ -2696,7 +2723,7 @@ export default function ChatPage() {
           String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
           requestBody,
-          selectedAgent,
+          submissionAgentId,
           projectSessionId,
         );
         requestBody = pendingRequest.requestBody;
@@ -2713,10 +2740,10 @@ export default function ChatPage() {
         };
       }
 
-      requestBody = enforceSubmissionSessionId(
+      requestBody = enforceSubmissionIdentity(
         requestBody,
         biz_params,
-        String(requestBody.session_id || fallbackSessionId),
+        submissionIdentity,
       );
 
       const backendChatId = submissionChatId
@@ -2766,10 +2793,10 @@ export default function ChatPage() {
         sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
       }
 
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const localIdToResolve = submissionSdkSessionId;
       if (response.ok && localIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
-          setPendingProjectDirectory(selectedAgent, projectSessionId, null);
+          setPendingProjectDirectory(submissionAgentId, projectSessionId, null);
         }
         sessionApi.triggerResolve(localIdToResolve);
       }
@@ -2930,17 +2957,17 @@ export default function ChatPage() {
     ) => {
       const selectedSessionId =
         chatIdRef.current ?? sessionApi.lastActiveChatId ?? "";
-      const backendSessionId = selectedSessionId
-        ? sessionApi.getBackendSessionId(selectedSessionId)
-        : "";
-      const bizParams = buildSubmissionBizParams(backendSessionId, {
+      const submissionIdentity =
+        sessionApi.getSessionIdentity(selectedSessionId);
+      const bizParams = buildSubmissionBizParams(submissionIdentity, {
         source: "console_chat",
         agent_id: selectedAgent,
         chat_id: selectedSessionId,
+        sdk_session_id: submissionIdentity.sdkSessionId,
       });
       data.biz_params = {
-        ...data.biz_params,
         ...bizParams,
+        ...data.biz_params,
       } as IAgentScopeRuntimeWebUIInputData["biz_params"];
 
       if (isComposingRef.current) return false;
@@ -2962,13 +2989,12 @@ export default function ChatPage() {
         const queueText = usesQwenPawBackend
           ? prepareLoopModeMessage(val)
           : val;
-        const enqueueIdentity = sessionApi.getSessionIdentity();
-        const queueBackendSessionId =
-          sessionApi.getBackendSessionId(queueSessionId);
-        const queueBizParams = buildSubmissionBizParams(queueBackendSessionId, {
+        const enqueueIdentity = sessionApi.getSessionIdentity(queueSessionId);
+        const queueBizParams = buildSubmissionBizParams(enqueueIdentity, {
           source: "console_chat_queue",
           agent_id: selectedAgent,
           chat_id: queueSessionId,
+          sdk_session_id: enqueueIdentity.sdkSessionId,
         });
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
@@ -2981,10 +3007,8 @@ export default function ChatPage() {
                   size: f.size,
                 }))
               : undefined,
-          backendSessionId: queueBackendSessionId,
           bizParams: queueBizParams,
-          userId: enqueueIdentity.userId,
-          channel: enqueueIdentity.channel,
+          agentId: selectedAgent,
         });
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");
@@ -3494,7 +3518,9 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          const reconnectIdentity = sessionApi.getSessionIdentity();
+          const reconnectIdentity = sessionApi.getSessionIdentity(
+            data.session_id,
+          );
           const usageTurn = useTurnUsageStore
             .getState()
             .beginTurn(
@@ -3779,7 +3805,8 @@ export default function ChatPage() {
               onDeny={handleDeny}
               onCancel={() => {
                 const sessionId =
-                  request.rootSessionId || window.currentSessionId || "";
+                  request.rootSessionId ||
+                  sessionApi.getSessionIdentity(chatIdRef.current).sessionId;
                 const resolvedChatId =
                   sessionApi.getRealIdForSession(sessionId) ??
                   chatIdRef.current ??

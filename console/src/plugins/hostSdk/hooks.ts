@@ -10,6 +10,8 @@ import { useTranslation } from "react-i18next";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTheme as useThemeCtx } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import sessionApi from "../../pages/Chat/sessionApi";
+import { getSessionIdFromPath } from "../../utils/sessionRoute";
 
 export type HostThemeMode = "light" | "dark";
 
@@ -45,8 +47,7 @@ export function getSelectedAgentId(): string {
 
 export function getCurrentSessionId(): string | null {
   if (typeof window === "undefined") return null;
-  return (
-    (window as unknown as { currentSessionId?: string }).currentSessionId ??
-    null
-  );
+  const routeChatId = getSessionIdFromPath(window.location.pathname);
+  if (!routeChatId) return null;
+  return sessionApi.getSessionIdentity(routeChatId).sessionId || null;
 }

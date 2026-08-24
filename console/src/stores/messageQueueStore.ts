@@ -44,15 +44,10 @@ export interface QueueItem {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
-  /** Agent ID captured at enqueue time to prevent cross-agent delivery */
-  agentId?: string;
-  /** Backend session_id captured at enqueue time so background sender uses
-   *  the correct session even after agent switch clears the session list. */
-  backendSessionId?: string;
+  /** Agent ID captured at enqueue time to prevent cross-agent delivery. */
+  agentId: string;
   /** Immutable request parameters captured at enqueue time. */
-  bizParams?: Record<string, unknown>;
-  userId?: string;
-  channel?: string;
+  bizParams: Record<string, unknown>;
   status: QueueItemStatus;
   retryCount: number;
   errorMessage?: string;
@@ -66,10 +61,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
-  backendSessionId?: string;
-  bizParams?: Record<string, unknown>;
-  userId?: string;
-  channel?: string;
+  agentId: string;
+  bizParams: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,28 +84,9 @@ export function getStorageKey(sessionId: string): string {
 
 function readQueueFromStorage(sessionId: string): PersistedQueue | null {
   try {
-    const key = getStorageKey(sessionId);
-    let saved = localStorage.getItem(key);
-    // One-time migration from sessionStorage (older builds used sessionStorage)
-    if (!saved) {
-      try {
-        const legacy = sessionStorage.getItem(key);
-        if (legacy) {
-          localStorage.setItem(key, legacy);
-          sessionStorage.removeItem(key);
-          saved = legacy;
-        }
-      } catch {
-        // ignore
-      }
-    }
+    const saved = localStorage.getItem(getStorageKey(sessionId));
     if (saved) {
-      const parsed = JSON.parse(saved);
-      // Backward compat: old format was QueueItem[]
-      if (Array.isArray(parsed)) {
-        return { items: parsed as QueueItem[], runState: "idle" };
-      }
-      return parsed as PersistedQueue;
+      return JSON.parse(saved) as PersistedQueue;
     }
   } catch {
     // ignore
@@ -142,12 +116,6 @@ function writeQueueToStorage(
 export function removeQueueFromStorage(sessionId: string) {
   try {
     localStorage.removeItem(getStorageKey(sessionId));
-  } catch {
-    // ignore
-  }
-  // Also clean any legacy sessionStorage entry
-  try {
-    sessionStorage.removeItem(getStorageKey(sessionId));
   } catch {
     // ignore
   }
@@ -355,20 +323,6 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       // Queue is full, reject
       return;
     }
-    // Capture the current selected agent at enqueue time so that
-    // background sending uses the correct X-Agent-Id even after switch.
-    let agentId: string | undefined;
-    try {
-      const agentStorage =
-        sessionStorage.getItem("qwenpaw-agent-storage") ||
-        localStorage.getItem("qwenpaw-agent-storage");
-      if (agentStorage) {
-        const parsed = JSON.parse(agentStorage);
-        agentId = parsed?.state?.selectedAgent || undefined;
-      }
-    } catch {
-      // ignore
-    }
     const item: QueueItem = {
       id: nextQueueId(),
       clientMessageId: createClientMessageId(),
@@ -377,11 +331,8 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       images: input.images,
       mentions: input.mentions,
       quote: input.quote,
-      agentId,
-      backendSessionId: input.backendSessionId,
-      bizParams: input.bizParams ? structuredClone(input.bizParams) : undefined,
-      userId: input.userId,
-      channel: input.channel,
+      agentId: input.agentId,
+      bizParams: structuredClone(input.bizParams),
       status: "pending",
       retryCount: 0,
       createdAt: Date.now(),
@@ -636,15 +587,9 @@ if (typeof window !== "undefined") {
       return;
     }
     try {
-      const parsed = JSON.parse(event.newValue);
-      const items: QueueItem[] = Array.isArray(parsed)
-        ? (parsed as QueueItem[])
-        : (parsed as PersistedQueue).items ?? [];
-      store.applyRemoteItems(sessionId, items);
-      if (
-        !Array.isArray(parsed) &&
-        (parsed as PersistedQueue).runState === "paused"
-      ) {
+      const parsed = JSON.parse(event.newValue) as PersistedQueue;
+      store.applyRemoteItems(sessionId, parsed.items ?? []);
+      if (parsed.runState === "paused") {
         useMessageQueueStore
           .getState()
           .applyRemoteRunState(sessionId, "paused");

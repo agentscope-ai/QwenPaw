@@ -11,6 +11,14 @@ import {
 } from "./messageQueueStore";
 
 const SESSION_ID = "sess-1";
+const TEST_QUEUE_IDENTITY = {
+  agentId: "agent-test",
+  bizParams: {
+    session_id: SESSION_ID,
+    user_id: "user-test",
+    channel: "console",
+  },
+};
 
 function resetStore() {
   useMessageQueueStore.setState({
@@ -102,7 +110,9 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("enqueue creates a pending item with the given text", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "hello" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "hello" });
 
     const queue = useMessageQueueStore.getState().getQueue(SESSION_ID);
     expect(queue).toHaveLength(1);
@@ -114,16 +124,24 @@ describe("messageQueueStore", () => {
   });
 
   it("enqueue appends multiple items preserving order", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "one" });
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "two" });
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "three" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "one" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "two" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "three" });
 
     const queue = useMessageQueueStore.getState().getQueue(SESSION_ID);
     expect(queue.map((i) => i.text)).toEqual(["one", "two", "three"]);
   });
 
   it("enqueue persists items to localStorage under the session key", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "persisted" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "persisted" });
 
     const raw = localStorage.getItem(getStorageKey(SESSION_ID));
     expect(raw).not.toBeNull();
@@ -137,13 +155,15 @@ describe("messageQueueStore", () => {
     for (let i = 0; i < MAX_QUEUE_SIZE; i++) {
       useMessageQueueStore
         .getState()
-        .enqueue(SESSION_ID, { text: `item-${i}` });
+        .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: `item-${i}` });
     }
     expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(
       MAX_QUEUE_SIZE,
     );
 
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "overflow" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "overflow" });
 
     expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(
       MAX_QUEUE_SIZE,
@@ -156,44 +176,27 @@ describe("messageQueueStore", () => {
     ).toBe(false);
   });
 
-  it("enqueue captures agentId from sessionStorage when available", () => {
-    sessionStorage.setItem(
-      "qwenpaw-agent-storage",
-      JSON.stringify({ state: { selectedAgent: "agent-x" } }),
-    );
-
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "hi" });
+  it("enqueue uses the explicitly captured agent", () => {
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      ...TEST_QUEUE_IDENTITY,
+      agentId: "agent-x",
+      text: "hi",
+    });
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.agentId).toBe("agent-x");
   });
 
-  it("enqueue saves the explicitly captured backend session", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, {
-      text: "hi",
-      backendSessionId: "backend-42",
-    });
-
-    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
-    expect(item.backendSessionId).toBe("backend-42");
-  });
-
-  it("enqueue leaves agentId/backendSessionId undefined when none are set", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "hi" });
-
-    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
-    expect(item.agentId).toBeUndefined();
-    expect(item.backendSessionId).toBeUndefined();
-  });
-
   it("enqueue clones and persists frozen business parameters", () => {
     const bizParams = {
       session_id: "session-a",
+      user_id: "u1",
+      channel: "web",
       request_context: { source: "console_chat_queue" },
     };
     useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      ...TEST_QUEUE_IDENTITY,
       text: "hi",
-      backendSessionId: "session-a",
       bizParams,
     });
 
@@ -201,9 +204,10 @@ describe("messageQueueStore", () => {
     bizParams.request_context.source = "changed";
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
-    expect(item.backendSessionId).toBe("session-a");
     expect(item.bizParams).toEqual({
       session_id: "session-a",
+      user_id: "u1",
+      channel: "web",
       request_context: { source: "console_chat_queue" },
     });
 
@@ -213,45 +217,10 @@ describe("messageQueueStore", () => {
       useMessageQueueStore.getState().getQueue(SESSION_ID)[0].bizParams,
     ).toEqual({
       session_id: "session-a",
+      user_id: "u1",
+      channel: "web",
       request_context: { source: "console_chat_queue" },
     });
-  });
-
-  it("loads legacy queue items without business parameters", () => {
-    localStorage.setItem(
-      getStorageKey(SESSION_ID),
-      JSON.stringify({
-        items: [
-          {
-            id: "legacy-1",
-            text: "legacy",
-            backendSessionId: "session-a",
-            status: "pending",
-            retryCount: 0,
-            createdAt: 1,
-          },
-        ],
-        runState: "idle",
-      }),
-    );
-
-    useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
-
-    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
-    expect(item.backendSessionId).toBe("session-a");
-    expect(item.bizParams).toBeUndefined();
-  });
-
-  it("enqueue carries userId and channel from the input", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, {
-      text: "hi",
-      userId: "u1",
-      channel: "web",
-    });
-
-    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
-    expect(item.userId).toBe("u1");
-    expect(item.channel).toBe("web");
   });
 
   // ---------------------------------------------------------------------------
@@ -259,8 +228,12 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("remove drops the item with the matching id", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "keep" });
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "drop" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "keep" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "drop" });
     const queue = useMessageQueueStore.getState().getQueue(SESSION_ID);
     const targetId = queue[1].id;
 
@@ -272,7 +245,9 @@ describe("messageQueueStore", () => {
   });
 
   it("remove on an unknown id is a no-op", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     useMessageQueueStore.getState().remove(SESSION_ID, "does-not-exist");
     expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(
       1,
@@ -286,8 +261,12 @@ describe("messageQueueStore", () => {
   });
 
   it("edit updates the text of the matching item only", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "a" });
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "b" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "a" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "b" });
     const idA = useMessageQueueStore.getState().getQueue(SESSION_ID)[0].id;
 
     useMessageQueueStore.getState().edit(SESSION_ID, idA, "edited");
@@ -298,8 +277,12 @@ describe("messageQueueStore", () => {
   });
 
   it("reorder replaces the entire item list for the session", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "a" });
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "b" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "a" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "b" });
     const reordered = [
       { ...useMessageQueueStore.getState().getQueue(SESSION_ID)[1] },
       { ...useMessageQueueStore.getState().getQueue(SESSION_ID)[0] },
@@ -316,7 +299,9 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("clear removes the session queue and its runState", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     useMessageQueueStore.getState().setRunState(SESSION_ID, "paused");
 
     useMessageQueueStore.getState().clear(SESSION_ID);
@@ -333,8 +318,12 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("migrateQueue moves items from source to destination and clears source", () => {
-    useMessageQueueStore.getState().enqueue("src", { text: "s1" });
-    useMessageQueueStore.getState().enqueue("dst", { text: "d1" });
+    useMessageQueueStore
+      .getState()
+      .enqueue("src", { ...TEST_QUEUE_IDENTITY, text: "s1" });
+    useMessageQueueStore
+      .getState()
+      .enqueue("dst", { ...TEST_QUEUE_IDENTITY, text: "d1" });
 
     useMessageQueueStore.getState().migrateQueue("src", "dst");
 
@@ -345,7 +334,9 @@ describe("messageQueueStore", () => {
   });
 
   it("migrateQueue is a no-op when source and destination are the same", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
 
     useMessageQueueStore.getState().migrateQueue(SESSION_ID, SESSION_ID);
 
@@ -356,7 +347,9 @@ describe("messageQueueStore", () => {
   });
 
   it("migrateQueue sets lastMigratedTo to the destination", () => {
-    useMessageQueueStore.getState().enqueue("src", { text: "s1" });
+    useMessageQueueStore
+      .getState()
+      .enqueue("src", { ...TEST_QUEUE_IDENTITY, text: "s1" });
 
     useMessageQueueStore.getState().migrateQueue("src", "dst");
 
@@ -385,7 +378,9 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("setItemStatus updates the status of the matching item", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     const id = useMessageQueueStore.getState().getQueue(SESSION_ID)[0].id;
 
     useMessageQueueStore.getState().setItemStatus(SESSION_ID, id, "sent");
@@ -396,7 +391,9 @@ describe("messageQueueStore", () => {
   });
 
   it("setItemStatus to 'failed' increments retryCount and stores errorMessage", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     const id = useMessageQueueStore.getState().getQueue(SESSION_ID)[0].id;
 
     useMessageQueueStore
@@ -410,7 +407,9 @@ describe("messageQueueStore", () => {
   });
 
   it("setItemStatus to a non-failed status does not increment retryCount", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     const id = useMessageQueueStore.getState().getQueue(SESSION_ID)[0].id;
 
     useMessageQueueStore.getState().setItemStatus(SESSION_ID, id, "sending");
@@ -425,7 +424,9 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("setRunState updates the runState and persists it with the items", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
 
     useMessageQueueStore.getState().setRunState(SESSION_ID, "paused");
 
@@ -439,7 +440,9 @@ describe("messageQueueStore", () => {
   });
 
   it("setRunState with 'running' then 'idle' cycles the persisted state", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     useMessageQueueStore.getState().setRunState(SESSION_ID, "running");
     useMessageQueueStore.getState().setRunState(SESSION_ID, "idle");
 
@@ -465,7 +468,9 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("consumeMigratedTo returns the stored destination then resets to null", () => {
-    useMessageQueueStore.getState().enqueue("src", { text: "s" });
+    useMessageQueueStore
+      .getState()
+      .enqueue("src", { ...TEST_QUEUE_IDENTITY, text: "s" });
     useMessageQueueStore.getState().migrateQueue("src", "dst");
 
     expect(useMessageQueueStore.getState().consumeMigratedTo()).toBe("dst");
@@ -481,7 +486,9 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("persistToStorage writes the current items + runState to localStorage", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     useMessageQueueStore.getState().setRunState(SESSION_ID, "paused");
 
     // Wipe storage then re-persist.
@@ -496,7 +503,9 @@ describe("messageQueueStore", () => {
   });
 
   it("loadFromStorage restores items and respects persisted 'paused' runState", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     useMessageQueueStore.getState().setRunState(SESSION_ID, "paused");
 
     resetStore();
@@ -511,7 +520,9 @@ describe("messageQueueStore", () => {
   });
 
   it("loadFromStorage resets a persisted non-paused runState to 'idle'", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "x" });
     useMessageQueueStore.getState().setRunState(SESSION_ID, "running");
 
     resetStore();
@@ -523,7 +534,9 @@ describe("messageQueueStore", () => {
   });
 
   it("loadFromStorage clears stale in-memory state when no stored entry exists", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "stale" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "stale" });
 
     removeQueueFromStorage(SESSION_ID);
     useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
@@ -536,9 +549,12 @@ describe("messageQueueStore", () => {
   // ---------------------------------------------------------------------------
 
   it("applyRemoteItems replaces the in-memory queue for the session", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "local" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "local" });
     const remote = [
       {
+        ...TEST_QUEUE_IDENTITY,
         id: "remote-1",
         text: "remote",
         status: "pending" as const,
@@ -555,7 +571,9 @@ describe("messageQueueStore", () => {
   });
 
   it("applyRemoteItems with an empty list deletes the session queue", () => {
-    useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "local" });
+    useMessageQueueStore
+      .getState()
+      .enqueue(SESSION_ID, { ...TEST_QUEUE_IDENTITY, text: "local" });
 
     useMessageQueueStore.getState().applyRemoteItems(SESSION_ID, []);
 
