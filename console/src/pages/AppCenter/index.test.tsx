@@ -205,6 +205,19 @@ describe("AppCenterPage", () => {
     );
   });
 
+  it("marks an installed app as installed in the market", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    renderPage(["/market?view=market"]);
+
+    expect(
+      await screen.findByRole("button", { name: "appCenter.installed" }),
+    ).toBeDisabled();
+    expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
+  });
+
   it("loads a newly installed market app without reloading", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeMarketApp("new-app")],
@@ -223,21 +236,20 @@ describe("AppCenterPage", () => {
     );
   });
 
-  it("does not load an old bundle when updating an installed market app", async () => {
+  it("does not reinstall an installed market app", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeMarketApp("alpha-app")],
       total: 1,
     });
-    hoisted.installPlugin.mockResolvedValue({
-      id: "alpha-app",
-      name: "Alpha App",
-    });
     renderPage(["/market?view=market"]);
     await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByText("appCenter.install"));
-
-    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
+    const installedButton = await screen.findByRole("button", {
+      name: "appCenter.installed",
+    });
+    expect(installedButton).toBeDisabled();
+    fireEvent.click(installedButton);
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
     expect(hoisted.loadPawApp).not.toHaveBeenCalled();
   });
 

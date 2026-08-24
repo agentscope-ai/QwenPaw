@@ -338,6 +338,44 @@ describe("AppMarket", () => {
     expect(document.body.textContent).not.toContain("⬇");
   });
 
+  it("marks an exactly matching installed app as installed", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("installed-app")],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        installedAppIds={new Set(["installed-app"])}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    const installedButton = await screen.findByRole("button", {
+      name: "appCenter.installed",
+    });
+    expect(installedButton).toBeDisabled();
+    expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
+  });
+
+  it("matches installed apps when the market uses an owner-qualified id", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeEntry("@owner/installed-app")],
+      total: 1,
+    });
+
+    render(
+      <AppMarket
+        installedAppIds={new Set(["installed-app"])}
+        onInstalled={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "appCenter.installed" }),
+    ).toBeDisabled();
+  });
+
   it("installs an app and notifies the parent to refresh", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeEntry("installable")],

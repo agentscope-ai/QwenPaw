@@ -164,6 +164,11 @@ export default function AppCenterPage() {
     return Array.from(cats).sort();
   }, [apps]);
 
+  const installedAppIds = useMemo(
+    () => new Set(apps.map((app) => app.id)),
+    [apps],
+  );
+
   // Filter apps (featured apps stay pinned to the top, stable otherwise)
   const filteredApps = useMemo(() => {
     return apps
@@ -588,6 +593,7 @@ export default function AppCenterPage() {
             >
               <AppMarket
                 channel="official"
+                installedAppIds={installedAppIds}
                 onInstalled={handleMarketInstalled}
               />
             </Suspense>
@@ -599,7 +605,10 @@ export default function AppCenterPage() {
                 </div>
               }
             >
-              <AppMarket onInstalled={handleMarketInstalled} />
+              <AppMarket
+                installedAppIds={installedAppIds}
+                onInstalled={handleMarketInstalled}
+              />
             </Suspense>
           ) : (
             installedContent
