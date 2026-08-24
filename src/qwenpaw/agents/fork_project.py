@@ -14,7 +14,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,15 @@ def resolve_allowed_fork_project_dir(
     fork_project: str | None,
     *,
     workspace_dir: str | Path | None = None,
-    coding_project_dir: str | Path | None = None,
+    project_dirs: Sequence[str | Path] | None = None,
 ) -> Path | None:
-    """Return a validated fork worktree path, or None if rejected."""
+    """Return a validated fork worktree path, or None if rejected.
+
+    A fork worktree is only accepted when it lives under the worktree
+    area of an allowed root: **every** bound project directory (primary
+    and extras alike) plus the agent workspace — a fork may target any
+    repository the user attached to this agent/chat.
+    """
     if not isinstance(fork_project, str) or not fork_project.strip():
         return None
     try:
@@ -88,7 +94,7 @@ def resolve_allowed_fork_project_dir(
         return None
 
     bases: list[Path] = []
-    for raw in (coding_project_dir, workspace_dir):
+    for raw in (*(project_dirs or ()), workspace_dir):
         if not raw:
             continue
         try:

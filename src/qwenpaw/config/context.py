@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from agentscope.state import AgentState
     from agentscope.tool import Toolkit
 
+    from ..services.project_directory import ResolvedProjectDir
+
 # Context variable to store the current agent's workspace directory
 current_workspace_dir: ContextVar[Path | None] = ContextVar(
     "current_workspace_dir",
@@ -53,6 +55,86 @@ def get_current_project_dir() -> Path | None:
 def set_current_project_dir(project_dir: Path | None) -> None:
     """Set the immutable effective project directory for the current turn."""
     current_project_dir.set(project_dir)
+
+
+# Provenance of the effective project dir, for audit + UI ("session",
+# "agent", "fork", "active_mode", "request", "inherited",
+# "workspace_fallback").
+current_project_dir_source: ContextVar[str | None] = ContextVar(
+    "current_project_dir_source",
+    default=None,
+)
+
+
+def get_current_project_dir_source() -> str | None:
+    """Return where the effective project directory came from."""
+    return current_project_dir_source.get()
+
+
+def set_current_project_dir_source(source: str | None) -> None:
+    """Record where the effective project directory came from."""
+    current_project_dir_source.set(source)
+
+
+# The full effective project-directory list for this turn, in order.
+# Index 0 mirrors ``current_project_dir``. Empty when nothing is
+# configured (tools then fall back to the workspace via
+# ``get_tool_base_dir``).
+current_project_dirs: ContextVar[
+    tuple["ResolvedProjectDir", ...] | None
+] = ContextVar(
+    "current_project_dirs",
+    default=None,
+)
+
+
+def get_current_project_dirs() -> tuple["ResolvedProjectDir", ...] | None:
+    """Return the effective project-directory list for the current turn.
+
+    ``None`` means the hook never ran (no workspace context); an empty
+    tuple means "configured nowhere" — both fall back to the workspace
+    for tool resolution.
+    """
+    return current_project_dirs.get()
+
+
+def set_current_project_dirs(
+    dirs: tuple["ResolvedProjectDir", ...] | None,
+) -> None:
+    """Pin the effective project-directory list for the current turn."""
+    current_project_dirs.set(dirs)
+
+
+def get_all_project_dir_paths() -> list[Path]:
+    """Return every effective project-directory path, primary first.
+
+    Convenience for consumers that need the whole granted set
+    (governance, containment checks). Empty when nothing is configured.
+    """
+    dirs = current_project_dirs.get()
+    if not dirs:
+        return []
+    return [entry.path for entry in dirs]
+
+
+def get_tool_base_dir() -> Path:
+    """Return the base directory user-facing file/shell tools resolve from.
+
+    Priority: effective project dir → workspace dir → global WORKING_DIR.
+
+    Internal subsystems (memory, skills, sessions, cache, credentials)
+    must NOT use this; they read ``get_current_workspace_dir()`` so that
+    agent state never lands inside a user's project.
+    """
+    project_dir = current_project_dir.get()
+    if project_dir is not None:
+        return project_dir
+    workspace_dir = current_workspace_dir.get()
+    if workspace_dir is not None:
+        return workspace_dir
+    from ..constant import WORKING_DIR
+
+    return WORKING_DIR
 
 
 # Context variable to store the recent_max_bytes limit

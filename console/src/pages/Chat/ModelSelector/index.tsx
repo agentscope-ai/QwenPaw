@@ -37,6 +37,7 @@ import {
   buildEligibleProviders,
   buildHiddenCandidates,
   modelKey,
+  splitProvidersByTier,
 } from "./modelSelectorModels";
 import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
@@ -61,7 +62,6 @@ function publishActiveMaxInputLength(
 }
 
 const RECENT_STORAGE_KEY = "qwenpaw_model_selector_recent";
-const RECOMMENDED_LIMIT = 6;
 const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
@@ -118,7 +118,6 @@ export default function ModelSelector({
   const [expandedModels, setExpandedModels] = useState<Record<string, number>>(
     {},
   );
-  const [showAllModels, setShowAllModels] = useState(false);
   const [showCandidateModels, setShowCandidateModels] = useState(false);
   const [recentModelKeys, setRecentModelKeys] = useState<string[]>(() =>
     readStoredModelKeys(RECENT_STORAGE_KEY),
@@ -192,32 +191,9 @@ export default function ModelSelector({
     [providers],
   );
 
-  // Split by model-level is_free, not provider-level is_free_tier
+  // Free providers appear in both tabs; other providers use model-level tags.
   const { freeProviders, proProviders } = useMemo(() => {
-    const freeMap = new Map<string, EligibleProvider>();
-    const proMap = new Map<string, EligibleProvider>();
-    for (const p of eligibleProviders) {
-      const freeModels = p.models.filter((m) => m.is_free);
-      const proModels = p.models.filter((m) => !m.is_free);
-      if (freeModels.length > 0 || (p.is_free_tier && p.models.length === 0)) {
-        freeMap.set(p.id, { ...p, models: freeModels });
-      }
-      // PRO: show paid models when API key is configured, provider
-      // doesn't require a key, or provider is user-created / local
-      if (
-        proModels.length > 0 &&
-        (p.has_api_key ||
-          p.require_api_key === false ||
-          p.is_custom ||
-          p.is_local)
-      ) {
-        proMap.set(p.id, { ...p, models: proModels });
-      }
-    }
-    return {
-      freeProviders: [...freeMap.values()],
-      proProviders: [...proMap.values()],
-    };
+    return splitProvidersByTier(eligibleProviders);
   }, [eligibleProviders]);
 
   // Filter by search query
@@ -301,10 +277,7 @@ export default function ModelSelector({
   const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
 
   const rankModels = useCallback(
-    (
-      list: EligibleProvider[],
-      includeAllModels = false,
-    ): EligibleProvider[] => {
+    (list: EligibleProvider[]): EligibleProvider[] => {
       const ranked = list.flatMap((provider) =>
         provider.models.map((model) => ({ provider, model })),
       );
@@ -323,32 +296,8 @@ export default function ModelSelector({
           score(rightKey, right.provider.id, right.model.id)
         );
       });
-      let visible = ranked;
-      if (!includeAllModels && !showAllModels && !trimmedSearch) {
-        const alwaysVisible = ranked.filter(({ provider, model }) => {
-          const key = modelKey(provider.id, model.id);
-          return (
-            recentModelKeys.includes(key) ||
-            (provider.id === activeProviderId && model.id === activeModelId)
-          );
-        });
-        const alwaysVisibleKeys = new Set(
-          alwaysVisible.map(({ provider, model }) =>
-            modelKey(provider.id, model.id),
-          ),
-        );
-        const recommended = ranked.filter(({ provider, model }) => {
-          const key = modelKey(provider.id, model.id);
-          return model.is_recommended && !alwaysVisibleKeys.has(key);
-        });
-        const remainingSlots = Math.max(
-          0,
-          RECOMMENDED_LIMIT - alwaysVisible.length,
-        );
-        visible = [...alwaysVisible, ...recommended.slice(0, remainingSlots)];
-      }
       const grouped = new Map<string, EligibleProvider>();
-      for (const item of visible) {
+      for (const item of ranked) {
         const current = grouped.get(item.provider.id);
         if (current) current.models.push(item.model);
         else
@@ -359,13 +308,7 @@ export default function ModelSelector({
       }
       return [...grouped.values()];
     },
-    [
-      activeModelId,
-      activeProviderId,
-      recentModelKeys,
-      showAllModels,
-      trimmedSearch,
-    ],
+    [activeModelId, activeProviderId, recentModelKeys],
   );
 
   const rememberRecent = (providerId: string, modelId: string) => {
@@ -380,18 +323,17 @@ export default function ModelSelector({
     });
   };
 
-  // Display label for trigger button
-  const activeModelName = (() => {
-    if (!activeProviderId || !activeModelId)
-      return t("modelSelector.selectModel");
-    for (const p of eligibleProviders) {
-      if (p.id === activeProviderId) {
-        const m = p.models.find((m) => m.id === activeModelId);
-        if (m) return m.name || m.id;
-      }
-    }
-    return activeModelId;
+  // Display the active model metadata in the trigger button.
+  const activeModel = (() => {
+    if (!activeProviderId || !activeModelId) return null;
+    const provider = eligibleProviders.find(
+      (item) => item.id === activeProviderId,
+    );
+    return provider?.models.find((model) => model.id === activeModelId) ?? null;
   })();
+  const activeModelName =
+    activeModel?.name || activeModelId || t("modelSelector.selectModel");
+  const activeModelIsFree = Boolean(activeModel?.is_free);
 
   const showActiveProviderIcon = Boolean(activeProviderId);
 
@@ -655,8 +597,7 @@ export default function ModelSelector({
       !provider.has_api_key &&
       !provider.oauth_connected;
     const isCollapsed = collapsedProviders.has(provider.id);
-    const shouldLimitModels =
-      !trimmedSearch && (limitInitialModels || showAllModels);
+    const shouldLimitModels = !trimmedSearch && limitInitialModels;
     const visibleCount = shouldLimitModels
       ? Math.min(
           expandedModels[provider.id] ?? DEFAULT_VISIBLE_MODELS,
@@ -944,7 +885,7 @@ export default function ModelSelector({
             <span>{t("modelSelector.proBannerText")}</span>
           </div>
         )}
-        {rankModels(filteredPro, true).map((provider) =>
+        {rankModels(filteredPro).map((provider) =>
           renderProviderModels(provider, true),
         )}
       </>
@@ -1031,17 +972,6 @@ export default function ModelSelector({
           </div>
         )}
         {activeTab === "free" ? renderFreeTab() : renderProTab()}
-        {showAdvancedModelControls && !trimmedSearch && (
-          <button
-            type="button"
-            className={styles.showAllButton}
-            onClick={() => setShowAllModels((value) => !value)}
-          >
-            {showAllModels
-              ? t("modelSelector.showRecommended")
-              : t("modelSelector.showAll")}
-          </button>
-        )}
         {showAdvancedModelControls && (
           <CandidateModelSection
             candidates={visibleCandidates}
@@ -1153,6 +1083,9 @@ export default function ModelSelector({
                 activeModelName
               )}
             </span>
+            {activeModelIsFree && (
+              <span className={styles.freeTag}>{t("modelSelector.free")}</span>
+            )}
             {/* Hidden span used to measure intrinsic text width. Placed
                 outside .triggerName so it does not duplicate text for
                 screen readers or testing-library queries. */}

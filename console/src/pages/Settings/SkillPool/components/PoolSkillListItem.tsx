@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import type { PoolSkillSpec } from "../../../../api/types";
 import {
+  getPoolSkillAutomationState,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
@@ -33,6 +34,18 @@ export function PoolSkillListItem({
   onDelete,
 }: PoolSkillListItemProps) {
   const { t } = useTranslation();
+  const isBuiltin = isSkillBuiltin(skill.source);
+  const automationState = getPoolSkillAutomationState(skill);
+  let automationLabel = "";
+  if (!isBuiltin && skill.auto_sync) {
+    automationLabel = t("skillPool.autoSync");
+  } else if (isBuiltin && automationState === "on") {
+    automationLabel = t("skillPool.automationBoth");
+  } else if (isBuiltin && automationState === "mixed") {
+    automationLabel = t(
+      skill.auto_update ? "skillPool.builtinAutoUpdate" : "skillPool.autoSync",
+    );
+  }
 
   return (
     <div
@@ -67,8 +80,11 @@ export function PoolSkillListItem({
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
             <span className={styles.skillTitle}>{skill.name}</span>
-            {isSkillBuiltin(skill.source) && (
+            {isBuiltin && (
               <span className={styles.typeBadge}>{t("skillPool.builtin")}</span>
+            )}
+            {automationLabel && (
+              <span className={styles.automationTag}>{automationLabel}</span>
             )}
             <span
               className={`${styles.statusValue} ${

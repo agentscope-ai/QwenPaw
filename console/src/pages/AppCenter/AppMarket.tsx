@@ -19,6 +19,7 @@ import {
 } from "antd";
 import {
   AppWindow,
+  BadgeCheck,
   Download,
   ExternalLink,
   RefreshCw,
@@ -35,6 +36,7 @@ import {
 import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { rootApi } from "@/api/modules/root";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
+import { getMarketAppState, type MarketAppState } from "@/utils/marketAppState";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -112,11 +114,15 @@ function pickDescription(entry: MarketPluginEntry, language: string): string {
 
 interface AppMarketProps {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
+  installedAppVersions?: ReadonlyMap<string, string>;
   channel?: "official" | "community";
 }
 
+const EMPTY_INSTALLED_APP_VERSIONS: ReadonlyMap<string, string> = new Map();
+
 export function AppMarket({
   onInstalled,
+  installedAppVersions = EMPTY_INSTALLED_APP_VERSIONS,
   channel = "community",
 }: AppMarketProps) {
   const { t, i18n } = useTranslation();
@@ -442,6 +448,13 @@ export function AppMarket({
             <div className={styles.grid}>
               {plugins.map((entry) => {
                 const iconSrc = entry.logo_url || FEATURED_APP_ICONS[entry.id];
+                const marketState: MarketAppState = getMarketAppState(
+                  entry,
+                  installedAppVersions,
+                  channel,
+                );
+                const isInstalled = marketState === "installed";
+                const canUpdate = marketState === "update";
                 return (
                   <Card key={entry.id} className={styles.appCard}>
                     <div className={styles.cardIcon}>
@@ -497,16 +510,29 @@ export function AppMarket({
                         className={`${styles.cardActions} ${styles.cardHoverActions}`}
                       >
                         <Button
-                          type="primary"
-                          icon={<Download size={14} />}
-                          loading={installingId === entry.id}
+                          type={isInstalled ? "default" : "primary"}
+                          icon={
+                            isInstalled ? (
+                              <BadgeCheck size={14} />
+                            ) : canUpdate ? (
+                              <RefreshCw size={14} />
+                            ) : (
+                              <Download size={14} />
+                            )
+                          }
+                          loading={!isInstalled && installingId === entry.id}
                           disabled={
+                            isInstalled ||
                             !versionChecked ||
                             (installingId !== null && installingId !== entry.id)
                           }
                           onClick={() => requestInstall(entry)}
                         >
-                          {installingId === entry.id
+                          {isInstalled
+                            ? t("appCenter.installedStatus", "Installed")
+                            : canUpdate
+                            ? t("appCenter.update", "Update")
+                            : installingId === entry.id
                             ? t("appCenter.installing", "安装中...")
                             : t("appCenter.install", "安装")}
                         </Button>
