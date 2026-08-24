@@ -63,6 +63,32 @@ async def test_conpty_reads_and_writes_off_event_loop_thread():
 
 
 @pytest.mark.asyncio
+async def test_conpty_prepare_waits_for_marker_and_discards_startup_noise():
+    capture = BackgroundCapture(1024)
+    supervisor = SimpleNamespace(returncode=None)
+    writes: list[bytes] = []
+
+    async def write(data: bytes) -> None:
+        writes.append(data)
+        marker_start = data.index(b"QWENPAW_READY_")
+        marker_end = data.index(b'"', marker_start)
+        marker = data[marker_start:marker_end]
+        capture.append(b"startup\r\n\x1e" + marker + b"\x1fprompt")
+
+    backend = SimpleNamespace(
+        capture=capture,
+        supervisor=supervisor,
+        write=write,
+    )
+
+    await WindowsConPtyBackend._prepare_shell(backend, "pwsh.exe")
+
+    assert len(writes) == 1
+    assert capture.end_cursor > 0
+    assert capture.poll(0, 1024).data == b""
+
+
+@pytest.mark.asyncio
 async def test_conpty_terminates_complete_windows_process_tree(monkeypatch):
     process = _FakePtyProcess()
     capture = BackgroundCapture(1024)
@@ -107,13 +133,35 @@ async def test_conpty_spawn_passes_space_path_as_unquoted_argv(
         "winpty",
         SimpleNamespace(PtyProcess=FakePtyProcess),
     )
+    prepared: list[str] = []
+
+    async def prepare_shell(_backend, shell):
+        prepared.append(shell)
+
+    monkeypatch.setattr(
+        WindowsConPtyBackend,
+        "_prepare_shell",
+        prepare_shell,
+    )
     shell = r"C:\Program Files\PowerShell\7\pwsh.exe"
 
     backend = await WindowsConPtyBackend.spawn(shell, tmp_path, {}, 1024)
     try:
         assert captured["argv"] == [shell, "-NoLogo", "-NoProfile"]
+        assert prepared == [shell]
     finally:
         await backend.close()
+
+
+def test_conpty_startup_scripts_use_supported_shell_syntax():
+    marker = "QWENPAW_READY_test"
+    powershell = windows_conpty._startup_script("pwsh.exe", marker).decode()
+    cmd = windows_conpty._startup_script("cmd.exe", marker)
+
+    assert "[char]0x1e" in powershell
+    assert "[char]0x1f" in powershell
+    assert "`u001e" not in powershell
+    assert f"\x1e{marker}\x1f".encode() in cmd
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import sys
 import threading
 from pathlib import Path
@@ -13,6 +14,18 @@ from ...utils.io_utils import run_sync_io
 from ..capture import BackgroundCapture
 from ..process_tree import terminate_windows_process_tree
 from ..shells import shell_spec
+
+
+def _startup_script(shell: str, marker: str) -> bytes:
+    """Emit a readiness marker after the interactive shell has initialized."""
+    spec = shell_spec(shell)
+    if spec.family == "powershell":
+        return (
+            "function global:prompt { '' }\r\n"
+            "[Console]::Out.WriteLine(([char]0x1e).ToString() + "
+            f'"{marker}" + [char]0x1f)\r\n'
+        ).encode("utf-8")
+    return f"echo \x1e{marker}\x1f\r\n".encode("utf-8")
 
 
 class _WinPtySupervisor:
@@ -100,7 +113,39 @@ class WindowsConPtyBackend:
             cwd=str(cwd),
             env=env,
         )
-        return cls(process, BackgroundCapture(capture_bytes))
+        backend = cls(process, BackgroundCapture(capture_bytes))
+        try:
+            await backend._prepare_shell(shell)
+        except BaseException:
+            await backend.close()
+            raise
+        return backend
+
+    async def _prepare_shell(self, shell: str) -> None:
+        """Wait for shell startup to finish, then discard prompt noise."""
+        marker = f"QWENPAW_READY_{secrets.token_hex(12)}"
+        sentinel = b"\x1e" + marker.encode("ascii") + b"\x1f"
+        cursor = self.capture.end_cursor
+        await self.write(_startup_script(shell, marker))
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 10.0
+        observed = self.capture.end_cursor
+        while True:
+            retained, _, _ = self.capture.retained_since(cursor)
+            if sentinel in retained:
+                # Allow the reader callback queued with the marker to append
+                # the immediately following prompt before clearing startup
+                # output from the public command stream.
+                await asyncio.sleep(0)
+                self.capture.discard_retained()
+                return
+            if self.supervisor.returncode is not None:
+                raise RuntimeError("interactive shell exited during startup")
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError("interactive shell startup timed out")
+            await self.capture.wait_for_change(observed, remaining)
+            observed = self.capture.end_cursor
 
     def _reader_main(self) -> None:
         error: BaseException | None = None
