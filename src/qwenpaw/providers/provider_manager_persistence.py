@@ -1097,56 +1097,6 @@ class ProviderManagerPersistenceMixin(
         self._migrate_copaw_config()
 
     @staticmethod
-    def _restore_builtin_model_collections(
-        builtin: Provider,
-        provider: Provider,
-    ) -> tuple[list[ModelInfo], list[ModelInfo]]:
-        """Restore built-in model collections without dropping paid models."""
-        builtin_model_ids = {model.id for model in builtin.models}
-        removed_model_ids = set(provider.removed_model_ids)
-        paid_model_ids = getattr(
-            builtin,
-            "_PAID_MODEL_IDS",
-            frozenset(),
-        )
-        unavailable_model_ids = getattr(
-            builtin,
-            "_UNAVAILABLE_MODEL_IDS",
-            frozenset(),
-        )
-        extra_models = [
-            model
-            for model in provider.extra_models
-            if model.id not in builtin_model_ids
-            and model.id not in unavailable_model_ids
-        ]
-        extra_model_ids = {model.id for model in extra_models}
-        for model in provider.models:
-            if (
-                model.id in builtin_model_ids
-                or model.id not in paid_model_ids
-                or model.id in removed_model_ids
-                or model.id in extra_model_ids
-            ):
-                continue
-            preserved = model.model_copy(deep=True)
-            preserved.is_free = False
-            extra_models.append(preserved)
-            extra_model_ids.add(model.id)
-        for model in extra_models:
-            if model.id in paid_model_ids:
-                model.is_free = False
-        discovered_models = [
-            model
-            for model in provider.discovered_models
-            if model.id not in unavailable_model_ids
-        ]
-        for model in discovered_models:
-            if model.id in paid_model_ids:
-                model.is_free = False
-        return extra_models, discovered_models
-
-    @staticmethod
     def _restore_builtin_provider(
         builtin: Provider,
         provider: Provider,
@@ -1162,13 +1112,23 @@ class ProviderManagerPersistenceMixin(
         if hasattr(builtin, "max_inline_media_bytes"):
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes
 
-        (
-            builtin.extra_models,
-            builtin.discovered_models,
-        ) = ProviderManagerPersistenceMixin._restore_builtin_model_collections(
+        builtin_model_ids = {model.id for model in builtin.models}
+        unavailable_model_ids = getattr(
             builtin,
-            provider,
+            "_UNAVAILABLE_MODEL_IDS",
+            frozenset(),
         )
+        builtin.extra_models = [
+            model
+            for model in provider.extra_models
+            if model.id not in builtin_model_ids
+            and model.id not in unavailable_model_ids
+        ]
+        builtin.discovered_models = [
+            model
+            for model in provider.discovered_models
+            if model.id not in unavailable_model_ids
+        ]
         builtin.models_last_synced_at = provider.models_last_synced_at
         builtin.models_last_sync_error = provider.models_last_sync_error
         builtin.models_syncing = False
@@ -1181,7 +1141,6 @@ class ProviderManagerPersistenceMixin(
         catalog_free_flags = {
             model.id: model.is_free for model in builtin.models
         }
-        builtin_model_ids = set(catalog_free_flags)
 
         stored_model_config = {
             model.id: serialize_model_state(model) for model in provider.models

@@ -152,9 +152,7 @@ async def test_kilo_uses_gateway_free_flag_for_non_suffix_routes(
     close.assert_awaited_once()
 
 
-async def test_opencode_classifies_paid_and_unavailable_models(
-    monkeypatch,
-) -> None:
+async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
     provider = OpenCodeProvider(
         id="opencode",
         name="OpenCode",
@@ -180,11 +178,10 @@ async def test_opencode_classifies_paid_and_unavailable_models(
     models = await provider.fetch_models()
 
     assert [model.id for model in models] == [
-        "deepseek-v4-flash-free",
         "mimo-v2.5-free",
         "nemotron-3-ultra-free",
     ]
-    assert [model.is_free for model in models] == [False, True, True]
+    assert all(model.is_free for model in models)
     close.assert_awaited_once()
 
 
