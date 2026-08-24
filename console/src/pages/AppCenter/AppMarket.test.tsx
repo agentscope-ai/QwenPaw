@@ -397,8 +397,12 @@ describe("AppMarket", () => {
 
   it("offers an update when the market version is newer", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
-      plugins: [makeEntry("installed-app", { version: "1.1.0" })],
+      plugins: [makeEntry("installed-app", { version: "2.0.0" })],
       total: 1,
+    });
+    hoisted.installPlugin.mockResolvedValue({
+      id: "installed-app",
+      name: "installed-app",
     });
 
     render(
@@ -408,9 +412,12 @@ describe("AppMarket", () => {
       />,
     );
 
-    expect(
-      await screen.findByRole("button", { name: "appCenter.update" }),
-    ).toBeEnabled();
+    const updateButton = await screen.findByRole("button", {
+      name: "appCenter.update",
+    });
+    expect(updateButton).toBeEnabled();
+    fireEvent.click(updateButton);
+    await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
   });
 
   it("installs an app and notifies the parent to refresh", async () => {

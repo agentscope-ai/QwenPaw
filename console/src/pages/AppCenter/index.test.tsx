@@ -239,9 +239,26 @@ describe("AppCenterPage", () => {
     );
   });
 
-  it("updates an installed market app without loading an old bundle", async () => {
+  it("does not reinstall an installed market app at the same version", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
-      plugins: [makeMarketApp("alpha-app", { version: "1.1.0" })],
+      plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    renderPage(["/market?view=market"]);
+    await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
+
+    const installedButton = await screen.findByRole("button", {
+      name: "appCenter.installedStatus",
+    });
+    expect(installedButton).toBeDisabled();
+    fireEvent.click(installedButton);
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+  });
+
+  it("offers an update for an installed market app with a newer version", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app", { version: "2.0.0" })],
       total: 1,
     });
     hoisted.installPlugin.mockResolvedValue({
