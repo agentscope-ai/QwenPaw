@@ -15,6 +15,7 @@ const DOC_SLUGS = [
   "intro",
   "quickstart",
   "console",
+  "mailbox",
   "channels",
   "skills",
   "memory",

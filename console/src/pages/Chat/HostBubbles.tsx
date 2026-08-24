@@ -14,7 +14,7 @@
  * Vendor response primitives are deep-imported because the SDK does not expose
  * a message-renderer seam. If their paths change, update the imports below.
  */
-import React, { useMemo } from "react";
+import React, { useDeferredValue, useMemo } from "react";
 import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -49,6 +49,7 @@ import type {
   ChatResponseData,
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
+import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -59,7 +60,32 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCardProps = any;
 
-function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
+function DeferredMarkdown({
+  content,
+  cursor,
+}: {
+  content: string;
+  cursor: boolean;
+}) {
+  // Parsing Markdown, code fences, and diagrams is substantially more
+  // expensive than appending stream text. A deferred value lets React skip
+  // obsolete intermediate parses while keeping input and scrolling responsive.
+  const deferredContent = useDeferredValue(content);
+
+  return (
+    <Markdown
+      components={renderableCodeComponents}
+      content={deferredContent}
+      cursor={cursor}
+    />
+  );
+}
+
+const HostMessage = React.memo(function HostMessage({
+  data,
+}: {
+  data: IAgentScopeRuntimeMessage;
+}) {
   const replaceMediaURL = useChatAnywhereOptions(
     (options) => options.api?.replaceMediaURL,
   );
@@ -77,9 +103,8 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
         switch (item.type) {
           case AgentScopeRuntimeContentType.TEXT:
             return (
-              <Markdown
+              <DeferredMarkdown
                 key={index}
-                components={renderableCodeComponents}
                 content={item.text}
                 cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
               />
@@ -134,7 +159,7 @@ function HostMessage({ data }: { data: IAgentScopeRuntimeMessage }) {
       })}
     </>
   );
-}
+});
 
 function DefaultHostResponseCard({
   data,
@@ -196,12 +221,15 @@ function DefaultHostResponseCard({
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
       {contentAppend}
+      {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+        <ResponseArtifactList messages={messages} />
+      ) : null}
       <ResponseActions data={data} isLast={isLast} />
     </>
   );
 }
 
-export function HostRequestCard(props: { data: ChatRequestData }) {
+function HostRequestCardContent(props: { data: ChatRequestData }) {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
 
@@ -263,7 +291,13 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
   return fallback();
 }
 
-export function HostResponseCard(props: {
+const MemoizedHostRequestCard = React.memo(HostRequestCardContent);
+
+export function HostRequestCard(props: { data: ChatRequestData }) {
+  return <MemoizedHostRequestCard {...props} />;
+}
+
+function HostResponseCardContent(props: {
   data: ChatResponseData;
   isLast?: boolean;
 }) {
@@ -333,4 +367,13 @@ export function HostResponseCard(props: {
     );
   }
   return fallback();
+}
+
+const MemoizedHostResponseCard = React.memo(HostResponseCardContent);
+
+export function HostResponseCard(props: {
+  data: ChatResponseData;
+  isLast?: boolean;
+}) {
+  return <MemoizedHostResponseCard {...props} />;
 }

@@ -31,14 +31,17 @@ import {
   Store,
   X,
 } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { MarketplaceHeader } from "@/pages/Market/components/MarketplaceHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import type { InstallPluginResult } from "../../api/modules/plugin";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { loadPawApp } from "../../plugins/usePluginLoader";
 import { removePluginAppState } from "../../os/osCleanup";
-import { setActivePawAppId } from "../../plugins/pawapp-sdk/context";
+import {
+  getPawAppIdFromPath,
+  setActivePawAppId,
+} from "../../plugins/pawapp-sdk/context";
 import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
@@ -227,10 +230,14 @@ export default function AppCenterPage() {
       setActiveApp(null);
       return;
     }
+    if (window.history.state?.pawappInline === true) {
+      window.history.back();
+      return;
+    }
     window.history.pushState(
       {},
       "",
-      addRouterBasename(window.location.pathname, "/apps"),
+      addRouterBasename(window.location.pathname, "/market"),
     );
     setActiveApp(null);
   };
@@ -270,7 +277,7 @@ export default function AppCenterPage() {
     const onPop = (event: PopStateEvent) => {
       const appId = isOsPath(window.location.pathname)
         ? getOsPawAppIdFromHistoryState(event.state)
-        : window.location.pathname.match(/\/apps\/([^/?#]+)/)?.[1];
+        : getPawAppIdFromPath(window.location.pathname);
       if (!appId) {
         setActiveApp(null);
         return;
@@ -429,14 +436,15 @@ export default function AppCenterPage() {
             </Select>
           )}
           <div className={styles.toolbarSpacer} />
-          <button
+          <Button
+            type="default"
             className={styles.refreshBtn}
+            icon={<RefreshCw size={14} />}
             onClick={fetchApps}
+            disabled={loading}
             aria-label={t("common.refresh", "Refresh")}
             title={t("common.refresh", "Refresh")}
-          >
-            <RefreshCw size={15} />
-          </button>
+          />
         </div>
       )}
 
@@ -493,7 +501,7 @@ export default function AppCenterPage() {
           )}
         </Empty>
       ) : (
-        <div className={styles.gridLarge}>
+        <div className={styles.grid}>
           {filteredApps.map((app) => (
             <AppCard
               key={app.id}
@@ -509,7 +517,7 @@ export default function AppCenterPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader current={t("nav.apps", "Apps")} />
+      <MarketplaceHeader activeSection="apps" />
 
       <div className={styles.pageBody}>
         <div className={styles.pageInner}>
@@ -569,8 +577,7 @@ export default function AppCenterPage() {
             ]}
           />
 
-          {/* External-data views are mounted (chunk + request) only while
-              the user is actually on the corresponding tab. */}
+          {/* Market data is mounted (chunk + request) only while active. */}
           {view === "official" ? (
             <Suspense
               fallback={
