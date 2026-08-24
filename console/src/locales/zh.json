@@ -261,11 +261,6 @@
       "mode": "模式",
       "desktopMode": "桌面模式"
     },
-    "desktopModeHint": {
-      "title": "试试桌面模式",
-      "description": "点击这里打开快捷设置，然后选择“进入桌面模式”，体验多窗口工作区。",
-      "gotIt": "我知道了"
-    },
     "simpleMode": "精简模式",
     "fullMode": "完整模式",
     "toggleAgentNavigation": "展开或收起智能体导航"

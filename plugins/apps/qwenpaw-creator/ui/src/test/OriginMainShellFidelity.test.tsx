@@ -5,119 +5,39 @@ import HomePage from "@/pages/HomePage";
 import ModelConfigModal from "@/components/creator/ModelConfigModal";
 import { ProjectComposer } from "@/components/creator/ProjectComposer";
 import { installMockFetch } from "@/test/mockFetch";
+import { configuredModelConfig } from "@/test/agentFixtures";
 
+// Same fully-configured snapshot, but with hands-off media review so the
+// execution-mode cards land on the YOLO stop.
 const modelConfig = {
-  llm: {
-    enabled: true,
-    model_name: "qwen3.7-plus",
-    api_key: "saved-secret",
-    base_url: "https://example.test/v1",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-    multimodal: true,
-  },
-  vlm: {
-    enabled: true,
-    model_name: "qwen3.7-plus",
-    api_key: "saved-secret",
-    base_url: "https://example.test/v1",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-    use_llm: true,
-    multimodal: true,
-  },
-  grounding: {
-    enabled: true,
-    model_name: "",
-    api_key: "",
-    base_url: "",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-    reuse_llm: true,
-    validation_source: "llm",
-    tavily_api_key: "",
-    serper_api_key: "",
-    native_search_enabled: true,
-    search_provider: "dashscope_qwen",
-    search_reuse_llm: true,
-    search_model_name: "",
-    search_api_key: "",
-    search_base_url: "",
-    search_protocol: "DashScope（百炼）",
-  },
-  asr: {
-    enabled: false,
-    model_name: "fun-asr",
-    api_key: "",
-    base_url: "https://dashscope.aliyuncs.com/api/v1",
-    protocol: "DashScope Fun-ASR",
-    custom_protocol: "",
-    provider: "fun-asr",
-    language: "",
-    reuse_llm_key: true,
-  },
-  image: {
-    enabled: true,
-    model_name: "qwen-image",
-    api_key: "",
-    base_url: "https://example.test/image",
-    protocol: "DashScope（百炼）",
-    custom_protocol: "",
-  },
-  video: {
-    enabled: true,
-    model_name: "wan2.7-r2v",
-    api_key: "",
-    base_url: "https://example.test/video",
-    protocol: "DashScope（百炼）",
-    custom_protocol: "",
-    reuse_llm_key: true,
-  },
-  oss: {
-    enabled: false,
-    access_key_id: "",
-    access_key_secret: "",
-    endpoint: "",
-    bucket: "",
-    public_base_url: "",
-    policy_api_key: "",
-  },
-  executionAuthorization: { mode: "allow_all" },
-  creationCheckpoints: { mode: "skip" },
-  mediaReview: { mode: "auto_approve" },
-  selfReview: {
-    sync_enabled: false,
-    media_enabled: false,
-    render_enabled: false,
-  },
+  ...configuredModelConfig,
+  mediaReview: { mode: "auto_approve" as const },
 };
+
+const projectsPage = (item: Record<string, unknown>) => ({
+  items: [
+    {
+      projectId: "p1",
+      name: "雪夜短片",
+      description: "一段项目说明",
+      scenario: "short_drama",
+      contentType: "interview",
+      aspectRatio: "16:9",
+      resolution: "720P",
+      createdAt: "2026-07-01T00:00:00Z",
+      updatedAt: "2026-07-02T00:00:00Z",
+      ...item,
+    },
+  ],
+  limit: 100,
+  offset: 0,
+});
 
 describe("origin/main visible shell fidelity", () => {
   it("keeps the redesigned Home project cards, copy, classes, and actions", async () => {
     installMockFetch([
       { match: "/models/config", response: { json: modelConfig } },
-      {
-        match: "/projects",
-        response: {
-          json: {
-            items: [
-              {
-                projectId: "p1",
-                name: "雪夜短片",
-                description: "一段项目说明",
-                scenario: "short_drama",
-                contentType: "interview",
-                aspectRatio: "16:9",
-                resolution: "720P",
-                createdAt: "2026-07-01T00:00:00Z",
-                updatedAt: "2026-07-02T00:00:00Z",
-              },
-            ],
-            limit: 100,
-            offset: 0,
-          },
-        },
-      },
+      { match: "/projects", response: { json: projectsPage({}) } },
     ]);
     const { container } = render(
       <MemoryRouter>
@@ -179,26 +99,14 @@ describe("origin/main visible shell fidelity", () => {
       {
         match: "/projects",
         response: {
-          json: {
-            items: [
-              {
-                projectId: "p2",
-                name: "采访粗切",
-                description: "一段项目说明",
-                scenario: "video_edit",
-                contentType: "interview",
-                aspectRatio: "16:9",
-                resolution: "720P",
-                coverVersionId: "ver-cover",
-                coverVersionSource: "artifact",
-                finalVideoVersionId: "ver-final",
-                createdAt: "2026-07-01T00:00:00Z",
-                updatedAt: "2026-07-02T00:00:00Z",
-              },
-            ],
-            limit: 100,
-            offset: 0,
-          },
+          json: projectsPage({
+            projectId: "p2",
+            name: "采访粗切",
+            scenario: "video_edit",
+            coverVersionId: "ver-cover",
+            coverVersionSource: "artifact",
+            finalVideoVersionId: "ver-final",
+          }),
         },
       },
     ]);

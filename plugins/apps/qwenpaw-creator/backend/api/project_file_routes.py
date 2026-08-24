@@ -23,6 +23,9 @@ from domain.errors import (
 )
 from schemas.common import StrictModel
 from services.file_agent_runtime import notify_creator_agent_runtime
+from services.media_files.visual_reference_resolution import (
+    preview_r2v_reference_order,
+)
 from services.project_files.commit import (
     ActiveReviewConflictError,
     CommitJournalState,
@@ -90,6 +93,12 @@ router = APIRouter(
 )
 
 logger = logging.getLogger("qwenpaw.creator.api.project_file_routes")
+
+
+def _log_safe(value: Any) -> str:
+    """Neutralize CR/LF in user-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
 
 _PATCH_IDEMPOTENCY_SCOPE = "PATCH /projects/{projectId}/project"
 
@@ -456,6 +465,26 @@ async def _persist_idempotent_failure(
         request_hash=request_hash,
         error=_creator_error_body(error),
         response_status=error.status_code,
+    )
+
+
+@router.get("/elements/{element_id}/r2v-references")
+async def get_r2v_reference_order(
+    project_id: str,
+    element_id: str,
+    services: CreatorFileServices = Depends(project_file_services),
+) -> dict[str, Any]:
+    """Authoritative ``[Image N]`` reference order for one r2v Element."""
+
+    try:
+        snapshot = await asyncio.to_thread(services.projects.read, project_id)
+    except Exception as exc:
+        _translate_storage_error(exc)
+        raise
+    return await asyncio.to_thread(
+        preview_r2v_reference_order,
+        snapshot.project,
+        element_id,
     )
 
 
@@ -949,9 +978,9 @@ async def decide_project_review(
     )
     logger.info(
         "review decided: project=%s review=%s decisions=%s feedback=%s",
-        project_id,
-        review_id,
-        decisions_summary,
+        _log_safe(project_id),
+        _log_safe(review_id),
+        _log_safe(decisions_summary),
         "yes" if request.rejection_feedback is not None else "no",
     )
     key = resolve_idempotency_key(

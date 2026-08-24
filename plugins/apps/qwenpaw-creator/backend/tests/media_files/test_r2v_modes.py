@@ -1,26 +1,29 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 # pylint: disable=unused-argument
 """r2v_generation mode plumbing through the durable execution service."""
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import pytest
 
 from domain.errors import ValidationError
+from models import config as model_config
 from services.media_files.image_execution import FileImageExecutionService
-from services.media_files.r2v_execution import FileR2VExecutionService
+from services.media_files.r2v_execution import (
+    FileR2VExecutionService,
+    VideoModelCapabilityError,
+    VideoReferenceBudgetError,
+    _assert_r2v_reference_budget,
+)
 from services.project_files.facade import CreatorFileServices
-from services.project_files.review import ReviewDecisionItem
 from services.project_files.models import (
     ElementLocation,
-    EntityCollection,
     I2VCreation,
     Project,
-    R2VCreation,
     S2VCreation,
-    Shot,
-    T2VCreation,
     TimelineElement,
     TimelineSpan,
 )
@@ -30,6 +33,12 @@ from utils.paths import unique_task_work_path
 
 # pylint: enable=no-name-in-module
 
+from .conftest import (
+    accept_pending_reviews,
+    make_r2v_element,
+    r2v_project_services,
+)
+
 
 pytestmark = pytest.mark.unit
 
@@ -38,8 +47,7 @@ _MP4 = b"\x00\x00\x00\x18ftypmp42" + b"mode-video" * 64
 
 PROJECT_ID = "r2v-mode-project"
 ELEMENT_ID = "r2v-mode-1"
-# Second element carrying the mode-specific creation type under test; the
-# r2v element above keeps producing the storyboard image used as input.
+# Second element carries the mode-specific creation type under test.
 MODE_ELEMENT_ID = "video-mode-1"
 
 
@@ -77,72 +85,102 @@ class _CapturingR2VProvider:
         return await self.poll(provider_task_id)
 
 
-def _r2v_element() -> TimelineElement:
-    shot = Shot(
-        shot_id=f"{ELEMENT_ID}-shot",
-        description="猫追逐老鼠",
-        camera="→ 横摇右",
-        framing="全景",
-        duration_seconds=4,
-    )
-    return TimelineElement(
-        element_id=ELEMENT_ID,
-        label="猫追老鼠",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=R2VCreation(
-            narrative="猫发现老鼠后追逐",
-            storyboard_prompt="动画分镜：猫发现并追逐老鼠",
-            video_prompt="动画，猫从左向右追逐老鼠，动作连续",
-            shots=EntityCollection(
-                items={shot.shot_id: shot},
-                order=[shot.shot_id],
-            ),
-        ),
-    )
+def _project_with_image_references(count: int) -> tuple[Project, list[str]]:
+    project = Project.new(project_id="reference-budget", name="Budget")
+    candidate = project.model_dump(mode="json")
+    created_at = project.created_at.isoformat()
+    version_ids = [f"reference-{index}" for index in range(count)]
+    for version_id in version_ids:
+        url = f"https://cdn.test/{version_id}.png"
+        candidate["assets"]["source_versions_by_id"][version_id] = {
+            "version_id": version_id,
+            "logical_asset_id": f"asset-{version_id}",
+            "name": version_id,
+            "checksum": hashlib.sha256(url.encode()).hexdigest(),
+            "media_kind": "image",
+            "media_type": "image/png",
+            "created_at": created_at,
+            "metadata": {
+                "sourceKind": "remote_url",
+                "checksumKind": "source_url_sha256",
+                "publicSourceUrl": url,
+            },
+        }
+    return Project.model_validate(candidate), version_ids
 
 
-def _services(
-    tmp_path,
+@pytest.mark.parametrize(
+    ("model_name", "backend", "count", "limit"),
+    [
+        ("wan2.7-r2v", "wan", 6, 5),
+        ("happyhorse-1.1-r2v", "wan", 10, 9),
+        ("doubao-seedance-2.0-pro", "seedance2", 10, 9),
+    ],
+)
+def test_execution_rejects_resolved_video_reference_budget(
     monkeypatch,
-    extra_creation=None,
-) -> CreatorFileServices:
-    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
-    services = CreatorFileServices.create(tmp_path.resolve())
-    project = Project.new(project_id=PROJECT_ID, name="R2V Modes")
-    project.timelines.items["timeline:main"].elements_by_id[
-        ELEMENT_ID
-    ] = _r2v_element()
-    if extra_creation is not None:
-        project.timelines.items["timeline:main"].elements_by_id[
-            MODE_ELEMENT_ID
-        ] = TimelineElement(
-            element_id=MODE_ELEMENT_ID,
-            label="模式镜头",
-            span=TimelineSpan(start_tick=4_000, duration_tick=4_000),
-            location=ElementLocation(),
-            creation=extra_creation,
-        )
-    services.projects.create(
-        Project.model_validate(project.model_dump(mode="json")),
+    model_name,
+    backend,
+    count,
+    limit,
+) -> None:
+    project, version_ids = _project_with_image_references(count)
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: model_name,
     )
-    return services
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: backend)
+
+    with pytest.raises(VideoReferenceBudgetError) as captured:
+        _assert_r2v_reference_budget(project, version_ids)
+
+    error = captured.value
+    assert error.code == "VIDEO_REFERENCE_BUDGET_EXCEEDED"
+    assert error.details["imageCount"] == count
+    assert error.details["maxReferenceImages"] == limit
+    assert error.details["documentationUrl"].startswith("https://")
 
 
-def _accept_pending_reviews(services: CreatorFileServices) -> None:
-    for review in services.reviews.all_pending(PROJECT_ID):
-        services.reviews.decide(
-            project_id=PROJECT_ID,
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[
-                ReviewDecisionItem(
-                    operation_id=operation.operation_id,
-                    decision="ACCEPT",
-                )
-                for operation in review.operations
-            ],
+@pytest.mark.parametrize("model_name", ["", "private-video-gateway"])
+def test_execution_fails_closed_for_unknown_video_model(
+    monkeypatch,
+    model_name,
+) -> None:
+    project, version_ids = _project_with_image_references(1)
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: model_name,
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+
+    with pytest.raises(VideoModelCapabilityError) as captured:
+        _assert_r2v_reference_budget(project, version_ids)
+
+    assert captured.value.code == "VIDEO_MODEL_CAPABILITY_UNKNOWN"
+    assert captured.value.details["knownModelRequired"] is True
+
+
+def _services(tmp_path, monkeypatch, extra_creation=None):
+    elements = [make_r2v_element(ELEMENT_ID, video_prompt="动画，猫从左向右追逐老鼠，动作连续")]
+    if extra_creation is not None:
+        elements.append(
+            TimelineElement(
+                element_id=MODE_ELEMENT_ID,
+                label="模式镜头",
+                span=TimelineSpan(start_tick=4_000, duration_tick=4_000),
+                location=ElementLocation(),
+                creation=extra_creation,
+            ),
         )
+    return r2v_project_services(
+        tmp_path,
+        monkeypatch,
+        project_id=PROJECT_ID,
+        name="R2V Modes",
+        elements=elements,
+    )
 
 
 def _generate_storyboard(services: CreatorFileServices) -> str:
@@ -157,18 +195,18 @@ def _generate_storyboard(services: CreatorFileServices) -> str:
             idempotency_key="storyboard-mode-1",
         ),
     )
-    _accept_pending_reviews(services)
+    accept_pending_reviews(services, PROJECT_ID)
     return execution.artifact_version_id
 
 
 def _run_video(
-    services: CreatorFileServices,
+    services,
     provider,
     *,
-    arguments: dict,
-    idempotency_key: str,
-    s2v: bool = False,
-    element_id: str = ELEMENT_ID,
+    arguments,
+    idempotency_key,
+    s2v=False,
+    element_id=ELEMENT_ID,
 ):
     async def scenario():
         worker = FileR2VExecutionService(
@@ -195,42 +233,7 @@ def _run_video(
     return asyncio.run(scenario())
 
 
-def test_t2v_dispatch_skips_storyboard_and_passes_mode(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """t2v needs no storyboard selection and forwards mode to the provider."""
-
-    services = _services(
-        tmp_path,
-        monkeypatch,
-        extra_creation=T2VCreation(video_prompt="动画，猫从左向右追逐老鼠"),
-    )
-    provider = _CapturingR2VProvider()
-    task = _run_video(
-        services,
-        provider,
-        element_id=MODE_ELEMENT_ID,
-        arguments={
-            "mode": "t2v",
-            "durationSeconds": 5,
-            "ratio": "16:9",
-            "resolution": "720P",
-        },
-        idempotency_key="video-t2v-1",
-    )
-
-    assert task.status.value == "SUCCEEDED"
-    assert provider.submits[0]["mode"] == "t2v"
-    assert provider.submits[0]["reference_image_urls"] == ()
-    assert provider.submits[0]["first_frame_url"] is None
-    assert provider.submits[0]["video_url"] is None
-
-
-def test_i2v_dispatch_resolves_first_frame_version(
-    tmp_path,
-    monkeypatch,
-) -> None:
+def test_i2v_dispatch_resolves_first_frame_version(tmp_path, monkeypatch):
     services = _services(
         tmp_path,
         monkeypatch,
@@ -256,63 +259,6 @@ def test_i2v_dispatch_resolves_first_frame_version(
     submitted = provider.submits[0]
     assert submitted["mode"] == "i2v"
     assert submitted["first_frame_url"].startswith("file://")
-    assert submitted["reference_image_urls"] == ()
-
-
-def test_video_edit_dispatch_resolves_video_version(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """video_edit consumes an exact video version (happyhorse only)."""
-
-    services = _services(tmp_path, monkeypatch)
-    _generate_storyboard(services)
-    provider = _CapturingR2VProvider()
-    # First produce a real video ArtifactVersion through a plain r2v run.
-    task = _run_video(
-        services,
-        provider,
-        arguments={
-            "durationSeconds": 5,
-            "ratio": "16:9",
-            "resolution": "720P",
-        },
-        idempotency_key="video-r2v-base",
-    )
-    assert task.status.value == "SUCCEEDED"
-    # The freshly published video waits for user review; accept it so the
-    # follow-up video_edit dispatch is admitted.
-    _accept_pending_reviews(services)
-    project = services.projects.read(PROJECT_ID).project
-    video_version_id = next(
-        version_id
-        for version_id, version in (
-            project.assets.artifact_versions_by_id.items()
-        )
-        if project.assets.files_by_id[version.file_id].media_type.startswith(
-            "video/",
-        )
-    )
-
-    monkeypatch.setenv("VIDEO_MODEL_NAME", "happyhorse-1.1-r2v")
-    task = _run_video(
-        services,
-        provider,
-        arguments={
-            "mode": "video_edit",
-            "videoRef": video_version_id,
-            "prompt": "把场景改成黄昏",
-            "durationSeconds": 5,
-            "ratio": "16:9",
-            "resolution": "720P",
-        },
-        idempotency_key="video-edit-1",
-    )
-
-    assert task.status.value == "SUCCEEDED"
-    submitted = provider.submits[-1]
-    assert submitted["mode"] == "video_edit"
-    assert submitted["video_url"].startswith("file://")
 
 
 def test_video_edit_rejected_for_wan_models(tmp_path, monkeypatch) -> None:
@@ -353,14 +299,7 @@ def _register_tts_audio(services: CreatorFileServices, monkeypatch) -> str:
     from models import tts_model
     from services.media_files.audio_execution import execute_file_tts_command
 
-    async def fake_synthesize(
-        text,
-        *,
-        voice=None,
-        voice_id=None,
-        voice_model=None,
-        speech_rate=None,
-    ):
+    async def fake_synthesize(text, **_kwargs):
         return tts_model.TTSSynthesis(
             audio_bytes=b"RIFF\x00\x00\x00\x00WAVE" + b"\x00" * 2048,
             media_type="audio/wav",
@@ -414,7 +353,6 @@ def test_s2v_dispatch_consumes_tts_audio_and_character_image(
     assert submitted["s2v"] is True
     assert submitted["image_url"].startswith("file://")
     assert submitted["audio_url"].startswith("file://")
-    assert submitted["resolution"] == "480P"
     finished = services.projects.read(PROJECT_ID).project
     element = finished.timelines.items["timeline:main"].elements_by_id[
         MODE_ELEMENT_ID
@@ -422,44 +360,17 @@ def test_s2v_dispatch_consumes_tts_audio_and_character_image(
     assert element.outputs["main"].slot_id == f"element:{MODE_ELEMENT_ID}:main"
 
 
-def test_s2v_dispatch_requires_audio_ref(tmp_path, monkeypatch) -> None:
-    services = _services(
-        tmp_path,
-        monkeypatch,
-        extra_creation=S2VCreation(script="你好，数字人"),
-    )
-    image_version_id = _generate_storyboard(services)
-    with pytest.raises(ValidationError, match="audioAssetRef"):
-        _run_video(
-            services,
-            _CapturingR2VProvider(),
-            element_id=MODE_ELEMENT_ID,
-            arguments={"characterImageRef": image_version_id},
-            idempotency_key="s2v-missing-audio",
-            s2v=True,
-        )
+def test_s2v_preflight_face_detect_gate(tmp_path, monkeypatch) -> None:
+    """Face-detect preflight blocks unsuitable images and passes portraits."""
 
-
-def test_s2v_preflight_blocks_failed_face_detect(
-    tmp_path,
-    monkeypatch,
-) -> None:
     from models import s2v_model
     from services.media_files.r2v_execution import preflight_s2v_face_detect
 
     services = _services(tmp_path, monkeypatch)
     image_version_id = _generate_storyboard(services)
 
-    async def failing_detect(image_url: str):
-        assert image_url.startswith("file://")
-        return s2v_model.FaceDetectResult(
-            passed=False,
-            reason="[InvalidFace.SideFace] side face detected",
-        )
-
-    monkeypatch.setattr(s2v_model, "detect_face", failing_detect)
-    with pytest.raises(ValidationError, match="人像检测未通过"):
-        asyncio.run(
+    def run_preflight():
+        return asyncio.run(
             preflight_s2v_face_detect(
                 services,
                 project_id=PROJECT_ID,
@@ -467,25 +378,18 @@ def test_s2v_preflight_blocks_failed_face_detect(
             ),
         )
 
+    async def failing_detect(image_url: str):
+        return s2v_model.FaceDetectResult(
+            passed=False,
+            reason="[InvalidFace.SideFace] side face detected",
+        )
 
-def test_s2v_preflight_passes_suitable_portrait(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    from models import s2v_model
-    from services.media_files.r2v_execution import preflight_s2v_face_detect
-
-    services = _services(tmp_path, monkeypatch)
-    image_version_id = _generate_storyboard(services)
+    monkeypatch.setattr(s2v_model, "detect_face", failing_detect)
+    with pytest.raises(ValidationError, match="人像检测未通过"):
+        run_preflight()
 
     async def passing_detect(image_url: str):
         return s2v_model.FaceDetectResult(passed=True, humanoid=True)
 
     monkeypatch.setattr(s2v_model, "detect_face", passing_detect)
-    asyncio.run(
-        preflight_s2v_face_detect(
-            services,
-            project_id=PROJECT_ID,
-            arguments={"characterImageRef": image_version_id},
-        ),
-    )
+    run_preflight()

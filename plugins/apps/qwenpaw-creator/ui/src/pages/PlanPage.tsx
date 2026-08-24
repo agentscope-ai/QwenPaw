@@ -27,6 +27,7 @@ import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 import { useProjectDraft } from "@/lib/useProjectDraft";
+import { startVisiblePolling } from "@/lib/visiblePolling";
 import { useNarrowWorkspace, useDetailRail } from "@/lib/useNarrowWorkspace";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
 import ElementList from "@/components/timeline/ElementList";
@@ -379,10 +380,12 @@ export default function PlanPage() {
       if (disposed) return;
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 750);
+    // Compose progress polling shares the project lock with the compose
+    // task itself; keep the tick slow and visibility-aware.
+    const stop = startVisiblePolling(() => void refresh(), 1_500);
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      stop();
     };
   }, [id, isComposing, pollOnce, refreshTasks]);
 

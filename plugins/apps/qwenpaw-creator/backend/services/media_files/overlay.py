@@ -200,6 +200,7 @@ def _render_placed_text_box(
         target_font_size = max(16, round(video_width / 1280 * 34))
         max_box_w = min(box_width, round(video_width * 0.7))
         max_box_h = min(box_height, round(video_height * 0.25))
+        _est_padding = max(8, round(min(max_box_w, max_box_h) * 0.12))
         try:
             _probe = (
                 ImageFont.truetype(font_path, target_font_size)
@@ -209,6 +210,7 @@ def _render_placed_text_box(
         except Exception:
             _probe = ImageFont.load_default()
         _tmp = ImageDraw.Draw(canvas)
+        _probe_avail_w = max(1, max_box_w - _est_padding * 2)
         _probe_lines: list[str] = []
         _cur = ""
         for _ch in text.strip():
@@ -216,7 +218,7 @@ def _render_placed_text_box(
             if (
                 _cur
                 and _tmp.textbbox((0, 0), _cand, font=_probe)[2]
-                > max_box_w - 40
+                > _probe_avail_w
             ):
                 _probe_lines.append(_cur)
                 _cur = _ch
@@ -233,21 +235,24 @@ def _render_placed_text_box(
         )
         _tw = _pb[2] - _pb[0]
         _th = _pb[3] - _pb[1]
-        actual_w = min(_tw + 40, max_box_w)
-        actual_h = min(_th + 24, max_box_h)
+        actual_w = min(_tw + _est_padding * 2, max_box_w)
+        actual_h = min(_th + _est_padding * 2, max_box_h)
+        padding = max(8, round(min(actual_w, actual_h) * 0.12))
         font_size = target_font_size
-        if _tw + 40 > max_box_w or _th + 24 > max_box_h:
+        if (
+            _tw + _est_padding * 2 > max_box_w
+            or _th + _est_padding * 2 > max_box_h
+        ):
             font_size = max(
                 10,
                 round(
                     target_font_size
                     * min(
-                        max_box_w / max(_tw + 40, 1),
-                        max_box_h / max(_th + 24, 1),
+                        max_box_w / max(_tw + _est_padding * 2, 1),
+                        max_box_h / max(_th + _est_padding * 2, 1),
                     ),
                 ),
             )
-        padding = max(8, round(min(actual_w, actual_h) * 0.12))
         border = max(2, round(min(actual_w, actual_h) * 0.04))
         box_width = actual_w
         box_height = actual_h
@@ -429,7 +434,7 @@ def _render_placed_pet_os_box(
         except Exception:
             font = ImageFont.load_default()
         border = max(2, round(max_box_h * 0.018))
-        padding = max(5, round(max_box_h * 0.06))
+        padding = max(5, round(max_box_h * 0.04))
         avail_w = max(1, max_bubble_w - padding * 2 - border * 2)
         lines = _wrap_text(probe_draw, font, avail_w)
         display_text = "\n".join(lines)

@@ -487,6 +487,20 @@ export interface ProjectPatchRequest {
   operations: ProjectPatchOperation[];
 }
 
+/** One entry of the authoritative [Image N] reference order (backend view). */
+export interface R2VReferenceOrderItem {
+  index: number;
+  versionId: string;
+  kind: "storyboard" | "source" | "artifact";
+  name: string;
+}
+
+export interface R2VReferenceOrderResponse {
+  elementId: string;
+  storyboardSelected: boolean;
+  references: R2VReferenceOrderItem[];
+}
+
 export interface ProjectPatchResponse {
   projectId: string;
   generation: number;

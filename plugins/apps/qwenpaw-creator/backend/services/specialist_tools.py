@@ -24,7 +24,12 @@ from typing import Any
 
 from domain.enums import CreatorCommandType, SpecialistRole, TaskKind
 from domain.errors import PermissionDeniedError, ValidationError
-from models.config import is_s2v_configured, is_tts_configured
+from models.config import (
+    get_image_model_name,
+    is_s2v_configured,
+    is_tts_configured,
+)
+from models.image.base import image_reference_limit
 from services.runtime_files.errors import RecordNotFoundError
 from services.media.source_observation import source_observation_service
 from services.media.source_video_reader import source_video_reader_service
@@ -280,7 +285,6 @@ _IMAGE_ARGUMENTS = _arguments_schema(
         "referenceVersionIds": {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
-            "maxItems": 5,
             "uniqueItems": True,
         },
         "variantId": {
@@ -1081,11 +1085,28 @@ class FileSpecialistToolRegistry:
             if role is not SpecialistRole.SOURCE_INTELLIGENCE
             or item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
         ]
-        business_tools = [
-            spec.manifest(role=role, admitted_target_refs=admitted_target_refs)
-            for spec in _SPECS
-            if role in spec.roles and _tool_available(spec.name)
-        ]
+        business_tools = []
+        for spec in _SPECS:
+            if role not in spec.roles or not _tool_available(spec.name):
+                continue
+            manifest = spec.manifest(
+                role=role,
+                admitted_target_refs=admitted_target_refs,
+            )
+            if spec.name == "image_generation":
+                model_name = get_image_model_name().strip()
+                reference_limit = image_reference_limit(model_name)
+                references = manifest["function"]["parameters"]["properties"][
+                    "arguments"
+                ]["properties"]["referenceVersionIds"]
+                references["maxItems"] = reference_limit or 0
+                references["description"] = (
+                    f"当前图片模型 {model_name or '未配置'} 的输入参考图，"
+                    f"官方上限为 {reference_limit or 0} 张；只传 Project 中"
+                    "已存在的 exact version id。未知模型别名按 0 张处理，"
+                    "不会套用通用猜测上限。"
+                )
+            business_tools.append(manifest)
         names = [
             item["function"]["name"]
             for item in (*project_tools, *business_tools)

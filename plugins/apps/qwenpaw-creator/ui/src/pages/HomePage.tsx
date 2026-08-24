@@ -1,6 +1,14 @@
-import { useEffect, useState, useCallback, memo } from "react";
+import { useEffect, useState, useCallback, memo, useRef } from "react";
 import { Modal, message, Tooltip } from "antd";
-import { Film, ArrowUp, ArrowDown, CircleHelp, Trash2 } from "lucide-react";
+import {
+  Film,
+  ArrowUp,
+  ArrowDown,
+  CircleHelp,
+  Trash2,
+  Copy,
+  RotateCcw,
+} from "lucide-react";
 import logoMarkUrl from "@/assets/design/logo-mark.png";
 import tabCreateIcon from "@/assets/design/icon-tab-create.svg";
 import tabProjectsIcon from "@/assets/design/icon-tab-projects.svg";
@@ -9,14 +17,20 @@ import importProjectIcon from "@/assets/design/icon-import-project.svg";
 import type { ProjectSummary } from "@/contracts/creator";
 import {
   deleteProject,
+  copyProject,
+  getRecreateParams,
   listProjects,
   getArtifactVersionMediaUrl,
+  CreatorHttpError,
+  newClientId,
 } from "@/api/creator";
 import { useModelConfigStore } from "@/store/modelConfigStore";
+import { useRecreateStore } from "@/store/recreateStore";
 import { useRouter, useSearchParams } from "@/routing/navigation";
 import ModelBadges from "@/components/creator/ModelBadges";
 import ModelConfigModal from "@/components/creator/ModelConfigModal";
 import { SCENARIO_OPTIONS } from "@/components/creator/useProjectLaunch";
+import { creatorStatusLabel } from "@/lib/creatorPresentation";
 import {
   SEGMENTED_TRACK_CLASS,
   segmentedItemClass,
@@ -37,8 +51,31 @@ interface ProjectCardProps {
   project: ProjectSummary;
   onOpen: (id: string) => void;
   onDelete: (project: ProjectSummary) => void;
+  onCopy: (project: ProjectSummary) => void;
+  onRecreate: (project: ProjectSummary) => void;
   onPreview: (project: ProjectSummary) => void;
   formatDate: (dateStr: string) => string;
+}
+
+function statusDotColor(status: string | null | undefined): string {
+  switch (status) {
+    case "IDLE":
+      return "bg-green-500";
+    case "RUNNING":
+    case "RESUMING":
+    case "WAITING_RUNTIME":
+      return "bg-blue-500";
+    case "PENDING_REVIEW":
+    case "WAITING_USER_INPUT":
+    case "WAITING_EXECUTION_AUTH":
+    case "INTERRUPT_REQUESTED":
+      return "bg-amber-500";
+    case "ERROR":
+    case "CANCELLED":
+      return "bg-red-500";
+    default:
+      return "bg-gray-300";
+  }
 }
 
 /** Text-only project card from the design draft. */
@@ -46,6 +83,8 @@ const ProjectCard = memo(function ProjectCard({
   project,
   onOpen,
   onDelete,
+  onCopy,
+  onRecreate,
   onPreview,
   formatDate,
 }: ProjectCardProps) {
@@ -92,31 +131,71 @@ const ProjectCard = memo(function ProjectCard({
           {project.description}
         </p>
       </div>
-      <div className="flex items-center justify-between gap-2 text-xs leading-[18px] text-[var(--color-text-tertiary)]">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span>{projectScenarioLabel}</span>
-          <span>{project.aspectRatio}</span>
-          <span>{project.resolution}</span>
+      <div className="flex flex-col gap-1.5 text-xs leading-[18px] text-[var(--color-text-tertiary)]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColor(
+                project.status,
+              )}`}
+            />
+            <span className="truncate">
+              {creatorStatusLabel(project.status)}
+            </span>
+          </div>
+          <span
+            className="shrink-0 text-[var(--color-text-tertiary)]"
+            title={t("home.createdAt") + " " + formatDate(project.createdAt)}
+          >
+            {formatDate(project.updatedAt)}
+          </span>
         </div>
-        <span
-          className="shrink-0 text-[var(--color-text-tertiary)]"
-          title={t("home.createdAt") + " " + formatDate(project.createdAt)}
-        >
-          {formatDate(project.updatedAt)}
-        </span>
-        {/* Export moved to the plan page; the only card action left is a
-            muted always-visible delete icon that reddens on hover only. */}
-        <button
-          type="button"
-          aria-label={t("home.deleteProject", { name: project.name })}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(project);
-          }}
-          className="flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{projectScenarioLabel}</span>
+            <span>{project.aspectRatio}</span>
+            <span>{project.resolution}</span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Tooltip title={t("home.recreateProject", { name: project.name })}>
+              <button
+                type="button"
+                aria-label={t("home.recreateProject", { name: project.name })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRecreate(project);
+                }}
+                className="flex h-[18px] w-[18px] cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-accent)]"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+            <Tooltip title={t("home.copyProject", { name: project.name })}>
+              <button
+                type="button"
+                aria-label={t("home.copyProject", { name: project.name })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopy(project);
+                }}
+                className="flex h-[18px] w-[18px] cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-accent)]"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+            <button
+              type="button"
+              aria-label={t("home.deleteProject", { name: project.name })}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(project);
+              }}
+              className="flex h-[18px] w-[18px] cursor-pointer items-center justify-center text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-danger)]"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -150,6 +229,7 @@ export default function HomePage() {
   const [importerOpen, setImporterOpen] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>("updated_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const copyRetryKeys = useRef(new Map<string, string>());
   const requestHomeTour = useOnboardingStore((state) => state.requestHomeTour);
   // Shared with the composer and header badges so saving the model config
   // anywhere clears every home-page warning at once.
@@ -227,6 +307,42 @@ export default function HomePage() {
     },
     [fetchProjects],
   );
+
+  const handleCopy = useCallback(
+    async (project: ProjectSummary) => {
+      const requestId =
+        copyRetryKeys.current.get(project.projectId) ??
+        newClientId("copy-project");
+      copyRetryKeys.current.set(project.projectId, requestId);
+      try {
+        const result = await copyProject(project.projectId, requestId);
+        copyRetryKeys.current.delete(project.projectId);
+        message.success(t("home.copySuccess"));
+        router.push(`/project/${result.projectId}/plan`);
+      } catch (error) {
+        // A lost response or client timeout is an ambiguous commit: preserve
+        // the operation key so the next user attempt replays the same copy.
+        if (
+          !(error instanceof CreatorHttpError) ||
+          (error.status !== 0 && error.status !== 408)
+        ) {
+          copyRetryKeys.current.delete(project.projectId);
+        }
+        message.error(t("home.copyFailed"));
+      }
+    },
+    [router],
+  );
+
+  const handleRecreate = useCallback(async (project: ProjectSummary) => {
+    try {
+      const params = await getRecreateParams(project.projectId);
+      useRecreateStore.getState().setParams(params);
+      setView("create");
+    } catch {
+      message.error(t("home.recreateFailed"));
+    }
+  }, []);
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -458,6 +574,8 @@ export default function HomePage() {
                     project={project}
                     onOpen={handleOpen}
                     onDelete={handleDelete}
+                    onCopy={handleCopy}
+                    onRecreate={handleRecreate}
                     onPreview={setPreviewProject}
                     formatDate={formatDate}
                   />

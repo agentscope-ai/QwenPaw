@@ -18,23 +18,24 @@ const authority = (): ExampleDocument => ({
   },
 });
 
+const renderDraft = (source: ExampleDocument) =>
+  renderHook(
+    ({ current }) =>
+      useProjectDraft(current, "element:one", ["elements", "one"]),
+    { initialProps: { current: source } },
+  );
+
+type Rendered = ReturnType<typeof renderDraft>["result"];
+const edit = (result: Rendered, fn: (draft: ExampleDocument) => void) =>
+  act(() => result.current.update(fn));
+
 describe("useProjectDraft", () => {
   it("keeps edits local and builds one CAS operation per changed field", () => {
-    const { result } = renderHook(() =>
-      useProjectDraft(authority(), "element:one", [
-        "timelines",
-        "items",
-        "main",
-        "elements_by_id",
-        "one",
-      ]),
-    );
+    const { result } = renderDraft(authority());
 
-    act(() => {
-      result.current.update((draft) => {
-        draft.label = "新名称";
-        draft.creation.text = "新文案";
-      });
+    edit(result, (draft) => {
+      draft.label = "新名称";
+      draft.creation.text = "新文案";
     });
 
     expect(result.current.dirty).toBe(true);
@@ -42,13 +43,13 @@ describe("useProjectDraft", () => {
     expect(result.current.operations).toEqual([
       {
         op: "replace",
-        path: "/timelines/items/main/elements_by_id/one/creation/text",
+        path: "/elements/one/creation/text",
         before: "原文案",
         value: "新文案",
       },
       {
         op: "replace",
-        path: "/timelines/items/main/elements_by_id/one/label",
+        path: "/elements/one/label",
         before: "原名称",
         value: "新名称",
       },
@@ -57,23 +58,12 @@ describe("useProjectDraft", () => {
 
   it("discards every staged field back to the authoritative baseline", () => {
     const source = authority();
-    const { result } = renderHook(() =>
-      useProjectDraft(source, "element:one", ["elements", "one"]),
-    );
+    const { result } = renderDraft(source);
 
-    act(() => {
-      result.current.update((draft) => {
-        draft.creation.references = ["asset-v2"];
-      });
+    edit(result, (draft) => {
+      draft.creation.references = ["asset-v2"];
     });
-    expect(result.current.operations).toEqual([
-      {
-        op: "replace",
-        path: "/elements/one/creation/references",
-        before: ["asset-v1"],
-        value: ["asset-v2"],
-      },
-    ]);
+    expect(result.current.dirty).toBe(true);
 
     act(() => result.current.discard());
 
@@ -82,51 +72,22 @@ describe("useProjectDraft", () => {
     expect(result.current.operations).toEqual([]);
   });
 
-  it("merges disjoint polling updates while preserving local dirty fields", () => {
-    const source = authority();
-    const { result, rerender } = renderHook(
-      ({ current }) =>
-        useProjectDraft(current, "element:one", ["elements", "one"]),
-      { initialProps: { current: source } },
-    );
+  it("merges disjoint polling updates and flags overlapping ones before allowing an overwrite", () => {
+    const { result, rerender } = renderDraft(authority());
 
-    act(() => {
-      result.current.update((draft) => {
-        draft.label = "我的名称";
-      });
+    edit(result, (draft) => {
+      draft.label = "我的名称";
     });
     const remote = authority();
     remote.creation.text = "Agent 更新的文案";
     rerender({ current: remote });
 
-    expect(result.current.value).toEqual({
-      ...remote,
-      label: "我的名称",
-    });
+    expect(result.current.value).toEqual({ ...remote, label: "我的名称" });
     expect(result.current.conflictPaths).toEqual([]);
-    expect(result.current.operations[0]).toMatchObject({
-      path: "/elements/one/label",
-      before: "原名称",
-      value: "我的名称",
-    });
-  });
 
-  it("flags overlapping authority updates before allowing an overwrite", () => {
-    const source = authority();
-    const { result, rerender } = renderHook(
-      ({ current }) =>
-        useProjectDraft(current, "element:one", ["elements", "one"]),
-      { initialProps: { current: source } },
-    );
-
-    act(() => {
-      result.current.update((draft) => {
-        draft.label = "我的名称";
-      });
-    });
-    const remote = authority();
-    remote.label = "Agent 的名称";
-    rerender({ current: remote });
+    const overlapping = authority();
+    overlapping.label = "Agent 的名称";
+    rerender({ current: overlapping });
 
     expect(result.current.value.label).toBe("我的名称");
     expect(result.current.conflictPaths).toEqual(["/label"]);

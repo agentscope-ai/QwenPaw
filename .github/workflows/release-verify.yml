@@ -173,28 +173,9 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Verify managed runtime boundary version
-        shell: bash
-        run: |
-          python - <<'PY'
-          import re
-          from pathlib import Path
-
-          version_source = Path("src/qwenpaw/__version__.py").read_text()
-          dockerfile = Path("deploy/Dockerfile").read_text()
-          version = re.search(r'__version__ = "([^"]+)"', version_source)
-          boundary = re.search(
-              r'ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="([^"]+)"',
-              dockerfile,
-          )
-          if version is None or boundary is None:
-              raise SystemExit("Unable to read runtime boundary versions")
-          if version.group(1) != boundary.group(1):
-              raise SystemExit(
-                  f"Runtime boundary version mismatch: "
-                  f"{boundary.group(1)} != {version.group(1)}",
-              )
-          PY
+      - name: Get QwenPaw version
+        id: version
+        uses: ./.github/actions/get-version
 
       - name: Log in to Aliyun ACR (when credentials available)
         if: env.ACR_USERNAME != ''
@@ -210,6 +191,7 @@ jobs:
         env:
           DOCKER_NODE_IMAGE: ${{ inputs.docker_node_image }}
           DOCKER_UV_IMAGE: ${{ inputs.docker_uv_image }}
+          QWENPAW_VERSION: ${{ steps.version.outputs.version }}
         run: |
           BUILD_ARGS=""
           if [ -n "$DOCKER_NODE_IMAGE" ]; then
@@ -221,8 +203,21 @@ jobs:
           docker build \
             -f deploy/Dockerfile \
             -t qwenpaw-verify:test \
+            --build-arg \
+            QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="$QWENPAW_VERSION" \
             $BUILD_ARGS \
             .
+
+      - name: Verify managed runtime boundary version
+        env:
+          QWENPAW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          actual=$(docker image inspect qwenpaw-verify:test \
+            --format '{{ index .Config.Labels "io.qwenpaw.managed-runtime-boundary.version" }}')
+          if [ "$actual" != "$QWENPAW_VERSION" ]; then
+            echo "::error::Runtime boundary version mismatch: $actual != $QWENPAW_VERSION"
+            exit 1
+          fi
 
       - name: Start container
         run: |

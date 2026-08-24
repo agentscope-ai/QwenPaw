@@ -46,6 +46,10 @@ from domain.errors import (
     StorageIntegrityError,
     ValidationError,
 )
+from models.image.base import (
+    image_reference_capability,
+    image_reference_limit,
+)
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileStore,
@@ -81,6 +85,7 @@ from services.media_files.visual_reference_resolution import (
 from services.media_files.visual_design_readiness import (
     assert_visual_design_ready_for_storyboards,
 )
+from services.observability import report_error
 from services.project_files.remote_cache import public_source_url
 from services.project_files.store import ProjectSnapshot
 from services.run_review.media_review import schedule_media_review
@@ -139,9 +144,20 @@ _RESUME_HORIZON_SECONDS = 6 * 60 * 60.0
 # the horizon above, never from a run of transient failures.
 _RESUME_BACKOFF_MAX_SHIFT = 5
 _RESUME_BACKOFF_CAP_SECONDS = 300.0
-_EDIT_MAX_REFERENCES = 3
 _MAX_IMAGE_BYTES = 64 * 1024 * 1024
 _SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,10}$")
+
+
+class ImageReferenceBudgetError(ValidationError):
+    """Resolved Project references exceed the active image model contract."""
+
+    code = "IMAGE_REFERENCE_BUDGET_EXCEEDED"
+
+
+class ImageModelCapabilityError(ValidationError):
+    """A configured model alias has no verified official reference limit."""
+
+    code = "IMAGE_MODEL_CAPABILITY_UNKNOWN"
 
 
 class ImageProvider(Protocol):
@@ -179,7 +195,7 @@ class ExistingImageProvider:
     ) -> Mapping[str, Any]:
         from models.image import generate_image
 
-        url = await generate_image(
+        result = await generate_image(
             prompt,
             aspect_ratio=aspect_ratio,
             reference_image_urls=list(reference_image_urls),
@@ -187,7 +203,15 @@ class ExistingImageProvider:
             source_lang=source_lang,
             target_lang=target_lang,
         )
-        return {"url": url, "media_type": "image/png"}
+        # result is {"url": local_url, "source_url": original_url_or_empty}
+        source_url = (
+            result.get("source_url", "") if isinstance(result, dict) else ""
+        )
+        return {
+            "url": result["url"] if isinstance(result, dict) else result,
+            "media_type": "image/png",
+            "metadata": {"source_url": source_url} if source_url else {},
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +488,34 @@ def _resolve_version_references(
         version = source or artifact
         if version is None:
             raise NotFoundError(f"引用版本不存在: {version_id}")
+        # Check for source_url stored by Token Plan image generation.
+        # Stored at metadata["provider"]["source_url"] by _materialize_and_publish.
+        source_url = ""
+        if artifact is not None and isinstance(
+            getattr(artifact, "metadata", None),
+            dict,
+        ):
+            provider_meta = artifact.metadata.get("provider", {})
+            if isinstance(provider_meta, dict):
+                source_url = provider_meta.get("source_url", "")
+        if source_url:
+            indexed = project.assets.files_by_id.get(version.file_id)
+            if indexed is None or not indexed.media_type.casefold().startswith(
+                "image/",
+            ):
+                raise ValidationError(f"引用版本不是图片: {version_id}")
+            urls.append(source_url)
+            checksums.append(version.checksum)
+            read_set.append(
+                {
+                    "ref": f"artifact-version:{version_id}",
+                    "versionId": version_id,
+                    "fileId": version.file_id,
+                    "checksum": version.checksum,
+                    "sourceUrl": source_url,
+                },
+            )
+            continue
         remote_url = public_source_url(source) if source is not None else None
         if remote_url is not None:
             if not version.media_type.casefold().startswith("image/"):
@@ -556,6 +608,8 @@ def _resolve_request(
     command: CreatorCommandType,
     target_ref: str,
     arguments: Mapping[str, Any],
+    image_model_name: str = "",
+    max_reference_images: int | None = None,
 ) -> _ResolvedRequest:
     project = snapshot.project
     explicit_prompt = str(arguments.get("prompt") or "").strip()
@@ -573,10 +627,6 @@ def _resolve_request(
         arguments.get("referenceImageRefs"),
         label="referenceImageRefs",
     )
-    if len(reference_image_refs) > _EDIT_MAX_REFERENCES:
-        raise ValidationError(
-            f"referenceImageRefs 最多 {_EDIT_MAX_REFERENCES} 个",
-        )
     # Each entry is either a bare exact version id or an
     # asset://... / artifact://...@<versionId> reference.
     reference_image_ref_ids = [
@@ -788,9 +838,70 @@ def _resolve_request(
             [*local_urls, *([] if mode == "translate" else explicit_urls)],
         ),
     )
-    if mode == "edit" and not 1 <= len(urls) <= _EDIT_MAX_REFERENCES:
+    capability_model_name = image_model_name or (
+        "qwen-mt-image"
+        if mode == "translate"
+        else ("qwen-image-2.0-pro" if mode == "edit" else "")
+    )
+    capability = image_reference_capability(capability_model_name)
+    reference_limit = (
+        image_reference_limit(capability_model_name)
+        if max_reference_images is None
+        else max_reference_images
+    )
+    if reference_limit is not None and reference_limit < 0:
+        raise ValueError("max_reference_images must be non-negative")
+    if urls and reference_limit is None:
+        model_label = capability_model_name.strip() or "未配置"
+        raise ImageModelCapabilityError(
+            "IMAGE_MODEL_CAPABILITY_UNKNOWN: Creator 无法从官方能力表确认"
+            f"模型 {model_label} 的参考图数量限制，因此未调用 provider。"
+            "如果这是兼容网关别名，请先将别名映射到其官方模型"
+            "能力，不要设置通用猜测上限。",
+            details={
+                "modelName": model_label,
+                "resolvedCount": len(urls),
+                "automaticReferenceVersionIds": list(active_version_ids),
+                "explicitReferenceUrls": list(explicit_urls),
+                "knownModelRequired": True,
+            },
+        )
+    if reference_limit is not None and len(urls) > reference_limit:
+        explicit_id_set = frozenset(explicit_version_ids)
+        automatic_ids = [
+            item for item in active_version_ids if item not in explicit_id_set
+        ]
+        explicit_ids = [
+            item for item in active_version_ids if item in explicit_id_set
+        ]
+        model_label = image_model_name.strip() or "当前图片模型"
+        raise ImageReferenceBudgetError(
+            "IMAGE_REFERENCE_BUDGET_EXCEEDED: 执行层解析 Project 自动引用与"
+            f"本次显式引用后，共得到 {len(urls)} 张参考图，但模型 "
+            f"{model_label} 单次最多接受 {reference_limit} 张。执行层没有静默"
+            "截断，也没有调用 provider。请先 read_project，删除不必要的 Project "
+            "引用字段或缩减 referenceVersionIds/referenceImageUrls，再用已变更的"
+            "参数重试。",
+            details={
+                "modelName": model_label,
+                "limit": reference_limit,
+                "resolvedCount": len(urls),
+                "automaticReferenceVersionIds": automatic_ids,
+                "explicitReferenceVersionIds": explicit_ids,
+                "explicitReferenceUrls": list(explicit_urls),
+                "resolvedReferenceVersionIds": list(active_version_ids),
+                "modelFamily": capability.family if capability else None,
+                "documentationUrl": (
+                    capability.documentation_url if capability else None
+                ),
+            },
+        )
+    if mode == "edit" and (
+        reference_limit is None or not 1 <= len(urls) <= reference_limit
+    ):
+        limit_label = reference_limit if reference_limit is not None else 0
         raise ValidationError(
-            f"edit 模式需要 1–{_EDIT_MAX_REFERENCES} 张参考图，"
+            f"edit 模式需要 1–{limit_label} 张参考图，"
             f"当前解析到 {len(urls)} 张；用 referenceImageRefs 指定要编辑的图",
         )
     return _ResolvedRequest(
@@ -1158,6 +1269,7 @@ class FileImageExecutionService:
         resume_poll_budget_seconds: float = _RESUME_POLL_BUDGET_SECONDS,
         resume_retry_interval_seconds: float = _RESUME_RETRY_INTERVAL_SECONDS,
         resume_horizon_seconds: float = _RESUME_HORIZON_SECONDS,
+        image_model_name: str | None = None,
     ) -> None:
         if max_output_bytes <= 0:
             raise ValueError("max_output_bytes must be positive")
@@ -1169,9 +1281,11 @@ class FileImageExecutionService:
         self.resume_poll_budget_seconds = resume_poll_budget_seconds
         self.resume_retry_interval_seconds = resume_retry_interval_seconds
         self.resume_horizon_seconds = resume_horizon_seconds
+        self.image_model_name = image_model_name
         # Background pollers for accepted (billed) async provider tasks,
         # keyed by Task id so one Task is never supervised twice.
         self._resume_jobs: dict[str, asyncio.Task] = {}
+        self._resume_projects: dict[str, str] = {}
         # (project_id, target_ref) -> reference ids of the last safety-
         # rejected call. Process-local: worth losing on restart, priceless
         # for cutting off same-refs resend loops within a session.
@@ -1259,6 +1373,16 @@ class FileImageExecutionService:
         if conflicts:
             raise ConflictError("图片命令目标已被其他写者修改")
         project_root = self.services.projects.project_root(project_id)
+        image_model_name = self.image_model_name
+        if image_model_name is None:
+            image_model_name = str(getattr(self.provider, "model_name", ""))
+        if not image_model_name and isinstance(
+            self.provider,
+            ExistingImageProvider,
+        ):
+            from models.config import get_image_model_name
+
+            image_model_name = get_image_model_name()
         resolved = await asyncio.to_thread(
             _resolve_request,
             snapshot=base,
@@ -1266,6 +1390,7 @@ class FileImageExecutionService:
             command=command_value,
             target_ref=target_ref,
             arguments=dict(arguments),
+            image_model_name=image_model_name,
         )
         fingerprint_payload: dict[str, Any] = {
             "command": command_value.value,
@@ -1410,7 +1535,7 @@ class FileImageExecutionService:
                 ids=ids,
                 replayed=False,
             )
-        except (ConflictError, ValidationError, StorageIntegrityError):
+        except (ConflictError, ValidationError, StorageIntegrityError) as exc:
             if not await self._defer_to_resume_supervisor(project_id, ids):
                 await self._fail_if_running(
                     project_id,
@@ -1423,6 +1548,7 @@ class FileImageExecutionService:
                             project_id,
                         )
                     ),
+                    error=exc,
                 )
             raise
         except Exception as exc:
@@ -1447,6 +1573,8 @@ class FileImageExecutionService:
                 "IMAGE_GENERATION_FAILED",
                 message=message
                 + _accepted_provider_task_hint(ids["task_id"], project_id),
+                error=exc,
+                retryable=bool(getattr(exc, "retryable", False)),
             )
             raise exc
 
@@ -1543,12 +1671,16 @@ class FileImageExecutionService:
             name=f"image-translate-resume:{task.task_id}",
         )
         self._resume_jobs[task.task_id] = job
-        job.add_done_callback(
-            lambda _job, task_id=task.task_id: self._resume_jobs.pop(
-                task_id,
-                None,
-            ),
-        )
+        self._resume_projects[task.task_id] = task.project_id
+
+        def discard(
+            _job: asyncio.Task[Any],
+            task_id: str = task.task_id,
+        ) -> None:
+            self._resume_jobs.pop(task_id, None)
+            self._resume_projects.pop(task_id, None)
+
+        job.add_done_callback(discard)
 
     async def _resume_until_terminal(self, task: TaskRecord) -> None:
         """Supervise one accepted provider task across transient failures.
@@ -1638,6 +1770,7 @@ class FileImageExecutionService:
         """
 
         job = self._resume_jobs.pop(task.task_id, None)
+        self._resume_projects.pop(task.task_id, None)
         if job is not None and not job.done():
             logger.info(
                 "cancelling image resume supervision | task=%s status=%s",
@@ -1657,11 +1790,26 @@ class FileImageExecutionService:
                 return
             await asyncio.gather(*jobs, return_exceptions=True)
 
+    def cancel_project(self, project_id: str) -> None:
+        """Signal every detached image supervisor for a deleted Project."""
+
+        task_ids = [
+            task_id
+            for task_id, owner in self._resume_projects.items()
+            if owner == project_id
+        ]
+        for task_id in task_ids:
+            job = self._resume_jobs.pop(task_id, None)
+            self._resume_projects.pop(task_id, None)
+            if job is not None:
+                job.cancel()
+
     async def shutdown(self) -> None:
         """Cancel background resume jobs; durable state stays resumable."""
 
         jobs = list(self._resume_jobs.values())
         self._resume_jobs.clear()
+        self._resume_projects.clear()
         for job in jobs:
             job.cancel()
         if jobs:
@@ -1831,7 +1979,10 @@ class FileImageExecutionService:
         }
 
         def claim_sync():
-            with self.services.projects.lifecycle_lock(task.project_id):
+            with self.services.projects.lifecycle_lock(
+                task.project_id,
+                shared=True,
+            ):
                 self.services.projects.read(task.project_id)
                 claim_store = AtomicJsonRecordStore(
                     self.services.projects.project_root(task.project_id)
@@ -2678,6 +2829,8 @@ class FileImageExecutionService:
         code: str,
         *,
         message: str | None = None,
+        error: BaseException | None = None,
+        retryable: bool = False,
     ) -> None:
         try:
             task = await asyncio.to_thread(
@@ -2687,6 +2840,27 @@ class FileImageExecutionService:
             )
         except RecordNotFoundError:
             return
+        failure_message = message or code
+        report = report_error(
+            component="image-execution",
+            code=code,
+            message=failure_message,
+            error=error,
+            retryable=retryable,
+            details={
+                "projectId": project_id,
+                "taskId": task.task_id,
+                "runId": ids.get("run_id"),
+                "modelName": self.image_model_name
+                or str(getattr(self.provider, "model_name", "")),
+            },
+            projectId=project_id,
+            taskId=task.task_id,
+            runId=ids.get("run_id"),
+        )
+        failure = {
+            key: value for key, value in report.items() if value is not None
+        }
         if task.status is TaskStatus.RUNNING:
             try:
                 await asyncio.to_thread(
@@ -2696,7 +2870,7 @@ class FileImageExecutionService:
                     event_id=ids["attempt_failed_event_id"],
                     attempt_id=ids["attempt_id"],
                     status=TaskAttemptStatus.FAILED,
-                    error={"code": code, "message": message or code},
+                    error=failure,
                 )
             except ExecutionStateConflict:
                 pass
@@ -2852,6 +3026,8 @@ __all__ = [
     "ExistingImageProvider",
     "FileImageExecutionResult",
     "FileImageExecutionService",
+    "ImageModelCapabilityError",
+    "ImageReferenceBudgetError",
     "ImageProvider",
     "execute_file_image_command",
     "file_image_execution_service",

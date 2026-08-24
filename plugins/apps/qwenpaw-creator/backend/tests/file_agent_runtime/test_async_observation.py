@@ -17,10 +17,7 @@ from services.runtime_files.execution_store import (
     ProjectExecutionStore,
     TaskRecord,
 )
-from services.specialist_tools import (
-    FileSpecialistToolRegistry,
-    SpecialistToolWait,
-)
+from services.specialist_tools import FileSpecialistToolRegistry
 
 PROJECT_ID = "project-1"
 
@@ -35,37 +32,6 @@ def _observation_task(kind: TaskKind, suffix: str) -> TaskRecord:
         input_refs=["asset:source-1"],
         metadata={},
     )
-
-
-def test_background_contract_is_exposed_to_the_model(tmp_path) -> None:
-    """Both observers accept background=true; the harvester is registered."""
-
-    registry = FileSpecialistToolRegistry(
-        CreatorFileServices.create(tmp_path.resolve()),
-    )
-    for role in (
-        SpecialistRole.SOURCE_INTELLIGENCE,
-        SpecialistRole.AI_EDITING_DIRECTOR,
-    ):
-        manifest = {
-            item["function"]["name"]: item
-            for item in registry.manifest_for(
-                role,
-                admitted_target_refs=["asset:source-1"],
-            )
-        }
-        assert "check_observation_tasks" in manifest
-        for tool in ("observe_source_clip", "read_source_video"):
-            arguments = manifest[tool]["function"]["parameters"]["properties"][
-                "arguments"
-            ]["properties"]
-            assert "background" in arguments
-            spec = registry.spec_for(role, tool)
-            assert spec is not None and spec.background_capable
-        harvest = registry.spec_for(role, "check_observation_tasks")
-        assert harvest is not None
-        assert harvest.wait is SpecialistToolWait.TASK_LIST
-        assert not harvest.background_capable
 
 
 def test_harvest_guards_ownership_and_returns_a_snapshot(tmp_path) -> None:

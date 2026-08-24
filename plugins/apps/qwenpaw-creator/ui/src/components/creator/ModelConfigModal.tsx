@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Modal,
@@ -96,10 +96,26 @@ export const ASR_PROTOCOLS = [
 export const TTS_PROTOCOLS = ["DashScope（百炼）"];
 export const S2V_PROTOCOLS = ["DashScope（百炼）"];
 export const EMBEDDING_PROTOCOLS = ["DashScope（百炼）"];
-export const IMAGE_PROTOCOLS = ["OpenAI 协议", "DashScope（百炼）"];
+export const IMAGE_PROTOCOLS = [
+  "OpenAI 协议",
+  "DashScope（百炼）",
+  "Google Gemini",
+  "Volcano Engine（火山引擎）",
+  "Black Forest Labs（FLUX）",
+  "Ideogram",
+  "Aliyun Token Plan",
+];
+// Kling and Vidu appear twice on purpose: they are served both as
+// Bailian-hosted models on the DashScope protocol and through their own
+// official APIs, and the protocol choice is what selects the channel.
 export const VIDEO_PROTOCOLS = [
   "DashScope（百炼）",
   "Volcano Engine（火山引擎）",
+  "Google Gemini（Veo）",
+  "MiniMax（海螺）",
+  "Kling（可灵官方）",
+  "Vidu（官方）",
+  "Aliyun Token Plan",
 ];
 
 // Display-only labels for the protocol dropdowns: the stored protocol
@@ -122,6 +138,12 @@ export const PROTOCOL_LABEL_KEYS: Record<string, string> = {
   "ModelScope（魔搭）": "modelConfig.protocols.modelscope",
   百度千帆: "modelConfig.protocols.qianfan",
   "Volcano Engine（火山引擎）": "modelConfig.protocols.volcengine",
+  "Black Forest Labs（FLUX）": "modelConfig.protocols.bfl",
+  Ideogram: "modelConfig.protocols.ideogram",
+  "Google Gemini（Veo）": "modelConfig.protocols.googleGeminiVeo",
+  "MiniMax（海螺）": "modelConfig.protocols.minimaxHailuo",
+  "Kling（可灵官方）": "modelConfig.protocols.klingOfficial",
+  "Vidu（官方）": "modelConfig.protocols.viduOfficial",
   "小米 MiMo": "modelConfig.protocols.xiaomiMimo",
   自定义: "modelConfig.protocols.custom",
   "DashScope Fun-ASR": "modelConfig.protocols.dashscopeFunAsr",
@@ -239,6 +261,51 @@ const IMAGE_PRESETS: Record<string, ProtocolPreset> = {
     base_url: "https://api.openai.com/v1",
     models: ["gpt-image-2"],
   },
+  "Google Gemini": {
+    base_url: "https://generativelanguage.googleapis.com/v1beta",
+    // Nano Banana family via generateContent. gemini-3-pro-image accepts
+    // up to 14 reference images (6 objects + 5 characters + 3 style);
+    // gemini-2.5-flash-image works best with at most 3 references.
+    models: [
+      "gemini-3-pro-image",
+      "gemini-3.1-flash-image",
+      "gemini-3.1-flash-lite-image",
+      "gemini-2.5-flash-image",
+    ],
+  },
+  "Volcano Engine（火山引擎）": {
+    base_url: "https://ark.cn-beijing.volces.com",
+    // Ark images/generations (synchronous). Seedream 5.0 pro accepts up
+    // to 10 reference images; 5.0 lite / 4.5 / 4.0 accept up to 14.
+    models: [
+      "doubao-seedream-5-0-pro-260628",
+      "doubao-seedream-5-0-lite-260128",
+      "doubao-seedream-4-5-251128",
+      "doubao-seedream-4-0-250828",
+    ],
+  },
+  "Black Forest Labs（FLUX）": {
+    base_url: "https://api.bfl.ai",
+    // FLUX.2 create-then-poll API; up to 8 reference images
+    // (input_image .. input_image_8).
+    models: [
+      "flux-2-pro",
+      "flux-2-max",
+      "flux-2-flex",
+      "flux-2-klein-9b",
+      "flux-2-klein-4b",
+    ],
+  },
+  Ideogram: {
+    base_url: "https://api.ideogram.ai",
+    // ideogram-v3 exposes aspect_ratio and one character reference; the
+    // v4 generate endpoint documents neither, so it is text-to-image only.
+    models: ["ideogram-v3", "ideogram-v4"],
+  },
+  "Aliyun Token Plan": {
+    base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    models: ["wan2.7-image-pro", "wan2.7-image"],
+  },
 };
 
 const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
@@ -246,12 +313,72 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
     base_url: "https://dashscope.aliyuncs.com/api/v1",
     // Family base names: the backend derives the per-mode sibling
     // (wan2.7 → wan2.7-t2v/-i2v/-r2v) at submission, so no mode suffix
-    // is configured here.
-    models: ["wan2.7", "happyhorse-1.1"],
+    // is configured here. The kling/ and vidu/ entries are the
+    // Bailian-hosted third-party models served by the same
+    // video-synthesis endpoint (kling v3: t2v/i2v/refer≤7; vidu:
+    // reference-to-video only, 1-7 images).
+    models: [
+      "wan2.7",
+      "happyhorse-1.1",
+      "kling/kling-v3-omni-video-generation",
+      "kling/kling-v3-video-generation",
+      "vidu/viduq3-mix_reference2video",
+      "vidu/viduq3_reference2video",
+      "vidu/viduq3-turbo_reference2video",
+      "vidu/viduq3-ad_reference2video",
+      "vidu/viduq3-drama_reference2video",
+      "vidu/viduq2-pro_reference2video",
+      "vidu/viduq2_reference2video",
+    ],
   },
   "Volcano Engine（火山引擎）": {
     base_url: "https://ark.cn-beijing.volces.com",
-    models: ["doubao-seedance-2.0-pro", "doubao-seedance-2.0-lite"],
+    // Seedance 2.5 (doubao-seedance-2-5-260628) adds omni reference
+    // (up to 30 images + 10 videos) and 4-30s output.
+    models: [
+      "doubao-seedance-2-5-260628",
+      "doubao-seedance-2.0-pro",
+      "doubao-seedance-2.0-lite",
+    ],
+  },
+  "Google Gemini（Veo）": {
+    base_url: "https://generativelanguage.googleapis.com/v1beta",
+    // Veo 3.1 predictLongRunning: durations 4/6/8s (8s with references
+    // or 1080p/4k), up to 3 reference images; Lite has no references/4k.
+    models: [
+      "veo-3.1-generate-preview",
+      "veo-3.1-fast-generate-preview",
+      "veo-3.1-lite-generate-preview",
+    ],
+  },
+  "MiniMax（海螺）": {
+    base_url: "https://api.minimax.io",
+    // Hailuo: 768P at 6/10s, 1080P at 6s; S2V-01 is the only subject
+    // reference model (1 character image). China endpoint:
+    // https://api.minimaxi.com
+    models: [
+      "MiniMax-Hailuo-2.3",
+      "MiniMax-Hailuo-2.3-Fast",
+      "MiniMax-Hailuo-02",
+      "S2V-01",
+    ],
+  },
+  "Kling（可灵官方）": {
+    base_url: "https://api-singapore.klingai.com",
+    // Official channel (Bearer API Key). kling-3.0-omni serves reference
+    // generation (refer<=7, 3-15s, 720p/1080p/4k); kling-2.6 is t2v/i2v
+    // only (5s or 10s, 720p/1080p).
+    models: ["kling-3.0-omni", "kling-2.6"],
+  },
+  "Vidu（官方）": {
+    base_url: "https://api.vidu.com",
+    // Official reference2video channel (Token auth), 1-7 reference
+    // images; viduq2-pro additionally accepts reference videos.
+    models: ["viduq3-mix", "viduq3-turbo", "viduq3", "viduq2-pro", "viduq2"],
+  },
+  "Aliyun Token Plan": {
+    base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    models: ["happyhorse-1.1"],
   },
 };
 
@@ -268,7 +395,7 @@ type TabType = ModelType | "grounding";
 
 // Sections whose endpoint comes from a fixed protocol preset rather than
 // from user input.
-const PRESETS_BY_TYPE: Record<string, Record<string, ProtocolPreset>> = {
+export const PRESETS_BY_TYPE: Record<string, Record<string, ProtocolPreset>> = {
   asr: ASR_PRESETS,
   tts: TTS_PRESETS,
   s2v: S2V_PRESETS,
@@ -589,6 +716,25 @@ function hasUsableApiKey(item: ModelConfigItem): boolean {
   return item.api_key !== undefined && item.api_key.length > 0;
 }
 
+function isFreeTierProtocol(
+  protocol: string,
+  hostProviders: HostProviderInfo[],
+): boolean {
+  const provider = hostProviders.find((p) => p.name === protocol);
+  if (!provider) return false;
+  if (provider.require_api_key === false) return true;
+  return provider.models.some((m) => m.is_free === true);
+}
+
+function hasFreeModels(
+  protocol: string,
+  hostProviders: HostProviderInfo[],
+): boolean {
+  const provider = hostProviders.find((p) => p.name === protocol);
+  if (!provider) return false;
+  return provider.models.some((m) => m.is_free === true);
+}
+
 function groundingValidationModel(config: ModelConfigData): ModelConfigItem {
   if (config.grounding.validation_source === "llm") return config.llm;
   if (config.grounding.validation_source === "vlm") {
@@ -821,6 +967,31 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       .catch(() => setTtsCapabilities(null));
   }, []);
 
+  const STATIC_PROVIDER_IDS = new Set(Object.values(PROTOCOL_TO_PROVIDER_ID));
+
+  const dynamicProviderMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of hostProviders) {
+      if (STATIC_PROVIDER_IDS.has(p.id)) continue;
+      const isFree = p.is_free_tier === true;
+      const hasKey = !!p.api_key && p.api_key !== "";
+      if (isFree || hasKey) {
+        map[p.name] = p.id;
+      }
+    }
+    return map;
+  }, [hostProviders]);
+
+  const dynamicProtocols = useMemo(
+    () => Object.keys(dynamicProviderMap),
+    [dynamicProviderMap],
+  );
+
+  const mergedProviderMap = useMemo(
+    () => ({ ...PROTOCOL_TO_PROVIDER_ID, ...dynamicProviderMap }),
+    [dynamicProviderMap],
+  );
+
   // Resolve the real API key (for connection tests).
   const resolveRealApiKey = async (
     section: string,
@@ -843,7 +1014,14 @@ export default function ModelConfigModal({ open, onClose }: Props) {
 
   const loadConfig = useCallback(async () => {
     try {
-      const data = await getModelConfig();
+      // Await the shared host-provider fetch so dynamically merged
+      // protocols (e.g. OpenCode) are not mistaken for legacy unknown
+      // values and reset below.
+      const [data, providers] = await Promise.all([
+        getModelConfig(),
+        getHostProviders(),
+      ]);
+      const knownHostProtocols = new Set(providers.map((p) => p.name));
       const receivedGrounding = data.grounding as Partial<GroundingConfig>;
       const validationSource =
         receivedGrounding.validation_source ??
@@ -879,7 +1057,10 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           ...data.selfReview,
         },
       };
-      if (!VLM_PROTOCOLS.includes(merged.vlm.protocol))
+      if (
+        !VLM_PROTOCOLS.includes(merged.vlm.protocol) &&
+        !knownHostProtocols.has(merged.vlm.protocol)
+      )
         merged.vlm.protocol = VLM_PROTOCOLS[0];
       if (!ASR_PROTOCOLS.includes(merged.asr.protocol))
         merged.asr.protocol = ASR_PROTOCOLS[0];
@@ -978,28 +1159,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             voice: keep || voices[0] || "",
           };
         }
-        if (field === "model_name" && typeof value === "string" && value) {
-          // Picking a preset model implies its provider endpoint: realign
-          // protocol and Base URL so choosing e.g. a Seedance model from a
-          // DashScope section never submits against the wrong gateway.
-          const presets = PRESETS_BY_TYPE[type];
-          const owner =
-            presets &&
-            Object.entries(presets).find(([, preset]) =>
-              preset.models.includes(value),
-            );
-          if (owner) {
-            const [presetProtocol, preset] = owner;
-            const item = updated[type] as ModelConfigItem;
-            if (item.protocol !== presetProtocol || !item.base_url) {
-              (updated as Record<ModelType, ModelConfigItem>)[type] = {
-                ...item,
-                protocol: presetProtocol,
-                base_url: preset.base_url,
-              };
-            }
-          }
-        }
+
         if (
           type === "llm" &&
           // Only real connection-credential edits invalidate a VLM that
@@ -1144,10 +1304,11 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       }
 
       const vlmItem = config.vlm;
+      const vlmFree = isFreeTierProtocol(vlmItem.protocol, hostProviders);
       if (
         !vlmItem.base_url ||
         !vlmItem.model_name ||
-        !hasUsableApiKey(vlmItem)
+        (!vlmFree && !hasUsableApiKey(vlmItem))
       ) {
         message.warning(t("modelConfig.fillCompleteVlm"));
         return;
@@ -1161,6 +1322,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           api_key: vlmItem.api_key,
           model_name: vlmItem.model_name,
           protocol: vlmItem.protocol,
+          require_api_key: !vlmFree,
         });
         if (data.ok) {
           message.success(t("modelConfig.multimodalTestPassed"));
@@ -1196,10 +1358,11 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       }
 
       const llmItem = config.llm;
+      const llmFree = isFreeTierProtocol(llmItem.protocol, hostProviders);
       if (
         !llmItem.base_url ||
         !llmItem.model_name ||
-        !hasUsableApiKey(llmItem)
+        (!llmFree && !hasUsableApiKey(llmItem))
       ) {
         message.warning(t("modelConfig.fillCompleteLlm"));
         return;
@@ -1215,6 +1378,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           api_key: realApiKey,
           model_name: llmItem.model_name,
           protocol: llmItem.protocol,
+          require_api_key: !llmFree,
         });
         if (data.ok) {
           message.success(t("modelConfig.multimodalTestPassedReuse"));
@@ -1248,17 +1412,19 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       if (type === "vlm" && config.vlm.use_llm) {
         item = config.llm;
       }
-      const hasKey =
-        (type === "asr" && config.asr.reuse_llm_key) ||
-        (type === "tts" && config.tts.reuse_llm_key) ||
-        (type === "s2v" && config.s2v.reuse_llm_key) ||
-        (type === "image" && config.image.reuse_llm_key) ||
-        (type === "video" && config.video.reuse_llm_key)
-          ? hasUsableApiKey(config.llm)
-          : type === "embedding" && config.embedding.reuse_vlm_key
-          ? hasUsableApiKey(config.vlm.use_llm ? config.llm : config.vlm) ||
-            hasUsableApiKey(config.llm)
-          : hasUsableApiKey(item);
+      const isFree = isFreeTierProtocol(item.protocol, hostProviders);
+      const hasKey = isFree
+        ? true
+        : (type === "asr" && config.asr.reuse_llm_key) ||
+          (type === "tts" && config.tts.reuse_llm_key) ||
+          (type === "s2v" && config.s2v.reuse_llm_key) ||
+          (type === "image" && config.image.reuse_llm_key) ||
+          (type === "video" && config.video.reuse_llm_key)
+        ? hasUsableApiKey(config.llm)
+        : type === "embedding" && config.embedding.reuse_vlm_key
+        ? hasUsableApiKey(config.vlm.use_llm ? config.llm : config.vlm) ||
+          hasUsableApiKey(config.llm)
+        : hasUsableApiKey(item);
       if (!item.base_url || !hasKey || !item.model_name) {
         message.warning(t("modelConfig.fillComplete"));
         return false;
@@ -1301,6 +1467,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           protocol: item.protocol,
           provider: type === "asr" ? config.asr.provider : undefined,
           voice: type === "tts" ? config.tts.voice : undefined,
+          require_api_key: !isFree,
         });
         if (data.ok) {
           message.success(t("modelConfig.connectionTestSuccess"));
@@ -1349,7 +1516,12 @@ export default function ModelConfigModal({ open, onClose }: Props) {
 
   const handleGroundingTest = useCallback(async (): Promise<boolean> => {
     const item = groundingValidationModel(config);
-    if (!item.base_url || !hasUsableApiKey(item) || !item.model_name) {
+    const groundingFree = isFreeTierProtocol(item.protocol, hostProviders);
+    if (
+      !item.base_url ||
+      (!groundingFree && !hasUsableApiKey(item)) ||
+      !item.model_name
+    ) {
       message.warning(t("modelConfig.groundingFillComplete"));
       return false;
     }
@@ -1375,6 +1547,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         api_key: realApiKey,
         model_name: item.model_name,
         protocol: item.protocol,
+        require_api_key: !groundingFree,
       });
       if (!data.ok) {
         message.warning(
@@ -1406,20 +1579,28 @@ export default function ModelConfigModal({ open, onClose }: Props) {
 
       if (config.grounding.enabled) {
         const groundingModel = groundingValidationModel(config);
+        const groundingFree = isFreeTierProtocol(
+          groundingModel.protocol,
+          hostProviders,
+        );
         if (
           !groundingModel.base_url ||
           !groundingModel.model_name ||
-          !hasUsableApiKey(groundingModel)
+          (!groundingFree && !hasUsableApiKey(groundingModel))
         ) {
           message.warning(t("modelConfig.groundingDefaultOn"));
           return;
         }
         const searchModel = groundingSearchModel(config);
+        const searchFree = isFreeTierProtocol(
+          searchModel.protocol,
+          hostProviders,
+        );
         const nativeSearchReady =
           config.grounding.native_search_enabled &&
           !!searchModel.base_url &&
           !!searchModel.model_name &&
-          hasUsableApiKey(searchModel) &&
+          (searchFree || hasUsableApiKey(searchModel)) &&
           supportsQwenNativeSearch(searchModel);
         if (
           !config.grounding.tavily_api_key &&
@@ -1482,35 +1663,44 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     onClose();
   }, [onClose]);
 
-  const protocolsFor = (type: ModelType) =>
-    type === "llm"
-      ? LLM_PROTOCOLS
-      : type === "vlm"
-      ? VLM_PROTOCOLS
-      : type === "asr"
-      ? ASR_PROTOCOLS
-      : type === "tts"
-      ? TTS_PROTOCOLS
-      : type === "s2v"
-      ? S2V_PROTOCOLS
-      : type === "embedding"
-      ? EMBEDDING_PROTOCOLS
-      : type === "image"
-      ? IMAGE_PROTOCOLS
-      : VIDEO_PROTOCOLS;
+  const protocolsFor = (type: ModelType) => {
+    const base =
+      type === "llm"
+        ? LLM_PROTOCOLS
+        : type === "vlm"
+        ? VLM_PROTOCOLS
+        : type === "asr"
+        ? ASR_PROTOCOLS
+        : type === "tts"
+        ? TTS_PROTOCOLS
+        : type === "s2v"
+        ? S2V_PROTOCOLS
+        : type === "embedding"
+        ? EMBEDDING_PROTOCOLS
+        : type === "image"
+        ? IMAGE_PROTOCOLS
+        : VIDEO_PROTOCOLS;
+    if (type === "llm" || type === "vlm") {
+      const withDynamic = [...base, ...dynamicProtocols];
+      const customIdx = withDynamic.indexOf("自定义");
+      if (customIdx !== -1 && customIdx !== withDynamic.length - 1) {
+        withDynamic.splice(customIdx, 1);
+        withDynamic.push("自定义");
+      }
+      return withDynamic;
+    }
+    return base;
+  };
 
   const getPresetForType = (
     type: ModelType,
     protocol: string,
   ): ProtocolPreset | null => {
     if (type === "llm" || type === "vlm") {
-      const providerId = PROTOCOL_TO_PROVIDER_ID[protocol];
+      const providerId = mergedProviderMap[protocol];
       if (!providerId) return null;
       const provider = hostProviders.find((p) => p.id === providerId);
       if (!provider) {
-        // Standalone deployments have no host registry; fall back to the
-        // registry-verbatim default endpoint so picking a protocol still
-        // seeds a usable Base URL.
         const fallback = LLM_PROTOCOL_FALLBACK_BASE_URLS[protocol];
         return fallback ? { base_url: fallback, models: [] } : null;
       }
@@ -1545,12 +1735,15 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     protocol: string,
   ): { value: string; label: string }[] => {
     if (type === "llm" || type === "vlm") {
-      const providerId = PROTOCOL_TO_PROVIDER_ID[protocol];
+      const providerId = mergedProviderMap[protocol];
       if (!providerId) return [];
       const provider = hostProviders.find((p) => p.id === providerId);
       if (!provider) return [];
       return [
-        ...provider.models.map((m) => ({ value: m.id, label: m.id })),
+        ...provider.models.map((m) => ({
+          value: m.id,
+          label: m.is_free ? `${m.id} (免费)` : m.id,
+        })),
         ...provider.extra_models.map((m) => ({ value: m.id, label: m.id })),
       ];
     }
@@ -1588,23 +1781,27 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     // sync the API key from the host.
     if ((type === "llm" || type === "vlm") && protocol !== "自定义") {
       const currentItem = config[type] as ModelConfigItem;
-      // Only sync on first configuration (api_key is empty).
       if (
         !currentItem.api_key ||
         currentItem.api_key === "__CREATOR_SECRET__"
       ) {
-        const providerId = PROTOCOL_TO_PROVIDER_ID[protocol];
+        const providerId = mergedProviderMap[protocol];
         if (providerId) {
-          try {
-            const result = await getHostProviderApiKey(providerId);
-            if (result.api_key) {
-              updateItem(type, "api_key", result.api_key);
+          const hostProvider = hostProviders.find((p) => p.id === providerId);
+          if (hostProvider?.require_api_key === false) {
+            // Free-tier provider — no key needed.
+          } else {
+            try {
+              const result = await getHostProviderApiKey(providerId);
+              if (result.api_key) {
+                updateItem(type, "api_key", result.api_key);
+              }
+            } catch (error) {
+              console.warn(
+                `Failed to sync API key from host for ${providerId}:`,
+                error,
+              );
             }
-          } catch (error) {
-            console.warn(
-              `Failed to sync API key from host for ${providerId}:`,
-              error,
-            );
           }
         }
       }
@@ -1682,10 +1879,21 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             <Select
               value={item.protocol}
               onChange={(v) => handleProtocolChange(type, v)}
-              options={protocolsFor(type).map((p) => ({
-                value: p,
-                label: protocolLabel(p),
-              }))}
+              options={protocolsFor(type).map((p) => {
+                const provider = hostProviders.find((hp) => hp.name === p);
+                const isFullyFree = provider?.require_api_key === false;
+                const hasFree = hasFreeModels(p, hostProviders);
+                let suffix = "";
+                if (isFullyFree) {
+                  suffix = " (免费)";
+                } else if (hasFree) {
+                  suffix = " (含免费模型)";
+                }
+                return {
+                  value: p,
+                  label: `${protocolLabel(p)}${suffix}`,
+                };
+              })}
             />
             {item.protocol === "自定义" && (
               <Input
@@ -1771,7 +1979,8 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         </div>
         {(type === "image" || type === "video") &&
           (item.protocol.toLowerCase().includes("dashscope") ||
-            item.protocol.includes("百炼")) && (
+            item.protocol.includes("百炼") ||
+            item.protocol.toLowerCase().includes("token plan")) && (
             <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
               <Checkbox
                 checked={
@@ -1779,9 +1988,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                     ? config.image.reuse_llm_key
                     : config.video.reuse_llm_key
                 }
-                onChange={(e) =>
-                  updateItem(type, "reuse_llm_key", e.target.checked)
-                }
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  updateItem(type, "reuse_llm_key", checked);
+                  if (checked) {
+                    updateItem(type, "api_key", "");
+                  }
+                }}
               >
                 {t("modelConfig.reuseLlmApiKey")}
               </Checkbox>
@@ -1791,9 +2004,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
             <Checkbox
               checked={config.asr.reuse_llm_key}
-              onChange={(e) =>
-                updateItem("asr", "reuse_llm_key", e.target.checked)
-              }
+              onChange={(e) => {
+                const checked = e.target.checked;
+                updateItem("asr", "reuse_llm_key", checked);
+                if (checked) {
+                  updateItem("asr", "api_key", "");
+                }
+              }}
             >
               {t("modelConfig.reuseLlmApiKey")}
             </Checkbox>
@@ -1816,9 +2033,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             <div style={{ gridColumn: "1 / -1", marginBottom: 4 }}>
               <Checkbox
                 checked={config.tts.reuse_llm_key}
-                onChange={(e) =>
-                  updateItem("tts", "reuse_llm_key", e.target.checked)
-                }
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  updateItem("tts", "reuse_llm_key", checked);
+                  if (checked) {
+                    updateItem("tts", "api_key", "");
+                  }
+                }}
               >
                 {t("modelConfig.reuseLlmApiKey")}
               </Checkbox>
@@ -1866,9 +2087,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             <div style={{ gridColumn: "1 / -1", marginBottom: 4 }}>
               <Checkbox
                 checked={config.s2v.reuse_llm_key}
-                onChange={(e) =>
-                  updateItem("s2v", "reuse_llm_key", e.target.checked)
-                }
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  updateItem("s2v", "reuse_llm_key", checked);
+                  if (checked) {
+                    updateItem("s2v", "api_key", "");
+                  }
+                }}
               >
                 {t("modelConfig.reuseLlmApiKey")}
               </Checkbox>
@@ -1902,9 +2127,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
             <Checkbox
               checked={config.embedding.reuse_vlm_key}
-              onChange={(e) =>
-                updateItem("embedding", "reuse_vlm_key", e.target.checked)
-              }
+              onChange={(e) => {
+                const checked = e.target.checked;
+                updateItem("embedding", "reuse_vlm_key", checked);
+                if (checked) {
+                  updateItem("embedding", "api_key", "");
+                }
+              }}
             >
               {t("modelConfig.reuseVlmApiKey")}
             </Checkbox>
@@ -1976,13 +2205,17 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     const isExpanded = expanded.grounding;
     const verifier = groundingValidationModel(config);
     const searchModel = groundingSearchModel(config);
+    const verifierFree = isFreeTierProtocol(verifier.protocol, hostProviders);
     const verifierReady =
-      !!verifier.model_name && !!verifier.base_url && hasUsableApiKey(verifier);
+      !!verifier.model_name &&
+      !!verifier.base_url &&
+      (verifierFree || hasUsableApiKey(verifier));
+    const searchFree = isFreeTierProtocol(searchModel.protocol, hostProviders);
     const nativeSearchReady =
       config.grounding.native_search_enabled &&
       !!searchModel.model_name &&
       !!searchModel.base_url &&
-      hasUsableApiKey(searchModel) &&
+      (searchFree || hasUsableApiKey(searchModel)) &&
       supportsQwenNativeSearch(searchModel);
     const searchReady =
       !!config.grounding.tavily_api_key ||

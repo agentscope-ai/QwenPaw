@@ -20,10 +20,11 @@ import os
 import re
 import time
 import traceback
+import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
@@ -55,6 +56,7 @@ _SECRET_KEY = re.compile(
 _ID_KEYS = frozenset(
     {
         "requestId",
+        "errorId",
         "projectId",
         "sessionId",
         "conversationId",
@@ -71,6 +73,8 @@ _ID_KEYS = frozenset(
 )
 _MAX_VALUE_CHARS = 4_000
 _MAX_COLLECTION_ITEMS = 50
+_RETENTION_LOCK = threading.Lock()
+_RETENTION_CLEANED: dict[Path, str] = {}
 
 
 def _enabled() -> bool:
@@ -178,6 +182,93 @@ def current_trace_context() -> dict[str, str]:
     return dict(_CONTEXT.get())
 
 
+def report_error(
+    *,
+    component: str,
+    code: str,
+    message: str,
+    error: BaseException | None = None,
+    retryable: bool = False,
+    details: Mapping[str, Any] | None = None,
+    **context: object,
+) -> dict[str, Any]:
+    """Emit one correlated diagnostic and return fields safe to persist.
+
+    User-visible records carry ``errorId`` while the trace retains the type,
+    cause chain and structured details needed to diagnose the same incident.
+    """
+
+    error_id = _new_id("error")
+    inherited = current_trace_context()
+    correlation = {
+        **inherited,
+        **{
+            key: str(value)
+            for key, value in context.items()
+            if value not in (None, "")
+        },
+    }
+    trace_id = correlation.get("traceId") or _trace_id_for(correlation)
+    cause_chain: list[dict[str, str]] = []
+    current = error
+    seen: set[int] = set()
+    while (
+        current is not None
+        and id(current) not in seen
+        and len(cause_chain) < 6
+    ):
+        seen.add(id(current))
+        cause_chain.append(
+            {
+                "type": type(current).__name__,
+                "message": str(current)[:2000],
+            },
+        )
+        current = current.__cause__ or current.__context__
+    attributes = {
+        "errorId": error_id,
+        "errorCode": code,
+        "errorType": type(error).__name__ if error is not None else None,
+        "message": message[:4000],
+        "retryable": retryable,
+        "details": dict(details or {}),
+        "causeChain": cause_chain,
+        "stack": (
+            "".join(
+                traceback.format_exception(
+                    type(error),
+                    error,
+                    error.__traceback__,
+                ),
+            )[-12_000:]
+            if error is not None
+            else ""
+        ),
+    }
+    trace_event(
+        "creator.error.reported",
+        component=component,
+        status="error",
+        attributes=attributes,
+        errorId=error_id,
+        traceId=trace_id,
+        **{
+            key: value
+            for key, value in context.items()
+            if key not in {"errorId", "traceId"}
+        },
+    )
+    return {
+        "errorId": error_id,
+        "traceId": trace_id,
+        "requestId": correlation.get("requestId"),
+        "code": code,
+        "message": message[:4000],
+        "retryable": retryable,
+        "details": dict(details or {}),
+    }
+
+
 register_creator_log_project_resolver(
     lambda: current_trace_context().get("projectId"),
 )
@@ -201,9 +292,10 @@ def _write(record: Mapping[str, Any]) -> None:
         return
 
     try:
+        config = load_observability_config()
         safe = _json_safe(
             record,
-            capture_content=load_observability_config().capture_content,
+            capture_content=config.capture_content,
         )
         line = json.dumps(
             safe,
@@ -226,6 +318,8 @@ def _write(record: Mapping[str, Any]) -> None:
         else:
             path = _trace_root() / f"creator-trace-{day}.jsonl"
 
+        _cleanup_expired_trace_files(path.parent, config.retention_days)
+
         try:
             descriptor = os.open(
                 path,
@@ -245,6 +339,31 @@ def _write(record: Mapping[str, Any]) -> None:
         # Bad diagnostic data (for example a NaN provider metric) must never
         # fail the business operation that attempted to emit it.
         _TRACE_LOGGER.exception("failed to create trace data", exc_info=True)
+
+
+def _cleanup_expired_trace_files(root: Path, retention_days: int) -> None:
+    """Best-effort once-daily retention without entering business locks."""
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    with _RETENTION_LOCK:
+        if _RETENTION_CLEANED.get(root) == today:
+            return
+        _RETENTION_CLEANED[root] = today
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    for path in root.glob("creator-trace-*.jsonl"):
+        try:
+            modified = datetime.fromtimestamp(
+                path.stat().st_mtime,
+                tz=timezone.utc,
+            )
+            if modified < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            _TRACE_LOGGER.warning(
+                "failed to apply trace retention to %s",
+                path,
+                exc_info=True,
+            )
 
 
 def trace_event(
