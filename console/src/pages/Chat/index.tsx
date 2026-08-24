@@ -216,6 +216,7 @@ import {
   getSubmissionChatId,
   getSubmissionIdentity,
   getSubmissionSdkSessionId,
+  rebindSubmissionBizParams,
 } from "./submissionBizParams";
 
 // ---------------------------------------------------------------------------
@@ -2497,7 +2498,7 @@ export default function ChatPage() {
       useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
       useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
-        useMessageQueueStore.getState().clear("new");
+        useMessageQueueStore.getState().migrateQueue("new", sessionId);
       } catch {
         // ignore
       }
@@ -2965,10 +2966,17 @@ export default function ChatPage() {
         chat_id: selectedSessionId,
         sdk_session_id: submissionIdentity.sdkSessionId,
       });
-      data.biz_params = {
-        ...bizParams,
-        ...data.biz_params,
-      } as IAgentScopeRuntimeWebUIInputData["biz_params"];
+      data.biz_params =
+        getSubmissionChatId(data.biz_params) === "new"
+          ? rebindSubmissionBizParams(data.biz_params, submissionIdentity, {
+              agentId: selectedAgent,
+              chatId: selectedSessionId,
+              sdkSessionId: submissionIdentity.sdkSessionId,
+            })
+          : ({
+              ...bizParams,
+              ...data.biz_params,
+            } as IAgentScopeRuntimeWebUIInputData["biz_params"]);
 
       if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every

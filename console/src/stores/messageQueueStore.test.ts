@@ -333,6 +333,69 @@ describe("messageQueueStore", () => {
     expect(src).toEqual([]);
   });
 
+  it("migrateQueue binds the new placeholder to the SDK local session", () => {
+    useMessageQueueStore.getState().enqueue("new", {
+      agentId: "agent-a",
+      text: "queued",
+      bizParams: {
+        session_id: "",
+        user_id: "default",
+        channel: "console",
+        request_context: {
+          source: "console_chat_queue",
+          agent_id: "agent-a",
+          chat_id: "new",
+          sdk_session_id: "new",
+        },
+      },
+    });
+
+    useMessageQueueStore.getState().migrateQueue("new", "local-1");
+
+    expect(
+      useMessageQueueStore.getState().getQueue("local-1")[0].bizParams,
+    ).toMatchObject({
+      session_id: "local-1",
+      request_context: {
+        chat_id: "local-1",
+        sdk_session_id: "local-1",
+      },
+    });
+  });
+
+  it("migrateQueue updates the chat UUID without changing backend or SDK identity", () => {
+    useMessageQueueStore.getState().enqueue("local-1", {
+      agentId: "agent-a",
+      text: "queued",
+      bizParams: {
+        session_id: "local-1",
+        user_id: "default",
+        channel: "console",
+        request_context: {
+          agent_id: "agent-a",
+          chat_id: "local-1",
+          sdk_session_id: "local-1",
+        },
+      },
+    });
+
+    useMessageQueueStore
+      .getState()
+      .migrateQueue("local-1", "00000000-0000-4000-8000-000000000001");
+
+    expect(
+      useMessageQueueStore
+        .getState()
+        .getQueue("00000000-0000-4000-8000-000000000001")[0].bizParams,
+    ).toMatchObject({
+      session_id: "local-1",
+      request_context: {
+        chat_id: "00000000-0000-4000-8000-000000000001",
+        sdk_session_id: "local-1",
+      },
+    });
+  });
+
   it("migrateQueue is a no-op when source and destination are the same", () => {
     useMessageQueueStore
       .getState()

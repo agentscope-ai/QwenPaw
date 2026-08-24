@@ -130,6 +130,42 @@ export function nextQueueId(): string {
   return "mq-" + Date.now().toString(36) + "-" + (++_nextQueueId).toString(36);
 }
 
+/**
+ * Move client-side session aliases with the queue while preserving the
+ * backend identity captured at enqueue time. The special `new` key is only a
+ * placeholder, so its empty backend identity is bound to the SDK's new local
+ * session as part of the first migration.
+ */
+function migrateQueueItemIdentity(
+  item: QueueItem,
+  fromSessionId: string,
+  toSessionId: string,
+): QueueItem {
+  const requestContext =
+    item.bizParams.request_context &&
+    typeof item.bizParams.request_context === "object"
+      ? (item.bizParams.request_context as Record<string, unknown>)
+      : {};
+  const chatId = requestContext.chat_id;
+  const sdkSessionId = requestContext.sdk_session_id;
+  const isNewPlaceholder = fromSessionId === "new";
+
+  return {
+    ...item,
+    bizParams: {
+      ...item.bizParams,
+      ...(isNewPlaceholder ? { session_id: toSessionId } : {}),
+      request_context: {
+        ...requestContext,
+        ...(chatId === fromSessionId ? { chat_id: toSessionId } : {}),
+        ...(isNewPlaceholder && sdkSessionId === fromSessionId
+          ? { sdk_session_id: toSessionId }
+          : {}),
+      },
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cross-tab synchronization
 // ---------------------------------------------------------------------------
@@ -410,7 +446,9 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
   migrateQueue: (fromSessionId: string, toSessionId: string) => {
     if (fromSessionId === toSessionId) return;
     set((state) => {
-      const fromItems = state.queues[fromSessionId] ?? [];
+      const fromItems = (state.queues[fromSessionId] ?? []).map((item) =>
+        migrateQueueItemIdentity(item, fromSessionId, toSessionId),
+      );
       const toItems = state.queues[toSessionId] ?? [];
       // Preserve order: existing destination items first, migrated source items appended.
       const merged = [...toItems, ...fromItems];

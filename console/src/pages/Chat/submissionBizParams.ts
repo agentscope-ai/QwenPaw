@@ -12,6 +12,12 @@ export interface SubmissionIdentity {
   channel: string;
 }
 
+export interface SubmissionContextIdentity {
+  agentId: string;
+  chatId: string;
+  sdkSessionId: string;
+}
+
 export function buildSubmissionBizParams(
   identity: SubmissionIdentity,
   context?: Record<string, unknown>,
@@ -21,6 +27,33 @@ export function buildSubmissionBizParams(
     user_id: identity.userId,
     channel: identity.channel,
     ...(context ? { request_context: context } : {}),
+  };
+}
+
+/**
+ * Replace a placeholder submission identity once the SDK has created the
+ * local session. Non-identity business parameters remain unchanged.
+ */
+export function rebindSubmissionBizParams(
+  bizParams: Record<string, unknown> | undefined,
+  identity: SubmissionIdentity,
+  contextIdentity: SubmissionContextIdentity,
+): ConsoleBizParams {
+  const requestContext =
+    bizParams?.request_context && typeof bizParams.request_context === "object"
+      ? (bizParams.request_context as Record<string, unknown>)
+      : {};
+  return {
+    ...bizParams,
+    session_id: identity.sessionId,
+    user_id: identity.userId,
+    channel: identity.channel,
+    request_context: {
+      ...requestContext,
+      agent_id: contextIdentity.agentId,
+      chat_id: contextIdentity.chatId,
+      sdk_session_id: contextIdentity.sdkSessionId,
+    },
   };
 }
 

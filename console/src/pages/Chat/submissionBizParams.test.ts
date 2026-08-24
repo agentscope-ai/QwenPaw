@@ -7,6 +7,7 @@ import {
   getSubmissionIdentity,
   getSubmissionSdkSessionId,
   getSubmissionSessionId,
+  rebindSubmissionBizParams,
 } from "./submissionBizParams";
 
 const IDENTITY_A = {
@@ -70,5 +71,39 @@ describe("submissionBizParams", () => {
     expect(getSubmissionSessionId({ session_id: "" }, "session-b")).toBe(
       "session-b",
     );
+  });
+
+  it("rebinds a new-chat placeholder after the SDK creates a local session", () => {
+    expect(
+      rebindSubmissionBizParams(
+        {
+          session_id: "",
+          user_id: "default",
+          channel: "console",
+          request_context: {
+            source: "console_chat_queue",
+            agent_id: "stale-agent",
+            chat_id: "new",
+            sdk_session_id: "new",
+          },
+        },
+        IDENTITY_A,
+        {
+          agentId: "agent-a",
+          chatId: "local-a",
+          sdkSessionId: "local-a",
+        },
+      ),
+    ).toEqual({
+      session_id: "session-a",
+      user_id: "user-a",
+      channel: "channel-a",
+      request_context: {
+        source: "console_chat_queue",
+        agent_id: "agent-a",
+        chat_id: "local-a",
+        sdk_session_id: "local-a",
+      },
+    });
   });
 });
