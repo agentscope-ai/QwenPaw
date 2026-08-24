@@ -137,7 +137,7 @@ def test_plugin_api_middleware_registration() -> None:
     """
     api, registry = _make_api()
 
-    def _factory(ctx, _agent_config):
+    def _factory(_ctx, _agent_config):
         return None
 
     api.register_middleware(_factory, priority=50)
