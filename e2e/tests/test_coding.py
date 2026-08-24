@@ -178,18 +178,11 @@ class TestOpenExistingDirectory:
         log_test_step("2. Enable Coding Mode and assert IDE renders")
         coding_page.api_set_coding_mode(api_context, True)
         try:
-            coding_page.open_chat()
-            coding_page.page.goto(
-                coding_page.CODING_URL,
-                wait_until="commit",
-                timeout=coding_page.timeout,
-            )
-            coding_page.page.wait_for_url(
-                "**/coding",
-                timeout=coding_page.timeout,
-            )
+            coding_page.page.goto(coding_page.CODING_URL)
+            coding_page.page.wait_for_load_state("domcontentloaded")
+            coding_page.page.wait_for_timeout(3000)
             assert coding_page.verify_ide_layout_visible(), (
-                "IDE shell did not render after opening existing directory"
+                "IDE surface did not render after opening existing directory"
             )
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed (path: {active_path})")

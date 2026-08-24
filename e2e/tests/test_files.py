@@ -482,9 +482,17 @@ class TestWorkspaceUploadDownload:
     """
 
     @pytest.mark.test_id("FILE-004")
-    def test_workspace_download_and_upload_button(self, page: Page, request: pytest.FixtureRequest):
+    def test_workspace_download_and_upload_button(self, page: Page, api_context, request: pytest.FixtureRequest):
         """Verify workspace upload and per-file download buttons."""
         test_name = request.node.name
+
+        log_test_step("0. Seed a file so the tree has a row to open")
+        seed = api_context.put(
+            "/api/workspace/files/e2e_files_seed.txt",
+            data={"content": "e2e seed for FILE-004\n"},
+            headers={"X-Agent-Id": "default"},
+        )
+        assert seed.ok, f"Seed failed [{seed.status}]: {seed.text()}"
 
         log_test_step("1. Visit the files page")
         navigate_to_workspace(page)
@@ -749,9 +757,17 @@ class TestWorkspaceZipDownload:
     """
 
     @pytest.mark.test_id("FILE-P2-002")
-    def test_workspace_zip_download(self, page: Page, request: pytest.FixtureRequest):
+    def test_workspace_zip_download(self, page: Page, api_context, request: pytest.FixtureRequest):
         """Test downloading a workspace file."""
         test_name = request.node.name
+
+        log_test_step("Seed a file so the tree has a row to open")
+        seed = api_context.put(
+            "/api/workspace/files/e2e_zip_seed.txt",
+            data={"content": "e2e seed for FILE-P2-002\n"},
+            headers={"X-Agent-Id": "default"},
+        )
+        assert seed.ok, f"Seed failed [{seed.status}]: {seed.text()}"
 
         log_test_step("Navigate to the files page")
         page.goto(f"{config.base_url}/files")
