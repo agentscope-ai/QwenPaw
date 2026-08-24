@@ -1156,29 +1156,48 @@ def load_governance_policy(
     policy_dir: str,
     workspace_dir: str,
     coding_project_dir: str = "",
+    extra_project_dirs: Optional[List[str]] = None,
 ) -> GovernancePolicy:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
         policy_dir: directory containing policy.yaml
         workspace_dir: used to replace WORKSPACE_DIR placeholders in rules
-        coding_project_dir: used to replace CODING_PROJECT_DIR placeholders
-            in rules; defaults to ``workspace_dir`` when empty
+        coding_project_dir: effective PRIMARY project dir; used to replace
+            CODING_PROJECT_DIR placeholders in rules; defaults to
+            ``workspace_dir`` when empty
+        extra_project_dirs: remaining bound project directories. Each
+            gets a system-managed ALLOW rule (``*(<path>/**)``, reason
+            "Extra project dir") synced to this list on every load —
+            revoking access means unbinding the directory, not deleting
+            the rule.
 
     Supports both v1.0 and v2.0 YAML formats.
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except Exception:
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     if not isinstance(data, dict):
-        return _create_default_policy(workspace_dir, coding_project_dir)
+        return _create_default_policy(
+            workspace_dir,
+            coding_project_dir,
+            extra_project_dirs=extra_project_dirs,
+        )
 
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
@@ -1258,6 +1277,14 @@ def load_governance_policy(
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
 
+    # ── Sync system-managed ALLOW rules for extra project dirs ──
+    user_rules = _sync_extra_project_dir_rules(
+        user_rules,
+        workspace_dir,
+        cpd,
+        extra_project_dirs or [],
+    )
+
     return GovernancePolicy(
         version=version,
         builtin_rules=builtin_rules,
@@ -1289,7 +1316,20 @@ def save_governance_policy(
                        paths back to CODING_PROJECT_DIR placeholders
     """
     builtin_rules = copy.deepcopy(policy.builtin_rules)
-    user_rules = copy.deepcopy(policy.user_rules)
+    # System-managed extra-project-dir rules are NOT persisted: they are
+    # regenerated from the chat's bound directory list on every load (see
+    # ``_sync_extra_project_dir_rules``). Writing them would make the
+    # per-workspace policy.yaml chat-dependent — two chats bound to
+    # different directories would take turns deleting each other's rules,
+    # and a user rule that happened to share the marker reason would be
+    # dropped along with them.
+    user_rules = copy.deepcopy(
+        [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
+        ],
+    )
 
     # ── Restore actual paths to WORKSPACE_DIR / CODING_PROJECT_DIR ──
     if workspace_dir:
@@ -1374,14 +1414,25 @@ _DEFAULT_SENSITIVE_PATHS: List[str] = [
 def _create_default_policy(
     workspace_dir: str = "",
     coding_project_dir: str = "",
+    extra_project_dirs: Optional[List[str]] = None,
 ) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(get_default_user_rules())
+    cpd = coding_project_dir or workspace_dir
     if workspace_dir:
-        cpd = coding_project_dir or workspace_dir
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
         _resolve_placeholders(user_rules, workspace_dir, cpd)
+    # Outside the ``workspace_dir`` gate, matching ``load_governance_policy``:
+    # extra dirs carry literal absolute paths and need no placeholder
+    # resolution, so they must be granted even on a cold start that has no
+    # workspace to substitute.
+    user_rules = _sync_extra_project_dir_rules(
+        user_rules,
+        workspace_dir,
+        cpd,
+        extra_project_dirs or [],
+    )
     return GovernancePolicy(
         version="2.0",
         builtin_rules=builtin_rules,
@@ -1476,6 +1527,13 @@ def _unresolve_placeholders(
     cannot be distinguished in an already-resolved pattern, so the shared
     path is restored as ``WORKSPACE_DIR`` (the coding dir is still covered
     by the workspace rules in that case).
+
+    System-managed extra-project-dir rules are left untouched. Belt and
+    braces: :func:`save_governance_policy` already drops them before
+    calling this, but were they ever persisted their paths would have to
+    stay literal — an extra root sharing a prefix with the primary (e.g.
+    primary ``/repos/app`` + extra ``/repos/app-docs``) would otherwise be
+    corrupted into ``CODING_PROJECT_DIR-docs``.
     """
     # Build (actual_path, placeholder) pairs, longest path first.
     # avoiding CODING_PROJECT_DIR is substring of WORKSPACE_DIR
@@ -1487,6 +1545,8 @@ def _unresolve_placeholders(
     pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
 
     for rule in rules:
+        if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON:
+            continue
         for actual, placeholder in pairs:
             if actual and actual in rule.match:
                 rule.match = rule.match.replace(actual, placeholder)
@@ -1673,3 +1733,94 @@ def _parse_detection_rules(
                 exc,
             )
     return rules
+
+
+# Reason marker identifying system-managed ALLOW rules for non-primary
+# project directories. Synced against the bound list on every load: the
+# way to revoke one is to unbind the directory, not to delete the rule.
+EXTRA_PROJECT_DIR_RULE_REASON = "Extra project dir"
+
+
+def _project_dir_allow_match(path: str) -> str:
+    """Return the ``match`` granting *path* and everything beneath it.
+
+    The directory name is **escaped**, not interpolated. ``*?[]{}!`` are
+    all legal characters in a directory name but glob syntax to the
+    matcher, so a raw f-string produces a rule that grants the wrong
+    tree: ``/tmp/project[1]`` reads ``[1]`` as a character class, stops
+    matching its own files, and starts matching ``/tmp/project1`` — a
+    directory the user never bound. ``{a,b}`` behaves the same way via
+    brace expansion.
+
+    :func:`wcmatch.glob.escape` is used rather than a hand-rolled escape
+    because it is the same library :meth:`GovernanceRule._globmatch`
+    matches with, and it handles the separator differences between POSIX
+    and Windows paths (which a character-class escape cannot, since
+    brace expansion runs before the pattern is parsed).
+    """
+    from wcmatch import glob
+
+    return f"*({glob.escape(path)}/**)"
+
+
+def _sync_extra_project_dir_rules(
+    user_rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str,
+    extra_project_dirs: List[str],
+) -> List[GovernanceRule]:
+    """Reconcile system-managed ALLOW rules with the bound dir list.
+
+    Adds ``*(<path>/**)`` ALLOW rules for directories that lack one and
+    drops rules whose directory is no longer bound (or has been promoted
+    to primary / overlaps the workspace, both already covered).
+
+    A rule written before the path was escaped no longer matches the
+    pattern this function would generate, so it is treated as stale and
+    replaced — which is the intended repair, since the unescaped rule
+    described the wrong tree.
+    """
+
+    from ..services.project_directory import dir_key as _dedupe_key
+
+    covered = {
+        key
+        for key in (
+            _dedupe_key(coding_project_dir),
+            _dedupe_key(workspace_dir),
+        )
+        if key
+    }
+    desired: List[str] = []
+    for raw in extra_project_dirs:
+        key = _dedupe_key(raw)
+        if not key or key in covered:
+            continue
+        covered.add(key)
+        desired.append(str(Path(raw).expanduser()))
+
+    existing_matches = {
+        rule.match
+        for rule in user_rules
+        if rule.reason == EXTRA_PROJECT_DIR_RULE_REASON
+    }
+
+    desired_matches = {_project_dir_allow_match(path) for path in desired}
+    kept = [
+        rule
+        for rule in user_rules
+        if rule.reason != EXTRA_PROJECT_DIR_RULE_REASON
+        or rule.match in desired_matches
+    ]
+    for path in desired:
+        match = _project_dir_allow_match(path)
+        if match in existing_matches:
+            continue
+        kept.append(
+            GovernanceRule(
+                match=match,
+                action=GovernanceAction.ALLOW,
+                reason=EXTRA_PROJECT_DIR_RULE_REASON,
+            ),
+        )
+    return kept

@@ -126,37 +126,90 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
-async def _apply_session_project_dir(
+async def _persist_pending_project_dirs(
     workspace,
     chat,
     native_payload: dict[str, Any],
 ):
-    """Persist a Session project selection before dispatch."""
+    """Bind pending project dirs sent with a new chat's first message.
+
+    The console can only offer a directory picker *before* a chat
+    exists, so the choice arrives in ``request_context`` as
+    ``session_project_dirs`` (ordered list, primary first; the legacy
+    singular ``session_project_dir`` is still honoured). Entries are
+    validated here rather than trusted: they come from a client, and a
+    bad value would otherwise be written into the chat and silently
+    steer every later turn.
+
+    Never overwrites an existing session override — a chat that already
+    has one is not a new chat, and clobbering it would lose the user's
+    setting.
+
+    The keys are popped once they have been **consumed** — persisted onto
+    the chat, where every later turn reads them from. If persistence does
+    not happen (the chat vanished), they are put back so that
+    ``ContextVarsSetupHook`` can still honour the user's pick for this
+    first turn instead of silently falling back to the agent default.
+    """
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
-    raw_value = request_context.pop("session_project_dir", None)
-    if not isinstance(raw_value, str) or not raw_value.strip():
+
+    raw_list = request_context.pop("session_project_dirs", None)
+    raw_single = request_context.pop("session_project_dir", None)
+
+    def _leave_for_hook() -> None:
+        """Restore the unconsumed keys for ContextVarsSetupHook."""
+        if raw_list is not None:
+            request_context["session_project_dirs"] = raw_list
+        if raw_single is not None:
+            request_context["session_project_dir"] = raw_single
+
+    pending: list | None = None
+    if isinstance(raw_list, list) and raw_list:
+        pending = raw_list
+    elif isinstance(raw_single, str) and raw_single.strip():
+        pending = [raw_single]
+    if pending is None:
         return chat
 
-    def _resolve_target() -> Path:
-        target = Path(raw_value).expanduser().resolve()
-        if not target.is_dir():
-            raise NotADirectoryError(str(target))
-        return target
-
-    try:
-        target = await asyncio.to_thread(_resolve_target)
-    except NotADirectoryError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Project directory is unavailable: {exc}",
-        ) from exc
-    updated = await workspace.chat_manager.set_project_dir(
-        chat.id,
-        str(target),
+    from ...services.project_directory import (
+        normalize_project_dir_list,
+        session_project_dirs_raw_from_meta,
     )
-    return updated or chat
+
+    if session_project_dirs_raw_from_meta(getattr(chat, "meta", None)):
+        return chat
+
+    def _validate() -> list[dict]:
+        entries = []
+        for path, label in normalize_project_dir_list(pending):
+            if not path.is_dir():
+                logger.warning(
+                    "Ignoring pending project dir that is not a "
+                    "directory: %s",
+                    path,
+                )
+                continue
+            entries.append({"path": str(path), "label": label})
+        return entries
+
+    entries = await asyncio.to_thread(_validate)
+    if not entries:
+        return chat
+
+    updated = await workspace.chat_manager.set_session_project_dirs(
+        chat.id,
+        entries,
+    )
+    if updated is None:
+        # The chat could not be updated, so nothing persisted the pick.
+        # Hand it to the hook rather than dropping it: this turn would
+        # otherwise run in the agent default while the console shows the
+        # directory the user chose.
+        _leave_for_hook()
+        return chat
+    return updated
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -359,33 +412,14 @@ async def post_console_chat(
             # history. Returning a JSON null here left the chat blank.
             return _empty_sse_response()
     else:
-        chat = await _apply_session_project_dir(
+        chat = await _persist_pending_project_dirs(
             workspace,
             chat,
             native_payload,
         )
-        from ...config.config import load_agent_config
-        from ...services.project_directory import (
-            resolve_effective_project_dir,
-            session_project_dir,
-        )
-
-        agent_config = await asyncio.to_thread(
-            load_agent_config,
-            workspace.agent_id,
-        )
-        project_dir, project_source = await asyncio.to_thread(
-            resolve_effective_project_dir,
-            workspace.workspace_dir,
-            agent_config.project_dir,
-            session_project_dir(chat.meta),
-        )
-        request_context = dict(
-            native_payload["meta"].get("request_context") or {},
-        )
-        request_context["project_dir"] = str(project_dir)
-        request_context["project_dir_source"] = project_source
-        native_payload["meta"]["request_context"] = request_context
+        # Project directories are resolved exactly once, inside
+        # ContextVarsSetupHook (from the chat meta persisted above);
+        # the router no longer pre-resolves or injects them.
 
         # Title generation is only needed when starting a new run.
         if first_text and chat.name == name:
@@ -809,7 +843,7 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         name=name,
         **_chat_registration_fields(native_payload),
     )
-    chat = await _apply_session_project_dir(
+    chat = await _persist_pending_project_dirs(
         workspace,
         chat,
         native_payload,
@@ -826,31 +860,9 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         )
         fork_scope_id = str(rc.get("fork_scope_id") or "")
 
-    from ...config.config import load_agent_config
-    from ...services.project_directory import (
-        resolve_effective_project_dir,
-        session_project_dir,
-    )
-
-    agent_config = await asyncio.to_thread(
-        load_agent_config,
-        workspace.agent_id,
-    )
-    project_dir, project_source = await asyncio.to_thread(
-        resolve_effective_project_dir,
-        workspace.workspace_dir,
-        agent_config.project_dir,
-        session_project_dir(chat.meta),
-        None,
-        None,
-        fork_project_dir or None,
-    )
-    request_context = dict(
-        native_payload["meta"].get("request_context") or {},
-    )
-    request_context["project_dir"] = str(project_dir)
-    request_context["project_dir_source"] = project_source
-    native_payload["meta"]["request_context"] = request_context
+    # Project directories are resolved exactly once, inside
+    # ContextVarsSetupHook (fork override included); the router no
+    # longer pre-resolves or injects them.
 
     bg = _BackgroundTask(
         status="running",

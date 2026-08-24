@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agentscope.message import Msg
 from agentscope.state import AgentState
@@ -94,22 +94,177 @@ class ProjectDirectoryUpdate(BaseModel):
     project_dir: str
 
 
+class ProjectDirEntryPayload(BaseModel):
+    """One project-directory entry as sent by the client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(
+        ...,
+        min_length=1,
+        description="Absolute path to a project directory",
+    )
+    label: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Optional note describing what this directory is for",
+    )
+
+
+class ProjectDirsRequest(BaseModel):
+    """Payload for setting a chat's project-directory list override.
+
+    The list is ordered: the first entry becomes the PRIMARY project
+    directory. The payload is the whole desired list — add, remove and
+    make-primary are all expressed as list transforms followed by one
+    PUT.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_dirs: list[ProjectDirEntryPayload] = Field(
+        ...,
+        min_length=1,
+        max_length=10,
+        description="Full ordered list, primary first",
+    )
+
+
+class ProjectDirEntryView(BaseModel):
+    """One effective project-directory entry for the UI."""
+
+    path: str = Field(description="Directory path")
+    label: Optional[str] = Field(
+        default=None,
+        description="Display name for this directory, when one was set",
+    )
+    exists: bool = Field(
+        description=(
+            "Whether the path exists. False is surfaced rather than "
+            "silently corrected so the UI can flag it as unavailable."
+        ),
+    )
+    nested_with: Optional[str] = Field(
+        default=None,
+        description=(
+            "Path of the nearest ancestor root when this entry is "
+            "nested inside another bound root (informational; the "
+            "entry stays fully usable)."
+        ),
+    )
+    is_workspace: bool = Field(
+        default=False,
+        description=(
+            "Whether this entry is the agent's own workspace directory. "
+            "Decided here by filesystem identity, because the client "
+            "cannot: comparing the two paths as text splits one directory "
+            "into two roots on a case-sensitive volume and merges two "
+            "distinct ones on a folding volume. The Files switcher "
+            "collapses such an entry onto its own 'workspace' root rather "
+            "than giving it a second one with its own editor tabs."
+        ),
+    )
+
+
+class ProjectDirsResponse(BaseModel):
+    """Effective project-directory list for a chat, plus provenance."""
+
+    project_dirs: list[ProjectDirEntryView] = Field(
+        description=(
+            "Effective list, primary first. Empty when nothing is "
+            "configured (tools then fall back to the agent workspace; "
+            "the workspace path itself is deliberately not listed)."
+        ),
+    )
+    source: str = Field(
+        description=(
+            "Provenance of the list: 'session' (this chat overrides), "
+            "'agent' (agent default), or 'workspace_fallback' (nothing "
+            "configured)"
+        ),
+    )
+    agent_project_dir: Optional[str] = Field(
+        default=None,
+        description=(
+            "The agent-level default directory (single value), for "
+            "showing inheritance"
+        ),
+    )
+
+
 async def _project_directory_response(chat: ChatSpec, workspace) -> dict:
     """Build the effective Session project directory response."""
     from ...config.config import load_agent_config
 
     def _build() -> dict:
-        agent_config = load_agent_config(workspace.agent_id)
+        try:
+            agent_dir = load_agent_config(workspace.agent_id).project_dir
+        except Exception:
+            agent_dir = None
         project_dir, source = resolve_effective_project_dir(
             workspace.workspace_dir,
-            agent_project_dir=agent_config.project_dir,
+            agent_project_dir=agent_dir,
             session_override=session_project_dir(chat.meta),
         )
         return {
             "project_dir": str(project_dir),
             "source": source,
-            "agent_project_dir": agent_config.project_dir,
+            "agent_project_dir": agent_dir,
             "exists": project_dir.is_dir(),
+        }
+
+    return await asyncio.to_thread(_build)
+
+
+async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
+    """Build the effective Session project-directory list response."""
+    from ...config.config import load_agent_config
+    from ...services.project_directory import (
+        nested_root_pairs,
+        resolve_effective_project_dirs,
+        session_project_dirs_raw_from_meta,
+    )
+
+    def _build() -> dict:
+        try:
+            agent_config = load_agent_config(workspace.agent_id)
+            agent_dir = agent_config.project_dir
+        except Exception:
+            agent_dir = None
+
+        resolved = resolve_effective_project_dirs(
+            workspace.workspace_dir,
+            agent_project_dir=agent_dir,
+            session_project_dirs=session_project_dirs_raw_from_meta(chat.meta),
+        )
+        # Nearest covering ancestor per entry, for the UI hint. Fed the
+        # already-resolved paths so the nesting check does not resolve()
+        # every entry a second time.
+        nearest: dict[int, str] = {}
+        for child_idx, anc_idx in nested_root_pairs(
+            [entry.path for entry in resolved.dirs],
+        ):
+            candidate = str(resolved.dirs[anc_idx].path)
+            current = nearest.get(child_idx)
+            if current is None or len(candidate) > len(current):
+                nearest[child_idx] = candidate
+
+        return {
+            "project_dirs": [
+                {
+                    "path": str(entry.path),
+                    "label": entry.label,
+                    "exists": entry.exists,
+                    "nested_with": nearest.get(index),
+                    # Compared by key, not by path text: these are the same
+                    # directory exactly when they reach the same entry.
+                    "is_workspace": bool(entry.key)
+                    and entry.key == resolved.workspace_key,
+                }
+                for index, entry in enumerate(resolved.dirs)
+            ],
+            "source": resolved.source,
+            "agent_project_dir": agent_dir,
         }
 
     return await asyncio.to_thread(_build)
@@ -369,27 +524,34 @@ async def unarchive_chat(
     return result
 
 
-@router.get("/{chat_id}/project-dir")
+@router.get("/{chat_id}/project-dir", deprecated=True)
 async def get_chat_project_dir(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> dict:
-    """Return the Session override and effective project directory."""
+    """Return the Session override and effective project directory.
+
+    Deprecated single-value view; use ``/project-dirs``.
+    """
     chat = await mgr.get_chat(chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     return await _project_directory_response(chat, workspace)
 
 
-@router.put("/{chat_id}/project-dir")
+@router.put("/{chat_id}/project-dir", deprecated=True)
 async def set_chat_project_dir(
     chat_id: str,
     body: ProjectDirectoryUpdate,
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> dict:
-    """Persist a validated Session project directory override."""
+    """Persist a validated Session project directory override.
+
+    Deprecated single-value write; stored as a one-entry list so the
+    plural endpoints see the same state. Use ``PUT /project-dirs``.
+    """
 
     def _resolve_target() -> Path:
         target = Path(body.project_dir).expanduser().resolve()
@@ -404,23 +566,131 @@ async def set_chat_project_dir(
             status_code=400,
             detail=f"Project directory is unavailable: {exc}",
         ) from exc
-    chat = await mgr.set_project_dir(chat_id, str(target))
+    chat = await mgr.set_session_project_dirs(
+        chat_id,
+        [{"path": str(target), "label": None}],
+    )
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     return await _project_directory_response(chat, workspace)
 
 
-@router.delete("/{chat_id}/project-dir")
+@router.delete("/{chat_id}/project-dir", deprecated=True)
 async def clear_chat_project_dir(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> dict:
-    """Clear the override and inherit the Agent default project directory."""
-    chat = await mgr.set_project_dir(chat_id, None)
+    """Clear the override and inherit the Agent default project directory.
+
+    Deprecated; use ``DELETE /project-dirs``.
+    """
+    chat = await mgr.set_session_project_dirs(chat_id, None)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     return await _project_directory_response(chat, workspace)
+
+
+@router.get("/{chat_id}/project-dirs", response_model=ProjectDirsResponse)
+async def get_chat_project_dirs(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Return this chat's effective project-directory list, primary first."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return await _project_dirs_response(chat, workspace)
+
+
+@router.put("/{chat_id}/project-dirs", response_model=ProjectDirsResponse)
+async def set_chat_project_dirs(
+    chat_id: str,
+    payload: ProjectDirsRequest,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Bind this chat to an ordered project-directory list.
+
+    The first entry is the primary project directory. The override is
+    persisted server-side, so it survives a page reload or a different
+    browser. It takes effect on the **next** turn — an in-flight turn
+    keeps the directories it started with.
+
+    Paths that do not exist are rejected here (rather than stored and
+    flagged) because this endpoint is the point where the user picks
+    them and can still correct the mistake. Duplicate paths
+    (case-insensitive) are collapsed, keeping the first occurrence.
+    """
+    from ...services.project_directory import (
+        MAX_PROJECT_DIRS,
+        normalize_project_dir_list,
+    )
+
+    def _normalize() -> tuple[list[dict], Optional[str], int]:
+        """Normalize and existence-check in one worker thread.
+
+        The ``is_dir()`` calls belong in here with the ``resolve()`` that
+        ``normalize_project_dir_list`` does: leaving them on the event
+        loop meant up to ``MAX_PROJECT_DIRS`` blocking stats per request,
+        and one unresponsive mount stalled every other connection.
+        """
+        entries = normalize_project_dir_list(
+            [entry.model_dump() for entry in payload.project_dirs],
+        )
+        missing = next(
+            (str(path) for path, _label in entries if not path.is_dir()),
+            None,
+        )
+        stored = [
+            {"path": str(path), "label": label} for path, label in entries
+        ]
+        return stored, missing, len(entries)
+
+    stored, missing, count = await asyncio.to_thread(_normalize)
+    if not count:
+        raise HTTPException(
+            status_code=422,
+            detail="project_dirs must contain at least one valid entry",
+        )
+    if count > MAX_PROJECT_DIRS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many project dirs (max {MAX_PROJECT_DIRS})",
+        )
+    if missing is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not a directory: {missing}",
+        )
+
+    updated = await mgr.set_session_project_dirs(chat_id, stored)
+    if updated is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    return await _project_dirs_response(updated, workspace)
+
+
+@router.delete(
+    "/{chat_id}/project-dirs",
+    response_model=ProjectDirsResponse,
+)
+async def clear_chat_project_dirs(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Drop this chat's override so it inherits the agent default again."""
+    updated = await mgr.set_session_project_dirs(chat_id, None)
+    if updated is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    return await _project_dirs_response(updated, workspace)
 
 
 # ----- Existing CRUD endpoints -----

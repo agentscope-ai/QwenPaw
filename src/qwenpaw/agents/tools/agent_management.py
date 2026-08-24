@@ -873,6 +873,19 @@ def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
         context["channel_meta"] = safe_meta
     if inherited.get("approval_level"):
         context["approval_level"] = inherited["approval_level"]
+
+    # Subagents do not share the parent's chat, so the parent's resolved
+    # project-dir list is handed down explicitly. Fork workers override
+    # it (worktree wins the primary slot); everyone else uses it as the
+    # session-slot snapshot (source "inherited").
+    from ...config.context import get_current_project_dirs
+
+    parent_dirs = get_current_project_dirs()
+    if parent_dirs:
+        context["inherited_project_dirs"] = [
+            {"path": str(entry.path), "label": entry.label}
+            for entry in parent_dirs
+        ]
     return context
 
 
