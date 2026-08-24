@@ -14,6 +14,7 @@ import aiofiles.os
 import orjson
 
 from ..app.chats.repo import JsonChatRepository
+from ..config.utils import get_agent_dirs
 from ..token_usage import get_token_usage_manager
 from ..token_usage.turn_usage import TURN_USAGE_META_KEY
 from .models import (
@@ -93,8 +94,8 @@ def _should_skip_by_content_range(
     if not timestamps:
         return True
 
-    first_date = min(timestamps)
-    last_date = max(timestamps)
+    first_date = timestamps[0]
+    last_date = timestamps[-1]
 
     if last_date < start_date_str or first_date > end_date_str:
         logger.debug(
@@ -249,6 +250,12 @@ class AgentStatsService:
         *,
         include_token_overlay: bool = True,
     ) -> AgentStatsSummary:
+        """Return Agent Statistics for one workspace.
+
+        When include_token_overlay is False, global token fields stay 0
+        and are indistinguishable from no usage. Session-derived
+        agent_llm_calls and tool_calls are still counted.
+        """
         chats_file = workspace_dir / "chats.json"
         sessions_dir = workspace_dir / "sessions"
 
@@ -458,7 +465,8 @@ class AgentStatsService:
         end_date: date,
     ) -> list[LlmToolDaily]:
         """Sum Agent Statistics daily LLM turns and tool calls."""
-        from ..config.utils import load_config
+        if (end_date - start_date).days + 1 > 365:
+            start_date = end_date - timedelta(days=364)
 
         totals: dict[str, dict[str, int]] = {}
         days = (end_date - start_date).days + 1
@@ -467,16 +475,8 @@ class AgentStatsService:
                 "agent_llm_calls": 0,
                 "tool_calls": 0,
             }
-        config = load_config()
-        profiles = (config.agents.profiles if config.agents else {}) or {}
         seen: set[str] = set()
-        for ref in profiles.values():
-            raw = getattr(ref, "workspace_dir", "") or ""
-            if not raw:
-                continue
-            path = Path(str(raw)).expanduser()
-            if not path.exists() or not (path / "agent.json").exists():
-                continue
+        for path in get_agent_dirs():
             key = str(path.resolve())
             if key in seen:
                 continue

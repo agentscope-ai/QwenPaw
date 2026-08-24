@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -15,7 +14,6 @@ from qwenpaw.agent_stats.models import AgentStatsSummary
 from qwenpaw.agent_stats.service import (
     AgentStatsService,
     _process_session_file,
-    _should_skip_by_content_range,
 )
 from qwenpaw.token_usage.manager import TokenUsageStats, TokenUsageSummary
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
@@ -509,64 +507,15 @@ def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
     return root
 
 
-def _agent_config(**named: Path | str) -> SimpleNamespace:
-    return SimpleNamespace(
-        agents=SimpleNamespace(
-            profiles={
-                key: SimpleNamespace(workspace_dir=str(path))
-                for key, path in named.items()
-            },
-        ),
-    )
-
-
-def test_content_range_skip_uses_min_max_timestamps():
-    session_data = {
-        "agent": {
-            "state": {
-                "context": [
-                    {"created_at": "2026-07-25T10:00:00Z"},
-                    {"created_at": "2026-07-23T10:00:00Z"},
-                ],
-            },
-        },
-    }
-    assert not _should_skip_by_content_range(
-        session_data,
-        "2026-07-23",
-        "2026-07-24",
-    )
-    assert _should_skip_by_content_range(
-        session_data,
-        "2026-07-26",
-        "2026-07-31",
-    )
-
-
 @pytest.mark.asyncio
 async def test_get_global_llm_tool_by_date_sums_skips_and_fills(tmp_path):
-    """Sum agents, skip empty/dup, fill days; overlay must not run."""
+    """Sum agents, skip dup, fill days; overlay must not run."""
     ws_a = _write_trend_workspace(tmp_path / "a", 2, 2)
     ws_b = _write_trend_workspace(tmp_path / "b", 1, 1)
-    sess_path = ws_b / "sessions" / "console" / "s.json"
-    sess = json.loads(sess_path.read_text(encoding="utf-8"))
-    in_range = sess["agent"]["state"]["context"][0]
-    later = _assistant_with_usage(
-        created_at="2026-07-25T10:00:00Z",
-        prompt_tokens=10,
-        completion_tokens=1,
-    )
-    sess["agent"]["state"]["context"] = [later, in_range]
-    sess_path.write_text(json.dumps(sess), encoding="utf-8")
     with (
         patch(
-            "qwenpaw.config.utils.load_config",
-            return_value=_agent_config(
-                a=ws_a,
-                a_dup=ws_a,
-                b=ws_b,
-                empty="",
-            ),
+            "qwenpaw.agent_stats.service.get_agent_dirs",
+            return_value=[ws_a, ws_a, ws_b],
         ),
         patch(
             "qwenpaw.agent_stats.service.get_token_usage_manager",
@@ -581,3 +530,18 @@ async def test_get_global_llm_tool_by_date_sums_skips_and_fills(tmp_path):
     assert [row.date for row in rows] == ["2026-07-23", "2026-07-24"]
     assert (rows[0].agent_llm_calls, rows[0].tool_calls) == (3, 5)
     assert (rows[1].agent_llm_calls, rows[1].tool_calls) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_by_date_clamps_to_365_days():
+    with patch(
+        "qwenpaw.agent_stats.service.get_agent_dirs",
+        return_value=[],
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2025, 1, 1),
+            end_date=date(2026, 8, 1),
+        )
+    assert len(rows) == 365
+    assert rows[0].date == "2025-08-02"
+    assert rows[-1].date == "2026-08-01"
