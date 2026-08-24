@@ -323,12 +323,28 @@ class AgentBuilder:
             if plugins is not None:
                 active_modes = plugins.active_mode_names(ctx)
 
-        # Governor (governance policy layer).
-        _project_dir = getattr(agent_config, "project_dir", None)
+        # Governor (governance policy layer). Built per request against
+        # the dirs the tools will actually use, so a session-level
+        # project switch is reflected in the policy instead of the
+        # agent's startup dirs. Every effective project dir is
+        # registered: the primary via the CODING_PROJECT_DIR placeholder,
+        # the rest as extra ALLOW rules.
+        from ..config.context import get_current_project_dirs
+
+        _resolved_dirs = get_current_project_dirs()
+        if _resolved_dirs:
+            _project_dir = str(_resolved_dirs[0].path)
+            _extra_project_dirs = [
+                str(entry.path) for entry in _resolved_dirs[1:]
+            ]
+        else:
+            _project_dir = getattr(agent_config, "project_dir", None)
+            _extra_project_dirs = []
         governor = await run_sync_io(
             self._init_governor,
             workspace_dir,
             _project_dir,
+            _extra_project_dirs,
         )
 
         # Inject governor into local_workspace so list_tools() can
@@ -565,8 +581,13 @@ class AgentBuilder:
     def _init_governor(
         workspace_dir: Any,
         coding_project_dir: Any = None,
+        extra_project_dirs: Iterable[Any] = (),
     ) -> Any:
         """Initialize ResourceGovernor if governance is available.
+
+        ``coding_project_dir`` is the PRIMARY project directory;
+        ``extra_project_dirs`` are the remaining bound directories, all
+        of which get ALLOW rules and sandbox mounts.
 
         Returns the started governor, or ``None`` when governance cannot
         be initialised (missing dependencies, unsupported platform, etc.).
@@ -581,6 +602,7 @@ class AgentBuilder:
                 coding_project_dir=(
                     str(coding_project_dir) if coding_project_dir else None
                 ),
+                extra_project_dirs=[str(path) for path in extra_project_dirs],
             )
             governor.start()
             _logger.info("Governance started: dir=%s", workspace_dir)
@@ -662,11 +684,53 @@ class AgentBuilder:
         return rc
 
     @staticmethod
+    def _stamp_resolved_project(agent_config: Any) -> Any:
+        """Stamp the already-resolved primary dir, or ``None`` if unset.
+
+        Returns ``None`` only when the resolver never ran, which tells
+        the caller to fall back to validating the request keys itself.
+        """
+        from ..config.context import (
+            get_current_project_dir,
+            get_current_project_dir_source,
+        )
+
+        resolved = get_current_project_dir()
+        if resolved is None:
+            return None
+        if get_current_project_dir_source() == "workspace_fallback":
+            # Nothing configured: keep project_dir unset instead of
+            # repointing it at the agent's internal workspace.
+            return agent_config
+        if not hasattr(agent_config, "model_copy"):
+            _logger.warning(
+                "Ignoring request project for unsupported config type: %s",
+                type(agent_config).__name__,
+            )
+            return agent_config
+        stamped = agent_config.model_copy(deep=True)
+        stamped.project_dir = str(resolved)
+        return stamped
+
+    @staticmethod
     def _apply_request_project(
         agent_config: Any,
         request_context: dict[str, Any],
     ) -> Any:
-        """Apply a validated request or active-mode project snapshot."""
+        """Stamp the effective primary project dir onto the config copy.
+
+        Resolution happens exactly once in ``ContextVarsSetupHook``
+        (PRE_DISPATCH); this stamps the same result onto
+        ``agent_config`` for consumers that still read the config field
+        (env context, coding tools, fork registry binding). When the
+        hook did not run (context vars unset — direct builder calls in
+        tests), the trusted request keys are validated directly as
+        before.
+        """
+        stamped = AgentBuilder._stamp_resolved_project(agent_config)
+        if stamped is not None:
+            return stamped
+
         from ..agents.fork_project import resolve_allowed_fork_project_dir
 
         raw_project_dir = request_context.get("active_mode_project_dir")
@@ -693,7 +757,7 @@ class AgentBuilder:
             validated = resolve_allowed_fork_project_dir(
                 fork_raw,
                 workspace_dir=workspace_hint,
-                coding_project_dir=existing_pd,
+                project_dirs=[existing_pd] if existing_pd else None,
             )
             if validated is None:
                 _logger.warning(
@@ -730,26 +794,41 @@ class AgentBuilder:
         from ..app.chats.utils import build_env_context
         from ..constant import WORKING_DIR
 
+        from ..config.context import get_current_project_dir
+
         workspace_dir = getattr(ctx, "workspace_dir", None)
         ws = str(workspace_dir) if workspace_dir else str(WORKING_DIR)
 
-        _project_dir = getattr(agent_config, "project_dir", None) or ws
-        # Prefer validated fork worktree as the shell/file working_dir.
+        # The effective project dir was resolved once in PRE_DISPATCH;
+        # re-deriving it here would risk the prompt disagreeing with
+        # where the tools actually operate. Fall back to the stamped
+        # config only when the hook did not run (direct builder calls).
+        _resolved_dir = get_current_project_dir()
         request = getattr(ctx, "request", None)
-        _payload = (
-            getattr(request, "request_context", None) if request else None
-        )
-        if isinstance(_payload, dict):
-            from ..agents.fork_project import resolve_allowed_fork_project_dir
-
-            _fork = resolve_allowed_fork_project_dir(
-                _payload.get("fork_project_dir"),
-                workspace_dir=workspace_dir,
-                coding_project_dir=_project_dir,
+        if _resolved_dir is not None:
+            _project_dir = str(_resolved_dir)
+            if _project_dir == ws:
+                # Nothing configured — do not print the workspace twice.
+                _project_dir = None
+        else:
+            _project_dir = getattr(agent_config, "project_dir", None) or ws
+            # Prefer validated fork worktree as the shell/file dir.
+            _payload = (
+                getattr(request, "request_context", None) if request else None
             )
-            if _fork is not None:
-                ws = str(_fork)
-                _project_dir = str(_fork)
+            if isinstance(_payload, dict):
+                from ..agents.fork_project import (
+                    resolve_allowed_fork_project_dir,
+                )
+
+                _fork = resolve_allowed_fork_project_dir(
+                    _payload.get("fork_project_dir"),
+                    workspace_dir=workspace_dir,
+                    project_dirs=[_project_dir] if _project_dir else None,
+                )
+                if _fork is not None:
+                    ws = str(_fork)
+                    _project_dir = str(_fork)
         _configured_shell = getattr(
             getattr(agent_config, "running", None),
             "shell_command_executable",

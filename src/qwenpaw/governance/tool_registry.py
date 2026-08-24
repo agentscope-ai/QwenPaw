@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -168,7 +169,17 @@ class ToolRegistry:
         input_data: dict[str, Any],
         workspace_dir: str = "",
     ) -> str:
-        """Extract the target from tool call arguments."""
+        """Extract the target from tool call arguments.
+
+        Args:
+            tool_name: policy-layer tool name, e.g. ``"Read"``
+            input_data: the tool call's raw arguments
+            workspace_dir: base directory for resolving *relative* paths of
+                ``file``-type tools. This must be the same base the tool
+                itself uses (the PRIMARY project directory — see
+                ``qwenpaw.config.context.get_tool_base_dir``), otherwise the
+                policy is evaluated against a path the tool never touches.
+        """
         param = self.get_target_param(tool_name)
         if not param:
             return ""
@@ -185,8 +196,22 @@ class ToolRegistry:
         if self._types.get(tool_name) == "file" and workspace_dir:
             if not path:
                 path = workspace_dir
-            elif not os.path.isabs(path):
+            elif not Path(path).is_absolute():
+                # ``Path.is_absolute()`` rather than ``os.path.isabs()``:
+                # the answer must be the one the *tool* uses, or the policy
+                # is evaluated against a path the tool never touches. They
+                # disagree on Windows for a drive-less rooted path such as
+                # ``/Windows/system32`` — pathlib always calls it relative
+                # (no drive) and resolves it against the workspace drive,
+                # while ``os.path.isabs()`` called it absolute before
+                # Python 3.13 and left it drive-less, so a DENY pattern
+                # like ``C:\Windows\**`` no longer matched the target the
+                # tool would actually write to.
                 path = os.path.join(workspace_dir, path)
+            # Collapse ``.``/``..`` segments lexically so relative paths
+            # that climb back into the project still match ALLOW rules
+            # (wcmatch's ``**`` refuses to match paths with dot segments).
+            path = os.path.normpath(path)
 
         # 3) Append pattern for file-search tools (e.g. Glob)
         pattern_param = self._pattern_params.get(tool_name)
