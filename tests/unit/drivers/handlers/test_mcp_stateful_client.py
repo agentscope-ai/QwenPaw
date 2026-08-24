@@ -48,6 +48,33 @@ def _client() -> HttpStatefulClient:
     return HttpStatefulClient("test-client", "streamable_http", "http://x")
 
 
+def _arm(c: HttpStatefulClient, session: object) -> None:
+    c._session_closed.set()
+    c.session = session  # type: ignore[assignment]
+    c._session_closed = asyncio.Event()
+    c.is_connected = True
+    c._ready_event.set()
+
+
+class _Hang:
+    def __init__(self, started: asyncio.Event) -> None:
+        self._started = started
+
+    async def list_tools(self, *_args, **_kwargs):
+        self._started.set()
+        await asyncio.Event().wait()
+
+    call_tool = list_tools
+
+
+class _Tools:
+    def __init__(self, tools: list) -> None:
+        self._tools = tools
+
+    async def list_tools(self):
+        return type("Result", (), {"tools": self._tools})()
+
+
 # ---------------------------------------------------------------------------
 # Error classification helpers
 # ---------------------------------------------------------------------------
@@ -157,7 +184,7 @@ def test_handle_transport_error_noops_for_non_transport_errors():
     c = _client()
     c.is_connected = True
     c._ready_event.set()
-    c._handle_transport_error(ValueError("mcp-level"))
+    c._handle_transport_error(ValueError("mcp-level"), c.session)
     assert c.is_connected is True
     assert c._ready_event.is_set()
 
@@ -166,12 +193,13 @@ def test_handle_transport_error_marks_disconnected_and_schedules_reload():
     import anyio
 
     c = _client()
+    c.session = object()  # type: ignore[assignment]
     c.is_connected = True
     c._ready_event.set()
-    c._handle_transport_error(anyio.ClosedResourceError())
-    assert c.is_connected is False
+    c._handle_transport_error(anyio.ClosedResourceError(), c.session)
+    assert not c.is_connected and c.session is None
     assert not c._ready_event.is_set()
-    assert c._reload_event.is_set()
+    assert c._reload_event.is_set() and c._session_closed.is_set()
 
 
 def test_handle_transport_error_skips_reload_when_already_stopping():
@@ -179,11 +207,25 @@ def test_handle_transport_error_skips_reload_when_already_stopping():
 
     c = _client()
     c.is_connected = True
+    c._ready_event.set()
     c._stop_event.set()
-    c._handle_transport_error(anyio.ClosedResourceError())
-    assert c.is_connected is False
-    # Already stopping — do not arm another reload.
-    assert not c._reload_event.is_set()
+    c._handle_transport_error(anyio.ClosedResourceError(), c.session)
+    assert not c.is_connected and not c._reload_event.is_set()
+    # close() in progress: do not arm reload or drop ready.
+    assert c._ready_event.is_set() and c._session_closed.is_set()
+
+
+def test_handle_transport_error_ignores_stale_session():
+    import anyio
+
+    c = _client()
+    old, new = object(), object()
+    c.session = new  # type: ignore[assignment]
+    c.is_connected = True
+    c._ready_event.set()
+    c._handle_transport_error(anyio.ClosedResourceError(), old)
+    assert c.is_connected is True and c.session is new
+    assert not c._reload_event.is_set() and not c._session_closed.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -198,11 +240,13 @@ def test_clear_lifecycle_state_resets_when_task_matches():
     c.session = "stale"  # type: ignore[assignment]
     c.is_connected = True
     c._ready_event.set()
+    c._reload_event.set()
     c._clear_lifecycle_state(sentinel)
     assert c._lifecycle_task is None
     assert c.session is None
     assert c.is_connected is False
     assert not c._ready_event.is_set()
+    assert not c._reload_event.is_set()
 
 
 def test_clear_lifecycle_state_is_noop_when_task_differs():
@@ -211,9 +255,11 @@ def test_clear_lifecycle_state_is_noop_when_task_differs():
     current = object()
     c._lifecycle_task = current  # type: ignore[assignment]
     c.session = "ses"  # type: ignore[assignment]
+    c._reload_event.set()
     c._clear_lifecycle_state(object())  # different task object
     assert c._lifecycle_task is current
     assert c.session == "ses"
+    assert c._reload_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +288,7 @@ async def test_wait_for_lifecycle_exit_fast_path_clears_state():
 
 async def test_wait_for_lifecycle_exit_timeout_spawns_reaper(monkeypatch):
     monkeypatch.setattr(mod, "_LIFECYCLE_CLEANUP_TIMEOUT", 0.05)
+    monkeypatch.setattr(mod, "_SESSION_RPC_DRAIN_TIMEOUT", 0)
     c = _client()
 
     release = asyncio.Event()
@@ -454,9 +501,7 @@ async def test_list_tools_retries_once_after_terminated_cold_session():
 
     async def reconnect() -> None:
         await c._reload_event.wait()
-        c.session = HealthySession()  # type: ignore[assignment]
-        c.is_connected = True
-        c._ready_event.set()
+        _arm(c, HealthySession())
 
     reconnect_task = asyncio.create_task(reconnect())
     try:
@@ -466,6 +511,116 @@ async def test_list_tools_retries_once_after_terminated_cold_session():
 
     assert result == ["fresh-tool"]
     assert c._cached_tools == ["fresh-tool"]
+
+
+async def test_list_tools_retries_after_session_invalidated_mid_request():
+    """#6822: teardown must unblock list_tools without arming reload."""
+    c = _client()
+    started = asyncio.Event()
+    _arm(c, _Hang(started))
+
+    async def reconnect() -> None:
+        await started.wait()
+        c._begin_session_teardown()
+        c._ready_event.clear()
+        await asyncio.sleep(0)
+        _arm(c, _Tools(["recovered"]))
+
+    task = asyncio.create_task(reconnect())
+    try:
+        result = await asyncio.wait_for(c.list_tools(), timeout=1.0)
+    finally:
+        await task
+    assert result == c._cached_tools == ["recovered"]
+    assert not c._reload_event.is_set()
+
+
+async def test_list_tools_retries_when_new_session_already_published():
+    """Old RPC failure must not return cache or arm reload after reconnect."""
+    c = _client()
+    c._cached_tools = ["stale"]  # type: ignore[list-item]
+    started = asyncio.Event()
+
+    class SlowFail:
+        async def list_tools(self):
+            started.set()
+            await asyncio.sleep(0)
+            raise mod._connection_closed_error()
+
+    _arm(c, SlowFail())
+
+    async def publish_new() -> None:
+        await started.wait()
+        _arm(c, _Tools(["fresh"]))
+
+    task = asyncio.create_task(publish_new())
+    try:
+        result = await asyncio.wait_for(c.list_tools(), timeout=1.0)
+    finally:
+        await task
+    assert result == c._cached_tools == ["fresh"]
+    assert not c._reload_event.is_set()
+
+
+async def test_list_tools_cancel_does_not_become_mcp_error():
+    c = _client()
+    started = asyncio.Event()
+    _arm(c, _Hang(started))
+    task = asyncio.create_task(c.list_tools())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not c._reload_event.is_set()
+
+
+async def test_await_session_rpc_abort_paths():
+    async def should_not_run():
+        raise AssertionError("rpc started")
+
+    for flag in ("_session_closed", "_stop_event"):
+        c = _client()
+        getattr(c, flag).set()
+        with pytest.raises(McpError, match="Connection closed"):
+            await c._await_session_rpc(should_not_run(), c._session_closed)
+
+    for trigger in ("stop", "abandon"):
+        c = _client()
+        started = asyncio.Event()
+        task = asyncio.create_task(
+            c._await_session_rpc(
+                _Hang(started).list_tools(),
+                c._session_closed,
+            ),
+        )
+        await started.wait()
+        if trigger == "stop":
+            c._stop_event.set()
+        else:
+            c._begin_session_teardown()
+            c._abandon_session_rpcs()
+        with pytest.raises(McpError, match="Connection closed"):
+            await asyncio.wait_for(task, timeout=1.0)
+
+
+async def test_drain_drops_stubborn_rpc_from_set(monkeypatch):
+    monkeypatch.setattr(mod, "_SESSION_RPC_DRAIN_TIMEOUT", 0.05)
+    c = _client()
+    release = asyncio.Event()
+
+    async def stubborn():
+        while True:
+            try:
+                return await release.wait()
+            except asyncio.CancelledError:
+                continue
+
+    task = asyncio.create_task(stubborn())
+    c._rpc_tasks.add(task)
+    await asyncio.wait_for(c._drain_session_rpcs(), timeout=1.0)
+    assert task not in c._rpc_tasks
+    release.set()
+    await asyncio.wait_for(task, timeout=1.0)
 
 
 async def test_list_tools_raises_on_cold_start_without_cache():
@@ -492,8 +647,26 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
     with pytest.raises(ConnectionResetError):
         await c.call_tool("foo", {})
     # _handle_transport_error marked it for reconnect.
-    assert c.is_connected is False
+    assert c.is_connected is False and c.session is None
     assert c._reload_event.is_set()
+
+
+async def test_call_tool_aborts_when_session_invalidated_mid_request():
+    c = _client()
+    started = asyncio.Event()
+    _arm(c, _Hang(started))
+
+    async def tear_down() -> None:
+        await started.wait()
+        c._begin_session_teardown()
+
+    task = asyncio.create_task(tear_down())
+    try:
+        with pytest.raises(McpError, match="Connection closed"):
+            await asyncio.wait_for(c.call_tool("foo", {}), timeout=1.0)
+    finally:
+        await task
+    assert not c._reload_event.is_set()
 
 
 async def test_call_tool_does_not_reconnect_for_generic_server_error():
@@ -532,3 +705,39 @@ async def test_reload_raises_when_not_connected():
     c = _client()
     with pytest.raises(RuntimeError, match="not connected"):
         await c.reload()
+
+
+async def test_lifecycle_error_clears_spurious_reload(monkeypatch):
+    """Leftover reload after connect failure must not bounce."""
+    c = _client()
+    c._reload_event.set()
+    c._reconnect_delay = 0.0
+    n = 0
+
+    class FakeSession:
+        async def initialize(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    async def setup(_stack):
+        nonlocal n
+        n += 1
+        if n == 1:
+            raise ConnectionError("boom")
+        return object(), object()
+
+    monkeypatch.setattr(mod, "ClientSession", lambda *a, **k: FakeSession())
+    monkeypatch.setattr(c, "_setup_transport", setup)
+    task = asyncio.create_task(c._run_lifecycle())
+    try:
+        await asyncio.wait_for(c._ready_event.wait(), timeout=2)
+        await asyncio.sleep(0.05)
+        assert n == 2 and c.is_connected and not c._reload_event.is_set()
+    finally:
+        c._stop_event.set()
+        await asyncio.wait_for(task, timeout=2)

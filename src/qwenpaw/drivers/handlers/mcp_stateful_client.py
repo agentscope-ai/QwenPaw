@@ -30,6 +30,7 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
+from mcp.types import CONNECTION_CLOSED, ErrorData
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +59,10 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     BrokenPipeError,
 )
+# Keep in lockstep with ``_connection_closed_error`` so list_tools retries.
+_CONNECTION_CLOSED_MESSAGE = "Connection closed"
 _TRANSPORT_MCP_MESSAGES = frozenset(
-    {"session terminated", "connection closed"},
+    {"session terminated", _CONNECTION_CLOSED_MESSAGE.casefold()},
 )
 
 
@@ -68,6 +71,7 @@ _TRANSPORT_MCP_MESSAGES = frozenset(
 # in practice) with headroom, while still failing fast enough that a
 # permanently-broken client doesn't stall every turn for long.
 _LIST_TOOLS_RECONNECT_WAIT: float = 3.0
+_SESSION_RPC_DRAIN_TIMEOUT: float = 2.0
 _LIFECYCLE_CLEANUP_TIMEOUT: float = 5.0
 _LIFECYCLE_REAPERS: dict[asyncio.Task, asyncio.Task] = {}
 
@@ -104,6 +108,21 @@ def _is_401_error(exc: BaseException) -> bool:
     return False
 
 
+def _discard_task_result(task: asyncio.Task) -> None:
+    """Retrieve a finished task's exception to avoid 'never retrieved' logs."""
+    if not task.cancelled():
+        task.exception()
+
+
+def _connection_closed_error() -> McpError:
+    return McpError(
+        ErrorData(
+            code=CONNECTION_CLOSED,
+            message=_CONNECTION_CLOSED_MESSAGE,
+        ),
+    )
+
+
 class _MCPClientMixin:
     """Mixin providing shared tool-call and lifecycle logic for both clients.
 
@@ -135,6 +154,8 @@ class _MCPClientMixin:
     _stop_event: asyncio.Event
     _reload_event: asyncio.Event
     _ready_event: asyncio.Event
+    _session_closed: asyncio.Event
+    _rpc_tasks: set[asyncio.Task]
     _lifecycle_task: asyncio.Task | None
 
     # Exponential backoff & circuit breaker state
@@ -189,6 +210,7 @@ class _MCPClientMixin:
                     await stack.enter_async_context(self.session)
                     await self.session.initialize()
 
+                    self._session_closed = asyncio.Event()
                     self.is_connected = True
                     self._ready_event.set()
                     # Reset backoff & circuit breaker on success
@@ -197,25 +219,22 @@ class _MCPClientMixin:
                     self._circuit_open = False
                     logger.info(f"MCP client connected: {self.name}")
 
-                    await self._wait_for_reload_or_stop()
+                    try:
+                        await self._wait_for_reload_or_stop()
+                    finally:
+                        self._begin_session_teardown()
 
-                    # Clear state before the context manager exits and
-                    # tears down the transport / subprocess.  Note we do
-                    # NOT clear ``_cached_tools`` here for the reload
-                    # path — callers in the brief reconnect window fall
-                    # back to it (see ``list_tools``).  On explicit stop
-                    # the client is going away anyway, but we still null
-                    # it out below for tidiness.
-                    self.session = None
-                    self.is_connected = False
-
-                    if self._reload_event.is_set():
-                        logger.info(f"Reloading MCP client: {self.name}")
-                        self._reload_event.clear()
-                        self._ready_event.clear()
-                    else:
-                        logger.info(f"Stopping MCP client: {self.name}")
-                        self._cached_tools = None
+                        # Note we do NOT clear ``_cached_tools`` here for
+                        # the reload path — callers in the brief reconnect
+                        # window fall back to it (see ``list_tools``).
+                        if self._reload_event.is_set():
+                            logger.info(f"Reloading MCP client: {self.name}")
+                            self._reload_event.clear()
+                            self._ready_event.clear()
+                        else:
+                            logger.info(f"Stopping MCP client: {self.name}")
+                            self._cached_tools = None
+                        await asyncio.shield(self._drain_session_rpcs())
 
                 # AsyncExitStack exits here in THIS task — no cross-task issue.
 
@@ -229,6 +248,9 @@ class _MCPClientMixin:
                     )
                     self._oauth_required = True
                     self._stop_event.set()
+                    self._begin_session_teardown()
+                    self._reload_event.clear()
+                    self._abandon_session_rpcs()
                     self._ready_event.set()
                     return
                 self._consecutive_failures += 1
@@ -238,10 +260,11 @@ class _MCPClientMixin:
                     f"{self._circuit_breaker_threshold}): {e}",
                     exc_info=True,
                 )
-                self.session = None
-                self.is_connected = False
+                self._begin_session_teardown()
                 self._cached_tools = None
                 self._ready_event.clear()
+                self._reload_event.clear()
+                self._abandon_session_rpcs()
 
                 # Circuit breaker: stop retrying after too many failures
                 if (
@@ -439,15 +462,18 @@ class _MCPClientMixin:
                     pass
 
         # Reconnect succeeded — go fetch fresh schemas.
-        if self.is_connected and self.session is not None:
+        session, closed = self.session, self._session_closed
+        if self.is_connected and session is not None:
             try:
-                res = await self.session.list_tools()
+                res = await self._await_session_rpc(
+                    session.list_tools(),
+                    closed,
+                )
             except Exception as exc:
-                if not self._handle_transport_error(exc):
+                if not self._handle_transport_error(exc, dead_session=session):
                     raise
 
-                # Keep known schemas available during reconnection.
-                if self._cached_tools is not None:
+                if not self.is_connected and self._cached_tools is not None:
                     logger.warning(
                         "MCP client '%s' session failed during list_tools; "
                         "serving cached schemas while reconnecting.",
@@ -464,12 +490,17 @@ class _MCPClientMixin:
                 except asyncio.TimeoutError:
                     raise exc from None
 
-                if not self.is_connected or self.session is None:
+                retry_session = self.session
+                retry_closed = self._session_closed
+                if not self.is_connected or retry_session is None:
                     raise exc from None
                 try:
-                    res = await self.session.list_tools()
+                    res = await self._await_session_rpc(
+                        retry_session.list_tools(),
+                        retry_closed,
+                    )
                 except Exception as retry_exc:
-                    self._handle_transport_error(retry_exc)
+                    self._handle_transport_error(retry_exc, retry_session)
                     raise
             self._cached_tools = res.tools
             return res.tools
@@ -507,11 +538,15 @@ class _MCPClientMixin:
             RuntimeError: If not connected
         """
         self._validate_connection()
-
+        session, closed = self.session, self._session_closed
+        assert session is not None
         try:
-            return await self.session.call_tool(name, arguments or {})
+            return await self._await_session_rpc(
+                session.call_tool(name, arguments or {}),
+                closed,
+            )
         except Exception as exc:
-            self._handle_transport_error(exc)
+            self._handle_transport_error(exc, dead_session=session)
             raise
 
     async def close(self, ignore_errors: bool = True) -> None:
@@ -560,13 +595,95 @@ class _MCPClientMixin:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _begin_session_teardown(self) -> None:
+        """Drop the published session and wake RPCs.  Idempotent."""
+        self.is_connected = False
+        self._session_closed.set()
+        self.session = None
+
+    async def _await_session_rpc(self, coro: Any, closed: asyncio.Event):
+        """Await a session RPC, aborting if *closed* or stop is set.
+
+        Teardown/stop raises transport ``McpError`` for retry.
+        Caller/inner cancel without teardown stays ``CancelledError``.
+        """
+        if closed.is_set() or self._stop_event.is_set():
+            coro.close()
+            raise _connection_closed_error()
+        rpc: asyncio.Task | None = None
+        watch: asyncio.Task | None = None
+        stop_watch: asyncio.Task | None = None
+        try:
+            rpc = asyncio.create_task(coro)
+            self._rpc_tasks.add(rpc)
+            rpc.add_done_callback(self._rpc_tasks.discard)
+            watch = asyncio.create_task(closed.wait())
+            stop_watch = asyncio.create_task(self._stop_event.wait())
+            done, _ = await asyncio.wait(
+                {rpc, watch, stop_watch},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if rpc in done and not rpc.cancelled():
+                return rpc.result()
+            if closed.is_set() or self._stop_event.is_set():
+                raise _connection_closed_error()
+            raise asyncio.CancelledError
+        finally:
+            for task in (rpc, watch, stop_watch):
+                if task is None:
+                    continue
+                if task.done():
+                    _discard_task_result(task)
+                else:
+                    task.cancel()
+                    task.add_done_callback(_discard_task_result)
+
+    def _abandon_session_rpcs(self) -> None:
+        """Cancel leftover RPCs and drop them from ``_rpc_tasks``.
+
+        Does not wait; cancel-resistant tasks may keep running untracked.
+        """
+        leftover = [task for task in self._rpc_tasks if not task.done()]
+        if leftover:
+            logger.warning(
+                "MCP client '%s': abandoning %d in-flight session RPC(s)",
+                self.name,
+                len(leftover),
+            )
+        for task in tuple(self._rpc_tasks):
+            if not task.done():
+                task.cancel()
+                task.add_done_callback(_discard_task_result)
+            else:
+                _discard_task_result(task)
+            self._rpc_tasks.discard(task)
+
+    async def _drain_session_rpcs(self) -> None:
+        """Yield once so waiters see close, then bound-wait before aexit.
+
+        Wait including cancelled RPCs; timeout keeps aexit from deadlocking.
+        """
+        await asyncio.sleep(0)
+        pending = [t for t in self._rpc_tasks if not t.done()]
+        if pending:
+            for task in pending:
+                task.cancel()
+            done, _ = await asyncio.wait(
+                pending,
+                timeout=_SESSION_RPC_DRAIN_TIMEOUT,
+            )
+            for task in done:
+                _discard_task_result(task)
+        self._abandon_session_rpcs()
+
     def _clear_lifecycle_state(self, task: asyncio.Task) -> None:
         """Clear state once the current lifecycle task has exited."""
         if self._lifecycle_task is task:
             self._lifecycle_task = None
-            self.session = None
-            self.is_connected = False
+            self._begin_session_teardown()
+            self._abandon_session_rpcs()
             self._ready_event.clear()
+            self._reload_event.clear()
 
     async def _reap_lifecycle_task(self, lifecycle_task: asyncio.Task) -> None:
         """Retain and retry cleanup until the lifecycle task exits."""
@@ -596,7 +713,7 @@ class _MCPClientMixin:
         """Wait briefly for lifecycle cleanup without blocking forever."""
         done, _ = await asyncio.wait(
             {task},
-            timeout=_LIFECYCLE_CLEANUP_TIMEOUT,
+            timeout=_LIFECYCLE_CLEANUP_TIMEOUT + _SESSION_RPC_DRAIN_TIMEOUT,
         )
         if task not in done:
             if task not in _LIFECYCLE_REAPERS:
@@ -619,7 +736,11 @@ class _MCPClientMixin:
         await asyncio.gather(task, return_exceptions=True)
         self._clear_lifecycle_state(task)
 
-    def _handle_transport_error(self, exc: BaseException) -> bool:
+    def _handle_transport_error(
+        self,
+        exc: BaseException,
+        dead_session: Any,
+    ) -> bool:
         """Mark the client as disconnected and schedule a reconnect when *exc*
         indicates a transport/stream failure rather than an MCP-level error.
 
@@ -643,21 +764,23 @@ class _MCPClientMixin:
         and then opens a fresh one, so there is no subprocess accumulation.
 
         By proactively setting ``is_connected=False`` and firing
-        ``_reload_event``, we ensure the lifecycle loop's inner 0.1 s poll
-        detects the dead stream and tears down the old context before opening
-        a fresh connection.
+        ``_reload_event``, we wake ``_wait_for_reload_or_stop`` so the
+        lifecycle task tears down the old context and opens a fresh
+        connection.
 
-        Note: ``self.session`` is intentionally *not* cleared here.
-        ``_validate_connection`` checks ``is_connected`` first, so the stale
-        ``session`` reference is never reached before the lifecycle task
-        replaces it.  Clearing it here would require a lock (the lifecycle
-        task also writes ``session``), adding unnecessary complexity.
+        Invalidates via ``_begin_session_teardown`` after the generation
+        check.  During ``close()``, do not arm reload or drop ``_ready_event``.
 
         Returns:
-            Whether recovery state was applied.
+            False if not a transport error; True if the caller should
+            treat this as a transport failure of *dead_session*.
         """
         if not _is_transport_error(exc):
             return False
+        if not self.is_connected:
+            return True  # Already reconnecting; do not arm a second reload.
+        if self.session is not dead_session:
+            return True  # Error belongs to the previous generation.
         logger.warning(
             "Transport error on MCP client '%s' (%s: %s); "
             "marking as disconnected and scheduling reconnect.",
@@ -665,7 +788,9 @@ class _MCPClientMixin:
             type(exc).__name__,
             exc,
         )
-        self.is_connected = False
+        self._begin_session_teardown()
+        if self._stop_event.is_set():
+            return True  # close() in progress: do not arm reload or drop ready
         # ``_cached_tools`` is intentionally NOT cleared here.  Callers
         # in ``list_tools`` fall back to the cache during the reconnect
         # window so a single flaky MCP client doesn't kill the user's
@@ -675,13 +800,10 @@ class _MCPClientMixin:
         # Clear ``_ready_event`` synchronously so callers waiting on it
         # (see ``list_tools``) actually block until the reconnect lands,
         # instead of waking immediately on the stale "set" state from the
-        # previous successful connect.  The lifecycle task will also clear
-        # it ~100 ms later inside its reload teardown, but that's too late
-        # for a caller that's already in the wait.
+        # previous successful connect.  Lifecycle teardown will clear it
+        # again, but that is too late for a waiter already in flight.
         self._ready_event.clear()
-        # session is left as-is; see docstring above.
-        if not self._stop_event.is_set():
-            self._reload_event.set()
+        self._reload_event.set()
         return True
 
     async def _wait_for_reload_or_stop(self) -> None:
@@ -799,6 +921,8 @@ class StdIOStatefulClient(_MCPClientMixin):
         self._reload_event = asyncio.Event()
         self._ready_event = asyncio.Event()
         self._stop_event = asyncio.Event()
+        self._session_closed = asyncio.Event()
+        self._rpc_tasks: set[asyncio.Task] = set()
         self._oauth_required = False
 
         # Exponential backoff & circuit breaker
@@ -896,6 +1020,8 @@ class HttpStatefulClient(_MCPClientMixin):
         self._reload_event = asyncio.Event()
         self._ready_event = asyncio.Event()
         self._stop_event = asyncio.Event()
+        self._session_closed = asyncio.Event()
+        self._rpc_tasks: set[asyncio.Task] = set()
         self._oauth_required = False
 
         # Exponential backoff & circuit breaker
