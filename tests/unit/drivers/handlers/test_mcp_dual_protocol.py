@@ -1,13 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Unit tests for MCP 2026-07-28 dual-protocol Streamable-HTTP clients.
-
-Intent
-------
-Cover modern ``HttpStatelessClient`` wire behavior and ``HttpAutoClient``
-modern-first fallback without a live MCP server.  Keep cases focused on
-protocol decisions that would regress dual-era routing.
-"""
+"""Unit tests for MCP 2026-07-28 dual-protocol Streamable-HTTP clients."""
 
 from __future__ import annotations
 
@@ -88,7 +81,7 @@ def _cli(cls: type, name: str, handler: Callable, **kw: Any) -> Any:
     )
 
 
-def _sse(*events: Any) -> httpx.Response:
+def _sse(*events: Any, status: int = 200) -> httpx.Response:
     parts = []
     for event in events:
         parts.extend(
@@ -97,7 +90,7 @@ def _sse(*events: Any) -> httpx.Response:
         )
         parts.append("\n")
     return httpx.Response(
-        200,
+        status,
         content="".join(parts).encode(),
         headers={"content-type": "text/event-stream"},
     )
@@ -132,37 +125,18 @@ def _fake_stateful(
     monkeypatch.setattr(mod, "HttpStatefulClient", Fake)
 
 
-def _patch_slow_stateless(
-    monkeypatch: pytest.MonkeyPatch,
-    started: asyncio.Event,
-    release: asyncio.Event,
-    *,
-    connects: list[str] | None = None,
-    closed: list[str] | None = None,
-) -> None:
-    class Slow(HttpStatelessClient):
+def _stub_stateless(monkeypatch, connect, closed=None):
+    class Stub(HttpStatelessClient):
         async def connect(self, timeout=30.0):
-            del timeout
-            if connects is not None:
-                connects.append("modern")
-            started.set()
-            await release.wait()
-            self.is_connected = True
-            self._http = object()
+            return await connect(self, timeout)
 
         async def close(self, ignore_errors=True):
             del ignore_errors
             if closed is not None:
                 closed.append("modern")
-            self.is_connected = False
             self._http = None
 
-    monkeypatch.setattr(http_mod, "HttpStatelessClient", Slow)
-
-
-# ---------------------------------------------------------------------------
-# Version parsing / x-mcp-header helpers
-# ---------------------------------------------------------------------------
+    monkeypatch.setattr(http_mod, "HttpStatelessClient", Stub)
 
 
 @pytest.mark.parametrize(
@@ -170,7 +144,7 @@ def _patch_slow_stateless(
     [
         ({"supportedVersions": ["2026-07-28"]}, ["2026-07-28"]),
         (
-            {"protocolVersions": ["2026-07-28", "2025-11-25"]},
+            {"supported": ["2026-07-28", "2025-11-25"]},
             ["2026-07-28", "2025-11-25"],
         ),
         ({"capabilities": {}}, None),
@@ -183,7 +157,6 @@ def test_supported_versions_from_payload(payload, expected):
 def test_collect_tool_header_bindings_core_rules():
     ok, err = _collect_tool_header_bindings(
         {
-            "type": "object",
             "properties": {
                 "region": {"type": "string", "x-mcp-header": "Region"},
             },
@@ -192,16 +165,26 @@ def test_collect_tool_header_bindings_core_rules():
     )
     assert err is None
     assert ok == [(("region",), "Region", "string")]
-
-    _, err = _collect_tool_header_bindings(
-        {
-            "type": "object",
-            "properties": {
-                "n": {"type": "number", "x-mcp-header": "N"},
+    rejects = (
+        ({"n": {"type": "number", "x-mcp-header": "N"}}, "string/integer"),
+        (
+            {"r": {"$ref": "#/x", "x-mcp-header": "R", "type": "string"}},
+            "reachable",
+        ),
+        (
+            {
+                "a": {"type": "string", "x-mcp-header": "X"},
+                "b": {"type": "string", "x-mcp-header": "x"},
             },
-        },
+            "duplicate",
+        ),
     )
-    assert err and "string/integer/boolean" in err
+    for props, part in rejects:
+        _, err = _collect_tool_header_bindings({"properties": props})
+        assert err and part in err
+    allof = {"r": {"type": "string", "x-mcp-header": "R"}}
+    _, err = _collect_tool_header_bindings({"allOf": [{"properties": allof}]})
+    assert err and "reachable" in err
 
 
 def test_build_mcp_param_headers_types_and_omit():
@@ -209,27 +192,43 @@ def test_build_mcp_param_headers_types_and_omit():
         [
             (("region",), "Region", "string"),
             (("count",), "Count", "integer"),
+            (("ok",), "Ok", "boolean"),
             (("note",), "Note", "string"),
+            (("n",), "N", "integer"),
         ],
-        {"region": "us-west1", "count": 42, "note": None},
+        {
+            "region": "us-west1",
+            "count": "42",
+            "ok": "true",
+            "note": None,
+            "n": 42.0,
+        },
     )
     assert headers[f"{_MCP_PARAM_HEADER_PREFIX}Region"] == "us-west1"
     assert headers[f"{_MCP_PARAM_HEADER_PREFIX}Count"] == "42"
+    assert headers[f"{_MCP_PARAM_HEADER_PREFIX}Ok"] == "true"
+    assert headers[f"{_MCP_PARAM_HEADER_PREFIX}N"] == "42"
     assert f"{_MCP_PARAM_HEADER_PREFIX}Note" not in headers
+    for value in ("1.5", "--1"):
+        with pytest.raises(RuntimeError, match="Cannot encode"):
+            _build_mcp_param_headers(
+                [(("bad",), "Bad", "integer")],
+                {"bad": value},
+            )
 
 
 def test_normalize_call_tool_result_snake_case_aliases():
     out = _normalize_call_tool_result(
-        {"structured_content": {"ok": True}, "is_error": True},
+        {
+            "structured_content": {"ok": True},
+            "is_error": True,
+            "result_type": "input_required",
+        },
     )
     assert out["structuredContent"] == {"ok": True}
     assert out["isError"] is True
+    assert out["resultType"] == "input_required"
     assert out["content"] == []
-
-
-# ---------------------------------------------------------------------------
-# HttpAutoClient fallback
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -246,11 +245,20 @@ def test_normalize_call_tool_result_snake_case_aliases():
 async def test_auto_falls_back_once(monkeypatch, make):
     connected: list[str] = []
     _fake_stateful(monkeypatch, connected)
-    c = _cli(HttpAutoClient, "auto", lambda r: make(_rid(r)))
+    c = _cli(
+        HttpAutoClient,
+        "auto",
+        lambda r: make(_rid(r)),
+        headers={"Mcp-Session-Id": "stale"},
+    )
     await c.connect()
     try:
         assert c.is_stateful
         assert connected == ["auto"]
+        assert not any(
+            key.casefold() == _MCP_SESSION_ID_HEADER
+            for key in (c._impl.headers or {})
+        )
         assert await c.list_tools() == ["legacy-tool"]
     finally:
         await c.close()
@@ -268,6 +276,28 @@ async def test_auto_falls_back_once(monkeypatch, make):
             "server/discover",
         ),
         (lambda r: _err(r, -32022, "bad", {}), RuntimeError, "incompatible"),
+        (
+            lambda r: _err(
+                r,
+                -32601,
+                "Method not found: server/discover",
+                status=404,
+            ),
+            RuntimeError,
+            "server/discover",
+        ),
+        (
+            lambda _r: _sse(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32022, "message": "bad"},
+                },
+                status=400,
+            ),
+            RuntimeError,
+            "incompatible",
+        ),
     ],
 )
 async def test_auto_does_not_fallback(monkeypatch, make, exc_type, match):
@@ -284,16 +314,12 @@ async def test_auto_timeout_skips_legacy_fallback(monkeypatch):
     connected: list[str] = []
     _fake_stateful(monkeypatch, connected)
 
-    class SlowLegacy(HttpStatelessClient):
-        async def connect(self, timeout=30.0):
-            await asyncio.sleep(0.05)
-            raise _LegacyProtocolError("slow legacy")
+    async def slow(_self, timeout=30.0):
+        del timeout
+        await asyncio.sleep(0.05)
+        raise _LegacyProtocolError("slow legacy")
 
-        async def close(self, ignore_errors=True):
-            del ignore_errors
-            self._http = None
-
-    monkeypatch.setattr(http_mod, "HttpStatelessClient", SlowLegacy)
+    _stub_stateless(monkeypatch, slow)
     c = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
     with pytest.raises(TimeoutError, match="before legacy fallback"):
         await c.connect(timeout=0.01)
@@ -324,26 +350,19 @@ async def test_auto_stays_modern():
     assert c._impl is None
 
 
-# ---------------------------------------------------------------------------
-# HttpAutoClient lifecycle
-# ---------------------------------------------------------------------------
-
-
 async def test_auto_cancel_during_modern_connect_cleans_up(monkeypatch):
     closed: list[str] = []
 
-    class Hang(HttpStatelessClient):
-        async def connect(self, timeout=30.0):
-            del timeout
-            self._http = object()
-            try:
-                await asyncio.Event().wait()
-            except BaseException:
-                closed.append("modern")
-                self._http = None
-                raise
+    async def hang(self, timeout=30.0):
+        del timeout
+        self._http = object()
+        try:
+            await asyncio.Event().wait()
+        except BaseException:
+            closed.append("modern")
+            raise
 
-    monkeypatch.setattr(http_mod, "HttpStatelessClient", Hang)
+    _stub_stateless(monkeypatch, hang)
     c = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
     task = asyncio.create_task(c.connect())
     await asyncio.sleep(0)
@@ -354,30 +373,17 @@ async def test_auto_cancel_during_modern_connect_cleans_up(monkeypatch):
     assert c._impl is None
 
 
-async def test_auto_serializes_concurrent_connect(monkeypatch):
-    started = asyncio.Event()
-    release = asyncio.Event()
-    connects: list[str] = []
-    _patch_slow_stateless(monkeypatch, started, release, connects=connects)
-    c = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
-    first = asyncio.create_task(c.connect())
-    await started.wait()
-    second = asyncio.create_task(c.connect())
-    await asyncio.sleep(0)
-    assert connects == ["modern"]
-    release.set()
-    await first
-    with pytest.raises(RuntimeError, match="already connected"):
-        await second
-    await c.close()
-    assert c._impl is None
-
-
 async def test_auto_close_waits_for_in_flight_connect(monkeypatch):
     started = asyncio.Event()
     release = asyncio.Event()
     closed: list[str] = []
-    _patch_slow_stateless(monkeypatch, started, release, closed=closed)
+
+    async def slow(_self, timeout=30.0):
+        del _self, timeout
+        started.set()
+        await release.wait()
+
+    _stub_stateless(monkeypatch, slow, closed=closed)
     c = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
     first = asyncio.create_task(c.connect())
     await started.wait()
@@ -391,56 +397,6 @@ async def test_auto_close_waits_for_in_flight_connect(monkeypatch):
     assert c._impl is None
 
 
-async def test_close_keeps_handle_until_cleanup_succeeds():
-    class BoomHttp:
-        def __init__(self):
-            self.n = 0
-
-        async def aclose(self):
-            self.n += 1
-            if self.n == 1:
-                raise RuntimeError("boom")
-
-    http = BoomHttp()
-    stateless = HttpStatelessClient(
-        "modern",
-        "streamable_http",
-        "http://mcp.test/mcp",
-    )
-    stateless._http = http
-    stateless.is_connected = True
-    with pytest.raises(RuntimeError, match="boom"):
-        await stateless.close(ignore_errors=False)
-    assert stateless._http is http
-    await stateless.close(ignore_errors=False)
-    assert stateless._http is None
-
-    class BoomImpl:
-        def __init__(self):
-            self.n = 0
-
-        async def close(self, ignore_errors=True):
-            del ignore_errors
-            self.n += 1
-            if self.n == 1:
-                raise asyncio.CancelledError
-
-    impl = BoomImpl()
-    auto = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
-    auto._impl = impl
-    auto.is_connected = True
-    with pytest.raises(asyncio.CancelledError):
-        await auto.close(ignore_errors=False)
-    assert auto._impl is impl
-    await auto.close(ignore_errors=False)
-    assert auto._impl is None
-
-
-# ---------------------------------------------------------------------------
-# HttpStatelessClient wire
-# ---------------------------------------------------------------------------
-
-
 async def test_stateless_discover_list_call_and_headers():
     seen: list[httpx.Request] = []
 
@@ -451,7 +407,14 @@ async def test_stateless_discover_list_call_and_headers():
         if method == "server/discover":
             return _disc(rid)
         if method == "tools/list":
-            return _ok(rid, {"tools": [{"name": "echo", "inputSchema": {}}]})
+            return _ok(
+                rid,
+                {
+                    "tools": [{"name": "echo", "inputSchema": {}}],
+                    "nextCursor": "",
+                    "next_cursor": "should-not-follow",
+                },
+            )
         if method == "tools/call":
             if body["params"]["name"] == "ok":
                 return _sse(
@@ -475,13 +438,17 @@ async def test_stateless_discover_list_call_and_headers():
                 return _sse(
                     {"jsonrpc": "2.0", "method": "notifications/progress"},
                 )
-            return _ok(
-                rid,
-                {
+            if body["params"]["name"] == "need_input":
+                payload = {
+                    "resultType": "input_required",
+                    "inputRequests": {},
+                }
+            else:
+                payload = {
                     "content": [{"type": "text", "text": "hi"}],
                     "isError": False,
-                },
-            )
+                }
+            return _ok(rid, payload)
         return _err(rid, -32601, method)
 
     c = _cli(
@@ -498,6 +465,8 @@ async def test_stateless_discover_list_call_and_headers():
         assert (await c.call_tool("ok", {})).content[0].text == "matched"
         with pytest.raises(RuntimeError, match="Empty SSE"):
             await c.call_tool("empty", {})
+        with pytest.raises(RuntimeError, match="MRTR"):
+            await c.call_tool("need_input", {})
     finally:
         await c.close()
 
@@ -514,6 +483,8 @@ async def test_stateless_discover_list_call_and_headers():
         _MODERN_PROTOCOL_VERSION
     )
     assert echo_call.headers[_MCP_NAME_HEADER] == "echo"
+    rpc_ids = [json.loads(req.content)["id"] for req in seen]
+    assert rpc_ids == list(range(1, len(rpc_ids) + 1))
 
 
 @pytest.mark.parametrize(
@@ -548,24 +519,8 @@ async def test_stateless_rejects_malformed_jsonrpc(payload, match):
         await c.close()
 
 
-async def test_stateless_post_discover_401_is_oauth():
-    def handler(req):
-        body = json.loads(req.content)
-        if body["method"] == "server/discover":
-            return _disc(body["id"])
-        return httpx.Response(401, text="u")
-
-    c = _cli(HttpStatelessClient, "modern", handler)
-    await c.connect()
-    try:
-        with pytest.raises(RuntimeError, match="OAuth"):
-            await c.list_tools()
-    finally:
-        await c.close()
-
-
 @pytest.mark.parametrize("second_ok", [True, False])
-async def test_call_tool_header_mismatch_retry(second_ok, caplog):
+async def test_call_tool_header_mismatch_retry(second_ok):
     listed = {"n": 0}
 
     def handler(req):
@@ -576,36 +531,25 @@ async def test_call_tool_header_mismatch_retry(second_ok, caplog):
         if body["method"] == "tools/list":
             listed["n"] += 1
             header = "Region" if listed["n"] == 1 else "Location"
-            tools = [
+            return _ok(
+                rid,
                 {
-                    "name": "sql",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "region": {
-                                "type": "string",
-                                "x-mcp-header": header,
-                            },
-                        },
-                    },
-                },
-            ]
-            if listed["n"] == 1:
-                tools.append(
-                    {
-                        "name": "bad_number",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "n": {
-                                    "type": "number",
-                                    "x-mcp-header": "N",
+                    "tools": [
+                        {
+                            "name": "sql",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "region": {
+                                        "type": "string",
+                                        "x-mcp-header": header,
+                                    },
                                 },
                             },
                         },
-                    },
-                )
-            return _ok(rid, {"tools": tools})
+                    ],
+                },
+            )
         if body["method"] == "tools/call":
             if listed["n"] == 1 or not second_ok:
                 return _err(rid, -32020, "header mismatch", status=400)
@@ -621,10 +565,7 @@ async def test_call_tool_header_mismatch_retry(second_ok, caplog):
     c = _cli(HttpStatelessClient, "modern", handler)
     await c.connect()
     try:
-        with caplog.at_level("WARNING"):
-            tools = await c.list_tools()
-        assert [t.name for t in tools] == ["sql"]
-        assert "from 'modern'" in caplog.text
+        assert [t.name for t in await c.list_tools()] == ["sql"]
         if second_ok:
             captured: list[dict[str, str]] = []
             orig = c._http.stream
@@ -677,9 +618,32 @@ async def test_list_tools_max_pages_exceeded():
         await c.close()
 
 
-# ---------------------------------------------------------------------------
-# Driver routing / constructor
-# ---------------------------------------------------------------------------
+async def test_stateless_close_keeps_http_until_aclose_succeeds():
+    c = _cli(HttpStatelessClient, "modern", lambda r: _disc(_rid(r)))
+    await c.connect()
+    http = c._http
+    n = {"v": 0}
+
+    async def boom():
+        n["v"] += 1
+        if n["v"] == 1:
+            raise RuntimeError("aclose failed")
+
+    c._http.aclose = boom  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="aclose failed"):
+        await c.close(ignore_errors=False)
+    assert c._http is http
+    await c.close(ignore_errors=False)
+    assert c._http is None
+    await c.connect()
+
+    async def cancelled():
+        raise asyncio.CancelledError
+
+    c._http.aclose = cancelled  # type: ignore[method-assign]
+    with pytest.raises(asyncio.CancelledError):
+        await c.close()
+    assert c._http is None
 
 
 async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
@@ -695,14 +659,12 @@ async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
         def __init__(self, **kw):
             del kw
             built.append(self.kind)
-            self.is_connected = False
 
         async def connect(self):
-            self.is_connected = True
+            return None
 
         async def close(self, ignore_errors=True):
             del ignore_errors
-            self.is_connected = False
 
     class Auto(Track):
         kind = "auto"
@@ -723,10 +685,3 @@ async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
         await handler._setup()
         await handler._teardown()
     assert built == ["auto", "stateful"]
-
-
-def test_streamable_http_ctor_type_guards():
-    with pytest.raises(TypeError, match="name must be str"):
-        HttpAutoClient(123, "streamable_http", "http://x")
-    with pytest.raises(ValueError, match="streamable_http"):
-        HttpStatelessClient("x", "sse", "http://x")

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import itertools
 import json
 import logging
 import re
@@ -25,8 +26,9 @@ from ...__version__ import __version__ as _QWENPAW_VERSION
 logger = logging.getLogger(__name__)
 
 _MODERN_PROTOCOL_VERSION = "2026-07-28"
+# Streamable-HTTP handshake-era only; 2024-11-05 is HTTP+SSE, not fallback.
 _HANDSHAKE_PROTOCOL_VERSIONS = frozenset(
-    {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"},
+    {"2025-03-26", "2025-06-18", "2025-11-25"},
 )
 
 _MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
@@ -52,8 +54,10 @@ _IEEE754_SAFE_INT_MAX = 2**53 - 1
 _B64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$")
 _HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
 _HTTP_FIELD_NAME = re.compile(r"^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$")
+_INT_STRING = re.compile(r"^-?\d+$")
+# Spec primitives only; ["string","null"] rejects the whole tool.
 _PRIMITIVE_HEADER_TYPES = frozenset({"string", "integer", "boolean"})
-# Skip static ``properties`` walk + instance-data containers.
+# Skip instance-data keys so example x-mcp-header does not reject the tool.
 _SKIP_GENERIC_WALK_KEYS = frozenset(
     {
         "properties",
@@ -108,20 +112,31 @@ class _JsonRpcError(Exception):
 
 
 def _is_jsonrpc_envelope(data: Any) -> bool:
-    """Return True when *data* is a JSON-RPC 2.0 object."""
     return isinstance(data, dict) and data.get("jsonrpc") == "2.0"
 
 
 def _ids_match(left: Any, right: Any) -> bool:
-    """Compare JSON-RPC ids allowing int/str equivalence."""
     return left == right or str(left) == str(right)
 
 
 def _timeout_seconds(value: float | timedelta) -> float:
-    """Normalize timeout values that may be ``float`` or ``timedelta``."""
     return (
         value.total_seconds() if isinstance(value, timedelta) else float(value)
     )
+
+
+def _headers_without_session_id(
+    headers: dict[str, str] | None,
+) -> dict[str, str]:
+    """Copy headers, dropping leftover Mcp-Session-Id.
+
+    Does not mutate the caller-owned mapping.
+    """
+    return {
+        key: value
+        for key, value in (headers or {}).items()
+        if key.casefold() != _MCP_SESSION_ID_HEADER
+    }
 
 
 def _encode_mcp_header_value(value: str) -> str:
@@ -140,10 +155,8 @@ def _supported_versions_from_payload(payload: Any) -> list[str] | None:
     """Extract supported protocol versions from discover / -32022 payloads."""
     if not isinstance(payload, dict):
         return None
-    # Prefer official supportedVersions; accept protocolVersions / supported.
+    # Official keys: discover supportedVersions, -32022 supported.
     raw = payload.get("supportedVersions")
-    if raw is None:
-        raw = payload.get("protocolVersions")
     if raw is None and isinstance(payload.get("supported"), list):
         raw = payload["supported"]
     if not isinstance(raw, list):
@@ -169,9 +182,7 @@ def _is_legacy_protocol_evidence(
         has_hs = any(
             v in _HANDSHAKE_PROTOCOL_VERSIONS for v in supported_versions
         )
-        has_mod = any(
-            v == _MODERN_PROTOCOL_VERSION for v in supported_versions
-        )
+        has_mod = _MODERN_PROTOCOL_VERSION in supported_versions
         return bool(supported_versions) and has_hs and not has_mod
     return status_code in {400, 404, 405}
 
@@ -181,17 +192,19 @@ def _normalize_call_tool_result(result: Any) -> Any:
     if not isinstance(result, dict):
         return result
     out = dict(result)
-    if "structuredContent" not in out and "structured_content" in out:
-        out["structuredContent"] = out.pop("structured_content")
-    if "isError" not in out and "is_error" in out:
-        out["isError"] = out.pop("is_error")
+    for camel, snake in (
+        ("structuredContent", "structured_content"),
+        ("isError", "is_error"),
+        ("resultType", "result_type"),
+    ):
+        if camel not in out and snake in out:
+            out[camel] = out.pop(snake)
     if "content" not in out and "structuredContent" in out:
         out["content"] = []
     return out
 
 
 def _value_at_path(arguments: dict[str, Any], path: tuple[str, ...]) -> Any:
-    """Return the value at *path*, or ``_MISSING`` when absent."""
     cur: Any = arguments
     for key in path:
         if not isinstance(cur, dict) or key not in cur:
@@ -200,32 +213,29 @@ def _value_at_path(arguments: dict[str, Any], path: tuple[str, ...]) -> Any:
     return cur
 
 
-def _param_value_to_header_string(value: Any, json_type: str) -> str:
+def _param_value_to_header_string(value: Any, json_type: str) -> str | None:
     """Convert a primitive tool argument to an MCP header string."""
     if json_type == "string":
-        if not isinstance(value, str):
-            raise RuntimeError(
-                f"x-mcp-header value must be str, got {type(value).__name__}",
-            )
-        return value
+        return value if isinstance(value, str) else None
     if json_type == "boolean":
-        if not isinstance(value, bool):
-            raise RuntimeError(
-                f"x-mcp-header value must be bool, got {type(value).__name__}",
-            )
-        return "true" if value else "false"
-    if json_type == "integer":
-        # bool is a subclass of int; reject explicitly.
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise RuntimeError(
-                f"x-mcp-header value must be int, got {type(value).__name__}",
-            )
-        if value < _IEEE754_SAFE_INT_MIN or value > _IEEE754_SAFE_INT_MAX:
-            raise RuntimeError(
-                f"x-mcp-header integer {value} outside IEEE-754 safe range",
-            )
-        return str(value)
-    raise RuntimeError(f"unsupported x-mcp-header json type: {json_type!r}")
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return value if value in ("true", "false") else None
+    number: int | None = None
+    if json_type == "integer" and not isinstance(value, bool):
+        if isinstance(value, int):
+            number = value
+        elif isinstance(value, str) and _INT_STRING.fullmatch(value):
+            number = int(value)
+        elif isinstance(value, float) and value.is_integer():
+            number = int(value)
+    if (
+        number is None
+        or number < _IEEE754_SAFE_INT_MIN
+        or number > _IEEE754_SAFE_INT_MAX
+    ):
+        return None
+    return str(number)
 
 
 def _collect_tool_header_bindings(  # noqa: C901
@@ -333,6 +343,10 @@ def _build_mcp_param_headers(
         if value is _MISSING or value is None:
             continue
         text = _param_value_to_header_string(value, json_type)
+        if text is None:
+            raise RuntimeError(
+                f"Cannot encode {'.'.join(path)} as {json_type} header",
+            )
         headers[
             f"{_MCP_PARAM_HEADER_PREFIX}{header_name}"
         ] = _encode_mcp_header_value(text)
@@ -355,24 +369,18 @@ def _unwrap_jsonrpc_result(
         if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
             raise _JsonRpcError.from_payload(data["error"], http_status=status)
+        resp_kw: dict[str, Any] = {
+            "headers": headers or {},
+            "request": request,
+        }
         if isinstance(data, dict):
-            response = httpx.Response(
-                status,
-                json=data,
-                headers=headers or {},
-                request=request,
-            )
+            resp_kw["json"] = data
         else:
-            response = httpx.Response(
-                status,
-                content=content,
-                headers=headers or {},
-                request=request,
-            )
+            resp_kw["content"] = content
         raise httpx.HTTPStatusError(
             f"MCP {method} rejected with HTTP {status}",
             request=request,
-            response=response,
+            response=httpx.Response(status, **resp_kw),
         )
     if not _is_jsonrpc_envelope(data):
         raise RuntimeError(
@@ -390,47 +398,28 @@ def _unwrap_jsonrpc_result(
     return data["result"]
 
 
-def _validate_streamable_http_ctor(
-    cls_name: str,
-    name: Any,
-    transport: Any,
-    url: Any,
-) -> tuple[str, str, str]:
-    """Validate constructor args shared by the Streamable-HTTP clients."""
-    if not isinstance(name, str):
-        raise TypeError(f"name must be str, got {type(name).__name__}")
-    if not isinstance(transport, str):
-        raise TypeError(
-            f"transport must be str, got {type(transport).__name__}",
-        )
-    if transport != "streamable_http":
-        raise ValueError(
-            f"{cls_name} only supports "
-            f"transport='streamable_http', got {transport!r}",
-        )
-    if not isinstance(url, str):
-        raise TypeError(f"url must be str, got {type(url).__name__}")
-    return name, transport, url
-
-
 def _not_connected(name: str) -> RuntimeError:
-    """Build the standard 'not connected' RuntimeError."""
     return RuntimeError(
         f"MCP client '{name}' is not connected. Call connect() first.",
     )
 
 
-def _raise_legacy_rpc(exc: _JsonRpcError) -> None:
-    """Raise ``_LegacyProtocolError`` when *exc* is handshake-era evidence."""
-    if _is_legacy_protocol_evidence(
-        status_code=exc.http_status,
-        error_code=exc.code,
-    ):
-        raise _LegacyProtocolError(str(exc)) from exc
+def _already_connected(name: str) -> RuntimeError:
+    return RuntimeError(
+        f"MCP client '{name}' is already connected. "
+        "Call close() before connecting again.",
+    )
 
 
-class HttpStatelessClient:
-    """Stateless Streamable-HTTP client for MCP 2026-07-28."""
+def _discover_rpc_error(exc: _JsonRpcError) -> RuntimeError:
+    return RuntimeError(
+        f"MCP JSON-RPC error for 'server/discover': "
+        f"code={exc.code} message={exc}",
+    )
+
+
+class _HttpClientBase:
+    """Shared constructor fields for Streamable-HTTP clients."""
 
     def __init__(
         self,
@@ -442,13 +431,20 @@ class HttpStatelessClient:
         sse_read_timeout: float = 60 * 5,
         **client_kwargs: Any,
     ) -> None:
-        """Initialize the stateless Streamable-HTTP MCP client."""
-        name, transport, url = _validate_streamable_http_ctor(
-            "HttpStatelessClient",
-            name,
-            transport,
-            url,
-        )
+        for label, value in (
+            ("name", name),
+            ("transport", transport),
+            ("url", url),
+        ):
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"{label} must be str, got {type(value).__name__}",
+                )
+        if transport != "streamable_http":
+            raise ValueError(
+                f"{type(self).__name__} only supports "
+                f"transport='streamable_http', got {transport!r}",
+            )
         self.name = name
         self.transport = transport
         self.url = url
@@ -458,32 +454,29 @@ class HttpStatelessClient:
         self.client_kwargs = dict(client_kwargs)
         self.is_stateful = False
         self.is_connected = False
-        # Map http_transport= to httpx transport=.
+
+
+class HttpStatelessClient(_HttpClientBase):
+    """Stateless Streamable-HTTP client for MCP 2026-07-28."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
         http_transport = self.client_kwargs.pop("http_transport", None)
         if http_transport is not None:
             self.client_kwargs["transport"] = http_transport
-
         self._http: httpx.AsyncClient | None = None
-        self._rpc_id = 0
-        self._protocol_version = _MODERN_PROTOCOL_VERSION
+        self._rpc_ids = itertools.count(1)
         self._tool_param_headers: dict[str, list[_HeaderBinding]] = {}
         self._tools_listed = False
 
     async def connect(self, timeout: float = 30.0) -> None:
         """Connect and negotiate the modern protocol version."""
         if self.is_connected or self._http is not None:
-            raise RuntimeError(
-                f"MCP client '{self.name}' is already connected. "
-                "Call close() before connecting again.",
-            )
+            raise _already_connected(self.name)
         t = _timeout_seconds(self.timeout)
         r = _timeout_seconds(self.sse_read_timeout)
         # Drop leftover session ids without mutating caller-owned headers.
-        headers = {
-            key: value
-            for key, value in (self.headers or {}).items()
-            if key.casefold() != _MCP_SESSION_ID_HEADER
-        }
+        headers = _headers_without_session_id(self.headers)
         self._http = httpx.AsyncClient(
             headers=headers,
             timeout=httpx.Timeout(connect=t, read=r, write=t, pool=t),
@@ -497,7 +490,7 @@ class HttpStatelessClient:
         self.is_connected = True
         logger.info(
             f"MCP stateless client connected: {self.name} "
-            f"(protocol={self._protocol_version})",
+            f"(protocol={_MODERN_PROTOCOL_VERSION})",
         )
 
     async def close(self, ignore_errors: bool = True) -> None:
@@ -516,7 +509,15 @@ class HttpStatelessClient:
             logger.warning(
                 f"Error closing MCP stateless client '{self.name}': {exc}",
             )
+        except BaseException:
+            self._http = None
+            raise
         self._http = None
+
+    def _reject_tool(self, label: Any, reason: Any) -> None:
+        logger.warning(
+            f"Rejecting MCP tool {label!r} from '{self.name}': {reason}",
+        )
 
     # pylint: disable=too-many-branches
     async def list_tools(self):  # noqa: C901
@@ -554,10 +555,7 @@ class HttpStatelessClient:
                 )
             for raw in raw_tools:
                 if not isinstance(raw, dict):
-                    logger.warning(
-                        f"Rejecting MCP tool from '{self.name}': "
-                        f"non-object tool entry {raw!r}",
-                    )
+                    self._reject_tool(raw, "non-object tool entry")
                     continue
                 tool_name = str(raw.get("name") or "")
                 schema = raw.get("inputSchema")
@@ -565,25 +563,19 @@ class HttpStatelessClient:
                     schema = raw.get("input_schema")
                 bindings, err = _collect_tool_header_bindings(schema)
                 if err is not None:
-                    logger.warning(
-                        f"Rejecting MCP tool {tool_name or raw!r} "
-                        f"from '{self.name}': {err}",
-                    )
+                    self._reject_tool(tool_name or raw, err)
                     continue
                 try:
                     tool = mcp_types.Tool.model_validate(raw)
                 except Exception as exc:
-                    logger.warning(
-                        f"Rejecting MCP tool {tool_name or raw!r} "
-                        f"from '{self.name}': {exc}",
-                    )
+                    self._reject_tool(tool_name or raw, exc)
                     continue
                 accepted.append(tool)
                 header_index[tool.name] = bindings
             next_cursor = result.get("nextCursor")
             if next_cursor is None:
                 next_cursor = result.get("next_cursor")
-            if next_cursor is None:
+            if not next_cursor:
                 break
             if not isinstance(next_cursor, str):
                 raise RuntimeError(
@@ -600,53 +592,46 @@ class HttpStatelessClient:
         self._validate_connection()
         if not self._tools_listed:
             await self.list_tools()
-        try:
-            result = await self._rpc(
+
+        async def _call() -> Any:
+            return await self._rpc(
                 "tools/call",
                 {"name": name, "arguments": arguments or {}},
                 mcp_name=name,
-                extra_headers=self._param_headers_for(name, arguments),
+                extra_headers=_build_mcp_param_headers(
+                    self._tool_param_headers.get(name, []),
+                    arguments,
+                )
+                or None,
             )
+
+        try:
+            result = await _call()
         except _JsonRpcError as exc:
             if exc.code != _JSONRPC_HEADER_MISMATCH:
                 raise
             await self.list_tools()
-            result = await self._rpc(
-                "tools/call",
-                {"name": name, "arguments": arguments or {}},
-                mcp_name=name,
-                extra_headers=self._param_headers_for(name, arguments),
+            result = await _call()
+        normalized = _normalize_call_tool_result(result)
+        if (
+            isinstance(normalized, dict)
+            and normalized.get("resultType") == "input_required"
+        ):
+            raise RuntimeError(
+                "MCP tool requires additional input (MRTR), "
+                "which is not supported",
             )
-        return mcp_types.CallToolResult.model_validate(
-            _normalize_call_tool_result(result),
-        )
-
-    def _param_headers_for(
-        self,
-        name: str,
-        arguments: dict | None,
-    ) -> dict[str, str] | None:
-        """Build ``Mcp-Param-*`` headers for one tool call, or ``None``."""
-        return (
-            _build_mcp_param_headers(
-                self._tool_param_headers.get(name, []),
-                arguments,
-            )
-            or None
-        )
+        return mcp_types.CallToolResult.model_validate(normalized)
 
     async def _negotiate(self) -> None:
-        """Probe ``server/discover``; select a mutually supported version."""
+        """Probe ``server/discover``; confirm the peer supports 2026-07-28."""
         try:
-            result = await self._rpc(
-                "server/discover",
-                {},
-                protocol_version=_MODERN_PROTOCOL_VERSION,
-            )
+            result = await self._rpc("server/discover", {})
         except _JsonRpcError as exc:
             if exc.code == _JSONRPC_UNSUPPORTED_PROTOCOL_VERSION:
                 supported = _supported_versions_from_payload(exc.data)
-                # Handshake-only -32022 aligns with discover-success fallback.
+                # Handshake-only list: fall back so dual-era peers that
+                # only advertise 2025-11-25 still connect via initialize.
                 if _is_legacy_protocol_evidence(
                     supported_versions=supported,
                 ):
@@ -656,14 +641,17 @@ class HttpStatelessClient:
                 raise RuntimeError(
                     f"incompatible modern MCP: {supported or []}",
                 ) from exc
-            # Modern servers MUST implement discover; -32601 ⇒ legacy.
             if exc.code == _JSONRPC_METHOD_NOT_FOUND:
+                # HTTP 404 + -32601 is the modern unknown-method shape.
+                if exc.http_status == 404:
+                    raise _discover_rpc_error(exc) from exc
                 raise _LegacyProtocolError(str(exc)) from exc
-            _raise_legacy_rpc(exc)
-            raise RuntimeError(
-                f"MCP JSON-RPC error for 'server/discover': "
-                f"code={exc.code} message={exc}",
-            ) from exc
+            if _is_legacy_protocol_evidence(
+                status_code=exc.http_status,
+                error_code=exc.code,
+            ):
+                raise _LegacyProtocolError(str(exc)) from exc
+            raise _discover_rpc_error(exc) from exc
         except httpx.HTTPStatusError as exc:
             # Bare 400/404/405 ⇒ one legacy fallback.
             if _is_legacy_protocol_evidence(
@@ -675,6 +663,7 @@ class HttpStatelessClient:
         supported = _supported_versions_from_payload(result)
         if supported is None:
             raise RuntimeError(f"Malformed MCP discover result: {result!r}")
+        # Handshake-only discover is dual-era fallback, not a modern hard-fail.
         if _is_legacy_protocol_evidence(supported_versions=supported):
             raise _LegacyProtocolError(
                 f"legacy-only discover versions: {supported}",
@@ -684,7 +673,6 @@ class HttpStatelessClient:
                 "No mutually supported modern protocol version "
                 f"(server: {supported})",
             )
-        self._protocol_version = _MODERN_PROTOCOL_VERSION
 
     async def _rpc(  # noqa: C901
         self,
@@ -692,16 +680,14 @@ class HttpStatelessClient:
         params: dict[str, Any] | None = None,
         *,
         mcp_name: str | None = None,
-        protocol_version: str | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> Any:
         """POST one JSON-RPC request and unwrap the response."""
         if self._http is None:
             raise _not_connected(self.name)
-        version = protocol_version or self._protocol_version
         body_params = dict(params or {})
         meta = dict(body_params.get("_meta") or {})
-        meta[_PROTOCOL_VERSION_META_KEY] = version
+        meta[_PROTOCOL_VERSION_META_KEY] = _MODERN_PROTOCOL_VERSION
         # Empty capabilities: do not advertise MRTR/elicitation.
         meta.setdefault(_CLIENT_CAPABILITIES_META_KEY, {})
         if _CLIENT_INFO_META_KEY not in meta:
@@ -710,28 +696,28 @@ class HttpStatelessClient:
                 "version": _QWENPAW_VERSION,
             }
         body_params["_meta"] = meta
-        self._rpc_id += 1
-        request_id = self._rpc_id
+        request_id = next(self._rpc_ids)
         headers = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
-            _MCP_PROTOCOL_VERSION_HEADER: version,
+            _MCP_PROTOCOL_VERSION_HEADER: _MODERN_PROTOCOL_VERSION,
             _MCP_METHOD_HEADER: method,
         }
         if mcp_name is not None:
             headers[_MCP_NAME_HEADER] = _encode_mcp_header_value(mcp_name)
         if extra_headers:
             headers.update(extra_headers)
-        skw: dict[str, Any] = {
-            "json": {
+        async with self._http.stream(
+            "POST",
+            self.url,
+            json={
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "method": method,
                 "params": body_params,
             },
-            "headers": headers,
-        }
-        async with self._http.stream("POST", self.url, **skw) as response:
+            headers=headers,
+        ) as response:
             status = response.status_code
             ctype = (response.headers.get("content-type") or "").lower()
             response_headers = dict(response.headers)
@@ -748,6 +734,7 @@ class HttpStatelessClient:
                     response,
                     method=method,
                     request_id=request_id,
+                    status=status,
                 )
                 if data is None and status < 400:
                     raise RuntimeError(
@@ -777,6 +764,7 @@ class HttpStatelessClient:
         *,
         method: str,
         request_id: int | str,
+        status: int,
     ) -> dict[str, Any] | None:
         """Return the first SSE JSON-RPC response matching *request_id*."""
         data_lines: list[str] = []
@@ -796,9 +784,13 @@ class HttpStatelessClient:
                 return None
             if not isinstance(event, dict):
                 return None
-            if not _ids_match(event.get("id"), request_id):
-                return None
-            return event if ("result" in event or "error" in event) else None
+            if _ids_match(event.get("id"), request_id):
+                has_body = "result" in event or "error" in event
+                return event if has_body else None
+            # 4xx JSON-RPC errors may omit/null id (same as JSON unwrap).
+            if status >= 400 and "error" in event:
+                return event
+            return None
 
         async for line in response.aiter_lines():
             if line.startswith("data:"):
@@ -810,42 +802,22 @@ class HttpStatelessClient:
         return flush()
 
     def _validate_connection(self) -> None:
-        """Raise ``RuntimeError`` if the client is not ready."""
         if not self.is_connected or self._http is None:
             raise _not_connected(self.name)
 
 
-class HttpAutoClient:
+class HttpAutoClient(_HttpClientBase):
     """Dual-era Streamable-HTTP client: modern first, one legacy fallback."""
 
-    def __init__(
-        self,
-        name: Any,
-        transport: Any = "streamable_http",
-        url: Any = "",
-        headers: dict[str, str] | None = None,
-        timeout: float = 30,
-        sse_read_timeout: float = 60 * 5,
-        **client_kwargs: Any,
-    ) -> None:
-        """Initialize the dual-era Streamable-HTTP MCP client."""
-        name, transport, url = _validate_streamable_http_ctor(
-            "HttpAutoClient",
-            name,
-            transport,
-            url,
-        )
-        self.name = name
-        self.transport = transport
-        self.url = url
-        self.headers = headers
-        self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
-        self.client_kwargs = dict(client_kwargs)
-        self.is_stateful = False
-        self.is_connected = False
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
         self._impl: Any = None
         self._lifecycle_lock = asyncio.Lock()
+
+    def _require_impl(self) -> Any:
+        if not self.is_connected or self._impl is None:
+            raise _not_connected(self.name)
+        return self._impl
 
     async def connect(self, timeout: float = 30.0) -> None:
         """Connect via modern client, falling back once to legacy if needed."""
@@ -855,28 +827,21 @@ class HttpAutoClient:
     async def _connect_locked(self, timeout: float) -> None:
         """Run connect while holding `_lifecycle_lock`."""
         if self.is_connected or self._impl is not None:
-            raise RuntimeError(
-                f"MCP client '{self.name}' is already connected. "
-                "Call close() before connecting again.",
-            )
-        # Needed only on legacy fallback.
-        from .mcp_stateful_client import HttpStatefulClient
-
-        # http_transport is httpx, not MCP transport=.
+            raise _already_connected(self.name)
         kw = dict(self.client_kwargs)
         http_transport = kw.pop("http_transport", None)
         shared = {
             "name": self.name,
             "transport": "streamable_http",
             "url": self.url,
-            "headers": self.headers,
+            "headers": _headers_without_session_id(self.headers) or None,
             "timeout": self.timeout,
             "sse_read_timeout": self.sse_read_timeout,
             **kw,
         }
+        deadline = time.monotonic() + float(timeout)
         if http_transport is not None:
             shared["http_transport"] = http_transport
-        deadline = time.monotonic() + float(timeout)
         modern = HttpStatelessClient(**shared)
         try:
             await modern.connect(timeout=timeout)
@@ -898,13 +863,10 @@ class HttpAutoClient:
                 f"MCP client '{self.name}' timed out during modern negotiate "
                 "before legacy fallback",
             )
-        # Legacy ctor keeps MCP transport=; map httpx onto client_kwargs.
-        legacy_kwargs = {
-            k: v for k, v in shared.items() if k != "http_transport"
-        }
-        legacy = HttpStatefulClient(**legacy_kwargs)
-        if http_transport is not None:
-            legacy.client_kwargs["transport"] = http_transport
+        shared.pop("http_transport", None)
+        from .mcp_stateful_client import HttpStatefulClient
+
+        legacy = HttpStatefulClient(**shared)
         try:
             await legacy.connect(timeout=remaining)
         except BaseException:
@@ -922,17 +884,17 @@ class HttpAutoClient:
             impl = self._impl
             if impl is None:
                 return
-            await impl.close(ignore_errors=ignore_errors)
-            self._impl = None
+            try:
+                await impl.close(ignore_errors=ignore_errors)
+            finally:
+                self._impl = None
 
     async def list_tools(self):
-        """Delegate ``list_tools`` to the active implementation."""
-        if not self.is_connected or self._impl is None:
-            raise _not_connected(self.name)
-        return await self._impl.list_tools()
+        async with self._lifecycle_lock:
+            impl = self._require_impl()
+        return await impl.list_tools()
 
     async def call_tool(self, name: str, arguments: dict | None = None):
-        """Delegate ``call_tool`` to the active implementation."""
-        if not self.is_connected or self._impl is None:
-            raise _not_connected(self.name)
-        return await self._impl.call_tool(name, arguments)
+        async with self._lifecycle_lock:
+            impl = self._require_impl()
+        return await impl.call_tool(name, arguments)
