@@ -308,7 +308,7 @@ video Prompt 必须以**时间戳分段**形式，将每个 Storyboard 格映射
 - `read_project`：获取目标 Element、Shot、视觉锚点、creation 和每次生成后的真实版本。
 - `read_project_file`：当前生成确实依赖已索引长文本时读取。
 - `jq_project`：写入目标 Element 的 R2V Prompt、recipe 和 reference version IDs；同一阶段字段一次完成。**注意**：`storyboard_reference_version_ids` 和 `video_reference_version_ids` 必须写入 `creation.r2v` 层级（与 `storyboard_prompt`、`video_prompt` 同级），不得写入 `shots` 层级；Shot 的 `framing` 只能使用 `全景`、`中景`、`近景`、`特写` 四个枚举值之一。
-- `image_generation`：为当前 element target 生成 storyboard；只使用 Project 中存在的图片版本，每次调用所传递的参考版本 ID 总数不超过 5。
+- `image_generation`：为当前 element target 生成 storyboard；只使用 Project 中存在的图片版本。{{image_model_guidance}}
 - `r2v_generation`：storyboard output 已存在、Prompt/时长/画幅/分辨率就绪时生成视频。
 - 每个模型回合最多调用一个工具。
 

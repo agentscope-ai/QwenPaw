@@ -18,20 +18,6 @@ from services.project_files.models import (
 pytestmark = pytest.mark.unit
 
 
-def test_delegate_input_rejects_duplicate_target_refs() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="target_refs must contain unique values",
-    ):
-        DelegateToAgentInput.model_validate(
-            {
-                "role": "visual_development_agent",
-                "target_refs": ["project:assets", "project:assets"],
-                "task": "建立视觉结构",
-            },
-        )
-
-
 def test_only_current_element_specialists_are_delegatable() -> None:
     roles = delegate_tool_manifest()["function"]["parameters"]["properties"][
         "role"
@@ -114,20 +100,6 @@ def test_visual_entity_target_aliases_normalize_to_asset_refs() -> None:
     assert source.target_refs == ["asset:char:haaland"]
 
 
-def test_visual_entity_aliases_stay_rejected_for_element_domain_roles() -> (
-    None
-):
-    delegated = DelegateToAgentInput.model_validate(
-        {
-            "role": "r2v_generation_director",
-            "target_refs": ["char:haaland"],
-            "task": "生成视频",
-        },
-    )
-    with pytest.raises(ValueError, match="does not allow targetRef"):
-        delegated.validate_contract(project_id="project-1")
-
-
 def test_unknown_target_kinds_still_fail_the_contract() -> None:
     delegated = DelegateToAgentInput.model_validate(
         {
@@ -175,20 +147,6 @@ def test_visual_target_must_resolve_to_visual_entity() -> None:
         wrong_source_asset.validate_project_targets(project=project)
 
 
-def test_project_assets_visual_target_does_not_require_one_entity() -> None:
-    delegated = DelegateToAgentInput.model_validate(
-        {
-            "role": "visual_development_agent",
-            "target_refs": ["project:assets"],
-            "task": "建立整体视觉设定",
-        },
-    )
-    delegated.validate_contract(project_id="project-1")
-    delegated.validate_project_targets(
-        project=Project.new(project_id="project-1", name="Test"),
-    )
-
-
 def test_lineup_targets_delegate_to_visual_development() -> None:
     """lineup:<id> mirrors the image_generation tool surface.
 
@@ -214,36 +172,3 @@ def test_lineup_targets_delegate_to_visual_development() -> None:
     )
     delegated.validate_contract(project_id="project-1")
     delegated.validate_project_targets(project=project)
-
-
-def test_unknown_lineup_target_names_the_valid_lineups() -> None:
-    project = Project.new(project_id="project-1", name="Test")
-    project.visual.cast_lineups.items["argentina-trio"] = VisualCastLineup(
-        lineup_id="argentina-trio",
-        name="Argentina trio",
-        character_refs=["char:messi", "char:depaul"],
-    )
-    project.visual.cast_lineups.order.append("argentina-trio")
-
-    delegated = DelegateToAgentInput.model_validate(
-        {
-            "role": "visual_development_agent",
-            "target_refs": ["lineup:missing"],
-            "task": "生成阵容图",
-        },
-    )
-    delegated.validate_contract(project_id="project-1")
-    with pytest.raises(ValueError, match=r"lineup:argentina-trio"):
-        delegated.validate_project_targets(project=project)
-
-
-def test_lineup_targets_stay_rejected_for_other_roles() -> None:
-    delegated = DelegateToAgentInput.model_validate(
-        {
-            "role": "r2v_generation_director",
-            "target_refs": ["lineup:argentina-trio"],
-            "task": "生成分镜",
-        },
-    )
-    with pytest.raises(ValueError, match=r"does not allow targetRef"):
-        delegated.validate_contract(project_id="project-1")

@@ -76,6 +76,7 @@ from .dependencies import (
     resolve_idempotency_key,
 )
 
+from utils.exceptions import redact_url, upstream_status_hint
 from utils.logger import setup_logger
 
 logger = setup_logger("model_routes")
@@ -728,6 +729,42 @@ def _ensure_grounding_model_configured(data: ModelConfigData) -> None:
         )
 
 
+def _image_backend_for_protocol(protocol: str) -> str:
+    """Map the persisted image protocol label onto a provider switch."""
+
+    lowered = protocol.casefold()
+    if (
+        "dashscope" in lowered
+        or "百炼" in protocol
+        or "token plan" in lowered
+        or "tokenplan" in lowered
+    ):
+        return "DASHSCOPE"
+    if "gemini" in lowered:
+        return "GEMINI"
+    if "volcano" in lowered or "火山" in protocol or "ark" in lowered:
+        return "ARK"
+    if "flux" in lowered or "black forest" in lowered or "bfl" in lowered:
+        return "BFL"
+    if "ideogram" in lowered:
+        return "IDEOGRAM"
+    if "openai" in lowered:
+        return "OPENAI"
+    return ""
+
+
+def _video_backend_for_protocol(protocol: str) -> str:
+    """Map the persisted video protocol label onto a transport backend.
+
+    Delegates to the shared mapping in ``models.config`` so the
+    request-scoped value and every fallback resolve the channel from the
+    same user configuration rule (Bailian hosting vs official Kling/Vidu
+    channels, Volcano Engine, Google Gemini, MiniMax).
+    """
+
+    return model_config.video_backend_for_protocol(protocol) or "wan"
+
+
 def request_tool_configs() -> dict[str, dict[str, Any]]:
     data = load_model_config()
     configs: dict[str, dict[str, Any]] = {}
@@ -765,16 +802,15 @@ def request_tool_configs() -> dict[str, dict[str, Any]]:
                     "reuse_llm_key": item.reuse_llm_key,
                 },
             )
-        if section == "image" and "dashscope" in item.protocol.casefold():
-            tool_config["_image_backend"] = "DASHSCOPE"
+        if section == "image":
+            image_backend = _image_backend_for_protocol(item.protocol)
+            if image_backend:
+                tool_config["_image_backend"] = image_backend
         if section == "image" and item.translate_model:
             tool_config["translate_model"] = item.translate_model
         if section == "video":
-            tool_config["_video_backend"] = (
-                "seedance2"
-                if "volcano" in item.protocol.casefold()
-                or "火山" in item.protocol
-                else "wan"
+            tool_config["_video_backend"] = _video_backend_for_protocol(
+                item.protocol,
             )
         configs[tool_name] = tool_config
     grounding = data.grounding
@@ -1449,14 +1485,107 @@ def _openai_model_probe(
     )
 
 
+def _token_plan_models_probe(
+    body: ModelConnectionTestRequest,
+    headers: dict[str, str],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Token Plan probe: list models endpoint (zero-cost, validates API key).
+
+    Token Plan uses /api/v1 as base_url but the models endpoint is at
+    /compatible-mode/v1/models. This probe verifies the API key and base
+    URL without submitting any billable generation task.
+    """
+    parsed = urlparse(body.base_url)
+    url = f"{parsed.scheme}://{parsed.netloc}/compatible-mode/v1/models"
+    return url, headers, {"_get_probe": True}
+
+
+def _anthropic_llm_probe(
+    body: ModelConnectionTestRequest,
+    base: str,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Anthropic Messages API probe for llm/vlm connectivity tests."""
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    # Free-tier providers probe with require_api_key=False and an empty
+    # key; sending an empty x-api-key would fail with 401 instead of
+    # letting the unauthenticated probe proceed.
+    if body.api_key:
+        headers["x-api-key"] = body.api_key
+    if body.type == "vlm":
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": "Reply with red only."},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4I2JDEmIY1TCqYfhqAAAeBCwQ8YdREQAAAABJRU5ErkJggg==",
+                },
+            },
+        ]
+    else:
+        content = "Reply with pong only."
+    return (
+        f"{base}/v1/messages",
+        headers,
+        {
+            "model": body.model_name,
+            "max_tokens": 8,
+            "messages": [{"role": "user", "content": content}],
+        },
+    )
+
+
+def _gemini_llm_probe(
+    body: ModelConnectionTestRequest,
+    base: str,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Google Gemini Generative AI probe for llm/vlm connectivity tests.
+
+    Gemini authenticates through the ``key=`` query parameter (the same
+    transport used by ``text_model._call_gemini``); without it the probe
+    always fails with 400/401/403.
+    """
+    url = f"{base}/v1beta/models/{body.model_name}:generateContent"
+    if body.api_key:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}key={body.api_key}"
+    headers = {
+        "Content-Type": "application/json",
+    }
+    if body.type == "vlm":
+        parts: list[dict[str, Any]] = [
+            {"text": "Reply with red only."},
+            {
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4I2JDEmIY1TCqYfhqAAAeBCwQ8YdREQAAAABJRU5ErkJggg==",
+                },
+            },
+        ]
+    else:
+        parts = [{"text": "Reply with pong only."}]
+    payload: dict[str, Any] = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"maxOutputTokens": 8},
+    }
+    return url, headers, payload
+
+
 def _probe_payload(
     body: ModelConnectionTestRequest,
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
     base = body.base_url.rstrip("/")
-    headers = {
-        "Authorization": f"Bearer {body.api_key}",
-        "Content-Type": "application/json",
-    }
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    # Send the credential whenever one is present so paid models behind a
+    # free-tier-capable provider still authenticate; ``require_api_key``
+    # only controls whether an *absent* key is tolerated (validated by the
+    # route before probing).
+    if body.api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
     if body.type == "asr":
         provider = body.provider or (
             "whisper" if "whisper" in body.protocol.casefold() else "fun-asr"
@@ -1520,6 +1649,10 @@ def _probe_payload(
             },
         )
     if body.type in {"llm", "vlm"}:
+        if model_config.is_anthropic_protocol(body.protocol):
+            return _anthropic_llm_probe(body, base)
+        if model_config.is_gemini_protocol(body.protocol):
+            return _gemini_llm_probe(body, base)
         content: Any = "Reply with pong only."
         if body.type == "vlm":
             content = [
@@ -1541,6 +1674,8 @@ def _probe_payload(
             },
         )
     if body.type == "image":
+        if "token plan" in body.protocol.casefold():
+            return _token_plan_models_probe(body, headers)
         if "dashscope" in body.protocol.casefold() or "百炼" in body.protocol:
             return _dashscope_policy_probe(body, headers)
         return _openai_model_probe(body, headers)
@@ -1552,6 +1687,8 @@ def _probe_payload(
             headers,
             {"_get_probe": True, "page_size": 1},
         )
+    if "token plan" in body.protocol.casefold():
+        return _token_plan_models_probe(body, headers)
     return _dashscope_policy_probe(body, headers)
 
 
@@ -1581,15 +1718,22 @@ async def test_model_connection(
             "voice": body.voice or getattr(item, "voice", ""),
         },
     )
-    if (
-        not selected.base_url
-        or not selected.api_key
-        or not selected.model_name
-    ):
+    missing: list[str] = []
+    if not selected.base_url:
+        missing.append("Base URL")
+    if body.require_api_key and not selected.api_key:
+        missing.append("API Key")
+    if not selected.model_name:
+        missing.append("模型名称")
+    if missing:
         return ConnectionTestResponse(
             ok=False,
             ms=0,
-            error="配置不完整，请检查 Base URL、API Key 和模型名称",
+            error=(
+                f"配置不完整：缺少 {'、'.join(missing)}（配置项: "
+                f"{body.type}，协议: {selected.protocol or '未指定'}）。"
+                "请在模型配置弹窗中补齐后重试。"
+            ),
         )
     start = time.monotonic()
     try:
@@ -1635,28 +1779,42 @@ async def test_model_connection(
                 provider_error = str(provider_body)
         except ValueError:
             provider_error = response.text[:300]
+        hint = upstream_status_hint(response.status_code)
         return ConnectionTestResponse(
             ok=False,
             ms=elapsed,
-            error=f"HTTP {response.status_code}: {provider_error or '请求失败'}",
+            error=(
+                f"HTTP {response.status_code}: "
+                f"{provider_error or '请求失败'} "
+                f"[探测端点: {redact_url(url)}，协议: {selected.protocol}]"
+                + (f"。{hint}" if hint else "")
+            ),
         )
     except httpx.ConnectError:
         return ConnectionTestResponse(
             ok=False,
             ms=round((time.monotonic() - start) * 1000),
-            error="无法连接到服务，请检查 Base URL 是否正确",
+            error=(
+                f"无法连接到服务，请检查 Base URL 是否正确"
+                f"（当前 Base URL: {selected.base_url}）"
+            ),
         )
     except httpx.TimeoutException:
         return ConnectionTestResponse(
             ok=False,
             ms=round((time.monotonic() - start) * 1000),
-            error="连接超时，请检查网络或 Base URL",
+            error=(
+                f"连接超时，请检查网络或 Base URL" f"（当前 Base URL: {selected.base_url}）"
+            ),
         )
     except (httpx.HTTPError, ValueError) as exc:
         return ConnectionTestResponse(
             ok=False,
             ms=round((time.monotonic() - start) * 1000),
-            error=str(exc),
+            error=(
+                f"{type(exc).__name__}: {exc} "
+                f"[配置项: {body.type}，协议: {selected.protocol}]"
+            ),
         )
 
 

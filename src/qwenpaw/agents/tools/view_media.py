@@ -425,7 +425,14 @@ def _validate_media_path(
         "NFC",
         os.path.expanduser(file_path),
     )
-    resolved = Path(_resolve_file_path(file_path))
+    try:
+        resolved = Path(_resolve_file_path(file_path))
+    except ValueError as e:
+        return Path(file_path), ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(type="text", text=f"Error: {e}")],
+        )
 
     if not resolved.exists() or not resolved.is_file():
         return resolved, ToolChunk(

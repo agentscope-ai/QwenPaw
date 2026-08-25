@@ -641,6 +641,295 @@ class TestResolveSendPath:
         assert use_seq is True
         assert seq_key == "c2c"
 
+    @pytest.mark.parametrize(
+        ("message_type", "channel_id", "group_openid", "guild_id"),
+        [
+            ("dm", None, None, None),
+            ("group", None, None, None),
+            ("guild", None, None, None),
+        ],
+    )
+    def test_missing_target_does_not_fall_back_to_c2c(
+        self,
+        qq_channel,
+        message_type,
+        channel_id,
+        group_openid,
+        guild_id,
+    ):
+        """Known non-C2C routes must reject a missing target."""
+        with pytest.raises(ValueError):
+            qq_channel._resolve_send_path(
+                message_type=message_type,
+                sender_id="user123",
+                channel_id=channel_id,
+                group_openid=group_openid,
+                guild_id=guild_id,
+            )
+
+
+class TestSessionRouting:
+    """Tests for QQ conversation-scoped sessions and send handles."""
+
+    @pytest.mark.parametrize(
+        ("meta", "expected"),
+        [
+            ({"message_type": "c2c"}, "qq:c2c:user_1"),
+            (
+                {"message_type": "group", "group_openid": "group_1"},
+                "qq:group:group_1",
+            ),
+            (
+                {"message_type": "guild", "channel_id": "channel_1"},
+                "qq:guild:channel_1",
+            ),
+            (
+                {"message_type": "dm", "guild_id": "guild_1"},
+                "qq:dm:guild_1",
+            ),
+        ],
+    )
+    def test_resolve_session_id_by_conversation(
+        self,
+        qq_channel,
+        meta,
+        expected,
+    ):
+        """Each QQ source uses its own conversation identifier."""
+        assert qq_channel.resolve_session_id("user_1", meta) == expected
+
+    def test_same_sender_uses_four_distinct_sessions(self, qq_channel):
+        """The same sender cannot share context across QQ sources."""
+        sessions = {
+            qq_channel.resolve_session_id("user_1", {"message_type": "c2c"}),
+            qq_channel.resolve_session_id(
+                "user_1",
+                {"message_type": "group", "group_openid": "group_1"},
+            ),
+            qq_channel.resolve_session_id(
+                "user_1",
+                {"message_type": "guild", "channel_id": "channel_1"},
+            ),
+            qq_channel.resolve_session_id(
+                "user_1",
+                {"message_type": "dm", "guild_id": "guild_1"},
+            ),
+        }
+        assert len(sessions) == 4
+
+    def test_missing_non_c2c_target_never_uses_c2c_session(self, qq_channel):
+        """Malformed non-C2C metadata stays outside private conversations."""
+        assert (
+            qq_channel.resolve_session_id(
+                "user_1",
+                {"message_type": "group"},
+            )
+            == "qq:group:unknown"
+        )
+
+    @pytest.mark.parametrize(
+        ("session_id", "user_id", "expected"),
+        [
+            ("qq:c2c:user_1", "other", "qq:c2c:user_1"),
+            ("qq:group:group_1", "other", "qq:group:group_1"),
+            ("qq:guild:channel_1", "other", "qq:guild:channel_1"),
+            ("qq:dm:guild_1", "other", "qq:dm:guild_1"),
+            ("qq:user_1", "other", "qq:user_1"),
+            ("", "user_1", "qq:c2c:user_1"),
+        ],
+    )
+    def test_to_handle_from_target(
+        self,
+        qq_channel,
+        session_id,
+        user_id,
+        expected,
+    ):
+        """Cron uses the session handle and old IDs remain C2C handles."""
+        assert (
+            qq_channel.to_handle_from_target(
+                user_id=user_id,
+                session_id=session_id,
+            )
+            == expected
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("to_handle", "expected_type", "expected_target"),
+        [
+            ("qq:c2c:user_1", "c2c", "user_1"),
+            ("qq:group:group_1", "group", "group_1"),
+            ("qq:guild:channel_1", "guild", "channel_1"),
+            ("qq:dm:guild_1", "dm", "guild_1"),
+        ],
+    )
+    async def test_send_content_parts_recovers_route_from_session(
+        self,
+        qq_channel,
+        to_handle,
+        expected_type,
+        expected_target,
+    ):
+        """Scheduled sends route correctly when dispatch metadata is empty."""
+        from qwenpaw.schemas import TextContent
+
+        qq_channel._get_access_token_async = AsyncMock(return_value="token")
+        qq_channel._send_text_with_fallback = AsyncMock(return_value=True)
+        await qq_channel.send_content_parts(
+            to_handle,
+            [TextContent(type="text", text="scheduled message")],
+            {},
+        )
+
+        args = qq_channel._send_text_with_fallback.call_args.args
+        kwargs = qq_channel._send_text_with_fallback.call_args.kwargs
+        assert args[0] == expected_type
+        if expected_type == "c2c":
+            assert args[1] == expected_target
+        elif expected_type == "group":
+            assert args[3] == expected_target
+        elif expected_type == "guild":
+            assert args[2] == expected_target
+        else:
+            assert kwargs["guild_id"] == expected_target
+
+    @pytest.mark.asyncio
+    async def test_card_route_uses_session_when_meta_is_empty(
+        self,
+        qq_channel,
+    ):
+        """Approval cards receive the route decoded from their session."""
+        event = MagicMock()
+        qq_channel._card_handler.try_send_card_for_event = AsyncMock(
+            return_value=True,
+        )
+
+        await qq_channel.on_event_message_completed(
+            MagicMock(),
+            "qq:group:group_1",
+            event,
+            {},
+        )
+
+        send_meta = (
+            qq_channel._card_handler.try_send_card_for_event.call_args.args[2]
+        )
+        assert send_meta["message_type"] == "group"
+        assert send_meta["group_openid"] == "group_1"
+
+    @pytest.mark.asyncio
+    async def test_guild_dm_card_resolved_message_uses_guild_id(
+        self,
+        qq_channel,
+    ):
+        """Guild DM approval results accept guild_id as the route target."""
+        from qwenpaw.app.channels.qq.cards.tool_guard import (
+            _send_resolved_message,
+        )
+
+        qq_channel._get_access_token_async = AsyncMock(return_value="token")
+        qq_channel._send_text_with_fallback = AsyncMock(return_value=True)
+
+        await _send_resolved_message(
+            qq_channel,
+            session_ctx={"mt": "dm", "gid": "guild_1"},
+            tool_name="example_tool",
+            action="approve",
+            operator_display="user_1",
+        )
+
+        call = qq_channel._send_text_with_fallback.call_args
+        assert call.args[0] == "dm"
+        assert call.kwargs["guild_id"] == "guild_1"
+
+    def test_card_action_preserves_guild_dm_route_metadata(
+        self,
+        qq_channel,
+    ):
+        """Card actions retain Guild DM metadata for access-control replies."""
+        from qwenpaw.app.channels.qq.cards.tool_guard import (
+            _enqueue_approval_command,
+        )
+
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+
+        _enqueue_approval_command(
+            qq_channel,
+            action="approve",
+            request_id="request_1",
+            session_ctx={
+                "sid": "qq:dm:guild_1",
+                "mt": "dm",
+                "cid": "channel_1",
+                "gid": "guild_1",
+            },
+            user_id="user_1",
+        )
+
+        meta = enqueued[0]["meta"]
+        assert meta["channel_id"] == "channel_1"
+        assert meta["guild_id"] == "guild_1"
+        assert meta["is_group"] is False
+
+    def test_card_action_treats_guild_messages_as_group_access(
+        self,
+        qq_channel,
+    ):
+        """Guild-channel card actions use the group access-control policy."""
+        from qwenpaw.app.channels.qq.cards.tool_guard import (
+            _enqueue_approval_command,
+        )
+
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+
+        _enqueue_approval_command(
+            qq_channel,
+            action="approve",
+            request_id="request_1",
+            session_ctx={
+                "sid": "qq:guild:channel_1",
+                "mt": "guild",
+                "cid": "channel_1",
+                "gid": "guild_1",
+            },
+            user_id="user_1",
+        )
+
+        assert enqueued[0]["meta"]["is_group"] is True
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.app.channels.qq.channel._api_request_async")
+    async def test_guild_dm_approval_card_uses_dms_path(
+        self,
+        mock_api,
+        qq_channel,
+    ):
+        """Guild DM approval cards use the DMS endpoint with a keyboard."""
+        from qwenpaw.app.channels.qq.cards.tool_guard import (
+            _send_keyboard_message,
+        )
+
+        keyboard = {"content": {"rows": []}}
+        await _send_keyboard_message(
+            qq_channel,
+            token="token",
+            message_type="dm",
+            sender_id="",
+            group_openid="",
+            channel_id="",
+            guild_id="guild_1",
+            msg_id="message_1",
+            markdown_content="Approval required",
+            keyboard=keyboard,
+        )
+
+        call = mock_api.call_args
+        assert call.args[3] == "/dms/guild_1/messages"
+        assert call.args[4]["keyboard"] == keyboard
+
 
 class TestSend:
     """Tests for send method."""
@@ -1857,6 +2146,7 @@ class TestHandleMsgEvent:
         req = enqueued[0]
         assert req.channel_meta["message_type"] == "c2c"
         assert req.channel_meta["sender_id"] == "sender_1"
+        assert req.session_id == "qq:c2c:sender_1"
 
     def test_guild_message_has_extra_meta(self, qq_channel):
         """Guild message should have extra metadata."""
@@ -1875,6 +2165,7 @@ class TestHandleMsgEvent:
         assert meta["message_type"] == "guild"
         assert meta["channel_id"] == "ch_100"
         assert meta["guild_id"] == "g_200"
+        assert enqueued[0].session_id == "qq:guild:ch_100"
 
     def test_group_message(self, qq_channel):
         """Group message should work correctly."""
@@ -1891,6 +2182,24 @@ class TestHandleMsgEvent:
         meta = enqueued[0].channel_meta
         assert meta["message_type"] == "group"
         assert meta["group_openid"] == "grp_300"
+        assert enqueued[0].session_id == "qq:group:grp_300"
+
+    def test_guild_direct_message_uses_guild_session(self, qq_channel):
+        """Guild DMs use the DMS guild ID rather than the sender ID."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"id": "author_1"},
+            "content": "hello DM",
+            "id": "msg_004",
+            "channel_id": "ch_100",
+            "guild_id": "g_200",
+        }
+
+        qq_channel._handle_msg_event("DIRECT_MESSAGE_CREATE", d)
+
+        assert len(enqueued) == 1
+        assert enqueued[0].session_id == "qq:dm:g_200"
 
     def test_empty_text_no_attachments_skipped(self, qq_channel):
         """Empty text with no attachments should be skipped."""
@@ -2085,6 +2394,23 @@ class TestBuildAgentRequestFromNative:
         }
         req = qq_channel.build_agent_request_from_native(native)
         assert req.user_id == "user_1"
+
+    def test_explicit_session_id_is_preserved(self, qq_channel):
+        """Card actions retain the session encoded in the button."""
+        from qwenpaw.schemas import TextContent
+
+        native = {
+            "channel_id": "qq",
+            "sender_id": "user_1",
+            "session_id": "qq:group:group_1",
+            "content_parts": [TextContent(type="text", text="/approval")],
+            "meta": {"message_type": "group"},
+        }
+
+        req = qq_channel.build_agent_request_from_native(native)
+
+        assert req.session_id == "qq:group:group_1"
+        assert req.channel_meta == {"message_type": "group"}
 
     def test_non_dict_payload(self, qq_channel):
         """Should handle non-dict payload gracefully."""

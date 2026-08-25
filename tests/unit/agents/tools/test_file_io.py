@@ -42,11 +42,15 @@ from qwenpaw.agents.tools.utils import (
 class TestResolveFilePath:
     """Tests for _resolve_file_path."""
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_absolute_path_unchanged(self, mock_ws):
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_absolute_path_unchanged(self, mock_base):
         import sys
+        from pathlib import Path
 
-        mock_ws.return_value = None
+        # get_tool_base_dir() always returns a Path (project → workspace
+        # → WORKING_DIR), so the stub must too: on Windows a drive-less
+        # POSIX path is *not* absolute and gets joined against the base.
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("/tmp/test.txt")
         # On Unix, path stays as-is; on Windows, it may get a
         # drive prefix (e.g. C:\tmp\test.txt)
@@ -55,25 +59,26 @@ class TestResolveFilePath:
         else:
             assert result == "/tmp/test.txt"
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_relative_path_resolved(self, mock_ws):
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_relative_path_resolved(self, mock_base):
         from pathlib import Path
 
-        mock_ws.return_value = Path("/workspace")
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("subdir/file.txt")
         assert result == str(Path("/workspace/subdir/file.txt"))
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_tilde_expansion(self, mock_ws):
-        mock_ws.return_value = None
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_tilde_expansion(self, mock_base):
+        from pathlib import Path
+
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("~/test.txt")
         assert "~" not in result
         assert result.endswith("test.txt")
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_workspace_fallback_to_working_dir(self, mock_ws):
-        mock_ws.return_value = None
-        # When workspace is None, WORKING_DIR is used
+    def test_workspace_fallback_to_working_dir(self):
+        # Nothing configured: get_tool_base_dir() itself falls back to
+        # WORKING_DIR, so the resolver is left unpatched here.
         result = _resolve_file_path("file.txt")
         assert result.endswith("file.txt")
 

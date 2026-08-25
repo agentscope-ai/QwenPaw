@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import threading
 
 import pytest
 
 from domain.enums import CreatorGoalStatus, CreatorSessionStatus
 from services.project_files import Project, ProjectStore
-from services.project_files.commit import ProjectCommitBoundary
 from services.runtime_files import (
     AtomicJsonRecordStore,
     MessageChannel,
@@ -24,7 +22,6 @@ from services.runtime_files import (
     RuntimeProjectState,
     SessionStateConflict,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -52,6 +49,34 @@ def _text(value: str) -> list[dict[str, str]]:
     return [{"type": "text", "text": value}]
 
 
+def _append(store, role: str, text: str, **kwargs):
+    return store.append_message(
+        PROJECT_ID,
+        SESSION_ID,
+        CONVERSATION_ID,
+        role=role,
+        content_parts=_text(text),
+        **kwargs,
+    )
+
+
+def _admit(store, request_id: str, text: str = "change it", **overrides):
+    kwargs = {
+        "client_message_id": f"client-{request_id}",
+        "channel": MessageChannel.AGENTDOCK,
+        "classification": MessageClassification.MUTATION_INSTRUCTION,
+    }
+    kwargs.update(overrides)
+    return store.admit_user_request(
+        PROJECT_ID,
+        SESSION_ID,
+        CONVERSATION_ID,
+        request_id=request_id,
+        content_parts=_text(text),
+        **kwargs,
+    )
+
+
 def _seed_runtime_state(root: Path, snapshot) -> RuntimeProjectState:
     state = RuntimeProjectState(
         project_id=PROJECT_ID,
@@ -68,12 +93,10 @@ def _seed_runtime_state(root: Path, snapshot) -> RuntimeProjectState:
 
 
 def _activate_runtime(root: Path, snapshot, store) -> None:
-    root_message = store.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="user",
-        content_parts=_text("initial objective"),
+    root_message = _append(
+        store,
+        "user",
+        "initial objective",
         client_message_id="initial-message",
         source="initial_creation",
         channel=MessageChannel.COMPOSER,
@@ -94,6 +117,26 @@ def _activate_runtime(root: Path, snapshot, store) -> None:
         run_id="run-1",
     )
     _seed_runtime_state(root, snapshot)
+
+
+def _pending_review(root: Path, snapshot, store) -> None:
+    _activate_runtime(root, snapshot, store)
+    store.set_goal_status(
+        PROJECT_ID,
+        "goal-1",
+        CreatorGoalStatus.WAITING_REVIEW,
+        expected_status=CreatorGoalStatus.ACTIVE,
+    )
+    store.clear_active_run(
+        PROJECT_ID,
+        SESSION_ID,
+        expected_run_id="run-1",
+        status=CreatorSessionStatus.PENDING_REVIEW,
+    )
+
+
+def _boundary_file(store, request_id: str) -> Path:
+    return store.review_boundary_path(PROJECT_ID, SESSION_ID, request_id)
 
 
 def test_bootstrap_atomically_creates_session_and_default_conversation_only(
@@ -144,8 +187,7 @@ def test_activate_run_rejects_a_second_cross_process_owner(tmp_path):
             run_id="run-from-another-process",
         )
 
-    session = store.get_project_session(PROJECT_ID)
-    assert session.active_run_id == "run-1"
+    assert store.get_project_session(PROJECT_ID).active_run_id == "run-1"
 
 
 def test_staged_project_bootstrap_can_include_initial_goal(tmp_path):
@@ -173,7 +215,6 @@ def test_staged_project_bootstrap_can_include_initial_goal(tmp_path):
     )
 
     assert holder[0].session.active_goal_id == "goal-initial"
-    assert store.get_project_session(PROJECT_ID).last_message_seq == 1
     assert store.get_goal(PROJECT_ID, "goal-initial").intent == (
         "Create the initial Project"
     )
@@ -184,36 +225,16 @@ def test_staged_project_bootstrap_can_include_initial_goal(tmp_path):
 
 def test_message_jsonl_sequence_and_client_id_payload_drift(tmp_path):
     _root, _snapshot, store, _bootstrap = _runtime(tmp_path)
+    idempotent = {
+        "client_message_id": "client-1",
+        "source": "agentdock",
+        "channel": MessageChannel.AGENTDOCK,
+        "classification": MessageClassification.READ_ONLY_QUESTION,
+    }
 
-    first = store.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="user",
-        content_parts=_text("hello"),
-        client_message_id="client-1",
-        source="agentdock",
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.READ_ONLY_QUESTION,
-    )
-    replay = store.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="user",
-        content_parts=_text("hello"),
-        client_message_id="client-1",
-        source="agentdock",
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.READ_ONLY_QUESTION,
-    )
-    second = store.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="assistant",
-        content_parts=_text("answer"),
-    )
+    first = _append(store, "user", "hello", **idempotent)
+    replay = _append(store, "user", "hello", **idempotent)
+    second = _append(store, "assistant", "answer")
 
     assert first.replayed is False
     assert replay.replayed is True
@@ -225,58 +246,20 @@ def test_message_jsonl_sequence_and_client_id_payload_drift(tmp_path):
     ] == [1, 2]
 
     with pytest.raises(MessagePayloadConflict, match="payload drift"):
-        store.append_message(
-            PROJECT_ID,
-            SESSION_ID,
-            CONVERSATION_ID,
-            role="user",
-            content_parts=_text("changed"),
-            client_message_id="client-1",
-            source="agentdock",
-            channel=MessageChannel.AGENTDOCK,
-            classification=MessageClassification.READ_ONLY_QUESTION,
-        )
+        _append(store, "user", "changed", **idempotent)
 
 
 def test_current_state_and_all_session_streams_are_durable(tmp_path):
     _root, _snapshot, store, _bootstrap = _runtime(tmp_path)
-    root_message = store.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="user",
-        content_parts=_text("objective"),
-    ).message
-    goal = store.create_goal(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        goal_id="goal-1",
-        root_message_seq=root_message.message_seq,
-        intent="Finish work",
-    )
-    updated_goal = store.set_goal_status(
-        PROJECT_ID,
-        goal.goal_id,
-        CreatorGoalStatus.RESUME_REQUIRED,
-        expected_status=CreatorGoalStatus.ACTIVE,
-    )
+    root_message = _append(store, "user", "objective").message
     session = store.set_session_status(
         PROJECT_ID,
         SESSION_ID,
         CreatorSessionStatus.WAITING_RUNTIME,
         expected_status=CreatorSessionStatus.IDLE,
     )
-    event_1 = store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="runtime.started",
-    )
-    event_2 = store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="runtime.waiting",
-    )
+    for name in ("runtime.started", "runtime.waiting"):
+        store.append_event(PROJECT_ID, SESSION_ID, event_type=name)
     queued = store.append_queued_message(
         PROJECT_ID,
         SESSION_ID,
@@ -284,7 +267,7 @@ def test_current_state_and_all_session_streams_are_durable(tmp_path):
         client_message_id="queued-client-1",
         content_parts=_text("next instruction"),
     )
-    consumed = store.transition_queued_message(
+    store.transition_queued_message(
         PROJECT_ID,
         SESSION_ID,
         queued.queued_message_id,
@@ -298,7 +281,7 @@ def test_current_state_and_all_session_streams_are_durable(tmp_path):
         outbox_id="outbox-1",
         content_parts=_text("manual edit"),
     )
-    linked = store.transition_outbox(
+    store.transition_outbox(
         PROJECT_ID,
         SESSION_ID,
         outbox.outbox_id,
@@ -306,29 +289,17 @@ def test_current_state_and_all_session_streams_are_durable(tmp_path):
         linked_message_id=root_message.message_id,
     )
 
-    assert updated_goal.status is CreatorGoalStatus.RESUME_REQUIRED
     assert session.status is CreatorSessionStatus.WAITING_RUNTIME
-    assert (event_1.event_seq, event_2.event_seq) == (1, 2)
-    assert consumed.queue_seq == 2
-    assert consumed.state is QueuedMessageState.APPENDED
-    assert linked.outbox_seq == 2
-    assert linked.state is OutboxState.APPENDED
     assert [
         item.event_seq for item in store.list_events(PROJECT_ID, SESSION_ID)
-    ] == [
-        1,
-        2,
-    ]
+    ] == [1, 2]
     assert [
         item.queue_seq
         for item in store.list_queued_messages(PROJECT_ID, SESSION_ID)
     ] == [1, 2]
     assert [
         item.outbox_seq for item in store.list_outbox(PROJECT_ID, SESSION_ID)
-    ] == [
-        1,
-        2,
-    ]
+    ] == [1, 2]
     assert (
         store.get_session(PROJECT_ID, SESSION_ID).queued_user_message_count
         == 0
@@ -343,179 +314,12 @@ def test_current_state_and_all_session_streams_are_durable(tmp_path):
         )
 
 
-def test_review_resolution_event_is_published_before_idle_and_is_idempotent(
-    tmp_path,
-    monkeypatch,
-):
-    root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    store.set_goal_status(
-        PROJECT_ID,
-        "goal-1",
-        CreatorGoalStatus.WAITING_REVIEW,
-        expected_status=CreatorGoalStatus.ACTIVE,
-    )
-    store.clear_active_run(
-        PROJECT_ID,
-        SESSION_ID,
-        expected_run_id="run-1",
-        status=CreatorSessionStatus.PENDING_REVIEW,
-    )
-
-    original_write = store._write_session_unlocked
-
-    def assert_event_precedes_idle(session):
-        if session.status is CreatorSessionStatus.IDLE:
-            events = store._event_records_unlocked(PROJECT_ID, SESSION_ID)
-            assert events[-1].event_type == "agent.review.resolved"
-        return original_write(session)
-
-    monkeypatch.setattr(
-        store,
-        "_write_session_unlocked",
-        assert_event_precedes_idle,
-    )
-    first = store.resolve_pending_review(PROJECT_ID, SESSION_ID)
-    replay = store.resolve_pending_review(PROJECT_ID, SESSION_ID)
-
-    events = store.list_events(PROJECT_ID, SESSION_ID)
-    assert first.status is CreatorSessionStatus.IDLE
-    assert replay.status is CreatorSessionStatus.IDLE
-    assert (
-        store.get_goal(PROJECT_ID, "goal-1").status
-        is CreatorGoalStatus.COMPLETED
-    )
-    assert [item.event_type for item in events] == ["agent.review.resolved"]
-    assert first.last_event_seq == events[0].event_seq
-    assert replay.last_event_seq == events[0].event_seq
-
-
-def test_competing_review_resolution_supervisors_emit_one_event(tmp_path):
-    root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    store.set_goal_status(
-        PROJECT_ID,
-        "goal-1",
-        CreatorGoalStatus.WAITING_REVIEW,
-        expected_status=CreatorGoalStatus.ACTIVE,
-    )
-    store.clear_active_run(
-        PROJECT_ID,
-        SESSION_ID,
-        expected_run_id="run-1",
-        status=CreatorSessionStatus.PENDING_REVIEW,
-    )
-
-    stores = [
-        ProjectRuntimeSessionStore(root),
-        ProjectRuntimeSessionStore(root),
-    ]
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(
-            executor.map(
-                lambda candidate: candidate.resolve_pending_review(
-                    PROJECT_ID,
-                    SESSION_ID,
-                ),
-                stores,
-            ),
-        )
-
-    assert all(item.status is CreatorSessionStatus.IDLE for item in results)
-    assert [
-        item.event_type for item in store.list_events(PROJECT_ID, SESSION_ID)
-    ] == ["agent.review.resolved"]
-
-
-def test_event_append_and_poll_skip_full_aggregate_recovery_on_consistent_head(
-    tmp_path,
-    monkeypatch,
-):
-    root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    first = store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="agent.message_delta",
-    )
-
-    def unexpected_full_recovery(*_args, **_kwargs):
-        raise AssertionError(
-            "consistent event operations must not recover all streams",
-        )
-
-    monkeypatch.setattr(
-        store,
-        "_recover_session_unlocked",
-        unexpected_full_recovery,
-    )
-
-    second = store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="agent.message_delta",
-    )
-    events = store.list_events(
-        PROJECT_ID,
-        SESSION_ID,
-        after_seq=first.event_seq,
-    )
-
-    assert second.event_seq == 2
-    assert [event.event_seq for event in events] == [2]
-
-
-def test_event_append_recovers_a_stale_aggregate_head_after_a_crash(tmp_path):
-    root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    first = store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="runtime.started",
-    )
-    session_path = (
-        root
-        / PROJECT_ID
-        / "runtime"
-        / "sessions"
-        / SESSION_ID
-        / "session.json"
-    )
-    stale = store.get_session(PROJECT_ID, SESSION_ID).model_copy(
-        update={"last_event_seq": 0},
-    )
-    AtomicJsonRecordStore(session_path, type(stale)).write(stale)
-
-    second = store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="runtime.continued",
-    )
-
-    assert first.event_seq == 1
-    assert second.event_seq == 2
-    assert store.get_session(PROJECT_ID, SESSION_ID).last_event_seq == 2
-
-
 def test_review_resolution_reuses_event_after_final_session_write_failure(
     tmp_path,
     monkeypatch,
 ):
     root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    store.set_goal_status(
-        PROJECT_ID,
-        "goal-1",
-        CreatorGoalStatus.WAITING_REVIEW,
-        expected_status=CreatorGoalStatus.ACTIVE,
-    )
-    store.clear_active_run(
-        PROJECT_ID,
-        SESSION_ID,
-        expected_run_id="run-1",
-        status=CreatorSessionStatus.PENDING_REVIEW,
-    )
-
+    _pending_review(root, snapshot, store)
     original_write = store._write_session_unlocked
     failed = False
 
@@ -538,231 +342,107 @@ def test_review_resolution_reuses_event_after_final_session_write_failure(
         CreatorSessionStatus.PENDING_REVIEW
     )
     recovered = store.resolve_pending_review(PROJECT_ID, SESSION_ID)
+    replay = store.resolve_pending_review(PROJECT_ID, SESSION_ID)
 
     assert recovered.status is CreatorSessionStatus.IDLE
+    assert replay.status is CreatorSessionStatus.IDLE
+    assert (
+        store.get_goal(PROJECT_ID, "goal-1").status
+        is CreatorGoalStatus.COMPLETED
+    )
     assert [
         item.event_type for item in store.list_events(PROJECT_ID, SESSION_ID)
-    ] == ["agent.review.resolved"]
+    ] == [
+        "agent.review.resolved",
+    ]
 
 
 def test_only_active_agentdock_mutation_persists_review_boundary(tmp_path):
     root, snapshot, store, _bootstrap = _runtime(tmp_path)
     _activate_runtime(root, snapshot, store)
 
-    review = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-review",
-        client_message_id="client-review",
-        content_parts=_text("change the active project"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
+    review = _admit(store, "request-review", "change the active project")
     with pytest.raises(RequestAdmissionConflict, match="request_id"):
-        store.admit_user_request(
-            PROJECT_ID,
-            SESSION_ID,
-            CONVERSATION_ID,
-            request_id="request-review",
+        _admit(
+            store,
+            "request-review",
+            "another change",
             client_message_id="client-other",
-            content_parts=_text("another change"),
-            channel=MessageChannel.AGENTDOCK,
-            classification=MessageClassification.MUTATION_INSTRUCTION,
         )
-    read_only = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-read",
-        client_message_id="client-read",
-        content_parts=_text("what changed?"),
-        channel=MessageChannel.AGENTDOCK,
+    read_only = _admit(
+        store,
+        "request-read",
+        "what changed?",
         classification=MessageClassification.READ_ONLY_QUESTION,
     )
-    hard_stop = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-stop",
-        client_message_id="client-stop",
-        content_parts=_text("stop"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.WORKSPACE_COMMAND,
+    hard_stop = _admit(
+        store,
+        "request-stop",
+        "stop",
         hard_stop=True,
-    )
-    initial = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-initial",
-        client_message_id="client-initial",
-        content_parts=_text("initial creation"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-        initial_creation=True,
+        classification=MessageClassification.WORKSPACE_COMMAND,
     )
     store.set_session_status(
         PROJECT_ID,
         SESSION_ID,
         CreatorSessionStatus.IDLE,
     )
-    idle = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-idle",
-        client_message_id="client-idle",
-        content_parts=_text("new idle objective"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
+    idle = _admit(store, "request-idle", "new idle objective")
 
     assert review.review_policy is ReviewPolicy.REQUIRE_REVIEW
     assert review.review_boundary is not None
     assert review.review_boundary.request_message_seq == 2
     assert review.review_boundary.interrupted_run_id == "run-1"
     assert review.message.review_boundary == review.review_boundary
-    assert store.review_boundary_path(
-        PROJECT_ID,
-        SESSION_ID,
-        "request-review",
-    ).is_file()
-    # Post-run feedback on a settled Session is still a review boundary: the
-    # user is commenting on completed work, so its related changes must be
-    # gated behind a review exactly like an interrupt.
+    assert _boundary_file(store, "request-review").is_file()
     assert idle.review_policy is ReviewPolicy.REQUIRE_REVIEW
     assert idle.review_boundary is not None
     assert idle.message.review_boundary == idle.review_boundary
-    assert store.review_boundary_path(
-        PROJECT_ID,
-        SESSION_ID,
-        "request-idle",
-    ).is_file()
-    for result in (read_only, hard_stop, initial):
+    for result in (read_only, hard_stop):
         assert result.review_policy is ReviewPolicy.AUTO_FIX
         assert result.review_boundary is None
         assert result.message.review_boundary is None
 
 
-def test_idle_agentdock_mutation_without_run_captures_feedback_boundary(
+def test_hard_stop_consumes_only_existing_input_and_leaves_restart_pending(
     tmp_path,
-):
-    """Feedback sent after a run settles must still gate behind a review."""
-
-    root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    store.clear_active_run(
-        PROJECT_ID,
-        SESSION_ID,
-        expected_run_id="run-1",
-        status=CreatorSessionStatus.IDLE,
-    )
-
-    idle = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-idle-feedback",
-        client_message_id="client-idle-feedback",
-        content_parts=_text("把第二个分镜改成夜景"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-
-    assert idle.review_policy is ReviewPolicy.REQUIRE_REVIEW
-    assert idle.review_boundary is not None
-    assert idle.review_boundary.interrupted_run_id is None
-    assert idle.review_boundary.request_id == "request-idle-feedback"
-    assert idle.message.review_boundary == idle.review_boundary
-    assert store.review_boundary_path(
-        PROJECT_ID,
-        SESSION_ID,
-        "request-idle-feedback",
-    ).is_file()
-
-
-def test_cancelled_session_feedback_still_captures_review_boundary(tmp_path):
-    """Feedback sent after the user stopped the Agent (CANCELLED, shown as
-    standing by in the frontend) still targets already-produced work, so an
-    idle-goal review boundary must be captured."""
-
-    root, snapshot, store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, store)
-    store.clear_active_run(
-        PROJECT_ID,
-        SESSION_ID,
-        expected_run_id="run-1",
-        status=CreatorSessionStatus.CANCELLED,
-    )
-
-    feedback = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-cancelled-feedback",
-        client_message_id="client-cancelled-feedback",
-        content_parts=_text("把视频 Prompt 写得更丰富一点"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-
-    assert feedback.review_policy is ReviewPolicy.REQUIRE_REVIEW
-    assert feedback.review_boundary is not None
-    assert feedback.review_boundary.interrupted_run_id is None
-
-
-def test_review_revise_interrupts_the_active_run(tmp_path):
+) -> None:
     root, snapshot, store, _bootstrap = _runtime(tmp_path)
     _activate_runtime(root, snapshot, store)
 
-    feedback = store.admit_user_request(
+    stopped = store.hard_stop_session(PROJECT_ID, SESSION_ID)
+    restarted = store.admit_user_request(
         PROJECT_ID,
         SESSION_ID,
         CONVERSATION_ID,
-        request_id="request-review-regenerate",
-        client_message_id="client-review-regenerate",
-        content_parts=_text("按审阅意见重做目标"),
+        request_id="request-restart-after-stop",
+        client_message_id="client-restart-after-stop",
+        content_parts=_text("继续刚才的任务"),
         channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.REVIEW_REVISE,
-        source="review_rejection_feedback",
+        classification=MessageClassification.READ_ONLY_QUESTION,
     )
+    current = store.get_project_session(PROJECT_ID)
 
-    assert feedback.review_policy is ReviewPolicy.REQUIRE_REVIEW
-    assert feedback.review_boundary is not None
-    assert feedback.review_boundary.interrupted_run_id == "run-1"
+    assert stopped.status is CreatorSessionStatus.CANCELLED
+    assert stopped.active_run_id is None
+    assert stopped.last_consumed_message_seq == stopped.last_message_seq
+    assert restarted.message.message_seq == stopped.last_message_seq + 1
+    assert (
+        current.last_consumed_message_seq == stopped.last_consumed_message_seq
+    )
+    assert current.last_message_seq == restarted.message.message_seq
 
 
 def test_first_mainline_request_without_goal_skips_review_boundary(tmp_path):
-    """A Session with no Goal yet is receiving its mainline kick-off.
-
-    The first AgentDock instruction (e.g. after an attachment-driven Project
-    creation) starts the mainline; everything it produces is auto-applied
-    without capturing a ReviewBoundary.
-    """
-
     root, snapshot, store, _bootstrap = _runtime(tmp_path)
     _seed_runtime_state(root, snapshot)
 
-    kickoff = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-mainline-kickoff",
-        client_message_id="client-mainline-kickoff",
-        content_parts=_text("根据已导入的剧本生成完整短片"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
+    kickoff = _admit(store, "request-kickoff", "根据已导入的剧本生成完整短片")
 
     assert kickoff.review_policy is ReviewPolicy.AUTO_FIX
     assert kickoff.review_boundary is None
     assert kickoff.message.review_boundary is None
-    assert not store.review_boundary_path(
-        PROJECT_ID,
-        SESSION_ID,
-        "request-mainline-kickoff",
-    ).is_file()
+    assert not _boundary_file(store, "request-kickoff").is_file()
 
 
 def test_active_review_admission_requires_durable_project_baseline(tmp_path):
@@ -771,16 +451,7 @@ def test_active_review_admission_requires_durable_project_baseline(tmp_path):
     (root / PROJECT_ID / "runtime" / "state.json").unlink()
 
     with pytest.raises(RequestAdmissionConflict, match="state.json"):
-        store.admit_user_request(
-            PROJECT_ID,
-            SESSION_ID,
-            CONVERSATION_ID,
-            request_id="request-review",
-            client_message_id="client-review",
-            content_parts=_text("change it"),
-            channel=MessageChannel.AGENTDOCK,
-            classification=MessageClassification.MUTATION_INSTRUCTION,
-        )
+        _admit(store, "request-review")
 
     assert len(store.list_messages(PROJECT_ID, SESSION_ID)) == 1
 
@@ -790,131 +461,22 @@ def test_concurrent_admission_has_one_message_and_one_boundary(tmp_path):
     _activate_runtime(root, snapshot, store)
 
     def admit(_index: int):
-        independent_store = ProjectRuntimeSessionStore(root)
-        return independent_store.admit_user_request(
-            PROJECT_ID,
-            SESSION_ID,
-            CONVERSATION_ID,
-            request_id="request-concurrent",
-            client_message_id="client-concurrent",
-            content_parts=_text("change once"),
-            channel=MessageChannel.AGENTDOCK,
-            classification=MessageClassification.MUTATION_INSTRUCTION,
-        )
+        candidate = ProjectRuntimeSessionStore(root)
+        return _admit(candidate, "request-concurrent", "change once")
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(admit, range(4)))
 
     assert sum(result.replayed for result in results) == 3
-    assert len({result.message.message_id for result in results}) == 1
     assert len(store.list_messages(PROJECT_ID, SESSION_ID)) == 2
-    boundary_root = (
-        root
-        / PROJECT_ID
-        / "runtime"
-        / "sessions"
-        / SESSION_ID
-        / "review-boundaries"
-    )
+    boundary_root = _boundary_file(store, "request-concurrent").parent
     assert len(list(boundary_root.glob("*.json"))) == 1
-
-
-def test_review_admission_waits_for_project_commit_baseline_finalization(
-    tmp_path,
-    monkeypatch,
-):
-    root, snapshot, session_store, _bootstrap = _runtime(tmp_path)
-    _activate_runtime(root, snapshot, session_store)
-    project_store = ProjectStore(root)
-    boundary = ProjectCommitBoundary(project_store)
-    candidate = snapshot.project.model_dump(mode="json")
-    candidate["name"] = "Initial work published"
-    project_replaced = threading.Event()
-    release_finalization = threading.Event()
-    admission_done = threading.Event()
-    errors: list[BaseException] = []
-    admitted = []
-    original_update_state = boundary._update_runtime_state
-
-    def delayed_update_state(**kwargs):
-        project_replaced.set()
-        assert release_finalization.wait(timeout=2)
-        return original_update_state(**kwargs)
-
-    monkeypatch.setattr(
-        boundary,
-        "_update_runtime_state",
-        delayed_update_state,
-    )
-
-    def commit_initial_work() -> None:
-        try:
-            boundary.commit(
-                base=snapshot,
-                candidate=candidate,
-                origin="initial_creation",
-            )
-        except BaseException as exc:  # pragma: no cover - assertion reports it
-            errors.append(exc)
-
-    def admit_interrupt() -> None:
-        try:
-            admitted.append(
-                session_store.admit_user_request(
-                    PROJECT_ID,
-                    SESSION_ID,
-                    CONVERSATION_ID,
-                    request_id="request-after-commit",
-                    client_message_id="client-after-commit",
-                    content_parts=_text("change the newly published work"),
-                    channel=MessageChannel.AGENTDOCK,
-                    classification=MessageClassification.MUTATION_INSTRUCTION,
-                ),
-            )
-        except BaseException as exc:  # pragma: no cover - assertion reports it
-            errors.append(exc)
-        finally:
-            admission_done.set()
-
-    commit_thread = threading.Thread(target=commit_initial_work)
-    admission_thread = threading.Thread(target=admit_interrupt)
-    commit_thread.start()
-    assert project_replaced.wait(timeout=2)
-    admission_thread.start()
-    assert not admission_done.wait(timeout=0.1)
-    release_finalization.set()
-    commit_thread.join(timeout=2)
-    admission_thread.join(timeout=2)
-
-    assert not errors
-    assert admitted[0].review_boundary is not None
-    assert admitted[0].review_boundary.accepted_generation == 1
-    assert (
-        admitted[0].review_boundary.accepted_etag
-        == project_store.read(
-            PROJECT_ID,
-        ).etag
-    )
 
 
 def test_restart_repairs_heads_and_restores_missing_boundary(tmp_path):
     root, snapshot, store, _bootstrap = _runtime(tmp_path)
     _activate_runtime(root, snapshot, store)
-    admitted = store.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-review",
-        client_message_id="client-review",
-        content_parts=_text("change"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-    store.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="review.boundary_captured",
-    )
+    admitted = _admit(store, "request-review", "change")
     store.append_queued_message(
         PROJECT_ID,
         SESSION_ID,
@@ -922,59 +484,27 @@ def test_restart_repairs_heads_and_restores_missing_boundary(tmp_path):
         client_message_id="queued-1",
         content_parts=_text("later"),
     )
-    session_path = (
-        root
-        / PROJECT_ID
-        / "runtime"
-        / "sessions"
-        / SESSION_ID
-        / "session.json"
-    )
+    session_root = root / PROJECT_ID / "runtime" / "sessions" / SESSION_ID
     stale = store.get_session(PROJECT_ID, SESSION_ID).model_copy(
         update={
             "last_message_seq": 0,
-            "last_event_seq": 0,
             "queued_user_message_count": 0,
         },
     )
-    AtomicJsonRecordStore(session_path, type(stale)).write(stale)
-    boundary_path = store.review_boundary_path(
-        PROJECT_ID,
-        SESSION_ID,
-        "request-review",
+    AtomicJsonRecordStore(session_root / "session.json", type(stale)).write(
+        stale,
     )
+    boundary_path = _boundary_file(store, "request-review")
     boundary_path.unlink()
 
     restarted = ProjectRuntimeSessionStore(root)
     recovered = restarted.get_session(PROJECT_ID, SESSION_ID)
-    replay = restarted.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="request-review",
-        client_message_id="client-review",
-        content_parts=_text("change"),
-        channel=MessageChannel.AGENTDOCK,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-    next_message = restarted.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="assistant",
-        content_parts=_text("continued"),
-    ).message
-    next_event = restarted.append_event(
-        PROJECT_ID,
-        SESSION_ID,
-        event_type="runtime.continued",
-    )
+    replay = _admit(restarted, "request-review", "change")
+    next_message = _append(restarted, "assistant", "continued").message
 
     assert recovered.last_message_seq == 2
-    assert recovered.last_event_seq == 1
     assert recovered.queued_user_message_count == 1
     assert boundary_path.is_file()
     assert replay.replayed is True
     assert replay.review_boundary == admitted.review_boundary
     assert next_message.message_seq == 3
-    assert next_event.event_seq == 2

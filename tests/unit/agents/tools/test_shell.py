@@ -1113,7 +1113,7 @@ class TestExecuteShellCommand:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
-    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_simple_command_success(
         self,
@@ -1146,7 +1146,7 @@ class TestExecuteShellCommand:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
-    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_unix_multiline_command_reaches_shell_unchanged(
         self,
@@ -1175,7 +1175,7 @@ class TestExecuteShellCommand:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
-    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_command_failure(
         self,
@@ -1207,7 +1207,7 @@ class TestExecuteShellCommand:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
-    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_empty_command(
         self,
@@ -1239,7 +1239,7 @@ class TestExecuteShellCommand:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
-    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_timeout_string_converted(
         self,
@@ -1271,7 +1271,7 @@ class TestExecuteShellCommand:
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
-    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_invalid_timeout_defaults(
         self,
@@ -2488,7 +2488,7 @@ async def test_execute_shell_command_win32_uses_windows_host():
             return_value=None,
         ),
         patch(
-            "qwenpaw.agents.tools.shell.get_current_workspace_dir",
+            "qwenpaw.agents.tools.shell.get_tool_base_dir",
             return_value=None,
         ),
         patch(

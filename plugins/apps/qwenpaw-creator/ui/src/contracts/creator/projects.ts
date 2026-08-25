@@ -1,3 +1,5 @@
+import type { CreatorSessionStatus } from "./sessions";
+
 export type CreatorScenario = "short_drama" | "video_edit" | "general";
 
 export interface ProjectCreateRequest {
@@ -57,6 +59,8 @@ export interface ProjectSummary {
    * preview button on the home page.
    */
   finalVideoVersionId?: string | null;
+  /** Current session status, null when no runtime session exists. */
+  status?: CreatorSessionStatus | null;
 }
 
 export interface ProjectListResponse {

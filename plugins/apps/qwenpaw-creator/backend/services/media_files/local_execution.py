@@ -74,6 +74,7 @@ from services.media_files.transitions import (
     build_transition_filter_chain,
     normalize_transition_kind,
 )
+from services.observability import report_error
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileError,
@@ -143,6 +144,12 @@ if TYPE_CHECKING:
 
 
 logger = setup_logger("services.media_files.local_execution")
+
+
+def _log_safe(value: object) -> str:
+    """Neutralize CR/LF in user-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
 
 _RETIRED_MOTION_MOTIFS = (
     "speed_lines",
@@ -296,7 +303,27 @@ _COLOR_GRADE_FILTERS: dict[str, str] = {
     # 电影感：压暗部、轻微去饱和。
     "cinematic": (
         "eq=brightness=-0.01:saturation=0.96:contrast=1.08:gamma=0.98,"
-        "colorbalance=sm=-0.03:bh=-0.02"
+        "colorbalance=rs=-0.02:gs=-0.01:bs=-0.03:bh=-0.02"
+    ),
+    # 日常清新：暖中间调、黄红饱和度提升。
+    "vlog_fresh": (
+        "eq=brightness=0.02:saturation=1.10:gamma=1.04,"
+        "colorbalance=rm=0.04:gm=0.02:bm=-0.03:rh=0.01:bh=-0.01"
+    ),
+    # 水墨淡雅：去饱和中间调、冷移、提黑、低对比。
+    "ink_wash": (
+        "eq=brightness=0.01:saturation=0.88:contrast=0.96:gamma=1.06,"
+        "colorbalance=rm=-0.02:gm=-0.01:bm=0.03:rh=-0.01:bh=0.02"
+    ),
+    # 舞台戏剧：高对比、压暗部、暖高光。
+    "stage_drama": (
+        "eq=brightness=-0.02:saturation=1.04:contrast=1.14:gamma=0.95,"
+        "colorbalance=rm=0.04:gm=0.01:bm=-0.03:rh=0.05:bh=0.02"
+    ),
+    # 霓虹鲜艳：高饱和、冷暗/暖亮分裂调色。
+    "neon_vivid": (
+        "eq=brightness=0.0:saturation=1.22:contrast=1.10:gamma=0.97,"
+        "colorbalance=rm=-0.03:gm=-0.02:bm=0.05:rh=0.04:gh=0.01:bh=-0.02"
     ),
 }
 
@@ -1330,16 +1357,26 @@ class FfmpegLocalMediaRunner:
                     )
                     if not probe.ok:
                         safety_error = probe.error
-                    elif probe.edge_contact > 0.02:
+                    elif probe.edge_contact > 1.0:
                         safety_error = "字幕卡内容触碰视口边缘，存在裁切风险"
                     elif probe.text_occlusion > 0.10:
                         safety_error = "字幕文字被卡片内的图标或装饰遮挡"
                 if safety_error is not None:
+                    fallback_w = (
+                        float(render_location.get("width", 0.8))
+                        if isinstance(render_location, Mapping)
+                        else 0.8
+                    )
+                    fallback_h = (
+                        float(render_location.get("height", 0.25))
+                        if isinstance(render_location, Mapping)
+                        else 0.25
+                    )
                     render_location = {
                         "x": 0.5,
                         "y": 0.88,
                         "width": 0.8,
-                        "height": 0.18,
+                        "height": 0.25,
                         "anchor_x": 0.5,
                         "anchor_y": 0.5,
                         "opacity": 1.0,
@@ -1348,8 +1385,8 @@ class FfmpegLocalMediaRunner:
                         "html": render_caption_template(
                             str(overlay.get("text") or ""),
                             emotion=str(overlay.get("vibe") or "chill"),
-                            box_width=0.8,
-                            box_height=0.18,
+                            box_width=fallback_w,
+                            box_height=fallback_h,
                         ),
                         "fps": 24,
                         "loop": False,
@@ -1386,11 +1423,21 @@ class FfmpegLocalMediaRunner:
                     continue
                 if not using_safe_motion:
                     generated_error = prep.error or "未知错误"
+                    fallback_w = (
+                        float(render_location.get("width", 0.8))
+                        if isinstance(render_location, Mapping)
+                        else 0.8
+                    )
+                    fallback_h = (
+                        float(render_location.get("height", 0.25))
+                        if isinstance(render_location, Mapping)
+                        else 0.25
+                    )
                     render_location = {
                         "x": 0.5,
                         "y": 0.88,
                         "width": 0.8,
-                        "height": 0.18,
+                        "height": 0.25,
                         "anchor_x": 0.5,
                         "anchor_y": 0.5,
                         "opacity": 1.0,
@@ -1400,8 +1447,8 @@ class FfmpegLocalMediaRunner:
                         html=render_caption_template(
                             str(overlay.get("text") or ""),
                             emotion=str(overlay.get("vibe") or "chill"),
-                            box_width=0.8,
-                            box_height=0.18,
+                            box_width=fallback_w,
+                            box_height=fallback_h,
                         ),
                         fps=24,
                         loop=False,
@@ -1532,6 +1579,7 @@ class FfmpegLocalMediaRunner:
                 location=normalized.get("location"),
                 viewport_inset=0.05,
                 doc_format=normalized["format"],
+                max_edge_contact=1.0,
             )
             if prep.layer is None:
                 raise ValidationError(
@@ -1800,7 +1848,7 @@ class FfmpegLocalMediaRunner:
             # the note in the log instead.
             logger.warning(
                 "默认 ffmpeg runner 忽略自由文本 audio_plan（保留原声）: %s",
-                str(spec.audio_plan).strip(),
+                _log_safe(str(spec.audio_plan).strip()),
             )
 
     def _concat(
@@ -2922,7 +2970,19 @@ def _resolved_fingerprint(resolved: _ResolvedExecution) -> str:
             # v4: html_js overlays no longer receive the legacy
             # viewport-safety CSS injection whose wildcard font overrides
             # stomped the blueprint clamps in the composite only.
-            "rendererVersion": 4,
+            # v5: subtitle fallback box height increased (0.18→0.25),
+            # padding consistency fix in PIL/interview-summary renderers,
+            # keyword overlay max_edge_contact aligned with design-time.
+            # v6: caption safety fallback now uses element's actual location
+            # dimensions for font sizing; edge contact threshold aligned
+            # with design-time text card budget (1.0).
+            # v7: static_capsule blueprint uses dynamic _caption_font_css()
+            # instead of fixed font-size:24vh; cinematic colorbalance
+            # preset fixed (invalid sm → valid rs/gs/bs channels).
+            # v8: caption blueprint font size scaled inversely by overlay
+            # box height so apparent canvas-relative size stays consistent
+            # across overlays with very different box dimensions.
+            "rendererVersion": 8,
             "targetRef": resolved.target_ref,
             "inputs": [
                 {
@@ -3223,7 +3283,7 @@ class FileLocalMediaExecutionService:
         )
         logger.info(
             "local_media execute: project=%s task=%s command=%s",
-            project_id,
+            _log_safe(project_id),
             ids["task_id"],
             command_value.value,
         )
@@ -3342,6 +3402,7 @@ class FileLocalMediaExecutionService:
                 ids,
                 "LOCAL_MEDIA_EXECUTION_FAILED",
                 message=str(exc),
+                error=exc,
             )
             raise
         except AssetFileError as exc:
@@ -3350,6 +3411,7 @@ class FileLocalMediaExecutionService:
                 ids,
                 "LOCAL_MEDIA_EXECUTION_FAILED",
                 message=str(exc),
+                error=exc,
             )
             raise StorageIntegrityError(str(exc)) from exc
         except Exception as exc:
@@ -3358,6 +3420,7 @@ class FileLocalMediaExecutionService:
                 ids,
                 "LOCAL_MEDIA_EXECUTION_FAILED",
                 message=str(exc),
+                error=exc,
             )
             raise StorageIntegrityError(f"本地媒体执行失败: {exc}") from exc
 
@@ -3512,7 +3575,10 @@ class FileLocalMediaExecutionService:
         }
 
         def claim_sync():
-            with self.services.projects.lifecycle_lock(task.project_id):
+            with self.services.projects.lifecycle_lock(
+                task.project_id,
+                shared=True,
+            ):
                 self.services.projects.read(task.project_id)
                 project_root = self.services.projects.project_root(
                     task.project_id,
@@ -4242,6 +4308,7 @@ class FileLocalMediaExecutionService:
         code: str,
         *,
         message: str | None = None,
+        error: BaseException | None = None,
     ) -> None:
         try:
             task = await asyncio.to_thread(
@@ -4251,6 +4318,23 @@ class FileLocalMediaExecutionService:
             )
         except RecordNotFoundError:
             return
+        report = report_error(
+            component="local-media-execution",
+            code=code,
+            message=message or code,
+            error=error,
+            details={
+                "projectId": project_id,
+                "taskId": task.task_id,
+                "runId": ids.get("run_id"),
+            },
+            projectId=project_id,
+            taskId=task.task_id,
+            runId=ids.get("run_id"),
+        )
+        failure = {
+            key: value for key, value in report.items() if value is not None
+        }
         if task.status is TaskStatus.RUNNING:
             try:
                 await asyncio.to_thread(
@@ -4260,7 +4344,7 @@ class FileLocalMediaExecutionService:
                     event_id=ids["attempt_failed_event_id"],
                     attempt_id=ids["attempt_id"],
                     status=TaskAttemptStatus.FAILED,
-                    error={"code": code, "message": message or code},
+                    error=failure,
                 )
             except ExecutionStateConflict:
                 pass
@@ -4345,9 +4429,24 @@ class FileLocalMediaExecutionService:
                     pass
                 recovered.append(task.task_id)
                 continue
+            report = report_error(
+                component="local-media-execution",
+                code="LOCAL_MEDIA_PROCESS_RESTARTED",
+                message="进程重启前本地媒体执行未形成可收敛结果",
+                retryable=True,
+                details={
+                    "projectId": project_id,
+                    "taskId": task.task_id,
+                    "runId": str(task.run_id or ""),
+                },
+                projectId=project_id,
+                taskId=task.task_id,
+                runId=str(task.run_id or ""),
+            )
             error = {
-                "code": "LOCAL_MEDIA_PROCESS_RESTARTED",
-                "message": "进程重启前本地媒体执行未形成可收敛结果",
+                key: value
+                for key, value in report.items()
+                if value is not None
             }
             if task.status is TaskStatus.RUNNING:
                 try:

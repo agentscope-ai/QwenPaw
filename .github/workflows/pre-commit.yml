@@ -11,6 +11,7 @@ jobs:
       author: ${{ github.event.pull_request.user.login }}
 
   run:
+    name: Pre-commit
     needs: [spam-gate]
     if: |
       always() &&
