@@ -67,4 +67,31 @@ describe("draft serialize/parse round-trip (#4774)", () => {
       parseDraft(JSON.stringify({ value: "", selectionStart: 0, selectionEnd: 0 })),
     ).toBeNull();
   });
+
+  // -------------------------------------------------------------------------
+  // Draft cleared after send — regression for A#82576583
+  // After a message is sent, the draft must be cleared so it doesn't resurface
+  // on the next visit. serializeDraft returns null for an empty draft,
+  // signaling callers to removeItem from storage.
+  // -------------------------------------------------------------------------
+  it("serializeDraft returns null after send clears the draft (A#82576583)", () => {
+    // Simulate: user had a draft, then sent the message (value becomes "")
+    const afterSend = { value: "", selectionStart: 0, selectionEnd: 0 };
+    const serialized = serializeDraft(afterSend);
+    // null signals callers to removeItem — draft must not persist
+    expect(serialized).toBeNull();
+    // And parsing null returns null — no stale draft resurfaces
+    expect(parseDraft(serialized)).toBeNull();
+  });
+
+  it("round-trip: non-empty draft survives, empty draft is removed (A#82576583)", () => {
+    // User types something
+    const typed = { value: "hello", selectionStart: 5, selectionEnd: 5 };
+    expect(parseDraft(serializeDraft(typed))).toEqual(typed);
+
+    // User sends the message → draft cleared
+    const cleared = { value: "", selectionStart: 0, selectionEnd: 0 };
+    expect(serializeDraft(cleared)).toBeNull();
+    expect(parseDraft(null)).toBeNull();
+  });
 });

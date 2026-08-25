@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, within, waitFor, act } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import FilePreview, { getPreviewType, isPreviewable } from "./FilePreview";
 
 describe("FilePreview", () => {
@@ -84,5 +84,81 @@ describe("isPreviewable (#5863)", () => {
     expect(isPreviewable("photo.png")).toBe(true);
     expect(isPreviewable("README.md")).toBe(true);
     expect(isPreviewable("script.py")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Image preview rendering — regression for A#82584296 (图片预览不生效)
+// When a file has an image extension, FilePreview must render an <img>
+// element (after blob loading) rather than falling through to null.
+// ---------------------------------------------------------------------------
+
+// Mock dependencies for image preview tests
+vi.mock("@/stores/agentStore", () => ({
+  useAgentStore: vi.fn((selector?: (s: any) => any) =>
+    selector ? selector({ selectedAgent: "default" }) : { selectedAgent: "default" }
+  ),
+}));
+vi.mock("@/api/authHeaders", () => ({
+  buildAuthHeaders: () => ({}),
+}));
+vi.mock("@/api/modules/workspace", () => ({
+  workspaceApi: {
+    getFileDownloadUrl: (path: string) => `/api/files/${path}`,
+    loadFileChunk: vi.fn(),
+  },
+}));
+
+describe("FilePreview image rendering (A#82584296)", () => {
+  const mockBlobUrl = "blob:http://localhost/fake-blob-id";
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(["fake-image-data"], { type: "image/png" })),
+    });
+    global.fetch = fetchSpy;
+    vi.spyOn(URL, "createObjectURL").mockReturnValue(mockBlobUrl);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  });
+
+  it("renders an <img> element for PNG files after loading", async () => {
+    await act(async () => {
+      render(<FilePreview filePath="screenshot.png" content="" />);
+    });
+
+    await waitFor(() => {
+      const img = screen.getByRole("img");
+      expect(img).toBeInTheDocument();
+      expect(img.getAttribute("src")).toBe(mockBlobUrl);
+    });
+  });
+
+  it("sets alt text from the filename", async () => {
+    await act(async () => {
+      render(<FilePreview filePath="photos/vacation.jpg" content="" />);
+    });
+
+    await waitFor(() => {
+      const img = screen.getByRole("img");
+      expect(img.getAttribute("alt")).toBe("vacation.jpg");
+    });
+  });
+
+  it("shows error state when blob fetch fails", async () => {
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 404,
+    });
+
+    await act(async () => {
+      render(<FilePreview filePath="missing.png" content="" />);
+    });
+
+    // After fetch fails, should not render an <img>
+    await waitFor(() => {
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    });
   });
 });
