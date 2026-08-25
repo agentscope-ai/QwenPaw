@@ -209,7 +209,7 @@ def test_restore_is_scoped_to_requested_install(tmp_path: Path) -> None:
     assert _run_helper(other_root, home, "-Action", "Restore").returncode == 0
     assert backup.exists()
     assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text(
-        encoding="ascii"
+        encoding="ascii",
     )
 
     assert _run_helper(root, home, "-Action", "Restore").returncode == 0
