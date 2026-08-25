@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.07.29",
-  "published_at": "2026-07-29T00:00:00Z",
+  "catalog_version": "2026.08.23",
+  "published_at": "2026-08-23T00:00:00Z",
   "providers": {
     "MODELSCOPE_MODELS": [
       {
@@ -1426,41 +1426,6 @@
     ],
     "DEEPSEEK_MODELS": [
       {
-        "id": "deepseek-chat",
-        "name": "DeepSeek Chat",
-        "supports_image": false,
-        "supports_video": false,
-        "probe_source": "documentation",
-        "is_free": false,
-        "is_recommended": true,
-        "source": "builtin",
-        "availability_status": "unverified",
-        "availability_retryable": true,
-        "config_overrides": [],
-        "max_tokens": 8192,
-        "max_input_length": 131072,
-        "max_input_length_configured": false,
-        "generate_kwargs": {},
-        "relay_reasoning": true
-      },
-      {
-        "id": "deepseek-reasoner",
-        "name": "DeepSeek Reasoner",
-        "supports_image": false,
-        "supports_video": false,
-        "probe_source": "documentation",
-        "is_free": false,
-        "source": "builtin",
-        "availability_status": "unverified",
-        "availability_retryable": true,
-        "config_overrides": [],
-        "max_tokens": 8192,
-        "max_input_length": 131072,
-        "max_input_length_configured": false,
-        "generate_kwargs": {},
-        "relay_reasoning": true
-      },
-      {
         "id": "deepseek-v4-flash",
         "name": "DeepSeek V4 Flash",
         "supports_image": false,
@@ -1472,7 +1437,7 @@
         "availability_retryable": true,
         "config_overrides": [],
         "max_tokens": 8192,
-        "max_input_length": 131072,
+        "max_input_length": 1000000,
         "max_input_length_configured": false,
         "generate_kwargs": {},
         "relay_reasoning": true
@@ -1489,7 +1454,24 @@
         "availability_retryable": true,
         "config_overrides": [],
         "max_tokens": 8192,
-        "max_input_length": 131072,
+        "max_input_length": 1000000,
+        "max_input_length_configured": false,
+        "generate_kwargs": {},
+        "relay_reasoning": true
+      },
+      {
+        "id": "deepseek-v4-flash-vision-exp",
+        "name": "DeepSeek V4 Flash Vision Exp",
+        "supports_image": true,
+        "supports_video": false,
+        "probe_source": "documentation",
+        "is_free": false,
+        "source": "builtin",
+        "availability_status": "unverified",
+        "availability_retryable": true,
+        "config_overrides": [],
+        "max_tokens": 8192,
+        "max_input_length": 1000000,
         "max_input_length_configured": false,
         "generate_kwargs": {},
         "relay_reasoning": true
