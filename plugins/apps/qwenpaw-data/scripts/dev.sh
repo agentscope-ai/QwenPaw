@@ -33,9 +33,7 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 mkdir -p "$STAGE_DIR/backend" "$STAGE_DIR/ui/dist" \
   "$STAGE_DIR/agents/qwenpaw-data/en"
 cp "$APP_DIR/plugin.json" "$APP_DIR/requirements.txt" "$APP_DIR/__init__.py" "$STAGE_DIR/"
-cp "$APP_DIR/backend/__init__.py" "$APP_DIR/backend/context_gateway.py" \
-  "$APP_DIR/backend/main.py" "$APP_DIR/backend/runtime.py" \
-  "$STAGE_DIR/backend/"
+cp "$APP_DIR"/backend/*.py "$STAGE_DIR/backend/"
 cp "$APP_DIR/agents/qwenpaw-data/en/PROFILE.md" \
   "$APP_DIR/agents/qwenpaw-data/en/SOUL.md" "$STAGE_DIR/agents/qwenpaw-data/en/"
 cp "$APP_DIR/ui/dist/index.js" "$APP_DIR/ui/dist/index.js.map" "$STAGE_DIR/ui/dist/"

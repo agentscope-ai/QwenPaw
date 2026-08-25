@@ -7,9 +7,10 @@ import {
   type DataSourceMetadata,
 } from "./api";
 import { ChatWorkspace } from "./ChatWorkspace";
+import { Configure } from "./Configure";
 import { DataSources } from "./DataSources";
 import { EmbeddedConsole } from "./EmbeddedConsole";
-import { LayoutGridIcon, SettingsIcon, SparklesIcon } from "./icons";
+import { LayoutGridIcon, SettingsIcon, SparklesIcon, WrenchIcon } from "./icons";
 import {
   LanguageProvider,
   persistLanguage,
@@ -28,7 +29,7 @@ import {
   type StringParams,
 } from "./strings";
 
-type Page = "analysis" | "manage" | "health";
+type Page = "analysis" | "manage" | "configure" | "health";
 
 const NAVIGATION: Array<{
   id: Page;
@@ -37,6 +38,7 @@ const NAVIGATION: Array<{
 }> = [
   { id: "analysis", icon: <SparklesIcon />, labelKey: "nav.analyze" },
   { id: "manage", icon: <LayoutGridIcon />, labelKey: "nav.manage" },
+  { id: "configure", icon: <WrenchIcon />, labelKey: "nav.configure" },
 ];
 
 /**
@@ -203,9 +205,8 @@ export function App({ paw }: { paw: PawAppSdk }) {
     setDependencies(await paw.dependencies.list(true));
   }
 
-  function openModelSettings() {
-    setConsoleRoute("/model-config");
-    setPage("manage");
+  function openConfiguration() {
+    setPage("configure");
   }
 
   async function toggleLanguage() {
@@ -234,9 +235,9 @@ export function App({ paw }: { paw: PawAppSdk }) {
             <button
               type="button"
               className="qwenpaw-data-topbar__icon"
-              title={t("topbar.modelSettings")}
-              aria-label={t("topbar.modelSettings")}
-              onClick={openModelSettings}
+              title={t("topbar.configuration")}
+              aria-label={t("topbar.configuration")}
+              onClick={openConfiguration}
             >
               <SettingsIcon size={18} />
             </button>
@@ -292,6 +293,9 @@ export function App({ paw }: { paw: PawAppSdk }) {
                 active={page === "manage"}
               />
             </div>
+            {page === "configure" ? (
+              <Configure paw={paw} onRestart={() => void loadSources()} />
+            ) : null}
             {page === "health" ? (
               <DataSources
                 selectedId={selectedId}

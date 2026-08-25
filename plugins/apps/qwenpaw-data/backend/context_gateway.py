@@ -21,6 +21,9 @@ _ALLOWED_ROUTES = (
     # and their /test probes).
     ("/api/system/model-config", True),
     ("/api/semantic-config", True),
+    # Subtree: datasource CRUD lives under /api/semantic-config/datasource,
+    # while the active-datasource switch is mounted at /api/datasources/active.
+    ("/api/datasources", True),
     # Read-only auth probe used by the embedded Context console; the managed
     # service runs without QWENPAW_DATA_AUTH_SECRET so it reports auth
     # disabled.

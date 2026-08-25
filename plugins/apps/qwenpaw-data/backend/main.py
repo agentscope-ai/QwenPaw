@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import secrets
+import socket
 import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request
+import httpx
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
 
@@ -20,6 +25,16 @@ logger = logging.getLogger(__name__)
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 if __package__ and __package__.startswith("plugin_"):
+    from .backend.config import (
+        CONFIG_JSON_PATH,
+        DataAppConfig,
+        load_config,
+        on_before_start,
+        prepare_runtime_files,
+        save_config,
+        seed_from_env,
+        set_context_env_vars,
+    )
     from .backend.context_gateway import ContextGateway
     from .backend.runtime import (
         context_python,
@@ -31,6 +46,16 @@ if __package__ and __package__.startswith("plugin_"):
 else:
     if str(PLUGIN_DIR) not in sys.path:
         sys.path.insert(0, str(PLUGIN_DIR))
+    from backend.config import (  # noqa: E402
+        CONFIG_JSON_PATH,
+        DataAppConfig,
+        load_config,
+        on_before_start,
+        prepare_runtime_files,
+        save_config,
+        seed_from_env,
+        set_context_env_vars,
+    )
     from backend.context_gateway import ContextGateway  # noqa: E402
     from backend.runtime import (  # noqa: E402
         context_python,
@@ -55,6 +80,29 @@ app.agent_profile(
 )
 
 _context_token = secrets.token_urlsafe(32)
+
+_active_restore_done = False
+
+
+async def _on_before_start() -> None:
+    """Wrap the config hook so per-service-start state gets reset.
+
+    The context service keeps the active datasource in memory only, so the
+    restore flag must be cleared before every (re)start to re-apply the
+    persisted selection once the service is ready again. Host-model reuse
+    is also refreshed here so switching the active model in QwenPaw and
+    restarting this app is enough to follow the change.
+    """
+    global _active_restore_done
+    _active_restore_done = False
+    config = _sync_reuse_from_host(load_config())
+    if config.llm.reuse_host or config.embedding.reuse_host:
+        # Persist the refreshed snapshot so the Configure page and the
+        # regenerated runtime files stay aligned with the host's model.
+        save_config(config)
+    await on_before_start()
+
+
 _context_service = app.managed_service(
     "context",
     command=(
@@ -81,6 +129,7 @@ _context_service = app.managed_service(
     },
     external_url_env="QWENPAW_DATA_CONTEXT_URL",
     mode_env="QWENPAW_DATA_CONTEXT_MODE",
+    on_before_start=_on_before_start,
     startup_timeout=45,
     display_name="Context API",
     capabilities=("context-search", "semantic-grounding", "governed-query"),
@@ -238,6 +287,39 @@ absent unless retrieved evidence supports the explanation.
 )
 
 
+@app.hook("startup", priority=60)
+async def _initialize_config() -> None:
+    """Ensure config.json exists and runtime files are generated.
+
+    This runs before managed services start (priority 70) so the context
+    service's on_before_start hook can read a fully initialized config.json.
+    """
+    from qwenpaw.envs import load_envs_into_environ
+
+    # Framework-level envs (``qwenpaw env set``) participate in first-run
+    # seeding, mirroring what on_before_start reloads before every start.
+    load_envs_into_environ()
+    config = load_config()
+    if not CONFIG_JSON_PATH.is_file():
+        host_llm = _host_llm_payload()
+        if host_llm:
+            config.llm.provider = "openai"
+            config.llm.base_url = host_llm["base_url"]
+            config.llm.model = host_llm["model"]
+            config.llm.api_key = host_llm["api_key"]
+            # Default embedding to the same provider/credentials.
+            config.embedding.base_url = host_llm["base_url"]
+            config.embedding.api_key = host_llm["api_key"]
+        # Fill anything the host model did not cover (Neo4j credentials,
+        # embedding model) from the environment so the Configure page
+        # reflects the values the service actually uses.
+        seed_from_env(config)
+        save_config(config)
+    else:
+        prepare_runtime_files(config)
+        set_context_env_vars()
+
+
 @app.hook("startup", priority=90)
 async def _start_gateway() -> None:
     await _gateway.start()
@@ -258,6 +340,13 @@ _background_tasks: set[asyncio.Task] = set()
 def _spawn_source_reconcile() -> None:
     """Run a throttled reconcile without dropping the task to the GC."""
     task = asyncio.create_task(_reconcile_source_dependencies())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def _spawn_active_restore() -> None:
+    """Re-apply the persisted active datasource off the request path."""
+    task = asyncio.create_task(_restore_active_datasource())
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
@@ -455,6 +544,51 @@ async def context_auth_status() -> dict[str, Any]:
     return {"required": False, "enabled": False}
 
 
+_DATASOURCE_ITEM_RE = re.compile(
+    r"(?:^|/)semantic-config/datasource/[^/]+/?$"
+)
+
+
+async def _proxy_set_active_datasource(
+    path: str,
+    request: Request,
+) -> Response:
+    """Forward an active-datasource switch and persist the selection.
+
+    The context service keeps the active selection in memory only; the
+    plugin mirrors successful switches into config.json so the choice
+    survives restarts. Starlette caches the request body, so parsing it
+    here leaves the forwarded request intact.
+    """
+    try:
+        payload = json.loads(await request.body() or b"{}")
+    except ValueError:
+        payload = None
+    response = await _gateway.proxy(path, request)
+    if response.status_code < 400 and isinstance(payload, dict):
+        config = load_config()
+        config.datasources.active_id = str(
+            payload.get("datasource_id") or "",
+        ).strip()
+        save_config(config)
+    return response
+
+
+async def _proxy_delete_datasource(
+    path: str,
+    request: Request,
+) -> Response:
+    """Forward a datasource deletion and drop a stale active selection."""
+    response = await _gateway.proxy(path, request)
+    if response.status_code < 400:
+        deleted_id = path.rstrip("/").rsplit("/", 1)[-1]
+        config = load_config()
+        if config.datasources.active_id == deleted_id:
+            config.datasources.active_id = ""
+            save_config(config)
+    return response
+
+
 @router.api_route(
     "/context/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -464,14 +598,314 @@ async def context_proxy(path: str, request: Request) -> Any:
     # console reads it; configured values are never overwritten.
     if request.method == "GET" and "system/model-config" in path:
         await _bootstrap_llm_from_host()
-    # The shell polls the source list; piggyback a throttled reconcile so
-    # sources added or removed in the management console converge onto
-    # the dependency catalog without a dedicated timer.
+    # The shell polls the source list; piggyback the persisted-active
+    # restore and a throttled reconcile so the selection survives
+    # restarts and console-side changes converge onto the dependency
+    # catalog without a dedicated timer.
     if request.method == "GET" and path.rstrip("/").endswith(
         "cm/datasources",
     ):
+        _spawn_active_restore()
         _spawn_source_reconcile()
+    # Datasource lifecycle flows through this proxy, so mirror the
+    # context service's in-memory state into config.json here.
+    if request.method == "PUT" and path.rstrip("/").endswith(
+        "datasources/active",
+    ):
+        return await _proxy_set_active_datasource(path, request)
+    if request.method == "DELETE" and _DATASOURCE_ITEM_RE.search(path):
+        return await _proxy_delete_datasource(path, request)
     return await _gateway.proxy(path, request)
+
+
+@router.get("/config")
+async def get_config() -> dict[str, Any]:
+    """Return the current unified plugin configuration."""
+    return load_config().to_dict()
+
+
+async def _push_model_config(config: DataAppConfig) -> None:
+    """Push model settings to the running context service, if any."""
+    if not _context_service.is_ready:
+        return
+    try:
+        await _gateway.json(
+            "PUT",
+            "/api/system/model-config/llm",
+            body={
+                "provider": config.llm.provider,
+                "base_url": config.llm.base_url,
+                "model": config.llm.model,
+                "api_key": config.llm.api_key,
+            },
+        )
+        await _gateway.json(
+            "PUT",
+            "/api/system/model-config/embedding",
+            body={
+                "base_url": config.embedding.base_url
+                or config.llm.base_url,
+                "model": config.embedding.model,
+                "api_key": config.embedding.api_key
+                or config.llm.api_key,
+                "dim": config.embedding.dim,
+            },
+        )
+    except HTTPException:
+        logger.exception("Failed to push model config to context service")
+
+
+async def _restore_active_datasource() -> None:
+    """Re-apply the persisted active datasource after a service (re)start.
+
+    The context service keeps the active selection in memory only; without
+    this restore every restart would silently fall back to "no datasource".
+    The done flag latches only on success so a restore racing the service's
+    startup window retries on the next poll instead of giving up for good.
+    """
+    global _active_restore_done
+    if _active_restore_done or not _context_service.is_ready:
+        return
+    active_id = (load_config().datasources.active_id or "").strip()
+    if not active_id:
+        _active_restore_done = True
+        return
+    try:
+        await _gateway.json(
+            "PUT",
+            "/api/datasources/active",
+            body={"datasource_id": active_id},
+        )
+    except HTTPException:
+        logger.warning(
+            "Failed to restore active datasource %r (it may have been deleted)",
+            active_id,
+        )
+        return
+    _active_restore_done = True
+
+
+@router.post("/config")
+async def set_config(payload: dict[str, Any]) -> dict[str, Any]:
+    """Persist configuration and regenerate runtime files."""
+    config = DataAppConfig.from_dict(payload)
+    # Saved payloads carry the reuse snapshot from page load; refresh it so
+    # saving while reuse is enabled also follows host model switches.
+    _sync_reuse_from_host(config)
+    save_config(config)
+    set_context_env_vars()
+    # If the context service is already running, push the new model
+    # configuration so it takes effect without a manual restart.
+    await _push_model_config(config)
+    return config.to_dict()
+
+
+def _resolve_host_active():
+    """Return the host's active provider instance and model, if usable.
+
+    The context service only speaks the OpenAI chat-completions protocol,
+    so native Anthropic/Gemini protocol providers and providers without an
+    explicit base_url cannot serve it. DashScope's compatible-mode endpoint
+    stays usable even though the host wraps it with its own chat model
+    implementation.
+    """
+    try:
+        from qwenpaw.providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        slot = manager.get_active_model()
+    except Exception:  # pragma: no cover - host internals unavailable
+        return None
+    if slot is None:
+        return None
+    provider_id = (getattr(slot, "provider_id", "") or "").strip()
+    model = (getattr(slot, "model", "") or "").strip()
+    if not provider_id or not model:
+        return None
+    try:
+        provider = manager.get_provider(provider_id)
+    except Exception:  # pragma: no cover - host internals unavailable
+        return None
+    if provider is None:
+        return None
+    base_url = (getattr(provider, "base_url", "") or "").strip()
+    chat_model = (getattr(provider, "chat_model", "") or "").strip()
+    if not base_url:
+        return None
+    if chat_model in {"AnthropicChatModel", "GeminiChatModel"}:
+        return None
+    return provider, model
+
+
+def _sync_reuse_from_host(
+    config: DataAppConfig,
+    *,
+    strict: bool = False,
+) -> DataAppConfig:
+    """Refresh reused model fields from the host's active model.
+
+    Following the host when it switches models is the point of the reuse
+    toggle, so every save/start refreshes the snapshot instead of keeping
+    the credentials captured when the toggle was first checked. When the
+    host has no usable active model the last snapshot is kept (non-strict
+    callers) or rejected with an actionable error (the toggle endpoint).
+    """
+    if not (config.llm.reuse_host or config.embedding.reuse_host):
+        return config
+    resolved = _resolve_host_active()
+    if resolved is None:
+        if strict:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No usable active model in the QwenPaw host. Configure "
+                    "an OpenAI-compatible model in QwenPaw settings first."
+                ),
+            )
+        logger.warning(
+            "Host model reuse is enabled but the QwenPaw host exposes no "
+            "usable active model; keeping the stored snapshot"
+        )
+        return config
+    provider, model = resolved
+    base_url = (getattr(provider, "base_url", "") or "").strip()
+    api_key = (getattr(provider, "api_key", "") or "").strip()
+    provider_name = (getattr(provider, "name", "") or "").strip() or (
+        getattr(provider, "id", "") or ""
+    )
+    if config.llm.reuse_host:
+        config.llm.provider = "openai"
+        config.llm.base_url = base_url
+        config.llm.model = model
+        config.llm.api_key = api_key
+        config.llm.host_provider_name = provider_name
+    if config.embedding.reuse_host:
+        # The host has no "active embedding model" concept; reuse shares
+        # the active provider's endpoint and key while the model stays
+        # locally configured.
+        config.embedding.base_url = base_url
+        config.embedding.api_key = api_key
+        config.embedding.host_provider_name = provider_name
+    return config
+
+
+@router.post("/config/reuse-host-model")
+async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
+    """Toggle reusing the model configured in the QwenPaw host.
+
+    Enabling copies the host's active model credentials into the plugin
+    configuration; the Configure page collapses the manual fields while
+    the toggle stays checked. Disabling keeps the last values so switching
+    back to manual entry does not lose them.
+    """
+    target = (payload.get("target") or "").strip()
+    reuse = bool(payload.get("reuse"))
+    if target not in {"llm", "embedding"}:
+        raise HTTPException(status_code=400, detail="target must be llm or embedding")
+    config = load_config()
+    section = config.llm if target == "llm" else config.embedding
+    section.reuse_host = reuse
+    if reuse:
+        _sync_reuse_from_host(config, strict=True)
+    save_config(config)
+    set_context_env_vars()
+    await _push_model_config(config)
+    return config.to_dict()
+
+
+@router.post("/config/test/{target}")
+async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Test connectivity for one configured subsystem."""
+    if target not in {"llm", "embedding", "neo4j"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported test target: {target}",
+        )
+
+    async def _test_llm(cfg: dict[str, Any]) -> dict[str, Any]:
+        base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip(
+            "/"
+        )
+        api_key = cfg.get("api_key", "")
+        model = cfg.get("model", "")
+        if not api_key or not model:
+            return {
+                "ok": False,
+                "error": "API key and model are required",
+            }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=body,
+            )
+            response.raise_for_status()
+        return {"ok": True}
+
+    async def _test_embedding(cfg: dict[str, Any]) -> dict[str, Any]:
+        base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip(
+            "/"
+        )
+        api_key = cfg.get("api_key", "")
+        model = cfg.get("model", "")
+        if not api_key or not model:
+            return {
+                "ok": False,
+                "error": "API key and model are required",
+            }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        body = {"model": model, "input": ["test"]}
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{base_url}/embeddings",
+                headers=headers,
+                json=body,
+            )
+            response.raise_for_status()
+        return {"ok": True}
+
+    def _test_neo4j(cfg: dict[str, Any]) -> dict[str, Any]:
+        uri = cfg.get("uri", "")
+        if not uri:
+            return {"ok": False, "error": "Neo4j URI is required"}
+        parsed = urlsplit(uri)
+        host = parsed.hostname
+        port = parsed.port or 7687
+        if not host:
+            return {"ok": False, "error": "Could not parse Neo4j host"}
+        try:
+            with socket.create_connection((host, port), timeout=5.0):
+                return {"ok": True}
+        except OSError as exc:
+            return {"ok": False, "error": f"Connection failed: {exc}"}
+
+    try:
+        if target == "llm":
+            result = await _test_llm(payload.get("llm", {}))
+        elif target == "embedding":
+            result = await _test_embedding(payload.get("embedding", {}))
+        else:
+            result = _test_neo4j(payload.get("neo4j", {}))
+    except httpx.HTTPStatusError as exc:
+        result = {
+            "ok": False,
+            "error": f"HTTP {exc.response.status_code}: {exc.response.text}",
+        }
+    except httpx.RequestError as exc:
+        result = {"ok": False, "error": f"Request failed: {exc}"}
+    return result
 
 
 app.include_router(router)

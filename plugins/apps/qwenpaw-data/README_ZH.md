@@ -152,9 +152,35 @@ QWENPAW_DATA_CONTEXT_MODE=external QWENPAW_DATA_CONTEXT_URL=http://127.0.0.1:876
 ./scripts/init-demo.sh
 ```
 
+## 配置
+
+QwenPaw-Data 把所有运行时配置集中在 **Configure（配置）** 页面。在这里可以设置语言模型、向量模型、Neo4j 图数据库和可选的 SQL 数仓。每个区域都有 **Test connection（测试连接）** 按钮，保存前可以先验证配置是否正确。
+
+保存后，应用会写入以下文件：
+
+- `~/.qwenpaw/apps/qwenpaw-data/config.json` —— Configure UI 编辑的唯一真相源。
+- `~/.qwenpaw/apps/qwenpaw-data/.env` —— 注入托管 context service 的运行时变量。
+- `~/.qwenpaw/apps/qwenpaw-data/models.json` —— 供 context service 使用的 LLM/向量模型配置。
+
+下一次 context service 启动时，应用会重新加载 `config.json` 并生成上述文件，因此重启应用即可读取最新配置。点击 **保存并重启 Context service** 可以立即生效。
+
+嵌入的 Context 控制台中独立的模型配置页面（Manage → Model Configuration）已被 **Configure** 取代。所有 QwenPaw-Data 设置都请使用 **Configure**；旧页面仅保留给独立的 `qwenpaw-data-context` 部署以兼容。
+
+### 配置优先级
+
+1. Shell 环境变量（最高，不会被覆盖）。
+2. `qwenpaw env set` 设置的值（`~/.qwenpaw/envs.json`）。
+3. `~/.qwenpaw/.env`。
+4. 由 `config.json` 生成的应用级 `.env`。
+5. 仓库根目录 `.env` 和 context service 默认值（最低）。
+
+### 高级：手动 `.env` 覆盖
+
+如果你希望直接配置 context service，可以在 `~/.qwenpaw/.env` 或通过 `qwenpaw env set` 设置它读取的变量。应用首次启动时仍会生成默认的 `config.json`，但手动设置的环境变量优先级更高。
+
 ## 运行时健康检查与本地服务
 
-- 在使用 Analysis chat 之前，请在 QwenPaw 的 **Settings → Models** 中配置并激活一个语言模型。全新的 `QWENPAW_WORKING_DIR` 故意不包含任何 provider 凭据或激活模型。
+- 在 QwenPaw 的 **Settings → Models** 中激活一个语言模型，以便 QwenPaw-Data 在首次运行时自动填充默认模型。之后可以在 **Configure** 中覆盖。
 - QwenPaw-Data 通过 PawApp 依赖契约声明 Context API、Graph Store 和已发现数据源。Data sources 页面会显示就绪状态、能力影响、修复建议和可用的实际操作。
 - 本 app 不会调用 Docker 或供应 Graph Store / 数据源基础设施。这些资源是外部依赖，仅接受只读的就绪检查。本地生命周期和诊断属于 `qwenpaw-data-cli` 包；生产生命周期由部署的服务所有者负责。
 
@@ -168,9 +194,9 @@ QWENPAW_DATA_CONTEXT_MODE=external QWENPAW_DATA_CONTEXT_URL=http://127.0.0.1:876
 
 | 依赖 | 配置方式 | 本地默认值 |
 | --- | --- | --- |
-| Graph Store (Neo4j) | 工作区 `.env` 中的 `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE` | `bolt://localhost:7687` |
+| Graph Store (Neo4j) | **Configure** 页面或环境变量 `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE` | `bolt://localhost:7687` |
 | 数据源 (PostgreSQL / MySQL / ODPS / ...) | 通过 DataBridge 语义配置层注册 (`/api/semantic-config/datasource`)，不从 `.env` 读取 | 无 |
-| LLM / Embedding | `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`LLM_MODEL`、`EMBED_*` | — |
+| LLM / Embedding | **Configure** 页面或环境变量 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`LLM_MODEL`、`EMBED_*` | — |
 
 本地生命周期，按所有者划分：
 

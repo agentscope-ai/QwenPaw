@@ -172,6 +172,43 @@ export interface AppStatus {
   dependencies: PawDependencySnapshot;
 }
 
+export interface DataAppConfig {
+  version: number;
+  llm: {
+    provider: string;
+    base_url: string;
+    model: string;
+    api_key: string;
+    /** When true the fields above track the host's active model. */
+    reuse_host: boolean;
+    host_provider_name: string;
+  };
+  embedding: {
+    base_url: string;
+    model: string;
+    dim: number;
+    api_key: string;
+    /** Reuse shares the host provider's endpoint/key; the model stays local. */
+    reuse_host: boolean;
+    host_provider_name: string;
+  };
+  neo4j: {
+    uri: string;
+    user: string;
+    password: string;
+    database: string;
+  };
+  /** Not user-editable; the proxy backend mirrors the console's selection. */
+  datasources: {
+    active_id: string;
+  };
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  error?: string;
+}
+
 function unwrap<T>(response: ApiEnvelope<T>): T {
   if (!response.ok || response.data === null) {
     throw new Error(response.error?.message || "QwenPaw-Data request failed");
@@ -337,5 +374,14 @@ export function createQwenPawDataApi(paw: PawAppSdk) {
           ...(datasourceId ? { datasource_id: datasourceId } : {}),
         }),
       ),
+    getConfig: () => paw.api.get<DataAppConfig>("/config"),
+    setConfig: (config: DataAppConfig) =>
+      paw.api.post<DataAppConfig>("/config", config),
+    testConfig: (target: "llm" | "embedding" | "neo4j", config: DataAppConfig) =>
+      paw.api.post<ConnectionTestResult>(`/config/test/${target}`, config),
+    setReuseHost: (payload: { target: "llm" | "embedding"; reuse: boolean }) =>
+      paw.api.post<DataAppConfig>("/config/reuse-host-model", payload),
   };
 }
+
+export type QwenPawDataApi = ReturnType<typeof createQwenPawDataApi>;

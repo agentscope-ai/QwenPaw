@@ -194,11 +194,51 @@ volumes):
 ./scripts/init-demo.sh
 ```
 
+## Configuration
+
+QwenPaw-Data keeps all runtime settings in one place: open the app and go to
+**Configure**. From there you can set the language model, embedding model,
+Neo4j graph store, and optional SQL warehouse. Each section has a **Test
+connection** button so you can verify values before saving.
+
+When you save, the app writes:
+
+- `~/.qwenpaw/apps/qwenpaw-data/config.json` — the single source of truth that
+  the Configure UI edits.
+- `~/.qwenpaw/apps/qwenpaw-data/.env` — runtime variables injected into the
+  managed context service.
+- `~/.qwenpaw/apps/qwenpaw-data/models.json` — LLM/embedding model payload for
+  the context service.
+
+On the next context service start the app loads `config.json` and regenerates
+those files, so restarting the app always picks up the latest configuration.
+`Save & restart Context service` applies changes immediately.
+
+The separate model configuration page inside the embedded Context console
+(Manage → Model Configuration) is superseded by **Configure**. Use **Configure**
+for all QwenPaw-Data settings; the old page is kept for backward compatibility
+with standalone `qwenpaw-data-context` deployments only.
+
+### Configuration precedence
+
+1. Shell environment variables (highest, never overwritten).
+2. Values set with `qwenpaw env set` (`~/.qwenpaw/envs.json`).
+3. `~/.qwenpaw/.env`.
+4. The app-scoped `.env` generated from `config.json`.
+5. Repo root `.env` and context service defaults (lowest).
+
+### Advanced: manual `.env` overrides
+
+If you prefer to configure the context service directly, set the variables it
+reads in `~/.qwenpaw/.env` or via `qwenpaw env set`. The app still generates
+`config.json` defaults on first launch, but manually set environment variables
+take precedence.
+
 ## Runtime health and local services
 
-- Configure and activate a language model in QwenPaw's **Settings → Models**
-  before using the Analysis chat. A fresh `QWENPAW_WORKING_DIR` intentionally
-  contains no provider credentials or active model.
+- Activate a language model in QwenPaw's **Settings → Models** so that
+  QwenPaw-Data can bootstrap a first-run default. You can override the model
+  later in **Configure**.
 - QwenPaw-Data declares the Context API, Graph Store, and discovered data
   sources through the PawApp dependency contract. The Data sources page shows
   readiness, capability impact, remediation, and the actions that are actually
@@ -227,9 +267,9 @@ hardcoded. `qwenpaw-data-context` resolves them at startup (see
 
 | Dependency | Configuration | Local default |
 | --- | --- | --- |
-| Graph Store (Neo4j) | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` in the workspace `.env` | `bolt://localhost:7687` |
+| Graph Store (Neo4j) | **Configure** page or `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` env vars | `bolt://localhost:7687` |
 | Data sources (PostgreSQL / MySQL / ODPS / ...) | registered through the DataBridge semantic-config layer (`/api/semantic-config/datasource`), not read from `.env` | none |
-| LLM / Embedding | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_MODEL`, `EMBED_*` | — |
+| LLM / Embedding | **Configure** page or `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_MODEL`, `EMBED_*` env vars | — |
 
 Local lifecycle, by owner:
 
