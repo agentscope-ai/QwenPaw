@@ -97,6 +97,47 @@ export function getSubmissionAgentId(
   return typeof agentId === "string" && agentId ? agentId : undefined;
 }
 
+/**
+ * Resolve the conversation reference owned by this request. Never falls back
+ * to mutable page state, which may already belong to another agent/session.
+ */
+export function getSubmissionConversationReference(
+  bizParams: Record<string, unknown> | undefined,
+  fallbackSdkSessionId?: string,
+): string | undefined {
+  const chatId = getSubmissionChatId(bizParams);
+  if (chatId && chatId !== "new") return chatId;
+  const sdkSessionId =
+    getSubmissionSdkSessionId(bizParams) || fallbackSdkSessionId;
+  return sdkSessionId && sdkSessionId !== "new" ? sdkSessionId : undefined;
+}
+
+/** Guard submissions while the selected agent and route are changing. */
+export function isSubmissionTargetReady(
+  bizParams: Record<string, unknown> | undefined,
+  selectedAgent: string,
+  routeChatId: string | null | undefined,
+  resolvedRouteSessionId: string,
+): boolean {
+  const frozenAgentId = getSubmissionAgentId(bizParams);
+  if (frozenAgentId && frozenAgentId !== selectedAgent) return false;
+
+  const frozenChatId = getSubmissionChatId(bizParams);
+  if (
+    frozenChatId &&
+    frozenChatId !== "new" &&
+    routeChatId &&
+    frozenChatId !== routeChatId
+  ) {
+    return false;
+  }
+
+  const frozenSessionId = getSubmissionSessionId(bizParams, "");
+  if (frozenAgentId && frozenChatId && frozenSessionId) return true;
+
+  return !routeChatId || routeChatId === "new" || !!resolvedRouteSessionId;
+}
+
 export function getSubmissionIdentity(
   bizParams: Record<string, unknown> | undefined,
   fallback: SubmissionIdentity,

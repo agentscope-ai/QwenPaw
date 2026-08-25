@@ -9,6 +9,7 @@ import {
   nextQueueId,
   MAX_QUEUE_SIZE,
   withSendLock,
+  withBackgroundSendLocks,
   holdOwnershipLock,
 } from "./messageQueueStore";
 
@@ -54,6 +55,7 @@ describe("messageQueueStore", () => {
   afterEach(() => {
     resetStore();
     clearStorage();
+    Reflect.deleteProperty(navigator, "locks");
   });
 
   // ---------------------------------------------------------------------------
@@ -735,5 +737,135 @@ describe("messageQueueStore", () => {
 
     expect(onAcquired).toHaveBeenCalled();
     controller.abort();
+  });
+
+  it("background ownership does not queue behind a foreground owner", async () => {
+    const request = vi.fn(
+      (
+        _name: string,
+        options: LockOptions,
+        callback: (lock: object | null) => Promise<unknown>,
+      ): Promise<unknown> => {
+        if (request.mock.calls.length === 1) return callback({});
+        expect(options.ifAvailable).toBe(true);
+        return callback(null);
+      },
+    );
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+
+    const foregroundController = new AbortController();
+    const onForegroundAcquired = vi.fn();
+    const foreground = holdOwnershipLock(
+      SESSION_ID,
+      onForegroundAcquired,
+      foregroundController.signal,
+    );
+    await vi.waitFor(() => expect(onForegroundAcquired).toHaveBeenCalled());
+
+    const onBackgroundAcquired = vi.fn();
+    const backgroundController = new AbortController();
+    const background = withBackgroundSendLocks(
+      SESSION_ID,
+      backgroundController.signal,
+      onBackgroundAcquired,
+    );
+    await background;
+
+    expect(onBackgroundAcquired).not.toHaveBeenCalled();
+    expect(request.mock.calls[0][0]).toBe(request.mock.calls[1][0]);
+    expect(request.mock.calls[0][1]).not.toHaveProperty("ifAvailable");
+    expect(request.mock.calls[1][1]).toHaveProperty("ifAvailable", true);
+
+    foregroundController.abort();
+    await foreground;
+  });
+
+  it("allows different conversations to own and send concurrently", async () => {
+    const otherSessionId = "sess-2";
+    const request = vi.fn(
+      (
+        _name: string,
+        _options: LockOptions,
+        callback: (lock: object) => Promise<unknown>,
+      ) => callback({}),
+    );
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+
+    const foregroundController = new AbortController();
+    const foreground = holdOwnershipLock(
+      SESSION_ID,
+      vi.fn(),
+      foregroundController.signal,
+    );
+    const backgroundSend = vi.fn();
+    await withBackgroundSendLocks(
+      otherSessionId,
+      new AbortController().signal,
+      backgroundSend,
+    );
+
+    expect(backgroundSend).toHaveBeenCalledOnce();
+    expect(request.mock.calls.map((call) => call[0])).toEqual([
+      `qwenpaw:queue-owner:${SESSION_ID}`,
+      `qwenpaw:queue-owner:${otherSessionId}`,
+      `qwenpaw:queue-send:${otherSessionId}`,
+    ]);
+
+    foregroundController.abort();
+    await foreground;
+  });
+
+  it("runs background ownership when no foreground owner exists", async () => {
+    const request = vi.fn(
+      (
+        name: string,
+        options: LockOptions,
+        callback: (lock: object) => Promise<unknown>,
+      ) => {
+        if (name.startsWith("qwenpaw:queue-owner:")) {
+          expect(options).toEqual({ mode: "exclusive", ifAvailable: true });
+        } else {
+          expect(name).toBe(`qwenpaw:queue-send:${SESSION_ID}`);
+          expect(options).toEqual({ ifAvailable: true });
+        }
+        return callback({});
+      },
+    );
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+
+    const controller = new AbortController();
+    const onAcquired = vi.fn();
+    await withBackgroundSendLocks(SESSION_ID, controller.signal, onAcquired);
+
+    expect(onAcquired).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not request background ownership after it is aborted", async () => {
+    const request = vi.fn();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request },
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await withBackgroundSendLocks(
+      SESSION_ID,
+      controller.signal,
+      vi.fn(),
+    );
+
+    expect(result).toBeNull();
+    expect(request).not.toHaveBeenCalled();
   });
 });

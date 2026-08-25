@@ -206,6 +206,7 @@ import {
   getNewQueueKey,
   isNewQueueKey,
   withSendLock,
+  withBackgroundSendLocks,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
 import {
@@ -217,8 +218,10 @@ import {
   enforceSubmissionIdentity,
   getSubmissionAgentId,
   getSubmissionChatId,
+  getSubmissionConversationReference,
   getSubmissionIdentity,
   getSubmissionSdkSessionId,
+  isSubmissionTargetReady,
   rebindSubmissionBizParams,
 } from "./submissionBizParams";
 
@@ -367,176 +370,194 @@ async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
   const ctrl = new AbortController();
   _bgAborts.set(queueKey, ctrl);
 
-  // Acquire the per-session send lock so only one tab keeps draining the queue
-  // after the page unmounts. If the lock is taken, skip background sending.
-  await withSendLock(queueKey, async () => {
-    while (!ctrl.signal.aborted) {
-      // Always read the latest queue from the store: items may have been
-      // added / removed / reordered by the user, by other tabs, or by the
-      // foreground page mounting again.
-      const current = useMessageQueueStore.getState().getQueue(queueKey);
-      if (current.length === 0) break;
+  while (!ctrl.signal.aborted) {
+    // Always read the latest queue from the store: items may have been
+    // added / removed / reordered by the user, by other tabs, or by the
+    // foreground page mounting again.
+    const current = useMessageQueueStore.getState().getQueue(queueKey);
+    if (current.length === 0) break;
 
-      // Respect pause/error state.
-      const rs = useMessageQueueStore.getState().getRunState(queueKey);
-      if (rs === "paused" || rs === "error") break;
+    // Respect pause/error state.
+    const rs = useMessageQueueStore.getState().getRunState(queueKey);
+    if (rs === "paused" || rs === "error") break;
 
-      const item = current[0];
-      const clientMessageId = item.clientMessageId ?? item.id;
+    const item = current[0];
+    const clientMessageId = item.clientMessageId ?? item.id;
 
-      // Wait until the backend finishes the currently running task before
-      // sending the next one. This preserves order task1 → task2 → task3
-      // and prevents firing while task1 is still generating.
-      const idle = await waitForChatIdle(
-        chatIdForStatus,
-        ctrl.signal,
-        item.agentId,
-      );
-      if (!idle) break;
+    // Wait until the backend finishes the currently running task before
+    // sending the next one. This preserves order task1 → task2 → task3
+    // and prevents firing while task1 is still generating.
+    const idle = await waitForChatIdle(
+      chatIdForStatus,
+      ctrl.signal,
+      item.agentId,
+    );
+    if (!idle) break;
 
-      // Mark as sending — visible to other tabs and to the foreground page
-      // if the user navigates back. Crucially we do NOT remove the item
-      // before the request completes, so a navigate-back during sending
-      // still shows the item in the queue.
-      useMessageQueueStore
-        .getState()
-        .setItemStatus(queueKey, item.id, "sending");
-      useMessageQueueStore.getState().setCurrentSendingId(item.id);
-
-      // Mirror what foreground customFetch does: cache the in-flight user
-      // text in sessionStorage so that when ChatPage re-mounts during
-      // generation, sessionApi.patchLastUserMessage can patch THIS user
-      // message into history (otherwise the previous turn's stale text
-      // would surface, e.g. showing user="2" while task3 is generating).
-      if (chatIdForStatus) {
-        // Build content items matching the POST body (stored-name format)
-        // so patchLastUserMessage can rebuild the user card with attachments.
-        const contentItems: Array<{ type: string; [key: string]: unknown }> = [
-          { type: "text", text: item.text },
-          ...buildAttachmentContentItems(item.attachments),
-        ];
-        sessionApi.setLastUserMessage(
-          chatIdForStatus,
-          item.text,
-          contentItems,
-          clientMessageId,
-        );
-      }
-
-      let fetchSucceeded = false;
-      // True once fetch() has resolved with an HTTP response. For a streaming
-      // chat endpoint, this means the backend has already accepted the
-      // request and started generating — the backend keeps producing the turn
-      // and the foreground SDK's reconnect will pick it up.
-      let fetchStarted = false;
-      try {
-        const authHeaders = buildAuthHeaders();
-        const queueAgentId = item.agentId || "default";
-        // Use the agent ID captured at enqueue time to prevent cross-agent
-        // delivery when the user switches agents after queueing.
-        if (item.agentId) {
-          authHeaders["X-Agent-Id"] = item.agentId;
+    // Acquire ownership for one queue item at a time. Releasing between items
+    // lets a foreground tab that opened this conversation take priority before
+    // the background sender starts the next request.
+    const shouldContinue = await withBackgroundSendLocks(
+      queueKey,
+      ctrl.signal,
+      async () => {
+        const fresh = useMessageQueueStore.getState().getQueue(queueKey);
+        if (fresh.length === 0) return false;
+        if (fresh[0].id !== item.id) return true;
+        const lockedRunState = useMessageQueueStore
+          .getState()
+          .getRunState(queueKey);
+        if (lockedRunState === "paused" || lockedRunState === "error") {
+          return false;
         }
-        const submissionIdentity = getSubmissionIdentity(item.bizParams, {
-          sessionId: "",
-          userId: DEFAULT_USER_ID,
-          channel: DEFAULT_CHANNEL,
-        });
-        const pendingRequest = withPendingProjectDirectory(
-          {
-            ...item.bizParams,
-            input: [
-              {
-                role: "user",
-                metadata: {
-                  [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
-                },
-                content: [
-                  { type: "text", text: item.text },
-                  ...buildAttachmentContentItems(item.attachments),
-                ],
-              },
-            ],
-            session_id: submissionIdentity.sessionId,
-            user_id: submissionIdentity.userId,
-            channel: submissionIdentity.channel,
-            stream: true,
-          },
-          queueAgentId,
-          queueKey,
-        );
-        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
-        // HTTP connection alive even when the queue loop is aborted (e.g.
-        // foreground takes over). The server finishes generating and
-        // persists the turn so no message is lost and no re-send occurs.
-        const res = await fetch(getApiUrl("/console/chat"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders,
-          },
-          body: JSON.stringify(pendingRequest.requestBody),
-        });
+        if (ctrl.signal.aborted) return false;
 
-        if (!res.ok) {
-          sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
-          throw new Error(`HTTP ${res.status}`);
-        }
-        if (pendingRequest.projectDir) {
-          setPendingProjectDirectory(queueAgentId, queueKey, null);
-        }
-        fetchStarted = true;
-
-        // Drain the stream; reaching `done` means the backend persisted the
-        // turn. Only then is it safe to remove the item from the queue.
-        const reader = res.body?.getReader();
-        if (reader) {
-          while (!ctrl.signal.aborted) {
-            const r = await reader.read();
-            if (r.done) break;
-          }
-        }
-        fetchSucceeded = !ctrl.signal.aborted;
-      } catch {
-        fetchSucceeded = false;
-      }
-
-      if (ctrl.signal.aborted) {
-        if (fetchStarted) {
-          // Server connection was NOT aborted (no signal on fetch), so the
-          // backend will finish generating and persist this turn. Safe to
-          // remove — the foreground SDK will see it in history on reconnect.
-          useMessageQueueStore.getState().remove(queueKey, item.id);
-        } else {
-          // Request never made it out (aborted while waiting for status idle
-          // or before the response head arrived). Restore to pending so the
-          // foreground sender can pick it up.
-          useMessageQueueStore
-            .getState()
-            .setItemStatus(queueKey, item.id, "pending");
-        }
-        break;
-      }
-
-      if (fetchSucceeded) {
-        // Backend finished generating → safe to remove from queue.
-        useMessageQueueStore.getState().remove(queueKey, item.id);
-      } else {
-        // Network/HTTP failure: keep the item visible with `failed` status
-        // so the user can retry from the queue panel on next visit.
+        // Mark as sending — visible to other tabs and to the foreground page
+        // if the user navigates back. Crucially we do NOT remove the item
+        // before the request completes, so a navigate-back during sending
+        // still shows the item in the queue.
         useMessageQueueStore
           .getState()
-          .setItemStatus(
-            queueKey,
-            item.id,
-            "failed",
-            i18n.t("chat.queue.sendFailed"),
+          .setItemStatus(queueKey, item.id, "sending");
+
+        // Mirror what foreground customFetch does: cache the in-flight user
+        // text in sessionStorage so that when ChatPage re-mounts during
+        // generation, sessionApi.patchLastUserMessage can patch THIS user
+        // message into history (otherwise the previous turn's stale text
+        // would surface, e.g. showing user="2" while task3 is generating).
+        if (chatIdForStatus) {
+          // Build content items matching the POST body (stored-name format)
+          // so patchLastUserMessage can rebuild the user card with attachments.
+          const contentItems: Array<{
+            type: string;
+            [key: string]: unknown;
+          }> = [
+            { type: "text", text: item.text },
+            ...buildAttachmentContentItems(item.attachments),
+          ];
+          sessionApi.setLastUserMessage(
+            chatIdForStatus,
+            item.text,
+            contentItems,
+            clientMessageId,
           );
-        break;
-      }
-    }
-    useMessageQueueStore.getState().setCurrentSendingId(null);
-  });
+        }
+
+        let fetchSucceeded = false;
+        // True once fetch() has resolved with an HTTP response. For a streaming
+        // chat endpoint, this means the backend has already accepted the
+        // request and started generating — the backend keeps producing the turn
+        // and the foreground SDK's reconnect will pick it up.
+        let fetchStarted = false;
+        try {
+          const authHeaders = buildAuthHeaders();
+          const queueAgentId = item.agentId || "default";
+          // Use the agent ID captured at enqueue time to prevent cross-agent
+          // delivery when the user switches agents after queueing.
+          if (item.agentId) {
+            authHeaders["X-Agent-Id"] = item.agentId;
+          }
+          const submissionIdentity = getSubmissionIdentity(item.bizParams, {
+            sessionId: "",
+            userId: DEFAULT_USER_ID,
+            channel: DEFAULT_CHANNEL,
+          });
+          const pendingRequest = withPendingProjectDirectory(
+            {
+              ...item.bizParams,
+              input: [
+                {
+                  role: "user",
+                  metadata: {
+                    [QWENPAW_CLIENT_MESSAGE_ID_KEY]: clientMessageId,
+                  },
+                  content: [
+                    { type: "text", text: item.text },
+                    ...buildAttachmentContentItems(item.attachments),
+                  ],
+                },
+              ],
+              session_id: submissionIdentity.sessionId,
+              user_id: submissionIdentity.userId,
+              channel: submissionIdentity.channel,
+              stream: true,
+            },
+            queueAgentId,
+            queueKey,
+          );
+          // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
+          // HTTP connection alive even when the queue loop is aborted (e.g.
+          // foreground takes over). The server finishes generating and
+          // persists the turn so no message is lost and no re-send occurs.
+          const res = await fetch(getApiUrl("/console/chat"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders,
+            },
+            body: JSON.stringify(pendingRequest.requestBody),
+          });
+
+          if (!res.ok) {
+            sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
+            throw new Error(`HTTP ${res.status}`);
+          }
+          if (pendingRequest.projectDir) {
+            setPendingProjectDirectory(queueAgentId, queueKey, null);
+          }
+          fetchStarted = true;
+
+          // Drain the stream; reaching `done` means the backend persisted the
+          // turn. Only then is it safe to remove the item from the queue.
+          const reader = res.body?.getReader();
+          if (reader) {
+            while (true) {
+              const r = await reader.read();
+              if (r.done) break;
+            }
+          }
+          fetchSucceeded = true;
+        } catch {
+          fetchSucceeded = false;
+        }
+
+        if (ctrl.signal.aborted) {
+          if (fetchStarted) {
+            // The accepted request was drained to completion before honoring
+            // the loop abort, so the turn is persisted and safe to remove.
+            useMessageQueueStore.getState().remove(queueKey, item.id);
+          } else {
+            // Request never made it out (aborted while waiting for status idle
+            // or before the response head arrived). Restore to pending so the
+            // foreground sender can pick it up.
+            useMessageQueueStore
+              .getState()
+              .setItemStatus(queueKey, item.id, "pending");
+          }
+          return false;
+        }
+
+        if (fetchSucceeded) {
+          // Backend finished generating → safe to remove from queue.
+          useMessageQueueStore.getState().remove(queueKey, item.id);
+          return true;
+        } else {
+          // Network/HTTP failure: keep the item visible with `failed` status
+          // so the user can retry from the queue panel on next visit.
+          useMessageQueueStore
+            .getState()
+            .setItemStatus(
+              queueKey,
+              item.id,
+              "failed",
+              i18n.t("chat.queue.sendFailed"),
+            );
+          return false;
+        }
+      },
+    );
+    if (!shouldContinue) break;
+  }
 
   if (_bgAborts.get(queueKey) === ctrl) _bgAborts.delete(queueKey);
 }
@@ -1407,22 +1428,29 @@ export default function ChatPage() {
   const [isOwner, setIsOwner] = useState(false);
   const [ownershipResolved, setOwnershipResolved] = useState(false);
   const isOwnerRef = useRef(false);
+  const ownershipWaitedRef = useRef(false);
   isOwnerRef.current = isOwner;
   useEffect(() => {
     setIsOwner(false);
     setOwnershipResolved(false);
+    ownershipWaitedRef.current = false;
     const ctrl = new AbortController();
     void holdOwnershipLock(
       queueSessionId,
       () => {
+        const refreshAfterHandoff = ownershipWaitedRef.current;
         setIsOwner(true);
         setOwnershipResolved(true);
+        if (refreshAfterHandoff) {
+          setRefreshKey((current) => current + 1);
+        }
       },
       ctrl.signal,
     );
     // If the lock callback never fires (e.g. another tab holds it), resolve
     // after a short delay so the non-owner Alert appears without flashing.
     const fallbackTimer = setTimeout(() => {
+      ownershipWaitedRef.current = true;
       setOwnershipResolved(true);
     }, 300);
     return () => {
@@ -1568,6 +1596,7 @@ export default function ChatPage() {
       clearTimeout(autoSendTimerRef.current);
       autoSendTimerRef.current = null;
     }
+    useMessageQueueStore.getState().setCurrentSendingId(null);
     prevChatLoadingRef.current = false;
     // Keep prevQueueLenRef at current value to prevent auto-send effect from
     // seeing a false 0→N transition on stale messageQueue in the same render.
@@ -1969,7 +1998,12 @@ export default function ChatPage() {
         const firstItem = remaining[0];
         const chatIdForStatus =
           getSubmissionChatId(firstItem.bizParams) || queueKey;
-        startBackgroundQueue(queueKey, chatIdForStatus);
+        // The ownership effect aborts first, but Web Locks releases the lock
+        // asynchronously. Defer the non-blocking background attempt so a new
+        // foreground owner can queue first during a session switch.
+        setTimeout(() => {
+          startBackgroundQueue(queueKey, chatIdForStatus);
+        }, 0);
       }
     };
   }, [queueSessionId]);
@@ -2616,11 +2650,9 @@ export default function ChatPage() {
       const { input = [], biz_params } = data;
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const submissionChatId = getSubmissionChatId(biz_params);
+      const frozenSdkSessionId = getSubmissionSdkSessionId(biz_params);
       const fallbackIdentity = sessionApi.getSessionIdentity(
-        submissionChatId ||
-          session?.session_id ||
-          chatIdRef.current ||
-          sessionApi.lastActiveChatId,
+        submissionChatId || frozenSdkSessionId || session?.session_id,
       );
       const submissionIdentity = getSubmissionIdentity(biz_params, {
         sessionId: fallbackIdentity.sessionId || session?.session_id || "",
@@ -2629,7 +2661,7 @@ export default function ChatPage() {
           fallbackIdentity.channel || session?.channel || DEFAULT_CHANNEL,
       });
       const submissionSdkSessionId =
-        getSubmissionSdkSessionId(biz_params) || fallbackIdentity.sdkSessionId;
+        frozenSdkSessionId || fallbackIdentity.sdkSessionId;
       const submissionAgentId =
         getSubmissionAgentId(biz_params) || selectedAgent;
       const headers: Record<string, string> = {
@@ -2736,10 +2768,10 @@ export default function ChatPage() {
           runningConfigApprovalLevel,
         );
         projectSessionId =
-          submissionChatId ??
-          chatIdRef.current ??
-          sessionApi.lastActiveChatId ??
-          String(requestBody.session_id || "new");
+          getSubmissionConversationReference(
+            biz_params,
+            submissionSdkSessionId,
+          ) ?? String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
           requestBody,
           submissionAgentId,
@@ -2765,13 +2797,12 @@ export default function ChatPage() {
         submissionIdentity,
       );
 
-      const backendChatId = submissionChatId
-        ? sessionApi.getRealIdForSession(submissionChatId) ?? submissionChatId
-        : sessionApi.getRealIdForSession(
-            String(requestBody.session_id || ""),
-          ) ??
-          chatIdRef.current ??
-          String(requestBody.session_id || "");
+      const submissionConversationReference =
+        getSubmissionConversationReference(biz_params, submissionSdkSessionId);
+      const backendChatId = submissionConversationReference
+        ? sessionApi.getRealIdForSession(submissionConversationReference) ??
+          submissionConversationReference
+        : "";
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m) => m.role === "user")
@@ -2974,10 +3005,26 @@ export default function ChatPage() {
     const handleBeforeSubmit = async (
       data: IAgentScopeRuntimeWebUIInputData,
     ) => {
+      if (isComposingRef.current) return false;
+
+      const routeChatId = chatIdRef.current;
+      const frozenChatId = getSubmissionChatId(data.biz_params);
       const selectedSessionId =
-        chatIdRef.current ?? sessionApi.lastActiveChatId ?? "";
+        frozenChatId && frozenChatId !== "new"
+          ? frozenChatId
+          : routeChatId ?? sessionApi.lastActiveChatId ?? "";
       const submissionIdentity =
         sessionApi.getSessionIdentity(selectedSessionId);
+      if (
+        !isSubmissionTargetReady(
+          data.biz_params,
+          selectedAgent,
+          routeChatId,
+          submissionIdentity.sessionId,
+        )
+      ) {
+        return false;
+      }
       const bizParams = buildSubmissionBizParams(submissionIdentity, {
         source: "console_chat",
         agent_id: selectedAgent,
@@ -2996,7 +3043,6 @@ export default function ChatPage() {
               ...data.biz_params,
             } as IAgentScopeRuntimeWebUIInputData["biz_params"]);
 
-      if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
       // abort the actual SDK send. The owner tab will pick the item up via

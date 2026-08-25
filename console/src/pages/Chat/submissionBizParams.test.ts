@@ -4,9 +4,11 @@ import {
   enforceSubmissionIdentity,
   getSubmissionAgentId,
   getSubmissionChatId,
+  getSubmissionConversationReference,
   getSubmissionIdentity,
   getSubmissionSdkSessionId,
   getSubmissionSessionId,
+  isSubmissionTargetReady,
   rebindSubmissionBizParams,
 } from "./submissionBizParams";
 
@@ -105,5 +107,53 @@ describe("submissionBizParams", () => {
         sdk_session_id: "local-a",
       },
     });
+  });
+
+  it("never uses mutable page state as the request conversation", () => {
+    const bizParams = buildSubmissionBizParams(IDENTITY_A, {
+      agent_id: "agent-a",
+      chat_id: "chat-a",
+      sdk_session_id: "sdk-a",
+    });
+
+    expect(getSubmissionConversationReference(bizParams, "stale-chat-b")).toBe(
+      "chat-a",
+    );
+    expect(
+      getSubmissionConversationReference(
+        {
+          request_context: {
+            chat_id: "new",
+            sdk_session_id: "local-a",
+          },
+        },
+        "stale-chat-b",
+      ),
+    ).toBe("local-a");
+    expect(getSubmissionConversationReference(undefined)).toBeUndefined();
+  });
+
+  it("blocks a direct send while the new agent still has the old route", () => {
+    expect(isSubmissionTargetReady(undefined, "agent-b", "chat-a", "")).toBe(
+      false,
+    );
+  });
+
+  it("accepts only frozen submissions matching the selected agent and route", () => {
+    const bizParams = buildSubmissionBizParams(IDENTITY_A, {
+      agent_id: "agent-a",
+      chat_id: "chat-a",
+      sdk_session_id: "sdk-a",
+    });
+
+    expect(isSubmissionTargetReady(bizParams, "agent-a", "chat-a", "")).toBe(
+      true,
+    );
+    expect(isSubmissionTargetReady(bizParams, "agent-b", "chat-a", "")).toBe(
+      false,
+    );
+    expect(isSubmissionTargetReady(bizParams, "agent-a", "chat-b", "")).toBe(
+      false,
+    );
   });
 });

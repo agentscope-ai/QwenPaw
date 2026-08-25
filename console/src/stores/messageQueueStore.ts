@@ -273,6 +273,10 @@ function getLockManager(): LockLike | null {
   return nav.locks ?? null;
 }
 
+function getOwnershipLockName(sessionId: string): string {
+  return `qwenpaw:queue-owner:${sessionId}`;
+}
+
 export async function withSendLock<T>(
   sessionId: string,
   fn: () => Promise<T> | T,
@@ -295,6 +299,51 @@ export async function withSendLock<T>(
   } catch {
     return null;
   }
+}
+
+/**
+ * Try to run a task while holding the same exclusive lock used by the
+ * foreground conversation owner. The request never enters the lock queue, so
+ * a background sender cannot get ahead of a foreground ownership request.
+ */
+async function withAvailableOwnershipLock<T>(
+  sessionId: string,
+  fn: () => Promise<T> | T,
+  abortSignal: AbortSignal,
+): Promise<T | null> {
+  if (abortSignal.aborted) return null;
+  const locks = getLockManager();
+  if (!locks) {
+    return await fn();
+  }
+  try {
+    return (await locks.request(
+      getOwnershipLockName(sessionId),
+      { mode: "exclusive", ifAvailable: true },
+      async (lock: unknown) => {
+        if (!lock || abortSignal.aborted) return null;
+        return await fn();
+      },
+    )) as T | null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run one background send while no foreground tab owns the conversation.
+ * Both ownership and POST serialization remain held until `fn` completes.
+ */
+export async function withBackgroundSendLocks<T>(
+  sessionId: string,
+  abortSignal: AbortSignal,
+  fn: () => Promise<T> | T,
+): Promise<T | null> {
+  return await withAvailableOwnershipLock(
+    sessionId,
+    () => withSendLock(sessionId, fn),
+    abortSignal,
+  );
 }
 
 /**
@@ -323,7 +372,7 @@ export function holdOwnershipLock(
   }
   return locks
     .request(
-      `qwenpaw:queue-owner:${sessionId}`,
+      getOwnershipLockName(sessionId),
       { mode: "exclusive", signal: abortSignal },
       async (lock: unknown) => {
         if (!lock) return;

@@ -947,6 +947,23 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return false;
     }
 
+    // A request is confirmed as soon as its unique client id appears
+    // anywhere in history. This also prevents an already-persisted turn from
+    // being appended again while the backend still reports "running".
+    if (cached.clientMessageId) {
+      const persistenceConfirmed = messages.some((message) => {
+        if (message.role !== ROLE_USER) return false;
+        const input = message?.cards?.[0]?.data?.input?.[0];
+        return (
+          extractClientMessageId(input?.metadata) === cached.clientMessageId
+        );
+      });
+      if (persistenceConfirmed) {
+        clearPendingUserMessage(backendSessionId);
+        return false;
+      }
+    }
+
     // When the chat is idle, clear the cache only after the fetched
     // history actually contains the pending text. Clearing
     // unconditionally lost the last message in two windows: POST sent
@@ -954,17 +971,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
-      let lastUserClientMessageId: string | undefined;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
         const input = messages[i]?.cards?.[0]?.data?.input?.[0];
         lastUserText = extractTextFromContent(input?.content);
-        lastUserClientMessageId = extractClientMessageId(input?.metadata);
         break;
       }
-      const persistenceConfirmed = cached.clientMessageId
-        ? lastUserClientMessageId === cached.clientMessageId
-        : lastUserText.trim() === cached.text.trim();
+      const persistenceConfirmed =
+        !cached.clientMessageId && lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
         clearPendingUserMessage(backendSessionId);
         return false;
