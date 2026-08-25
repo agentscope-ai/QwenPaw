@@ -33,7 +33,7 @@ class MemoryPage(BasePage):
     """Page object for Long-term Memory."""
 
     AGENT_CONFIG_URL = f"{config.base_url}/agent-config"
-    WORKSPACE_URL = f"{config.base_url}/workspace"
+    WORKSPACE_URL = f"{config.base_url}/files"
 
     # ========== Selectors ==========
 
