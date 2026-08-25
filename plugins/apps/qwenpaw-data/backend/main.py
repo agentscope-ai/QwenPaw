@@ -904,7 +904,12 @@ async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, 
             with socket.create_connection((host, port), timeout=5.0):
                 return {"ok": True}
         except OSError as exc:
-            return {"ok": False, "error": f"Connection failed: {exc}"}
+            # Exception strings can embed resolved addresses; the error
+            # class is enough to tell refused connections from timeouts.
+            return {
+                "ok": False,
+                "error": f"Connection failed: {exc.__class__.__name__}",
+            }
 
     try:
         if target == "llm":
