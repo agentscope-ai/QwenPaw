@@ -265,7 +265,7 @@ jobs:
           include-hidden-files: true
 
   integrated-tests:
-    name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }} - ${{ matrix.shard }}
     needs: approval-gate
     if: |
       always() &&
@@ -276,11 +276,26 @@ jobs:
       matrix:
         python-version: ["3.11", "3.13"]
         os: [ubuntu-latest]
+        shard: [p0, p1, p2]
         include:
           - os: macos-latest
             python-version: "3.11"
+            shard: p0
+          - os: macos-latest
+            python-version: "3.11"
+            shard: p1
+          - os: macos-latest
+            python-version: "3.11"
+            shard: p2
           - os: windows-latest
             python-version: "3.11"
+            shard: p0
+          - os: windows-latest
+            python-version: "3.11"
+            shard: p1
+          - os: windows-latest
+            python-version: "3.11"
+            shard: p2
 
     steps:
       - uses: actions/checkout@v4
@@ -359,14 +374,19 @@ jobs:
           DISPATCH_MARKER: ${{ inputs.integration_marker }}
         run: |
           # Manual dispatch override -> use whatever the maintainer typed.
-          # Everything else (PR gate / push) -> FULL integration suite.
+          # Everything else (PR gate / push) -> split by shard (p0/p1/p2).
           # The PR gate is the only layer that reliably runs (post-merge
           # push runs wait on the maintainer-approved environment), so
           # problems are blocked here rather than detected after merge.
           if [ -n "${DISPATCH_MARKER}" ]; then
             EXPR="${DISPATCH_MARKER}"
           else
-            EXPR="integration"
+            # Split by shard for parallel execution
+            case "${{ matrix.shard }}" in
+              p0) EXPR="integration and p0" ;;
+              p1) EXPR="integration and p1" ;;
+              p2) EXPR="integration and p2" ;;
+            esac
           fi
           echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
           echo "Selected marker expression: $EXPR"
@@ -393,11 +413,11 @@ jobs:
               -n auto --dist=loadscope --timeout=300 \
               -m "${{ steps.marker.outputs.expr }}"
             cp .integration_coverage/integration_subproc \
-              .coverage.integration
+              .coverage.integration.${{ matrix.shard }}
             # `coverage xml` honours fail_under and exits 2 when below;
             # tolerate that — the combined value is what matters.
-            coverage xml --data-file=.coverage.integration \
-              -o coverage.integration.xml || [ "$?" -eq 2 ]
+            coverage xml --data-file=.coverage.integration.${{ matrix.shard }} \
+              -o coverage.integration.${{ matrix.shard }}.xml || [ "$?" -eq 2 ]
           else
             pytest tests/integration -v \
               -n auto --dist=loadscope --timeout=300 \
@@ -411,10 +431,10 @@ jobs:
           matrix.python-version == '3.11'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-data-integration
+          name: coverage-data-integration-${{ matrix.shard }}
           path: |
-            .coverage.integration
-            coverage.integration.xml
+            .coverage.integration.${{ matrix.shard }}
+            coverage.integration.${{ matrix.shard }}.xml
           retention-days: 1
           include-hidden-files: true
 
@@ -460,7 +480,16 @@ jobs:
       - name: Combine all coverage data
         shell: bash
         run: |
-          # Collect all coverage data files: unit, contract, and integration.
+          # First, combine the three integration shards into one
+          coverage combine \
+            .coverage.integration.p0 \
+            .coverage.integration.p1 \
+            .coverage.integration.p2 \
+            --data-file=.coverage.integration
+          coverage xml --data-file=.coverage.integration \
+            -o coverage.integration.xml || [ "$?" -eq 2 ]
+          
+          # Then, combine all three tiers: unit, contract, and integration.
           coverage combine \
             .coverage.unit .coverage.contract .coverage.integration
           # Tolerate fail-under (exit 2): combined number is what matters
