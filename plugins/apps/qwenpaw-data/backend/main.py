@@ -813,6 +813,15 @@ async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
     return config.to_dict()
 
 
+def _validated_base_url(value: str) -> str:
+    """Normalize a user-entered endpoint URL, rejecting non-HTTP schemes."""
+    base_url = (value or "").strip().rstrip("/")
+    parsed = urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"Unsupported endpoint URL: {base_url!r}")
+    return base_url
+
+
 @router.post("/config/test/{target}")
 async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Test connectivity for one configured subsystem."""
@@ -823,9 +832,12 @@ async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, 
         )
 
     async def _test_llm(cfg: dict[str, Any]) -> dict[str, Any]:
-        base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip(
-            "/"
-        )
+        try:
+            base_url = _validated_base_url(
+                cfg.get("base_url") or "https://api.openai.com/v1"
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
         api_key = cfg.get("api_key", "")
         model = cfg.get("model", "")
         if not api_key or not model:
@@ -852,9 +864,12 @@ async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, 
         return {"ok": True}
 
     async def _test_embedding(cfg: dict[str, Any]) -> dict[str, Any]:
-        base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip(
-            "/"
-        )
+        try:
+            base_url = _validated_base_url(
+                cfg.get("base_url") or "https://api.openai.com/v1"
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
         api_key = cfg.get("api_key", "")
         model = cfg.get("model", "")
         if not api_key or not model:
@@ -901,10 +916,20 @@ async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, 
     except httpx.HTTPStatusError as exc:
         result = {
             "ok": False,
-            "error": f"HTTP {exc.response.status_code}: {exc.response.text}",
+            # Keep the upstream error body (providers put the actionable
+            # message there) but bounded: some return verbose payloads.
+            "error": (
+                f"HTTP {exc.response.status_code}: "
+                f"{exc.response.text[:300]}"
+            ),
         }
     except httpx.RequestError as exc:
-        result = {"ok": False, "error": f"Request failed: {exc}"}
+        # Exception strings can embed internal URLs; the class name is
+        # enough to tell timeouts from refused connections.
+        result = {
+            "ok": False,
+            "error": f"Request failed: {exc.__class__.__name__}",
+        }
     return result
 
 

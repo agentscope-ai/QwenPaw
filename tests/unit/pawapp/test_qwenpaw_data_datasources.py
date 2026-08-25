@@ -521,6 +521,25 @@ async def test_proxy_delete_clears_matching_active_selection(
 
 
 @pytest.mark.asyncio
+async def test_config_test_rejects_non_http_endpoint(monkeypatch) -> None:
+    module = _load_backend()
+
+    for target, section in (("llm", "llm"), ("embedding", "embedding")):
+        result = await module.test_config_target(
+            target,
+            {
+                section: {
+                    "base_url": "file:///etc/passwd",
+                    "api_key": "sk-test",
+                    "model": "test-model",
+                }
+            },
+        )
+        assert result["ok"] is False
+        assert "Unsupported endpoint URL" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_context_proxy_routes_datasource_lifecycle(monkeypatch) -> None:
     module = _load_backend()
     set_active = AsyncMock(return_value=Response(status_code=200))
