@@ -692,6 +692,77 @@ class TestTokenUsageManagerCore:
         assert named.model == "gpt-4"
         await manager.stop()
 
+    @pytest.mark.asyncio
+    async def test_query_legacy_key_fallback_without_model_name(self):
+        """Legacy colon keys should recover the model name from the key."""
+        manager = TokenUsageManager()
+        merged = {
+            "2026-04-24": {
+                "prov2:model-from-key": {
+                    "provider_id": "prov2",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "call_count": 1,
+                },
+                "ollama:namespace:model:tag": {
+                    "provider_id": "ollama",
+                    "prompt_tokens": 7,
+                    "completion_tokens": 3,
+                    "call_count": 2,
+                },
+            },
+        }
+
+        # pylint: disable=protected-access
+        rows = await manager._query(
+            merged,
+            date(2026, 4, 24),
+            date(2026, 4, 24),
+            None,
+            None,
+        )
+
+        assert [row.model_dump() for row in rows] == [
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "call_count": 1,
+                "date": "2026-04-24",
+                "provider_id": "prov2",
+                "model": "model-from-key",
+                "agent_id": None,
+            },
+            {
+                "prompt_tokens": 7,
+                "completion_tokens": 3,
+                "call_count": 2,
+                "date": "2026-04-24",
+                "provider_id": "ollama",
+                "model": "namespace:model:tag",
+                "agent_id": None,
+            },
+        ]
+
+        # pylint: disable=protected-access
+        filtered = await manager._query(
+            merged,
+            date(2026, 4, 24),
+            date(2026, 4, 24),
+            "model-from-key",
+            None,
+        )
+        assert [row.model_dump() for row in filtered] == [
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "call_count": 1,
+                "date": "2026-04-24",
+                "provider_id": "prov2",
+                "model": "model-from-key",
+                "agent_id": None,
+            },
+        ]
+
 
 # =============================================================================
 # Test TokenRecordingModelWrapper

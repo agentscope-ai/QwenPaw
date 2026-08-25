@@ -185,11 +185,13 @@ class TokenUsageManager:
                     rec_agent = entry.get("agent_id") or ""
                 rec_model = entry.get("model_name") or ""
                 if not rec_model:
-                    rec_model = (
-                        _key.rsplit("\x1f", 1)[-1]
-                        if "\x1f" in str(_key)
-                        else _key
-                    )
+                    key = str(_key)
+                    if "\x1f" in key:
+                        rec_model = key.rsplit("\x1f", 1)[-1]
+                    elif ":" in key:
+                        rec_model = key.split(":", 1)[1]
+                    else:
+                        rec_model = key
                 if model_name is not None and rec_model != model_name:
                     continue
                 if provider_id is not None and rec_provider != provider_id:
