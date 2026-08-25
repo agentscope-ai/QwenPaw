@@ -2587,11 +2587,6 @@
       "mode": "モード",
       "desktopMode": "デスクトップモード"
     },
-    "desktopModeHint": {
-      "title": "デスクトップモードを試す",
-      "description": "ここでクイック設定を開き、デスクトップモードを選択すると、ウィンドウ型ワークスペースを利用できます。",
-      "gotIt": "わかりました"
-    },
     "simpleMode": "シンプルモード",
     "fullMode": "フルモード",
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"

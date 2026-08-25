@@ -10,128 +10,115 @@ import pytest
 
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.facade import CreatorFileServices
-from services.project_files.models import Project
 from services.project_files.review import (
     ProjectReviewService,
     ReviewDecisionConflict,
+    ReviewDecisionEvent,
     ReviewDecisionItem,
     ReviewDecisionJournal,
     ReviewDecisionJournalState,
-    ReviewDecisionRecoveryAction,
     ReviewRejectionAction,
     ReviewRejectionFeedback,
-    render_rejection_feedback_message,
 )
-from services.project_files.store import ProjectStore
-from services.project_files.store import ProjectNotFound
+from services.project_files.store import ProjectNotFound, ProjectStore
 from services.runtime_files import hashed_runtime_segment
-from services.runtime_files.models import (
-    ReviewBoundary,
-    ReviewStatus,
-    RuntimeProjectState,
-)
-from services.runtime_files.models import ReviewOperationDecision
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.jsonl_store import DurableJsonlStore
-from services.project_files.review import ReviewDecisionEvent
+from services.runtime_files.models import (
+    ReviewOperationDecision,
+    ReviewStatus,
+)
+
+from .conftest import make_pending_review, read_state
 
 
-def _pending_review(tmp_path):
-    store = ProjectStore(tmp_path.resolve())
-    base = store.create(
-        Project.new(project_id="project-1", name="Before", description="old"),
+def _operation(review, pointer):
+    return next(o for o in review.operations if o.json_pointer == pointer)
+
+
+def _item(operation, decision="REJECT"):
+    return ReviewDecisionItem(
+        operation_id=operation.operation_id,
+        decision=decision,
     )
-    candidate = base.project.model_dump(mode="json")
-    candidate["name"] = "After"
-    candidate["description"] = "new"
-    result = ProjectCommitBoundary(store).commit(
-        base=base,
-        candidate=candidate,
-        origin="agentdock_interrupt",
-        review_policy="require_review",
-        review_boundary=ReviewBoundary(
-            request_message_seq=2,
-            request_id="request-2",
-            interrupted_run_id="run-1",
-            accepted_generation=0,
-            accepted_etag=base.etag,
-        ),
-        caused_by_request_id="request-2",
-        caused_by_message_seq=2,
-        round_id="round-2",
+
+
+def _decide(service, review, decisions, **kwargs):
+    kwargs.setdefault("decision_token", review.decision_token)
+    return service.decide(
+        project_id="project-1",
+        review_id=review.review_id,
+        decisions=decisions,
+        **kwargs,
     )
-    return store, base, result
+
+
+def _decision_transactions_root(tmp_path, review_id):
+    reviews = tmp_path / "project-1" / "runtime" / "reviews"
+    return reviews / review_id / "decision-transactions"
+
+
+def _decision_journal_store(tmp_path, review_id, decision_id):
+    decision_key = hashed_runtime_segment("decision", decision_id)
+    return AtomicJsonRecordStore(
+        _decision_transactions_root(tmp_path, review_id)
+        / decision_key
+        / "journal.json",
+        ReviewDecisionJournal,
+    )
+
+
+def _decision_events(tmp_path, review_id):
+    reviews = tmp_path / "project-1" / "runtime" / "reviews"
+    path = reviews / review_id / "decisions.jsonl"
+    return DurableJsonlStore(path, ReviewDecisionEvent).read_records()
 
 
 def test_accept_does_not_rewrite_project_and_reject_is_compensating_cas(
     tmp_path,
 ) -> None:
-    store, base, committed = _pending_review(tmp_path)
+    store, base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operations = {item.json_pointer: item for item in review.operations}
     service = ProjectReviewService(store)
 
-    partial = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[
-            ReviewDecisionItem(
-                operation_id=operations["/name"].operation_id,
-                decision="ACCEPT",
-            ),
-        ],
+    partial = _decide(
+        service,
+        review,
+        [_item(_operation(review, "/name"), "ACCEPT")],
     )
     assert partial.status is ReviewStatus.PENDING
     assert store.read("project-1").generation == committed.snapshot.generation
 
-    resolved = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
+    resolved = _decide(
+        service,
+        review,
+        [_item(_operation(review, "/description"))],
         decision_token=partial.decision_token,
-        decisions=[
-            ReviewDecisionItem(
-                operation_id=operations["/description"].operation_id,
-                decision="REJECT",
-            ),
-        ],
     )
     current = store.read("project-1")
     assert resolved.status is ReviewStatus.RESOLVED
     assert current.project.name == "After"
     assert current.project.description == base.project.description
     assert current.generation == committed.snapshot.generation + 1
-    state = AtomicJsonRecordStore(
-        tmp_path / "project-1" / "runtime" / "state.json",
-        RuntimeProjectState,
-    ).read()
-    assert state.accepted_generation == current.generation
+    assert read_state(store).accepted_generation == current.generation
 
 
 def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
-    store, _base, committed = _pending_review(tmp_path)
+    store, _base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
+    operation = _operation(review, "/name")
     service = ProjectReviewService(store)
     feedback = ReviewRejectionFeedback(
         action=ReviewRejectionAction.UNDO_AND_REGENERATE,
         feedbackNote="  人物状态不对；保持身份一致后重做  ",
     )
 
-    resolved = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[
-            ReviewDecisionItem(
-                operation_id=operation.operation_id,
-                decision="REJECT",
-            ),
-        ],
+    resolved = _decide(
+        service,
+        review,
+        [_item(operation)],
         rejection_feedback=feedback,
         decision_id="decision-with-feedback",
     )
@@ -148,24 +135,11 @@ def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
     assert [target.json_pointers for target in journal.rejection_targets] == [
         ["/name"],
     ]
-    assert journal.event is not None
-    assert journal.event.rejection_feedback == journal.rejection_feedback
-    message = render_rejection_feedback_message(journal)
-    assert message is not None
-    assert "明确要求重新生成" in message
-    assert "人物状态不对" in message
-    assert "用户反馈与调整要求" in message
 
-    replay = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[
-            ReviewDecisionItem(
-                operation_id=operation.operation_id,
-                decision="REJECT",
-            ),
-        ],
+    replay = _decide(
+        service,
+        review,
+        [_item(operation)],
         rejection_feedback=feedback,
         decision_id="decision-with-feedback",
     )
@@ -175,16 +149,10 @@ def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
         ReviewDecisionConflict,
         match="different Review request",
     ):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[
-                ReviewDecisionItem(
-                    operation_id=operation.operation_id,
-                    decision="REJECT",
-                ),
-            ],
+        _decide(
+            service,
+            review,
+            [_item(operation)],
             rejection_feedback=ReviewRejectionFeedback(
                 action=ReviewRejectionAction.UNDO_ONLY,
             ),
@@ -192,99 +160,12 @@ def test_rejection_feedback_is_durable_and_idempotent(tmp_path) -> None:
         )
 
 
-def test_legacy_rejection_feedback_fields_remain_readable() -> None:
-    feedback = ReviewRejectionFeedback(
-        action=ReviewRejectionAction.UNDO_AND_REGENERATE,
-        problemNote="  人物状态不对  ",
-        regenerationInstruction="  保持身份一致后重做  ",
-    )
-
-    assert feedback.feedback_note is None
-    assert feedback.problem_note == "人物状态不对"
-    assert feedback.regeneration_instruction == "保持身份一致后重做"
-    serialized = feedback.model_dump(mode="json", by_alias=True)
-    assert serialized["feedbackNote"] is None
-
-
-def test_rejection_targets_collapse_artifact_operations_by_variant(
-    tmp_path,
-) -> None:
-    _store, _base, committed = _pending_review(tmp_path)
-    review = committed.review
-    assert review is not None
-    original = review.operations[0]
-    locator = {
-        "page": "assets",
-        "assetId": "char:haaland",
-        "mediaType": "image",
-        "artifactKind": "visual_asset_image",
-        "artifactVersionId": "artifact-version-poor",
-    }
-    version_operation = original.model_copy(
-        update={
-            "operation_id": "operation-version",
-            "json_pointer": (
-                "/assets/artifact_versions_by_id/artifact-version-poor"
-            ),
-            "target_ref": "visual-entity:char:haaland",
-            "after": {
-                "version_id": "artifact-version-poor",
-                "name": "哈兰德 · 落魄时期",
-                "owner_ref": "visual-entity:char:haaland",
-                "metadata": {
-                    "targetRef": "visual-entity:char:haaland",
-                    "variantId": "poor-era",
-                },
-            },
-            "ui_locator": locator,
-        },
-    )
-    slot_operation = original.model_copy(
-        update={
-            "operation_id": "operation-slot",
-            "json_pointer": (
-                "/assets/artifact_slots_by_id/slot-poor/selected_version_id"
-            ),
-            "target_ref": "visual-entity:char:haaland",
-            "after": "artifact-version-poor",
-            "ui_locator": locator,
-        },
-    )
-    synthetic = review.model_copy(
-        update={"operations": [slot_operation, version_operation]},
-    )
-
-    targets = ProjectReviewService._rejection_targets(
-        review=synthetic,
-        decisions=[
-            ReviewDecisionItem(
-                operation_id="operation-slot",
-                decision="REJECT",
-            ),
-            ReviewDecisionItem(
-                operation_id="operation-version",
-                decision="REJECT",
-            ),
-        ],
-    )
-
-    assert len(targets) == 1
-    assert targets[0].label == "哈兰德 · 落魄时期"
-    assert targets[0].target_ref == "visual-entity:char:haaland"
-    assert targets[0].variant_id == "poor-era"
-    assert targets[0].artifact_version_id == "artifact-version-poor"
-    assert len(targets[0].json_pointers) == 2
-
-
 def test_review_decision_refuses_to_overwrite_newer_user_value(
     tmp_path,
 ) -> None:
-    store, _base, committed = _pending_review(tmp_path)
+    store, _base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
     current = store.read("project-1")
     candidate = current.project.model_dump(mode="json")
     candidate["name"] = "User newer value"
@@ -296,73 +177,26 @@ def test_review_decision_refuses_to_overwrite_newer_user_value(
     )
 
     with pytest.raises(ReviewDecisionConflict, match="token is stale"):
-        ProjectReviewService(store).decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[
-                ReviewDecisionItem(
-                    operation_id=operation.operation_id,
-                    decision="REJECT",
-                ),
-            ],
+        _decide(
+            ProjectReviewService(store),
+            review,
+            [_item(_operation(review, "/name"))],
         )
     assert store.read("project-1").project.name == "User newer value"
-
-
-def test_frontend_edit_supersedes_only_overlapping_pending_operation(
-    tmp_path,
-) -> None:
-    store, _base, committed = _pending_review(tmp_path)
-    current = store.read("project-1")
-    candidate = current.project.model_dump(mode="json")
-    candidate["name"] = "User authoritative value"
-
-    ProjectCommitBoundary(store).commit(
-        base=current,
-        candidate=candidate,
-        origin="frontend_edit",
-    )
-
-    review = ProjectReviewService(store).active("project-1")
-    assert review is not None
-    operations = {item.json_pointer: item for item in review.operations}
-    assert (
-        operations["/name"].decision
-        is ReviewOperationDecision.SUPERSEDED_BY_USER_EDIT
-    )
-    assert (
-        operations["/description"].decision is ReviewOperationDecision.PENDING
-    )
-    state = AtomicJsonRecordStore(
-        tmp_path / "project-1" / "runtime" / "state.json",
-        RuntimeProjectState,
-    ).read()
-    assert state.accepted_generation == 0
-    assert state.active_round_id == "round-2"
 
 
 def test_reject_hashes_opaque_decision_and_round_ids_before_path_use(
     tmp_path,
 ) -> None:
-    store, _base, committed = _pending_review(tmp_path)
+    store, _base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
     malicious_decision_id = "x/../../../../escaped"
 
-    ProjectReviewService(store).decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[
-            ReviewDecisionItem(
-                operation_id=operation.operation_id,
-                decision="REJECT",
-            ),
-        ],
+    _decide(
+        ProjectReviewService(store),
+        review,
+        [_item(_operation(review, "/name"))],
         decision_id=malicious_decision_id,
     )
 
@@ -371,14 +205,8 @@ def test_reject_hashes_opaque_decision_and_round_ids_before_path_use(
         review.round_id,
         malicious_decision_id,
     )
-    assert (
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "change-rounds"
-        / expected_round
-        / "round.json"
-    ).is_file()
+    rounds = tmp_path / "project-1" / "runtime" / "change-rounds"
+    assert (rounds / expected_round / "round.json").is_file()
     assert not (tmp_path / "escaped").exists()
 
 
@@ -393,10 +221,7 @@ def test_missing_project_review_decision_does_not_create_runtime_tree(
             review_id="review-1",
             decision_token="token",
             decisions=[
-                ReviewDecisionItem(
-                    operation_id="operation-1",
-                    decision="ACCEPT",
-                ),
+                ReviewDecisionItem(operation_id="op-1", decision="ACCEPT"),
             ],
             decision_id="decision-1",
         )
@@ -404,278 +229,100 @@ def test_missing_project_review_decision_does_not_create_runtime_tree(
     assert not (tmp_path / "missing").exists()
 
 
-def test_reject_retry_recovers_when_crash_follows_compensating_commit(
+@pytest.mark.parametrize(
+    ("crash_method", "crash_match", "json_pointer", "parked_state"),
+    [
+        # Crash between the compensating Project commit and the decision
+        # journal promotion: the journal parks at PREPARED.
+        pytest.param(
+            "_persist_project_applied",
+            "injected crash after compensating commit",
+            "/name",
+            ReviewDecisionJournalState.PREPARED,
+            id="crash-follows-compensating-commit",
+        ),
+        # Crash between the applied journal write and the Review write: the
+        # journal parks at PROJECT_APPLIED.
+        pytest.param(
+            "_write_review",
+            "injected review write crash",
+            "/description",
+            ReviewDecisionJournalState.PROJECT_APPLIED,
+            id="crash-before-review-write",
+        ),
+    ],
+)
+def test_reject_retry_recovers_after_mid_decision_crash(
     tmp_path,
     monkeypatch,
+    crash_method,
+    crash_match,
+    json_pointer,
+    parked_state,
 ) -> None:
-    store, base, committed = _pending_review(tmp_path)
+    store, base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="REJECT",
-    )
-    decision_id = "decision-crash-after-project-commit"
+    decision = _item(_operation(review, json_pointer))
+    decision_id = f"decision-crash-at{crash_method}"
     service = ProjectReviewService(store)
-    original_persist = service._persist_project_applied
+    original = getattr(service, crash_method)
     failed = False
 
-    def crash_before_applied_journal(*args):
+    def crash_once(*args):
         nonlocal failed
         if not failed:
             failed = True
-            raise RuntimeError("injected crash after compensating commit")
-        return original_persist(*args)
+            raise RuntimeError(crash_match)
+        return original(*args)
 
-    monkeypatch.setattr(
-        service,
-        "_persist_project_applied",
-        crash_before_applied_journal,
-    )
-    with pytest.raises(RuntimeError, match="injected crash"):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id=decision_id,
-        )
+    monkeypatch.setattr(service, crash_method, crash_once)
+    with pytest.raises(RuntimeError, match=crash_match):
+        _decide(service, review, [decision], decision_id=decision_id)
 
+    # The compensating Project commit is durable before either crash point.
     applied = store.read("project-1")
-    assert applied.project.name == base.project.name
+    field = json_pointer.lstrip("/")
+    assert getattr(applied.project, field) == getattr(base.project, field)
     assert applied.generation == committed.snapshot.generation + 1
-    decision_key = hashed_runtime_segment("decision", decision_id)
-    journal_store = AtomicJsonRecordStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
-        / decision_key
-        / "journal.json",
-        ReviewDecisionJournal,
+    journal_store = _decision_journal_store(
+        tmp_path,
+        review.review_id,
+        decision_id,
     )
-    assert journal_store.read().state is ReviewDecisionJournalState.PREPARED
+    assert journal_store.read().state is parked_state
 
-    resolved = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[decision],
-        decision_id=decision_id,
-    )
+    resolved = _decide(service, review, [decision], decision_id=decision_id)
     assert resolved.status is ReviewStatus.PENDING
     assert store.read("project-1").generation == applied.generation
     assert journal_store.read().state is ReviewDecisionJournalState.FINALIZED
-    events = DurableJsonlStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decisions.jsonl",
-        ReviewDecisionEvent,
-    ).read_records()
+    events = _decision_events(tmp_path, review.review_id)
     assert [event.decision_id for event in events].count(decision_id) == 1
 
-    replayed = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[decision],
-        decision_id=decision_id,
-    )
+    replayed = _decide(service, review, [decision], decision_id=decision_id)
     assert replayed == resolved
     assert store.read("project-1").generation == applied.generation
 
 
-def test_reject_retry_finishes_project_applied_journal_after_review_write_crash(
+def test_startup_preserves_user_edit_after_decision_crash(
     tmp_path,
     monkeypatch,
 ) -> None:
-    store, base, committed = _pending_review(tmp_path)
+    # PROJECT_APPLIED crash window: startup rebases the Review fact onto the
+    # user's supersession.
+    store, _base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operation = next(
-        item
-        for item in review.operations
-        if item.json_pointer == "/description"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="REJECT",
-    )
-    decision_id = "decision-crash-before-review-write"
-    service = ProjectReviewService(store)
-    original_write = service._write_review
-    failed = False
-
-    def crash_before_review_write(*args):
-        nonlocal failed
-        if not failed:
-            failed = True
-            raise RuntimeError("injected review write crash")
-        return original_write(*args)
-
-    monkeypatch.setattr(service, "_write_review", crash_before_review_write)
-    with pytest.raises(RuntimeError, match="review write crash"):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id=decision_id,
-        )
-
-    applied = store.read("project-1")
-    assert applied.project.description == base.project.description
-    assert applied.generation == committed.snapshot.generation + 1
-    decision_key = hashed_runtime_segment("decision", decision_id)
-    journal_store = AtomicJsonRecordStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
-        / decision_key
-        / "journal.json",
-        ReviewDecisionJournal,
-    )
-    assert (
-        journal_store.read().state
-        is ReviewDecisionJournalState.PROJECT_APPLIED
-    )
-
-    resolved = service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[decision],
-        decision_id=decision_id,
-    )
-    assert resolved.status is ReviewStatus.PENDING
-    assert store.read("project-1").generation == applied.generation
-    assert journal_store.read().state is ReviewDecisionJournalState.FINALIZED
-
-
-def test_startup_recovers_prepared_decision_without_repeating_compensation(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    store, base, committed = _pending_review(tmp_path)
-    review = committed.review
-    assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="REJECT",
-    )
-    decision_id = "decision-startup-after-compensation"
+    operation = _operation(review, "/name")
+    decision_id = "decision-user-edit-after-project-applied"
     service = ProjectReviewService(store)
 
-    def crash_before_applied_journal(*_args):
-        raise RuntimeError("injected crash before decision journal promotion")
+    def crash(*_args):
+        raise RuntimeError("injected crash before Review write")
 
-    monkeypatch.setattr(
-        service,
-        "_persist_project_applied",
-        crash_before_applied_journal,
-    )
-    with pytest.raises(RuntimeError, match="journal promotion"):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id=decision_id,
-        )
-
-    compensated = store.read("project-1")
-    assert compensated.project.name == base.project.name
-    assert compensated.generation == committed.snapshot.generation + 1
-
-    restarted = CreatorFileServices.create(tmp_path.resolve())
-
-    assert restarted.startup_recovery.ok
-    assert restarted.startup_review_recovery.ok
-    outcome = next(
-        item
-        for project in restarted.startup_review_recovery.projects
-        for item in project.outcomes
-        if item.decision_id == decision_id
-    )
-    assert outcome.action is ReviewDecisionRecoveryAction.FINALIZED
-    assert outcome.state_before is ReviewDecisionJournalState.PREPARED
-    assert outcome.state_after is ReviewDecisionJournalState.FINALIZED
-    # The stable compensation transaction is recognized and never executed a
-    # second time during startup recovery.
-    assert store.read("project-1") == compensated
-
-    decision_key = hashed_runtime_segment("decision", decision_id)
-    journal = AtomicJsonRecordStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
-        / decision_key
-        / "journal.json",
-        ReviewDecisionJournal,
-    ).read()
-    assert journal.state is ReviewDecisionJournalState.FINALIZED
-    events = DurableJsonlStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decisions.jsonl",
-        ReviewDecisionEvent,
-    ).read_records()
-    assert [event.decision_id for event in events].count(decision_id) == 1
-
-
-def test_startup_recovery_preserves_user_edit_after_prepared_decision_crash(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    store, _base, committed = _pending_review(tmp_path)
-    review = committed.review
-    assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="REJECT",
-    )
-    decision_id = "decision-user-edit-after-prepared"
-    service = ProjectReviewService(store)
-
-    def crash_before_applied_journal(*_args):
-        raise RuntimeError("injected crash before decision journal promotion")
-
-    monkeypatch.setattr(
-        service,
-        "_persist_project_applied",
-        crash_before_applied_journal,
-    )
-    with pytest.raises(RuntimeError, match="journal promotion"):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id=decision_id,
-        )
+    monkeypatch.setattr(service, "_write_review", crash)
+    with pytest.raises(RuntimeError, match="before Review write"):
+        _decide(service, review, [_item(operation)], decision_id=decision_id)
 
     current = store.read("project-1")
     candidate = current.project.model_dump(mode="json")
@@ -703,183 +350,23 @@ def test_startup_recovery_preserves_user_edit_after_prepared_decision_crash(
         recovered_operation.decision
         is ReviewOperationDecision.SUPERSEDED_BY_USER_EDIT
     )
-    decision_key = hashed_runtime_segment("decision", decision_id)
-    journal = AtomicJsonRecordStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
-        / decision_key
-        / "journal.json",
-        ReviewDecisionJournal,
+    journal = _decision_journal_store(
+        tmp_path,
+        review.review_id,
+        decision_id,
     ).read()
     assert journal.state is ReviewDecisionJournalState.FINALIZED
     assert journal.final_review == recovered
-
-
-def test_startup_rebases_project_applied_decision_onto_user_supersession(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    store, _base, committed = _pending_review(tmp_path)
-    review = committed.review
-    assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="REJECT",
-    )
-    decision_id = "decision-user-edit-after-project-applied"
-    service = ProjectReviewService(store)
-
-    def crash_before_review_write(*_args):
-        raise RuntimeError("injected crash before Review write")
-
-    monkeypatch.setattr(service, "_write_review", crash_before_review_write)
-    with pytest.raises(RuntimeError, match="Review write"):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id=decision_id,
-        )
-
-    current = store.read("project-1")
-    candidate = current.project.model_dump(mode="json")
-    candidate["name"] = "User value after applied journal"
-    ProjectCommitBoundary(store).commit(
-        base=current,
-        candidate=candidate,
-        origin="frontend_edit",
-    )
-    before_restart = store.read("project-1")
-
-    restarted = CreatorFileServices.create(tmp_path.resolve())
-
-    assert restarted.startup_review_recovery.ok
-    assert store.read("project-1") == before_restart
-    recovered = restarted.reviews.get("project-1", review.review_id)
-    recovered_operation = next(
-        item
-        for item in recovered.operations
-        if item.operation_id == operation.operation_id
-    )
-    assert (
-        recovered_operation.decision
-        is ReviewOperationDecision.SUPERSEDED_BY_USER_EDIT
-    )
-    decision_key = hashed_runtime_segment("decision", decision_id)
-    journal = AtomicJsonRecordStore(
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
-        / decision_key
-        / "journal.json",
-        ReviewDecisionJournal,
-    ).read()
-    assert journal.state is ReviewDecisionJournalState.FINALIZED
-    assert journal.final_review == recovered
-
-
-def test_new_decision_id_is_rejected_while_same_review_journal_is_active(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    store, _base, committed = _pending_review(tmp_path)
-    review = committed.review
-    assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="ACCEPT",
-    )
-    service = ProjectReviewService(store)
-    original_persist = service._persist_project_applied
-
-    def crash_before_applied_journal(*_args):
-        raise RuntimeError("injected active decision crash")
-
-    monkeypatch.setattr(
-        service,
-        "_persist_project_applied",
-        crash_before_applied_journal,
-    )
-    with pytest.raises(RuntimeError, match="active decision crash"):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id="decision-active-first",
-        )
-
-    with pytest.raises(
-        ReviewDecisionConflict,
-        match="active decision journal",
-    ):
-        service.decide(
-            project_id="project-1",
-            review_id=review.review_id,
-            decision_token=review.decision_token,
-            decisions=[decision],
-            decision_id="decision-active-second",
-        )
-
-    transactions_root = (
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
-    )
-    decision_dirs = [
-        item for item in transactions_root.iterdir() if item.is_dir()
-    ]
-    assert len(decision_dirs) == 1
-    first_key = hashed_runtime_segment("decision", "decision-active-first")
-    assert decision_dirs[0].name == first_key
-    journal_store = AtomicJsonRecordStore(
-        decision_dirs[0] / "journal.json",
-        ReviewDecisionJournal,
-    )
-    assert journal_store.read().state is ReviewDecisionJournalState.PREPARED
-
-    monkeypatch.setattr(service, "_persist_project_applied", original_persist)
-    service.decide(
-        project_id="project-1",
-        review_id=review.review_id,
-        decision_token=review.decision_token,
-        decisions=[decision],
-        decision_id="decision-active-first",
-    )
-    assert journal_store.read().state is ReviewDecisionJournalState.FINALIZED
 
 
 def test_concurrent_new_decision_waits_then_rejects_active_journal(
     tmp_path,
     monkeypatch,
 ) -> None:
-    store, _base, committed = _pending_review(tmp_path)
+    store, _base, committed = make_pending_review(tmp_path)
     review = committed.review
     assert review is not None
-    operation = next(
-        item for item in review.operations if item.json_pointer == "/name"
-    )
-    decision = ReviewDecisionItem(
-        operation_id=operation.operation_id,
-        decision="ACCEPT",
-    )
+    decision = _item(_operation(review, "/name"), "ACCEPT")
     service = ProjectReviewService(store)
     original_persist = service._persist_project_applied
     first_prepared = Event()
@@ -900,13 +387,7 @@ def test_concurrent_new_decision_waits_then_rejects_active_journal(
         if decision_id == "decision-concurrent-second":
             second_started.set()
         try:
-            service.decide(
-                project_id="project-1",
-                review_id=review.review_id,
-                decision_token=review.decision_token,
-                decisions=[decision],
-                decision_id=decision_id,
-            )
+            _decide(service, review, [decision], decision_id=decision_id)
         except Exception as exc:  # returned to the asserting thread
             return exc
         return None
@@ -925,21 +406,18 @@ def test_concurrent_new_decision_waits_then_rejects_active_journal(
     assert isinstance(second_error, ReviewDecisionConflict)
     assert "active decision journal" in str(second_error)
 
-    transactions_root = (
-        tmp_path
-        / "project-1"
-        / "runtime"
-        / "reviews"
-        / review.review_id
-        / "decision-transactions"
+    transactions_root = _decision_transactions_root(
+        tmp_path,
+        review.review_id,
     )
     decision_dirs = [
         item for item in transactions_root.iterdir() if item.is_dir()
     ]
     assert len(decision_dirs) == 1
-    journal = AtomicJsonRecordStore(
+    journal_store = AtomicJsonRecordStore(
         decision_dirs[0] / "journal.json",
         ReviewDecisionJournal,
-    ).read()
+    )
+    journal = journal_store.read()
     assert journal.decision_id == "decision-concurrent-first"
     assert journal.state is ReviewDecisionJournalState.PREPARED

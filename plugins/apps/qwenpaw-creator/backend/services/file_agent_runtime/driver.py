@@ -99,7 +99,10 @@ from services.runtime_files.execution_store import (
     ExecutionStoreError,
     ProjectExecutionStore,
 )
-from services.runtime_files.errors import RecordNotFoundError
+from services.runtime_files.errors import (
+    LockTimeoutError,
+    RecordNotFoundError,
+)
 from services.runtime_files.atomic_store import atomic_replace_bytes
 from services.media_files.call_budget import (
     MediaCallBudgetExhausted,
@@ -114,7 +117,7 @@ from services.external_skills import (
     render_external_skills_context,
     view_skill as view_external_skill,
 )
-from services.observability import trace_event, traced_async
+from services.observability import report_error, trace_event, traced_async
 from services.source_analysis import SourceAgentToolContext
 from services.specialist_tools import (
     FileSpecialistToolRegistry,
@@ -178,6 +181,12 @@ from .subagents import (
 )
 
 logger = setup_logger("creator.agent_runtime")
+
+
+def _log_safe(value: object) -> str:
+    """Neutralize CR/LF in user-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
 
 # Arguments the provider prices on: they must still match the approved scope
 # at invocation time, or the user would pay for terms they never saw.
@@ -370,7 +379,13 @@ def _deterministic_tool_failure_fingerprint(
 
     supported = isinstance(
         error,
-        (CreatorError, AgentProjectToolError, JqTransformError),
+        (
+            CreatorError,
+            AgentProjectToolError,
+            JqTransformError,
+            ValueError,
+            KeyError,
+        ),
     )
     if not supported or bool(getattr(error, "retryable", False)):
         return None
@@ -1046,7 +1061,14 @@ class FileCreatorAgentRuntime:
         self._wake = asyncio.Event()
         self._stopping = False
         self._active: dict[str, _ProjectTask] = {}
+        self._interrupt_cleanup_tasks: set[asyncio.Task[Any]] = set()
         self._blocked_heads: dict[str, int] = {}
+        # Durable-interrupt stall tracking: project -> (run_id, first seen
+        # monotonic time).  A RUNNING run with no local handle normally
+        # belongs to another live process, but when that owner died before
+        # persisting a terminal status the Session would otherwise stay
+        # INTERRUPT_REQUESTED forever (see _record_idle_interrupt).
+        self._interrupt_stalls: dict[str, tuple[str, float]] = {}
         self._epochs: dict[str, int] = {}
         self._publication_lock = threading.RLock()
         # Event-driven media fan-out: the model plans, the Runtime executes
@@ -1205,6 +1227,9 @@ class FileCreatorAgentRuntime:
                 handle.epoch,
             )
             handle.task.cancel()
+        cleanup_tasks = list(self._interrupt_cleanup_tasks)
+        for task in cleanup_tasks:
+            task.cancel()
         if handles:
             await asyncio.gather(
                 *(handle.task for handle in handles),
@@ -1212,7 +1237,10 @@ class FileCreatorAgentRuntime:
             )
         if dispatcher is not None:
             await asyncio.gather(dispatcher, return_exceptions=True)
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
         self._active.clear()
+        self._interrupt_cleanup_tasks.clear()
         self._loop = None
 
     def notify(self, project_id: str) -> None:
@@ -1223,6 +1251,7 @@ class FileCreatorAgentRuntime:
         if loop is not None and not loop.is_closed():
             loop.call_soon_threadsafe(self._wake.set)
 
+    # pylint: disable=too-many-return-statements
     async def interrupt(
         self,
         project_id: str,
@@ -1259,6 +1288,13 @@ class FileCreatorAgentRuntime:
             if superseded:
                 self.notify(project_id)
                 return False
+            if reason == "project_deleted":
+                # There is no durable Session to settle after the atomic
+                # Project rename. Returning immediately also prevents an idle
+                # cleanup writer from racing deletion and recreating Runtime
+                # parents under the old Project id.
+                self.work_scheduler.cancel_project(project_id)
+                return False
             await self._record_idle_interrupt(project_id, reason=reason)
             self.notify(project_id)
             return False
@@ -1272,15 +1308,38 @@ class FileCreatorAgentRuntime:
             self.notify(project_id)
             return True
         handle.interrupting = True
-        # Revoke in a worker because an already-started local publication holds
-        # this lock until its atomic commit finishes.
-        await asyncio.to_thread(
-            self._revoke_epoch,
-            project_id,
-            handle.run_id,
-            handle.epoch,
-        )
+        immediate = reason in {"user_interrupt", "project_deleted"}
+        if not immediate:
+            # Internal callers use the awaited boundary when they need to
+            # admit replacement work immediately after this method returns.
+            # The HTTP hard-stop/delete paths use the signal-first branch
+            # below so the UI never waits behind an in-progress commit.
+            await asyncio.to_thread(
+                self._revoke_epoch,
+                project_id,
+                handle.run_id,
+                handle.epoch,
+            )
+            self.work_scheduler.cancel_project(project_id)
+            handle.task.cancel()
+            self.notify(project_id)
+            return True
+        # Signal cancellation first. Revoke may need to wait behind an atomic
+        # publication already holding the in-process commit boundary; stop and
+        # delete must not keep the caller waiting for that completed decision.
+        self.work_scheduler.cancel_project(project_id)
         handle.task.cancel()
+        cleanup = asyncio.create_task(
+            asyncio.to_thread(
+                self._revoke_epoch,
+                project_id,
+                handle.run_id,
+                handle.epoch,
+            ),
+            name=f"creator-interrupt-revoke:{project_id}:{handle.run_id}",
+        )
+        self._interrupt_cleanup_tasks.add(cleanup)
+        cleanup.add_done_callback(self._interrupt_cleanup_tasks.discard)
         self.notify(project_id)
         return True
 
@@ -1868,7 +1927,7 @@ class FileCreatorAgentRuntime:
                 )
             self._blocked_heads.pop(project_id, None)
         except asyncio.CancelledError:
-            await self._cancel_run(
+            await self._cancel_run_if_project_exists(
                 project_id,
                 session.session_id,
                 goal.goal_id,
@@ -1877,7 +1936,7 @@ class FileCreatorAgentRuntime:
             )
             raise
         except StaleAgentRun:
-            await self._cancel_run(
+            await self._cancel_run_if_project_exists(
                 project_id,
                 session.session_id,
                 goal.goal_id,
@@ -2072,6 +2131,7 @@ class FileCreatorAgentRuntime:
         # native pipeline, so no per-tool budget extension exists anymore.
         effective_max_turns = turn_budget
         turn_number = 0
+        finalization_turn_added = False
         while turn_number < effective_max_turns:
             turn_number += 1
             self._assert_epoch(project_id, run_id, epoch)
@@ -2314,6 +2374,7 @@ class FileCreatorAgentRuntime:
                     if (
                         call.name != DELEGATE_TOOL_NAME
                         and call.name not in EXTERNAL_SKILL_TOOL_NAMES
+                        and "projectId" in call.arguments
                         and call.arguments.get("projectId") != project_id
                     ):
                         raise FileAgentRuntimeError(
@@ -2400,7 +2461,10 @@ class FileCreatorAgentRuntime:
                         )
                     else:
                         failure_fingerprint = (
-                            _deterministic_tool_failure_fingerprint(call, exc)
+                            _deterministic_tool_failure_fingerprint(
+                                call,
+                                exc,
+                            )
                         )
                         if failure_fingerprint is not None:
                             failure_count = (
@@ -2455,6 +2519,28 @@ class FileCreatorAgentRuntime:
                         "arguments; the run stopped instead of starting "
                         "another model turn",
                     )
+            if (
+                turn_number == effective_max_turns
+                and not finalization_turn_added
+            ):
+                # A healthy last-budget tool result used to be followed by an
+                # immediate run failure, before the model could observe the
+                # result and conclude. Grant exactly one non-runaway recovery
+                # turn and explicitly require a final answer, not more work.
+                finalization_turn_added = True
+                effective_max_turns += 1
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "MODEL_TURN_BUDGET_FINALIZE: The normal tool-turn "
+                            "budget is exhausted. Inspect the latest tool "
+                            "result and now return the best truthful final "
+                            "summary. Do not call another tool. If work remains, "
+                            "state it explicitly as blocked/remaining work."
+                        ),
+                    },
+                )
         raise AgentModelError(
             f"Creator Agent exceeded {effective_max_turns} model turns",
         )
@@ -3222,8 +3308,21 @@ class FileCreatorAgentRuntime:
         try:
             for _turn_number in range(
                 1,
-                self.specialist_max_model_turns + 1,
+                self.specialist_max_model_turns + 2,
             ):
+                if _turn_number == self.specialist_max_model_turns + 1:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "MODEL_TURN_BUDGET_FINALIZE: The normal "
+                                "specialist tool-turn budget is exhausted. "
+                                "Use the latest tool result to return [SUCCESS], "
+                                "[BLOCKED], or [FAILED] with a truthful concise "
+                                "summary now. Do not call another tool."
+                            ),
+                        },
+                    )
                 self._assert_epoch(project_id, parent_run_id, epoch)
                 message_id = f"specialist-message-{uuid4().hex}"
                 delta_index = 0
@@ -3678,7 +3777,10 @@ class FileCreatorAgentRuntime:
                     else:
                         failed = True
                         failure_fingerprint = (
-                            _deterministic_tool_failure_fingerprint(call, exc)
+                            _deterministic_tool_failure_fingerprint(
+                                call,
+                                exc,
+                            )
                         )
                         if failure_fingerprint is not None:
                             failure_count = (
@@ -3963,6 +4065,11 @@ class FileCreatorAgentRuntime:
                 specialist_run_id,
                 role.value,
             )
+            if not self.services.projects.project_path(project_id).is_file():
+                # Project DELETE is already the terminal authority; do not let
+                # specialist cleanup recreate Runtime directories below the
+                # removed id.
+                raise
             await asyncio.to_thread(
                 self.executions.transition_specialist_run,
                 project_id,
@@ -5453,6 +5560,38 @@ class FileCreatorAgentRuntime:
             round_id=f"agent-round-{run_id}",
         )
 
+    async def _cancel_run_if_project_exists(
+        self,
+        project_id: str,
+        session_id: str,
+        goal_id: str,
+        run_id: str,
+        message: CreatorMessageRecord,
+    ) -> None:
+        """Settle cancellation, suppressing only an atomic Project deletion."""
+
+        try:
+            await self._cancel_run(
+                project_id,
+                session_id,
+                goal_id,
+                run_id,
+                message,
+            )
+        except Exception:  # pylint: disable=broad-except
+            project_path = self.services.projects.project_path(project_id)
+            if project_path.is_file():
+                raise
+            # DELETE atomically removed the complete authority. Persisting a
+            # terminal Run/Session below the old id would recreate a ghost
+            # Project; absence is already the stronger terminal state.
+            logger.info(
+                "cancel cleanup stopped because Project was deleted: "
+                "project=%s run=%s",
+                project_id,
+                run_id,
+            )
+
     async def _cancel_run(
         self,
         project_id: str,
@@ -5602,11 +5741,39 @@ class FileCreatorAgentRuntime:
         details: dict[str, Any] = {
             "runId": run_id,
             "messageSeq": request.message_seq,
+            "projectId": project_id,
+            "sessionId": session_id,
+            "goalId": goal_id,
         }
         if extra_details:
             details.update(extra_details)
+        report = report_error(
+            component="file-agent-runtime",
+            code=code,
+            message=message_text,
+            retryable=retryable,
+            details=details,
+            projectId=project_id,
+            sessionId=session_id,
+            goalId=goal_id,
+            runId=run_id,
+        )
+        details.update(
+            {
+                key: report[key]
+                for key in ("errorId", "traceId", "requestId")
+                if report.get(key)
+            },
+        )
+        # Terminal persistence must survive the very condition that usually
+        # triggers it: Runtime lock starvation.  A failure cascade that
+        # itself dies on LockTimeoutError durably strands the run RUNNING
+        # and wedges the Session (observed live: the dock showed 「正在停止
+        # 所有 Agent」 forever).  Each step below therefore retries lock
+        # timeouts and never aborts the remaining cleanup.
         try:
-            await asyncio.to_thread(
+            await self._persist_terminal_state(
+                "run transition",
                 self.runs.transition,
                 project_id,
                 run_id,
@@ -5620,6 +5787,7 @@ class FileCreatorAgentRuntime:
                         "code": code,
                         "message": message_text,
                         "retryable": retryable,
+                        "details": details,
                     },
                 },
             )
@@ -5632,7 +5800,8 @@ class FileCreatorAgentRuntime:
         # same message.  Recovery requires a new explicit user request; the
         # persisted session error keeps the failure visible to AgentDock.
         try:
-            await asyncio.to_thread(
+            await self._persist_terminal_state(
+                "consume failed request",
                 self.sessions.mark_messages_consumed,
                 project_id,
                 session_id,
@@ -5642,13 +5811,15 @@ class FileCreatorAgentRuntime:
         except SessionStateConflict:
             pass
         try:
-            await asyncio.to_thread(
+            await self._persist_terminal_state(
+                "goal failure",
                 self.sessions.set_goal_status,
                 project_id,
                 goal_id,
                 CreatorGoalStatus.FAILED,
             )
-            await asyncio.to_thread(
+            await self._persist_terminal_state(
+                "session lease release",
                 self.sessions.clear_active_run,
                 project_id,
                 session_id,
@@ -5656,15 +5827,17 @@ class FileCreatorAgentRuntime:
             )
         except SessionStateConflict:
             pass
-        await asyncio.to_thread(
-            self.sessions.set_session_error,
-            project_id,
-            session_id,
-            code=code,
-            message=message_text,
-            retryable=retryable,
-            details=details,
-        )
+        with contextlib.suppress(SessionStateConflict):
+            await self._persist_terminal_state(
+                "session error",
+                self.sessions.set_session_error,
+                project_id,
+                session_id,
+                code=code,
+                message=message_text,
+                retryable=retryable,
+                details=details,
+            )
         # Unattended (YOLO) projects must not stay parked on a transient
         # model fault at 3am: a retryable failure gets the same completion
         # check as a succeeded run. The resume fuses (consecutive cap and
@@ -5691,10 +5864,67 @@ class FileCreatorAgentRuntime:
                     "code": code,
                     "message": message_text,
                     "retryable": retryable,
-                    "details": dict(extra_details or {}),
+                    "details": details,
                 },
             },
         )
+
+    # How long a durable interrupt may point at a RUNNING run that no local
+    # handle owns before this process reclaims it.  A live owner (this or any
+    # sibling process) serves a durable interrupt within seconds via task
+    # cancellation, so a stall this long means the owner died between failing
+    # and persisting a terminal run status.
+    _INTERRUPT_STALL_RECLAIM_SECONDS = 120.0
+
+    def _interrupt_stall_expired(self, project_id: str, run_id: str) -> bool:
+        """Track how long a durable interrupt has pointed at the same run."""
+
+        now = time.monotonic()
+        stall = self._interrupt_stalls.get(project_id)
+        if stall is None or stall[0] != run_id:
+            self._interrupt_stalls[project_id] = (run_id, now)
+            return False
+        return now - stall[1] >= self._INTERRUPT_STALL_RECLAIM_SECONDS
+
+    async def _persist_terminal_state(
+        self,
+        description: str,
+        func: Callable[..., Any],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Run a durable terminal write, retrying Runtime lock timeouts.
+
+        Terminal cleanup usually executes exactly when the Runtime lock is
+        most contended; giving up on the first timeout durably strands
+        non-terminal state that no later pass may safely repair.
+        """
+
+        delay = 1.0
+        attempts = 5
+        for attempt in range(1, attempts + 1):
+            try:
+                return await asyncio.to_thread(func, *args, **kwargs)
+            except LockTimeoutError as exc:
+                if attempt == attempts:
+                    logger.error(
+                        "terminal persistence gave up (%s) after %d "
+                        "attempts: %s",
+                        description,
+                        attempts,
+                        exc,
+                    )
+                    raise
+                logger.warning(
+                    "terminal persistence retry %d/%d (%s): %s",
+                    attempt,
+                    attempts,
+                    description,
+                    exc,
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 8.0)
 
     async def _record_idle_interrupt(
         self,
@@ -5753,8 +5983,51 @@ class FileCreatorAgentRuntime:
                         # serves the interrupt.
                         return
                 elif run.status not in TERMINAL_AGENT_RUN_STATUSES:
-                    return
-                session = await asyncio.to_thread(
+                    # A RUNNING run whose worker died between failing and
+                    # persisting its terminal status (observed live: the
+                    # FAILED transition itself lost the Runtime lock race)
+                    # stays RUNNING durably with no owner — waiting on it
+                    # parks the Session in INTERRUPT_REQUESTED forever.  A
+                    # live owner resolves a durable interrupt within
+                    # seconds, so a persistent stall proves the owner is
+                    # gone and the stop must be served here.
+                    if not self._interrupt_stall_expired(
+                        project_id,
+                        run.run_id,
+                    ):
+                        return
+                    try:
+                        await asyncio.to_thread(
+                            self.runs.transition,
+                            project_id,
+                            run.run_id,
+                            expected_status=run.status,
+                            status=AgentRunStatus.FAILED,
+                            updates={
+                                "error": {
+                                    "code": "INTERRUPTED",
+                                    "message": (
+                                        "running run reclaimed by a stalled "
+                                        "durable interrupt; its worker died "
+                                        "without persisting a terminal "
+                                        "status"
+                                    ),
+                                    "retryable": True,
+                                },
+                            },
+                        )
+                    except AgentRunStateConflict:
+                        # A live owner moved the run after all; it now
+                        # serves the interrupt.
+                        return
+                    logger.warning(
+                        "reclaimed orphaned RUNNING run for durable "
+                        "interrupt: project=%s run=%s",
+                        _log_safe(project_id),
+                        _log_safe(run.run_id),
+                    )
+                session = await self._persist_terminal_state(
+                    "interrupt lease release",
                     self.sessions.clear_active_run,
                     project_id,
                     session.session_id,
@@ -5762,14 +6035,16 @@ class FileCreatorAgentRuntime:
                     status=CreatorSessionStatus.INTERRUPT_REQUESTED,
                 )
             if session.last_consumed_message_seq < session.last_message_seq:
-                await asyncio.to_thread(
+                await self._persist_terminal_state(
+                    "interrupt message consumption",
                     self.sessions.mark_messages_consumed,
                     project_id,
                     session.session_id,
                     through_seq=session.last_message_seq,
                     goal_id=session.active_goal_id,
                 )
-            await asyncio.to_thread(
+            await self._persist_terminal_state(
+                "interrupt session status",
                 self.sessions.set_session_status,
                 project_id,
                 session.session_id,
@@ -5783,7 +6058,16 @@ class FileCreatorAgentRuntime:
                 actor="user",
                 payload={"reason": reason},
             )
+            self._interrupt_stalls.pop(project_id, None)
         except Exception:
+            # The next reconcile pass retries; keep the failure visible —
+            # this path being silent hid a permanently wedged Session.
+            logger.warning(
+                "idle interrupt cleanup failed: project=%s reason=%s",
+                _log_safe(project_id),
+                _log_safe(reason),
+                exc_info=True,
+            )
             return
 
     async def _event(
@@ -6367,6 +6651,7 @@ def _jq_project_recovery(code: str | None) -> str:
     )
 
 
+# pylint: disable=too-many-return-statements
 def _specialist_tool_recovery(
     name: str,
     error: str = "",
@@ -6374,6 +6659,67 @@ def _specialist_tool_recovery(
     code: str | None = None,
 ) -> str:
     media_tools = {"image_generation", "r2v_generation", "ai_edit"}
+    if any(
+        marker in error.casefold()
+        for marker in ("unknown tool", "tool not found", "not offered")
+    ):
+        return (
+            "The provider emitted a native call for a tool that was not "
+            "offered in this turn. Inspect the current tool manifest and issue "
+            "one changed native tool call using an exact offered tool name; do "
+            "not reproduce the call as textual/XML markup."
+        )
+    if name == "image_generation" and (
+        code == "IMAGE_REFERENCE_BUDGET_EXCEEDED"
+        or "IMAGE_REFERENCE_BUDGET_EXCEEDED" in error
+    ):
+        return (
+            "The execution layer resolved both Project-owned automatic image "
+            "references and explicit call references before provider dispatch, "
+            "and their deduplicated total exceeds the active model limit. No "
+            "provider call was made and no references were silently dropped. "
+            "Read error.details, then call read_project and use jq_project to "
+            "remove lower-priority reference IDs from the target variant, "
+            "storyboard creation, or lineup fields as appropriate; also shrink "
+            "referenceVersionIds/referenceImageUrls in the next call. Re-read "
+            "the Project and retry only after the resolved total is within "
+            "details.limit. Preserve the identity/storyboard anchors that are "
+            "actually essential."
+        )
+    if name == "r2v_generation" and (
+        code == "VIDEO_REFERENCE_BUDGET_EXCEEDED"
+        or "VIDEO_REFERENCE_BUDGET_EXCEEDED" in error
+    ):
+        return (
+            "The execution layer resolved the selected storyboard and every "
+            "Project-owned exact video reference before task admission, and "
+            "their deduplicated image/video counts exceed the active video "
+            "model's official limits. No task was created, no media was "
+            "uploaded, and no provider call was made. Read error.details for "
+            "maxReferenceImages, maxReferenceVideos, maxReferenceMedia, and "
+            "the resolved version IDs. Call read_project, then use jq_project "
+            "to remove lower-priority character, scene, prop, cast-lineup, or "
+            "video_reference_version_ids from the target Element. Preserve "
+            "the selected storyboard because it is the required first image, "
+            "re-read the Project, and retry only after the resolved counts fit "
+            "all three limits."
+        )
+    capability_unknown_code = {
+        "image_generation": "IMAGE_MODEL_CAPABILITY_UNKNOWN",
+        "r2v_generation": "VIDEO_MODEL_CAPABILITY_UNKNOWN",
+    }.get(name)
+    if capability_unknown_code and (
+        code == capability_unknown_code or capability_unknown_code in error
+    ):
+        return (
+            "The configured media model name is empty or is an unregistered "
+            "gateway alias, so Creator cannot verify its official reference "
+            "input limit and failed closed before provider dispatch. Do not "
+            "guess a generic limit or repeat the same call. Report the model "
+            "configuration problem to the user; references may be retried "
+            "only after the configured name is changed or explicitly mapped "
+            "to a documented official model capability."
+        )
     if name in media_tools and (
         "PROJECT_INPUT_SNAPSHOT_STALE" in error
         or "已终止: QUARANTINED" in error
@@ -6578,9 +6924,11 @@ def _authorization_summary(
             # video_edit follows its input video, so name the source of the
             # number the price is computed from.
             parts.append(
-                f"{duration}秒（按输入视频计费）"
-                if mode == "video_edit"
-                else f"{duration}秒",
+                (
+                    f"{duration}秒（按输入视频计费）"
+                    if mode == "video_edit"
+                    else f"{duration}秒"
+                ),
             )
         resolution = tool_arguments.get("resolution")
         if resolution:

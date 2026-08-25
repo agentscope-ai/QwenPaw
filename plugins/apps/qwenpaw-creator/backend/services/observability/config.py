@@ -8,10 +8,12 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from domain.errors import ValidationError
 from schemas.observability import ObservabilityConfigData
 from services.storage_root import require_creator_data_root
+from services.runtime_files.locking import CrossProcessFileLock
 
 _LEGACY_ENV = {
     "enabled": "CREATOR_TRACING_ENABLED",
@@ -113,31 +115,34 @@ def load_observability_config() -> ObservabilityConfigData:
 def save_observability_config(data: ObservabilityConfigData) -> None:
     path = observability_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        descriptor = os.open(
-            temporary,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-            0o600,
+    with CrossProcessFileLock(path.parent / ".observability-config.lock"):
+        temporary = path.with_name(
+            f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp",
         )
         try:
-            os.write(
-                descriptor,
-                (
-                    json.dumps(
-                        data.model_dump(mode="json", by_alias=True),
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-                    + "\n"
-                ).encode("utf-8"),
+            descriptor = os.open(
+                temporary,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
             )
+            try:
+                os.write(
+                    descriptor,
+                    (
+                        json.dumps(
+                            data.model_dump(mode="json", by_alias=True),
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n"
+                    ).encode("utf-8"),
+                )
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, path)
+            os.chmod(path, 0o600)
         finally:
-            os.close(descriptor)
-        os.replace(temporary, path)
-        os.chmod(path, 0o600)
-    finally:
-        temporary.unlink(missing_ok=True)
+            temporary.unlink(missing_ok=True)
     _load_cached.cache_clear()
 
 

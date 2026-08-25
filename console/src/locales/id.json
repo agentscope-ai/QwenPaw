@@ -272,11 +272,6 @@
       "mode": "Mode",
       "desktopMode": "Mode Desktop"
     },
-    "desktopModeHint": {
-      "title": "Coba Mode Desktop",
-      "description": "Buka pengaturan cepat di sini, lalu pilih Mode Desktop untuk ruang kerja berjendela.",
-      "gotIt": "Mengerti"
-    },
     "simpleMode": "Mode sederhana",
     "fullMode": "Mode lengkap",
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"

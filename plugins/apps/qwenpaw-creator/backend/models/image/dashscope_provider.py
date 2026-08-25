@@ -119,32 +119,41 @@ class DashScopeImageModel(BaseImageModel):
         generic ``IMAGE_*`` values are accepted after provider selection so an
         existing Creator deployment can use its one explicit image endpoint.
         """
-        return cls(
-            model_name=_configured_value(
-                "model",
+        model_name = _configured_value(
+            "model",
+            "DASHSCOPE_IMAGE_MODEL_NAME",
+            os.environ.get(
                 "DASHSCOPE_IMAGE_MODEL_NAME",
-                os.environ.get(
-                    "DASHSCOPE_IMAGE_MODEL_NAME",
-                    os.environ.get("IMAGE_MODEL_NAME", DEFAULT_MODEL_NAME),
-                ),
+                os.environ.get("IMAGE_MODEL_NAME", DEFAULT_MODEL_NAME),
             ),
-            # Explicit key first; else reuse the DashScope text-model key
-            # when image.reuse_llm_key (default on) allows it.
-            api_key=_image_api_key(
+        )
+        api_key = _image_api_key(
+            "DASHSCOPE_IMAGE_API_KEY",
+            os.environ.get(
                 "DASHSCOPE_IMAGE_API_KEY",
-                os.environ.get(
-                    "DASHSCOPE_IMAGE_API_KEY",
-                    os.environ.get("IMAGE_API_KEY", ""),
-                ),
+                os.environ.get("IMAGE_API_KEY", ""),
             ),
-            base_url=_configured_value(
-                ("base_url", "endpoint"),
+        )
+        base_url = _configured_value(
+            ("base_url", "endpoint"),
+            "DASHSCOPE_IMAGE_BASE_URL",
+            os.environ.get(
                 "DASHSCOPE_IMAGE_BASE_URL",
-                os.environ.get(
-                    "DASHSCOPE_IMAGE_BASE_URL",
-                    os.environ.get("IMAGE_BASE_URL", DEFAULT_BASE_URL),
-                ),
+                os.environ.get("IMAGE_BASE_URL", DEFAULT_BASE_URL),
             ),
+        )
+        from models.image.base import _mask_key
+
+        logger.info(
+            "DashScopeImageModel.from_config | model=%s, api_key=%s, base_url=%s",
+            model_name,
+            _mask_key(api_key),
+            base_url,
+        )
+        return cls(
+            model_name=model_name,
+            api_key=api_key,
+            base_url=base_url,
             timeout=_configured_int(
                 "timeout",
                 "DASHSCOPE_IMAGE_TIMEOUT",
@@ -245,6 +254,15 @@ class DashScopeImageModel(BaseImageModel):
             aspect_ratio,
             clean_reference_urls,
             mode,
+        )
+        from models.image.base import _mask_key
+
+        logger.info(
+            "DashScope image request | model=%s, url=%s, api_key=%s, body=%s",
+            self.model_name,
+            self.generation_url,
+            _mask_key(self.api_key),
+            body,
         )
         base_headers = {
             "Content-Type": "application/json",
@@ -446,7 +464,10 @@ class DashScopeImageModel(BaseImageModel):
             },
         }
 
-    async def _decode(self, data: dict | list) -> str:
+    def _is_token_plan_endpoint(self) -> bool:
+        return "token-plan" in self.base_url.lower()
+
+    async def _decode(self, data: dict | list) -> dict:
         output = data.get("output") if isinstance(data, dict) else None
         if not isinstance(output, dict):
             raise ModelError(
@@ -470,15 +491,31 @@ class DashScopeImageModel(BaseImageModel):
             if isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict) and block.get("image"):
-                        return await download_remote_image(
-                            str(block["image"]),
+                        original_url = str(block["image"])
+                        local_url = await download_remote_image(
+                            original_url,
                             self.model_name,
                         )
+                        return {
+                            "url": local_url,
+                            "source_url": (
+                                original_url
+                                if self._is_token_plan_endpoint()
+                                else ""
+                            ),
+                        }
             if isinstance(content, dict) and content.get("image"):
-                return await download_remote_image(
-                    str(content["image"]),
+                original_url = str(content["image"])
+                local_url = await download_remote_image(
+                    original_url,
                     self.model_name,
                 )
+                return {
+                    "url": local_url,
+                    "source_url": (
+                        original_url if self._is_token_plan_endpoint() else ""
+                    ),
+                }
         raise ModelError(
             f"No image in DashScope response: {data}",
             model_name=self.model_name,

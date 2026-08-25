@@ -2831,11 +2831,6 @@
       "mode": "Modo",
       "desktopMode": "Modo Desktop"
     },
-    "desktopModeHint": {
-      "title": "Experimente o Modo Desktop",
-      "description": "Abra as configurações rápidas aqui e escolha o Modo Desktop para usar um espaço de trabalho com janelas.",
-      "gotIt": "Entendi"
-    },
     "simpleMode": "Modo simples",
     "fullMode": "Modo completo",
     "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"

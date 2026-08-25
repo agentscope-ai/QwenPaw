@@ -243,11 +243,6 @@
       "mode": "Chế độ",
       "desktopMode": "Chế độ Màn hình nền"
     },
-    "desktopModeHint": {
-      "title": "Thử Chế độ Màn hình nền",
-      "description": "Mở cài đặt nhanh tại đây, sau đó chọn Chế độ Màn hình nền để sử dụng không gian làm việc nhiều cửa sổ.",
-      "gotIt": "Đã hiểu"
-    },
     "simpleMode": "Chế độ đơn giản",
     "fullMode": "Chế độ đầy đủ",
     "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"

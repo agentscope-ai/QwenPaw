@@ -6,9 +6,10 @@
 
 The store is deliberately independent from the legacy SQL Runtime.  Mutable
 entity heads use atomic Pydantic JSON with checksum CAS; ordered attempts,
-messages and continuations use durable append-only JSONL.  Every mutating
-operation holds the same short Project Runtime lock used by the other
-filesystem aggregates.  Provider/model calls must happen outside that lock.
+messages and continuations use durable append-only JSONL. Every mutating
+operation holds the short Execution-domain Runtime lock. Session and Agent Run
+state use separate domain locks, while Project deletion remains ordered by the
+shared lifecycle lock. Provider/model calls must happen outside these locks.
 """
 
 from __future__ import annotations
@@ -322,9 +323,9 @@ class ProjectExecutionStore:
         project_id: str,
         run_id: str,
         *,
-        expected_status: SpecialistRunStatus
-        | str
-        | Collection[SpecialistRunStatus | str],
+        expected_status: (
+            SpecialistRunStatus | str | Collection[SpecialistRunStatus | str]
+        ),
         status: SpecialistRunStatus | str,
         updates: Mapping[str, Any] | None = None,
         expected_checksum: str | None = None,
@@ -1800,7 +1801,7 @@ class ProjectExecutionStore:
             with CrossProcessFileLock(
                 self._runtime_root(project_id)
                 / "locks"
-                / "project-runtime.lock",
+                / "execution-runtime.lock",
                 timeout_seconds=self.lock_timeout_seconds,
             ):
                 yield
@@ -1808,12 +1809,13 @@ class ProjectExecutionStore:
         with CrossProcessFileLock(
             self.data_root / ".locks" / f"project-{project_id}.lock",
             timeout_seconds=self.lock_timeout_seconds,
+            shared=True,
         ):
             self._require_project(project_id)
             with CrossProcessFileLock(
                 self._runtime_root(project_id)
                 / "locks"
-                / "project-runtime.lock",
+                / "execution-runtime.lock",
                 timeout_seconds=self.lock_timeout_seconds,
             ):
                 yield
@@ -1836,7 +1838,7 @@ class ProjectExecutionStore:
             with CrossProcessFileLock(
                 self._runtime_root(project_id)
                 / "locks"
-                / "project-runtime.lock",
+                / "execution-runtime.lock",
                 timeout_seconds=self.lock_timeout_seconds,
                 shared=True,
             ):

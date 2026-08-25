@@ -261,11 +261,6 @@
       "mode": "Mode",
       "desktopMode": "Desktop Mode"
     },
-    "desktopModeHint": {
-      "title": "Try Desktop Mode",
-      "description": "Open quick settings here, then choose Desktop Mode for a window-based workspace.",
-      "gotIt": "Got it"
-    },
     "simpleMode": "Simple Mode",
     "fullMode": "Full Mode",
     "toggleAgentNavigation": "Expand or collapse agent navigation"
