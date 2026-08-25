@@ -247,6 +247,11 @@
   animation: chatStatusBreathe 1.6s ease-in-out infinite;
 }
 
+.statusDotUnseen {
+  background: rgba(20, 184, 166, 1);
+  box-shadow: 0 0 6px 1px rgba(20, 184, 166, 0.28);
+}
+
 .runningDot {
   display: inline-block;
   width: 6px;
@@ -254,6 +259,16 @@
   border-radius: 50%;
   background: #52c41a;
   animation: sidebarStatusBreathe 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.unseenDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(20, 184, 166, 1);
+  box-shadow: 0 0 5px 1px rgba(20, 184, 166, 0.25);
   pointer-events: none;
 }
 

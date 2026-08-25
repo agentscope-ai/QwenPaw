@@ -34,6 +34,7 @@ function sessionsEqual(
       a.id !== b.id ||
       a.name !== b.name ||
       a.updatedAt !== b.updatedAt ||
+      a.lastFinishedAt !== b.lastFinishedAt ||
       a.pinned !== b.pinned ||
       a.generating !== b.generating ||
       a.status !== b.status ||
@@ -55,6 +56,7 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;

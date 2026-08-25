@@ -3050,6 +3050,7 @@
     "unpinDrawer": "取消固定",
     "statusIdle": "空闲",
     "statusInProgress": "进行中",
+    "statusUnseenResult": "有新结果",
     "disclaimer": "懂你所需，伴你左右",
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",

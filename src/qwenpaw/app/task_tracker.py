@@ -13,7 +13,14 @@ import logging
 import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
+from typing import (
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Optional,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +256,7 @@ class TaskTracker:
         payload: Any,
         stream_fn: Callable[..., Coroutine],
         owner: object | None = None,
+        on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -309,6 +317,14 @@ class TaskTracker:
                                 q.put_nowait(err_sse)
                 finally:
                     finish_time = datetime.now(timezone.utc)
+                    if on_finished is not None:
+                        try:
+                            await on_finished(run_key, finish_time)
+                        except Exception:  # pylint: disable=broad-except
+                            logger.exception(
+                                "run completion callback failed run_key=%s",
+                                run_key,
+                            )
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
