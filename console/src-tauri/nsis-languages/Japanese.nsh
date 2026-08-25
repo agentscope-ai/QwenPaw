@@ -34,6 +34,4 @@ LangString qwenpawCliPathSkipped ${LANG_JAPANESE} "Skipped adding qwenpaw to use
 LangString qwenpawCliPathMissing ${LANG_JAPANESE} "qwenpaw.exe was not found; skipped PATH update"
 LangString qwenpawCliPathUpdateFailed ${LANG_JAPANESE} "Failed to update user PATH"
 LangString qwenpawStopProcessesPrompt ${LANG_JAPANESE} "QwenPaw のプロセスが、インストーラーで置き換えるファイルを使用しています。$\n$\nQwenPaw と関連するコマンドラインセッションを終了し、「再試行」をクリックしてください。「キャンセル」で中止します。"
-LangString qwenpawUnknownProcessesPrompt ${LANG_JAPANESE} "QwenPaw のインストールディレクトリから他のプロセスが実行されています。表示されたすべてのプロセスを終了して続行しますか？"
-LangString qwenpawInstallDirConflict ${LANG_JAPANESE} "選択したディレクトリにはファイルがありますが、QwenPaw のインストールとして認識できません。他のアプリを保護するため、インストールを停止します。空のディレクトリを選択するか、無関係なファイルを手動で削除してください。"
 LangString qwenpawRestoreInstallStateFailed ${LANG_JAPANESE} "Native Messaging ランチャーを復元できませんでした。QwenPaw の起動時に再試行します"

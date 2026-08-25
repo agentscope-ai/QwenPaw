@@ -34,6 +34,4 @@ LangString qwenpawCliPathSkipped ${LANG_INDONESIAN} "Skipped adding qwenpaw to u
 LangString qwenpawCliPathMissing ${LANG_INDONESIAN} "qwenpaw.exe was not found; skipped PATH update"
 LangString qwenpawCliPathUpdateFailed ${LANG_INDONESIAN} "Failed to update user PATH"
 LangString qwenpawStopProcessesPrompt ${LANG_INDONESIAN} "Proses QwenPaw masih menggunakan berkas yang perlu diganti oleh penginstal.$\n$\nTutup QwenPaw dan sesi baris perintah terkait, lalu klik Coba Lagi. Klik Batal untuk membatalkan."
-LangString qwenpawUnknownProcessesPrompt ${LANG_INDONESIAN} "Proses lain berjalan dari direktori instalasi QwenPaw. Akhiri semua proses yang tercantum dan lanjutkan?"
-LangString qwenpawInstallDirConflict ${LANG_INDONESIAN} "Direktori yang dipilih berisi berkas tetapi bukan instalasi QwenPaw yang dikenali. Instalasi akan dihentikan untuk melindungi aplikasi lain. Pilih direktori kosong atau hapus berkas yang tidak terkait secara manual."
 LangString qwenpawRestoreInstallStateFailed ${LANG_INDONESIAN} "Peluncur Native Messaging tidak dapat dipulihkan; QwenPaw akan mencoba lagi saat dimulai"

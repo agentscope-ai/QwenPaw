@@ -2,9 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
     [ValidateSet("Prepare", "Restore")]
-    [string]$Action = "Prepare",
-    [string]$StateFile = "",
-    [switch]$TerminateUnknown
+    [string]$Action = "Prepare"
 )
 
 # Prepare a recognized QwenPaw installation for NSIS replacement. The script
@@ -132,22 +130,17 @@ function Get-InstallRoot {
         return $null
     }
     $item = Get-Item -LiteralPath $InstallDir
-    if ("$($item.Attributes)" -match "ReparsePoint") {
-        throw "The QwenPaw installation directory cannot be a reparse point."
-    }
     return (Get-NormalizedPath -Path $item.FullName).TrimEnd("\")
 }
 
-function Get-InstallState {
+function Test-IsQwenPawInstall {
     param([string]$Root)
 
     if (-not $Root) {
-        return "Fresh"
+        return $false
     }
-    $firstEntry = Get-ChildItem -LiteralPath $Root -Force |
-        Select-Object -First 1
-    if ($null -eq $firstEntry) {
-        return "Fresh"
+    if (Test-LauncherTargetsRoot -Root $Root) {
+        return $true
     }
 
     $evidence = 0
@@ -160,13 +153,7 @@ function Get-InstallState {
             $evidence++
         }
     }
-    if (Test-LauncherTargetsRoot -Root $Root) {
-        $evidence += 2
-    }
-    if ($evidence -ge 2) {
-        return "QwenPaw"
-    }
-    return "Foreign"
+    return $evidence -ge 2
 }
 
 function Get-ScopedProcesses {
@@ -178,7 +165,7 @@ function Get-ScopedProcesses {
             @{
                 Name = "$($process.Name)"
                 ProcessId = $process.ProcessId
-                CreationDate = "$($process.CreationDate)"
+                CommandLine = "$($process.CommandLine)"
                 ExecutablePath = $path
             }
         }
@@ -186,26 +173,24 @@ function Get-ScopedProcesses {
     return @($result)
 }
 
-function Test-IsKnownProcess {
+function Test-IsAutomaticProcess {
     param(
         [object]$Process,
         [string]$Root
     )
 
     $relative = $Process.ExecutablePath.Substring($Root.Length).TrimStart("\")
-    if ($relative -ieq "qwenpaw-desktop.exe" -or
-        $relative -ieq "qwenpaw-computer-use-helper.exe") {
+    if ($relative -ieq "binaries\qwenpaw-backend\qwenpaw-backend.exe" -or
+        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe") {
         return $true
     }
-    foreach ($prefix in @(
-        "binaries\qwenpaw-backend\",
-        "binaries\python-runtime\",
-        "binaries\node-runtime\"
-    )) {
-        if ($relative.Length -ge $prefix.Length -and
-            $relative.Substring(0, $prefix.Length) -ieq $prefix) {
-            return $true
-        }
+    $isBundledPython = (
+        $relative -ieq "binaries\python-runtime\python\python.exe" -or
+        $relative -ieq "binaries\python-runtime\python\pythonw.exe"
+    )
+    if ($isBundledPython -and
+        $Process.CommandLine.ToLowerInvariant().Contains("qwenpaw-nm-host.py")) {
+        return $true
     }
     return $false
 }
@@ -222,49 +207,7 @@ function Stop-ProcessRecords {
     }
 }
 
-function Save-UnknownProcesses {
-    param([object[]]$Processes)
-
-    if (-not $StateFile) {
-        throw "A state file is required to confirm unknown processes."
-    }
-    @{ Processes = @($Processes) } |
-        ConvertTo-Json -Compress -Depth 3 |
-        Set-Content -LiteralPath $StateFile -Encoding UTF8
-}
-
-function Stop-ConfirmedUnknownProcesses {
-    param([string]$Root)
-
-    if (-not $StateFile -or
-        -not (Test-Path -LiteralPath $StateFile -PathType Leaf)) {
-        throw "The process confirmation expired; retry the scan."
-    }
-    $saved = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-    $confirmed = foreach ($record in @($saved.Processes)) {
-        $processId = "$($record.ProcessId)"
-        if ($processId -notmatch "^[0-9]+$") {
-            continue
-        }
-        $current = Get-CimInstance Win32_Process -Filter "ProcessId = $processId"
-        if ($null -eq $current) {
-            continue
-        }
-        $currentPath = Get-NormalizedPath -Path "$($current.ExecutablePath)"
-        $sameCreation = (
-            -not "$($record.CreationDate)" -or
-            "$($current.CreationDate)" -eq "$($record.CreationDate)"
-        )
-        if ($currentPath -ieq "$($record.ExecutablePath)" -and
-            $sameCreation -and
-            (Test-PathBelowRoot -Path $currentPath -Root $Root)) {
-            @{ ProcessId = $current.ProcessId }
-        }
-    }
-    Stop-ProcessRecords -Processes @($confirmed)
-}
-
-function Write-UnknownProcessList {
+function Write-ProcessList {
     param(
         [object[]]$Processes,
         [string]$Root
@@ -280,52 +223,32 @@ try {
     if ($Action -eq "Restore") {
         $requestedRoot = (Get-NormalizedPath -Path $InstallDir).TrimEnd("\")
         Restore-NativeHostLauncher -Root $requestedRoot
-        if ($StateFile -and (Test-Path -LiteralPath $StateFile)) {
-            Remove-Item -LiteralPath $StateFile -Force
-        }
         exit 0
     }
 
     $root = Get-InstallRoot
-    $installState = Get-InstallState -Root $root
-    if ($installState -eq "Fresh") {
+    if (-not (Test-IsQwenPawInstall -Root $root)) {
         exit 0
     }
-    if ($installState -eq "Foreign") {
-        exit 3
+    $rootItem = Get-Item -LiteralPath $InstallDir
+    if ("$($rootItem.Attributes)" -match "ReparsePoint") {
+        throw "Cannot safely manage processes for a reparse-point installation."
     }
 
     Enable-NativeHostGate -Root $root
     $scoped = Get-ScopedProcesses -Root $root
-    $known = @($scoped | Where-Object { Test-IsKnownProcess -Process $_ -Root $root })
-    Stop-ProcessRecords -Processes $known
-
-    if ($TerminateUnknown) {
-        Stop-ConfirmedUnknownProcesses -Root $root
-    }
-
-    $remaining = Get-ScopedProcesses -Root $root
-    $knownRemaining = @(
-        $remaining | Where-Object { Test-IsKnownProcess -Process $_ -Root $root }
-    )
-    if ($knownRemaining.Count -gt 0) {
-        Write-Output "QwenPaw processes could not be stopped."
-        exit 1
-    }
-
-    $unknown = @(
-        $remaining | Where-Object {
-            -not (Test-IsKnownProcess -Process $_ -Root $root)
+    $automatic = @(
+        $scoped | Where-Object {
+            Test-IsAutomaticProcess -Process $_ -Root $root
         }
     )
-    if ($unknown.Count -gt 0) {
-        Save-UnknownProcesses -Processes $unknown
-        Write-UnknownProcessList -Processes $unknown -Root $root
-        exit 2
-    }
+    Stop-ProcessRecords -Processes $automatic
 
-    if ($StateFile -and (Test-Path -LiteralPath $StateFile)) {
-        Remove-Item -LiteralPath $StateFile -Force
+    $remaining = Get-ScopedProcesses -Root $root
+    if ($remaining.Count -gt 0) {
+        Write-Output "Close these processes before continuing:"
+        Write-ProcessList -Processes $remaining -Root $root
+        exit 1
     }
     exit 0
 } catch {

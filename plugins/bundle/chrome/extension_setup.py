@@ -205,9 +205,9 @@ def _windows_batch_path_literal(value: str) -> str:
     """Return a cmd.exe-safe literal path for a generated batch file."""
     normalized = value
     if value.upper().startswith("\\\\?\\UNC\\"):
-        normalized = "\\\\" + value[len("\\\\?\\UNC\\"):]
+        normalized = "\\\\" + value[len("\\\\?\\UNC\\") :]
     elif value.startswith("\\\\?\\"):
-        normalized = value[len("\\\\?\\"):]
+        normalized = value[len("\\\\?\\") :]
     return normalized.replace("%", "%%")
 
 

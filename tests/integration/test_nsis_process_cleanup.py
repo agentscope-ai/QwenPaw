@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -33,9 +32,13 @@ def _copy_cmd(destination: Path) -> Path:
     return Path(shutil.copy2(Path(os.environ["COMSPEC"]), destination))
 
 
-def _start_cmd(executable: Path) -> subprocess.Popen[bytes]:
+def _start_cmd(
+    executable: Path,
+    marker: str | None = None,
+) -> subprocess.Popen[bytes]:
+    command = "pause" if marker is None else f"title {marker} & pause"
     return subprocess.Popen(  # pylint: disable=consider-using-with
-        [str(executable), "/d", "/c", "pause"],
+        [str(executable), "/d", "/c", command],
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -46,7 +49,6 @@ def _start_cmd(executable: Path) -> subprocess.Popen[bytes]:
 def _run_helper(
     root: Path,
     home: Path,
-    state: Path,
     *extra: str,
     constrained: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -56,15 +58,14 @@ def _run_helper(
         assert not extra
         env["QWENPAW_TEST_SCRIPT"] = str(SCRIPT)
         env["QWENPAW_TEST_ROOT"] = str(root)
-        env["QWENPAW_TEST_STATE"] = str(state)
         command = [
             "powershell.exe",
             "-NoProfile",
             "-Command",
-            '$ExecutionContext.SessionState.LanguageMode = '
+            "$ExecutionContext.SessionState.LanguageMode = "
             '"ConstrainedLanguage"; '
-            "& $env:QWENPAW_TEST_SCRIPT -InstallDir $env:QWENPAW_TEST_ROOT "
-            "-StateFile $env:QWENPAW_TEST_STATE; exit $LASTEXITCODE",
+            "& $env:QWENPAW_TEST_SCRIPT "
+            "-InstallDir $env:QWENPAW_TEST_ROOT; exit $LASTEXITCODE",
         ]
     else:
         command = [
@@ -76,8 +77,6 @@ def _run_helper(
             str(SCRIPT),
             "-InstallDir",
             str(root),
-            "-StateFile",
-            str(state),
             *extra,
         ]
     return subprocess.run(
@@ -95,131 +94,123 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
     process.wait(timeout=5)
 
 
-def test_fresh_and_unrelated_targets_do_not_trigger_cleanup(
+def test_unrecognized_targets_do_not_trigger_cleanup(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
-    state = tmp_path / "state.json"
     fresh = tmp_path / "fresh"
     fresh.mkdir()
 
-    assert _run_helper(fresh, home, state).returncode == 0
+    assert _run_helper(fresh, home).returncode == 0
 
     unrelated = tmp_path / "unrelated"
     unrelated.mkdir()
-    (unrelated / "other-app.exe").touch()
-    assert _run_helper(unrelated, home, state).returncode == 3
-
-    recognized = tmp_path / "recognized"
-    recognized.mkdir()
-    _recognized_install(recognized)
-    launcher = home / ".qwenpaw" / "bin" / "qwenpaw-nm-host.bat"
-    backup = launcher.with_name(f"{launcher.name}.qwenpaw-maintenance")
-    backup.parent.mkdir(parents=True)
-    original = f'@echo off\n"{recognized}\\python.exe" %*\n'
-    backup.write_text(original, encoding="utf-8")
-    ignored = _run_helper(unrelated, home, state, "-Action", "Restore")
-    assert ignored.returncode == 0
-    assert backup.exists()
-    assert not launcher.exists()
-
-    assert _run_helper(recognized, home, state).returncode == 0
-    assert backup.exists()
-    assert not launcher.exists()
-    restored = _run_helper(recognized, home, state, "-Action", "Restore")
-    assert restored.returncode == 0
-    assert launcher.read_text(encoding="utf-8") == original
+    native_host_exe = _copy_cmd(
+        unrelated / "binaries" / "python-runtime" / "python" / "python.exe",
+    )
+    native_host = _start_cmd(native_host_exe, "qwenpaw-nm-host.py")
+    try:
+        assert _run_helper(unrelated, home).returncode == 0
+        assert native_host.poll() is None
+    finally:
+        _stop(native_host)
 
 
-def test_prepare_gates_launcher_and_stops_only_consented_processes(
+def test_prepare_stops_only_automatic_processes(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "QwenPaw Desktop"
     root.mkdir()
     _recognized_install(root)
-    known_exe = _copy_cmd(
+    backend_exe = _copy_cmd(
+        root / "binaries" / "qwenpaw-backend" / "qwenpaw-backend.exe",
+    )
+    native_host_exe = _copy_cmd(
         root / "binaries" / "python-runtime" / "python" / "python.exe",
     )
     helper_exe = _copy_cmd(root / "qwenpaw-computer-use-helper.exe")
+    node_exe = _copy_cmd(root / "binaries" / "node-runtime" / "node.exe")
     unknown_exe = _copy_cmd(root / "third-party-helper.exe")
+    other_root = tmp_path / "Other QwenPaw"
+    other_backend_exe = _copy_cmd(
+        other_root / "binaries" / "qwenpaw-backend" / "qwenpaw-backend.exe",
+    )
 
     home = tmp_path / "home"
     launcher = home / ".qwenpaw" / "bin" / "qwenpaw-nm-host.bat"
     launcher.parent.mkdir(parents=True)
-    original_launcher = f'@echo off\n"{known_exe}" "nm_host.py" %*\n'
+    original_launcher = (
+        f'@echo off\n"{native_host_exe}" "qwenpaw-nm-host.py" %*\n'
+    )
     launcher.write_text(original_launcher, encoding="utf-8")
-    state = tmp_path / "state.json"
 
-    known = _start_cmd(known_exe)
+    backend = _start_cmd(backend_exe)
+    native_host = _start_cmd(native_host_exe, "qwenpaw-nm-host.py")
     helper = _start_cmd(helper_exe)
+    node = _start_cmd(node_exe)
     unknown = _start_cmd(unknown_exe)
-    outside = _start_cmd(Path(os.environ["COMSPEC"]))
+    other_backend = _start_cmd(other_backend_exe)
     try:
-        first = _run_helper(root, home, state, constrained=True)
-        assert first.returncode == 2
+        first = _run_helper(root, home, constrained=True)
+        assert first.returncode == 1
+        assert "qwenpaw-computer-use-helper.exe" in first.stdout
+        assert "node.exe" in first.stdout
         assert "third-party-helper.exe" in first.stdout
-        known.wait(timeout=5)
-        helper.wait(timeout=5)
+        backend.wait(timeout=5)
+        native_host.wait(timeout=5)
+        assert helper.poll() is None
+        assert node.poll() is None
         assert unknown.poll() is None
-        assert outside.poll() is None
+        assert other_backend.poll() is None
         assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text(
             encoding="ascii",
         )
 
-        confirmed = _run_helper(
-            root,
-            home,
-            state,
-            "-TerminateUnknown",
-        )
-        assert confirmed.returncode == 0
-        unknown.wait(timeout=5)
-        assert outside.poll() is None
+        for process in (helper, node, unknown):
+            _stop(process)
+        assert _run_helper(root, home).returncode == 0
+        assert other_backend.poll() is None
 
-        restored = _run_helper(root, home, state, "-Action", "Restore")
+        restored = _run_helper(root, home, "-Action", "Restore")
         assert restored.returncode == 0
         assert launcher.read_text(encoding="utf-8") == original_launcher
     finally:
-        for process in (known, helper, unknown, outside):
+        for process in (
+            backend,
+            native_host,
+            helper,
+            node,
+            unknown,
+            other_backend,
+        ):
             _stop(process)
-        _run_helper(root, home, state, "-Action", "Restore")
+        _run_helper(root, home, "-Action", "Restore")
 
 
-def test_confirmed_process_identity_is_revalidated(tmp_path: Path) -> None:
+def test_restore_is_scoped_to_requested_install(tmp_path: Path) -> None:
     root = tmp_path / "QwenPaw Desktop"
     root.mkdir()
     _recognized_install(root)
-    unknown_exe = _copy_cmd(root / "third-party-helper.exe")
+    other_root = tmp_path / "Other QwenPaw"
+    other_root.mkdir()
+    _recognized_install(other_root)
+
     home = tmp_path / "home"
-    home.mkdir()
-    state = tmp_path / "state.json"
-    unknown = _start_cmd(unknown_exe)
-    try:
-        assert _run_helper(root, home, state).returncode == 2
-        saved = json.loads(state.read_text(encoding="utf-8-sig"))
-        saved["Processes"][0]["CreationDate"] = "stale identity"
-        state.write_text(json.dumps(saved), encoding="utf-8")
+    launcher = home / ".qwenpaw" / "bin" / "qwenpaw-nm-host.bat"
+    launcher.parent.mkdir(parents=True)
+    original = f'@echo off\n"{root}\\python.exe" %*\n'
+    launcher.write_text(original, encoding="utf-8")
+    backup = launcher.with_name(f"{launcher.name}.qwenpaw-maintenance")
 
-        stale = _run_helper(
-            root,
-            home,
-            state,
-            "-TerminateUnknown",
-        )
-        assert stale.returncode == 2
-        assert unknown.poll() is None
+    assert _run_helper(root, home).returncode == 0
+    assert backup.exists()
 
-        assert (
-            _run_helper(
-                root,
-                home,
-                state,
-                "-TerminateUnknown",
-            ).returncode
-            == 0
-        )
-        unknown.wait(timeout=5)
-    finally:
-        _stop(unknown)
-        _run_helper(root, home, state, "-Action", "Restore")
+    assert _run_helper(other_root, home, "-Action", "Restore").returncode == 0
+    assert backup.exists()
+    assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text(
+        encoding="ascii"
+    )
+
+    assert _run_helper(root, home, "-Action", "Restore").returncode == 0
+    assert launcher.read_text(encoding="utf-8") == original

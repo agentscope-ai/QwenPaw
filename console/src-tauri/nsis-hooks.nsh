@@ -102,7 +102,7 @@ Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
   Push $0
   Push $1
   IfFileExists "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" 0 qwenpaw_restore_done
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore -StateFile "$PLUGINSDIR\qwenpaw-install-processes.json"`
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore`
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -117,40 +117,24 @@ FunctionEnd
 Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   Push $0
   Push $1
-  Push $2
   InitPluginsDir
   File /oname=$PLUGINSDIR\qwenpaw-manage-install-processes.ps1 "..\..\..\..\nsis\manage-install-processes.ps1"
-  StrCpy $2 ""
 
   qwenpaw_prepare_retry:
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -StateFile "$PLUGINSDIR\qwenpaw-install-processes.json" $2`
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR"`
   Pop $0
   Pop $1
   ${If} $0 == 0
     Goto qwenpaw_prepare_done
-  ${ElseIf} $0 == 2
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(qwenpawUnknownProcessesPrompt)$\n$\n$1" /SD IDNO IDYES qwenpaw_terminate_unknown IDNO qwenpaw_prepare_cancel
-  ${ElseIf} $0 == 3
-    MessageBox MB_OK|MB_ICONSTOP "$(qwenpawInstallDirConflict)" /SD IDOK
-    Goto qwenpaw_prepare_cancel
   ${Else}
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopProcessesPrompt)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_prepare_reset IDCANCEL qwenpaw_prepare_cancel
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopProcessesPrompt)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_prepare_retry IDCANCEL qwenpaw_prepare_cancel
   ${EndIf}
-
-  qwenpaw_terminate_unknown:
-  StrCpy $2 "-TerminateUnknown"
-  Goto qwenpaw_prepare_retry
-
-  qwenpaw_prepare_reset:
-  StrCpy $2 ""
-  Goto qwenpaw_prepare_retry
 
   qwenpaw_prepare_cancel:
   Call ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
   Quit
 
   qwenpaw_prepare_done:
-  Pop $2
   Pop $1
   Pop $0
 FunctionEnd

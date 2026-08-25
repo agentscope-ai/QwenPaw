@@ -34,6 +34,4 @@ LangString qwenpawCliPathSkipped ${LANG_ENGLISH} "Skipped adding qwenpaw to user
 LangString qwenpawCliPathMissing ${LANG_ENGLISH} "qwenpaw.exe was not found; skipped PATH update"
 LangString qwenpawCliPathUpdateFailed ${LANG_ENGLISH} "Failed to update user PATH"
 LangString qwenpawStopProcessesPrompt ${LANG_ENGLISH} "QwenPaw processes are still using files the installer needs to replace.$\n$\nQuit QwenPaw and close related command-line sessions, then click Retry. Click Cancel to abort."
-LangString qwenpawUnknownProcessesPrompt ${LANG_ENGLISH} "Other processes are running from the QwenPaw installation directory. End all listed processes and continue?"
-LangString qwenpawInstallDirConflict ${LANG_ENGLISH} "The selected directory contains files but is not a recognized QwenPaw installation. Installation will stop to protect other applications. Choose an empty directory or remove the unrelated files manually."
 LangString qwenpawRestoreInstallStateFailed ${LANG_ENGLISH} "Could not restore the Native Messaging launcher; QwenPaw will retry recovery at startup"
