@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.07.29",
-  "published_at": "2026-07-29T00:00:00Z",
+  "catalog_version": "2026.08.25",
+  "published_at": "2026-08-25T00:00:00Z",
   "capabilities": [
     {
       "provider_id": "modelscope",
@@ -138,6 +138,22 @@
       "expected_video": true,
       "doc_url": "https://help.aliyun.com/en/model-studio/qwen3-8-max",
       "note": "Qwen3.8-Max supports image and video input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/zh/model-studio/token-plan-team-overview",
+      "note": "Kimi K2.7 Code supports vision input"
+    },
+    {
+      "provider_id": "aliyun-tokenplan-intl",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://help.aliyun.com/en/model-studio/token-plan-team-overview",
+      "note": "Kimi K2.7 Code supports vision input"
     },
     {
       "provider_id": "aliyun-tokenplan",
@@ -469,6 +485,22 @@
     },
     {
       "provider_id": "kimi-cn",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
+      "model_id": "kimi-k2.7-code-highspeed",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code Highspeed supports image and video input"
+    },
+    {
+      "provider_id": "kimi-cn",
       "model_id": "kimi-k2.6",
       "expected_image": true,
       "expected_video": true,
@@ -490,6 +522,22 @@
       "expected_video": true,
       "doc_url": "https://platform.kimi.ai/docs/models",
       "note": "Kimi K3 supports image and video input"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2.7-code",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code supports image and video input"
+    },
+    {
+      "provider_id": "kimi-intl",
+      "model_id": "kimi-k2.7-code-highspeed",
+      "expected_image": true,
+      "expected_video": true,
+      "doc_url": "https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart",
+      "note": "Kimi K2.7 Code Highspeed supports image and video input"
     },
     {
       "provider_id": "kimi-intl",
