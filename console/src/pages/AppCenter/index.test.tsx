@@ -97,7 +97,7 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeMarketApp(id: string) {
+function makeMarketApp(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     display_name: id,
@@ -110,10 +110,11 @@ function makeMarketApp(id: string) {
     details_url: null,
     locales: { en: { description: id, category: "app" } },
     is_featured: false,
+    ...overrides,
   };
 }
 
-function renderPage(initialEntries: string[] = ["/apps"]) {
+function renderPage(initialEntries: string[] = ["/market"]) {
   return renderWithProviders(
     <>
       <AppCenterPage />
@@ -139,7 +140,7 @@ describe("AppCenterPage", () => {
       total: 2,
     });
     hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
-    window.history.replaceState({}, "", "/apps");
+    window.history.replaceState({}, "", "/market");
   });
 
   it("renders installed apps by default without mounting external views", async () => {
@@ -148,65 +149,29 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
     expect(screen.getByText("beta-app")).toBeInTheDocument();
 
-    // Neither market channel may load on /apps.
+    // The market view must not load on the default tab.
     expect(
       screen.queryByLabelText("appCenter.searchMarket"),
     ).not.toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
   });
 
-  it("enters the official view and loads featured apps lazily", async () => {
-    hoisted.fetchMarketPlugins.mockResolvedValue({
-      plugins: [
-        {
-          id: "agent-kanban",
-          display_name: "Agent Kanban",
-          developer: "zhijianma",
-          owner: "zhijianma",
-          version: "0.1.0",
-          logo_url: null,
-          downloads: 1536,
-          view_count: 1266,
-          details_url: null,
-          locales: { en: { description: "Kanban", category: "App" } },
-          is_featured: true,
-        },
-      ],
-      total: 1,
-    });
-    renderPage();
-    await screen.findByText("alpha-app");
-
-    fireEvent.click(
-      screen.getByRole("tab", { name: /appCenter.officialApps/ }),
-    );
-
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=official",
-    );
-    expect(await screen.findByText("Agent Kanban")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
-    );
-    expect(screen.queryByText("alpha-app")).not.toBeInTheDocument();
-  });
-
-  it("shows the official view when visiting /apps?view=official directly", async () => {
-    renderPage(["/apps?view=official"]);
+  it("shows the official view when visiting it directly", async () => {
+    renderPage(["/market?view=official"]);
 
     expect(
       await screen.findByLabelText("appCenter.searchOfficial"),
     ).toBeInTheDocument();
-    expect(
-      await screen.findByText("appCenter.officialAppsEmpty"),
-    ).toBeInTheDocument();
     await waitFor(() =>
       expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
+    );
+    expect(hoisted.fetchMarketPlugins.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ is_featured: true, page_number: 1 }),
     );
   });
 
   it("falls back to installed apps for unknown view values", async () => {
-    renderPage(["/apps?view=bogus"]);
+    renderPage(["/market?view=bogus"]);
 
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
@@ -219,7 +184,7 @@ describe("AppCenterPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: /appCenter.appMarket/ }));
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=market",
+      "/market?view=market",
     );
     expect(
       await screen.findByLabelText("appCenter.searchMarket"),
@@ -230,8 +195,8 @@ describe("AppCenterPage", () => {
     expect(screen.queryByText("alpha-app")).not.toBeInTheDocument();
   });
 
-  it("shows the market when visiting /apps?view=market directly", async () => {
-    renderPage(["/apps?view=market"]);
+  it("shows the market when visiting /market?view=market directly", async () => {
+    renderPage(["/market?view=market"]);
 
     expect(
       await screen.findByLabelText("appCenter.searchMarket"),
@@ -239,6 +204,21 @@ describe("AppCenterPage", () => {
     await waitFor(() =>
       expect(hoisted.fetchMarketPlugins).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("marks an installed app as installed in the market", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    renderPage(["/market?view=market"]);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
+    ).toBeDisabled();
+    expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
   });
 
   it("loads a newly installed market app without reloading", async () => {
@@ -250,7 +230,7 @@ describe("AppCenterPage", () => {
       id: "new-app",
       name: "New App",
     });
-    renderPage(["/apps?view=market"]);
+    renderPage(["/market?view=market"]);
 
     fireEvent.click(await screen.findByText("appCenter.install"));
 
@@ -259,39 +239,61 @@ describe("AppCenterPage", () => {
     );
   });
 
-  it("does not load an old bundle when updating an installed market app", async () => {
+  it("does not reinstall an installed market app at the same version", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    renderPage(["/market?view=market"]);
+    await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
+
+    const installedButton = await screen.findByRole("button", {
+      name: "appCenter.installedStatus",
+    });
+    expect(installedButton).toBeDisabled();
+    fireEvent.click(installedButton);
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+  });
+
+  it("offers an update for an installed market app with a newer version", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app", { version: "2.0.0" })],
       total: 1,
     });
     hoisted.installPlugin.mockResolvedValue({
       id: "alpha-app",
       name: "Alpha App",
     });
-    renderPage(["/apps?view=market"]);
+    renderPage(["/market?view=market"]);
     await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByText("appCenter.install"));
-
+    const updateButton = await screen.findByRole("button", {
+      name: "appCenter.update",
+    });
+    expect(updateButton).toBeEnabled();
+    fireEvent.click(updateButton);
     await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
     expect(hoisted.loadPawApp).not.toHaveBeenCalled();
   });
 
   it("returns to installed apps and preserves unrelated query params", async () => {
-    renderPage(["/apps?foo=1"]);
+    renderPage(["/market?foo=1"]);
     await screen.findByText("alpha-app");
 
     fireEvent.click(screen.getByRole("tab", { name: /appCenter.appMarket/ }));
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?foo=1&view=market",
+      "/market?foo=1&view=market",
     );
 
     fireEvent.click(screen.getByRole("tab", { name: /appCenter.myApps/ }));
-    expect(screen.getByTestId("location")).toHaveTextContent(/\/apps\?foo=1$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      /\/market\?foo=1$/,
+    );
     expect(await screen.findByText("alpha-app")).toBeInTheDocument();
   });
 
-  it("offers official and market entry points when no apps are installed", async () => {
+  it("offers official apps and the app market when no apps are installed", async () => {
     hoisted.listApps.mockResolvedValue({ apps: [], total: 0 });
     renderPage();
 
@@ -305,7 +307,7 @@ describe("AppCenterPage", () => {
     fireEvent.click(goToOfficial);
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/apps?view=official",
+      "/market?view=official",
     );
     expect(
       await screen.findByText("appCenter.officialAppsEmpty"),
@@ -372,6 +374,40 @@ describe("AppCenterPage", () => {
     expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
   });
 
+  it("returns to the previous non-OS history entry when closing an app", async () => {
+    const AppPage = () => <div>Loaded PawApp</div>;
+    hoisted.loadPawApp.mockImplementationOnce(async () => {
+      hoisted.routeSnapshot.mockReturnValue([
+        {
+          id: "alpha.page",
+          path: "/apps/alpha-app",
+          source: "alpha-app",
+          Component: AppPage,
+        },
+      ]);
+    });
+    window.history.replaceState({}, "", "/chat");
+    window.history.pushState({}, "", "/market");
+    renderPage();
+    await screen.findByText("alpha-app");
+
+    fireEvent.click(screen.getByText("alpha-app"));
+
+    expect(await screen.findByText("Loaded PawApp")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/apps/alpha-app");
+    expect(window.history.state).toEqual({ pawappInline: true });
+
+    fireEvent.click(screen.getByTitle("appCenter.backToListHint"));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/market"));
+    expect(await screen.findByText("alpha-app")).toBeInTheDocument();
+    expect(window.history.state).toEqual({});
+
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe("/chat"));
+    expect(screen.queryByText("Loaded PawApp")).not.toBeInTheDocument();
+  });
+
   it("cleans the loaded PawApp runtime after uninstall", async () => {
     hoisted.uninstall.mockResolvedValue(undefined);
     hoisted.listApps
@@ -385,9 +421,8 @@ describe("AppCenterPage", () => {
     await screen.findByText("alpha-app");
 
     fireEvent.click(
-      screen.getByRole("button", { name: /appCenter.moreActions/ }),
+      screen.getByRole("button", { name: /appCenter.uninstall/ }),
     );
-    fireEvent.click(await screen.findByText("appCenter.uninstall"));
 
     await waitFor(() =>
       expect(hoisted.uninstall).toHaveBeenCalledWith("alpha-app"),

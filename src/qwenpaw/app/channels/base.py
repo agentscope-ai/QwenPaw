@@ -569,6 +569,7 @@ class BaseChannel(ABC):
             payload,
             self._stream_with_tracker,
             owner=self._workspace,
+            on_finished=self._workspace.chat_manager.mark_chat_finished,
         )
 
         if is_new:

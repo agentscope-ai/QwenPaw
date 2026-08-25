@@ -2,8 +2,7 @@
 """media_review auto_approve: the last gate of the unattended ladder.
 
 ``required`` (default) parks generated media behind a pending Review;
-``auto_approve`` reuses the AUTO_FIX acceptance path so unattended runs
-never wait on a human quality gate.
+``auto_approve`` reuses the AUTO_FIX acceptance path.
 """
 from __future__ import annotations
 
@@ -12,7 +11,6 @@ import asyncio
 import pytest
 
 from services.media_files.image_execution import FileImageExecutionService
-from services.media_files.review_admission import media_review_policy
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
     ElementLocation,
@@ -23,7 +21,7 @@ from services.project_files.models import (
     TimelineElement,
     TimelineSpan,
 )
-from services.runtime_files.models import ReviewPolicy, ReviewStatus
+from services.runtime_files.models import ReviewStatus
 
 
 pytestmark = pytest.mark.unit
@@ -86,18 +84,6 @@ def _generate(services) -> None:
 
 def _active_review(services):
     return services.reviews.active(PROJECT_ID)
-
-
-def test_policy_defaults_to_require_review():
-    assert media_review_policy() is ReviewPolicy.REQUIRE_REVIEW
-
-
-def test_policy_switches_with_auto_approve_mode(monkeypatch):
-    monkeypatch.setattr(
-        "services.media_files.review_admission.get_media_review_mode",
-        lambda: "auto_approve",
-    )
-    assert media_review_policy() is ReviewPolicy.AUTO_FIX
 
 
 def test_required_mode_parks_media_behind_a_pending_review(

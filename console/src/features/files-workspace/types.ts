@@ -5,7 +5,16 @@ export type FileSource =
   | "memory"
   | "daily"
   | "digest";
-export type WorkspaceRoot = "project" | "workspace";
+/**
+ * Which directory a Files API path is relative to.
+ *
+ * `"project"` is the PRIMARY bound project directory and `"workspace"` the
+ * agent's own storage root. `` `project:${absolutePath}` `` selects any other
+ * directory bound to the session — the path is carried rather than an index
+ * because the bound list is reorderable ("make primary"), and an index would
+ * let a persisted editor tab silently start pointing at a different directory.
+ */
+export type WorkspaceRoot = "project" | "workspace" | `project:${string}`;
 export type MemoryGraphRoot = "wiki" | "procedure" | "personal";
 
 export interface FileTarget {

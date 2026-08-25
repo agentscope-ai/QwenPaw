@@ -284,6 +284,7 @@ class ModelConnectionTestRequest(StrictModel):
     protocol: str = ""
     provider: Literal["whisper", "fun-asr"] | None = None
     voice: str = ""
+    require_api_key: bool = True
 
 
 class ConnectionTestResponse(StrictModel):

@@ -640,6 +640,16 @@ def _source_hint(output: Mapping[str, Any]) -> str:
     return value
 
 
+def _url_origin(value: str) -> tuple[str, str, int]:
+    """Return a normalized origin for credential-forwarding decisions."""
+
+    parsed = urlsplit(value)
+    scheme = parsed.scheme.casefold()
+    host = (parsed.hostname or "").casefold()
+    port = parsed.port or (443 if scheme == "https" else 80)
+    return scheme, host, port
+
+
 def _local_relative_parts(
     source: str,
     *,
@@ -786,8 +796,10 @@ class SecureR2VVideoMaterializer:
         source: str,
         sink: _StreamingSink,
         deadline: float,
+        request_headers: Mapping[str, str],
     ) -> str:
         current = await self._resolve(source, deadline)
+        credential_origin = _url_origin(current.url)
         async with httpx.AsyncClient(
             transport=self.transport,
             follow_redirects=False,
@@ -802,6 +814,15 @@ class SecureR2VVideoMaterializer:
                         async with client.stream(
                             "GET",
                             current.url,
+                            # Never forward provider credentials to a
+                            # cross-origin redirect target. Veo authenticates
+                            # the first hop and redirects to an authorized URL.
+                            headers=(
+                                dict(request_headers)
+                                if _url_origin(current.url)
+                                == credential_origin
+                                else None
+                            ),
                         ) as response:
                             peer = _response_peer(response)
                             if peer not in current.addresses:
@@ -901,6 +922,7 @@ class SecureR2VVideoMaterializer:
         project_root: Path,
         project_id: str,
         task_id: str,
+        request_headers: Mapping[str, str] | None = None,
     ) -> MaterializedVideo:
         """Materialize and verify one provider result inside its Task scope."""
 
@@ -943,6 +965,7 @@ class SecureR2VVideoMaterializer:
                             source,
                             sink,
                             deadline,
+                            dict(request_headers or {}),
                         )
                         source_kind: Literal["local", "remote"] = "remote"
                     else:
@@ -1017,6 +1040,7 @@ async def materialize_r2v_video(
     task_id: str,
     max_bytes: int = DEFAULT_MAX_VIDEO_BYTES,
     total_timeout_seconds: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+    request_headers: Mapping[str, str] | None = None,
 ) -> MaterializedVideo:
     """Convenience API using the process-global materialization semaphore."""
 
@@ -1028,6 +1052,7 @@ async def materialize_r2v_video(
         project_root=project_root,
         project_id=project_id,
         task_id=task_id,
+        request_headers=request_headers,
     )
 
 

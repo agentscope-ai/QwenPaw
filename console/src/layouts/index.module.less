@@ -437,6 +437,44 @@
   margin-top: 4px;
 }
 
+.accountIdentity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(26, 23, 22, 0.08);
+  border-radius: 10px;
+  background: rgba(26, 23, 22, 0.025);
+
+  span {
+    color: rgba(26, 23, 22, 0.52);
+  }
+
+  strong {
+    overflow: hidden;
+    color: rgba(26, 23, 22, 0.88);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.runtimeRecovery {
+  strong {
+    display: block;
+    margin-bottom: 6px;
+    color: rgba(26, 23, 22, 0.88);
+  }
+
+  p {
+    margin: 0 0 14px;
+    color: rgba(26, 23, 22, 0.52);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
 // ─── Inbox wobble animation (new pending approvals) ──────────────────────────
 @keyframes inboxWobble {
   0%,
@@ -1124,6 +1162,29 @@
     &:hover {
       color: rgba(255, 255, 255, 0.9) !important;
       background: rgba(255, 255, 255, 0.06) !important;
+    }
+  }
+
+  .accountIdentity {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+
+    span {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+  }
+
+  .runtimeRecovery {
+    strong {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    p {
+      color: rgba(255, 255, 255, 0.5);
     }
   }
 

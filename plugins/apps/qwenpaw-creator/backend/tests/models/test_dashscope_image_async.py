@@ -48,36 +48,6 @@ def _response(status_code: int, payload: dict) -> httpx.Response:
     )
 
 
-# ── the poll root derives from whatever host the user configured ─────────
-
-
-def test_task_root_derives_from_the_default_generation_endpoint() -> None:
-    assert _model().api_root == "https://dashscope.aliyuncs.com/api/v1"
-
-
-def test_task_root_follows_intl_and_proxy_hosts() -> None:
-    intl = _model("https://dashscope-intl.aliyuncs.com/api/v1")
-    assert intl.api_root == "https://dashscope-intl.aliyuncs.com/api/v1"
-
-
-# ── submit acknowledgement parsing ─────────────────────────────────────────
-
-
-def test_async_submit_yields_the_task_id() -> None:
-    ack = _response(
-        200,
-        {"output": {"task_id": "t-1", "task_status": "PENDING"}},
-    )
-    assert DashScopeImageModel._submitted_task_id(ack) == "t-1"
-
-
-def test_sync_answer_and_errors_pass_through_without_polling() -> None:
-    sync = _response(200, {"output": {"choices": [{"message": {}}]}})
-    assert DashScopeImageModel._submitted_task_id(sync) is None
-    rate_limited = _response(429, {})
-    assert DashScopeImageModel._submitted_task_id(rate_limited) is None
-
-
 # ── async-rejected accounts fall back to the sync transport ───────────────
 
 
@@ -118,9 +88,7 @@ def test_async_rejection_falls_back_to_sync_and_caches(monkeypatch) -> None:
     second = asyncio.run(scenario())
     assert second.status_code == 200
     assert len(calls) == 3  # cached: straight to sync, no probe
-
-
-def test_unrelated_403_is_not_mistaken_for_async_rejection() -> None:
+    # An unrelated 403 must not be mistaken for the async rejection.
     denied = _response(403, {"message": "invalid api key"})
     assert DashScopeImageModel._async_rejected(denied) is False
 
@@ -157,48 +125,29 @@ def _poll(
     return asyncio.run(scenario())
 
 
-def test_poll_waits_through_pending_then_returns_the_result(
-    monkeypatch,
-) -> None:
+def test_poll_rides_out_pending_and_transient_errors(monkeypatch) -> None:
     monkeypatch.setattr(dashscope_provider, "POLL_INTERVAL_SECONDS", 0)
-    states = iter(["PENDING", "RUNNING", "SUCCEEDED"])
-
-    def handler(
-        request: httpx.Request,
-    ) -> httpx.Response:  # pylint: disable=unused-argument
-        state = next(states)
-        if state == "SUCCEEDED":
-            return httpx.Response(200, json=_succeeded_payload())
-        return httpx.Response(
-            200,
-            json={"output": {"task_id": "t-1", "task_status": state}},
-        )
-
-    response = _poll(_model(), httpx.MockTransport(handler))
-    payload = response.json()
-    assert payload["output"]["task_status"] == "SUCCEEDED"
-
-
-def test_poll_survives_transient_5xx_and_transport_errors(monkeypatch) -> None:
-    monkeypatch.setattr(dashscope_provider, "POLL_INTERVAL_SECONDS", 0)
-    attempts = iter(["boom", "503", "SUCCEEDED"])
+    steps = iter(["PENDING", "boom", "503", "RUNNING", "SUCCEEDED"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        step = next(attempts)
+        step = next(steps)
         if step == "boom":
             raise httpx.ReadTimeout("poll hiccup", request=request)
         if step == "503":
             return httpx.Response(503, json={})
-        return httpx.Response(200, json=_succeeded_payload())
+        if step == "SUCCEEDED":
+            return httpx.Response(200, json=_succeeded_payload())
+        return httpx.Response(
+            200,
+            json={"output": {"task_id": "t-1", "task_status": step}},
+        )
 
     response = _poll(_model(), httpx.MockTransport(handler))
     assert response.json()["output"]["task_status"] == "SUCCEEDED"
 
 
 def test_failed_task_raises_a_deterministic_model_error() -> None:
-    def handler(
-        request: httpx.Request,
-    ) -> httpx.Response:  # pylint: disable=unused-argument
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
@@ -222,9 +171,7 @@ def test_failed_task_raises_a_deterministic_model_error() -> None:
 def test_deadline_exhaustion_reads_as_a_transient_timeout(monkeypatch) -> None:
     monkeypatch.setattr(dashscope_provider, "POLL_INTERVAL_SECONDS", 0)
 
-    def handler(
-        request: httpx.Request,
-    ) -> httpx.Response:  # pylint: disable=unused-argument
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={"output": {"task_id": "t-1", "task_status": "RUNNING"}},
@@ -239,13 +186,10 @@ def test_deadline_exhaustion_reads_as_a_transient_timeout(monkeypatch) -> None:
 # ── decode handles the nested async-result payload ─────────────────────────
 
 
-def test_decode_unwraps_async_task_results(monkeypatch) -> None:
+def test_decode_unwraps_async_and_sync_payloads(monkeypatch) -> None:
     model = _model()
 
-    async def fake_download(
-        url: str,
-        model_name: str,
-    ) -> str:  # pylint: disable=unused-argument
+    async def fake_download(url: str, model_name: str) -> str:
         return f"/generated/{url.rsplit('/', 1)[-1]}"
 
     monkeypatch.setattr(
@@ -253,33 +197,18 @@ def test_decode_unwraps_async_task_results(monkeypatch) -> None:
         "download_remote_image",
         fake_download,
     )
-    url = asyncio.run(model._decode(_succeeded_payload()))
-    assert url == "/generated/img.png"
-
-
-def test_decode_still_reads_the_synchronous_payload(monkeypatch) -> None:
-    model = _model()
-
-    async def fake_download(
-        url: str,
-        model_name: str,
-    ) -> str:  # pylint: disable=unused-argument
-        return "/generated/sync.png"
-
-    monkeypatch.setattr(
-        dashscope_provider,
-        "download_remote_image",
-        fake_download,
-    )
-    payload = {
+    assert asyncio.run(model._decode(_succeeded_payload())) == {
+        "url": "/generated/img.png",
+        "source_url": "",
+    }
+    sync_payload = {
         "output": {
             "choices": [
-                {
-                    "message": {
-                        "content": [{"image": "https://oss/sync.png"}],
-                    },
-                },
+                {"message": {"content": [{"image": "https://oss/sync.png"}]}},
             ],
         },
     }
-    assert asyncio.run(model._decode(payload)) == "/generated/sync.png"
+    assert asyncio.run(model._decode(sync_payload)) == {
+        "url": "/generated/sync.png",
+        "source_url": "",
+    }

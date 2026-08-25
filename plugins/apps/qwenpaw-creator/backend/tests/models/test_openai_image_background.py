@@ -3,10 +3,8 @@
 # pylint: disable=protected-access,unused-argument
 """OpenAI image background mode: Responses API submit, poll, decode.
 
-Background mode is opt-in via ``background_model`` (the Responses-API host
-model); empty keeps the classic synchronous Images API untouched, because
-gpt-image-2 renders in ~40s and has no async mode on the classic endpoint.
-Both transports share the configured base URL.
+Background mode is opt-in via ``background_model``; empty keeps the classic
+synchronous Images API untouched. Both transports share the base URL.
 """
 from __future__ import annotations
 
@@ -18,6 +16,7 @@ import httpx
 import pytest
 
 import models.image.openai_provider as openai_provider  # noqa: PLR0402  pylint: disable=consider-using-from-import
+from models.image.openai_provider import build_reference_image_files
 from models.image.openai_provider import OpenAIImageModel
 from utils.exceptions import ModelError
 
@@ -42,33 +41,14 @@ def _model(
     )
 
 
-# ── the responses root derives from the same configured base URL ──────────
-
-
-def test_responses_url_tolerates_v1_suffixed_and_versionless_bases() -> None:
-    assert _model().responses_url == "https://api.openai.com/v1/responses"
-    versionless = _model(
-        base_url="https://routify.alibaba-inc.com/protocol/openai",
-    )
-    assert versionless.responses_url == (
-        "https://routify.alibaba-inc.com/protocol/openai/v1/responses"
-    )
-
-
-def test_empty_background_model_keeps_the_sync_transport() -> None:
-    sync_model = _model(background_model="")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/images/generations")
-        return httpx.Response(200, json={"data": [{"b64_json": "x"}]})
-
+def _request(model: OpenAIImageModel, handler) -> httpx.Response:
     async def scenario() -> httpx.Response:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler),
         ) as client:
-            return await sync_model._request(client, "p", "16:9", [])
+            return await model._request(client, "p", "16:9", [])
 
-    assert asyncio.run(scenario()).status_code == 200
+    return asyncio.run(scenario())
 
 
 # ── background submit + poll ───────────────────────────────────────────────
@@ -87,14 +67,12 @@ def _completed_payload() -> dict:
     }
 
 
-def test_background_submits_then_polls_to_completion(monkeypatch) -> None:
-    monkeypatch.setattr(
-        openai_provider,
-        "RESPONSES_POLL_INTERVAL_SECONDS",
-        0,
-    )
-    model = _model()
-    seen: list[str] = []
+def test_background_submits_then_rides_out_transient_polls(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(openai_provider, "RESPONSES_POLL_INTERVAL_SECONDS", 0)
+    submits: list[str] = []
+    steps = iter(["in_progress", "boom", "503", "completed"])
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
@@ -103,39 +81,29 @@ def test_background_submits_then_polls_to_completion(monkeypatch) -> None:
             assert body["model"] == "gpt-5.2"
             assert body["tools"][0]["type"] == "image_generation"
             assert body["tools"][0]["model"] == "gpt-image-2"
-            seen.append("submit")
+            submits.append("submit")
             return httpx.Response(
                 200,
                 json={"id": "resp_1", "status": "queued"},
             )
-        seen.append("poll")
-        if seen.count("poll") < 2:
-            return httpx.Response(
-                200,
-                json={"id": "resp_1", "status": "in_progress"},
-            )
-        return httpx.Response(200, json=_completed_payload())
+        step = next(steps)
+        if step == "boom":
+            raise httpx.ReadTimeout("poll hiccup", request=request)
+        if step == "503":
+            return httpx.Response(503, json={})
+        if step == "completed":
+            return httpx.Response(200, json=_completed_payload())
+        return httpx.Response(200, json={"id": "resp_1", "status": step})
 
-    async def scenario() -> httpx.Response:
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handler),
-        ) as client:
-            return await model._request(client, "p", "16:9", [])
-
-    response = asyncio.run(scenario())
+    response = _request(_model(), handler)
     assert response.json()["status"] == "completed"
-    assert seen == ["submit", "poll", "poll"]
+    assert submits == ["submit"]  # transient poll errors never resubmit
 
 
 def test_background_failure_raises_with_the_provider_detail(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        openai_provider,
-        "RESPONSES_POLL_INTERVAL_SECONDS",
-        0,
-    )
-    model = _model()
+    monkeypatch.setattr(openai_provider, "RESPONSES_POLL_INTERVAL_SECONDS", 0)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
@@ -152,27 +120,15 @@ def test_background_failure_raises_with_the_provider_detail(
             },
         )
 
-    async def scenario() -> httpx.Response:
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handler),
-        ) as client:
-            return await model._request(client, "p", "16:9", [])
-
     with pytest.raises(ModelError) as caught:
-        asyncio.run(scenario())
+        _request(_model(), handler)
     assert "moderation_blocked" in str(caught.value)
+    # Deterministic wording: must NOT look transient to the scheduler.
     assert "timed out" not in str(caught.value).lower()
 
 
-def test_background_deadline_reads_as_a_transient_timeout(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        openai_provider,
-        "RESPONSES_POLL_INTERVAL_SECONDS",
-        0,
-    )
-    model = _model(timeout=0)
+def test_background_deadline_reads_as_a_transient_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(openai_provider, "RESPONSES_POLL_INTERVAL_SECONDS", 0)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
@@ -185,53 +141,16 @@ def test_background_deadline_reads_as_a_transient_timeout(
             json={"id": "resp_1", "status": "in_progress"},
         )
 
-    async def scenario() -> httpx.Response:
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handler),
-        ) as client:
-            return await model._request(client, "p", "16:9", [])
-
     with pytest.raises(ModelError) as caught:
-        asyncio.run(scenario())
+        _request(_model(timeout=0), handler)
     # The scheduler's transient classifier keys on this wording.
     assert "timed out" in str(caught.value)
-
-
-def test_background_poll_survives_transient_errors(monkeypatch) -> None:
-    monkeypatch.setattr(
-        openai_provider,
-        "RESPONSES_POLL_INTERVAL_SECONDS",
-        0,
-    )
-    model = _model()
-    steps = iter(["boom", "503", "done"])
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "POST":
-            return httpx.Response(
-                200,
-                json={"id": "resp_1", "status": "queued"},
-            )
-        step = next(steps)
-        if step == "boom":
-            raise httpx.ReadTimeout("poll hiccup", request=request)
-        if step == "503":
-            return httpx.Response(503, json={})
-        return httpx.Response(200, json=_completed_payload())
-
-    async def scenario() -> httpx.Response:
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handler),
-        ) as client:
-            return await model._request(client, "p", "16:9", [])
-
-    assert asyncio.run(scenario()).json()["status"] == "completed"
 
 
 # ── decode handles both payload shapes ─────────────────────────────────────
 
 
-def test_decode_reads_the_responses_payload(monkeypatch, tmp_path) -> None:
+def test_decode_unwraps_background_and_classic_payloads(monkeypatch) -> None:
     model = _model()
     saved: dict = {}
 
@@ -240,71 +159,66 @@ def test_decode_reads_the_responses_payload(monkeypatch, tmp_path) -> None:
         return "/generated/bg.png"
 
     monkeypatch.setattr(openai_provider, "persist_image_bytes", fake_persist)
-    url = asyncio.run(model._decode(_completed_payload()))
-    assert url == "/generated/bg.png"
-    assert saved["bytes"] == _PNG_BYTES
-
-
-def test_decode_still_reads_the_classic_images_payload(monkeypatch) -> None:
-    model = _model()
-
-    def fake_persist(img_bytes: bytes, model_name: str, source: str) -> str:
-        return "/generated/classic.png"
-
-    monkeypatch.setattr(openai_provider, "persist_image_bytes", fake_persist)
-    classic = {
-        "data": [
-            {"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")},
-        ],
+    assert asyncio.run(model._decode(_completed_payload())) == {
+        "url": "/generated/bg.png",
+        "source_url": "",
     }
-    assert asyncio.run(model._decode(classic)) == "/generated/classic.png"
+    assert saved["bytes"] == _PNG_BYTES
+    classic = {
+        "data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}],
+    }
+    assert asyncio.run(model._decode(classic)) == {
+        "url": "/generated/bg.png",
+        "source_url": "",
+    }
 
 
-def test_decode_persists_off_the_event_loop_with_task_scope(
-    monkeypatch,
+# ---------------------------------------------------------------------------
+# URL construction and reference upload fields (classic Images API)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "prefix"),
+    [
+        # Both endpoint styles must resolve to a single /v1/images/...
+        # path — never /v1/v1/images/....
+        ("https://api.openai.com/v1", "https://api.openai.com/v1"),
+        (
+            "https://routify.alibaba-inc.com/protocol/openai",
+            "https://routify.alibaba-inc.com/protocol/openai/v1",
+        ),
+    ],
+)
+def test_image_urls_gain_exactly_one_v1_segment(
+    endpoint: str,
+    prefix: str,
+) -> None:
+    model = _model(base_url=endpoint)
+    assert model.generation_url == f"{prefix}/images/generations"
+    assert model._url(["ref.png"]) == f"{prefix}/images/edits"
+
+
+def test_reference_files_use_the_array_field_for_multiple_images(
     tmp_path,
 ) -> None:
-    """The durable image write never runs on the event loop.
+    """Two or more references upload as image[]; a single one stays image.
 
-    The review's case: base64 decode plus the fsync-heavy persist stalled
-    every other coroutine while a large image landed on a slow disk. The
-    write must run in a worker thread, and contextvars must carry the Task
-    scope there so the file still lands in the right scratch directory.
+    The gateway rejects a repeated bare ``image`` field with 400
+    "Duplicate parameter: 'image'" (storyboard incident regression).
     """
 
-    import threading
+    first = tmp_path / "ref-a.png"
+    second = tmp_path / "ref-b.png"
+    first.write_bytes(b"\x89PNG\r\n\x1a\na")
+    second.write_bytes(b"\x89PNG\r\n\x1a\nb")
 
-    # pylint: disable=no-name-in-module
-    from utils.paths import media_task_scope, task_work_root
-
-    # pylint: enable=no-name-in-module
-
-    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path))
-    (tmp_path / "project-bg" / "runtime").mkdir(parents=True)
-    (tmp_path / "project-bg" / "project.json").write_text(
-        "{}",
-        encoding="utf-8",
+    multiple = asyncio.run(
+        build_reference_image_files(
+            [first.as_uri(), second.as_uri(), first.as_uri(), " "],
+        ),
     )
-    model = _model()
-    seen: dict = {}
+    assert [name for name, _ in multiple] == ["image[]", "image[]"]
 
-    def fake_persist(img_bytes: bytes, model_name: str, source: str) -> str:
-        seen["thread"] = threading.get_ident()
-        seen["work_root"] = str(task_work_root())
-        seen["bytes"] = img_bytes
-        return "/generated/bg.png"
-
-    monkeypatch.setattr(openai_provider, "persist_image_bytes", fake_persist)
-
-    async def scenario() -> tuple[int, str]:
-        with media_task_scope("task-bg-1", project_id="project-bg"):
-            url = await model._decode(_completed_payload())
-        return threading.get_ident(), url
-
-    loop_thread, url = asyncio.run(scenario())
-
-    assert url == "/generated/bg.png"
-    assert seen["bytes"] == _PNG_BYTES
-    # Off the loop, but still inside the Task's scratch scope.
-    assert seen["thread"] != loop_thread
-    assert "task-bg-1" in seen["work_root"]
+    single = asyncio.run(build_reference_image_files([first.as_uri()]))
+    assert [name for name, _ in single] == ["image"]

@@ -5,6 +5,11 @@ import type { FileProjectReviewRecord } from "@/contracts/creator";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import {
+  makePendingAuthorization,
+  makeReviewOperation,
+  makeReviewRecord,
+} from "@/test/agentFixtures";
 
 vi.mock("@/routing/locators", () => ({
   navigateToLocator: vi.fn(),
@@ -19,56 +24,25 @@ vi.mock("@/api/creator", async (importOriginal) => {
   };
 });
 
-const pendingAuthorization = {
-  id: "authorization-1",
-  transactionId: "round-1",
-  specialistRunId: "run-1",
-  executionRequestId: "request-1",
-  targetRef: "element:el-1",
+const pendingAuthorization = makePendingAuthorization({
   scope: { operation: "image_generation", message: "生成开场分镜图" },
-  status: "PENDING" as const,
-  authorizationToken: "token-1",
-  provider: "dashscope",
-  model: "qwen-image-2.0-pro",
-  maxCandidates: 1,
-  createdAt: "now",
-};
+});
 
-function textReview(
-  reviewId: string,
-  pointer: string,
-): FileProjectReviewRecord {
-  return {
+const textReview = (reviewId: string, pointer: string) =>
+  makeReviewRecord({
     review_id: reviewId,
     round_id: `round-${reviewId}`,
-    request_id: `request-${reviewId}`,
-    request_message_seq: 4,
-    interrupted_run_id: "run-1",
-    baseline_generation: 2,
-    baseline_etag: "base-2",
-    candidate_generation: 3,
-    candidate_etag: "candidate-3",
     decision_token: `token-${reviewId}`,
-    status: "PENDING",
     operations: [
-      {
-        kind: "update",
+      makeReviewOperation({
         json_pointer: pointer,
-        file_id: null,
-        target_ref: null,
-        before_hash: "before-0",
-        after_hash: "after-0",
         before: "旧文案",
         after: "新文案",
         operation_id: `operation-${reviewId}`,
         ui_locator: { page: "plan", mediaType: "text", field: pointer },
-        decision: "PENDING",
-      },
+      }),
     ],
-    created_at: "2026-07-15T00:00:00Z",
-    updated_at: "2026-07-15T00:00:01Z",
-  };
-}
+  });
 
 function seed({
   authorizations = [pendingAuthorization],
@@ -82,9 +56,6 @@ function seed({
   useFileProjectReviewStore.setState({
     projectId: "p1",
     reviews,
-    etag: '"token"',
-    syncStatus: "healthy",
-    syncError: null,
     decisionInFlight: false,
   });
 }
@@ -96,22 +67,16 @@ afterEach(() => {
 });
 
 describe("DecisionTray", () => {
-  it("orders the blocking authorization ahead of reviews in the stack", () => {
+  it("focuses the blocking authorization first, then steps to the review", () => {
     seed({ reviews: [textReview("review-1", "/description")] });
     render(<DecisionTray projectId="p1" />);
 
-    // Blocking item focused first: the production-confirmation card is fully
-    // visible, review cards only show their stacked-paper stubs.
+    // Blocking item focused first: only the confirmation card is expanded.
     expect(screen.getByText("生成开场分镜图")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "文本审阅 · 1 处" }),
     ).toHaveAttribute("title", expect.stringContaining("下一条"));
     expect(screen.queryByText(/旧文案/)).not.toBeInTheDocument();
-  });
-
-  it("navigates the stack with the next arrow and focuses the review card", () => {
-    seed({ reviews: [textReview("review-1", "/description")] });
-    render(<DecisionTray projectId="p1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "下一条决策" }));
     expect(screen.getByText(/旧文案/)).toBeInTheDocument();
@@ -119,7 +84,7 @@ describe("DecisionTray", () => {
     expect(screen.getByRole("button", { name: "上一条决策" })).toBeEnabled();
   });
 
-  it("shows every pending card at once in list mode", () => {
+  it("shows every pending card in list mode and filters by decision kind", () => {
     seed({
       reviews: [
         textReview("review-1", "/description"),
@@ -132,17 +97,12 @@ describe("DecisionTray", () => {
     expect(screen.getByText("生成开场分镜图")).toBeInTheDocument();
     expect(screen.getAllByText(/旧文案/)).toHaveLength(2);
     expect(screen.getByRole("button", { name: /堆叠/ })).toBeInTheDocument();
-  });
 
-  it("filters by decision kind and recovers when the filter empties", () => {
-    seed({ reviews: [textReview("review-1", "/description")] });
-    render(<DecisionTray projectId="p1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: /^审阅 1$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^审阅 2$/ }));
     expect(screen.queryByText("生成开场分镜图")).not.toBeInTheDocument();
-    expect(screen.getByText(/旧文案/)).toBeInTheDocument();
+    expect(screen.getAllByText(/旧文案/)).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: /^全部 2$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^全部 3$/ }));
     expect(screen.getByText("生成开场分镜图")).toBeInTheDocument();
   });
 });

@@ -22,26 +22,25 @@ vi.mock("../../api/modules/projectDirectory", () => ({
   projectDirectoryApi: {
     browseDirs: mockBrowseDirs,
     createDirectory: mockCreateDirectory,
-    get: vi.fn(),
+    get: mockGetSessionDirectory,
     list: mockListProjects,
-    set: vi.fn(),
+    set: mockSetSessionDirectory,
   },
 }));
 
 vi.mock("../../api/modules/chatProjectDirectory", () => ({
   chatProjectDirectoryApi: {
-    clear: vi.fn(),
-    get: mockGetSessionDirectory,
-    set: mockSetSessionDirectory,
+    clearProjectDirs: vi.fn(),
+    get: vi.fn(),
+    getProjectDirs: vi.fn(),
+    setProjectDirs: vi.fn(),
   },
 }));
 
-const scope = {
-  kind: "session" as const,
-  agentId: "default",
-  chatId: "chat-1",
-  sessionId: "session-1",
-};
+// The single-path picker these tests drive (path field, clear button,
+// recent-project selection, Apply) lives on AGENT scope. Session scope
+// binds an ordered list of directories instead, so it has no path field.
+const scope = { kind: "agent" as const, agentId: "default" };
 
 const projects = [
   {
@@ -62,9 +61,9 @@ describe("SessionProjectDirectory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSessionDirectory.mockResolvedValue({
-      project_dir: "/projects/agentscope",
-      source: "session",
-      agent_project_dir: "/projects/agentscope",
+      path: "/projects/agentscope",
+      name: "agentscope",
+      is_workspace_default: false,
       exists: true,
     });
     mockListProjects.mockResolvedValue(projects);
@@ -79,21 +78,24 @@ describe("SessionProjectDirectory", () => {
     });
   });
 
+  const openPanel = async (user: ReturnType<typeof userEvent.setup>) =>
+    user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.agentTitle",
+      }),
+    );
+
   it("shows a removable path chip for a selected recent project", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
 
     const clearButton = await screen.findByRole("button", {
       name: "projectDirectory.clearSelection",
     });
     expect(
-      document.querySelector(".ant-popover-placement-topRight"),
+      document.querySelector(".ant-popover-placement-rightTop"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
       "aria-pressed",
@@ -115,11 +117,7 @@ describe("SessionProjectDirectory", () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
     await user.click(await screen.findByRole("button", { name: /custom/ }));
 
     expect(
@@ -135,11 +133,7 @@ describe("SessionProjectDirectory", () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
     await user.click(
       await screen.findByRole("button", {
         name: "projectDirectory.createDirectory",
@@ -164,11 +158,7 @@ describe("SessionProjectDirectory", () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
     await user.click(
       await screen.findByRole("button", {
         name: "projectDirectory.parentDirectory",
@@ -196,11 +186,7 @@ describe("SessionProjectDirectory", () => {
     );
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
     const input = await screen.findByPlaceholderText(
       "projectDirectory.pathPlaceholder",
     );
@@ -220,16 +206,10 @@ describe("SessionProjectDirectory", () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
     await waitFor(() => {
-      expect(mockBrowseDirs).toHaveBeenCalledWith(
-        "/projects/agentscope",
-        false,
-      );
+      // Opens on the home directory, not inside the current project.
+      expect(mockBrowseDirs).toHaveBeenCalledWith("~", false);
     });
 
     await user.click(
@@ -251,7 +231,7 @@ describe("SessionProjectDirectory", () => {
     const user = userEvent.setup();
 
     // We will control resolve order manually.
-    let resolvers: Array<{
+    const resolvers: Array<{
       resolve: (v: {
         current: string;
         parent: string;
@@ -271,11 +251,7 @@ describe("SessionProjectDirectory", () => {
 
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
 
     // Wait for the initial browse request (show_hidden=false).
     await waitFor(() => {
@@ -333,26 +309,19 @@ describe("SessionProjectDirectory", () => {
   it("applies the path that owns the visible selection state", async () => {
     const user = userEvent.setup();
     mockSetSessionDirectory.mockResolvedValue({
-      project_dir: "/projects/runtime",
-      source: "session",
-      agent_project_dir: "/projects/agentscope",
+      path: "/projects/runtime",
+      name: "runtime",
+      is_workspace_default: false,
       exists: true,
     });
     renderWithProviders(<SessionProjectDirectory scope={scope} />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "projectDirectory.sessionTitle",
-      }),
-    );
+    await openPanel(user);
     await user.click(await screen.findByRole("button", { name: /runtime/ }));
     await user.click(screen.getByRole("button", { name: "common.apply" }));
 
     await waitFor(() => {
-      expect(mockSetSessionDirectory).toHaveBeenCalledWith(
-        "chat-1",
-        "/projects/runtime",
-      );
+      expect(mockSetSessionDirectory).toHaveBeenCalledWith("/projects/runtime");
     });
   });
 });

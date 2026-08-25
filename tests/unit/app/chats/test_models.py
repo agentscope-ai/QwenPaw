@@ -46,7 +46,8 @@ def test_chat_spec_default_values():
     assert spec.pinned is False
     assert spec.source == SessionSource.chat
     assert spec.status == "idle"
-    assert not spec.meta
+    assert spec.last_finished_at is None
+    assert spec.meta == {}
     assert spec.group_id is None
     assert spec.parent_session_id is None
     assert spec.root_session_id is None

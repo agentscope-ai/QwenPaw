@@ -134,6 +134,7 @@ def _looks_like_project_path(value: str) -> bool:
     lazy_subcommands={
         "acp": ("qwenpaw.cli.acp_cmd", "acp_cmd", ".acp_cmd"),
         "app": ("qwenpaw.cli.app_cmd", "app_cmd", ".app_cmd"),
+        "hub": ("qwenpaw.cli.hub_cmd", "hub_cmd", ".hub_cmd"),
         "channels": (
             "qwenpaw.cli.channels_cmd",
             "channels_group",

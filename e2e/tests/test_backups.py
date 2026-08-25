@@ -542,8 +542,17 @@ class TestImportBackupEntry:
             # 1. Visit backups page
             log_test_step("1. Visit backups page")
             page.goto(f"{config.base_url}/backups")
-            page.wait_for_load_state("commit", timeout=30000)
-            page.wait_for_timeout(1500)
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+            # The page header (with the Import button) only renders once
+            # data loading settles; on slow CI runners a fixed sleep races
+            # the render, so anchor on the header action area instead.
+            try:
+                page.locator(
+                    'button:has-text("Import"), button:has-text("导入"), '
+                    'button:has-text("Create"), button:has-text("创建")'
+                ).first.wait_for(state="visible", timeout=15000)
+            except Exception:
+                logger.info("backups header not visible yet; continuing")
 
             # 2. Find the import button / upload entry
             log_test_step("2. Find import button")

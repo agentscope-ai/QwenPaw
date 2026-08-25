@@ -11,6 +11,7 @@ import { useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
+import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
 import {
   isValidDreamCronShape,
@@ -78,7 +79,6 @@ function RuntimeProvider({ children }: { children: ReactNode }) {
         runtimeStatus,
         diagnosticsStatus,
         checkMemoryStatus,
-        configRevision: 0,
       }}
     >
       {children}
@@ -98,7 +98,6 @@ function StaticMemoryProvider({ children }: { children: ReactNode }) {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
-        configRevision: 0,
       }}
     >
       {children}
@@ -146,7 +145,11 @@ function EmbeddingForm() {
   );
 }
 
-function ConfiguredEmbeddingForm() {
+function ConfiguredEmbeddingForm({
+  modelName = "text-embedding-v4",
+}: {
+  modelName?: string;
+}) {
   const [form] = Form.useForm();
   return (
     <Form
@@ -155,7 +158,7 @@ function ConfiguredEmbeddingForm() {
         reme_light_memory_config: {
           embedding_model_config: {
             backend: "openai",
-            model_name: "text-embedding-v4",
+            model_name: modelName,
             api_key: "secret",
             dimensions: 1024,
             enable_cache: true,
@@ -180,7 +183,6 @@ function ReindexingEmbeddingForm() {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
-        configRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -201,7 +203,6 @@ function NeedsReindexEmbeddingForm({ onOpen = vi.fn() }) {
         runtimeStatus: unknownRuntime,
         diagnosticsStatus: unknownDiagnostics,
         checkMemoryStatus: noopStatusCheck,
-        configRevision: 0,
       }}
     >
       <ConfiguredEmbeddingForm />
@@ -228,7 +229,6 @@ function MemoryAndEmbeddingForm() {
         runtimeStatus,
         diagnosticsStatus,
         checkMemoryStatus,
-        configRevision: 0,
       }}
     >
       <Form
@@ -255,6 +255,7 @@ function MemoryAndEmbeddingForm() {
 afterEach(() => {
   vi.restoreAllMocks();
   useAgentStore.setState({ selectedAgent: "default" });
+  useEmbeddingVerificationStore.setState({ verificationByAgent: {} });
 });
 
 describe("ReMe runtime status", () => {
@@ -631,7 +632,78 @@ describe("embedding card separation", () => {
     ).toBeInTheDocument();
   });
 
-  it("clears verification when the selected agent changes", async () => {
+  it("keeps a successful verification after the embedding card remounts", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    const view = renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      ).toHaveAttribute("aria-busy", "false"),
+    );
+
+    view.unmount();
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    expect(api.testEmbedding).toHaveBeenCalledOnce();
+  });
+
+  it("does not reuse verification for different service settings", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    const view = renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      ).toHaveAttribute("aria-busy", "false"),
+    );
+
+    view.unmount();
+    renderWithProviders(
+      <ConfiguredEmbeddingForm modelName="text-embedding-v5" />,
+    );
+
+    expect(
+      screen.getByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+  });
+
+  it("isolates verification by selected agent", async () => {
     vi.spyOn(api, "testEmbedding").mockResolvedValue({
       success: true,
       configured_dimensions: 1024,
@@ -653,6 +725,12 @@ describe("embedding card separation", () => {
 
     expect(
       await screen.findByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "default" }));
+
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
     ).toBeInTheDocument();
   });
 

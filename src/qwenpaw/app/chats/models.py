@@ -119,6 +119,10 @@ class ChatSpec(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc),
         description="Chat last update timestamp",
     )
+    last_finished_at: Optional[datetime] = Field(
+        default=None,
+        description="When the most recent task for this chat finished",
+    )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata",

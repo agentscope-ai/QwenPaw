@@ -10,6 +10,7 @@ import type {
   ProjectServerSyncStatus,
   ProjectSnapshotEnvelope,
   ProjectSnapshotPollResult,
+  R2VReferenceOrderResponse,
 } from "@/contracts/creator";
 import {
   CreatorHttpError,
@@ -18,6 +19,7 @@ import {
   jsonBody,
   newClientId,
 } from "./client";
+import { sha256Bytes } from "@/lib/sha256";
 import i18n from "@/i18n";
 
 function syncStatus(
@@ -179,6 +181,32 @@ export function deleteProject(projectId: string): Promise<void> {
   });
 }
 
+export function copyProject(
+  projectId: string,
+  clientRequestId = newClientId("copy-project"),
+): Promise<{ projectId: string }> {
+  return creatorRequest(`/projects/${encodeURIComponent(projectId)}/copy`, {
+    method: "POST",
+    headers: { "Idempotency-Key": clientRequestId },
+  });
+}
+
+export interface RecreateParams {
+  name: string;
+  description: string;
+  scenario: string;
+  contentType: string | null;
+  resolution: string;
+  aspectRatio: string;
+  sourceUrls: string[];
+}
+
+export function getRecreateParams(projectId: string): Promise<RecreateParams> {
+  return creatorRequest(
+    `/projects/${encodeURIComponent(projectId)}/recreate-params`,
+  );
+}
+
 /** OSS-hosted inspiration examples shown under the home composer. */
 export function listInspirationExamples(): Promise<InspirationExampleListResponse> {
   return creatorRequest("/examples");
@@ -219,11 +247,15 @@ function sortJson(value: unknown): unknown {
 }
 
 async function sha256(value: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return `sha256:${Array.from(new Uint8Array(digest))
+  const bytes = new TextEncoder().encode(value);
+  // `crypto.subtle` only exists in secure contexts (HTTPS / localhost); an
+  // HTTP LAN deployment must fall back to the pure-JS digest or every CAS
+  // edit dies with "Cannot read properties of undefined (reading 'digest')".
+  const subtle = globalThis.crypto?.subtle;
+  const digest = subtle
+    ? new Uint8Array(await subtle.digest("SHA-256", bytes))
+    : sha256Bytes(bytes);
+  return `sha256:${Array.from(digest)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")}`;
 }
@@ -245,4 +277,16 @@ export function patchProject(
     headers: { "Idempotency-Key": request.clientCommandId },
     body: jsonBody(request),
   });
+}
+
+/** Authoritative [Image N] reference order for one r2v Element. */
+export function getR2VReferenceOrder(
+  projectId: string,
+  elementId: string,
+): Promise<R2VReferenceOrderResponse> {
+  return creatorRequest(
+    `/projects/${encodeURIComponent(projectId)}/elements/${encodeURIComponent(
+      elementId,
+    )}/r2v-references`,
+  );
 }

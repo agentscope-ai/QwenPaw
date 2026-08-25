@@ -8,6 +8,7 @@ import { creatorRequest, hostToken, jsonBody, newClientId } from "./client";
 export interface HostModelInfo {
   id: string;
   name: string;
+  is_free?: boolean;
 }
 
 export interface HostProviderInfo {
@@ -17,6 +18,9 @@ export interface HostProviderInfo {
   freeze_url: boolean;
   models: HostModelInfo[];
   extra_models: HostModelInfo[];
+  api_key?: string;
+  require_api_key?: boolean;
+  is_free_tier?: boolean;
   meta?: {
     base_url_options?: { label: string; value: string }[];
   };

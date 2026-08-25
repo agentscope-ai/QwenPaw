@@ -7,9 +7,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from qwenpaw.app.computer_use import COMPUTER_USE_PROTOCOL_VERSION
+# The plugin can be updated independently of the desktop host. Keep its
+# expected version local so mismatched installations fail at the handshake.
+PROTOCOL_VERSION = 2
 
-PROTOCOL_VERSION = COMPUTER_USE_PROTOCOL_VERSION
 
 # Every method name this adapter may put on the wire. The helper matches on
 # these, so the two sides have to agree exactly -- a name only one of them

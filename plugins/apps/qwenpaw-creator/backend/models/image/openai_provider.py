@@ -468,7 +468,7 @@ class OpenAIImageModel(BaseImageModel):
             "base64→file",
         )
 
-    async def _decode(self, data: dict | list) -> str:
+    async def _decode(self, data: dict | list) -> dict:
         # Responses-API payloads carry the image inside an
         # image_generation_call output block as base64.
         if isinstance(data, dict) and isinstance(data.get("output"), list):
@@ -478,10 +478,11 @@ class OpenAIImageModel(BaseImageModel):
                     and block.get("type") == "image_generation_call"
                     and block.get("result")
                 ):
-                    return await asyncio.to_thread(
+                    local_url = await asyncio.to_thread(
                         self._persist_base64_image,
                         str(block["result"]),
                     )
+                    return {"url": local_url, "source_url": ""}
             raise ModelError(
                 f"No image_generation_call result in response: {data}",
                 model_name=self.model_name,
@@ -511,15 +512,18 @@ class OpenAIImageModel(BaseImageModel):
             )
 
         if item.get("b64_json"):
-            return await asyncio.to_thread(
+            local_url = await asyncio.to_thread(
                 self._persist_base64_image,
                 str(item["b64_json"]),
             )
+            return {"url": local_url, "source_url": ""}
         if item.get("url"):
-            return await download_remote_image(
-                str(item["url"]),
+            original_url = str(item["url"])
+            local_url = await download_remote_image(
+                original_url,
                 self.model_name,
             )
+            return {"url": local_url, "source_url": ""}
         raise ModelError(
             f"No b64_json or url in response item: {item}",
             model_name=self.model_name,

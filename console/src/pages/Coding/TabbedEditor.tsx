@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import "../../monacoSetup";
 import Editor, {
   DiffEditor,
   type Monaco,

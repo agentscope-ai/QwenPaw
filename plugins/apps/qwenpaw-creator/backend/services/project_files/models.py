@@ -38,7 +38,15 @@ DEFAULT_TIMELINE_TICKS_PER_SECOND = 1_000
 
 # Unified colour-grade preset names; the ffmpeg filters live in the local
 # media renderer (keys must stay aligned with _COLOR_GRADE_FILTERS there).
-COLOR_GRADE_PRESETS = ("warm_bright", "clean_cool", "cinematic")
+COLOR_GRADE_PRESETS = (
+    "warm_bright",
+    "clean_cool",
+    "cinematic",
+    "vlog_fresh",
+    "ink_wash",
+    "stage_drama",
+    "neon_vivid",
+)
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
 
@@ -789,6 +797,11 @@ class R2VCreation(StrictModel):
     )
     video_prompt: str = ""
     video_reference_version_ids: list[EntityId] = Field(default_factory=list)
+    # Minimum fraction of shots that must carry dialogue when the element
+    # has character appearances. Default 0.3 (≈1 line per 2–3 shots);
+    # the model sets this during planning and the review UI may override
+    # it per element. The work-graph gate enforces it deterministically.
+    min_dialogue_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _validate_shots(self) -> R2VCreation:

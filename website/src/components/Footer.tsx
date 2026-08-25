@@ -10,6 +10,7 @@ import {
   WChatIcon,
   DouyinIcon,
   DingTalkIcon,
+  BilibiliIcon,
 } from "./Icon";
 
 const AGENTSCOPE_ORG = "https://github.com/agentscope-ai";
@@ -86,6 +87,13 @@ const socialLinks: SocialLink[] = [
     icon: <DouyinIcon size={20} className="block" />,
     qrCode:
       "https://img.alicdn.com/imgextra/i4/O1CN01Kqgflj1oD4inPqJQ8_!!6000000005190-2-tps-400-400.png",
+  },
+  {
+    href: "https://space.bilibili.com/3707036938275344",
+    ariaLabel: "footer.social.bilibili",
+    icon: <BilibiliIcon size={20} className="block" />,
+    qrCode:
+      "https://img.alicdn.com/imgextra/i2/O1CN01SWkAuAf0Z3L0oLxI_!!6000000005695-2-tps-400-400.png",
   },
 ];
 

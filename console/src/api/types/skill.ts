@@ -32,6 +32,7 @@ export interface PoolSkillSpec {
   tags?: string[];
   last_updated?: string;
   emoji?: string;
+  auto_sync?: boolean;
   auto_update?: boolean;
 }
 
@@ -41,7 +42,7 @@ export interface PoolSkillDetail extends PoolSkillSpec {
   installed_from?: string;
   builtin_language?: string;
   available_builtin_languages?: string[];
-  auto_update_targets?: string[] | null;
+  auto_sync_targets?: string[] | null;
 }
 
 export interface BuiltinLanguageSpec {
@@ -86,6 +87,49 @@ export interface BuiltinUpdateNotice {
   missing: BuiltinImportSpec[];
   updated: BuiltinImportSpec[];
   removed: BuiltinRemovedSpec[];
+}
+
+export interface PoolAutomationUpdate {
+  skill: string;
+  language?: string;
+  from_version?: string;
+  to_version?: string;
+  reason?: string;
+  detail?: string;
+}
+
+export interface PoolAutomationSync {
+  skill: string;
+  agents?: string[];
+}
+
+export interface PoolAutomationResult {
+  pool_updated: PoolAutomationUpdate[];
+  pool_failed: PoolAutomationUpdate[];
+  synced: PoolAutomationSync[];
+  sync_failed: PoolAutomationSync[];
+  checked: {
+    auto_update: number;
+    auto_sync: number;
+  };
+}
+
+export interface SkillAutomationUpdate {
+  auto_update?: boolean;
+  auto_sync?: {
+    enabled: boolean;
+    targets?: string[] | null;
+  };
+}
+
+export interface SkillAutomationResponse {
+  updated: boolean;
+  auto_update: boolean;
+  auto_sync: {
+    enabled: boolean;
+    targets: string[] | null;
+  };
+  automation: PoolAutomationResult;
 }
 
 export interface HubSkillSpec {

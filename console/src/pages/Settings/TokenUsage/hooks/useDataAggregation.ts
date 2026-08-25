@@ -23,6 +23,15 @@ interface AggregatedData {
       call_count: number;
     }
   >;
+  by_agent: Record<
+    string,
+    {
+      agent_id: string;
+      prompt_tokens: number;
+      completion_tokens: number;
+      call_count: number;
+    }
+  >;
   by_date_model: Record<
     string,
     Record<
@@ -44,6 +53,7 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
 
     const byModel: AggregatedData["by_model"] = {};
     const byDate: AggregatedData["by_date"] = {};
+    const byAgent: AggregatedData["by_agent"] = {};
     const byDateModel: AggregatedData["by_date_model"] = {};
 
     let totalPrompt = 0;
@@ -55,6 +65,8 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       const ct = r.completion_tokens;
       const calls = r.call_count;
       const providerId = r.provider_id;
+      const agentId = r.agent_id;
+      const agentKey = agentId ? agentId : "__unattributed__";
       totalPrompt += pt;
       totalCompletion += ct;
       totalCalls += calls;
@@ -84,6 +96,18 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       byDate[r.date].completion_tokens += ct;
       byDate[r.date].call_count += calls;
 
+      if (!byAgent[agentKey]) {
+        byAgent[agentKey] = {
+          agent_id: agentId || "",
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          call_count: 0,
+        };
+      }
+      byAgent[agentKey].prompt_tokens += pt;
+      byAgent[agentKey].completion_tokens += ct;
+      byAgent[agentKey].call_count += calls;
+
       if (!byDateModel[r.date]) {
         byDateModel[r.date] = {};
       }
@@ -107,6 +131,7 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       total_calls: totalCalls,
       by_model: byModel,
       by_date: byDate,
+      by_agent: byAgent,
       by_date_model: byDateModel,
     };
   }, [records]);

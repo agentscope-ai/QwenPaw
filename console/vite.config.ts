@@ -152,6 +152,18 @@ export default defineConfig(({ command, mode }) => {
             ) {
               return "react-vendor";
             }
+            if (
+              id.includes("node_modules/@ant-design/plots/") ||
+              id.includes("node_modules/@antv/")
+            ) {
+              return "charts-vendor";
+            }
+            if (
+              id.includes("node_modules/monaco-editor/") ||
+              id.includes("node_modules/@monaco-editor/")
+            ) {
+              return "editor-vendor";
+            }
             // Ant Design + AgentScope design system (merged to avoid circular deps)
             if (
               id.includes("node_modules/antd/") ||
@@ -184,15 +196,6 @@ export default defineConfig(({ command, mode }) => {
             // Drag and drop
             if (id.includes("node_modules/@dnd-kit/")) {
               return "dnd-vendor";
-            }
-            // Utilities (dayjs, zustand, ahooks, etc.)
-            if (
-              id.includes("node_modules/dayjs/") ||
-              id.includes("node_modules/zustand/") ||
-              id.includes("node_modules/ahooks/") ||
-              id.includes("node_modules/@vvo/tzdb/")
-            ) {
-              return "utils-vendor";
             }
           },
         },

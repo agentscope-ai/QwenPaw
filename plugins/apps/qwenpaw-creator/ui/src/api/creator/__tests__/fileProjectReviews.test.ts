@@ -54,11 +54,13 @@ function response(
 }
 
 describe("file-native Project Review API", () => {
-  it("reads the strict snake_case Review contract and validates its ETag", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => response(200, [review()], { ETag: '"token-1"' })),
-    );
+  it("reads the strict snake_case contract and treats 204/304 as protocol results", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, [review()], { ETag: '"token-1"' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(304, undefined, { ETag: '"token-1"' }));
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(getActiveFileProjectReview("p1")).resolves.toMatchObject({
       kind: "updated",
@@ -71,15 +73,6 @@ describe("file-native Project Review API", () => {
         },
       ],
     });
-  });
-
-  it("treats 204 and conditional 304 as protocol results", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(204))
-      .mockResolvedValueOnce(response(304, undefined, { ETag: '"token-1"' }));
-    vi.stubGlobal("fetch", fetchMock);
-
     await expect(getActiveFileProjectReview("p1")).resolves.toEqual({
       kind: "empty",
     });
@@ -90,7 +83,7 @@ describe("file-native Project Review API", () => {
       etag: '"token-1"',
     });
     expect(
-      new Headers(fetchMock.mock.calls[1][1].headers).get("If-None-Match"),
+      new Headers(fetchMock.mock.calls[2][1].headers).get("If-None-Match"),
     ).toBe('"token-1"');
   });
 

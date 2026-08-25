@@ -562,6 +562,52 @@ class ProjectRuntimeSessionStore:
             )
             return self._write_session_unlocked(updated)
 
+    def hard_stop_session(
+        self,
+        project_id: str,
+        session_id: str,
+    ) -> CreatorSessionRecord:
+        """Atomically expose an immediate terminal stop to every process.
+
+        The active asyncio/provider tasks are signalled separately. This
+        durable boundary clears their lease and consumes only messages that
+        already exist; a later user message therefore remains pending and can
+        restart the same goal/conversation normally.
+        """
+
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        with self._project_lock(project_id):
+            session = self._recover_session_unlocked(project_id, session_id)
+            consumed = session.last_message_seq
+            if session.active_goal_id is not None:
+                goal = self._read_goal_unlocked(
+                    project_id,
+                    session.active_goal_id,
+                )
+                self._goal_store(project_id, goal.goal_id).write(
+                    goal.model_copy(
+                        update={
+                            "status": CreatorGoalStatus.CANCELLED,
+                            "last_consumed_message_seq": max(
+                                goal.last_consumed_message_seq,
+                                consumed,
+                            ),
+                            "updated_at": utc_now(),
+                        },
+                    ),
+                )
+            return self._write_session_unlocked(
+                session.model_copy(
+                    update={
+                        "active_run_id": None,
+                        "status": CreatorSessionStatus.CANCELLED,
+                        "last_consumed_message_seq": consumed,
+                        "error": None,
+                        "updated_at": utc_now(),
+                    },
+                ),
+            )
+
     def set_session_error(
         self,
         project_id: str,
@@ -937,7 +983,7 @@ class ProjectRuntimeSessionStore:
         ``IDLE`` is the externally observed completion barrier for polling
         clients.  The Goal projection and ``agent.review.resolved`` event must
         therefore be durable before that status becomes visible.  Keeping all
-        three writes under the Project Runtime lock also serializes competing
+        three writes under the Session Runtime lock also serializes competing
         supervisors.  The resolution key makes a retry after a process crash
         reuse an event already appended before the final Session write.
         """
@@ -1102,7 +1148,7 @@ class ProjectRuntimeSessionStore:
         """Persist a user request and decide review admission under one lock.
 
         The active run check, accepted baseline capture, message append and
-        ReviewBoundary publication are serialized by the same Project Runtime
+        ReviewBoundary publication are serialized by the same Session Runtime
         lock.  Therefore a returned ``require_review`` decision always points
         to an already durable boundary.
 
@@ -1892,7 +1938,17 @@ class ProjectRuntimeSessionStore:
     ) -> CreatorSessionRecord:
         session = self._read_session_unlocked(project_id, session_id)
         messages = self._message_records_unlocked(project_id, session_id)
-        events = self._event_records_unlocked(project_id, session_id)
+        # The event stream dominates the aggregate size (streaming deltas
+        # append thousands of records per run).  Re-parsing and re-validating
+        # every event here — under the exclusive project lock — made each
+        # writer hold the lock for seconds on long sessions and starved every
+        # other lock user (observed live: r2v supervisors and the durable
+        # interrupt cleanup timing out at 10s).  The durable tail seq is
+        # authoritative for the head pointer: seqs are contiguous from 1 by
+        # construction and ``last_seq`` repairs a torn crash tail exactly as
+        # a full scan would.  Full-stream validation still happens on the
+        # read paths that materialize events.
+        event_head = self._events_store(project_id, session_id).last_seq()
         queued = self._queued_records_unlocked(project_id, session_id)
         latest_queued = _latest_by(queued, "queued_message_id")
         queue_count = sum(
@@ -1900,7 +1956,6 @@ class ProjectRuntimeSessionStore:
             for item in latest_queued.values()
         )
         message_head = len(messages)
-        event_head = len(events)
         for message in messages:
             if message.review_boundary is not None:
                 self._ensure_review_boundary_unlocked(
@@ -2260,21 +2315,25 @@ class ProjectRuntimeSessionStore:
             with CrossProcessFileLock(
                 self._runtime_root(project_id)
                 / "locks"
-                / "project-runtime.lock",
+                / "session-runtime.lock",
                 timeout_seconds=self.lock_timeout_seconds,
                 shared=True,
             ):
                 yield
 
     def _project_lifecycle_lock(self, project_id: str) -> CrossProcessFileLock:
+        # Runtime transitions only need a shared lifecycle guard: Project
+        # delete/commit take the exclusive side, while independent Session,
+        # Execution and Agent Run domains may update concurrently.
         return CrossProcessFileLock(
             self.data_root / ".locks" / f"project-{project_id}.lock",
             timeout_seconds=self.lock_timeout_seconds,
+            shared=True,
         )
 
     def _runtime_lock(self, project_id: str) -> CrossProcessFileLock:
         return CrossProcessFileLock(
-            self._runtime_root(project_id) / "locks" / "project-runtime.lock",
+            self._runtime_root(project_id) / "locks" / "session-runtime.lock",
             timeout_seconds=self.lock_timeout_seconds,
         )
 

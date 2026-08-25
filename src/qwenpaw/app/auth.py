@@ -29,6 +29,7 @@ import time
 from typing import Optional
 
 from fastapi import Request, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..constant import SECRET_DIR, EnvVarLoader
@@ -40,6 +41,9 @@ from ..security.secret_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
+_RUNTIME_TOKEN_HEADER = "x-qwenpaw-runtime-token"
 
 AUTH_FILE = SECRET_DIR / "auth.json"
 
@@ -761,6 +765,47 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if "upgrade" in conn.lower():
             return request.query_params.get("token")
         return request.query_params.get("token") or None
+
+
+class RuntimeBoundaryMiddleware:
+    """Protect every HTTP and WebSocket path of a managed runtime."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        runtime_token = os.environ.get(_RUNTIME_TOKEN_ENV, "")
+        if not runtime_token or scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
+        if hmac.compare_digest(runtime_token, supplied):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4401})
+            return
+        body = b'{"detail":"Invalid runtime boundary token"}'
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            },
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 def check_proxy_config_sanity() -> None:
