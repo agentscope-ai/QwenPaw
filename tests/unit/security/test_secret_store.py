@@ -301,6 +301,9 @@ class TestMasterKeyFilePermissions:
         path = secret_dir / ".master_key"
         path.write_text(content, encoding="utf-8")
         os.chmod(path, 0o644)
+        # Under ``_no_chmod`` the call above is a no-op, so state the
+        # precondition rather than assuming it.
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
         return path
 
     @pytest.mark.usefixtures("_no_chmod")
@@ -359,20 +362,48 @@ class TestMasterKeyFilePermissions:
         assert key_path.read_text(encoding="utf-8") == "ef" * 32
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
-    def test_reading_a_valid_legacy_key_tightens_it(
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_reading_a_valid_legacy_key_migrates_it(
         self,
         tmp_path: Path,
         monkeypatch,
     ):
-        """A valid 0o644 key is never rewritten, so reading must fix it."""
+        """A valid 0o644 key is never rewritten, so reading must fix it.
+
+        Running without ``chmod`` is the point: tightening the mode of
+        the legacy inode is the best-effort step that cannot be relied
+        on, so the key has to end up in an inode created ``0o600``.
+        """
         import qwenpaw.security.secret_store as mod
 
         secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
         key_path = self._legacy_key_file(secret_dir, "ab" * 32)
+        legacy_inode = key_path.stat().st_ino
 
         assert mod._read_key_file() == "ab" * 32
 
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        assert key_path.stat().st_ino != legacy_inode
+        assert key_path.read_text(encoding="utf-8") == "ab" * 32
+        assert [p.name for p in secret_dir.iterdir()] == [".master_key"]
+
+    @pytest.mark.usefixtures("_no_chmod")
+    def test_owner_only_key_is_read_without_being_rewritten(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A key that is already 0o600 must not be replaced on read."""
+        import qwenpaw.security.secret_store as mod
+
+        secret_dir = self._secret_dir(mod, monkeypatch, tmp_path)
+        mod._write_key_file("ab" * 32)
+        key_path = secret_dir / ".master_key"
+        inode = key_path.stat().st_ino
+
+        assert mod._read_key_file() == "ab" * 32
+
+        assert key_path.stat().st_ino == inode
 
     def test_no_temporary_key_file_is_left_behind(
         self,
