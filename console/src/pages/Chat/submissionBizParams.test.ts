@@ -6,6 +6,7 @@ import {
   getSubmissionChatId,
   getSubmissionConversationReference,
   getSubmissionIdentity,
+  getQueueSubmissionTarget,
   getSubmissionSdkSessionId,
   getSubmissionSessionId,
   isSubmissionTargetReady,
@@ -155,5 +156,46 @@ describe("submissionBizParams", () => {
     expect(isSubmissionTargetReady(bizParams, "agent-a", "chat-b", "")).toBe(
       false,
     );
+  });
+
+  it("resolves every queued item from its own immutable target", () => {
+    const agent1Item = buildSubmissionBizParams(IDENTITY_A, {
+      agent_id: "agent-1",
+      chat_id: "chat-1",
+      sdk_session_id: "sdk-1",
+    });
+    const agent2Item = buildSubmissionBizParams(
+      {
+        sessionId: "session-2",
+        userId: "user-2",
+        channel: "console",
+      },
+      {
+        agent_id: "agent-2",
+        chat_id: "chat-2",
+        sdk_session_id: "sdk-2",
+      },
+    );
+
+    expect(getQueueSubmissionTarget(agent1Item, "agent-1")).toMatchObject({
+      agentId: "agent-1",
+      conversationReference: "chat-1",
+      identity: { sessionId: "session-a" },
+    });
+    expect(getQueueSubmissionTarget(agent2Item, "agent-2")).toMatchObject({
+      agentId: "agent-2",
+      conversationReference: "chat-2",
+      identity: { sessionId: "session-2" },
+    });
+  });
+
+  it("rejects a queue item whose agent header and snapshot disagree", () => {
+    const test2Item = buildSubmissionBizParams(IDENTITY_A, {
+      agent_id: "agent-2",
+      chat_id: "chat-2",
+      sdk_session_id: "sdk-2",
+    });
+
+    expect(getQueueSubmissionTarget(test2Item, "agent-1")).toBeUndefined();
   });
 });

@@ -220,6 +220,7 @@ import {
   getSubmissionChatId,
   getSubmissionConversationReference,
   getSubmissionIdentity,
+  getQueueSubmissionTarget,
   getSubmissionSdkSessionId,
   isSubmissionTargetReady,
   rebindSubmissionBizParams,
@@ -362,7 +363,7 @@ function isQueueSubmissionTargetActive(
   return !queuedChatId || !routeChatId || queuedChatId === routeChatId;
 }
 
-async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
+async function startBackgroundQueue(queueKey: string) {
   // Stop only THIS session's previous background sender (if any)
   stopBackgroundQueue(queueKey);
   if (useMessageQueueStore.getState().getQueue(queueKey).length === 0) return;
@@ -383,14 +384,27 @@ async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
 
     const item = current[0];
     const clientMessageId = item.clientMessageId ?? item.id;
+    const itemTarget = getQueueSubmissionTarget(item.bizParams, item.agentId);
+    if (!itemTarget) {
+      useMessageQueueStore
+        .getState()
+        .setItemStatus(
+          queueKey,
+          item.id,
+          "failed",
+          i18n.t("chat.queue.sendFailed"),
+        );
+      break;
+    }
+    const { agentId, conversationReference, identity } = itemTarget;
 
     // Wait until the backend finishes the currently running task before
     // sending the next one. This preserves order task1 → task2 → task3
     // and prevents firing while task1 is still generating.
     const idle = await waitForChatIdle(
-      chatIdForStatus,
+      conversationReference,
       ctrl.signal,
-      item.agentId,
+      agentId,
     );
     if (!idle) break;
 
@@ -425,23 +439,21 @@ async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
         // generation, sessionApi.patchLastUserMessage can patch THIS user
         // message into history (otherwise the previous turn's stale text
         // would surface, e.g. showing user="2" while task3 is generating).
-        if (chatIdForStatus) {
-          // Build content items matching the POST body (stored-name format)
-          // so patchLastUserMessage can rebuild the user card with attachments.
-          const contentItems: Array<{
-            type: string;
-            [key: string]: unknown;
-          }> = [
-            { type: "text", text: item.text },
-            ...buildAttachmentContentItems(item.attachments),
-          ];
-          sessionApi.setLastUserMessage(
-            chatIdForStatus,
-            item.text,
-            contentItems,
-            clientMessageId,
-          );
-        }
+        // Build content items matching the POST body (stored-name format)
+        // so patchLastUserMessage can rebuild the user card with attachments.
+        const contentItems: Array<{
+          type: string;
+          [key: string]: unknown;
+        }> = [
+          { type: "text", text: item.text },
+          ...buildAttachmentContentItems(item.attachments),
+        ];
+        sessionApi.setLastUserMessage(
+          conversationReference,
+          item.text,
+          contentItems,
+          clientMessageId,
+        );
 
         let fetchSucceeded = false;
         // True once fetch() has resolved with an HTTP response. For a streaming
@@ -451,17 +463,10 @@ async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
         let fetchStarted = false;
         try {
           const authHeaders = buildAuthHeaders();
-          const queueAgentId = item.agentId || "default";
+          const queueAgentId = agentId;
           // Use the agent ID captured at enqueue time to prevent cross-agent
           // delivery when the user switches agents after queueing.
-          if (item.agentId) {
-            authHeaders["X-Agent-Id"] = item.agentId;
-          }
-          const submissionIdentity = getSubmissionIdentity(item.bizParams, {
-            sessionId: "",
-            userId: DEFAULT_USER_ID,
-            channel: DEFAULT_CHANNEL,
-          });
+          authHeaders["X-Agent-Id"] = agentId;
           const pendingRequest = withPendingProjectDirectory(
             {
               ...item.bizParams,
@@ -477,13 +482,13 @@ async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
                   ],
                 },
               ],
-              session_id: submissionIdentity.sessionId,
-              user_id: submissionIdentity.userId,
-              channel: submissionIdentity.channel,
+              session_id: identity.sessionId,
+              user_id: identity.userId,
+              channel: identity.channel,
               stream: true,
             },
             queueAgentId,
-            queueKey,
+            conversationReference,
           );
           // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
           // HTTP connection alive even when the queue loop is aborted (e.g.
@@ -499,11 +504,18 @@ async function startBackgroundQueue(queueKey: string, chatIdForStatus: string) {
           });
 
           if (!res.ok) {
-            sessionApi.discardLastUserMessage(chatIdForStatus, clientMessageId);
+            sessionApi.discardLastUserMessage(
+              conversationReference,
+              clientMessageId,
+            );
             throw new Error(`HTTP ${res.status}`);
           }
           if (pendingRequest.projectDir) {
-            setPendingProjectDirectory(queueAgentId, queueKey, null);
+            setPendingProjectDirectory(
+              queueAgentId,
+              conversationReference,
+              null,
+            );
           }
           fetchStarted = true;
 
@@ -597,23 +609,8 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
     } catch {
       continue;
     }
-    // Queue items carry their immutable backend identity, so background
-    // sending never needs the current page or session list as a fallback.
-    let queueBizParams: Record<string, unknown> | undefined;
-    try {
-      const raw2 = localStorage.getItem(key);
-      if (raw2) {
-        const parsed2 = JSON.parse(raw2);
-        const itemsArr: Array<{ bizParams: Record<string, unknown> }> =
-          parsed2.items;
-        queueBizParams = itemsArr?.[0]?.bizParams;
-      }
-    } catch {
-      // ignore
-    }
-    if (!queueBizParams) continue;
-    const chatIdForStatus = getSubmissionChatId(queueBizParams) || sessionId;
-    startBackgroundQueue(sessionId, chatIdForStatus);
+    // Every loop iteration resolves the current item's immutable identity.
+    startBackgroundQueue(sessionId);
   }
 }
 
@@ -1995,14 +1992,11 @@ export default function ChatPage() {
         // Use captured queueSessionId from this effect instance, not the
         // ref (which may already point to the next session after re-render).
         const queueKey = currentQueueSessionId;
-        const firstItem = remaining[0];
-        const chatIdForStatus =
-          getSubmissionChatId(firstItem.bizParams) || queueKey;
         // The ownership effect aborts first, but Web Locks releases the lock
         // asynchronously. Defer the non-blocking background attempt so a new
         // foreground owner can queue first during a session switch.
         setTimeout(() => {
-          startBackgroundQueue(queueKey, chatIdForStatus);
+          startBackgroundQueue(queueKey);
         }, 0);
       }
     };
@@ -2076,6 +2070,16 @@ export default function ChatPage() {
       }
       const queueText = prepareLoopModeMessage(val);
       const enqueueIdentity = sessionApi.getSessionIdentity(activeSessionId);
+      if (
+        !isSubmissionTargetReady(
+          undefined,
+          selectedAgent,
+          chatId,
+          enqueueIdentity.sessionId,
+        )
+      ) {
+        return;
+      }
       const bizParams = buildSubmissionBizParams(enqueueIdentity, {
         source: "console_chat_queue",
         agent_id: selectedAgent,

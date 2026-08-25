@@ -18,6 +18,12 @@ export interface SubmissionContextIdentity {
   sdkSessionId: string;
 }
 
+export interface QueueSubmissionTarget {
+  agentId: string;
+  conversationReference: string;
+  identity: SubmissionIdentity;
+}
+
 export function buildSubmissionBizParams(
   identity: SubmissionIdentity,
   context?: Record<string, unknown>,
@@ -136,6 +142,35 @@ export function isSubmissionTargetReady(
   if (frozenAgentId && frozenChatId && frozenSessionId) return true;
 
   return !routeChatId || routeChatId === "new" || !!resolvedRouteSessionId;
+}
+
+/** Resolve and validate the immutable target carried by one queue item. */
+export function getQueueSubmissionTarget(
+  bizParams: Record<string, unknown> | undefined,
+  itemAgentId: string,
+): QueueSubmissionTarget | undefined {
+  const frozenAgentId = getSubmissionAgentId(bizParams);
+  const conversationReference = getSubmissionConversationReference(bizParams);
+  const identity = getSubmissionIdentity(bizParams, {
+    sessionId: "",
+    userId: "",
+    channel: "",
+  });
+  if (
+    !frozenAgentId ||
+    frozenAgentId !== itemAgentId ||
+    !conversationReference ||
+    !identity.sessionId ||
+    !identity.userId ||
+    !identity.channel
+  ) {
+    return undefined;
+  }
+  return {
+    agentId: frozenAgentId,
+    conversationReference,
+    identity,
+  };
 }
 
 export function getSubmissionIdentity(
