@@ -68,7 +68,7 @@ def test_packaged_catalog_snapshot() -> None:
         ("DASHSCOPE_MODELS", "qwen3.7-max"),
         ("OPENAI_MODELS", "gpt-5.2"),
         ("MINIMAX_MODELS", "MiniMax-M3"),
-        ("KIMI_MODELS", "kimi-k2.5"),
+        ("KIMI_MODELS", "kimi-k3"),
         ("DEEPSEEK_MODELS", "deepseek-chat"),
         ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
     }
@@ -87,15 +87,45 @@ def test_packaged_catalog_snapshot() -> None:
         model.max_input_length == 1_048_576
         for model in catalog["GEMINI_MODELS"]
     )
-    assert all(
-        model.max_input_length == 262_144 for model in catalog["KIMI_MODELS"]
-    )
+    assert {
+        model.id: model.max_input_length for model in catalog["KIMI_MODELS"]
+    } == {
+        "kimi-k3": 1_000_000,
+        "kimi-k2.6": 262_144,
+        "kimi-k2.5": 262_144,
+    }
+    assert catalog["ALIYUN_TOKENPLAN_MODELS"][0].id == "qwen3.8-max"
+    assert catalog["ALIYUN_TOKENPLAN_INTL_MODELS"][0].id == "qwen3.8-max"
+    assert [model.id for model in catalog["ALIYUN_TOKENPLAN_MODELS"]] == [
+        model.id for model in catalog["ALIYUN_TOKENPLAN_INTL_MODELS"]
+    ]
+    tokenplan_qwen = {
+        model.id: model
+        for model in catalog["ALIYUN_TOKENPLAN_MODELS"]
+        if model.id.startswith("qwen3.8")
+    }
+    assert tokenplan_qwen["qwen3.8-max"].max_tokens == 131_072
+    assert tokenplan_qwen["qwen3.8-max"].supports_video is True
+    assert all(model.thinking_enabled for model in tokenplan_qwen.values())
+    codingplan_models = catalog["ALIYUN_CODINGPLAN_MODELS"]
+    assert [model.id for model in codingplan_models] == [
+        "qwen3.7-plus",
+        "qwen3.6-plus",
+        "qwen3.5-plus",
+        "glm-5",
+        "glm-4.7",
+        "MiniMax-M2.5",
+        "kimi-k2.5",
+        "qwen3-max-2026-01-23",
+        "qwen3-coder-next",
+        "qwen3-coder-plus",
+    ]
+    assert any(model.supports_image for model in codingplan_models)
     assert {
         model.id: model.max_input_length
-        for model in catalog["ALIYUN_CODINGPLAN_MODELS"]
-        if model.id in {"qwen3-coder-plus", "glm-5.2", "kimi-k2.5"}
+        for model in codingplan_models
+        if model.id in {"qwen3-coder-plus", "kimi-k2.5"}
     } == {
-        "glm-5.2": 1_000_000,
         "kimi-k2.5": 262_144,
         "qwen3-coder-plus": 1_000_000,
     }

@@ -36,6 +36,7 @@ DASHSCOPE_MODELS = _models("DASHSCOPE_MODELS")
 MIMO_TOKENPLAN_MODELS = _models("MIMO_TOKENPLAN_MODELS")
 MIMO_MODELS = _models("MIMO_MODELS")
 ALIYUN_TOKENPLAN_MODELS = _models("ALIYUN_TOKENPLAN_MODELS")
+ALIYUN_TOKENPLAN_INTL_MODELS = _models("ALIYUN_TOKENPLAN_INTL_MODELS")
 ALIYUN_CODINGPLAN_MODELS = _models("ALIYUN_CODINGPLAN_MODELS")
 ZHIPU_MODELS = _models("ZHIPU_MODELS")
 OPENAI_MODELS = _models("OPENAI_MODELS")
@@ -143,7 +144,7 @@ PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
         "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
+    models=ALIYUN_TOKENPLAN_INTL_MODELS,
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
@@ -561,7 +562,7 @@ BUILTIN_PROVIDER_CATALOG_KEYS = {
     "aliyun-codingplan": "ALIYUN_CODINGPLAN_MODELS",
     "aliyun-codingplan-intl": "ALIYUN_CODINGPLAN_MODELS",
     "aliyun-tokenplan": "ALIYUN_TOKENPLAN_MODELS",
-    "aliyun-tokenplan-intl": "ALIYUN_TOKENPLAN_MODELS",
+    "aliyun-tokenplan-intl": "ALIYUN_TOKENPLAN_INTL_MODELS",
     "zhipu-cn": "ZHIPU_MODELS",
     "zhipu-cn-codingplan": "ZHIPU_MODELS",
     "zhipu-intl": "ZHIPU_MODELS",
@@ -594,6 +595,7 @@ for _provider in BUILTIN_PROVIDERS:
 __all__ = [
     "BUILTIN_PROVIDER_CATALOG_KEYS",
     "ALIYUN_CODINGPLAN_MODELS",
+    "ALIYUN_TOKENPLAN_INTL_MODELS",
     "ALIYUN_TOKENPLAN_MODELS",
     "ANTHROPIC_MODELS",
     "AZURE_OPENAI_MODELS",

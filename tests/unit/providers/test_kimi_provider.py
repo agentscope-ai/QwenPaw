@@ -41,13 +41,16 @@ def test_kimi_provider_configs() -> None:
 def test_kimi_models_list() -> None:
     """Verify Kimi model definitions."""
     model_ids = [m.id for m in KIMI_MODELS]
-    assert "kimi-k2.5" in model_ids
-    assert "kimi-k2-0905-preview" in model_ids
-    assert "kimi-k2-0711-preview" in model_ids
-    assert "kimi-k2-turbo-preview" in model_ids
-    assert "kimi-k2-thinking" in model_ids
-    assert "kimi-k2-thinking-turbo" in model_ids
-    assert len(KIMI_MODELS) == 6
+    assert model_ids == ["kimi-k3", "kimi-k2.6", "kimi-k2.5"]
+
+    kimi_k3 = KIMI_MODELS[0]
+    assert kimi_k3.is_recommended is True
+    assert kimi_k3.supports_image is True
+    assert kimi_k3.supports_video is True
+    assert kimi_k3.max_tokens == 131_072
+    assert kimi_k3.max_input_length == 1_000_000
+    assert kimi_k3.thinking_param_style == "effort"
+    assert kimi_k3.reasoning_effort_options == ["low", "high", "max"]
 
 
 @pytest.fixture
@@ -103,14 +106,7 @@ def test_kimi_has_expected_models(isolated_secret_dir) -> None:
     assert provider_cn is not None
     assert provider_intl is not None
 
-    for model_id in [
-        "kimi-k2.5",
-        "kimi-k2-0905-preview",
-        "kimi-k2-0711-preview",
-        "kimi-k2-turbo-preview",
-        "kimi-k2-thinking",
-        "kimi-k2-thinking-turbo",
-    ]:
+    for model_id in ["kimi-k3", "kimi-k2.6", "kimi-k2.5"]:
         assert provider_cn.has_model(model_id)
         assert provider_intl.has_model(model_id)
 
@@ -127,10 +123,10 @@ async def test_kimi_activate_models(
     assert manager.active_model.provider_id == "kimi-cn"
     assert manager.active_model.model == "kimi-k2.5"
 
-    await manager.activate_model("kimi-intl", "kimi-k2-thinking")
+    await manager.activate_model("kimi-intl", "kimi-k3")
     assert manager.active_model is not None
     assert manager.active_model.provider_id == "kimi-intl"
-    assert manager.active_model.model == "kimi-k2-thinking"
+    assert manager.active_model.model == "kimi-k3"
 
 
 def test_kimi_codingplan_provider_config() -> None:

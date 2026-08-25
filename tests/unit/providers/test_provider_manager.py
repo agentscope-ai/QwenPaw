@@ -2492,6 +2492,8 @@ def test_builtin_variants_do_not_share_model_instances(
 
     assert china is not None
     assert international is not None
+    assert china.has_model("qwen3.8-max")
+    assert international.has_model("qwen3.8-max")
     assert china.models[0] is not international.models[0]
 
     original = international.models[0].max_tokens
@@ -3484,18 +3486,20 @@ async def test_kimi_discovery_merges_api_and_catalog(
     async def fetch_models(_self, timeout=5):
         _ = timeout
         return [
-            ModelInfo(id="kimi-k2.6", name="Kimi K2.6"),
+            ModelInfo(id="kimi-k3", name="Kimi K3"),
             ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
+            ModelInfo(id="kimi-api-only", name="Kimi API Only"),
         ]
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     result = await manager.discover_provider_models("kimi-cn", save=False)
 
     by_id = {model.id: model for model in result.models}
-    assert by_id["kimi-k2.6"].discovery_origin == "api"
+    assert by_id["kimi-k3"].discovery_origin == "both"
     assert by_id["kimi-k2.5"].discovery_origin == "both"
-    assert by_id["kimi-k2-thinking"].discovery_origin == "catalog"
-    assert result.discovered_count == 2
+    assert by_id["kimi-api-only"].discovery_origin == "api"
+    assert by_id["kimi-k2.6"].discovery_origin == "catalog"
+    assert result.discovered_count == 3
 
 
 async def test_rejects_unavailable_discovered_model(
