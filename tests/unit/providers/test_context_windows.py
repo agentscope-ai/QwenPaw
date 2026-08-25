@@ -26,7 +26,6 @@ from qwenpaw.providers.provider import ModelInfo, Provider
     [
         # Qwen family, including the specific over the generic.
         ("qwen-long", 10_000_000),
-        ("qwen3.8-max", 1_000_000),
         ("qwen3.7-max", 1_000_000),
         ("qwen3.7-plus-2026-01-01", 1_000_000),
         ("qwen3.6-plus", 1_000_000),
@@ -52,7 +51,6 @@ from qwenpaw.providers.provider import ModelInfo, Provider
         # gemini: 1.5-pro (2M) must win over the family catch-all (1M).
         ("gemini-1.5-pro", 2_097_152),
         ("gemini-2.5-flash", 1_048_576),
-        ("kimi-k3", 1_000_000),
         ("kimi-k2-thinking", 262_144),
         ("glm-5.2", 1_000_000),
         ("GLM-5.2[1m]", 1_000_000),

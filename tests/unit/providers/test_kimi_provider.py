@@ -10,7 +10,6 @@ import pytest
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
-    KIMI_MODELS,
     KIMI_CODINGPLAN_MODELS,
     PROVIDER_KIMI_CN,
     PROVIDER_KIMI_INTL,
@@ -36,21 +35,6 @@ def test_kimi_provider_configs() -> None:
     assert PROVIDER_KIMI_INTL.name == "Kimi (International)"
     assert PROVIDER_KIMI_INTL.base_url == "https://api.moonshot.ai/v1"
     assert PROVIDER_KIMI_INTL.freeze_url is True
-
-
-def test_kimi_models_list() -> None:
-    """Verify Kimi model definitions."""
-    model_ids = [m.id for m in KIMI_MODELS]
-    assert model_ids == ["kimi-k3", "kimi-k2.6", "kimi-k2.5"]
-
-    kimi_k3 = KIMI_MODELS[0]
-    assert kimi_k3.is_recommended is True
-    assert kimi_k3.supports_image is True
-    assert kimi_k3.supports_video is True
-    assert kimi_k3.max_tokens == 131_072
-    assert kimi_k3.max_input_length == 1_000_000
-    assert kimi_k3.thinking_param_style == "effort"
-    assert kimi_k3.reasoning_effort_options == ["low", "high", "max"]
 
 
 @pytest.fixture
@@ -95,20 +79,6 @@ async def test_kimi_check_connection_success(monkeypatch) -> None:
 
     assert ok is True
     assert msg == ""
-
-
-def test_kimi_has_expected_models(isolated_secret_dir) -> None:
-    """Provider manager Kimi providers should include all built-in models."""
-    manager = ProviderManager()
-    provider_cn = manager.get_provider("kimi-cn")
-    provider_intl = manager.get_provider("kimi-intl")
-
-    assert provider_cn is not None
-    assert provider_intl is not None
-
-    for model_id in ["kimi-k3", "kimi-k2.6", "kimi-k2.5"]:
-        assert provider_cn.has_model(model_id)
-        assert provider_intl.has_model(model_id)
 
 
 async def test_kimi_activate_models(

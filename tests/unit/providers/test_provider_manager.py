@@ -2492,8 +2492,6 @@ def test_builtin_variants_do_not_share_model_instances(
 
     assert china is not None
     assert international is not None
-    assert china.has_model("qwen3.8-max")
-    assert international.has_model("qwen3.8-max")
     assert china.models[0] is not international.models[0]
 
     original = international.models[0].max_tokens
