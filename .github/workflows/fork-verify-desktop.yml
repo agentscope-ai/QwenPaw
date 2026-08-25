@@ -77,13 +77,8 @@ jobs:
           # Authenticate the python-build-standalone release lookup in
           # stage_python_runtime.py to avoid anonymous API rate limits.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Required for cargo tauri build to produce the *.app.tar.gz
-          # updater archive that generate_update_manifest.py stage
-          # expects at the end of build_macos_pyinstaller.sh. Forks
-          # can use a self-generated minisign key pair — the signed
-          # archive is only consumed by the verify step, never by
-          # real users (who validate updates against the upstream
-          # pubkey baked into tauri.conf.json).
+          # Optional. Forks only need a matching minisign key pair when
+          # validating updater artifacts; regular app packages do not need it.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
