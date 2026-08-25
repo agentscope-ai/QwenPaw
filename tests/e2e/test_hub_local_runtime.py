@@ -105,7 +105,10 @@ def _wait_for_runtime(
 )
 @pytest.mark.xfail(
     sys.platform == "win32",
-    reason="Windows runner port binding is flaky (WinError 10061); see PR #7260 CI",
+    reason=(
+        "Windows runner port binding is flaky (WinError 10061); "
+        "see PR #7260 CI"
+    ),
     strict=False,
 )
 def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
