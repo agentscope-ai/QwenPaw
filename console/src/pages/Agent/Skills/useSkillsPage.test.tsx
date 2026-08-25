@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
  * useSkillsPage.test.tsx — integration test for skills page
  *   regression for #3484/#3504/#3541/#5955 (技能簇)
