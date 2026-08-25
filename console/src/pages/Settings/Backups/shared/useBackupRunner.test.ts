@@ -1,10 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import type { CreateBackupRequest } from "@/api/types/backup";
+import type {
+  BackupJobSnapshot,
+  CreateBackupRequest,
+} from "@/api/types/backup";
 
 const hoisted = vi.hoisted(() => ({
   apiMocks: {
-    createBackupStream: vi.fn(),
+    startBackupJob: vi.fn(),
+    getActiveBackupJob: vi.fn(),
+    getBackupJob: vi.fn(),
+    cancelBackupJob: vi.fn(),
+    streamBackupJob: vi.fn(),
   },
   messageMock: {
     success: vi.fn(),
@@ -41,17 +48,50 @@ const data: CreateBackupRequest = {
   agents: [],
 };
 
+const runningSnapshot: BackupJobSnapshot = {
+  job_id: "job-1",
+  backup_id: "backup-1",
+  status: "running",
+  phase: "preparing",
+  percent: 0,
+  current_agent: null,
+  agent_index: 0,
+  total_agents: 0,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  finished_at: null,
+  result: null,
+  error: null,
+};
+
+const completedSnapshot: BackupJobSnapshot = {
+  ...runningSnapshot,
+  status: "completed",
+  phase: "finalizing",
+  percent: 100,
+  finished_at: "2026-01-01T00:00:01Z",
+};
+
 describe("useBackupRunner", () => {
   beforeEach(() => {
-    apiMocks.createBackupStream.mockReset();
+    apiMocks.startBackupJob.mockReset();
+    apiMocks.getActiveBackupJob.mockReset();
+    apiMocks.getBackupJob.mockReset();
+    apiMocks.cancelBackupJob.mockReset();
+    apiMocks.streamBackupJob.mockReset();
+    apiMocks.getActiveBackupJob.mockResolvedValue(null);
     messageMock.success.mockReset();
     messageMock.error.mockReset();
   });
 
   it("start succeeds: loading toggles, message.success + onSuccess/onClose called", async () => {
-    apiMocks.createBackupStream.mockImplementation(
-      async (_data: unknown, onEvent: (e: { type: string }) => void) => {
-        onEvent({ type: "done" });
+    apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
+    apiMocks.streamBackupJob.mockImplementation(
+      async (
+        _jobId: string,
+        onSnapshot: (snapshot: BackupJobSnapshot) => void,
+      ) => {
+        onSnapshot(completedSnapshot);
       },
     );
     const onSuccess = vi.fn();
@@ -74,7 +114,8 @@ describe("useBackupRunner", () => {
   it("start with AbortError stays silent (no message.error)", async () => {
     const abortErr = new Error("aborted");
     abortErr.name = "AbortError";
-    apiMocks.createBackupStream.mockRejectedValue(abortErr);
+    apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
+    apiMocks.streamBackupJob.mockRejectedValue(abortErr);
 
     const { result } = renderHook(() =>
       useBackupRunner({ onSuccess: vi.fn(), onClose: vi.fn() }),
@@ -89,7 +130,7 @@ describe("useBackupRunner", () => {
   });
 
   it("start with other error calls message.error('backup.createFailed')", async () => {
-    apiMocks.createBackupStream.mockRejectedValue(new Error("boom"));
+    apiMocks.startBackupJob.mockRejectedValue(new Error("boom"));
 
     const { result } = renderHook(() =>
       useBackupRunner({ onSuccess: vi.fn(), onClose: vi.fn() }),
@@ -104,36 +145,57 @@ describe("useBackupRunner", () => {
   });
 
   it("cancel calls onClose and resets state", async () => {
-    apiMocks.createBackupStream.mockImplementation(
-      async () => new Promise(() => {}),
+    apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
+    apiMocks.cancelBackupJob.mockResolvedValue({
+      ...runningSnapshot,
+      status: "cancel_requested",
+    });
+    apiMocks.streamBackupJob.mockImplementation(
+      async (
+        _jobId: string,
+        _onSnapshot: (snapshot: BackupJobSnapshot) => void,
+        signal?: AbortSignal,
+      ) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }),
     );
     const onClose = vi.fn();
     const { result } = renderHook(() =>
       useBackupRunner({ onSuccess: vi.fn(), onClose }),
     );
 
-    act(() => {
+    void act(() => {
       result.current.start(data);
     });
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(true);
+      expect(apiMocks.streamBackupJob).toHaveBeenCalled();
     });
 
-    act(() => {
-      result.current.cancel();
+    await act(async () => {
+      await result.current.cancel();
     });
 
-    expect(onClose).toHaveBeenCalled();
+    expect(apiMocks.cancelBackupJob).toHaveBeenCalledWith("job-1");
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(result.current.loading).toBe(false);
     expect(result.current.progress).toBe(0);
     expect(result.current.progressMsg).toBe("");
   });
 
   it("reset clears progress state without calling onClose", async () => {
-    apiMocks.createBackupStream.mockImplementation(
-      async (_d: unknown, onEvent: (e: { type: string }) => void) => {
-        onEvent({ type: "done" });
+    apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
+    apiMocks.streamBackupJob.mockImplementation(
+      async (
+        _jobId: string,
+        onSnapshot: (snapshot: BackupJobSnapshot) => void,
+      ) => {
+        onSnapshot(completedSnapshot);
       },
     );
     const onClose = vi.fn();

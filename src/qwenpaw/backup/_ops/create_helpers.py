@@ -48,6 +48,8 @@ def add_agent_workspaces(
             file_count = 0
             skipped = 0
             for entry in sorted(ws.rglob("*")):
+                if stop_event and stop_event.is_set():
+                    return False
                 if not entry.is_file():
                     continue
                 rel = entry.relative_to(ws).as_posix()
@@ -187,11 +189,17 @@ def add_files_to_zip(
     ):
         return []
 
+    if stop_event and stop_event.is_set():
+        return []
     if meta.scope.include_global_config:
         add_global_config(zf)
+    if stop_event and stop_event.is_set():
+        return []
     if meta.scope.include_secrets:
         if not add_secrets(zf, stop_event):
             return []
+    if stop_event and stop_event.is_set():
+        return []
     if meta.scope.include_skill_pool:
         if not add_skill_pool(zf, stop_event):
             return []
