@@ -488,7 +488,7 @@ jobs:
             --data-file=.coverage.integration
           coverage xml --data-file=.coverage.integration \
             -o coverage.integration.xml || [ "$?" -eq 2 ]
-          
+
           # Then, combine all three tiers: unit, contract, and integration.
           coverage combine \
             .coverage.unit .coverage.contract .coverage.integration
