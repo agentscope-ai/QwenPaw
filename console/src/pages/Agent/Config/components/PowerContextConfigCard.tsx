@@ -49,7 +49,7 @@ export function PowerContextConfigCard() {
         <Input
           placeholder={t(
             "agentConfig.powercontextConfig.scopeIdPlaceholder",
-            "Leave empty to use this agent's private scope",
+            "Leave empty to use this installation's unique agent scope",
           )}
           maxLength={256}
         />
@@ -58,6 +58,7 @@ export function PowerContextConfigCard() {
         name={["powercontext_memory_config", "timeout"]}
         label={t("agentConfig.powercontextConfig.timeout", "Request timeout")}
         initialValue={10}
+        rules={[{ required: true }, { type: "number", min: 1, max: 60 }]}
       >
         <InputNumber
           min={1}
@@ -86,6 +87,33 @@ export function PowerContextConfigCard() {
                   tooltip={t("agentConfig.autoMemorySearchTooltip")}
                 >
                   <Switch />
+                </Form.Item>
+                <Form.Item
+                  label={t(
+                    "agentConfig.powercontextConfig.maxContextBytes",
+                    "Maximum injected context (bytes)",
+                  )}
+                  name={[
+                    "powercontext_memory_config",
+                    "auto_memory_search_config",
+                    "max_context_bytes",
+                  ]}
+                  initialValue={12000}
+                  rules={[
+                    { required: true },
+                    { type: "number", min: 1024, max: 32768 },
+                  ]}
+                  tooltip={t(
+                    "agentConfig.powercontextConfig.maxContextBytesTooltip",
+                    "Bounds the total PowerContext search result content added to one model turn.",
+                  )}
+                >
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={1024}
+                    max={32768}
+                    step={1024}
+                  />
                 </Form.Item>
                 <Form.Item
                   label={t("agentConfig.autoMaxResults")}

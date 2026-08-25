@@ -110,7 +110,11 @@ const requiredPaths = [
   "agentConfig.powercontextConfig.baseUrl",
   "agentConfig.powercontextConfig.token",
   "agentConfig.powercontextConfig.scopeId",
+  "agentConfig.powercontextConfig.scopeIdPlaceholder",
+  "agentConfig.powercontextConfig.scopeIdInvalid",
   "agentConfig.powercontextConfig.timeout",
+  "agentConfig.powercontextConfig.maxContextBytes",
+  "agentConfig.powercontextConfig.maxContextBytesTooltip",
 ] as const;
 
 const thirdPartyAgentTerminologyPaths = [

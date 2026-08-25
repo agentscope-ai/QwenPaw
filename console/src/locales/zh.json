@@ -3020,9 +3020,11 @@
       "baseUrl": "服务地址",
       "token": "Bearer Token",
       "scopeId": "记忆作用域",
-      "scopeIdPlaceholder": "留空以使用当前 Agent 的私有作用域",
+      "scopeIdPlaceholder": "留空以使用当前安装中唯一的 Agent 作用域",
       "scopeIdInvalid": "记忆作用域不能只包含空白字符。",
-      "timeout": "请求超时"
+      "timeout": "请求超时",
+      "maxContextBytes": "最大注入上下文（字节）",
+      "maxContextBytesTooltip": "限制单轮模型调用中注入的 PowerContext 检索结果总量。"
     },
     "adbpgConfig": {
       "title": "ADBPG 记忆配置",

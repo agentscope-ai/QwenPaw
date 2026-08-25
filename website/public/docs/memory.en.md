@@ -28,14 +28,22 @@ powercontext server run
 ```
 
 In **Agent Config**, select **PowerContext**, then set its Server URL, optional
-Bearer token, memory scope, timeout, and automatic-search result limit. Save
+Bearer token, memory scope, timeout, automatic-search result limit, and
+injected-context budget. Save
 and restart QwenPaw for the backend change to take effect. When selected,
 QwenPaw sends the current turn's bounded task state to that configured service
 and retrieves relevant memories before later turns. Treat the endpoint and
 scope as a data boundary: choose a service and scope that are appropriate for
 the conversation data you intend to persist. Leave the memory scope empty to
-use an isolated default of `agent:<agent_id>`; enter the same explicit scope
-for multiple agents only when you intend to share their memories.
+use the persisted per-installation default
+`qwenpaw:<installation_id>:agent:<agent_id>`, which isolates independently
+created QwenPaw installations even when they use the same Agent ID and
+PowerContext service. Enter the same explicit scope for multiple agents only
+when you intend to share their memories. Cloning a QwenPaw working directory
+also copies its installation identity; configure an explicit distinct scope
+after cloning when the clone must not share memory. Automatic retrieval also
+has a configurable total injected-context budget (12,000 UTF-8 bytes by
+default), and the request timeout is limited to 1–60 seconds.
 
 ## Understand the Memory Loop First
 

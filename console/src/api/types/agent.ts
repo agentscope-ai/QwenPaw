@@ -106,7 +106,9 @@ export interface PowerContextMemoryConfig {
   token: string;
   scope_id: string;
   timeout: number;
-  auto_memory_search_config: AutoMemorySearchConfig;
+  auto_memory_search_config: AutoMemorySearchConfig & {
+    max_context_bytes: number;
+  };
 }
 
 export interface DoomLoopStageConfig {

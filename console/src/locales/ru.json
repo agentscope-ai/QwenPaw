@@ -2539,9 +2539,11 @@
       "baseUrl": "URL сервера",
       "token": "Bearer-токен",
       "scopeId": "Область памяти",
-      "scopeIdPlaceholder": "Оставьте пустым, чтобы использовать приватную область этого Agent",
+      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
       "scopeIdInvalid": "Область памяти не может состоять только из пробелов.",
-      "timeout": "Тайм-аут запроса"
+      "timeout": "Тайм-аут запроса",
+      "maxContextBytes": "Maximum injected context (bytes)",
+      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
     },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",

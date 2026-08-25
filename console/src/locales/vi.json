@@ -1785,9 +1785,11 @@
       "baseUrl": "URL máy chủ",
       "token": "Bearer Token",
       "scopeId": "Phạm vi bộ nhớ",
-      "scopeIdPlaceholder": "Để trống để dùng phạm vi riêng của Agent này",
+      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
       "scopeIdInvalid": "Phạm vi bộ nhớ không được chỉ chứa khoảng trắng.",
-      "timeout": "Thời gian chờ yêu cầu"
+      "timeout": "Thời gian chờ yêu cầu",
+      "maxContextBytes": "Maximum injected context (bytes)",
+      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
     },
     "maxIters": "Số vòng lặp tối đa",
     "maxItersTooltip": "Số vòng lặp suy luận-hành động tối đa của ReAct agent",

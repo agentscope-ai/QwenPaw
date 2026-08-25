@@ -15,8 +15,11 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+let formInstance: ReturnType<typeof Form.useForm>[0];
+
 function PowerContextForm() {
   const [form] = Form.useForm();
+  formInstance = form;
   return (
     <Form form={form}>
       <PowerContextConfigCard />
@@ -25,7 +28,7 @@ function PowerContextForm() {
 }
 
 describe("PowerContextConfigCard", () => {
-  it("leaves the scope empty for the per-agent default and bounds input", () => {
+  it("leaves the scope empty for the per-agent default", () => {
     renderWithProviders(<PowerContextForm />);
 
     const scope = screen.getByRole("textbox", {
@@ -37,5 +40,23 @@ describe("PowerContextConfigCard", () => {
       "placeholder",
       "agentConfig.powercontextConfig.scopeIdPlaceholder",
     );
+  });
+
+  it("rejects a timeout outside the server contract", async () => {
+    renderWithProviders(<PowerContextForm />);
+    formInstance.setFieldsValue({
+      powercontext_memory_config: { timeout: 61 },
+    });
+    await expect(formInstance.validateFields()).rejects.toBeDefined();
+  });
+
+  it("rejects an injected-context budget outside the server contract", async () => {
+    renderWithProviders(<PowerContextForm />);
+    formInstance.setFieldsValue({
+      powercontext_memory_config: {
+        auto_memory_search_config: { max_context_bytes: 32769 },
+      },
+    });
+    await expect(formInstance.validateFields()).rejects.toBeDefined();
   });
 });

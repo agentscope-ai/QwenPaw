@@ -2524,9 +2524,11 @@
       "baseUrl": "サーバー URL",
       "token": "Bearer トークン",
       "scopeId": "メモリスコープ",
-      "scopeIdPlaceholder": "空欄の場合はこの Agent のプライベートスコープを使用します",
+      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
       "scopeIdInvalid": "メモリスコープを空白文字だけにすることはできません。",
-      "timeout": "リクエストタイムアウト"
+      "timeout": "リクエストタイムアウト",
+      "maxContextBytes": "Maximum injected context (bytes)",
+      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
     },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",

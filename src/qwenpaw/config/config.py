@@ -851,6 +851,20 @@ class ADBPGMemoryConfig(BaseModel):
     )
 
 
+class PowerContextAutoMemorySearchConfig(AutoMemorySearchConfig):
+    """PowerContext-specific bounds for automatic memory recall."""
+
+    max_context_bytes: int = Field(
+        default=12000,
+        ge=1024,
+        le=32768,
+        description=(
+            "Maximum total UTF-8 byte size of PowerContext search results "
+            "injected into one model turn"
+        ),
+    )
+
+
 class PowerContextMemoryConfig(BaseModel):
     """PowerContext HTTP memory configuration."""
 
@@ -859,9 +873,14 @@ class PowerContextMemoryConfig(BaseModel):
     base_url: str = ""
     token: str = ""
     scope_id: str = Field(default="", max_length=256)
-    timeout: float = Field(default=10.0, ge=1.0)
-    auto_memory_search_config: AutoMemorySearchConfig = Field(
-        default_factory=lambda: AutoMemorySearchConfig(
+    timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        allow_inf_nan=False,
+    )
+    auto_memory_search_config: PowerContextAutoMemorySearchConfig = Field(
+        default_factory=lambda: PowerContextAutoMemorySearchConfig(
             enabled=True,
             max_results=3,
         ),
@@ -3075,6 +3094,14 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    powercontext_installation_id: str = Field(
+        default="",
+        max_length=32,
+        description=(
+            "Stable UUID generated on first PowerContext use to isolate "
+            "default scopes across QwenPaw installations"
+        ),
+    )
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
@@ -3093,6 +3120,18 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
+
+    @field_validator("powercontext_installation_id")
+    @classmethod
+    def validate_powercontext_installation_id(cls, value: str) -> str:
+        """Keep the persisted PowerContext installation identity stable."""
+        normalized = value.strip()
+        if normalized and not re.fullmatch(r"[0-9a-f]{32}", normalized):
+            raise ValueError(
+                "powercontext_installation_id must be a 32-character "
+                "lowercase hexadecimal UUID",
+            )
+        return normalized
 
 
 ChannelConfigUnion = Union[

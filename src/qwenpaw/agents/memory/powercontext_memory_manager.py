@@ -12,6 +12,7 @@ from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ...config.config import PowerContextMemoryConfig, load_agent_config
+from ...config.utils import get_or_create_powercontext_installation_id
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .powercontext_client import (
     PowerContextConfig,
@@ -25,6 +26,8 @@ from .powercontext_prompts import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MAX_CONTEXT_BYTES = 12000
+
 
 @memory_registry.register("powercontext")
 class PowerContextMemoryManager(BaseMemoryManager):
@@ -32,6 +35,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
         super().__init__(working_dir, agent_id)
         self._client: PowerContextMemoryClient | None = None
         self._config: PowerContextMemoryConfig | None = None
+        self._resolved_scope_id = ""
         self._pending: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
@@ -43,23 +47,32 @@ class PowerContextMemoryManager(BaseMemoryManager):
             logger.warning("PowerContext is not configured; backend disabled")
             return
         try:
+            scope_id = cfg.scope_id.strip()
+            if not scope_id:
+                installation_id = get_or_create_powercontext_installation_id()
+                scope_id = (
+                    f"qwenpaw:{installation_id}:agent:{self.agent_id}"
+                )
             self._client = PowerContextMemoryClient(
                 PowerContextConfig(
                     base_url=cfg.base_url.strip(),
                     token=cfg.token.strip(),
-                    scope_id=cfg.scope_id.strip() or f"agent:{self.agent_id}",
+                    scope_id=scope_id,
                     timeout=cfg.timeout,
                 ),
             )
+            self._resolved_scope_id = scope_id
         except Exception as exc:
             logger.warning("PowerContext initialization failed: %s", exc)
             self._client = None
+            self._resolved_scope_id = ""
 
     async def close(self) -> bool:
         if self._pending:
             await asyncio.gather(*self._pending, return_exceptions=True)
             self._pending.clear()
         client, self._client = self._client, None
+        self._resolved_scope_id = ""
         if client is None:
             return True
         try:
@@ -113,9 +126,19 @@ class PowerContextMemoryManager(BaseMemoryManager):
             "max_results",
             3,
         )
-        result = await self.memory_search(
+        max_context_bytes = getattr(
+            self._config.auto_memory_search_config,
+            "max_context_bytes",
+            DEFAULT_MAX_CONTEXT_BYTES,
+        )
+        result = await self._search_memories(
             query,
             max_results,
+            max_context_bytes=self._auto_search_result_budget(
+                query=query,
+                max_results=max_results,
+                max_context_bytes=max_context_bytes,
+            ),
         )
         if result.state != ToolResultState.SUCCESS:
             return None
@@ -172,10 +195,31 @@ class PowerContextMemoryManager(BaseMemoryManager):
         min_score: float = 0.0,
     ) -> ToolChunk:
         """Search PowerContext memories and include their exact Citation."""
+        return await self._search_memories(
+            query,
+            max_results,
+            min_score,
+            max_context_bytes=getattr(
+                getattr(self._config, "auto_memory_search_config", None),
+                "max_context_bytes",
+                DEFAULT_MAX_CONTEXT_BYTES,
+            ),
+        )
+
+    async def _search_memories(
+        self,
+        query: str,
+        max_results: int,
+        min_score: float = 0.0,
+        *,
+        max_context_bytes: int,
+    ) -> ToolChunk:
+        """Search and bound the complete rendered result before injection."""
         if self._client is None:
             return self._tool_error("PowerContext is not configured.")
 
         parts: list[str] = []
+        used_bytes = 0
         try:
             for hit in await self._client.search(
                 query=query,
@@ -185,14 +229,34 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 text = hit.get("text", "")
                 citation = self._memory_citation(hit)
                 if text and score >= min_score:
-                    parts.append(
-                        self._format_memory_hit(
-                            index=len(parts) + 1,
-                            score=score,
-                            text=text,
-                            citation=citation,
-                        ),
+                    separator = "\n\n" if parts else ""
+                    remaining = (
+                        max_context_bytes
+                        - used_bytes
+                        - len(separator.encode("utf-8"))
                     )
+                    if remaining <= 0:
+                        break
+                    rendered = self._format_memory_hit(
+                        index=len(parts) + 1,
+                        score=score,
+                        text=text,
+                        citation=citation,
+                    )
+                    bounded = truncate_utf8_text(
+                        rendered,
+                        max_bytes=remaining,
+                    )
+                    if not bounded:
+                        break
+                    parts.append(bounded)
+                    used_bytes += len(separator.encode("utf-8")) + len(
+                        bounded.encode("utf-8"),
+                    )
+                    if len(bounded.encode("utf-8")) < len(
+                        rendered.encode("utf-8"),
+                    ):
+                        break
         except Exception as exc:
             logger.warning("PowerContext memory search failed: %s", exc)
             return self._tool_error(
@@ -229,7 +293,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
         return self._tool_success("Memory saved to PowerContext.")
 
     def _scope_id(self) -> str:
-        return (
+        return self._resolved_scope_id or (
             getattr(self._config, "scope_id", None) or f"agent:{self.agent_id}"
         )
 
@@ -319,3 +383,27 @@ class PowerContextMemoryManager(BaseMemoryManager):
             for block in chunk.content or []
             if getattr(block, "text", "")
         )
+
+    def _auto_search_result_budget(
+        self,
+        *,
+        query: str,
+        max_results: int,
+        max_context_bytes: int,
+    ) -> int:
+        """Reserve bytes for synthetic tool metadata before retrieval text."""
+        message = self._build_auto_memory_search_msg(
+            query=query,
+            max_results=max_results,
+            text="",
+        )
+        overhead = 0
+        for block in message.content:
+            overhead += len(str(getattr(block, "text", "")).encode("utf-8"))
+            overhead += len(
+                str(getattr(block, "thinking", "")).encode("utf-8"),
+            )
+            block_name = str(getattr(block, "name", ""))
+            block_input = str(getattr(block, "input", ""))
+            overhead += len((block_name + block_input).encode("utf-8"))
+        return max(0, max_context_bytes - overhead)

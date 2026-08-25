@@ -3162,9 +3162,11 @@
       "baseUrl": "Server URL",
       "token": "Bearer Token",
       "scopeId": "Memory Scope",
-      "scopeIdPlaceholder": "Leave empty to use this agent's private scope",
+      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
       "scopeIdInvalid": "Memory scope must not contain only whitespace.",
-      "timeout": "Request Timeout"
+      "timeout": "Request Timeout",
+      "maxContextBytes": "Maximum injected context (bytes)",
+      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
     },
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
