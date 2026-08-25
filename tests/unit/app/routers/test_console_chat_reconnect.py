@@ -16,7 +16,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.console import _extract_session_and_payload
@@ -178,3 +178,82 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     assert payload == {"type": "replay_end"}
     # No fresh run was started by the reconnect.
     assert console_workspace.console_channel.stream_calls == []
+
+
+@pytest.mark.asyncio
+async def test_new_payload_conflicts_instead_of_attaching_to_active_run(
+    app,
+    console_workspace,
+):
+    """A second send must not masquerade as a stream reconnect.
+
+    The payload passed to ``attach_or_start`` is ignored when the run already
+    exists. Returning that run's stream with HTTP 200 therefore acknowledges a
+    user message that will never execute.
+    """
+    from starlette.requests import Request
+    from qwenpaw.app.routers.console import post_console_chat
+
+    tracker = console_workspace.task_tracker
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original_payload = object()
+
+    async def slow_stream(payload):
+        assert payload is original_payload
+        started.set()
+        await release.wait()
+        yield "data: original-finished\n\n"
+
+    original_queue, _ = await tracker.attach_or_start(
+        "chat-1",
+        original_payload,
+        slow_stream,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    request = Request(
+        scope={
+            "type": "http",
+            "method": "POST",
+            "path": "/api/console/chat",
+            "headers": [],
+            "app": app,
+        },
+    )
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await post_console_chat(
+                request_data={
+                    "session_id": "console:default",
+                    "user_id": "default",
+                    "channel": "console",
+                    "input": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "second payload"},
+                            ],
+                        },
+                    ],
+                },
+                request=request,
+            )
+
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail == {
+            "code": "CHAT_RUN_CONFLICT",
+            "message": "A run is already active for this chat.",
+            "chat_id": "chat-1",
+        }
+        assert await tracker.get_status("chat-1") == "running"
+        async with tracker.lock:
+            # Rejecting the send must not retain the temporary replay queue.
+            assert tracker._runs["chat-1"].queues == [original_queue]
+        # The conflicting payload must not start another producer.
+        assert console_workspace.console_channel.stream_calls == []
+    finally:
+        release.set()
+        async for _ in tracker.stream_from_queue(original_queue, "chat-1"):
+            pass

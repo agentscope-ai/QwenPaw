@@ -431,13 +431,31 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
-        queue, _ = await tracker.attach_or_start(
+        queue, is_new_run = await tracker.attach_or_start(
             chat.id,
             native_payload,
             console_channel.stream_one,
             owner=workspace,
             on_finished=workspace.chat_manager.mark_chat_finished,
         )
+        if not is_new_run:
+            # attach_or_start returns a replay subscriber when this chat is
+            # already running. That is valid only for explicit reconnects;
+            # accepting a new payload here would acknowledge a message that
+            # will never be passed to stream_one.
+            await tracker.detach_subscriber(chat.id, queue)
+            logger.warning(
+                "Rejecting console chat payload for active run: chat_id=%s",
+                chat.id,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "CHAT_RUN_CONFLICT",
+                    "message": "A run is already active for this chat.",
+                    "chat_id": chat.id,
+                },
+            )
 
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
