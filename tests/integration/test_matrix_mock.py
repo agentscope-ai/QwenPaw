@@ -366,16 +366,12 @@ def _wait_no_new_events_for_room(
     """
     while time.time() < deadline:
         new_events = [
-            e for e in sent_events[baseline:]
-            if e.get("room_id") == room_id
+            e for e in sent_events[baseline:] if e.get("room_id") == room_id
         ]
         if not new_events:
             return []
         time.sleep(1.0)
-    return [
-        e for e in sent_events[baseline:]
-        if e.get("room_id") == room_id
-    ]
+    return [e for e in sent_events[baseline:] if e.get("room_id") == room_id]
 
 
 @pytest.mark.integration
