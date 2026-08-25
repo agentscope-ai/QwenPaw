@@ -1,0 +1,7 @@
+secrets/
+qwenpaw/gateway-client.json
+logs/*.log
+logs/*.log.err
+logs/*.tmp
+logs/*.html
+logs/*.jsonl

@@ -1,0 +1,11 @@
+﻿{
+    "headers":  {
+                    "Authorization":  "Bearer eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhZ2VudGdhdGV3YXkuZGV2IiwiYXVkIjoidGVzdC5hZ2VudGdhdGV3YXkuZGV2IiwiZXhwIjoxODkzNDU2MDAwLCJzdWIiOiJmb3JnZWRBZ2VudCJ9.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+                },
+    "key":  "agentgateway-forged",
+    "url":  "http://localhost:3000/mcp",
+    "name":  "AgentGateway (forged Token)",
+    "transport":  "streamable_http",
+    "description":  "Unified gateway entry with a forged JWT (must be rejected)",
+    "enabled":  true
+}

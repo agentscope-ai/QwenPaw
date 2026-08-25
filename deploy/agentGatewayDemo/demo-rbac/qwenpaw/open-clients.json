@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "forum-direct": {
+      "name": "Forum MCP（直连，无鉴权）",
+      "description": "阶段 A：绕过网关直接访问论坛",
+      "enabled": true,
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:9002/mcp"
+    },
+    "hr-direct": {
+      "name": "HR MCP（直连，无鉴权）",
+      "description": "阶段 A：绕过网关直接访问人事 PII",
+      "enabled": true,
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:9001/mcp"
+    },
+    "finance-direct": {
+      "name": "Finance MCP（直连，无鉴权）",
+      "description": "阶段 A：绕过网关直接访问预算",
+      "enabled": true,
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:9003/mcp"
+    }
+  }
+}

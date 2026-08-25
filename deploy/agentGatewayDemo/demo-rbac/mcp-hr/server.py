@@ -5,9 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+COMMON = Path(__file__).resolve().parents[1] / "mcp-common"
+if str(COMMON) not in sys.path:
+    sys.path.insert(0, str(COMMON))
+
+from gateway_auth import add_auth_args, create_mcp_server, resolve_gateway_token, run_mcp_http
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9001
@@ -25,10 +30,6 @@ def save_employees(data: dict[str, dict]) -> None:
     DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def create_server(host: str, port: int, path: str) -> FastMCP:
-    return FastMCP("HR MCP Server", host=host, port=port, streamable_http_path=path)
-
-
 def format_employee(employee_id: str, record: dict) -> str:
     return (
         f"employee_id={employee_id} | "
@@ -38,7 +39,7 @@ def format_employee(employee_id: str, record: dict) -> str:
     )
 
 
-def register_handlers(mcp: FastMCP) -> None:
+def register_handlers(mcp) -> None:
     @mcp.tool()
     def get_employee(employee_id: str = "") -> str:
         """读取员工信息（姓名、电话、身份证号码）。不传 employee_id 时返回全部员工。"""
@@ -85,18 +86,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default=os.getenv("MCP_HR_HOST", DEFAULT_HOST))
     parser.add_argument("--port", type=int, default=int(os.getenv("MCP_HR_PORT", str(DEFAULT_PORT))))
     parser.add_argument("--path", default=os.getenv("MCP_HR_PATH", DEFAULT_PATH))
+    add_auth_args(parser, "HR_GATEWAY_TOKEN")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    mcp = create_server(args.host, args.port, args.path)
+    mcp = create_mcp_server("HR MCP Server", args.host, args.port, args.path)
     register_handlers(mcp)
     url = f"http://{args.host}:{args.port}{args.path}"
     print("HR MCP Server (人事 / PII)")
     print(f"  URL: {url}")
-    print(f"  工具: get_employee, update_employee")
-    mcp.run(transport="streamable-http")
+    print("  工具: get_employee, update_employee")
+    run_mcp_http(
+        mcp,
+        host=args.host,
+        port=args.port,
+        path=args.path,
+        auth_mode=args.auth_mode,
+        gateway_token=resolve_gateway_token(args.gateway_token_env),
+        header_name=args.gateway_token_header,
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 # AgentGateway × QwenPaw 换岗降权演示指南
 
+若尚未演示“多个 MCP 裸奔 → 统一接入网关”，请先看 [Gateway_readme.md](./Gateway_readme.md)；用 QwenPaw 逐步演示见 [QwenPaw_demo.md](./QwenPaw_demo.md)。那一幕解决**谁能进来**；本文件继续解决**进来以后能调用哪些工具**。
+
 本演示面向**从未接触过本项目的演示者**，按步骤操作即可复现完整故事：
 
 > 员工 `employeeQwenpaw` 已发放 MCP 访问 Token（长期不变）。换岗前网关允许其访问全部工具；换岗后**只修改网关策略、不收回 Token**，员工若仍用原 Token 越权访问人事数据，将被拒绝并上报安全事件。

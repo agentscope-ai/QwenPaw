@@ -20,11 +20,16 @@ function Install-DemoPythonDeps {
     Write-Host "Installing MCP dependencies (if needed)..." -ForegroundColor DarkGray
     $reqHr = Join-DemoPath "mcp-hr\requirements.txt"
     $reqForum = Join-DemoPath "mcp-forum\requirements.txt"
+    $reqFinance = Join-DemoPath "mcp-finance\requirements.txt"
     $reqDemo = Join-DemoPath "requirements.txt"
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        & python -m pip install -q -r $reqHr -r $reqForum -r $reqDemo 2>&1 | Out-Null
+        $pipArgs = @("-m", "pip", "install", "-q", "-r", $reqHr, "-r", $reqForum, "-r", $reqDemo)
+        if (Test-Path $reqFinance) {
+            $pipArgs += @("-r", $reqFinance)
+        }
+        & python @pipArgs 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Host "WARN: pip install exit code $LASTEXITCODE (skip if mcp already installed)" -ForegroundColor Yellow
         }
@@ -326,4 +331,45 @@ function Stop-DemoServices {
     }
 
     return $stopped
+}
+
+function Stop-DemoPortListeners {
+    param([int[]]$Ports = @(9001, 9002, 9003, 3000))
+    foreach ($port in $Ports) {
+        $conns = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+        foreach ($c in $conns) {
+            if ($c.OwningProcess -and $c.OwningProcess -gt 0) {
+                Write-Host "Freeing port $port (PID $($c.OwningProcess))" -ForegroundColor DarkGray
+                Stop-DemoProcessTree -ProcessId $c.OwningProcess
+            }
+        }
+    }
+}
+
+function Wait-DemoPort {
+    param(
+        [string]$TargetHost = "127.0.0.1",
+        [int]$Port,
+        [int]$TimeoutSeconds = 25
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $client = $null
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $iar = $client.BeginConnect($TargetHost, $Port, $null, $null)
+            $ok = $iar.AsyncWaitHandle.WaitOne(400, $false)
+            if ($ok -and $client.Connected) {
+                return $true
+            }
+        } catch {
+            # retry until timeout
+        } finally {
+            if ($null -ne $client) {
+                $client.Close()
+            }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    return $false
 }

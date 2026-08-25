@@ -1,0 +1,8 @@
+﻿{
+    "key":  "agentgateway-no-token",
+    "url":  "http://localhost:3000/mcp",
+    "name":  "AgentGateway (no Token)",
+    "transport":  "streamable_http",
+    "description":  "Unified gateway entry without Authorization",
+    "enabled":  true
+}

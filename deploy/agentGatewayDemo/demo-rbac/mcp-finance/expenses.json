@@ -1,0 +1,58 @@
+[
+  {
+    "id": "X0001",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "open-demo",
+    "created_at": "2026-08-18T17:14:12"
+  },
+  {
+    "id": "X0002",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "open-demo",
+    "created_at": "2026-08-18T17:15:37"
+  },
+  {
+    "id": "X0003",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "open-demo",
+    "created_at": "2026-08-18T17:25:05"
+  },
+  {
+    "id": "X0004",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "open-demo",
+    "created_at": "2026-08-18T17:45:22"
+  },
+  {
+    "id": "X0005",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "演示绕过",
+    "created_at": "2026-08-19T10:34:26"
+  },
+  {
+    "id": "X0006",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "演示绕过",
+    "created_at": "2026-08-19T11:10:26"
+  },
+  {
+    "id": "X0007",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "演示绕过",
+    "created_at": "2026-08-19T11:27:23"
+  },
+  {
+    "id": "X0008",
+    "department_id": "D-SALES",
+    "amount_cny": 88,
+    "purpose": "演示绕过",
+    "created_at": "2026-08-19T14:23:47"
+  }
+]

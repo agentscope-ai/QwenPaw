@@ -1,0 +1,17 @@
+{
+  "D-SALES": {
+    "name": "销售部（演示）",
+    "budget_cny": 128000,
+    "spent_cny": 45200
+  },
+  "D-ENG": {
+    "name": "研发部（演示）",
+    "budget_cny": 256000,
+    "spent_cny": 189500
+  },
+  "D-HR": {
+    "name": "人事部（演示）",
+    "budget_cny": 64000,
+    "spent_cny": 12100
+  }
+}

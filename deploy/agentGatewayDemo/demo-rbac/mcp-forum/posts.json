@@ -1,5 +1,68 @@
 [
   {
+    "id": "P0026",
+    "title": "匿名也能发帖",
+    "content": "没有鉴权",
+    "author": "anonymous",
+    "created_at": "2026-08-19T14:23:47"
+  },
+  {
+    "id": "P0025",
+    "title": "匿名也能发帖",
+    "content": "没有鉴权",
+    "author": "anonymous",
+    "created_at": "2026-08-19T11:27:21"
+  },
+  {
+    "id": "P0024",
+    "title": "匿名也能发帖",
+    "content": "没有鉴权",
+    "author": "anonymous",
+    "created_at": "2026-08-19T11:10:26"
+  },
+  {
+    "id": "P0023",
+    "title": "匿名也能发帖",
+    "content": "没有鉴权",
+    "author": "anonymous",
+    "created_at": "2026-08-19T10:34:13"
+  },
+  {
+    "id": "P0022",
+    "title": "open-demo",
+    "content": "no auth required",
+    "author": "anonymousAgent",
+    "created_at": "2026-08-18T17:45:22"
+  },
+  {
+    "id": "P0021",
+    "title": "open-demo",
+    "content": "no auth required",
+    "author": "anonymousAgent",
+    "created_at": "2026-08-18T17:25:05"
+  },
+  {
+    "id": "P0020",
+    "title": "open-demo",
+    "content": "no auth required",
+    "author": "anonymousAgent",
+    "created_at": "2026-08-18T17:15:37"
+  },
+  {
+    "id": "P0019",
+    "title": "open-demo",
+    "content": "no auth required",
+    "author": "anonymousAgent",
+    "created_at": "2026-08-18T17:14:12"
+  },
+  {
+    "id": "P0018",
+    "title": "测试 create_post 是否可用",
+    "content": "降权后测试",
+    "author": "anonymous",
+    "created_at": "2026-08-12T16:03:13"
+  },
+  {
     "id": "P0017",
     "title": "RBAC demo post",
     "content": "Same token before/after gateway downgrade demo.",

@@ -1,0 +1,71 @@
+# AgentGateway 统一接入演示 — 三 MCP 聚合 + 严格 JWT + 后端专用凭证
+#
+# 用户 JWT（employeeQwenpaw）标识 Agent 客户端。
+# 后端内部凭证（HR/FORUM/FINANCE_GATEWAY_TOKEN）标识网关自身。
+# 两套身份分离：用户 Token 不会被当作后端信任凭证。
+#
+# 启动：.\demo-rbac\scripts\enable-gateway.ps1
+# JWKS 与密钥文件路径相对 DeployRoot。
+
+frontendPolicies:
+  accessLog:
+    add:
+      audit_mcp_error: mcp.tool.error
+      audit_mcp_tool: mcp.tool.name
+
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - policies:
+              cors:
+                allowOrigins: ["*"]
+                allowHeaders: ["*"]
+                exposeHeaders: ["Mcp-Session-Id"]
+
+              jwtAuth:
+                mode: strict
+                issuer: agentgateway.dev
+                audiences: [test.agentgateway.dev]
+                jwks:
+                  file: demo-rbac/jwt/pub-key
+
+              mcpAuthorization:
+                rules:
+                  # 任意通过 JWT 校验的主体均可调用聚合后的全部工具。
+                  # 更细的工具级授权见换岗降权演示（agentgateway-rbac*.yaml）。
+                  - 'has(jwt.sub)'
+
+            backends:
+              - mcp:
+                  targets:
+                    - name: hr
+                      mcp:
+                        host: http://127.0.0.1:9001/mcp
+                      policies:
+                        backendAuth:
+                          key:
+                            value: $HR_GATEWAY_TOKEN
+                            location:
+                              header:
+                                name: x-gateway-token
+                    - name: forum
+                      mcp:
+                        host: http://127.0.0.1:9002/mcp
+                      policies:
+                        backendAuth:
+                          key:
+                            value: $FORUM_GATEWAY_TOKEN
+                            location:
+                              header:
+                                name: x-gateway-token
+                    - name: finance
+                      mcp:
+                        host: http://127.0.0.1:9003/mcp
+                      policies:
+                        backendAuth:
+                          key:
+                            value: $FINANCE_GATEWAY_TOKEN
+                            location:
+                              header:
+                                name: x-gateway-token
