@@ -64,6 +64,15 @@ export default function FilesWorkspace({
   const { codingMode } = useCodingMode();
   const scopeKey = filesWorkspaceScopeKey(scope);
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  const [missingChatScope, setMissingChatScope] = useState<{
+    scopeKey: string;
+    chatId: string;
+  } | null>(null);
+  const effectiveChatId =
+    missingChatScope?.scopeKey === scopeKey &&
+    missingChatScope.chatId === chatId
+      ? undefined
+      : chatId;
   // Primitives rather than `scope`: the object is rebuilt by the parent on
   // every render, and callbacks keyed on it feed effects that would then
   // refetch and re-activate the initial tab on unrelated re-renders.
@@ -77,7 +86,9 @@ export default function FilesWorkspace({
         undefined
       : undefined;
   const effectiveScope: FilesWorkspaceScope =
-    scope.kind === "session" ? { ...scope, projectDirOverride } : scope;
+    scope.kind === "session"
+      ? { ...scope, chatId: effectiveChatId, projectDirOverride }
+      : scope;
   const tabs = useTabsForScope(scopeKey);
   const activeTabPath = useActiveTabPathForScope(scopeKey);
   const {
@@ -107,6 +118,15 @@ export default function FilesWorkspace({
     sequence: number;
   } | null>(null);
 
+  const handleChatNotFound = useCallback(
+    (missingChatId: string) => {
+      if (!chatId || missingChatId !== chatId) return;
+      clearProjectTabs(scopeKey);
+      setMissingChatScope({ scopeKey, chatId: missingChatId });
+    },
+    [chatId, clearProjectTabs, scopeKey],
+  );
+
   useEffect(
     () =>
       listenForProjectDirectoryChanges((changedScopeKey) => {
@@ -131,7 +151,13 @@ export default function FilesWorkspace({
         // a file in an extra root stuck as a read-only historical artifact.
         const boundDirs =
           scopeKind === "session"
-            ? (await loadSessionProjectDirs(agentId, sessionId, chatId)).dirs
+            ? (
+                await loadSessionProjectDirs(
+                  agentId,
+                  sessionId,
+                  effectiveChatId,
+                )
+              ).dirs
             : [
                 {
                   path: agentInfo.path,
@@ -169,7 +195,7 @@ export default function FilesWorkspace({
           try {
             await workspaceApi.getFileMetadata(
               candidate.path,
-              chatId,
+              effectiveChatId,
               candidate.root,
               projectDirOverride,
             );
@@ -188,7 +214,13 @@ export default function FilesWorkspace({
       }
       return target;
     },
-    [agentId, chatId, projectDirOverride, scopeKind, sessionId],
+    [
+      agentId,
+      effectiveChatId,
+      projectDirOverride,
+      scopeKind,
+      sessionId,
+    ],
   );
 
   const loadTarget = useCallback(
@@ -224,7 +256,7 @@ export default function FilesWorkspace({
       if (target.source === "workspace") {
         const metadata = await workspaceApi.getFileMetadata(
           target.path,
-          chatId,
+          effectiveChatId,
           target.root,
           projectDirOverride,
         );
@@ -233,7 +265,7 @@ export default function FilesWorkspace({
         const loaded = isText
           ? await workspaceApi.loadFileText(
               target.path,
-              chatId,
+              effectiveChatId,
               target.root,
               projectDirOverride,
             )
@@ -266,7 +298,7 @@ export default function FilesWorkspace({
         etag: response.headers.get("ETag") ?? "",
       };
     },
-    [chatId, projectDirOverride],
+    [effectiveChatId, projectDirOverride],
   );
 
   const loadTabContent = useCallback(
@@ -352,10 +384,10 @@ export default function FilesWorkspace({
   }, [scopeKey]);
 
   useEffect(() => {
-    if (!chatId && projectDirOverride) {
+    if (!effectiveChatId && projectDirOverride) {
       setActivity("files");
     }
-  }, [chatId, projectDirOverride]);
+  }, [effectiveChatId, projectDirOverride]);
 
   useEffect(() => {
     tabs.forEach((tab) => {
@@ -410,7 +442,7 @@ export default function FilesWorkspace({
           >
             <Files size={18} />
           </button>
-          {chatId || !projectDirOverride ? (
+          {effectiveChatId || !projectDirOverride ? (
             <button
               type="button"
               className={activity === "git" ? styles.activityActive : ""}
@@ -424,8 +456,11 @@ export default function FilesWorkspace({
       )}
       {activity === "files" || !codingMode ? (
         <FilesNavigator
-          key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
+          key={`${scopeKey}:${effectiveChatId ?? ""}:${
+            projectDirOverride ?? ""
+          }:${directoryRevision}`}
           scope={effectiveScope}
+          onChatNotFound={handleChatNotFound}
           selectedPath={
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
             activeTabPath
@@ -444,7 +479,7 @@ export default function FilesWorkspace({
             <GitBranch size={15} />
             <span>{t("files.sourceControl")}</span>
           </header>
-          <GitPanel chatId={chatId} />
+          <GitPanel chatId={effectiveChatId} />
         </aside>
       )}
       <main className={styles.documentSurface}>
@@ -479,7 +514,7 @@ export default function FilesWorkspace({
               setTabContent(scopeKey, path, content)
             }
             onLoadFile={loadTabContent}
-            chatId={chatId}
+            chatId={effectiveChatId}
             projectDirOverride={projectDirOverride}
             navigation={editorNavigation}
             onDownloadFile={async (path) => {
@@ -506,8 +541,10 @@ export default function FilesWorkspace({
                   {
                     headers: {
                       ...buildAuthHeaders(),
-                      ...(chatId ? { "X-Chat-Id": chatId } : {}),
-                      ...(!chatId && projectDirOverride
+                      ...(effectiveChatId
+                        ? { "X-Chat-Id": effectiveChatId }
+                        : {}),
+                      ...(!effectiveChatId && projectDirOverride
                         ? {
                             "X-Session-Project-Dir": projectDirOverride,
                           }
@@ -536,7 +573,7 @@ export default function FilesWorkspace({
                   tab?.displayPath ?? path,
                   content,
                   tab?.etag,
-                  chatId,
+                  effectiveChatId,
                   tab?.workspaceRoot,
                   projectDirOverride,
                 );

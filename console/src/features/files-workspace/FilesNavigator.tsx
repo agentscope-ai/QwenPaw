@@ -73,6 +73,8 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  onChatNotFound: (chatId: string) => void;
+  onError: (error: unknown) => void;
 }
 
 interface ProfileFileRowProps {
@@ -160,6 +162,8 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  onChatNotFound,
+  onError,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -185,11 +189,24 @@ function DirectoryNode({
         );
         setCursor(page.next_cursor);
         setHasMore(page.has_more);
+      } catch (error) {
+        if (chatId && isApiErrorWithStatus(error, 404)) {
+          onChatNotFound(chatId);
+          return;
+        }
+        onError(error);
       } finally {
         setLoading(false);
       }
     },
-    [chatId, entry.path, projectDirOverride, root],
+    [
+      chatId,
+      entry.path,
+      onChatNotFound,
+      onError,
+      projectDirOverride,
+      root,
+    ],
   );
 
   const toggle = () => {
@@ -223,6 +240,8 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              onChatNotFound={onChatNotFound}
+              onError={onError}
             />
           ) : (
             <button
@@ -359,6 +378,7 @@ interface FilesNavigatorProps {
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
   scope: FilesWorkspaceScope;
+  onChatNotFound: (chatId: string) => void;
 }
 
 export default function FilesNavigator({
@@ -368,6 +388,7 @@ export default function FilesNavigator({
   onShowMemoryGraph,
   onShowFiles,
   scope,
+  onChatNotFound,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
@@ -410,9 +431,25 @@ export default function FilesNavigator({
   const [boundDirs, setBoundDirs] = useState<ProjectDirEntry[]>([]);
   // Opens the binding panel from the switcher's "manage directories" item.
   const [managingDirs, setManagingDirs] = useState(false);
+  const [navigatorError, setNavigatorError] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const reportNavigatorError = useCallback((error: unknown) => {
+    setNavigatorError(error instanceof Error ? error.message : String(error));
+  }, []);
+  const handleChatNotFound = useCallback(
+    (missingChatId: string) => {
+      if (!chatId || missingChatId !== chatId) return;
+      setEntries([]);
+      setCursor(null);
+      setHasMore(false);
+      setNavigatorError(null);
+      onChatNotFound(missingChatId);
+    },
+    [chatId, onChatNotFound],
   );
 
   useEffect(() => {
@@ -617,6 +654,7 @@ export default function FilesNavigator({
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
     let effectiveProject = projectDirOverride || agentInfo.path;
+    let directoryChatId = chatId;
     if (!projectDirOverride && chatId) {
       try {
         effectiveProject = (await chatProjectDirectoryApi.get(chatId))
@@ -627,6 +665,8 @@ export default function FilesNavigator({
         // are scoped to the agent of the request. The agent default is the
         // right answer for the agent now in view.
         if (!isApiErrorWithStatus(err, 404)) throw err;
+        directoryChatId = undefined;
+        handleChatNotFound(chatId);
       }
     }
     setProjectDirectory(effectiveProject);
@@ -637,14 +677,25 @@ export default function FilesNavigator({
       return;
     }
     try {
-      const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
+      const snapshot = await loadSessionProjectDirs(
+        agentId,
+        sessionId,
+        directoryChatId,
+      );
       setBoundDirs(snapshot.dirs);
     } catch {
       // Fall back to the single directory above rather than blanking the
       // switcher: the tree itself is still perfectly usable.
       setBoundDirs([]);
     }
-  }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
+  }, [
+    agentId,
+    chatId,
+    handleChatNotFound,
+    projectDirOverride,
+    scopeKind,
+    sessionId,
+  ]);
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
@@ -660,10 +711,16 @@ export default function FilesNavigator({
       setEntries(page.entries);
       setCursor(page.next_cursor);
       setHasMore(page.has_more);
+    } catch (error) {
+      if (chatId && isApiErrorWithStatus(error, 404)) {
+        handleChatNotFound(chatId);
+        return;
+      }
+      throw error;
     } finally {
       setLoading(false);
     }
-  }, [chatId, projectDirOverride, workspaceRoot]);
+  }, [chatId, handleChatNotFound, projectDirOverride, workspaceRoot]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -712,15 +769,22 @@ export default function FilesNavigator({
   }, []);
 
   useEffect(() => {
-    // Each loader owns its own degraded state, so a failure here has nothing
-    // left to handle — swallowing it keeps a stale chat id from turning into
-    // a page error.
+    let active = true;
     void Promise.all([
       loadDirectoryIdentity(),
       loadRoot(),
       loadProfile(),
-    ]).catch(() => {});
-  }, [loadDirectoryIdentity, loadProfile, loadRoot]);
+    ])
+      .then(() => {
+        if (active) setNavigatorError(null);
+      })
+      .catch((error) => {
+        if (active) reportNavigatorError(error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadDirectoryIdentity, loadProfile, loadRoot, reportNavigatorError]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a
@@ -736,20 +800,31 @@ export default function FilesNavigator({
   }, [roots, workspaceRoot]);
 
   useEffect(() => {
-    if (source === "profile") void loadProfile();
-    if (source === "daily" || source === "digest") void loadMemory(source);
-  }, [loadMemory, loadProfile, source]);
+    const task =
+      source === "profile"
+        ? loadProfile()
+        : source === "daily" || source === "digest"
+          ? loadMemory(source)
+          : null;
+    if (!task) return;
+    void task
+      .then(() => setNavigatorError(null))
+      .catch(reportNavigatorError);
+  }, [loadMemory, loadProfile, reportNavigatorError, source]);
 
   const refreshCurrent = async () => {
-    if (source === "daily" || source === "digest") {
-      await loadMemory(source);
-      return;
+    try {
+      if (source === "daily" || source === "digest") {
+        await loadMemory(source);
+      } else if (source === "profile") {
+        await loadProfile();
+      } else {
+        await loadRoot();
+      }
+      setNavigatorError(null);
+    } catch (error) {
+      reportNavigatorError(error);
     }
-    if (source === "profile") {
-      await loadProfile();
-      return;
-    }
-    await loadRoot();
   };
 
   const runUpload = async (
