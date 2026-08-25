@@ -12,6 +12,9 @@ Tests cover:
 - GET /api/workspace/commands/available: slash command menu payload
 - GET /api/skills/hub/install/status/{task_id}: unknown task 404
 - POST /api/skills/hub/install/cancel/{task_id}: unknown task 404
+- GET /api/skills/workspaces: skill workspaces list
+- GET /api/skills/pool: skill pool list
+- POST /api/skills/pool/refresh: pool refresh
 """
 
 from __future__ import annotations
@@ -234,3 +237,62 @@ def test_skills_pool_builtin_notice_structure(app_server) -> None:
     assert "fingerprint" in payload
     assert "has_updates" in payload
     assert "total_changes" in payload
+
+
+# ------------------------------------------------------------------ #
+# skills workspaces + pool
+# ------------------------------------------------------------------ #
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_skills_workspaces_list(app_server) -> None:
+    """Test purpose:
+    - Verify GET /api/skills/workspaces returns the list of skill
+      workspaces.
+
+    API endpoints:
+    - GET /api/skills/workspaces
+    """
+    resp = app_server.api_request(
+        "GET",
+        "/api/skills/workspaces",
+        timeout=_TREE_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    assert isinstance(resp.json(), list)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_skills_pool_list(app_server) -> None:
+    """Test purpose:
+    - Verify GET /api/skills/pool returns the skill pool list.
+
+    API endpoints:
+    - GET /api/skills/pool
+    """
+    resp = app_server.api_request(
+        "GET",
+        "/api/skills/pool",
+        timeout=_TREE_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    assert isinstance(resp.json(), list)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_skills_pool_refresh(app_server) -> None:
+    """Test purpose:
+    - Verify POST /api/skills/pool/refresh triggers a pool refresh.
+
+    API endpoints:
+    - POST /api/skills/pool/refresh
+    """
+    resp = app_server.api_request(
+        "POST",
+        "/api/skills/pool/refresh",
+        timeout=_TREE_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
