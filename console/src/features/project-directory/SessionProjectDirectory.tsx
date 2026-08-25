@@ -208,7 +208,13 @@ export default function SessionProjectDirectory({
   }, [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft]);
 
   useEffect(() => {
-    void refresh();
+    // Keep a failed read inside the panel: it re-runs on every scope change,
+    // including the moment an agent switch pairs the new agent with the
+    // outgoing chat, and an unhandled rejection there surfaces as a page
+    // error even though the trigger just keeps its previous directory.
+    void refresh().catch((err) => {
+      setListError(err instanceof Error ? err.message : String(err));
+    });
   }, [refresh]);
 
   const browse = useCallback(

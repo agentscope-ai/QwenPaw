@@ -37,6 +37,33 @@ function getErrorMessageFromBody(
   return text;
 }
 
+/**
+ * A non-2xx response, carrying the status alongside the message.
+ *
+ * Callers that treat a specific status as an expected outcome — a 404 on a
+ * chat-scoped endpoint means "this chat is not ours (any more)", not a
+ * failure — can branch on `status` instead of matching on the message text.
+ * The message keeps the exact shape the plain `Error` used, so existing
+ * message-based handling and `parseErrorDetail()` are unaffected.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True for an `ApiError` with the given status. */
+export function isApiErrorWithStatus(
+  error: unknown,
+  status: number,
+): error is ApiError {
+  return error instanceof ApiError && error.status === status;
+}
+
 function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   // Normalize extra to a Headers instance for consistent handling
   const headers = extra instanceof Headers ? extra : new Headers(extra);
@@ -138,7 +165,7 @@ export async function request<T = unknown>(
           ? `${errorMessage} - ${text}`
           : `Request failed: ${response.status} ${response.statusText}`;
 
-        throw new Error(finalMessage);
+        throw new ApiError(response.status, finalMessage);
       }
 
       if (response.status === 204) {

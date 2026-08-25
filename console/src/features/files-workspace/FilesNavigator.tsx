@@ -36,6 +36,7 @@ import {
   type ProjectDirEntry,
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import { isApiErrorWithStatus } from "../../api/request";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
@@ -615,11 +616,19 @@ export default function FilesNavigator({
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
-    const effectiveProject = projectDirOverride
-      ? projectDirOverride
-      : chatId
-      ? (await chatProjectDirectoryApi.get(chatId)).project_dir
-      : agentInfo.path;
+    let effectiveProject = projectDirOverride || agentInfo.path;
+    if (!projectDirOverride && chatId) {
+      try {
+        effectiveProject = (await chatProjectDirectoryApi.get(chatId))
+          .project_dir;
+      } catch (err) {
+        // A chat id outlives its ownership (it stays put across an agent
+        // switch, and survives a deletion made elsewhere), and chat endpoints
+        // are scoped to the agent of the request. The agent default is the
+        // right answer for the agent now in view.
+        if (!isApiErrorWithStatus(err, 404)) throw err;
+      }
+    }
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
     if (scopeKind !== "session") {
@@ -703,7 +712,14 @@ export default function FilesNavigator({
   }, []);
 
   useEffect(() => {
-    void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
+    // Each loader owns its own degraded state, so a failure here has nothing
+    // left to handle — swallowing it keeps a stale chat id from turning into
+    // a page error.
+    void Promise.all([
+      loadDirectoryIdentity(),
+      loadRoot(),
+      loadProfile(),
+    ]).catch(() => {});
   }, [loadDirectoryIdentity, loadProfile, loadRoot]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the

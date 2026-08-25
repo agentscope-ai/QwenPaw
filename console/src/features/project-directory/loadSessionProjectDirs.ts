@@ -11,6 +11,7 @@ import {
   type ProjectDirEntry,
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import { isApiErrorWithStatus } from "../../api/request";
 import { getPendingProjectDirs } from "./pendingProjectDirectory";
 
 export interface SessionProjectDirsSnapshot {
@@ -32,20 +33,17 @@ function pendingEntry(path: string, label: string | null): ProjectDirEntry {
 }
 
 /**
- * Resolve the session's bound directories: the chat's persisted list, else the
- * pending pick a brand-new chat holds locally, else the agent default.
+ * The chat's own binding, or `null` when the backend does not have that chat.
  *
- * The returned list always has at least one entry. When nothing is configured
- * that entry is the agent workspace (with `source: "workspace_fallback"`), so
- * callers can render a directory rather than an empty panel — the rest of the
- * console resolves relative paths there too.
+ * A chat id outlives its ownership: it stays in the URL across an agent
+ * switch, and it survives a deletion made in another tab. Chat endpoints are
+ * scoped to the agent of the request, so both cases answer 404 — an expected
+ * state to fall back from, not a failure to propagate.
  */
-export async function loadSessionProjectDirs(
-  agentId: string,
-  sessionId: string,
-  chatId?: string,
-): Promise<SessionProjectDirsSnapshot> {
-  if (chatId) {
+async function loadChatProjectDirs(
+  chatId: string,
+): Promise<SessionProjectDirsSnapshot | null> {
+  try {
     const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
     if (next.project_dirs.length > 0) {
       return {
@@ -73,6 +71,31 @@ export async function loadSessionProjectDirs(
       source: next.source,
       agentProjectDir: next.agent_project_dir,
     };
+  } catch (error) {
+    if (isApiErrorWithStatus(error, 404)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Resolve the session's bound directories: the chat's persisted list, else the
+ * pending pick a brand-new chat holds locally, else the agent default.
+ *
+ * The returned list always has at least one entry. When nothing is configured
+ * that entry is the agent workspace (with `source: "workspace_fallback"`), so
+ * callers can render a directory rather than an empty panel — the rest of the
+ * console resolves relative paths there too.
+ */
+export async function loadSessionProjectDirs(
+  agentId: string,
+  sessionId: string,
+  chatId?: string,
+): Promise<SessionProjectDirsSnapshot> {
+  if (chatId) {
+    const bound = await loadChatProjectDirs(chatId);
+    if (bound) return bound;
+    // The chat is not this agent's (any more): continue as if there were no
+    // chat id at all, which lands on the agent default below.
   }
 
   // Brand-new chat: no server id yet, so the pick lives in sessionStorage.

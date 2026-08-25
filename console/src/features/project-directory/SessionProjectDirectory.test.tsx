@@ -2,6 +2,8 @@ import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
+import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import { ApiError } from "../../api/request";
 import SessionProjectDirectory from "./SessionProjectDirectory";
 
 const {
@@ -41,6 +43,13 @@ vi.mock("../../api/modules/chatProjectDirectory", () => ({
 // recent-project selection, Apply) lives on AGENT scope. Session scope
 // binds an ordered list of directories instead, so it has no path field.
 const scope = { kind: "agent" as const, agentId: "default" };
+
+const sessionScope = {
+  kind: "session" as const,
+  agentId: "default",
+  sessionId: "s1",
+  chatId: "ceb44050-d815-43f1-9212-c6b9a2054295",
+};
 
 const projects = [
   {
@@ -323,5 +332,38 @@ describe("SessionProjectDirectory", () => {
     await waitFor(() => {
       expect(mockSetSessionDirectory).toHaveBeenCalledWith("/projects/runtime");
     });
+  });
+
+  // A chat id outlives its chat: it stays in the URL across an agent switch,
+  // and it survives a deletion made in another tab. Both answer 404, and the
+  // panel refreshes on every scope change — so this must degrade to the agent
+  // default instead of leaving a rejection for the page to report.
+  it("shows the agent default when the session chat is gone", async () => {
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs).mockRejectedValue(
+      new ApiError(404, "Chat not found"),
+    );
+
+    renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} showFullPath />,
+    );
+
+    await waitFor(() => {
+      expect(mockGetSessionDirectory).toHaveBeenCalled();
+    });
+    expect(
+      await screen.findByText("/projects/agentscope", { exact: false }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an unexpected read failure inside the panel", async () => {
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs).mockRejectedValue(
+      new ApiError(500, "directory service exploded"),
+    );
+
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} open />);
+
+    expect(
+      await screen.findByText("directory service exploded"),
+    ).toBeInTheDocument();
   });
 });
