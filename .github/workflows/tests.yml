@@ -12,21 +12,14 @@ on:
       - '.github/workflows/tests.yml'
   pull_request:
     branches: [main, master, dev, develop]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'setup.py'
-      - 'deploy/Dockerfile'
-      - '.github/workflows/tests.yml'
   workflow_dispatch:
     inputs:
       integration_marker:
         description: >-
           Pytest marker expression for the integration tier. Leave blank
-          to keep the event-based default (PR=p0, push/dispatch=p0+p1).
-          Examples: "integration and p0", "integration and (p0 or p1)",
-          "integration".
+          to run the FULL integration suite (the default for every event).
+          Fill in to narrow a manual run, e.g. "integration and p0",
+          "integration and (p0 or p1)".
         required: false
         default: ''
 
@@ -46,11 +39,35 @@ jobs:
     with:
       author: ${{ github.event.pull_request.user.login }}
 
+  # Replaces the former `on.pull_request.paths` filter: the workflow now runs
+  # (and reports a status) on every PR so `Test Summary` can be a required
+  # check, but docs-only PRs skip the approval gate and every test tier.
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'setup.py'
+              - '.github/workflows/tests.yml'
+
   approval-gate:
     name: Maintainer Approval
-    needs: [spam-gate]
+    needs: [spam-gate, changes]
     if: |
       always() &&
+      needs.changes.outputs.code == 'true' &&
       (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     environment: maintainer-approved
@@ -342,15 +359,14 @@ jobs:
           DISPATCH_MARKER: ${{ inputs.integration_marker }}
         run: |
           # Manual dispatch override -> use whatever the maintainer typed.
-          # PR gate -> p0 only (fast feedback)
-          # push / workflow_dispatch (no input) -> p0 + p1 (full pre-merge gate)
-          # nightly full sweep lives in full-tests-nightly.yml
+          # Everything else (PR gate / push) -> FULL integration suite.
+          # The PR gate is the only layer that reliably runs (post-merge
+          # push runs wait on the maintainer-approved environment), so
+          # problems are blocked here rather than detected after merge.
           if [ -n "${DISPATCH_MARKER}" ]; then
             EXPR="${DISPATCH_MARKER}"
-          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            EXPR="integration and p0"
           else
-            EXPR="integration and (p0 or p1)"
+            EXPR="integration"
           fi
           echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
           echo "Selected marker expression: $EXPR"
@@ -364,10 +380,11 @@ jobs:
           # not pay the tracer overhead. Multi-platform coverage is opt-in
           # via full-tests-nightly.yml dispatch (coverage_platforms input).
           QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11') && '1' || '' }}
-          # Windows runners are 2-core and IO-bound; under xdist parallel
-          # the default 15s HTTP timeout is too tight and intermittently
-          # surfaces as ``httpx.ReadTimeout``. Lift the floor here.
-          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
+          # Windows/macOS runners are slower and IO-bound; under xdist
+          # parallel the default HTTP timeouts are too tight and
+          # intermittently surface as ``httpx.ReadTimeout`` (e.g. the real
+          # plugin install on macOS). Lift the floor on non-Linux runners.
+          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os != 'ubuntu-latest' && '120' || '' }}
         run: |
           if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
@@ -545,28 +562,53 @@ jobs:
 
   test-summary:
     name: Test Summary
-    needs: [approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
+    needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests, coverage-report]
+    # Fail-closed gate. This job ALWAYS runs (no path condition) so the
+    # required-check context can never be satisfied by an accidental skip.
+    # Three-state decision:
+    #   1. change detection did not succeed -> red (its `code` output is
+    #      unreliable when the detection job fails/is cancelled, so the
+    #      gate must close rather than open);
+    #   2. detection succeeded and reported a docs-only PR -> explicit
+    #      green (instead of skipping, which a ruleset cannot distinguish
+    #      from a bypass);
+    #   3. code change -> approval plus EVERY test tier must be strictly
+    #      `success`; failure/cancelled/skipped are all rejected.
+    # coverage-report is intentionally observed, not enforced: a coverage
+    # tooling outage must not block an otherwise green PR.
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check test results
         shell: bash
         run: |
+          echo "Changes detection: ${{ needs.changes.result }}"
           echo "Approval gate: ${{ needs.approval-gate.result }}"
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
+          echo "Coverage report: ${{ needs.coverage-report.result }}"
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "❌ Change detection did not succeed (${{ needs.changes.result }}) — gate closed, refusing untested merge"
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
+            echo "✅ Docs-only change — no test tiers required"
+            exit 0
+          fi
 
           if [ "${{ needs.approval-gate.result }}" != "success" ]; then
             echo "❌ Approval not granted"
             exit 1
           fi
 
-          if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
-             [ "${{ needs.contract-tests.result }}" = "failure" ] || \
-             [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
-            echo "❌ Some tests failed"
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || \
+             [ "${{ needs.contract-tests.result }}" != "success" ] || \
+             [ "${{ needs.integrated-tests.result }}" != "success" ]; then
+            echo "❌ Every test tier must be success (failure/cancelled/skipped are all rejected)"
             exit 1
-          else
-            echo "✅ All tests passed"
           fi
+
+          echo "✅ All tests passed"

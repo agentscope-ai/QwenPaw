@@ -13,9 +13,9 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Modal, Switch } from "antd";
+import { Dropdown, Modal, Switch, type MenuProps } from "antd";
 import {
-  ArrowLeftRight,
+  Check,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -31,12 +31,20 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { UploadConflictError, workspaceApi } from "../../api/modules/workspace";
-import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import {
+  chatProjectDirectoryApi,
+  type ProjectDirEntry,
+} from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
-import { directoriesMatch, workspaceRoots } from "./directorySources";
+import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
+import {
+  isProjectRoot,
+  projectRootPath,
+  workspaceRoots,
+} from "./directorySources";
 import FileGlyph from "./FileGlyph";
 import {
   filesWorkspaceScopeKey,
@@ -75,6 +83,15 @@ interface ProfileFileRowProps {
 }
 
 type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
+
+/** Switcher entry that opens the binding panel instead of changing the root. */
+const MANAGE_DIRS_KEY = "__manage_project_dirs__";
+
+/** Last path segment, for the short display name of a directory. */
+function basenameOf(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || trimmed;
+}
 
 function ProfileFileRow({
   entry,
@@ -353,6 +370,12 @@ export default function FilesNavigator({
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  // Depend on these primitives rather than on `scope`: the parent rebuilds the
+  // scope object on every render, so a callback keyed on it would re-run the
+  // directory fetches whenever anything unrelated re-renders.
+  const scopeKind = scope.kind;
+  const agentId = scope.agentId;
+  const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const initialProjectDirOverride =
     scope.kind === "session" ? scope.projectDirOverride : undefined;
   const [pendingProjectDir, setPendingProjectDir] = useState(
@@ -380,6 +403,12 @@ export default function FilesNavigator({
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
+  // Every directory bound to this session, primary first. Only session scope
+  // can hold more than one — an agent default is a single directory — so agent
+  // scope keeps the synthesized single-entry list below.
+  const [boundDirs, setBoundDirs] = useState<ProjectDirEntry[]>([]);
+  // Opens the binding panel from the switcher's "manage directories" item.
+  const [managingDirs, setManagingDirs] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -393,9 +422,11 @@ export default function FilesNavigator({
     const state = useCodingTabsStore.getState();
     const tabs = state.tabsByAgent[scopeKey] ?? [];
     const diffs = state.diffsByAgent[scopeKey] ?? {};
+    // Every project root, matching what `clearProjectTabs` tears down: an
+    // unsaved file in an extra root would otherwise be discarded silently.
     const hasUnsavedProjectState = tabs.some(
       (tab) =>
-        (tab.workspaceRoot ?? "project") === "project" &&
+        isProjectRoot(tab.workspaceRoot) &&
         (tab.dirty || Boolean(diffs[tab.path])),
     );
     if (!hasUnsavedProjectState) return true;
@@ -420,17 +451,155 @@ export default function FilesNavigator({
     }
   }, [scope, scopeKey]);
 
-  const sameDirectory = useMemo(
+  /**
+   * A chat with no server id has nothing persisted, and its pending selection
+   * reaches the Files API as a single primary path — so only that directory can
+   * actually be served. Offering the rest would produce rows that 403 on click.
+   */
+  const extraRootsPending = scopeKind === "session" && !chatId;
+
+  /** The bound list, or the single known project dir while it is still loading
+   *  (and always, on agent scope). Keeps the switcher stable during the first
+   *  render instead of briefly collapsing to workspace-only. */
+  const rootDirs = useMemo<ProjectDirEntry[]>(() => {
+    const fallback: ProjectDirEntry[] = projectDirectory
+      ? [
+          {
+            path: projectDirectory,
+            label: null,
+            exists: true,
+            nested_with: null,
+            // This is only the pre-fetch fallback. Both values come from the
+            // same API response here; the server-provided entry replaces it
+            // once the bound-directory snapshot has loaded.
+            is_workspace: projectDirectory === workspaceDirectory,
+          },
+        ]
+      : [];
+    if (extraRootsPending || boundDirs.length === 0) return fallback;
+    return boundDirs;
+  }, [boundDirs, extraRootsPending, projectDirectory, workspaceDirectory]);
+
+  /** How many bound directories the switcher cannot offer yet.
+   *
+   *  The primary travels as the single pending header, and the agent workspace
+   *  always has a root of its own — neither is waiting on anything, so neither
+   *  counts. A session that binds only those two must report zero, not one. */
+  const pendingRootCount = useMemo(
     () =>
-      directoriesMatch(projectDirectory, workspaceDirectory) &&
-      Boolean(workspaceDirectory),
-    [projectDirectory, workspaceDirectory],
+      extraRootsPending
+        ? boundDirs
+            .slice(1)
+            .filter((entry) => entry.path && !entry.is_workspace).length
+        : 0,
+    [boundDirs, extraRootsPending],
   );
-  const roots = useMemo(() => workspaceRoots(sameDirectory), [sameDirectory]);
+  const roots = useMemo(() => workspaceRoots(rootDirs), [rootDirs]);
   const profileFiles = useMemo(
     () => selectProfileFiles(allProfileFiles, enabledFiles),
     [allProfileFiles, enabledFiles],
   );
+  /** Coarse flavour for styling; the precise root lives in `workspaceRoot`. */
+  const rootFlavour = isProjectRoot(workspaceRoot) ? "project" : "workspace";
+
+  /** Name, path and status to render for one root in the switcher. */
+  const describeRoot = useCallback(
+    (root: WorkspaceRoot) => {
+      if (root === "workspace") {
+        return {
+          path: workspaceDirectory,
+          name: basenameOf(workspaceDirectory) || t("files.workspaceDirectory"),
+          missing: false,
+          // A session with nothing bound resolves its primary to the workspace,
+          // which collapses onto this root — so the tag belongs here too, or
+          // the switcher would show no primary at all.
+          primary: Boolean(rootDirs[0]?.is_workspace),
+        };
+      }
+      const rootPath = projectRootPath(root);
+      // Exact match: `rootPath` was copied verbatim out of one of these
+      // entries by `projectRootFor`, so there is no spelling to reconcile —
+      // and folding case here could match the wrong entry when two bound
+      // roots differ only in case, which a case-sensitive volume allows.
+      const index = rootPath
+        ? rootDirs.findIndex((entry) => entry.path === rootPath)
+        : 0;
+      const entry = index >= 0 ? rootDirs[index] : undefined;
+      const path = entry?.path ?? rootPath ?? projectDirectory;
+      return {
+        path,
+        name: entry?.label || basenameOf(path) || t("files.projectDirectory"),
+        // An entry the resolver could not find is flagged rather than hidden:
+        // silently dropping it would look like the binding was lost.
+        missing: entry ? !entry.exists : false,
+        primary: index === 0,
+      };
+    },
+    [projectDirectory, rootDirs, t, workspaceDirectory],
+  );
+
+  const activeRoot = describeRoot(workspaceRoot);
+
+  const rootMenuItems = useMemo<MenuProps["items"]>(() => {
+    const items: NonNullable<MenuProps["items"]> = [];
+    roots.forEach((root) => {
+      // The workspace is the agent's own storage, not project content — keep it
+      // visually separate from the directories the session works in.
+      if (root === "workspace" && items.length > 0) {
+        items.push({ type: "divider" });
+      }
+      const info = describeRoot(root);
+      items.push({
+        key: root,
+        label: (
+          <span className={styles.rootOption}>
+            <span className={styles.rootOptionIcon}>
+              {root === "workspace" ? (
+                <Settings2 size={14} />
+              ) : (
+                <FolderOpen size={14} />
+              )}
+            </span>
+            <span className={styles.rootOptionCopy}>
+              <strong>{info.name}</strong>
+              <small title={info.path}>{info.path}</small>
+            </span>
+            {info.primary && (
+              <em className={styles.rootOptionTag}>{t("files.primaryRoot")}</em>
+            )}
+            {info.missing && (
+              <em className={styles.rootOptionTagMissing}>
+                {t("files.rootMissing")}
+              </em>
+            )}
+            {root === workspaceRoot && (
+              <span className={styles.rootOptionCheck}>
+                <Check size={13} />
+              </span>
+            )}
+          </span>
+        ),
+      });
+    });
+    if (pendingRootCount > 0) {
+      items.push({
+        key: "__pending_roots__",
+        disabled: true,
+        label: (
+          <small className={styles.rootOptionHint}>
+            {t("files.rootsPending", { count: pendingRootCount })}
+          </small>
+        ),
+      });
+    }
+    if (scopeKind === "session") {
+      items.push(
+        { type: "divider" },
+        { key: MANAGE_DIRS_KEY, label: t("files.manageDirs") },
+      );
+    }
+    return items;
+  }, [describeRoot, pendingRootCount, roots, scopeKind, t, workspaceRoot]);
   const managedProfileNames = useMemo(
     () => new Set(profileFiles.map((file) => file.path)),
     [profileFiles],
@@ -453,7 +622,20 @@ export default function FilesNavigator({
       : agentInfo.path;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
-  }, [chatId, projectDirOverride]);
+    if (scopeKind !== "session") {
+      // Agent scope binds a single directory; nothing to switch between.
+      setBoundDirs([]);
+      return;
+    }
+    try {
+      const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
+      setBoundDirs(snapshot.dirs);
+    } catch {
+      // Fall back to the single directory above rather than blanking the
+      // switcher: the tree itself is still perfectly usable.
+      setBoundDirs([]);
+    }
+  }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
@@ -524,9 +706,18 @@ export default function FilesNavigator({
     void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
   }, [loadDirectoryIdentity, loadProfile, loadRoot]);
 
+  // Keep the viewed root one the switcher actually offers. Covers both the
+  // primary-is-the-workspace case (where "project" is never offered) and a
+  // rebind that dropped the directory currently on screen.
+  //
+  // `roots` is empty until the directory list arrives, and that is precisely
+  // when this must not fire: switching to a provisional root would strand the
+  // tree there, because the real list contains that root too and this effect
+  // would have nothing left to correct.
   useEffect(() => {
-    if (sameDirectory) setWorkspaceRoot("workspace");
-  }, [sameDirectory]);
+    if (roots.length === 0 || roots.includes(workspaceRoot)) return;
+    setWorkspaceRoot(roots[0]);
+  }, [roots, workspaceRoot]);
 
   useEffect(() => {
     if (source === "profile") void loadProfile();
@@ -613,14 +804,14 @@ export default function FilesNavigator({
     <aside
       className={styles.navigator}
       data-source={source}
-      data-root={workspaceRoot}
+      data-root={rootFlavour}
       aria-label={t("files.navigator")}
     >
       <header className={styles.navigatorHeader}>
         <div className={styles.directoryToolbar}>
-          <div className={styles.directoryContext} data-root={workspaceRoot}>
+          <div className={styles.directoryContext} data-root={rootFlavour}>
             <span className={styles.directoryContextIcon}>
-              {workspaceRoot === "project" ? (
+              {isProjectRoot(workspaceRoot) ? (
                 <FolderOpen size={15} />
               ) : (
                 <Settings2 size={15} />
@@ -628,43 +819,69 @@ export default function FilesNavigator({
             </span>
             <div className={styles.directoryContextBody}>
               <span className={styles.directoryContextLabel}>
-                {t(`files.${workspaceRoot}Directory`)}
+                {t(`files.${rootFlavour}Directory`)}
               </span>
-              {workspaceRoot === "project" ? (
+              {/* One plain-text identity for every root. Binding is reached
+                  through the switcher's "manage directories" item, so the
+                  header does not carry a second interactive control. */}
+              <span className={styles.directoryIdentity}>
+                <span className={styles.directoryIdentityText}>
+                  <strong>{activeRoot.name}</strong>
+                  <span title={activeRoot.path}>{activeRoot.path}</span>
+                </span>
+                {activeRoot.missing && (
+                  <em className={styles.rootOptionTagMissing}>
+                    {t("files.rootMissing")}
+                  </em>
+                )}
+              </span>
+              {scopeKind === "session" && (
                 <SessionProjectDirectory
                   scope={scope}
                   showFullPath
+                  hideTrigger
+                  open={managingDirs}
+                  onOpenChange={setManagingDirs}
                   beforeChange={confirmDirectoryChange}
-                  onChanged={handleDirectoryChanged}
+                  onChanged={() => {
+                    handleDirectoryChanged();
+                    void loadDirectoryIdentity();
+                  }}
                 />
-              ) : (
-                <span className={styles.directoryIdentity}>
-                  <span className={styles.directoryIdentityText}>
-                    <strong>
-                      {workspaceDirectory
-                        .replace(/[\\/]+$/, "")
-                        .split(/[\\/]/)
-                        .pop() || t("files.workspaceDirectory")}
-                    </strong>
-                    <span title={workspaceDirectory}>{workspaceDirectory}</span>
-                  </span>
-                </span>
               )}
             </div>
-            {roots.length > 1 && (
-              <button
-                type="button"
-                className={styles.directorySwitch}
-                onClick={() =>
-                  setWorkspaceRoot((current) =>
-                    current === "project" ? "workspace" : "project",
-                  )
-                }
-                aria-label={t("files.switchDirectory")}
-                title={t("files.switchDirectory")}
+            {/* Session scope always gets the trigger, even with a single root:
+                it is the only way to reach "manage directories", and a session
+                with nothing bound yet has exactly one root — the case where
+                binding a directory matters most. */}
+            {(roots.length > 1 || scopeKind === "session") && (
+              <Dropdown
+                menu={{
+                  items: rootMenuItems,
+                  selectedKeys: [workspaceRoot],
+                  onClick: ({ key }) => {
+                    if (key === MANAGE_DIRS_KEY) {
+                      setManagingDirs(true);
+                      return;
+                    }
+                    // Only the viewed root changes — open editor tabs keep the
+                    // root they were opened from, so nothing is invalidated and
+                    // no unsaved-changes confirmation is owed here.
+                    setWorkspaceRoot(key as WorkspaceRoot);
+                  },
+                }}
+                trigger={["click"]}
+                placement="bottomRight"
               >
-                <ArrowLeftRight size={14} />
-              </button>
+                <button
+                  type="button"
+                  className={styles.directorySwitch}
+                  aria-label={t("files.switchRoot")}
+                  title={t("files.switchRoot")}
+                >
+                  <ChevronDown size={14} />
+                </button>
+              </Dropdown>
             )}
           </div>
           <div className={styles.directoryTools}>

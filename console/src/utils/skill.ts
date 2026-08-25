@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { SkillSyncStatus } from "../api/types";
+import type { PoolSkillSpec, SkillSyncStatus } from "../api/types";
 
 // ─── Source / Built-in helpers ────────────────────────────────────────────────
 
@@ -10,6 +10,18 @@ export const isSkillBuiltin = (source?: string): boolean =>
   source === "builtin" ||
   (source?.startsWith("builtin:") ?? false) ||
   source === "system";
+
+export type PoolSkillAutomationState = "off" | "on" | "mixed";
+
+export const getPoolSkillAutomationState = (
+  skill: Pick<PoolSkillSpec, "source" | "auto_sync" | "auto_update">,
+): PoolSkillAutomationState => {
+  const autoSync = Boolean(skill.auto_sync);
+  if (!isSkillBuiltin(skill.source)) return autoSync ? "on" : "off";
+  const autoUpdate = Boolean(skill.auto_update);
+  if (autoSync !== autoUpdate) return "mixed";
+  return autoSync ? "on" : "off";
+};
 
 // ─── Pool sync-status helpers ─────────────────────────────────────────────────
 

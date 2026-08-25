@@ -1113,18 +1113,34 @@ class ProviderManagerPersistenceMixin(
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes
 
         builtin_model_ids = {model.id for model in builtin.models}
+        unavailable_model_ids = getattr(
+            builtin,
+            "_UNAVAILABLE_MODEL_IDS",
+            frozenset(),
+        )
         builtin.extra_models = [
             model
             for model in provider.extra_models
             if model.id not in builtin_model_ids
+            and model.id not in unavailable_model_ids
         ]
-        builtin.discovered_models = provider.discovered_models
+        builtin.discovered_models = [
+            model
+            for model in provider.discovered_models
+            if model.id not in unavailable_model_ids
+        ]
         builtin.models_last_synced_at = provider.models_last_synced_at
         builtin.models_last_sync_error = provider.models_last_sync_error
         builtin.models_syncing = False
         builtin.hidden_model_ids = list(provider.hidden_model_ids)
         builtin.removed_model_ids = list(provider.removed_model_ids)
         builtin.generate_kwargs.update(provider.generate_kwargs)
+
+        # Catalog model metadata is authoritative. Persisted model state can
+        # contain an older is_free value from before the catalog was updated.
+        catalog_free_flags = {
+            model.id: model.is_free for model in builtin.models
+        }
 
         stored_model_config = {
             model.id: serialize_model_state(model) for model in provider.models
@@ -1139,3 +1155,5 @@ class ProviderManagerPersistenceMixin(
             config = stored_model_config.get(model.id)
             if config:
                 restore_model_state(model, config)
+            if model.id in catalog_free_flags:
+                model.is_free = catalog_free_flags[model.id]

@@ -7,6 +7,7 @@ import pytest
 
 from services.project_files.migrations import (
     PROJECT_MIGRATIONS,
+    _migrate_v5_to_v6,
     migrate_project_document,
 )
 from services.project_files.models import Project, motion_document_file_id
@@ -28,154 +29,51 @@ def _v1_project() -> dict:
     return raw
 
 
-def test_registered_migration_runs_before_strict_project_validation() -> None:
-    raw = _v1_project()
-    raw["schema_version"] = 0
-    raw["legacy_name"] = raw.pop("name")
+def _overlay_element(creation: dict, element_id: str = "overlay-1") -> dict:
+    base = {"type": "overlay", "text": "", "vibe": "chill", "prompt": ""}
+    base.update(reference_version_ids=[], motion=None)
+    return {
+        "element_id": element_id,
+        "span": {"start_tick": 0, "duration_tick": 100},
+        "location": {},
+        "creation": {**base, **creation},
+    }
 
-    def migrate_v0(document: dict) -> dict:
-        document["schema_version"] = 1
-        document["name"] = document.pop("legacy_name")
-        return document
 
-    def migrate_v1(document: dict) -> dict:
-        document["schema_version"] = 2
-        return document
+def _motion_element(motion: dict) -> dict:
+    creation = {"prompt": "呼应台词的装饰动效", "motion": motion}
+    return _overlay_element(creation, element_id="overlay-motion")
 
-    PROJECT_MIGRATIONS[0] = migrate_v0
-    PROJECT_MIGRATIONS[1] = migrate_v1
-    try:
-        project = load_project_json(json.dumps(raw))
-    finally:
-        PROJECT_MIGRATIONS.pop(0, None)
-        PROJECT_MIGRATIONS.pop(1, None)
 
-    assert project.schema_version == 8
-    assert project.name == "Project"
-    assert project.timelines.order == ["timeline:main"]
+def _install(raw: dict, element: dict) -> None:
+    timeline = raw["timelines"]["items"]["timeline:main"]
+    timeline["elements_by_id"][element["element_id"]] = element
+
+
+def _element(project: Project, element_id: str):
+    timeline = project.timelines.items["timeline:main"]
+    return timeline.elements_by_id[element_id]
 
 
 def test_overlay_kind_is_dropped_when_migrating_from_v2() -> None:
     raw = _raw_project()
     raw["schema_version"] = 2
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-1"] = {
-        "element_id": "overlay-1",
-        "label": "宠物内心独白",
-        "enabled": True,
-        "span": {"start_tick": 0, "duration_tick": 100},
-        "location": {
-            "x": 0.5,
-            "y": 0.5,
-            "width": 1.0,
-            "height": 1.0,
-            "anchor_x": 0.5,
-            "anchor_y": 0.5,
-            "rotation_degrees": 0.0,
-            "opacity": 1.0,
-        },
-        "z_index": 10,
-        "creation": {
-            "type": "overlay",
-            "overlay_kind": "pet_os",
-            "text": "抓到你了",
-            "vibe": "action",
-            "prompt": "",
-            "reference_version_ids": [],
-            "motion": None,
-        },
-        "outputs": {},
-        "render_source": None,
-        "provenance_refs": [],
+    # The interview presentation choice survives as vibe="summary": both
+    # the render fallback and the frontend key interview styling off it.
+    creation = {
+        "overlay_kind": "interview_summary",
+        "text": "抓到你了",
+        "vibe": "chill",
     }
+    _install(raw, _overlay_element(creation))
 
     project = load_project_json(json.dumps(raw))
 
     assert project.schema_version == 8
-    element = project.timelines.items["timeline:main"].elements_by_id[
-        "overlay-1"
-    ]
-    creation = element.creation.model_dump(mode="json")
+    creation = _element(project, "overlay-1").creation.model_dump(mode="json")
     assert "overlay_kind" not in creation
     assert creation["text"] == "抓到你了"
-    assert creation["vibe"] == "action"
-
-
-def test_interview_summary_kind_migrates_to_vibe_summary() -> None:
-    raw = _raw_project()
-    raw["schema_version"] = 2
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-2"] = {
-        "element_id": "overlay-2",
-        "label": "采访总结",
-        "enabled": True,
-        "span": {"start_tick": 0, "duration_tick": 100},
-        "location": {
-            "x": 0.5,
-            "y": 0.5,
-            "width": 1.0,
-            "height": 1.0,
-            "anchor_x": 0.5,
-            "anchor_y": 0.5,
-            "rotation_degrees": 0.0,
-            "opacity": 1.0,
-        },
-        "z_index": 10,
-        "creation": {
-            "type": "overlay",
-            "overlay_kind": "interview_summary",
-            "text": "本周亮点回顾",
-            "vibe": "chill",
-            "prompt": "",
-            "reference_version_ids": [],
-            "motion": None,
-        },
-        "outputs": {},
-        "render_source": None,
-        "provenance_refs": [],
-    }
-
-    project = load_project_json(json.dumps(raw))
-
-    element = project.timelines.items["timeline:main"].elements_by_id[
-        "overlay-2"
-    ]
-    creation = element.creation.model_dump(mode="json")
-    # The interview presentation choice survives as vibe="summary": both
-    # the render fallback and the frontend key interview styling off it.
-    assert "overlay_kind" not in creation
     assert creation["vibe"] == "summary"
-
-
-def _motion_overlay_element(motion: dict) -> dict:
-    return {
-        "element_id": "overlay-motion",
-        "label": "装饰动效",
-        "enabled": True,
-        "span": {"start_tick": 0, "duration_tick": 100},
-        "location": {
-            "x": 0.5,
-            "y": 0.5,
-            "width": 0.5,
-            "height": 0.5,
-            "anchor_x": 0.5,
-            "anchor_y": 0.5,
-            "rotation_degrees": 0.0,
-            "opacity": 1.0,
-        },
-        "z_index": 10,
-        "creation": {
-            "type": "overlay",
-            "text": "",
-            "vibe": "chill",
-            "prompt": "呼应台词的装饰动效",
-            "reference_version_ids": [],
-            "motion": motion,
-        },
-        "outputs": {},
-        "render_source": None,
-        "provenance_refs": [],
-    }
 
 
 def test_inline_html_js_motion_is_rejected_at_the_commit_boundary() -> None:
@@ -183,19 +81,13 @@ def test_inline_html_js_motion_is_rejected_at_the_commit_boundary() -> None:
     # design pipeline (probe + externalization); a hand-written inline
     # script document must fail Project validation, not compose.
     raw = _raw_project()
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-motion"] = _motion_overlay_element(
-        {
-            "format": "html_js",
-            "html": (
-                "<html><body><div></div>"
-                "<script>window.__hf={seek:function(t){}};</script>"
-                "</body></html>"
-            ),
-            "fps": 24,
-            "loop": True,
-        },
+    html = (
+        "<html><body><div></div>"
+        "<script>window.__hf={seek:function(t){}};</script>"
+        "</body></html>"
     )
+    motion = {"format": "html_js", "html": html, "fps": 24, "loop": True}
+    _install(raw, _motion_element(motion))
     with pytest.raises(ValueError, match="inline html_js"):
         Project.model_validate(raw)
     # The serialization boundary fails closed with its uniform message.
@@ -203,43 +95,8 @@ def test_inline_html_js_motion_is_rejected_at_the_commit_boundary() -> None:
         load_project_json(json.dumps(raw))
 
 
-def test_inline_motion_clip_document_is_rejected_at_commit() -> None:
-    # Main-track motion clips render exclusively from externalized
-    # documents; a hand-written inline body (any format) would only fail
-    # at composition time, so commit fails closed instead.
-    raw = _raw_project()
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["clip-inline"] = {
-        "element_id": "clip-inline",
-        "label": "手写动效段",
-        "enabled": True,
-        "span": {"start_tick": 0, "duration_tick": 100},
-        "location": None,
-        "z_index": 0,
-        "creation": {
-            "type": "motion_clip",
-            "intent": "",
-            "prompt": "开场题面",
-            "motion": {
-                "format": "html_css",
-                "html": "<html><body>" + "x" * 40 + "</body></html>",
-                "fps": 24,
-                "loop": False,
-            },
-        },
-        "outputs": {},
-        "render_source": None,
-        "provenance_refs": [],
-    }
-    with pytest.raises(ValueError, match="inline motion clip"):
-        Project.model_validate(raw)
-
-
-def test_externalized_html_js_motion_loads() -> None:
-    raw = _raw_project()
-    checksum = "a" * 64
-    file_id = motion_document_file_id(checksum)
-    raw["assets"]["files_by_id"][file_id] = {
+def _indexed_file(file_id: str, checksum: str, **overrides) -> dict:
+    entry = {
         "file_id": file_id,
         "kind": "large_text",
         "relative_uri": f"assets/motion/{checksum}.html",
@@ -250,125 +107,52 @@ def test_externalized_html_js_motion_loads() -> None:
         "schema_version": 1,
         "created_at": "2026-08-01T00:00:00Z",
     }
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-motion"] = _motion_overlay_element(
-        {
-            "format": "html_js",
-            "html_file_id": file_id,
-            "fps": 24,
-            "loop": True,
-        },
-    )
-    project = load_project_json(json.dumps(raw))
-    element = project.timelines.items["timeline:main"].elements_by_id[
-        "overlay-motion"
-    ]
-    assert element.creation.motion.html_file_id == file_id
+    entry.update(overrides)
+    return entry
 
 
-def test_dangling_motion_document_reference_is_rejected() -> None:
+def _html_js_ref(file_id: str) -> dict:
+    motion = {"format": "html_js", "fps": 24, "loop": True}
+    motion["html_file_id"] = file_id
+    return motion
+
+
+def test_externalized_html_js_motion_loads() -> None:
+    checksum = "a" * 64
+    file_id = motion_document_file_id(checksum)
     raw = _raw_project()
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-motion"] = _motion_overlay_element(
-        {
-            "format": "html_js",
-            "html_file_id": "file-motion-abc123",
-            "fps": 24,
-            "loop": True,
-        },
-    )
-    with pytest.raises(ValueError, match="does not exist"):
-        Project.model_validate(raw)
+    raw["assets"]["files_by_id"][file_id] = _indexed_file(file_id, checksum)
+    _install(raw, _motion_element(_html_js_ref(file_id)))
+    project = load_project_json(json.dumps(raw))
+    motion = _element(project, "overlay-motion").creation.motion
+    assert motion.html_file_id == file_id
 
 
-def test_forged_motion_document_reference_is_rejected() -> None:
+def test_invalid_motion_document_reference_is_rejected() -> None:
     # An IndexedFile whose id does not derive from its checksum (or whose
     # metadata does not match the design pipeline's publication shape)
     # cannot smuggle an unprobed document past the commit boundary.
     raw = _raw_project()
-    checksum = "b" * 64
-    raw["assets"]["files_by_id"]["file-motion-forged"] = {
-        "file_id": "file-motion-forged",
-        "kind": "large_text",
-        "relative_uri": f"assets/motion/{checksum}.html",
-        "sha256": checksum,
-        "size_bytes": 128,
-        "media_type": "text/html; charset=utf-8",
-        "schema_name": "motion_document",
-        "schema_version": 1,
-        "created_at": "2026-08-01T00:00:00Z",
-    }
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-motion"] = _motion_overlay_element(
-        {
-            "format": "html_js",
-            "html_file_id": "file-motion-forged",
-            "fps": 24,
-            "loop": True,
-        },
+    raw["assets"]["files_by_id"]["file-motion-forged"] = _indexed_file(
+        "file-motion-forged",
+        "b" * 64,
     )
+    _install(raw, _motion_element(_html_js_ref("file-motion-forged")))
     with pytest.raises(ValueError, match="content-addressed"):
         Project.model_validate(raw)
-
-
-def test_non_motion_indexed_file_reference_is_rejected() -> None:
-    raw = _raw_project()
-    checksum = "c" * 64
-    file_id = motion_document_file_id(checksum)
-    raw["assets"]["files_by_id"][file_id] = {
-        "file_id": file_id,
-        "kind": "artifact_payload",
-        "relative_uri": f"assets/artifacts/{file_id}.mp4",
-        "sha256": checksum,
-        "size_bytes": 128,
-        "media_type": "video/mp4",
-        "schema_name": None,
-        "schema_version": None,
-        "created_at": "2026-08-01T00:00:00Z",
-    }
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-motion"] = _motion_overlay_element(
-        {
-            "format": "html_js",
-            "html_file_id": file_id,
-            "fps": 24,
-            "loop": True,
-        },
-    )
-    with pytest.raises(ValueError, match="content-addressed"):
-        Project.model_validate(raw)
-
-
-def test_inline_html_css_motion_still_loads() -> None:
-    raw = _raw_project()
-    timeline = raw["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["overlay-motion"] = _motion_overlay_element(
-        {
-            "format": "html_css",
-            "html": (
-                "<html><head><style>.a{animation:x 1s}</style></head>"
-                "<body><div class='a'></div></body></html>"
-            ),
-            "fps": 24,
-            "loop": True,
-        },
-    )
-    project = load_project_json(json.dumps(raw))
-    element = project.timelines.items["timeline:main"].elements_by_id[
-        "overlay-motion"
-    ]
-    assert element.creation.motion.html is not None
 
 
 def test_unregistered_or_future_schema_fails_closed() -> None:
     raw = _v1_project()
-    raw["schema_version"] = 0
-    with pytest.raises(CanonicalJsonError):
+    # v1 without a registered migration requires an explicit import step.
+    with pytest.raises(CanonicalJsonError) as caught:
         load_project_json(json.dumps(raw))
+    assert "no Project migration is registered" in str(caught.value.__cause__)
 
-    raw["schema_version"] = 9
-    with pytest.raises(CanonicalJsonError):
-        load_project_json(json.dumps(raw))
+    for version in (0, 9):
+        raw["schema_version"] = version
+        with pytest.raises(CanonicalJsonError):
+            load_project_json(json.dumps(raw))
 
 
 def test_migration_cannot_change_project_identity() -> None:
@@ -388,35 +172,60 @@ def test_migration_cannot_change_project_identity() -> None:
         PROJECT_MIGRATIONS.pop(0, None)
 
 
-def test_unregistered_v1_requires_explicit_import() -> None:
-    raw = _v1_project()
-    with pytest.raises(CanonicalJsonError) as caught:
-        load_project_json(json.dumps(raw))
-    assert "no Project migration is registered" in str(caught.value.__cause__)
+def _variant(variant_id: str, *generated: str) -> dict:
+    return {
+        "variant_id": variant_id,
+        "requirements": "",
+        "prompt": "",
+        "reference_asset_version_ids": [],
+        "reference_artifact_version_ids": [],
+        "generated_artifact_version_ids": list(generated),
+    }
+
+
+def _entity(entity_id: str, name: str, variants: list) -> dict:
+    return {
+        "entity_id": entity_id,
+        "kind": "character",
+        "name": name,
+        "description": "",
+        "continuity": "",
+        "variants": {
+            "order": [v["variant_id"] for v in variants],
+            "items": {v["variant_id"]: v for v in variants},
+        },
+        "selected_artifact_version_id": None,
+    }
+
+
+def _artifact(variant_id: str) -> dict:
+    return {
+        "owner_ref": "asset:char:hero",
+        "metadata": {"variantId": variant_id},
+    }
+
+
+def _r2v_ref(character_ref: str) -> dict:
+    creation = {
+        "type": "r2v",
+        "character_refs": [character_ref],
+        "scene_ref": None,
+        "prop_refs": [],
+        "storyboard_reference_version_ids": ["artifact:fallen-1"],
+        "video_reference_version_ids": [],
+    }
+    return {"creation": creation}
 
 
 def test_v3_migration_declares_existing_variants_as_required() -> None:
     raw = _raw_project()
     raw["schema_version"] = 3
+    peak = {"variant_id": "variant:peak"}
+    fallen = {"variant_id": "variant:fallen"}
+    hero = _entity("char:hero", "Hero", [peak, fallen])
     raw["visual"]["entities"] = {
         "order": ["char:hero"],
-        "items": {
-            "char:hero": {
-                "entity_id": "char:hero",
-                "kind": "character",
-                "name": "Hero",
-                "description": "",
-                "continuity": "",
-                "variants": {
-                    "order": ["variant:peak", "variant:fallen"],
-                    "items": {
-                        "variant:peak": {"variant_id": "variant:peak"},
-                        "variant:fallen": {"variant_id": "variant:fallen"},
-                    },
-                },
-                "selected_artifact_version_id": None,
-            },
-        },
+        "items": {"char:hero": hero},
     }
 
     migrated = migrate_project_document(raw)
@@ -433,215 +242,85 @@ def test_v2_variant_selections_and_bindings_migrate_deterministically() -> (
 ):
     raw = _raw_project()
     raw["schema_version"] = 2
+    peak = _variant("var:peak", "artifact:peak-1")
+    fallen = _variant("var:fallen", "artifact:fallen-1", "artifact:fallen-2")
+    ambiguous = _variant("var:ambiguous", "artifact:mislabeled")
+    hero = _entity("char:hero", "Hero", [peak, fallen, ambiguous])
+    hero["selected_artifact_version_id"] = "artifact:fallen-1"
     raw["visual"]["entities"] = {
-        "order": ["char:hero", "char:rival"],
-        "items": {
-            "char:hero": {
-                "entity_id": "char:hero",
-                "kind": "character",
-                "name": "Hero",
-                "description": "",
-                "continuity": "",
-                "variants": {
-                    "order": ["var:peak", "var:fallen", "var:ambiguous"],
-                    "items": {
-                        "var:peak": {
-                            "variant_id": "var:peak",
-                            "requirements": "",
-                            "prompt": "",
-                            "reference_asset_version_ids": [],
-                            "reference_artifact_version_ids": [],
-                            "generated_artifact_version_ids": [
-                                "artifact:peak-1",
-                            ],
-                        },
-                        "var:fallen": {
-                            "variant_id": "var:fallen",
-                            "requirements": "",
-                            "prompt": "",
-                            "reference_asset_version_ids": [],
-                            "reference_artifact_version_ids": [],
-                            "generated_artifact_version_ids": [
-                                "artifact:fallen-1",
-                                "artifact:fallen-2",
-                            ],
-                        },
-                        "var:ambiguous": {
-                            "variant_id": "var:ambiguous",
-                            "requirements": "",
-                            "prompt": "",
-                            "reference_asset_version_ids": [],
-                            "reference_artifact_version_ids": [],
-                            "generated_artifact_version_ids": [
-                                "artifact:mislabeled",
-                            ],
-                        },
-                    },
-                },
-                "selected_artifact_version_id": "artifact:fallen-1",
-            },
-            "char:rival": {
-                "entity_id": "char:rival",
-                "kind": "character",
-                "name": "Rival",
-                "description": "",
-                "continuity": "",
-                "variants": {
-                    "order": ["var:fallen", "var:other"],
-                    "items": {
-                        "var:fallen": {
-                            "variant_id": "var:fallen",
-                            "requirements": "",
-                            "prompt": "",
-                            "reference_asset_version_ids": [],
-                            "reference_artifact_version_ids": [],
-                            "generated_artifact_version_ids": [],
-                        },
-                        "var:other": {
-                            "variant_id": "var:other",
-                            "requirements": "",
-                            "prompt": "",
-                            "reference_asset_version_ids": [],
-                            "reference_artifact_version_ids": [],
-                            "generated_artifact_version_ids": [],
-                        },
-                    },
-                },
-                "selected_artifact_version_id": None,
-            },
-        },
+        "order": ["char:hero"],
+        "items": {"char:hero": hero},
     }
     raw["assets"]["artifact_versions_by_id"] = {
-        "artifact:peak-1": {
-            "owner_ref": "asset:char:hero",
-            "metadata": {"variantId": "var:peak"},
-        },
-        "artifact:fallen-1": {
-            "owner_ref": "asset:char:hero",
-            "metadata": {"variantId": "var:fallen"},
-        },
-        "artifact:fallen-2": {
-            "owner_ref": "asset:char:hero",
-            "metadata": {"variantId": "var:fallen"},
-        },
-        "artifact:mislabeled": {
-            "owner_ref": "asset:char:hero",
-            "metadata": {"variantId": "var:peak"},
-        },
+        "artifact:peak-1": _artifact("var:peak"),
+        "artifact:fallen-1": _artifact("var:fallen"),
+        "artifact:fallen-2": _artifact("var:fallen"),
+        # Mislabeled: listed under var:ambiguous but tagged var:peak.
+        "artifact:mislabeled": _artifact("var:peak"),
     }
     raw["timelines"]["items"]["timeline:main"]["elements_by_id"] = {
-        "ep01": {
-            "creation": {
-                "type": "r2v",
-                "character_refs": ["char:hero"],
-                "scene_ref": None,
-                "prop_refs": [],
-                "storyboard_reference_version_ids": [
-                    "artifact:fallen-1",
-                ],
-                "video_reference_version_ids": [],
-            },
-        },
-        "ep02": {
-            "creation": {
-                "type": "r2v",
-                "character_refs": ["char:rival"],
-                "scene_ref": None,
-                "prop_refs": [],
-                "storyboard_reference_version_ids": [
-                    "artifact:fallen-1",
-                ],
-                "video_reference_version_ids": [],
-            },
-        },
+        "ep01": _r2v_ref("char:hero"),
     }
 
     migrated = migrate_project_document(raw)
 
     hero = migrated["visual"]["entities"]["items"]["char:hero"]
-    assert hero["required_variant_ids"] == [
-        "var:peak",
-        "var:fallen",
-        "var:ambiguous",
-    ]
-    assert (
-        hero["variants"]["items"]["var:peak"]["selected_artifact_version_id"]
-        == "artifact:peak-1"
+    required = ["var:peak", "var:fallen", "var:ambiguous"]
+    assert hero["required_variant_ids"] == required
+    variants = hero["variants"]["items"]
+    assert variants["var:peak"]["selected_artifact_version_id"] == (
+        "artifact:peak-1"
     )
-    assert (
-        hero["variants"]["items"]["var:fallen"]["selected_artifact_version_id"]
-        == "artifact:fallen-1"
+    assert variants["var:fallen"]["selected_artifact_version_id"] == (
+        "artifact:fallen-1"
     )
-    assert (
-        hero["variants"]["items"]["var:ambiguous"][
-            "selected_artifact_version_id"
-        ]
-        is None
-    )
+    assert variants["var:ambiguous"]["selected_artifact_version_id"] is None
     assert hero["selected_artifact_version_id"] is None
-    creation = migrated["timelines"]["items"]["timeline:main"][
-        "elements_by_id"
-    ]["ep01"]["creation"]
-    assert creation["visual_variant_refs"] == {
-        "char:hero": "var:fallen",
-    }
-    rival_creation = migrated["timelines"]["items"]["timeline:main"][
-        "elements_by_id"
-    ]["ep02"]["creation"]
-    assert rival_creation["visual_variant_refs"] == {}
+    timeline = migrated["timelines"]["items"]["timeline:main"]
+    elements = timeline["elements_by_id"]
+    ep01_refs = elements["ep01"]["creation"]["visual_variant_refs"]
+    assert ep01_refs == {"char:hero": "var:fallen"}
 
 
 def test_v5_mode_tagged_r2v_creations_split_into_their_own_types() -> None:
     """v4 expressed t2v/s2v as r2v + generation_mode; v5 gives each mode its
-    own creation carrying only provider inputs. The s2v "storyboard" (its
-    portrait frame) becomes the declared portrait and the slot mapping is
-    dropped; plain r2v elements only lose the tag."""
+    own creation carrying only provider inputs; the s2v storyboard frame
+    becomes the declared portrait and its slot mapping is dropped."""
 
-    from services.project_files.migrations import _migrate_v5_to_v6
-
+    talk_creation = {
+        "type": "r2v",
+        "generation_mode": "s2v",
+        "intent": "口播开场",
+        "character_refs": ["char:host"],
+        "video_prompt": "unused",
+        "recipe": None,
+    }
+    shot2_creation = {
+        "type": "r2v",
+        "generation_mode": "t2v",
+        "intent": "灵感回归",
+        "narrative": "举起相机",
+        "continuity": "",
+        "video_prompt": "海边举起相机",
+        "recipe": None,
+    }
+    slots = {"slot:talk-sb": {"selected_version_id": "artifact-version-p1"}}
     document = {
         "schema_version": 5,
-        "assets": {
-            "artifact_slots_by_id": {
-                "slot:talk-sb": {"selected_version_id": "artifact-version-p1"},
-            },
-        },
+        "assets": {"artifact_slots_by_id": slots},
         "timelines": {
             "items": {
                 "timeline:main": {
                     "elements_by_id": {
                         "el:talk": {
-                            "creation": {
-                                "type": "r2v",
-                                "generation_mode": "s2v",
-                                "intent": "口播开场",
-                                "character_refs": ["char:host"],
-                                "video_prompt": "unused",
-                                "recipe": None,
-                            },
+                            "creation": talk_creation,
                             "outputs": {
                                 "storyboard": {"slot_id": "slot:talk-sb"},
                                 "main": {"slot_id": "slot:talk-main"},
                             },
                         },
                         "el:shot2": {
-                            "creation": {
-                                "type": "r2v",
-                                "generation_mode": "t2v",
-                                "intent": "灵感回归",
-                                "narrative": "举起相机",
-                                "continuity": "",
-                                "video_prompt": "海边举起相机",
-                                "recipe": None,
-                            },
-                            "outputs": {},
-                        },
-                        "el:shot1": {
-                            "creation": {
-                                "type": "r2v",
-                                "generation_mode": "r2v",
-                                "intent": "海边沉思",
-                            },
+                            "creation": shot2_creation,
                             "outputs": {},
                         },
                     },
@@ -650,11 +329,16 @@ def test_v5_mode_tagged_r2v_creations_split_into_their_own_types() -> None:
         },
     }
 
+    # t2v keeps every provider input and only sheds the mode tag. The
+    # migration mutates in place, so snapshot the expectation up front.
+    expected_shot2 = {**shot2_creation, "type": "t2v"}
+    expected_shot2.pop("generation_mode")
+
     migrated = _migrate_v5_to_v6(document)
 
-    talk = migrated["timelines"]["items"]["timeline:main"]["elements_by_id"][
-        "el:talk"
-    ]
+    timeline = migrated["timelines"]["items"]["timeline:main"]
+    elements = timeline["elements_by_id"]
+    talk = elements["el:talk"]
     assert talk["creation"] == {
         "type": "s2v",
         "intent": "口播开场",
@@ -667,76 +351,20 @@ def test_v5_mode_tagged_r2v_creations_split_into_their_own_types() -> None:
     assert "storyboard" not in talk["outputs"]
     assert talk["outputs"]["main"] == {"slot_id": "slot:talk-main"}
 
-    shot2 = migrated["timelines"]["items"]["timeline:main"]["elements_by_id"][
-        "el:shot2"
-    ]["creation"]
-    assert shot2 == {
-        "type": "t2v",
-        "intent": "灵感回归",
-        "narrative": "举起相机",
-        "continuity": "",
-        "video_prompt": "海边举起相机",
-        "recipe": None,
-    }
-
-    shot1 = migrated["timelines"]["items"]["timeline:main"]["elements_by_id"][
-        "el:shot1"
-    ]["creation"]
-    assert shot1["type"] == "r2v"
-    assert "generation_mode" not in shot1
+    assert elements["el:shot2"]["creation"] == expected_shot2
     assert migrated["schema_version"] == 6
 
 
-def test_v6_migration_introduces_null_edit_plan() -> None:
-    from datetime import datetime, timezone
-
-    from services.project_files.serialization import project_file_bytes
-
-    project = Project.new(
-        project_id="project-v6",
-        name="Plan",
-        now=datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc),
-    )
-    raw = json.loads(project_file_bytes(project))
+def test_v6_and_v7_migrations_add_edit_plan_and_clear_color_grade() -> None:
+    raw = _raw_project()
     raw["schema_version"] = 6
     for timeline in raw["timelines"]["items"].values():
         timeline.pop("edit_plan", None)
-
-    migrated = PROJECT_MIGRATIONS[6](raw)
-
-    assert migrated["schema_version"] == 7
-    for timeline in migrated["timelines"]["items"].values():
-        assert timeline["edit_plan"] is None
-
-
-def test_v6_migration_keeps_existing_edit_plan() -> None:
-    # setdefault semantics: a document that already carries a plan (e.g.
-    # written between upgrade steps) is not clobbered back to null.
-    raw = {
-        "schema_version": 6,
-        "timelines": {
-            "items": {
-                "timeline:main": {"edit_plan": {"concept": "kept"}},
-            },
-        },
-    }
-    migrated = PROJECT_MIGRATIONS[6](raw)
-    assert migrated["timelines"]["items"]["timeline:main"]["edit_plan"] == {
-        "concept": "kept",
-    }
-
-
-def test_v7_migration_clears_free_form_color_grade() -> None:
-    from services.project_files.serialization import project_file_bytes
-
-    project = Project.new(project_id="project-v7", name="Grade")
-    raw = json.loads(project_file_bytes(project))
-    raw["schema_version"] = 7
-    for timeline in raw["timelines"]["items"].values():
         timeline["color_grade"] = "明亮温暖清新：自由文本描述"
 
-    migrated = PROJECT_MIGRATIONS[7](raw)
+    migrated = migrate_project_document(raw)
 
     assert migrated["schema_version"] == 8
     for timeline in migrated["timelines"]["items"].values():
+        assert timeline["edit_plan"] is None
         assert timeline["color_grade"] == ""

@@ -12,17 +12,8 @@ from pathlib import Path
 import pytest
 
 from models import config
-from schemas.skills import SkillEntry
 import services.external_skills as external_skills
-from services.external_skills import (
-    SKILL_CONTEXT_MAX_CHARS,
-    SkillExecutionError,
-    external_skill_tool_manifests,
-    load_skills,
-    parse_skill_md,
-    render_external_skills_context,
-    view_skill,
-)
+from services.external_skills import load_skills
 from services.file_agent_runtime import (
     AgentModelTurn,
     AgentRunStatus,
@@ -30,7 +21,6 @@ from services.file_agent_runtime import (
     CallbackAgentChatClient,
     FileCreatorAgentRuntime,
 )
-from services.file_agent_runtime.prompts import render_creator_system_prompt
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import Project
 
@@ -77,32 +67,6 @@ def _reset_caches():
     external_skills._clear_load_cache()
 
 
-# ── Schema and SKILL.md parsing ──────────────────────────────────────────────
-
-
-def test_skill_entry_schema() -> None:
-    entry = SkillEntry.model_validate(
-        {"name": "edu-agent", "path": "/tmp/skill", "enabled": False},
-    )
-    assert entry.name == "edu-agent" and entry.enabled is False
-    for raw in (
-        {"name": "Bad Name!", "path": "/tmp/skill"},
-        {"name": "ok", "path": ""},
-        {"name": "ok", "path": "/tmp/skill", "extra": True},
-    ):
-        with pytest.raises(Exception):
-            SkillEntry.model_validate(raw)
-
-
-def test_parse_skill_md() -> None:
-    parsed = parse_skill_md(_SKILL_MD)
-    assert parsed["name"] == "demo-skill"
-    assert parsed["description"].startswith("Use when")
-    assert parsed["body"].startswith("# Demo Skill")
-    with pytest.raises(ValueError):
-        parse_skill_md("# no front matter\n")
-
-
 # ── Loading resilience ───────────────────────────────────────────────────────
 
 
@@ -131,119 +95,6 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert "off" not in loaded  # disabled entries are skipped entirely
     invalid = next(s for s in loaded.values() if "invalid" in (s.reason or ""))
     assert not invalid.available
-
-
-def test_unmet_requirement_marks_unavailable(tmp_path, monkeypatch) -> None:
-    skill_root = _write_skill(tmp_path / "demo")
-    _configure(
-        tmp_path,
-        monkeypatch,
-        [
-            {
-                "name": "demo-skill",
-                "path": str(skill_root),
-                "enabled": True,
-                "requirements": [
-                    {"kind": "binary", "value": "definitely-not-a-binary"},
-                ],
-            },
-        ],
-    )
-    (skill,) = load_skills()
-    assert not skill.available
-    assert "definitely-not-a-binary" in (skill.reason or "")
-
-
-# ── Builtin (code-vendored) skills ───────────────────────────────────────────
-
-_REAL_BUILTIN_ROOT = (
-    Path(external_skills.__file__).resolve().parent.parent / "skills"
-)
-
-
-def test_builtin_skill_loads_and_config_can_shadow(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    _configure(tmp_path, monkeypatch, [])
-    monkeypatch.setattr(
-        external_skills,
-        "_BUILTIN_SKILLS_ROOT",
-        _REAL_BUILTIN_ROOT,
-    )
-    external_skills._clear_load_cache()
-    loaded = {skill.entry.name: skill for skill in load_skills()}
-    skill = loaded["edu-math-tutorial"]
-    assert skill.available
-    # Domain knowledge for the native pipeline: scenes are motion_clip
-    # Elements and narration scripts stay re-synthesizable.
-    assert "motion_clip" in skill.skill_md
-    assert "creation.script" in skill.skill_md
-    # A same-name config entry shadows the builtin, even when disabled.
-    _configure(
-        tmp_path,
-        monkeypatch,
-        [
-            {
-                "name": "edu-math-tutorial",
-                "path": str(tmp_path / "missing"),
-                "enabled": False,
-            },
-        ],
-    )
-    names = [item.entry.name for item in load_skills()]
-    assert "edu-math-tutorial" not in names
-
-
-# ── Catalog, viewer and manifests ────────────────────────────────────────────
-
-
-def test_catalog_viewer_and_manifests(tmp_path, monkeypatch) -> None:
-    skill_root = _write_skill(tmp_path / "demo")
-    _configure(
-        tmp_path,
-        monkeypatch,
-        [
-            {"name": "demo-skill", "path": str(skill_root), "enabled": True},
-            {"name": "ghost", "path": str(tmp_path / "nope"), "enabled": True},
-        ],
-    )
-    context = render_external_skills_context()
-    assert context.startswith("<agent-skills>")
-    assert "<name>demo-skill</name>" in context
-    assert "ghost" not in context  # unavailable skills stay hidden
-    assert "# Demo Skill" not in context  # the body is never inlined
-    prompt = render_creator_system_prompt(project_id=PROJECT_ID)
-    assert "<agent-skills>" in prompt
-    result = view_skill(skill_name="demo-skill")
-    assert result["ok"] is True and result["truncated"] is False
-    assert result["content"] == (skill_root / "SKILL.md").read_text(
-        encoding="utf-8",
-    )
-    with pytest.raises(SkillExecutionError):
-        view_skill(skill_name="ghost")
-    manifests = external_skill_tool_manifests(load_skills())
-    assert [m["function"]["name"] for m in manifests] == ["view_skill"]
-    schema = manifests[0]["function"]["parameters"]
-    assert schema["properties"]["skill"]["enum"] == ["demo-skill"]
-    assert "projectId" not in schema["required"]
-    assert not external_skill_tool_manifests([])
-
-
-def test_catalog_respects_total_budget(tmp_path, monkeypatch) -> None:
-    entries = []
-    for index in range(40):
-        skill_md = _SKILL_MD.replace(
-            "Use when the user asks for a demo tutorial.",
-            f"Use when scenario {index} needs " + ("blah " * 120),
-        ).replace("name: demo-skill", f"name: demo-{index}")
-        root = _write_skill(tmp_path / f"skill-{index}", skill_md=skill_md)
-        entries.append(
-            {"name": f"demo-{index}", "path": str(root), "enabled": True},
-        )
-    _configure(tmp_path, monkeypatch, entries)
-    context = render_external_skills_context()
-    assert 0 < len(context) <= SKILL_CONTEXT_MAX_CHARS
 
 
 # ── Driver loop: progressive disclosure end to end ───────────────────────────

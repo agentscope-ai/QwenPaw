@@ -35,7 +35,7 @@ def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
     assert len(catalog) == 19
-    assert sum(len(models) for models in catalog.values()) == 117
+    assert sum(len(models) for models in catalog.values()) == 114
     assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
     assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
     assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True
@@ -133,6 +133,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                     "name": "Packaged",
                     "max_tokens": 100,
                     "supports_image": False,
+                    "is_free": True,
                 },
             ],
         },
@@ -158,6 +159,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                     "id": "model-a",
                     "name": "Local",
                     "supports_image": True,
+                    "is_free": False,
                 },
             ],
         },
@@ -169,6 +171,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].name == "Local"
     assert models[0].max_tokens == 200
     assert models[0].supports_image is True
+    assert models[0].is_free is False
 
 
 @pytest.mark.parametrize(

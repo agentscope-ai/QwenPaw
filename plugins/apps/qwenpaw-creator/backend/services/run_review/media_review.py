@@ -49,7 +49,7 @@ _IMAGE_CHECK_KEYS = ("devices", "type_fonts", "composition_safety", "craft")
 # Strong references to in-flight review tasks: the event loop only keeps
 # weak references, so an unreferenced task could be garbage-collected in
 # the middle of a multi-second gates/VLM round.
-_ACTIVE_REVIEW_TASKS: set["asyncio.Task[Any]"] = set()
+_ACTIVE_REVIEW_TASKS: dict[str, set["asyncio.Task[Any]"]] = {}
 _VIDEO_CHECK_KEYS = (
     "devices",
     "type_fonts",
@@ -72,6 +72,14 @@ def _reports_root(services: "CreatorFileServices", project_id: str) -> Path:
     return (
         services.projects.project_root(project_id) / "runtime" / "run-review"
     )
+
+
+def _project_is_live(
+    services: "CreatorFileServices",
+    project_id: str,
+) -> bool:
+    root = services.projects.project_root(project_id)
+    return root.is_dir() and (root / "project.json").is_file()
 
 
 def _derive_plan_context(
@@ -414,6 +422,8 @@ async def run_media_review_loop(
             plan_context=plan_context,
             frames_dir=frames_dir,
         )
+        if not _project_is_live(services, project_id):
+            return None
         await asyncio.to_thread(
             admission.write_json,
             reports_root
@@ -458,7 +468,7 @@ async def run_media_review_loop(
         )
         return report
     except asyncio.CancelledError:
-        if admitted is not None:
+        if admitted is not None and _project_is_live(services, project_id):
             admission.release_media_claim(
                 reports_root,
                 slot_id=slot_id,
@@ -469,7 +479,7 @@ async def run_media_review_loop(
     except Exception as exc:
         # Advisory only: a review failure must never disturb delivery.
         logger.exception("media review loop failed for %s", version_id)
-        if admitted is not None:
+        if admitted is not None and _project_is_live(services, project_id):
             await asyncio.to_thread(
                 admission.release_media_claim,
                 reports_root,
@@ -539,10 +549,14 @@ def schedule_media_review(
                 kind=kind,
             ),
         )
-        _ACTIVE_REVIEW_TASKS.add(task)
+        _ACTIVE_REVIEW_TASKS.setdefault(project_id, set()).add(task)
 
         def _log_outcome(done: asyncio.Task[Any]) -> None:
-            _ACTIVE_REVIEW_TASKS.discard(done)
+            project_tasks = _ACTIVE_REVIEW_TASKS.get(project_id)
+            if project_tasks is not None:
+                project_tasks.discard(done)
+                if not project_tasks:
+                    _ACTIVE_REVIEW_TASKS.pop(project_id, None)
             if not done.cancelled() and done.exception() is not None:
                 logger.error(
                     "media review task crashed: %s",
@@ -555,9 +569,17 @@ def schedule_media_review(
         logger.exception("media review scheduling failed")
 
 
+def cancel_project_media_reviews(project_id: str) -> None:
+    """Synchronously signal all advisory review tasks for one Project."""
+
+    for task in _ACTIVE_REVIEW_TASKS.pop(project_id, set()):
+        task.cancel()
+
+
 __all__ = [
     "REVIEWED_COMMANDS",
     "parse_media_report",
+    "cancel_project_media_reviews",
     "review_media_artifact",
     "run_media_review_loop",
     "schedule_media_review",

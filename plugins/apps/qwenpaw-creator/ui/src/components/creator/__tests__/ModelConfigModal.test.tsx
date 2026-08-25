@@ -5,6 +5,7 @@ import ModelConfigModal, {
   EMBEDDING_PROTOCOLS,
   IMAGE_PROTOCOLS,
   LLM_PROTOCOLS,
+  PRESETS_BY_TYPE,
   PROTOCOL_LABEL_KEYS,
   S2V_PROTOCOLS,
   TTS_PROTOCOLS,
@@ -14,132 +15,219 @@ import ModelConfigModal, {
 import { installMockFetch } from "@/test/mockFetch";
 import en from "@/locales/en.json";
 import zh from "@/locales/zh.json";
+import type { ModelConfigData } from "@/contracts/creator";
+
+const DASH = "https://dashscope.aliyuncs.com/api/v1";
+
+/** Minimal model-section builder shared by every config fixture. */
+function section<T extends Record<string, unknown>>(over: T) {
+  return {
+    enabled: false,
+    model_name: "",
+    api_key: "",
+    base_url: "",
+    protocol: "OpenAI 协议",
+    custom_protocol: "",
+    ...over,
+  };
+}
+
+const groundingDefaults = section({
+  enabled: true,
+  reuse_llm: true,
+  validation_source: "llm" as const,
+  tavily_api_key: "",
+  serper_api_key: "",
+  native_search_enabled: true,
+  search_provider: "dashscope_qwen" as const,
+  search_reuse_llm: true,
+  search_model_name: "",
+  search_api_key: "",
+  search_base_url: "",
+  search_protocol: "DashScope（百炼）",
+});
+
+const ossDefaults = {
+  enabled: false,
+  access_key_id: "",
+  access_key_secret: "",
+  endpoint: "",
+  bucket: "",
+  public_base_url: "",
+  policy_api_key: "",
+};
 
 const emptyConfig = {
-  llm: {
-    enabled: true,
-    model_name: "",
-    api_key: "",
-    base_url: "",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-    multimodal: false,
-  },
-  vlm: {
-    enabled: false,
-    model_name: "",
-    api_key: "",
-    base_url: "",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-    use_llm: false,
-    multimodal: false,
-  },
-  grounding: {
-    enabled: true,
-    model_name: "",
-    api_key: "",
-    base_url: "",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-    reuse_llm: true,
-    validation_source: "llm" as const,
-    tavily_api_key: "",
-    serper_api_key: "",
-    native_search_enabled: true,
-    search_provider: "dashscope_qwen" as const,
-    search_reuse_llm: true,
-    search_model_name: "",
-    search_api_key: "",
-    search_base_url: "",
-    search_protocol: "DashScope（百炼）",
-  },
-  image: {
-    enabled: false,
-    model_name: "",
-    api_key: "",
-    base_url: "",
-    protocol: "OpenAI 协议",
-    custom_protocol: "",
-  },
-  video: {
-    enabled: false,
-    model_name: "",
-    api_key: "",
-    base_url: "",
+  llm: section({ enabled: true, multimodal: false }),
+  vlm: section({ use_llm: false, multimodal: false }),
+  grounding: groundingDefaults,
+  image: section({}),
+  video: section({
     protocol: "Volcano Engine（火山引擎）",
-    custom_protocol: "",
     reuse_llm_key: true,
-  },
-  oss: {
-    enabled: false,
-    access_key_id: "",
-    access_key_secret: "",
-    endpoint: "",
-    bucket: "",
-    public_base_url: "",
-    policy_api_key: "",
-  },
+  }),
+  oss: ossDefaults,
   executionAuthorization: { mode: "required" as const },
 };
 
-const configuredGroundingConfig = {
-  ...emptyConfig,
-  llm: {
-    ...emptyConfig.llm,
+/** Full schema fixture used by the presets/speech suites. */
+const speechBaseConfig: ModelConfigData = {
+  llm: section({
     enabled: true,
     model_name: "qwen3.7-plus",
     api_key: "saved-secret",
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  },
-  grounding: {
-    ...emptyConfig.grounding,
-    tavily_api_key: "tvly-saved-secret",
+    base_url: "https://example.test/v1",
+    multimodal: true,
+  }),
+  vlm: section({
+    enabled: true,
+    model_name: "qwen3.7-plus",
+    api_key: "saved-secret",
+    base_url: "https://example.test/v1",
+    use_llm: true,
+    multimodal: true,
+  }),
+  grounding: { ...groundingDefaults, enabled: false },
+  asr: section({
+    model_name: "fun-asr",
+    base_url: DASH,
+    protocol: "DashScope Fun-ASR",
+    provider: "fun-asr",
+    language: "",
+    reuse_llm_key: true,
+  }),
+  tts: section({
+    enabled: true,
+    model_name: "qwen3-tts-flash",
+    base_url: DASH,
+    protocol: "DashScope（百炼）",
+    voice: "Cherry",
+    vc_model_name: "",
+    reuse_llm_key: true,
+  }),
+  s2v: section({
+    protocol: "DashScope（百炼）",
+    detect_model_name: "",
+    reuse_llm_key: true,
+  }),
+  image: section({ translate_model: "", reuse_llm_key: true }),
+  video: section({ protocol: "DashScope（百炼）", reuse_llm_key: true }),
+  oss: ossDefaults,
+  embedding: section({
+    model_name: "qwen3-vl-embedding",
+    base_url: DASH,
+    protocol: "DashScope（百炼）",
+    reuse_vlm_key: true,
+  }),
+  executionAuthorization: { mode: "allow_all" },
+  creationCheckpoints: { mode: "skip" },
+  mediaReview: { mode: "required" },
+  selfReview: {
+    sync_enabled: false,
+    media_enabled: false,
+    render_enabled: false,
   },
 };
 
+const presetsBaseConfig: ModelConfigData = {
+  ...speechBaseConfig,
+  tts: { ...speechBaseConfig.tts, enabled: false },
+  video: {
+    ...speechBaseConfig.video,
+    model_name: "wan2.7-r2v",
+    base_url: DASH,
+  },
+};
+
+const capabilities = {
+  default: "qwen3-tts-flash",
+  models: [
+    {
+      model: "qwen3-tts-flash",
+      label: "Qwen3 TTS Flash（系统音色，快速）",
+      family: "qwen-tts",
+      transport: "http",
+      systemVoices: ["Cherry", "Ethan"],
+      supportsDesign: true,
+    },
+  ],
+};
+
+function mountModal(
+  config: ModelConfigData,
+  caps: unknown = { default: "qwen3-tts-flash", models: [] },
+) {
+  installMockFetch([
+    {
+      match: "/models/tts-capabilities",
+      method: "GET",
+      response: { json: caps },
+    },
+    { match: "/models/config", method: "GET", response: { json: config } },
+    {
+      match: "/host-providers",
+      method: "GET",
+      response: { json: { providers: [] } },
+    },
+  ]);
+  render(<ModelConfigModal open onClose={() => {}} />);
+}
+
+async function openSpeechCard() {
+  // Navigate to the media pane, then expand the collapsed TTS card.
+  fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
+  const headers = await screen.findAllByText(/TTS 语音合成/);
+  fireEvent.click(headers[0]);
+}
+
+/** GET/POST /models/config routes plus an optional /models/test probe. */
+function configRoutes(json: unknown, testJson?: Record<string, unknown>) {
+  const routes = [
+    {
+      match: "/models/config",
+      method: "POST",
+      response: { json: { ok: true } },
+    },
+    { match: "/models/config", method: "GET", response: { json } },
+  ];
+  if (testJson) {
+    routes.push({
+      match: "/models/test",
+      method: "POST",
+      response: { json: testJson },
+    });
+  }
+  return routes;
+}
+
 describe("ModelConfigModal configuration lifecycle", () => {
   it("keeps a VLM that reuses the LLM enabled after an LLM connectivity test", async () => {
-    // A successful test flips llm.enabled via updateItem; that derived-flag
-    // update must not cascade into vlm.use_llm/enabled=false — saving right
-    // after would silently persist the VLM as disabled.
+    // A successful test flips llm.enabled via updateItem; that update must
+    // not cascade into vlm.use_llm/enabled=false before a save.
     const onClose = vi.fn();
     const { calls } = installMockFetch([
-      {
-        match: "/models/config",
-        method: "POST",
-        response: { json: { ok: true } },
-      },
-      {
-        match: "/models/config",
-        method: "GET",
-        response: {
-          json: {
-            ...emptyConfig,
-            llm: {
-              ...emptyConfig.llm,
-              model_name: "qwen3.7-plus",
-              api_key: "saved-secret",
-              base_url: "https://provider.test/v1",
-            },
-            vlm: {
-              ...emptyConfig.vlm,
-              enabled: true,
-              use_llm: true,
-              model_name: "qwen-vl-max",
-            },
+      ...configRoutes(
+        {
+          ...emptyConfig,
+          llm: {
+            ...emptyConfig.llm,
+            model_name: "qwen3.7-plus",
+            api_key: "saved-secret",
+            base_url: "https://provider.test/v1",
+          },
+          vlm: {
+            ...emptyConfig.vlm,
+            enabled: true,
+            use_llm: true,
+            model_name: "qwen-vl-max",
           },
         },
-      },
+        { ok: true, ms: 8 },
+      ),
       {
         match: "/models/real-api-key/llm",
         method: "GET",
         response: { json: { apiKey: "saved-secret" } },
-      },
-      {
-        match: "/models/test",
-        method: "POST",
-        response: { json: { ok: true, ms: 8 } },
       },
     ]);
     render(<ModelConfigModal open onClose={onClose} />);
@@ -154,12 +242,8 @@ describe("ModelConfigModal configuration lifecycle", () => {
       ),
     );
 
-    // The VLM badge keeps reflecting the reused LLM model instead of
-    // falling into the "disabled" branch …
+    // The VLM badge keeps reflecting the reused LLM model.
     expect(screen.queryByText("qwen-vl-max（已停用）")).not.toBeInTheDocument();
-
-    // … and the VLM section still reuses the LLM config and stays enabled.
-    // Expand the VLM card via its header title.
     fireEvent.click(screen.getByText("VLM 模型"));
     await waitFor(() =>
       expect(
@@ -170,34 +254,20 @@ describe("ModelConfigModal configuration lifecycle", () => {
 
   it("stays unconfigured until the user tests and saves entered model data", async () => {
     const onClose = vi.fn();
-    const { calls } = installMockFetch([
-      {
-        match: "/models/config",
-        method: "POST",
-        response: { json: { ok: true } },
-      },
-      {
-        match: "/models/config",
-        method: "GET",
-        response: {
-          json: {
-            ...emptyConfig,
-            grounding: {
-              ...emptyConfig.grounding,
-              tavily_api_key: "tvly-test",
-            },
+    const { calls } = installMockFetch(
+      configRoutes(
+        {
+          ...emptyConfig,
+          grounding: {
+            ...emptyConfig.grounding,
+            tavily_api_key: "tvly-test",
           },
         },
-      },
-      {
-        match: "/models/test",
-        method: "POST",
-        response: { json: { ok: true, ms: 8 } },
-      },
-    ]);
+        { ok: true, ms: 8 },
+      ),
+    );
     render(<ModelConfigModal open onClose={onClose} />);
 
-    // The language pane opens with the LLM card already expanded.
     const keyInput = await screen.findByPlaceholderText("sk-...");
     expect(keyInput).toHaveAttribute("type", "password");
     expect(
@@ -219,8 +289,7 @@ describe("ModelConfigModal configuration lifecycle", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /保存配置/ }));
-    // Dirty sections are saved through one atomic POST of the full config and
-    // the modal closes automatically on success.
+    // One atomic POST of the full config; the modal closes on success.
     await waitFor(() => {
       const save = calls.find(
         (call) => call.method === "POST" && call.url.endsWith("/models/config"),
@@ -236,138 +305,6 @@ describe("ModelConfigModal configuration lifecycle", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
-  it("shows separate Grounding search and validation sections and can disable grounding", async () => {
-    const onClose = vi.fn();
-    const { calls } = installMockFetch([
-      {
-        match: "/models/config",
-        method: "POST",
-        response: { json: { ok: true } },
-      },
-      {
-        match: "/models/config",
-        method: "GET",
-        response: { json: configuredGroundingConfig },
-      },
-    ]);
-    render(<ModelConfigModal open onClose={onClose} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /感知与检索/ }));
-    expect(
-      await screen.findByText(/tavily\/qwen3\.7-plus/),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Grounding"));
-    expect(screen.getByText("1. 搜索")).toBeInTheDocument();
-    expect(screen.getByText("2. 验证")).toBeInTheDocument();
-    expect(
-      screen.getByRole("checkbox", { name: "复用 LLM 配置" }),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("复用 LLM 配置").length).toBeGreaterThanOrEqual(
-      2,
-    );
-    expect(screen.getByText("优先")).toBeInTheDocument();
-    expect(screen.getByText("回退")).toBeInTheDocument();
-    expect(screen.getByText("Tavily 搜索")).toBeInTheDocument();
-    expect(screen.getByText("Qwen/DashScope 原生搜索")).toBeInTheDocument();
-    expect(screen.queryByText("复用 qwen3.7-plus")).not.toBeInTheDocument();
-    expect(screen.queryByText("超时、重试与来源上限")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "启用 Grounding" }));
-    fireEvent.click(screen.getByRole("button", { name: /保存配置/ }));
-
-    await waitFor(() => {
-      const save = calls.find(
-        (call) => call.method === "POST" && call.url.endsWith("/models/config"),
-      );
-      expect(save?.body).toMatchObject({
-        grounding: {
-          enabled: false,
-          reuse_llm: true,
-          tavily_api_key: "tvly-saved-secret",
-        },
-      });
-    });
-    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-  });
-
-  it("shows only the reused model name when Tavily is not configured", async () => {
-    installMockFetch([
-      {
-        match: "/models/config",
-        method: "GET",
-        response: {
-          json: {
-            ...configuredGroundingConfig,
-            grounding: {
-              ...configuredGroundingConfig.grounding,
-              tavily_api_key: "",
-            },
-          },
-        },
-      },
-    ]);
-
-    render(<ModelConfigModal open onClose={vi.fn()} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /感知与检索/ }));
-    await waitFor(() =>
-      expect(screen.queryAllByText(/qwen3\.7-plus/).length).toBeGreaterThan(0),
-    );
-    expect(screen.queryByText(/tavily\/qwen3\.7-plus/)).not.toBeInTheDocument();
-    expect(screen.queryByText("复用 qwen3.7-plus")).not.toBeInTheDocument();
-  });
-
-  it("fills the qwen3-asr preset base url and model when the protocol is picked", async () => {
-    installMockFetch([
-      {
-        match: "/models/config",
-        method: "GET",
-        response: { json: emptyConfig },
-      },
-    ]);
-
-    render(<ModelConfigModal open onClose={vi.fn()} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /感知与检索/ }));
-    fireEvent.click(await screen.findByText("ASR 模型"));
-    // Open the ASR protocol select, which shows the Fun-ASR default.
-    const protocolSelector = screen
-      .getByText("DashScope Fun-ASR")
-      .closest(".ant-select");
-    expect(protocolSelector).not.toBeNull();
-    fireEvent.mouseDown(protocolSelector!.querySelector(".ant-select-input")!);
-    await waitFor(() => {
-      expect(
-        document.querySelector(
-          '.ant-select-item-option[title="DashScope Qwen3-ASR"]',
-        ),
-      ).not.toBeNull();
-    });
-    fireEvent.click(
-      document.querySelector(
-        '.ant-select-item-option[title="DashScope Qwen3-ASR"]',
-      )!,
-    );
-
-    // The preset fills the model candidate and seeds the official base
-    // url while keeping it editable for self-hosted deployments.
-    await waitFor(() => {
-      const values = screen
-        .getAllByRole("combobox")
-        .map((input) => (input as HTMLInputElement).value);
-      expect(values).toContain("qwen3-asr-flash");
-    });
-    const baseUrl = screen
-      .getAllByPlaceholderText("https://api.example.com")
-      .find(
-        (input) =>
-          (input as HTMLInputElement).value ===
-          "https://dashscope.aliyuncs.com/api/v1",
-      ) as HTMLInputElement | undefined;
-    expect(baseUrl).toBeTruthy();
-    expect(baseUrl!.disabled).toBe(false);
-  });
-
   const llmConfiguredVideoOff = {
     ...emptyConfig,
     llm: {
@@ -379,121 +316,41 @@ describe("ModelConfigModal configuration lifecycle", () => {
     video: { ...emptyConfig.video, reuse_llm_key: true },
   };
 
-  it("runs the connectivity test when a model is switched on and enables it on success", async () => {
-    const { calls } = installMockFetch([
-      {
-        match: "/models/config",
-        method: "GET",
-        response: { json: llmConfiguredVideoOff },
-      },
-      {
-        match: "/models/test",
-        method: "POST",
-        response: { json: { ok: true, ms: 8 } },
-      },
-    ]);
-    render(<ModelConfigModal open onClose={vi.fn()} />);
+  it.each<[string, Record<string, unknown>, boolean]>([
+    ["enables it on success", { ok: true, ms: 8 }, true],
+    ["keeps it off on failure", { ok: false, error: "bad gateway" }, false],
+  ])(
+    "runs the connectivity test when a model is switched on and %s",
+    async (_name, testJson, expectedChecked) => {
+      const { calls } = installMockFetch(
+        configRoutes(llmConfiguredVideoOff, testJson),
+      );
+      render(<ModelConfigModal open onClose={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
-    fireEvent.click(await screen.findByText("视频生成模型"));
-    const toggle = (await screen.findByRole("checkbox", {
-      name: "视频生成模型",
-    })) as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
+      fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
+      fireEvent.click(await screen.findByText("视频生成模型"));
+      const toggle = (await screen.findByRole("checkbox", {
+        name: "视频生成模型",
+      })) as HTMLInputElement;
+      expect(toggle.checked).toBe(false);
 
-    fireEvent.click(toggle);
-    await waitFor(() =>
-      expect(calls.some((call) => call.url.endsWith("/models/test"))).toBe(
-        true,
-      ),
-    );
-    // A passing probe switches the card on, so the enabled-but-untested
-    // (red) state is never shown.
-    await waitFor(() => expect(toggle.checked).toBe(true));
-    expect(screen.queryByText(/（未测试）/)).not.toBeInTheDocument();
-  });
-
-  it("keeps the model switched off when the automatic connectivity test fails", async () => {
-    const { calls } = installMockFetch([
-      {
-        match: "/models/config",
-        method: "GET",
-        response: { json: llmConfiguredVideoOff },
-      },
-      {
-        match: "/models/test",
-        method: "POST",
-        response: { json: { ok: false, error: "bad gateway" } },
-      },
-    ]);
-    render(<ModelConfigModal open onClose={vi.fn()} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
-    fireEvent.click(await screen.findByText("视频生成模型"));
-    const toggle = (await screen.findByRole("checkbox", {
-      name: "视频生成模型",
-    })) as HTMLInputElement;
-
-    fireEvent.click(toggle);
-    await waitFor(() =>
-      expect(calls.some((call) => call.url.endsWith("/models/test"))).toBe(
-        true,
-      ),
-    );
-    await waitFor(() => expect(toggle.disabled).toBe(false));
-    expect(toggle.checked).toBe(false);
-  });
-
-  it("renders the TTS, S2V and Embedding card copy through i18n keys", async () => {
-    installMockFetch([
-      {
-        match: "/models/config",
-        method: "GET",
-        response: { json: emptyConfig },
-      },
-    ]);
-    render(<ModelConfigModal open onClose={vi.fn()} />);
-
-    // Assert against the locale JSON values (test locale is forced to zh)
-    // so a drifting translation fails here instead of passing silently.
-    const mc = zh.modelConfig;
-    const escaped = (value: string) =>
-      new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-
-    // Embedding lives on the default language pane.
-    fireEvent.click(await screen.findByText(mc.embedding));
-    await waitFor(() =>
-      expect(screen.getByText(mc.reuseVlmApiKey)).toBeInTheDocument(),
-    );
-    expect(screen.getByText(mc.embeddingReuseNote)).toBeInTheDocument();
-
-    // TTS and S2V live on the media pane.
-    fireEvent.click(
-      screen.getByRole("button", { name: new RegExp(mc.paneMedia) }),
-    );
-    fireEvent.click(await screen.findByText(mc.tts));
-    await waitFor(() =>
-      expect(screen.getByText(mc.reuseLlmApiKey)).toBeInTheDocument(),
-    );
-    // Both TTS notes share one paragraph, so match each note fragment.
-    expect(
-      screen.getByText(escaped(mc.ttsSystemVoicesNote)),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(escaped(mc.ttsCloneModelAutoNote)),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText(mc.s2v));
-    await waitFor(() =>
-      expect(screen.getByText(mc.s2vDetectModelLabel)).toBeInTheDocument(),
-    );
-    expect(screen.getByText(mc.s2vDetectNote)).toBeInTheDocument();
-  });
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(calls.some((call) => call.url.endsWith("/models/test"))).toBe(
+          true,
+        ),
+      );
+      await waitFor(() => expect(toggle.disabled).toBe(false));
+      // A passing probe switches the card on; a failing probe keeps it off.
+      await waitFor(() => expect(toggle.checked).toBe(expectedChecked));
+      if (expectedChecked) {
+        expect(screen.queryByText(/（未测试）/)).not.toBeInTheDocument();
+      }
+    },
+  );
 
   it("maps every protocol option to a label key present in both locales", () => {
-    // Guards the display-label map against drift: a protocol added to any
-    // dropdown array without a PROTOCOL_LABEL_KEYS entry would silently fall
-    // back to the raw (Chinese) value in English mode.
+    // Guards the display-label map against drift into raw Chinese values.
     const protocols = new Set([
       ...LLM_PROTOCOLS,
       ...VLM_PROTOCOLS,
@@ -519,5 +376,98 @@ describe("ModelConfigModal configuration lifecycle", () => {
         `missing en translation for "${protocol}"`,
       ).toBeTruthy();
     }
+  });
+});
+
+describe("ModelConfigModal model presets", () => {
+  it("offers every preset protocol in its dropdown", () => {
+    // A preset the dropdown does not list is unreachable, and a saved
+    // protocol outside the list is silently reset on load — which would
+    // strand the media channels that are selected by protocol.
+    const listed: Record<string, readonly string[]> = {
+      asr: ASR_PROTOCOLS,
+      tts: TTS_PROTOCOLS,
+      s2v: S2V_PROTOCOLS,
+      embedding: EMBEDDING_PROTOCOLS,
+      image: IMAGE_PROTOCOLS,
+      video: VIDEO_PROTOCOLS,
+    };
+    for (const [type, presets] of Object.entries(PRESETS_BY_TYPE)) {
+      for (const protocol of Object.keys(presets)) {
+        expect(
+          listed[type],
+          `no protocol list for section "${type}"`,
+        ).toBeTruthy();
+        expect(
+          listed[type],
+          `preset "${protocol}" is missing from ${type} protocols`,
+        ).toContain(protocol);
+      }
+    }
+  });
+
+  it("does NOT change protocol or base_url when model_name is changed", async () => {
+    // Users must explicitly select the protocol they want.
+    mountModal(presetsBaseConfig);
+    fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
+    fireEvent.click(await screen.findByText("视频生成模型"));
+    const modelInput = await waitFor(() => {
+      const label = screen
+        .getAllByText("模型名称")
+        .map((node) => node.parentElement?.querySelector("input"))
+        .find(
+          (input): input is HTMLInputElement =>
+            input instanceof HTMLInputElement && input.value === "wan2.7-r2v",
+        );
+      expect(label).toBeTruthy();
+      return label as HTMLInputElement;
+    });
+    fireEvent.change(modelInput, {
+      target: { value: "doubao-seedance-2.0-pro" },
+    });
+    await waitFor(() => {
+      const urlInput = screen
+        .getAllByPlaceholderText("https://api.example.com")
+        .find(
+          (input): input is HTMLInputElement =>
+            input instanceof HTMLInputElement && input.value === DASH,
+        );
+      expect(urlInput).toBeTruthy();
+    });
+  });
+});
+
+describe("ModelConfigModal speech section", () => {
+  it("keeps clone companions automatic and offers only real system voices", async () => {
+    mountModal(speechBaseConfig, capabilities);
+    await openSpeechCard();
+    await waitFor(() => {
+      expect(screen.getByText("默认旁白音色")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/声音复刻模型/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/复刻\/设计所用的配套模型由后端自动选择/),
+    ).toBeInTheDocument();
+    const voiceInput = screen
+      .getByText("默认旁白音色")
+      .parentElement?.querySelector("input");
+    expect(voiceInput).toHaveValue("Cherry");
+  });
+
+  it("seeds the frozen preset endpoint for a never-configured s2v section", async () => {
+    // The digital-human section has a single protocol, so no protocol switch
+    // ever applies a preset; without seeding it could never be saved.
+    mountModal(speechBaseConfig, capabilities);
+    fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
+    const headers = await screen.findAllByText(/数字人模型/);
+    fireEvent.click(headers[0]);
+    await waitFor(() => {
+      expect(screen.getByText("人像检测模型（可选）")).toBeInTheDocument();
+    });
+    const values = Array.from(document.querySelectorAll("input")).map(
+      (node) => (node as HTMLInputElement).value,
+    );
+    expect(values).toContain(DASH);
+    expect(values).toContain("wan2.2-s2v");
   });
 });

@@ -31,7 +31,7 @@ export function EmbeddingModelCard() {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
-  const { needsReindex, reindexing, openMemorySettings, configRevision } =
+  const { needsReindex, reindexing, openMemorySettings } =
     useMemoryMaintenance();
 
   const embeddingConfig = Form.useWatch(
@@ -57,11 +57,7 @@ export function EmbeddingModelCard() {
     testedEmbeddingIsCurrent,
     markVerified,
     clearVerification,
-  } = useEmbeddingVerification(
-    embeddingConfig,
-    embeddingEnabled,
-    configRevision,
-  );
+  } = useEmbeddingVerification(embeddingConfig, embeddingEnabled);
   const embeddingCacheEnabled = embeddingConfig?.enable_cache ?? true;
 
   const testEmbedding = async () => {

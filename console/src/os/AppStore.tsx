@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { App, Button, Input, Pagination, Spin, Tag, Tooltip } from "antd";
 import {
   Download,
+  BadgeCheck,
   Trash2,
   RotateCcw,
   Package,
@@ -35,6 +36,7 @@ import { purgeAppState, removePluginAppState } from "./osCleanup";
 import { useOsModal } from "./useOsModal";
 import { useOsStyles } from "./useOsStyles";
 import { useOsAppMarket } from "./useOsAppMarket";
+import { getMarketAppState } from "../utils/marketAppState";
 
 /** Pick the description for the active language, with graceful fallbacks. */
 function localizedDescription(
@@ -152,6 +154,10 @@ export default function AppStore() {
     [availableIds],
   );
   const installedSet = useMemo(() => new Set(installed), [installed]);
+  const installedAppVersions = useMemo(
+    () => new Map(installedApps.map((app) => [app.id, app.version])),
+    [installedApps],
+  );
 
   const installMarketPlugin = (entry: MarketPluginEntry) => {
     if (isCompatible(entry)) {
@@ -379,6 +385,12 @@ export default function AppStore() {
               const compat =
                 entry.qwenpaw_compat_labels &&
                 entry.qwenpaw_compat_labels.length > 0;
+              const marketState = getMarketAppState(
+                entry,
+                installedAppVersions,
+              );
+              const isInstalled = marketState === "installed";
+              const canUpdate = marketState === "update";
               return (
                 <div key={entry.id} className={styles.storeCard}>
                   <div className={styles.storeCardTop}>
@@ -456,16 +468,29 @@ export default function AppStore() {
                       }
                     >
                       <Button
-                        type="primary"
+                        type={isInstalled ? "default" : "primary"}
                         size="small"
-                        icon={<Download size={14} />}
-                        loading={installingId === entry.id}
+                        icon={
+                          isInstalled ? (
+                            <BadgeCheck size={14} />
+                          ) : canUpdate ? (
+                            <RefreshCw size={14} />
+                          ) : (
+                            <Download size={14} />
+                          )
+                        }
+                        loading={!isInstalled && installingId === entry.id}
                         disabled={
-                          installingId !== null && installingId !== entry.id
+                          isInstalled ||
+                          (installingId !== null && installingId !== entry.id)
                         }
                         onClick={() => installMarketPlugin(entry)}
                       >
-                        {t("os.appMarketInstall", "Install")}
+                        {isInstalled
+                          ? t("os.installedApp", "Installed")
+                          : canUpdate
+                          ? t("os.update", "Update")
+                          : t("os.appMarketInstall", "Install")}
                       </Button>
                     </Tooltip>
                   </div>

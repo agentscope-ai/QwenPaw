@@ -135,6 +135,19 @@
   }
 }
 
+/* Bound-directory count, sitting at the end of the title row. */
+.headingCount {
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 1px 7px;
+  color: var(--ant-color-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  border-radius: 7px;
+  background: var(--ant-color-fill-tertiary);
+}
+
 .headingIcon {
   width: 32px;
   height: 32px;
@@ -149,6 +162,8 @@
 
 .pathInput {
   height: 42px;
+  /* Never absorb the panel's height deficit: the browser body shrinks. */
+  flex: 0 0 auto;
   border-radius: 10px;
 
   &:focus-within {
@@ -160,6 +175,7 @@
 .pathChip {
   min-width: 0;
   min-height: 46px;
+  flex: 0 0 auto;
   padding: 6px 8px;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 28px;
@@ -602,6 +618,13 @@
     overflow: auto;
   }
 
+  /* Same specificity as the session override above, or that 110px floor
+     would win here and the stacked panes could not shrink. */
+  .panelWithList .splitBody {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
   .recentPane {
     min-height: 145px;
     max-height: 170px;
@@ -622,4 +645,173 @@
       text-overflow: ellipsis;
     }
   }
+}
+
+/* ── Session scope: bound directory list ──────────────────────────────
+   Sits below the picker. The panel height is fixed, so the browser body
+   gives up some room (.panelWithList) and the list scrolls on overflow. */
+.panelWithList .splitBody {
+  height: auto;
+  min-height: 110px;
+  flex: 1 1 170px;
+}
+
+.boundDirs {
+  min-height: 0;
+  display: flex;
+  /* Shrinks before the actions row does: Apply must stay on screen even
+     with the maximum number of extra roots bound. */
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.boundList {
+  min-height: 0;
+  max-height: 150px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* One row: a folder mark, a two-line identity (name over full path), then
+   tags and row actions. Shared by bound rows and the pending-add row. */
+.boundList li {
+  min-width: 0;
+  min-height: 42px;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ant-color-text-secondary);
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+
+.boundIcon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--ant-color-fill-tertiary);
+}
+
+.boundCopy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--ant-color-text);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  small {
+    color: var(--ant-color-text-tertiary);
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 9px;
+  }
+}
+
+/* Tag and row action share one size so "Primary" and "Make primary" read as
+   the same class of label. */
+.boundTag,
+.boundAction {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.boundTag {
+  color: #d95b17;
+}
+
+.boundAction {
+  padding: 3px 7px;
+  color: var(--ant-color-text-tertiary);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    color: #d95b17;
+    border-color: rgba(243, 107, 33, 0.34);
+    background: rgba(243, 107, 33, 0.08);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+/* The primary is the resolution base, so it reads as the anchor row. */
+.boundList li[data-primary="true"] {
+  border-color: rgba(243, 107, 33, 0.28);
+  background: rgba(243, 107, 33, 0.07);
+
+  .boundIcon {
+    color: #f36b21;
+    background: var(--ant-color-bg-container);
+  }
+}
+
+.boundList li[data-missing="true"] {
+  .boundCopy strong {
+    color: var(--ant-color-error);
+  }
+
+  .boundTag {
+    color: var(--ant-color-error);
+  }
+}
+
+/* The queued directory sits at the end of the list, dashed so it reads as
+   "not bound yet". */
+.pendingRow {
+  border-style: dashed !important;
+  border-color: var(--ant-color-border) !important;
+  background: var(--ant-color-fill-quaternary);
+}
+
+/* Sits under the panel title: which directory the tools default to. */
+.boundHint {
+  margin-top: 1px;
+  color: var(--ant-color-text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.listError {
+  color: var(--ant-color-error);
+  font-size: 10px;
+  word-break: break-all;
+}
+
+/* Anchor for `hideTrigger` callers: the panel is opened from their own
+   control, so this only supplies a position to attach the popover to. */
+.hiddenAnchor {
+  display: block;
+  width: 0;
+  height: 0;
 }

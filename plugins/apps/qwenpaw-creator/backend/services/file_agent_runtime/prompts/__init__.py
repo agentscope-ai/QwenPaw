@@ -54,6 +54,7 @@ FILE_AGENT_PROMPT_SPECS = {
             "project_id",
             "workspace_schema",
             "tts_guidance",
+            "image_model_guidance",
         ),
         _spec(
             "r2v_generation_director.system",
@@ -61,6 +62,7 @@ FILE_AGENT_PROMPT_SPECS = {
             "project_id",
             "workspace_schema",
             "video_model_guidance",
+            "image_model_guidance",
         ),
         _spec(
             "ai_editing_director.system",

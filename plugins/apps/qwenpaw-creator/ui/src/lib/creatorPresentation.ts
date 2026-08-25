@@ -35,6 +35,7 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
   WAITING_EXECUTION_AUTH: "presentation.statuses.WAITING_EXECUTION_AUTH",
   PENDING_REVIEW: "presentation.statuses.PENDING_REVIEW",
   RESUMING: "presentation.statuses.RESUMING",
+  INTERRUPT_REQUESTED: "presentation.statuses.INTERRUPT_REQUESTED",
   INTERRUPTED: "presentation.statuses.INTERRUPTED",
   SUCCEEDED: "presentation.statuses.SUCCEEDED",
   BLOCKED: "presentation.statuses.BLOCKED",

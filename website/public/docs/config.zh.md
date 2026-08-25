@@ -31,6 +31,12 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 │   │   ├── PROFILE.md                   # 人设文件
 │   │   ├── BOOTSTRAP.md                 # 首次引导文件（完成后自动删除）
 │   │   ├── MEMORY.md                    # 长期记忆
+│   │   ├── MAIL_TRIAGE.md               # 邮件自动处理规则（配置邮箱后生成）
+│   │   ├── CONTACTS.md                  # 邮件联系人（配置邮箱后生成）
+│   │   ├── credentials.yaml             # 加密凭据库（包含邮箱凭据）
+│   │   ├── mail_access_control.json     # 邮件白/黑名单与待处理发件人
+│   │   ├── mail_state/                  # 邮件监控、线程和标签本地状态
+│   │   ├── drivers/mcp/qwenpawmail.yaml # 自动生成的邮箱 MCP 驱动卡
 │   │   ├── skills/                      # 本地技能目录
 │   │   ├── skill.json                   # 技能启用状态与配置
 │   │   ├── memory/                      # 每日记忆文件
@@ -209,6 +215,20 @@ QwenPaw 会在单个服务进程内串行写入智能体配置，并拒绝基于
     "timeoutSeconds": 300,
     "activeHours": null
   },
+  "mail": {
+    "is_new_account": false,
+    "credential": {
+      "name": "alex",
+      "domain": "163.com",
+      "provider": ""
+    },
+    "push": {
+      "mode": "agent_all",
+      "rules": [],
+      "poll_interval_seconds": 120,
+      "access_control_enabled": true
+    }
+  },
   "running": {
     "max_iters": 50,
     "llm_retry_enabled": true,
@@ -291,6 +311,40 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 > **完整配置说明：** MCP 客户端的完整字段说明、配置格式、示例和使用方式请参见 [MCP](./mcp)。
 
 管理方式：控制台（智能体 → MCP）或直接编辑 `agent.json`。
+
+---
+
+#### `mail` — 邮箱配置
+
+邮箱配置仅适用于 QwenPaw 原生后端。通常应通过控制台 **设置 → 智能体管理 → 邮箱管理**
+填写，以便同时创建 qwenpawmail MCP 驱动卡和工作区文件。
+
+| 字段                          | 类型           | 默认值      | 说明                                                                                       |
+| ----------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------ |
+| `is_new_account`              | bool           | `false`     | `false` 连接已有邮箱；`true` 表示待注册的智能体专用邮箱                                    |
+| `credential.name`             | string         | `""`        | `@` 前的邮箱账户名                                                                         |
+| `credential.domain`           | string         | `"163.com"` | 邮箱域名                                                                                   |
+| `credential.auth_code`        | string         | `""`        | 仅写入：授权码、应用专用密码或邮箱登录密码；加密保存且不会出现在读取结果或 `agent.json` 中 |
+| `credential.password`         | string         | `""`        | 仅兼容旧版专用邮箱注册数据；当前注册流程不会保存此字段                                     |
+| `credential.phone_number`     | string         | `""`        | 仅兼容旧版专用邮箱注册数据；当前注册流程不会保存此字段                                     |
+| `credential.provider`         | string         | `""`        | 旧版企业自定义域名兼容字段；当前托管界面不提供企业邮箱配置                                 |
+| `push`                        | object \| null | `null`      | 新邮件监控配置；省略或设为 `null` 时不启动监控                                             |
+| `push.mode`                   | string         | `"off"`     | `off` 或 `agent_all`；`rules_only`、`rules_then_agent` 为旧配置兼容模式                    |
+| `push.rules`                  | array          | `[]`        | 旧配置的确定性新邮件规则                                                                   |
+| `push.poll_interval_seconds`  | int            | `120`       | IMAP IDLE 失败后的轮询间隔，运行时最小 10 秒                                               |
+| `push.access_control_enabled` | bool           | `false`     | 自动处理前是否检查发件人白名单、黑名单和待处理状态                                         |
+
+`push.rules` 每项包含 `field`（`from` / `content` / `keyword`，`subject` 为旧别名）、
+`contains`、`action`（`mark_read` / `move` / `notify` / `wake_agent`）和 `param`。
+当前控制台重点提供 **关闭** 与 **每封唤醒** 两种模式；旧规则会继续读取，但不建议
+把它们作为新配置的主要入口。
+
+邮箱公开身份和自动处理配置保存在 `agent.json`。`auth_code`、`password` 和
+`phone_number` 属于仅写入 secret：系统会把它们从公开配置中排除，并加密保存到工作区的
+`credentials.yaml`。`drivers/mcp/qwenpawmail.yaml` 只保存凭据引用，MCP 子进程启动时才
+解析 secret。不要仅因为 API 或 `agent.json` 中没有 `auth_code` 就判断凭据未配置，也不要
+直接把凭据写进这些公开文件。完整设置、自动处理和服务商说明见
+[邮箱管理与自动化](./mailbox)。
 
 ---
 
@@ -685,3 +739,4 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 - [记忆](./memory) — 记忆系统详解
 - [技能](./skills) — 技能系统详解
 - [MCP](./mcp) — MCP 客户端配置
+- [邮箱管理与自动化](./mailbox) — 邮箱配置、工具、自动处理和访问控制

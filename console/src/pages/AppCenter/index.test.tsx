@@ -97,7 +97,7 @@ function makeApp(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeMarketApp(id: string) {
+function makeMarketApp(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     display_name: id,
@@ -110,6 +110,7 @@ function makeMarketApp(id: string) {
     details_url: null,
     locales: { en: { description: id, category: "app" } },
     is_featured: false,
+    ...overrides,
   };
 }
 
@@ -205,6 +206,21 @@ describe("AppCenterPage", () => {
     );
   });
 
+  it("marks an installed app as installed in the market", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    renderPage(["/market?view=market"]);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "appCenter.installedStatus",
+      }),
+    ).toBeDisabled();
+    expect(screen.queryByText("appCenter.install")).not.toBeInTheDocument();
+  });
+
   it("loads a newly installed market app without reloading", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeMarketApp("new-app")],
@@ -223,9 +239,26 @@ describe("AppCenterPage", () => {
     );
   });
 
-  it("does not load an old bundle when updating an installed market app", async () => {
+  it("does not reinstall an installed market app at the same version", async () => {
     hoisted.fetchMarketPlugins.mockResolvedValue({
       plugins: [makeMarketApp("alpha-app")],
+      total: 1,
+    });
+    renderPage(["/market?view=market"]);
+    await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
+
+    const installedButton = await screen.findByRole("button", {
+      name: "appCenter.installedStatus",
+    });
+    expect(installedButton).toBeDisabled();
+    fireEvent.click(installedButton);
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+  });
+
+  it("offers an update for an installed market app with a newer version", async () => {
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [makeMarketApp("alpha-app", { version: "2.0.0" })],
       total: 1,
     });
     hoisted.installPlugin.mockResolvedValue({
@@ -235,8 +268,11 @@ describe("AppCenterPage", () => {
     renderPage(["/market?view=market"]);
     await waitFor(() => expect(hoisted.listApps).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(await screen.findByText("appCenter.install"));
-
+    const updateButton = await screen.findByRole("button", {
+      name: "appCenter.update",
+    });
+    expect(updateButton).toBeEnabled();
+    fireEvent.click(updateButton);
     await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
     expect(hoisted.loadPawApp).not.toHaveBeenCalled();
   });

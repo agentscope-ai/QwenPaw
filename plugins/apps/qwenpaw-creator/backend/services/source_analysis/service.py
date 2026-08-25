@@ -78,6 +78,7 @@ from services.project_files.remote_cache import (
     resolve_remote_cache,
 )
 from services.project_files.serialization import canonical_json_bytes
+from services.observability import report_error
 from services.runtime_files.execution_models import (
     SpecialistRunRecord,
     TaskAttemptStatus,
@@ -441,6 +442,7 @@ class SourceMediaAnalysisService:
         self.analyzer = analyzer or DefaultSourceMediaAnalyzer()
         self.executions = ProjectExecutionStore(services.root)
         self._jobs: dict[str, asyncio.Task[TaskRecord]] = {}
+        self._job_projects: dict[str, str] = {}
 
     def _resolve_agent_source_sync(
         self,
@@ -1118,11 +1120,13 @@ class SourceMediaAnalysisService:
                 "ratio": (
                     document_ratio
                     if is_document
-                    else visual_ratio
-                    if media.media_kind == "video"
-                    else 1.0
-                    if media.media_kind == "image"
-                    else None
+                    else (
+                        visual_ratio
+                        if media.media_kind == "video"
+                        else 1.0
+                        if media.media_kind == "image"
+                        else None
+                    )
                 ),
             },
             "asr": {
@@ -1387,10 +1391,12 @@ class SourceMediaAnalysisService:
             name=f"source-analysis:{job.task_id}",
         )
         self._jobs[job.task_id] = task
+        self._job_projects[job.task_id] = job.project_id
 
         def discard(done: asyncio.Task[TaskRecord]) -> None:
             if self._jobs.get(job.task_id) is done:
                 self._jobs.pop(job.task_id, None)
+                self._job_projects.pop(job.task_id, None)
             if not done.cancelled():
                 try:
                     done.exception()
@@ -1399,6 +1405,20 @@ class SourceMediaAnalysisService:
 
         task.add_done_callback(discard)
         return task
+
+    def cancel_project(self, project_id: str) -> None:
+        """Signal every detached Source analysis worker for one Project."""
+
+        task_ids = [
+            task_id
+            for task_id, owner in self._job_projects.items()
+            if owner == project_id
+        ]
+        for task_id in task_ids:
+            task = self._jobs.pop(task_id, None)
+            self._job_projects.pop(task_id, None)
+            if task is not None:
+                task.cancel()
 
     async def execute(self, job: SourceAnalysisJob) -> TaskRecord:
         temp_root: Path | None = None
@@ -1933,10 +1953,16 @@ class SourceMediaAnalysisService:
         self,
         job: SourceAnalysisJob,
     ) -> tuple[Path | None, Path | None]:
-        # Project deletion uses the same lifecycle lock.  Holding it while the
-        # verified copy is created prevents an interrupted worker from
-        # recreating a deleted Project through ``mkdir(parents=True)``.
-        with self.services.projects.lifecycle_lock(job.project_id):
+        # Project deletion uses the same lifecycle lock only for validating
+        # and creating the private scratch path. Immutable-source verification
+        # and copying can take minutes for long video and must happen after the
+        # lock is released. If DELETE wins afterwards, all open descriptors
+        # remain attached to the hidden tombstone and no path can resurrect the
+        # published Project id.
+        with self.services.projects.lifecycle_lock(
+            job.project_id,
+            shared=True,
+        ):
             self.services.projects.read(job.project_id)
             task = self.executions.get_task(
                 job.project_id,
@@ -1978,25 +2004,24 @@ class SourceMediaAnalysisService:
             if not _SAFE_SUFFIX.fullmatch(suffix):
                 suffix = ".bin"
             target = root / f"source{suffix}"
-            file_store = AssetFileStore(project_root)
-            descriptor: int | None = None
-            try:
-                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    flags |= os.O_NOFOLLOW
-                descriptor = os.open(target, flags, 0o600)
-                with os.fdopen(descriptor, "wb") as output:
-                    descriptor = None
-                    with file_store.open_verified(job.indexed_file) as source:
-                        shutil.copyfileobj(source, output, length=1024 * 1024)
-                        output.flush()
-                        os.fsync(output.fileno())
-            except Exception:
-                if descriptor is not None:
-                    os.close(descriptor)
-                shutil.rmtree(root, ignore_errors=True)
-                raise
-            return root, target
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            descriptor = os.open(target, flags, 0o600)
+        file_store = AssetFileStore(project_root)
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                descriptor = -1
+                with file_store.open_verified(job.indexed_file) as source:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
+                    output.flush()
+                    os.fsync(output.fileno())
+        except Exception:
+            if descriptor >= 0:
+                os.close(descriptor)
+            shutil.rmtree(root, ignore_errors=True)
+            raise
+        return root, target
 
     def _publish_and_commit_sync(
         self,
@@ -2169,7 +2194,10 @@ class SourceMediaAnalysisService:
         sufficient convergence evidence; provider execution is never replayed.
         """
 
-        with self.services.projects.lifecycle_lock(job.project_id):
+        with self.services.projects.lifecycle_lock(
+            job.project_id,
+            shared=True,
+        ):
             current = self.services.projects.read(job.project_id)
             if not self._already_published(current.project, job):
                 return None
@@ -2468,10 +2496,30 @@ class SourceMediaAnalysisService:
         error: BaseException,
     ) -> TaskRecord:
         task = self.executions.get_task(job.project_id, job.task_id)
+        base_error = _error_payload(error)
+        report = report_error(
+            component="source-analysis",
+            code=str(base_error["code"]),
+            message=str(base_error["message"]),
+            error=error,
+            details={
+                "projectId": job.project_id,
+                "taskId": job.task_id,
+                "runId": job.run_id,
+                "sourceId": job.source_id,
+                "sourceAssetVersionId": job.source_version.version_id,
+            },
+            projectId=job.project_id,
+            taskId=job.task_id,
+            runId=job.run_id,
+        )
+        failure = {
+            key: value for key, value in report.items() if value is not None
+        }
         if task.status is TaskStatus.CANCELLED:
             return self._quarantine_cancelled_sync(
                 job,
-                {"error": _error_payload(error)},
+                {"error": failure},
             )
         if task.status is TaskStatus.RUNNING:
             converged = self._converge_published_job_sync(job)
@@ -2484,7 +2532,7 @@ class SourceMediaAnalysisService:
                 event_id=f"{job.attempt_id}-failed",
                 attempt_id=job.attempt_id,
                 status=TaskAttemptStatus.FAILED,
-                error=_error_payload(error),
+                error=failure,
             )
         elif task.status is TaskStatus.QUEUED:
             self.executions.transition_task(
@@ -2492,7 +2540,7 @@ class SourceMediaAnalysisService:
                 job.task_id,
                 expected_status=TaskStatus.QUEUED,
                 status=TaskStatus.FAILED,
-                updates={"error": _error_payload(error)},
+                updates={"error": failure},
             )
         run = self.executions.get_run(job.project_id, job.run_id)
         if run.status in {
@@ -2507,7 +2555,7 @@ class SourceMediaAnalysisService:
                 status=SpecialistRunStatus.FAILED,
                 updates={
                     "final_marker": "FAILED",
-                    "final_summary_text": _error_payload(error)["message"],
+                    "final_summary_text": str(failure["message"]),
                 },
             )
         return self.executions.get_task(job.project_id, job.task_id)
@@ -2596,14 +2644,6 @@ def recover_interrupted_source_analysis(
     executions = ProjectExecutionStore(services.root)
     convergence = SourceMediaAnalysisService(services)
     recovered = 0
-    error = {
-        "code": "SOURCE_ANALYSIS_PROCESS_RESTARTED",
-        "message": (
-            "Source analysis was interrupted by process restart; "
-            "submit a new ANALYZE_SOURCE_MEDIA command"
-        ),
-        "retryable": True,
-    }
     for project_id in services.projects.discover_project_ids():
         # Admission writes Run then Task.  If the second atomic write was
         # interrupted, reconstruct the deterministic Task before the normal
@@ -2649,6 +2689,20 @@ def recover_interrupted_source_analysis(
                 StorageIntegrityError,
                 ValidationError,
             ) as repair_error:
+                report = report_error(
+                    component="source-analysis",
+                    code="SOURCE_ANALYSIS_ADMISSION_RECOVERY_FAILED",
+                    message=str(repair_error),
+                    error=repair_error,
+                    details={
+                        "projectId": project_id,
+                        "runId": run.run_id,
+                        "expectedTaskId": expected_task_id,
+                    },
+                    projectId=project_id,
+                    runId=run.run_id,
+                    taskId=expected_task_id,
+                )
                 executions.transition_run(
                     project_id,
                     run.run_id,
@@ -2658,8 +2712,10 @@ def recover_interrupted_source_analysis(
                         "final_marker": "FAILED",
                         "final_summary_text": (
                             "Interrupted Source admission could not be repaired: "
-                            f"{str(repair_error)[:1600]}"
+                            f"{str(repair_error)[:1400]} "
+                            f"(errorId={report['errorId']})"
                         ),
+                        "metadata": {**run.metadata, "error": report},
                     },
                 )
                 recovered += 1
@@ -2684,6 +2740,28 @@ def recover_interrupted_source_analysis(
                 ):
                     recovered += 1
                     continue
+            report = report_error(
+                component="source-analysis",
+                code="SOURCE_ANALYSIS_PROCESS_RESTARTED",
+                message=(
+                    "Source analysis was interrupted by process restart; "
+                    "submit a new ANALYZE_SOURCE_MEDIA command"
+                ),
+                retryable=True,
+                details={
+                    "projectId": project_id,
+                    "taskId": task.task_id,
+                    "runId": str(task.run_id or ""),
+                },
+                projectId=project_id,
+                taskId=task.task_id,
+                runId=str(task.run_id or ""),
+            )
+            failure = {
+                key: value
+                for key, value in report.items()
+                if value is not None
+            }
             if task.status is TaskStatus.RUNNING:
                 running_attempt = next(
                     (
@@ -2702,7 +2780,7 @@ def recover_interrupted_source_analysis(
                         event_id=f"{running_attempt.attempt_id}-restart-failed",
                         attempt_id=running_attempt.attempt_id,
                         status=TaskAttemptStatus.FAILED,
-                        error=error,
+                        error=failure,
                     )
                 else:
                     executions.transition_task(
@@ -2710,7 +2788,7 @@ def recover_interrupted_source_analysis(
                         task.task_id,
                         expected_status=TaskStatus.RUNNING,
                         status=TaskStatus.FAILED,
-                        updates={"error": error},
+                        updates={"error": failure},
                     )
             else:
                 executions.transition_task(
@@ -2718,7 +2796,7 @@ def recover_interrupted_source_analysis(
                     task.task_id,
                     expected_status=TaskStatus.QUEUED,
                     status=TaskStatus.FAILED,
-                    updates={"error": error},
+                    updates={"error": failure},
                 )
             if task.run_id is not None:
                 run = executions.get_run(project_id, task.run_id)
@@ -2730,7 +2808,7 @@ def recover_interrupted_source_analysis(
                         status=SpecialistRunStatus.FAILED,
                         updates={
                             "final_marker": "FAILED",
-                            "final_summary_text": error["message"],
+                            "final_summary_text": failure["message"],
                         },
                     )
             recovered += 1

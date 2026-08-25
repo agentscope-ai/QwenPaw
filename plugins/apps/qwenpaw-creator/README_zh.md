@@ -46,8 +46,16 @@ Creator 通过 QwenPaw 的 **Apps（应用中心）** 安装和打开。启动 Q
 
 - **LLM / VLM**：OpenAI 兼容协议、DashScope / 百炼、Anthropic Claude、DeepSeek、Google Gemini、百度千帆、火山引擎和自定义提供商；
 - **Grounding**：Serper（Google）或 Tavily；验证模型可复用 LLM / VLM，也可单独配置；
-- **图片生成**：OpenAI 兼容协议或 DashScope；
-- **视频生成**：DashScope 的 `wan2.7`、`happyhorse-1.1` 会按元素类型自动选择 t2v / i2v / r2v；火山引擎 `doubao-seedance-2.0` 提供 r2v；
+- **图片生成**：OpenAI 兼容协议（`gpt-image-2`）、DashScope / 百炼（`qwen-image-3.0`、`wan2.7-image`、`z-image-turbo`）、Google Gemini（Nano Banana 家族，`gemini-3-pro-image` 最多 14 张参考图）、火山引擎（`doubao-seedream` 5.0/4.5/4.0）、Black Forest Labs（FLUX.2，最多 8 张参考图）、Ideogram（排版与文字渲染专长）；
+- **视频生成**：
+  - DashScope / 百炼：`wan2.7`、`happyhorse-1.1` 会按元素类型自动选择 t2v / i2v / r2v；百炼同时托管 `kling/kling-v3-*` 与 `vidu/viduq3-*_reference2video` 系列；
+  - 火山引擎：`doubao-seedance-2.5`（最长 30 秒，全模态参考最多 30 图 + 10 视频）与 `doubao-seedance-2.0` 系列；
+  - Google Gemini：`veo-3.1`（时长 4/6/8 秒，带参考图或 1080p/4k 时固定 8 秒，参考图最多 3 张）；
+  - MiniMax 海螺：`MiniMax-Hailuo-2.3` 等（768P 支持 6/10 秒，1080P 仅 6 秒），主体参考仅 `S2V-01`；
+  - 可灵官方：`kling-3.0-omni`（参考生视频，参考图最多 7 张）、`kling-2.6`（仅 t2v/i2v，5 或 10 秒）；
+  - Vidu 官方：`viduq3-mix` 等（仅参考生视频，1–7 张参考图）；
+  - 可灵与 Vidu 同时提供百炼托管和官方直连两条渠道，**由模型配置中选择的协议决定走哪条**；
+  - 各模型的时长、分辨率、画幅与参考素材上限已内置为官方契约：超限请求会在调用前被拒绝，并作为约束写入 Agent 提示词；
 - **ASR**：DashScope Fun-ASR、DashScope Qwen3-ASR 或 OpenAI Whisper；
 - **TTS / 数字人**：DashScope Qwen-TTS、CosyVoice，以及 `wan2.2-s2v`（并提供 `wan2.2-s2v-detect` 免费人脸检测）；
 - **Embedding**：DashScope `qwen3-vl-embedding`，用于资产检索与长素材记忆。
