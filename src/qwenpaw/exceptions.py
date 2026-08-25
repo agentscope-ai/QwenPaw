@@ -625,6 +625,11 @@ def _append_error_detail(
     summary = _extract_error_summary(exc)
     if summary:
         converted.message = f"{converted.message}. Reason: {summary}"
+    from .utils.image_resize import image_pixel_limit_hint
+
+    image_hint = image_pixel_limit_hint(exc)
+    if image_hint:
+        converted.message = f"{converted.message}. {image_hint}"
     return converted
 
 
