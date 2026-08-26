@@ -63,6 +63,11 @@ export function SkillListItem({
             <span className={styles.typeBadge}>
               {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>
+            {skill.preload && (
+              <span className={styles.preloadListTag}>
+                {t("skills.preload")}
+              </span>
+            )}
             <span className={styles.channelBadge}>{channels}</span>
             {skill.last_updated && (
               <span className={styles.listItemTime}>

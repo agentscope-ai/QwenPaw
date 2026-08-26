@@ -832,6 +832,8 @@
   "skills": {
     "title": "技能",
     "description": "管理智能体技能和能力。",
+    "preload": "预加载",
+    "preloadHint": "开启后，智能体会预加载该技能，无需在会话中再查找和加载。",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "可编辑，并在运行时投影到支持的第三方智能体。",
     "providerManaged": "第三方智能体技能",

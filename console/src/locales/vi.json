@@ -2375,6 +2375,8 @@
   "skills": {
     "title": "Kỹ năng",
     "description": "Quản lý kỹ năng và khả năng của agent.",
+    "preload": "Tải trước",
+    "preloadHint": "Khi bật, agent sẽ tải trước kỹ năng này và không cần tìm rồi tải lại trong cuộc trò chuyện.",
     "qwenpawManaged": "Do QwenPaw quản lý",
     "qwenpawManagedHint": "Có thể chỉnh sửa và được truyền vào agent bên thứ ba được hỗ trợ khi chạy.",
     "providerManaged": "Kỹ năng của tác nhân bên thứ ba",

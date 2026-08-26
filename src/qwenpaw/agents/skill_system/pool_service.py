@@ -862,6 +862,7 @@ class SkillPoolService:
                 ws_entry: dict[str, Any] = {
                     "enabled": bool(_old.get("enabled", True)),
                     "channels": _old.get("channels") or ["all"],
+                    "preload": _old.get("preload") is True,
                     "source": metadata["source"],
                     "installed_from": str(
                         _old.get("installed_from", "") or "",
@@ -1144,6 +1145,7 @@ class SkillPoolService:
             ws_entry: dict[str, Any] = {
                 "enabled": bool(prior.get("enabled", True)),
                 "channels": prior.get("channels") or ["all"],
+                "preload": prior.get("preload") is True,
                 "source": metadata["source"],
                 "installed_from": pool_installed_from,
                 "config": (

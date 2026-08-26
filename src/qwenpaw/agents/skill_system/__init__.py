@@ -20,6 +20,7 @@ from .registry import (
     reconcile_workspace_manifest,
     resolve_builtin_skill_dir,
     resolve_effective_skills,
+    select_preload_skills,
 )
 from .store import (
     get_skill_pool_dirs,
@@ -50,6 +51,7 @@ __all__ = [
     "resolve_pool_skill_dir",
     "reconcile_workspace_manifest",
     "resolve_effective_skills",
+    "select_preload_skills",
     "run_pool_auto_update",
     "run_pool_auto_sync",
     "run_pool_automation_pipeline",

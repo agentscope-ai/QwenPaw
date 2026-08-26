@@ -1044,6 +1044,8 @@
   "skills": {
     "title": "Skill",
     "description": "Kelola skill dan kemampuan agen.",
+    "preload": "Pramuat",
+    "preloadHint": "Saat diaktifkan, agen memuat skill ini lebih awal sehingga tidak perlu mencari dan memuatnya lagi selama percakapan.",
     "qwenpawManaged": "Dikelola QwenPaw",
     "qwenpawManagedHint": "Dapat diedit dan diproyeksikan ke agen pihak ketiga yang didukung saat runtime.",
     "providerManaged": "Skill agen pihak ketiga",

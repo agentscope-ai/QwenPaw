@@ -11,6 +11,7 @@ export interface SkillSpec {
   source: string;
   enabled?: boolean;
   channels?: string[];
+  preload?: boolean;
   tags?: string[];
   last_updated?: string;
   emoji?: string;

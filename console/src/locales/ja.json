@@ -596,6 +596,8 @@
   "skills": {
     "title": "スキル",
     "description": "エージェントのスキルと機能を管理します。",
+    "preload": "プリロード",
+    "preloadHint": "有効にすると、エージェントがこのスキルをプリロードし、会話中に探して読み込む必要がなくなります。",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "編集可能で、実行時に対応する外部エージェントへ反映されます。",
     "providerManaged": "サードパーティエージェントのスキル",

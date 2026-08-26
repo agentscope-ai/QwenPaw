@@ -253,6 +253,7 @@ class SkillSpec(BaseModel):
     emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
+    preload: bool = False
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
 
@@ -740,6 +741,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
+                    preload=entry.get("preload") is True,
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
                 ),
@@ -836,6 +838,7 @@ def _build_workspace_skill_detail(
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
         channels=entry.get("channels") or ["all"],
+        preload=entry.get("preload") is True,
         tags=entry.get("tags") or [],
         last_updated=str(metadata.get("updated_at", "") or ""),
         content=content,
@@ -1903,6 +1906,26 @@ async def update_skill_channels_endpoint(
         raise HTTPException(status_code=404, detail="Skill not found")
     schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
+
+
+@router.put("/{skill_name}/preload")
+async def update_skill_preload_endpoint(
+    request: Request,
+    skill_name: str,
+    preload: bool = Body(..., embed=True),
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    updated = SkillService(workspace_dir).set_skill_preload(
+        skill_name,
+        preload,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    schedule_agent_reload(request, workspace.agent_id)
+    return {"updated": True, "preload": preload}
 
 
 @router.put("/{skill_name}/tags")

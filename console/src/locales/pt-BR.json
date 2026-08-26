@@ -816,6 +816,8 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
+    "preload": "Pré-carregar",
+    "preloadHint": "Quando ativado, o agente pré-carrega esta Skill e não precisa procurá-la e carregá-la durante a conversa.",
     "qwenpawManaged": "Gerenciado pelo QwenPaw",
     "qwenpawManagedHint": "Editável e projetado em agentes de terceiros compatíveis durante a execução.",
     "providerManaged": "Skills do agente de terceiros",

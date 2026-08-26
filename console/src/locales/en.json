@@ -992,6 +992,8 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
+    "preload": "Preload",
+    "preloadHint": "When enabled, the agent preloads this skill and does not need to find and load it during the conversation.",
     "qwenpawManaged": "QwenPaw managed",
     "qwenpawManagedHint": "Editable Skills projected into supported third-party agents at runtime.",
     "providerManaged": "Third-party agent Skills",
