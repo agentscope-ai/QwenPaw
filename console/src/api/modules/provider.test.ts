@@ -84,6 +84,21 @@ describe("providerApi", () => {
     );
   });
 
+  it("testProviderConnection forwards generation headers", async () => {
+    const body = {
+      generate_kwargs: {
+        extra_headers: { "X-Legacy-Token": "legacy-token" },
+      },
+    };
+
+    await providerApi.testProviderConnection("open/ai", body);
+
+    expect(request).toHaveBeenCalledWith("/models/open%2Fai/test", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  });
+
   it("addModel sends POST to the correct path", async () => {
     await providerApi.addModel("openai", { id: "gpt-5", name: "GPT-5" });
     expect(request).toHaveBeenCalledWith(
