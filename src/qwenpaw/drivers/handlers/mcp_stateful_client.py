@@ -110,7 +110,7 @@ def _discard_task_result(task: asyncio.Future[Any]) -> None:
 
 
 def _restore_cancel(task: Any, n: int) -> None:
-    """Re-arm *n* pending cancellations on *task* (no-op for None/0)."""
+    """Re-arm *n* cancels. No-op for None/0."""
     if task is None or n <= 0:
         return
     for _ in range(n):
@@ -122,7 +122,7 @@ class _SessionGoneError(Exception):
 
 
 async def _wait_task_uncancelled(task: Any, name: str) -> int:
-    """Uncancel until *task* finishes; return count. Caller restores."""
+    """Uncancel until done; return count. Caller restores."""
     current, n = asyncio.current_task(), 0
     while True:
         while current is not None and current.cancelling():
@@ -143,7 +143,7 @@ async def _wait_task_uncancelled(task: Any, name: str) -> int:
 
 
 async def _gather_uncancelled(*tasks: Any) -> None:
-    """Cancel Event.wait() watchers, wait, restore cancels immediately."""
+    """Cancel watchers, wait, restore cancel immediately."""
     for t in tasks:
         t.cancel()
     g = asyncio.gather(*tasks, return_exceptions=True)
@@ -465,7 +465,7 @@ class _MCPClientMixin:
     # Public API
     # ------------------------------------------------------------------
 
-    async def list_tools(self):  # noqa: C901
+    async def list_tools(self):  # noqa: C901 pylint: disable=too-many-branches
         """Return all tools available from the MCP server.
 
         Returns raw MCP ``Tool`` schema objects. Tool wrapping belongs to the
@@ -490,6 +490,7 @@ class _MCPClientMixin:
         if self._circuit_open:
             raise self._circuit_open_error()
 
+        gone, last_exc = False, None
         if not self.is_connected:
             has_task = self._lifecycle_task is not None and not (
                 self._lifecycle_task.done()
@@ -503,7 +504,6 @@ class _MCPClientMixin:
                 )
                 await self._wait_ready(_LIST_TOOLS_RECONNECT_WAIT)
 
-        gone, last_exc = False, None
         for attempt in (0, 1):
             session, closed = self.session, self._session_closed
             if self._stop_event.is_set() or not (
@@ -514,11 +514,23 @@ class _MCPClientMixin:
                 res = await self._await_rpc(session.list_tools(), closed)
             except Exception as exc:
                 last_exc = exc
-                gone = self._recover_fail(exc, session)
+                gone = isinstance(exc, _SessionGoneError)
+                if not (gone or self._handle_transport_error(exc, session)):
+                    raise
                 if self._stop_event.is_set():
                     raise self._not_connected_error() from exc
+                cached = self._cached_tools_if_disconnected()
+                if cached is not None:
+                    logger.warning(
+                        "MCP client '%s' session failed during list_tools; "
+                        "serving cached schemas while reconnecting.",
+                        self.name,
+                    )
+                    return cached
                 if attempt == 0:
                     await self._wait_ready(_LIST_TOOLS_RECONNECT_WAIT)
+                    if self._stop_event.is_set():
+                        raise self._not_connected_error() from exc
                     continue
                 break
             self._cached_tools = res.tools
@@ -561,15 +573,16 @@ class _MCPClientMixin:
             coro = session.call_tool(name, arguments or {})
             return await self._await_rpc(coro, closed)
         except Exception as exc:
-            live = self.session is session
-            gone = self._recover_fail(exc, session)
             # No same-session retry: the server may already have run it.
-            if gone and live:
+            if self._stop_event.is_set():
+                raise self._not_connected_error() from exc
+            if self.session is not session:
+                raise self._rpc_gone_error() from exc
+            if isinstance(exc, _SessionGoneError):
                 raise RuntimeError(
                     f"MCP client '{self.name}' request was aborted.",
                 ) from exc
-            if gone or not live:
-                raise self._rpc_gone_error() from exc
+            self._handle_transport_error(exc, session)
             raise
 
     async def close(self, ignore_errors: bool = True) -> None:
@@ -596,7 +609,10 @@ class _MCPClientMixin:
 
         if not self.is_connected and not has_task:
             if not ignore_errors:
-                raise self._not_connected_error()
+                raise RuntimeError(
+                    f"MCP client '{self.name}' is not connected. "
+                    f"Call connect() before closing.",
+                )
             return
 
         lifecycle_task = self._lifecycle_task
@@ -619,13 +635,6 @@ class _MCPClientMixin:
         self.is_connected, self.session = False, None
         self._session_closed.set()
         self._ready_event.clear()
-
-    def _recover_fail(self, exc: BaseException, dead: Any) -> bool:
-        if isinstance(exc, _SessionGoneError):
-            return True
-        if not self._handle_transport_error(exc, dead):
-            raise exc
-        return False
 
     async def _await_rpc(self, coro: Any, closed: asyncio.Event):
         if closed.is_set() or self._stop_event.is_set():
