@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -431,6 +431,10 @@ class TestProviderRequest(BaseModel):
         default=None,
         description="Optional chat model class to test protocol behavior",
     )
+    generate_kwargs: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Generation parameters to use for this test request",
+    )
     custom_headers: Optional[Dict[str, str]] = Field(
         default=None,
         description="Custom headers to use for this test request",
@@ -509,6 +513,8 @@ async def test_provider(
             overrides["base_url"] = body.base_url
         if body and body.chat_model:
             overrides["chat_model"] = body.chat_model
+        if body and body.generate_kwargs is not None:
+            overrides["generate_kwargs"] = body.generate_kwargs
         if body and body.custom_headers is not None:
             overrides["custom_headers"] = body.custom_headers
         if body and body.auth_mode in ("api_key", "auth_token"):
