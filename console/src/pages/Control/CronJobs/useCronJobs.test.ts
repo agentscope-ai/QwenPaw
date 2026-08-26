@@ -105,7 +105,7 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
 
     it("updateJob 失败后回滚到原始数据（乐观更新回滚）", async () => {
       mockApi.replaceCronJob.mockRejectedValue(
-        new Error("Network error - {\"detail\":\"save failed\"}"),
+        new Error('Network error - {"detail":"save failed"}'),
       );
 
       const { result } = renderHook(() => useCronJobs());
@@ -114,8 +114,9 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         expect(result.current.jobs).toHaveLength(2);
       });
 
-      const originalName = result.current.jobs.find((j) => j.id === "job-1")!
-        .name;
+      const originalName = result.current.jobs.find(
+        (j) => j.id === "job-1",
+      )!.name;
 
       let success = false;
       await act(async () => {
@@ -142,17 +143,17 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         expect(result.current.jobs).toHaveLength(2);
       });
 
-      expect(
-        result.current.jobs.find((j) => j.id === "job-1")!.enabled,
-      ).toBe(true);
+      expect(result.current.jobs.find((j) => j.id === "job-1")!.enabled).toBe(
+        true,
+      );
 
       await act(async () => {
         await result.current.toggleEnabled(mockCronJobs[0]);
       });
 
-      expect(
-        result.current.jobs.find((j) => j.id === "job-1")!.enabled,
-      ).toBe(false);
+      expect(result.current.jobs.find((j) => j.id === "job-1")!.enabled).toBe(
+        false,
+      );
     });
 
     it("toggleEnabled 失败后回滚 enabled 状态", async () => {
@@ -168,9 +169,9 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
         await result.current.toggleEnabled(mockCronJobs[0]);
       });
 
-      expect(
-        result.current.jobs.find((j) => j.id === "job-1")!.enabled,
-      ).toBe(true);
+      expect(result.current.jobs.find((j) => j.id === "job-1")!.enabled).toBe(
+        true,
+      );
       expect(mockMessage.error).toHaveBeenCalledWith("Operation failed");
     });
   });

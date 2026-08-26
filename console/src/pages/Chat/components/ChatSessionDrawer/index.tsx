@@ -20,10 +20,7 @@ import { useRevealActiveChatGroup } from "../../../../hooks/useRevealActiveChatG
 import { useChatGroups } from "../../../../hooks/useChatGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
-import {
-  formatSessionTime,
-  pickSessionDisplayTime,
-} from "./sessionTime";
+import { formatSessionTime, pickSessionDisplayTime } from "./sessionTime";
 import SessionGroupHeader from "../../../../components/SessionGroupHeader";
 import SessionDateHeader from "../../../../components/SessionDateHeader";
 import {
@@ -196,9 +193,7 @@ const VirtualRow = React.memo(function VirtualRow({
           variant="drawer"
           sessionId={session.id!}
           name={session.name || "New Chat"}
-          time={formatCreatedAtCached(
-            pickSessionDisplayTime(session),
-          )}
+          time={formatCreatedAtCached(pickSessionDisplayTime(session))}
           channelKey={channelKey || undefined}
           channelLabel={channelLabel}
           chatStatus={session.status}

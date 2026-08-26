@@ -148,7 +148,11 @@ vi.mock("./sessionApi", () => ({
     discardLastUserMessage: vi.fn(),
     lastActiveChatId: "last-chat-1",
     patchLastUserMessage: vi.fn(),
-    getSessionIdentity: vi.fn(() => ({ sessionId: "test-session", userId: "test-user", channel: "console" })),
+    getSessionIdentity: vi.fn(() => ({
+      sessionId: "test-session",
+      userId: "test-user",
+      channel: "console",
+    })),
     triggerResolve: vi.fn(),
     resetWindowIdentity: vi.fn(),
     isSessionSwitching: false,
@@ -324,9 +328,15 @@ vi.mock("@/utils/agentBackend", () => ({
 
 vi.mock("@/plugins/registry/useChatExtensions", () => ({
   useChatScalarSnapshot: vi.fn(() => ({})),
-  useChatListSnapshot: vi.fn(() => new Proxy({}, {
-    get: () => [],
-  })),
+  useChatListSnapshot: vi.fn(
+    () =>
+      new Proxy(
+        {},
+        {
+          get: () => [],
+        },
+      ),
+  ),
 }));
 
 vi.mock("./components/ChatSessionDrawer", () => ({
@@ -401,7 +411,12 @@ vi.mock("../../api/modules/chatProjectDirectory", () => ({
 
 vi.mock("../../api/modules/projectDirectory", () => ({
   projectDirectoryApi: {
-    get: vi.fn(() => Promise.resolve({ path: "/home/user", workspace_dir: "/home/user/workspace" })),
+    get: vi.fn(() =>
+      Promise.resolve({
+        path: "/home/user",
+        workspace_dir: "/home/user/workspace",
+      }),
+    ),
   },
 }));
 
@@ -413,7 +428,14 @@ vi.mock("./turnUsage", () => ({
 vi.mock("./turnUsageStore", () => ({
   useTurnUsageStore: Object.assign(
     vi.fn(() => ({})),
-    { getState: vi.fn(() => ({ beginTurn: vi.fn(() => ({ turnId: "t1" })), setSnapshot: vi.fn(), snapshot: null, invalidateTurn: vi.fn() })) },
+    {
+      getState: vi.fn(() => ({
+        beginTurn: vi.fn(() => ({ turnId: "t1" })),
+        setSnapshot: vi.fn(),
+        snapshot: null,
+        invalidateTurn: vi.fn(),
+      })),
+    },
   ),
 }));
 
@@ -519,13 +541,17 @@ describe("ChatPage coverage", () => {
   });
 
   it("renders ChatPage and captures options", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
     expect(capturedOptions).toBeTruthy();
   });
 
   it("renders child components", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
     expect(screen.getByTestId("model-selector")).toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
@@ -533,7 +559,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("invokes customFetch via captured options", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -546,7 +574,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("invokes responseParser via captured options", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -568,7 +598,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("handles file upload via captured options", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.sender?.attachments?.customRequest) {
@@ -599,7 +631,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("re-fetches multimodal caps on model-switched event", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
     await waitFor(() => expect(mockGetActiveModels).toHaveBeenCalled());
     const callsBefore = mockGetActiveModels.mock.calls.length;
@@ -616,7 +650,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("handles responseParser with fallback metadata", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -644,7 +680,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("handles responseParser with delta", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -659,7 +697,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("handles history clear message detection", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -675,7 +715,9 @@ describe("ChatPage coverage", () => {
   });
 
   it("handles payload completion detection", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -692,7 +734,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: turn_usage → null ──────────────────────────────────
   it("responseParser returns null for turn_usage payload", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -705,7 +749,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: replay_end → heartbeat ─────────────────────────────
   it("responseParser maps replay_end to heartbeat", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -719,7 +765,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: rate_limited → null ────────────────────────────────
   it("responseParser handles rate_limited payload", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -742,7 +790,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: completed with empty output fills trailing delta ───
   it("responseParser fills empty output with trailing delta on completion", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -766,7 +816,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: model fallback events in stream ────────────────────
   it("responseParser handles model fallback events before completion", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -813,7 +865,9 @@ describe("ChatPage coverage", () => {
     mockGetActiveModels.mockResolvedValueOnce({
       active_llm: { provider_id: null, model: null },
     });
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -829,7 +883,9 @@ describe("ChatPage coverage", () => {
   // ── customFetch: getActiveModels throws → shows model prompt ──────────
   it("customFetch shows model prompt when getActiveModels throws", async () => {
     mockGetActiveModels.mockRejectedValueOnce(new Error("network error"));
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -844,7 +900,9 @@ describe("ChatPage coverage", () => {
   // ── cancel callback → calls stopChat ───────────────────────────────────
   it("cancel callback invokes stopChat", async () => {
     const { chatApi } = await import("@/api/modules/chat");
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.cancel) {
@@ -856,7 +914,9 @@ describe("ChatPage coverage", () => {
 
   // ── reconnect callback → calls fetch ───────────────────────────────────
   it("reconnect callback invokes fetch with reconnect body", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.reconnect) {
@@ -876,18 +936,24 @@ describe("ChatPage coverage", () => {
 
   // ── replaceMediaURL → converts URL ─────────────────────────────────────
   it("replaceMediaURL converts URL via toDisplayUrl", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.replaceMediaURL) {
-      const result = capturedOptions.api.replaceMediaURL("http://example.com/file.png");
+      const result = capturedOptions.api.replaceMediaURL(
+        "http://example.com/file.png",
+      );
       expect(typeof result).toBe("string");
     }
   });
 
   // ── actions list: copy onClick ─────────────────────────────────────────
   it("actions list copy onClick invokes copyText", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const actionsList = capturedOptions?.actions?.list;
@@ -906,13 +972,17 @@ describe("ChatPage coverage", () => {
 
   // ── actions list: timestamp render ─────────────────────────────────────
   it("actions list timestamp render returns element", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const actionsList = capturedOptions?.actions?.list;
     if (actionsList && actionsList.length > 1 && actionsList[1].render) {
       const element = actionsList[1].render({
-        data: { data: { created_at: 1700000000000, completed_at: 1700000001000 } },
+        data: {
+          data: { created_at: 1700000000000, completed_at: 1700000001000 },
+        },
       });
       expect(element).toBeTruthy();
     }
@@ -920,14 +990,18 @@ describe("ChatPage coverage", () => {
 
   // ── requestActions: copy user message onClick ──────────────────────────
   it("requestActions copy onClick invokes copyText", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const reqActions = capturedOptions?.requestActions?.list;
     if (reqActions && reqActions.length > 1 && reqActions[1].onClick) {
       await reqActions[1].onClick({
         data: {
-          input: [{ role: "user", content: [{ type: "text", text: "user msg" }] }],
+          input: [
+            { role: "user", content: [{ type: "text", text: "user msg" }] },
+          ],
         },
       });
       expect(true).toBe(true);
@@ -936,7 +1010,9 @@ describe("ChatPage coverage", () => {
 
   // ── requestActions: timestamp render ───────────────────────────────────
   it("requestActions timestamp render returns element", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const reqActions = capturedOptions?.requestActions?.list;
@@ -950,7 +1026,9 @@ describe("ChatPage coverage", () => {
 
   // ── handleBeforeSubmit: non-owner tab enqueues ─────────────────────────
   it("handleBeforeSubmit returns false for non-owner tab and enqueues", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
@@ -965,7 +1043,9 @@ describe("ChatPage coverage", () => {
 
   // ── sender attachments trigger renders ─────────────────────────────────
   it("sender attachments trigger function renders tooltip", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const attachments = capturedOptions?.sender?.attachments;
@@ -979,11 +1059,15 @@ describe("ChatPage coverage", () => {
   it("file upload warns when model has no multimodal support", async () => {
     // The initial render has multimodalCaps all false (before async fetch resolves)
     // So the handleFileUpload in capturedOptions will warn but not block
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.sender?.attachments?.customRequest) {
-      const smallFile = new File(["content"], "doc.pdf", { type: "application/pdf" });
+      const smallFile = new File(["content"], "doc.pdf", {
+        type: "application/pdf",
+      });
       const onSuccess = vi.fn();
       const onError = vi.fn();
       await capturedOptions.sender.attachments.customRequest({
@@ -1000,7 +1084,9 @@ describe("ChatPage coverage", () => {
   // ── file upload: error path ────────────────────────────────────────────
   it("file upload calls onError when upload fails", async () => {
     mockUploadFile.mockRejectedValueOnce(new Error("upload failed"));
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.sender?.attachments?.customRequest) {
@@ -1019,7 +1105,9 @@ describe("ChatPage coverage", () => {
 
   // ── onFileCardClick → dispatches file preview ──────────────────────────
   it("onFileCardClick dispatches file preview event", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.onFileCardClick) {
@@ -1035,7 +1123,9 @@ describe("ChatPage coverage", () => {
 
   // ── onFileCardClick: no url → early return ─────────────────────────────
   it("onFileCardClick does nothing when no url", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.onFileCardClick) {
@@ -1046,7 +1136,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: payloadRequestsHistoryClear via response.output ────
   it("responseParser detects history clear in response output array", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1070,7 +1162,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: nested metadata clear_history ──────────────────────
   it("responseParser detects nested metadata clear_history", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1096,7 +1190,9 @@ describe("ChatPage coverage", () => {
     };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -1119,7 +1215,8 @@ describe("ChatPage coverage", () => {
       );
       // Verify the body contains expected fields
       const callArgs = (fetch as any).mock.calls.find(
-        (c: any) => c[0]?.includes?.("/console/chat") && c[1]?.method === "POST",
+        (c: any) =>
+          c[0]?.includes?.("/console/chat") && c[1]?.method === "POST",
       );
       if (callArgs) {
         const body = JSON.parse(callArgs[1].body);
@@ -1134,7 +1231,9 @@ describe("ChatPage coverage", () => {
     const mockResponse = { ok: true, status: 200, body: null };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -1144,7 +1243,8 @@ describe("ChatPage coverage", () => {
         signal: undefined,
       });
       const callArgs = (fetch as any).mock.calls.find(
-        (c: any) => c[0]?.includes?.("/console/chat") && c[1]?.method === "POST",
+        (c: any) =>
+          c[0]?.includes?.("/console/chat") && c[1]?.method === "POST",
       );
       if (callArgs) {
         const body = JSON.parse(callArgs[1].body);
@@ -1155,7 +1255,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: completed with non-empty output (no trailing fill) ─
   it("responseParser keeps canonical output when non-empty on completion", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1179,7 +1281,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: completed with error and empty output ──────────────
   it("responseParser uses error message when output is empty on completion", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1203,7 +1307,9 @@ describe("ChatPage coverage", () => {
     const mockResponse = { ok: false, status: 500, body: null };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -1217,7 +1323,9 @@ describe("ChatPage coverage", () => {
 
   // ── sender longTextUpload customRequest ────────────────────────────────
   it("sender longTextUpload customRequest is available", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     const longTextUpload = capturedOptions?.sender?.longTextUpload;
@@ -1232,7 +1340,9 @@ describe("ChatPage coverage", () => {
 
   // ── sender placeholder ─────────────────────────────────────────────────
   it("sender has placeholder text", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.sender?.placeholder).toBeTruthy();
@@ -1241,7 +1351,9 @@ describe("ChatPage coverage", () => {
 
   // ── sender suggestions ─────────────────────────────────────────────────
   it("sender has suggestions array", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(Array.isArray(capturedOptions?.sender?.suggestions)).toBe(true);
@@ -1251,7 +1363,9 @@ describe("ChatPage coverage", () => {
 
   // ── session config ─────────────────────────────────────────────────────
   it("session config has multiple and api", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.session?.multiple).toBe(true);
@@ -1261,7 +1375,9 @@ describe("ChatPage coverage", () => {
 
   // ── welcome config ─────────────────────────────────────────────────────
   it("welcome config has nick and avatar", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.welcome?.nick).toBeTruthy();
@@ -1270,7 +1386,9 @@ describe("ChatPage coverage", () => {
 
   // ── theme config ───────────────────────────────────────────────────────
   it("theme config has darkMode and rightHeader", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.theme?.darkMode).toBe(false);
@@ -1279,7 +1397,9 @@ describe("ChatPage coverage", () => {
 
   // ── actions config ─────────────────────────────────────────────────────
   it("actions config has replace true and right false", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.actions?.replace).toBe(true);
@@ -1288,7 +1408,9 @@ describe("ChatPage coverage", () => {
 
   // ── customToolRenderConfig ─────────────────────────────────────────────
   it("customToolRenderConfig is defined", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.customToolRenderConfig).toBeTruthy();
@@ -1297,7 +1419,9 @@ describe("ChatPage coverage", () => {
 
   // ── cards config ───────────────────────────────────────────────────────
   it("cards config has host wrappers", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.cards?.AgentScopeRuntimeRequestCard).toBeTruthy();
@@ -1310,7 +1434,9 @@ describe("ChatPage coverage", () => {
     mockGetTranscriptionProviderType.mockResolvedValueOnce({
       transcription_provider_type: "openai_whisper",
     });
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
     // Whisper button should appear when enabled
     await waitFor(() => {
@@ -1335,7 +1461,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: invalid JSON handling ──────────────────────────────
   it("responseParser handles invalid JSON gracefully", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1349,12 +1477,16 @@ describe("ChatPage coverage", () => {
   // ── file upload: image-only warning when only image supported ──────────
   it("file upload warns for non-image when only image supported", async () => {
     // Default mocks already return supports_multimodal: true, supports_image: true, supports_video: false
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.sender?.attachments?.customRequest) {
       // Upload a non-image file (PDF) when only image is supported
-      const pdfFile = new File(["content"], "doc.pdf", { type: "application/pdf" });
+      const pdfFile = new File(["content"], "doc.pdf", {
+        type: "application/pdf",
+      });
       const onSuccess = vi.fn();
       const onError = vi.fn();
       await capturedOptions.sender.attachments.customRequest({
@@ -1370,11 +1502,15 @@ describe("ChatPage coverage", () => {
 
   // ── file upload: video file when video supported ───────────────────────
   it("file upload handles video file when video supported", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.sender?.attachments?.customRequest) {
-      const videoFile = new File(["video-content"], "clip.mp4", { type: "video/mp4" });
+      const videoFile = new File(["video-content"], "clip.mp4", {
+        type: "video/mp4",
+      });
       const onSuccess = vi.fn();
       const onError = vi.fn();
       await capturedOptions.sender.attachments.customRequest({
@@ -1390,7 +1526,9 @@ describe("ChatPage coverage", () => {
 
   // ── model-switched event with maxInputLength ───────────────────────────
   it("model-switched event with maxInputLength patches context", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     // Dispatch model-switched with maxInputLength detail
@@ -1410,7 +1548,9 @@ describe("ChatPage coverage", () => {
 
   // ── qwenpaw:open-file-preview event ────────────────────────────────────
   it("handles qwenpaw:open-file-preview custom event", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     // Dispatch the file preview event
@@ -1431,7 +1571,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser: duplicate fallback events are deduplicated ─────────
   it("responseParser deduplicates identical fallback events", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1478,7 +1620,9 @@ describe("ChatPage coverage", () => {
     mockGetTranscriptionProviderType.mockResolvedValueOnce({
       transcription_provider_type: "openai_whisper",
     });
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     // Wait for whisper to be checked
@@ -1504,7 +1648,9 @@ describe("ChatPage coverage", () => {
 
   // ── Tab key completion for slash commands ──────────────────────────────
   it("Tab key in sender textarea with slash command does not crash", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     // Dispatch Tab key event — should be handled gracefully
@@ -1522,7 +1668,9 @@ describe("ChatPage coverage", () => {
 
   // ── Enter key enqueue when loading ─────────────────────────────────────
   it("Enter key enqueue handler is registered without crash", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     // Dispatch Enter key — should be handled gracefully
@@ -1540,15 +1688,21 @@ describe("ChatPage coverage", () => {
 
   // ── composition events (IME) ───────────────────────────────────────────
   it("IME composition events are handled", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     // Dispatch composition events
     act(() => {
-      document.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      document.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
     });
     act(() => {
-      document.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+      document.dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true }),
+      );
     });
 
     expect(true).toBe(true);
@@ -1556,7 +1710,9 @@ describe("ChatPage coverage", () => {
 
   // ── ArrowUp/ArrowDown history navigation ──────────────────────────────
   it("ArrowUp/ArrowDown key events are handled without crash", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     act(() => {
@@ -1575,7 +1731,9 @@ describe("ChatPage coverage", () => {
 
   // ── Trigger rate limit banner via responseParser ───────────────────────
   it("renders rate limit banner when rate_limited payload received", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1611,7 +1769,9 @@ describe("ChatPage coverage", () => {
     mockGetActiveModels.mockResolvedValueOnce({
       active_llm: { provider_id: null, model: null },
     });
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -1628,7 +1788,9 @@ describe("ChatPage coverage", () => {
 
   // ── Cancel callback with no resolved chat ID ───────────────────────────
   it("cancel callback handles missing chat ID gracefully", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.cancel) {
@@ -1640,7 +1802,9 @@ describe("ChatPage coverage", () => {
 
   // ── Reconnect callback with signal ─────────────────────────────────────
   it("reconnect callback handles abort signal", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.reconnect) {
@@ -1658,7 +1822,9 @@ describe("ChatPage coverage", () => {
     const mockResponse = { ok: true, status: 200, body: null };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -1675,7 +1841,9 @@ describe("ChatPage coverage", () => {
     const mockResponse = { ok: true, status: 200, body: null };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.fetch) {
@@ -1691,7 +1859,8 @@ describe("ChatPage coverage", () => {
       });
       expect(result).toBeTruthy();
       const callArgs = (fetch as any).mock.calls.find(
-        (c: any) => c[0]?.includes?.("/console/chat") && c[1]?.method === "POST",
+        (c: any) =>
+          c[0]?.includes?.("/console/chat") && c[1]?.method === "POST",
       );
       if (callArgs) {
         const body = JSON.parse(callArgs[1].body);
@@ -1702,7 +1871,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser with non-object payload ─────────────────────────────
   it("responseParser handles non-object payload gracefully", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1715,7 +1886,9 @@ describe("ChatPage coverage", () => {
 
   // ── responseParser with null payload ───────────────────────────────────
   it("responseParser handles null-like payload", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
@@ -1728,7 +1901,9 @@ describe("ChatPage coverage", () => {
 
   // ── File upload with progress callback ─────────────────────────────────
   it("file upload calls onProgress callback", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.sender?.attachments?.customRequest) {
@@ -1749,7 +1924,9 @@ describe("ChatPage coverage", () => {
 
   // ── onFileCardClick with url containing query params ───────────────────
   it("onFileCardClick handles url with query params", async () => {
-    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/test-session"] });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.onFileCardClick) {

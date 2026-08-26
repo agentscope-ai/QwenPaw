@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  dockerReferenceParts,
-  formatDate,
-  formatImageSize,
-} from "./pageUtils";
+import { dockerReferenceParts, formatDate, formatImageSize } from "./pageUtils";
 
 // ---------------------------------------------------------------------------
 // formatDate — regression for #1395
@@ -72,9 +68,7 @@ describe("dockerReferenceParts", () => {
 
   it("keeps registry path in repository and ignores digest", () => {
     expect(
-      dockerReferenceParts(
-        "registry.example.com/team/app:v2@sha256:abcdef",
-      ),
+      dockerReferenceParts("registry.example.com/team/app:v2@sha256:abcdef"),
     ).toEqual({ repository: "registry.example.com/team/app", tag: "v2" });
   });
 

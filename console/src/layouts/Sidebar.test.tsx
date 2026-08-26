@@ -61,20 +61,26 @@ import { BUILTIN_MENU } from "./registry/builtinMenu";
 
 describe("Sidebar navigation — A#84552933 应用导航入口", () => {
   it("contains the marketplace/apps entry in agent-scoped menu", () => {
-    const appsEntry = BUILTIN_MENU.find((item) => item.id === "core.marketplace");
+    const appsEntry = BUILTIN_MENU.find(
+      (item) => item.id === "core.marketplace",
+    );
     expect(appsEntry).toBeDefined();
     expect(appsEntry!.location).toBe("primary.agentScoped");
   });
 
   it("marketplace entry has a valid route for navigation", () => {
-    const appsEntry = BUILTIN_MENU.find((item) => item.id === "core.marketplace");
+    const appsEntry = BUILTIN_MENU.find(
+      (item) => item.id === "core.marketplace",
+    );
     expect(appsEntry).toBeDefined();
     expect(appsEntry!.route).toBeTruthy();
     expect(appsEntry!.route).toBe("core.marketplace");
   });
 
   it("marketplace label resolves to a non-empty string", () => {
-    const appsEntry = BUILTIN_MENU.find((item) => item.id === "core.marketplace");
+    const appsEntry = BUILTIN_MENU.find(
+      (item) => item.id === "core.marketplace",
+    );
     expect(appsEntry).toBeDefined();
     // label is a function () => string (navLabel pattern)
     const label =
@@ -86,7 +92,9 @@ describe("Sidebar navigation — A#84552933 应用导航入口", () => {
   });
 
   it("marketplace entry has an icon defined", () => {
-    const appsEntry = BUILTIN_MENU.find((item) => item.id === "core.marketplace");
+    const appsEntry = BUILTIN_MENU.find(
+      (item) => item.id === "core.marketplace",
+    );
     expect(appsEntry).toBeDefined();
     expect(appsEntry!.icon).toBeDefined();
   });

@@ -3,7 +3,8 @@ import { buildLoopSlashSuggestions } from "./loopSlashSuggestions";
 import type { LoopModeInfo } from "../../stores/loopStore";
 
 const t = (key: string) => {
-  if (key === "loop.modes.goal.description") return "设定目标并持续推进直到完成。";
+  if (key === "loop.modes.goal.description")
+    return "设定目标并持续推进直到完成。";
   if (key === "loop.modes.omp.description") return "并行任务执行引擎";
   return key;
 };

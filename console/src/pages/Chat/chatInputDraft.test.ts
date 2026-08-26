@@ -64,7 +64,9 @@ describe("draft serialize/parse round-trip (#4774)", () => {
 
   it("returns null when the parsed draft has an empty value", () => {
     expect(
-      parseDraft(JSON.stringify({ value: "", selectionStart: 0, selectionEnd: 0 })),
+      parseDraft(
+        JSON.stringify({ value: "", selectionStart: 0, selectionEnd: 0 }),
+      ),
     ).toBeNull();
   });
 

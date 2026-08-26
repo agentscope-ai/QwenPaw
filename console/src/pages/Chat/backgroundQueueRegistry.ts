@@ -38,7 +38,9 @@ export function stopBackgroundQueue(queueKey?: string): void {
 }
 
 /** Returns the live AbortController for a running sender, if any. */
-export function getBackgroundAbort(queueKey: string): AbortController | undefined {
+export function getBackgroundAbort(
+  queueKey: string,
+): AbortController | undefined {
   return _bgAborts.get(queueKey);
 }
 

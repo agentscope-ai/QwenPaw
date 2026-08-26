@@ -35,9 +35,7 @@ describe("i18n initial language (#1604)", () => {
   });
 
   it("falls back to navigator.language when nothing is persisted", async () => {
-    const spy = vi
-      .spyOn(navigator, "language", "get")
-      .mockReturnValue("ja-JP");
+    const spy = vi.spyOn(navigator, "language", "get").mockReturnValue("ja-JP");
 
     const i18n = await freshI18n();
     if (!i18n.isInitialized) {
@@ -51,9 +49,7 @@ describe("i18n initial language (#1604)", () => {
   });
 
   it("defaults to en when neither localStorage nor navigator gives a language", async () => {
-    const spy = vi
-      .spyOn(navigator, "language", "get")
-      .mockReturnValue("xx-XX");
+    const spy = vi.spyOn(navigator, "language", "get").mockReturnValue("xx-XX");
 
     const i18n = await freshI18n();
     if (!i18n.isInitialized) {

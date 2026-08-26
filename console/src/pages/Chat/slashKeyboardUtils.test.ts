@@ -62,12 +62,14 @@ describe("slash suggestion keyboard events (#3274)", () => {
   // ---------------------------------------------------------------------------
   describe("shouldTabCompleteSuggestion", () => {
     const makeSelectedItem = (value: string) => ({
-      getAttribute: (attr: string) =>
-        attr === "data-path-key" ? value : null,
+      getAttribute: (attr: string) => (attr === "data-path-key" ? value : null),
     });
 
     it("completes when popup open and item selected", () => {
-      const result = shouldTabCompleteSuggestion("/go", makeSelectedItem("goal"));
+      const result = shouldTabCompleteSuggestion(
+        "/go",
+        makeSelectedItem("goal"),
+      );
       expect(result.shouldComplete).toBe(true);
       expect(result.completionText).toBe("/goal ");
     });

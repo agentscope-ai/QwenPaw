@@ -23,9 +23,7 @@ export interface ApiKeyPrefixSource {
  * Resolves the allowed key prefixes for a provider.
  * The list form wins; falls back to the single prefix; empty when neither.
  */
-export function getValidApiKeyPrefixes(
-  provider: ApiKeyPrefixSource,
-): string[] {
+export function getValidApiKeyPrefixes(provider: ApiKeyPrefixSource): string[] {
   if (provider.api_key_prefixes && provider.api_key_prefixes.length > 0) {
     return provider.api_key_prefixes;
   }

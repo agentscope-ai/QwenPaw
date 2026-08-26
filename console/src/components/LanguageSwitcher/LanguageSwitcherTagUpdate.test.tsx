@@ -99,7 +99,10 @@ describe("Language switch tag update (A#85241570)", () => {
         const t = useCallback(
           (key: string) => {
             return (
-              (resources[lang as keyof typeof resources]?.translation as Record<string, string>)?.[key] ?? key
+              (
+                resources[lang as keyof typeof resources]
+                  ?.translation as Record<string, string>
+              )?.[key] ?? key
             );
           },
           [lang],
@@ -111,7 +114,9 @@ describe("Language switch tag update (A#85241570)", () => {
 
     // Re-import the component after mock setup
     vi.resetModules();
-    const { useTranslation: mockedUseTranslation } = await import("react-i18next");
+    const { useTranslation: mockedUseTranslation } = await import(
+      "react-i18next"
+    );
 
     // Render the component inline using the mocked hook
     function TestComponent() {
@@ -169,7 +174,10 @@ describe("Language switch tag update (A#85241570)", () => {
         const t = useCallback(
           (key: string) => {
             return (
-              (resources[lang as keyof typeof resources]?.translation as Record<string, string>)?.[key] ?? key
+              (
+                resources[lang as keyof typeof resources]
+                  ?.translation as Record<string, string>
+              )?.[key] ?? key
             );
           },
           [lang],
@@ -180,7 +188,9 @@ describe("Language switch tag update (A#85241570)", () => {
     }));
 
     vi.resetModules();
-    const { useTranslation: mockedUseTranslation } = await import("react-i18next");
+    const { useTranslation: mockedUseTranslation } = await import(
+      "react-i18next"
+    );
 
     function TestComponent() {
       const { t } = mockedUseTranslation();

@@ -115,9 +115,7 @@ describe("ChatSessionInitializer", () => {
     // library session still has its local id.
     const LOCAL_ID = "1787000000000-local";
     const BACKEND_UUID = "55555555-cccc-4ccc-8ccc-555555555555";
-    mockSessionState.sessions = [
-      { id: LOCAL_ID, realId: BACKEND_UUID },
-    ];
+    mockSessionState.sessions = [{ id: LOCAL_ID, realId: BACKEND_UUID }];
     mockSessionState.currentSessionId = undefined;
 
     renderWithProviders(<NavigationHarness />, {

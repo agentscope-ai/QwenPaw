@@ -34,7 +34,10 @@ mockIntersectionObserver.mockImplementation(function (this: any, cb: any) {
 global.IntersectionObserver = mockIntersectionObserver as any;
 
 // Test data
-const makeSkill = (name: string, opts: Partial<{ description: string; tags: string[]; enabled: boolean }> = {}) => ({
+const makeSkill = (
+  name: string,
+  opts: Partial<{ description: string; tags: string[]; enabled: boolean }> = {},
+) => ({
   name,
   description: opts.description ?? `Description for ${name}`,
   tags: opts.tags ?? [],
@@ -44,10 +47,19 @@ const makeSkill = (name: string, opts: Partial<{ description: string; tags: stri
 const SKILLS = [
   makeSkill("alpha-tool", { enabled: true, tags: ["productivity"] }),
   makeSkill("beta-helper", { enabled: false, tags: ["dev-tools"] }),
-  makeSkill("gamma-search", { description: "Advanced search capabilities", tags: ["search", "productivity"] }),
-  makeSkill("delta-code", { description: "Code analysis and review", tags: ["dev-tools"] }),
+  makeSkill("gamma-search", {
+    description: "Advanced search capabilities",
+    tags: ["search", "productivity"],
+  }),
+  makeSkill("delta-code", {
+    description: "Code analysis and review",
+    tags: ["dev-tools"],
+  }),
   makeSkill("epsilon-data", { enabled: true, tags: ["data"] }),
-  makeSkill("zeta-ml", { description: "Machine learning toolkit", tags: ["ml", "dev-tools"] }),
+  makeSkill("zeta-ml", {
+    description: "Machine learning toolkit",
+    tags: ["ml", "dev-tools"],
+  }),
 ];
 
 describe("useSkillsPage integration (#3484/#3504/#3541/#5955)", () => {
@@ -86,7 +98,13 @@ describe("useSkillsPage integration (#3484/#3504/#3541/#5955)", () => {
     it("collects all unique tags from skills", () => {
       const { result } = renderHook(() => useSkillFilter(SKILLS));
       expect(result.current.allTags).toEqual(
-        expect.arrayContaining(["dev-tools", "productivity", "search", "data", "ml"]),
+        expect.arrayContaining([
+          "dev-tools",
+          "productivity",
+          "search",
+          "data",
+          "ml",
+        ]),
       );
     });
 
@@ -118,7 +136,12 @@ describe("useSkillsPage integration (#3484/#3504/#3541/#5955)", () => {
       const disabledNames = sorted.filter((s) => !s.enabled).map((s) => s.name);
 
       expect(enabledNames).toEqual(["alpha-tool", "epsilon-data"]);
-      expect(disabledNames).toEqual(["beta-helper", "delta-code", "gamma-search", "zeta-ml"]);
+      expect(disabledNames).toEqual([
+        "beta-helper",
+        "delta-code",
+        "gamma-search",
+        "zeta-ml",
+      ]);
 
       // All enabled should appear before all disabled
       const firstDisabledIdx = sorted.findIndex((s) => !s.enabled);
@@ -217,7 +240,9 @@ describe("useSkillsPage integration (#3484/#3504/#3541/#5955)", () => {
 
     it("sentinelRef is a callback ref setter", () => {
       const { result } = renderHook(() =>
-        useProgressiveRender(Array.from({ length: 5 }, (_, i) => makeSkill(`s-${i}`))),
+        useProgressiveRender(
+          Array.from({ length: 5 }, (_, i) => makeSkill(`s-${i}`)),
+        ),
       );
       expect(typeof result.current.sentinelRef).toBe("function");
     });
@@ -236,11 +261,13 @@ describe("useSkillsPage integration (#3484/#3504/#3541/#5955)", () => {
       });
 
       // Step 2: Sort (enabled first, then alphabetical)
-      const sorted = filterResult.current.filteredSkills.slice().sort((a, b) => {
-        if (a.enabled && !b.enabled) return -1;
-        if (!a.enabled && b.enabled) return 1;
-        return a.name.localeCompare(b.name);
-      });
+      const sorted = filterResult.current.filteredSkills
+        .slice()
+        .sort((a, b) => {
+          if (a.enabled && !b.enabled) return -1;
+          if (!a.enabled && b.enabled) return 1;
+          return a.name.localeCompare(b.name);
+        });
 
       // Step 3: Progressive render
       const { result: renderResult } = renderHook(() =>

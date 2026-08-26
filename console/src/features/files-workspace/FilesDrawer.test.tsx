@@ -36,7 +36,9 @@ vi.mock("../../api/modules/workspace", () => ({
       content: "hello",
       etag: "etag",
     }),
-    getFileDownloadUrl: vi.fn((path: string, _root: string) => `/api/files/download/${path}`),
+    getFileDownloadUrl: vi.fn(
+      (path: string, _root: string) => `/api/files/download/${path}`,
+    ),
     loadFile: vi.fn().mockResolvedValue({
       content: "profile content",
     }),
@@ -204,7 +206,9 @@ describe("FilesDrawer", () => {
   // downloadFileFromUrl helper with the correct URL and filename.
   // -------------------------------------------------------------------------
   it("download button triggers downloadFileFromUrl on click (#4670)", async () => {
-    const { downloadFileFromUrl } = await import("../../utils/downloadFileFromUrl");
+    const { downloadFileFromUrl } = await import(
+      "../../utils/downloadFileFromUrl"
+    );
     const user = userEvent.setup();
 
     renderWithProviders(

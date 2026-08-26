@@ -138,7 +138,7 @@ vi.mock("./components", async () => {
 });
 
 vi.mock("../../../hooks/useProgressiveRender", () => ({
-  useProgressiveRender: <T,>(items: T[]) => {
+  useProgressiveRender: <T>(items: T[]) => {
     // For testing: expose first 20 items and hasMore flag
     const visible = items.slice(0, 20);
     return {

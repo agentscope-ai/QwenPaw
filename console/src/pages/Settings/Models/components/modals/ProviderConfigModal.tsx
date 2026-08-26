@@ -22,10 +22,7 @@ import type {
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
-import {
-  getValidApiKeyPrefixes,
-  validateApiKey,
-} from "../../apiKeyValidation";
+import { getValidApiKeyPrefixes, validateApiKey } from "../../apiKeyValidation";
 import styles from "../../index.module.less";
 
 interface ProviderConfigFormValues

@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildEligibleProviders,
-  modelKey,
-} from "./modelSelectorModels";
+import { buildEligibleProviders, modelKey } from "./modelSelectorModels";
 import type { ProviderInfo } from "../../../api/types";
 
-function makeModel(id: string, maxInputLength: number): ProviderInfo["models"][number] {
+function makeModel(
+  id: string,
+  maxInputLength: number,
+): ProviderInfo["models"][number] {
   return {
     id,
     name: id,
@@ -130,8 +130,12 @@ describe("modelSelectorModels (#5784 压缩阈值跨 provider 校验)", () => {
 
       const eligible = buildEligibleProviders(providers);
       expect(eligible[0].models).toHaveLength(2);
-      expect(eligible[0].models.find((m) => m.id === "model-1")!.max_input_length).toBe(16384);
-      expect(eligible[0].models.find((m) => m.id === "model-2")!.max_input_length).toBe(65536);
+      expect(
+        eligible[0].models.find((m) => m.id === "model-1")!.max_input_length,
+      ).toBe(16384);
+      expect(
+        eligible[0].models.find((m) => m.id === "model-2")!.max_input_length,
+      ).toBe(65536);
     });
 
     it("无 api_key 且 require_api_key 的 provider 被排除", () => {

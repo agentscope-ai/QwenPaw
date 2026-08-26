@@ -64,7 +64,9 @@ describe("loadModelSelectorData", () => {
   });
 
   it("两个请求都成功时 loadError 为 false", async () => {
-    const providers = [{ id: "test", name: "Test", models: [], extra_models: [] }];
+    const providers = [
+      { id: "test", name: "Test", models: [], extra_models: [] },
+    ];
     const activeModels = { active_llm: { provider_id: "test", model: "m1" } };
     const dataSource = {
       listProviders: vi.fn().mockResolvedValue(providers),

@@ -85,9 +85,7 @@ describe("Send path newline preservation (#4216)", () => {
             data: {
               input: [
                 {
-                  content: [
-                    { type: "text", text: "line1\nline2" },
-                  ],
+                  content: [{ type: "text", text: "line1\nline2" }],
                 },
               ],
             },
@@ -121,7 +119,9 @@ describe("Send path newline preservation (#4216)", () => {
       document.body.innerHTML = `
         <div class="sender"><textarea></textarea></div>
       `;
-      const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+      const textarea = document.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement;
       const multilineValue = "line1\nline2\nline3";
 
       setTextareaValue(textarea, multilineValue);
@@ -134,7 +134,9 @@ describe("Send path newline preservation (#4216)", () => {
       document.body.innerHTML = `
         <div class="sender"><textarea></textarea></div>
       `;
-      const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+      const textarea = document.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement;
       const onInput = vi.fn();
       textarea.addEventListener("input", onInput);
 

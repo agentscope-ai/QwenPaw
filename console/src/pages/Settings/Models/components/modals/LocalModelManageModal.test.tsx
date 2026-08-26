@@ -97,7 +97,8 @@ vi.mock("@agentscope-ai/design", () => {
       },
     ),
     InputNumber: (props: Record<string, unknown>) => {
-      const { value, onChange, min, max, step, className, placeholder } = props as any;
+      const { value, onChange, min, max, step, className, placeholder } =
+        props as any;
       return React.createElement("input", {
         type: "number",
         value: value ?? "",
@@ -271,17 +272,25 @@ function setupDefaultMocks() {
   vi.mocked(api.getLocalModelConfig).mockResolvedValue(mockConfig);
   vi.mocked(api.getLocalServerStatus).mockResolvedValue(mockServerStatus);
   vi.mocked(api.getLocalServerUpdateStatus).mockResolvedValue(mockUpdateStatus);
-  vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(mockLlamacppProgress);
-  vi.mocked(api.getLocalModelDownloadProgress).mockResolvedValue(mockModelProgress);
-  vi.mocked(api.configureLocalModelSettings).mockResolvedValue({ success: true } as any);
+  vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(
+    mockLlamacppProgress,
+  );
+  vi.mocked(api.getLocalModelDownloadProgress).mockResolvedValue(
+    mockModelProgress,
+  );
+  vi.mocked(api.configureLocalModelSettings).mockResolvedValue({
+    success: true,
+  } as any);
 }
 
-function renderModal(overrides: {
-  open?: boolean;
-  onClose?: () => void;
-  onSaved?: () => void;
-  provider?: ProviderInfo;
-} = {}) {
+function renderModal(
+  overrides: {
+    open?: boolean;
+    onClose?: () => void;
+    onSaved?: () => void;
+    provider?: ProviderInfo;
+  } = {},
+) {
   return renderWithProviders(
     <LocalModelManageModal
       provider={overrides.provider ?? mockProvider}
@@ -302,7 +311,9 @@ describe("LocalModelManageModal", () => {
     it("当 open=false 时不渲染内容", () => {
       renderModal({ open: false });
       // Modal 关闭时不应显示内容
-      expect(screen.queryByText("models.localModelsTitle")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("models.localModelsTitle"),
+      ).not.toBeInTheDocument();
     });
 
     it("当 open=true 时渲染模态框并调用初始化 API", async () => {
@@ -318,7 +329,10 @@ describe("LocalModelManageModal", () => {
     it("加载时显示 loading 状态", async () => {
       let resolveStatus!: (value: LocalServerStatus) => void;
       vi.mocked(api.getLocalServerStatus).mockImplementation(
-        () => new Promise((resolve) => { resolveStatus = resolve; }),
+        () =>
+          new Promise((resolve) => {
+            resolveStatus = resolve;
+          }),
       );
 
       renderModal();
@@ -355,7 +369,9 @@ describe("LocalModelManageModal", () => {
       });
 
       // 应该显示无模型提示（翻译键）
-      expect(screen.getByText("models.localNoRecommendedModels")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localNoRecommendedModels"),
+      ).toBeInTheDocument();
     });
 
     it("当没有已下载模型时显示提示", async () => {
@@ -363,7 +379,9 @@ describe("LocalModelManageModal", () => {
         { ...mockModels[0], downloaded: false },
         { ...mockModels[1], downloaded: false },
       ];
-      vi.mocked(api.listRecommendedLocalModels).mockResolvedValue(allUndownloaded);
+      vi.mocked(api.listRecommendedLocalModels).mockResolvedValue(
+        allUndownloaded,
+      );
 
       renderModal();
 
@@ -372,7 +390,9 @@ describe("LocalModelManageModal", () => {
       });
 
       // 应该显示无已下载模型提示（翻译键）
-      expect(screen.getByText("models.localNoDownloadedModelsHint")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localNoDownloadedModelsHint"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -385,16 +405,22 @@ describe("LocalModelManageModal", () => {
       });
 
       // 应该显示自定义模型标题（翻译键）
-      expect(screen.getByText("models.localCustomModelTitle")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localCustomModelTitle"),
+      ).toBeInTheDocument();
 
       // 应该显示输入框
-      const input = screen.getByPlaceholderText("models.localRepoIdPlaceholder");
+      const input = screen.getByPlaceholderText(
+        "models.localRepoIdPlaceholder",
+      );
       expect(input).toBeInTheDocument();
     });
 
     it("输入 repo ID 后可以下载", async () => {
       const user = userEvent.setup();
-      vi.mocked(api.startLocalModelDownload).mockResolvedValue({ success: true } as any);
+      vi.mocked(api.startLocalModelDownload).mockResolvedValue({
+        success: true,
+      } as any);
 
       renderModal();
 
@@ -403,11 +429,15 @@ describe("LocalModelManageModal", () => {
       });
 
       // 输入 repo ID
-      const input = screen.getByPlaceholderText("models.localRepoIdPlaceholder");
+      const input = screen.getByPlaceholderText(
+        "models.localRepoIdPlaceholder",
+      );
       await user.type(input, "custom/model");
 
       // 找到自定义模型区域的下载按钮（最后一个 download 按钮）
-      const downloadButtons = screen.getAllByRole("button", { name: /common.download/i });
+      const downloadButtons = screen.getAllByRole("button", {
+        name: /common.download/i,
+      });
       const customDownloadBtn = downloadButtons[downloadButtons.length - 1];
       await user.click(customDownloadBtn);
 
@@ -428,14 +458,18 @@ describe("LocalModelManageModal", () => {
       });
 
       // 自定义模型的下载按钮应该被禁用（最后一个）
-      const downloadButtons = screen.getAllByRole("button", { name: /common.download/i });
+      const downloadButtons = screen.getAllByRole("button", {
+        name: /common.download/i,
+      });
       const customDownloadBtn = downloadButtons[downloadButtons.length - 1];
       expect(customDownloadBtn).toBeDisabled();
     });
 
     it("可以切换下载源", async () => {
       const user = userEvent.setup();
-      vi.mocked(api.startLocalModelDownload).mockResolvedValue({ success: true } as any);
+      vi.mocked(api.startLocalModelDownload).mockResolvedValue({
+        success: true,
+      } as any);
 
       renderModal();
 
@@ -444,15 +478,21 @@ describe("LocalModelManageModal", () => {
       });
 
       // 输入 repo ID
-      const input = screen.getByPlaceholderText("models.localRepoIdPlaceholder");
+      const input = screen.getByPlaceholderText(
+        "models.localRepoIdPlaceholder",
+      );
       await user.type(input, "custom/model");
 
       // 切换源选择器 - 点击 ModelScope 选项
-      const modelscopeOption = screen.getByRole("option", { name: "models.localSourceModelScope" });
+      const modelscopeOption = screen.getByRole("option", {
+        name: "models.localSourceModelScope",
+      });
       await user.click(modelscopeOption);
 
       // 找到自定义模型区域的下载按钮（最后一个）
-      const downloadButtons = screen.getAllByRole("button", { name: /common.download/i });
+      const downloadButtons = screen.getAllByRole("button", {
+        name: /common.download/i,
+      });
       const customDownloadBtn = downloadButtons[downloadButtons.length - 1];
       await user.click(customDownloadBtn);
 
@@ -475,10 +515,14 @@ describe("LocalModelManageModal", () => {
       });
 
       // 应该显示高级配置标题（翻译键）
-      expect(screen.getByText("models.localAdvancedConfigTitle")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localAdvancedConfigTitle"),
+      ).toBeInTheDocument();
 
       // 但不应显示配置字段
-      expect(screen.queryByText("models.localMaxContextLengthLabel")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("models.localMaxContextLengthLabel"),
+      ).not.toBeInTheDocument();
     });
 
     it("点击可以展开高级配置", async () => {
@@ -495,8 +539,12 @@ describe("LocalModelManageModal", () => {
       await user.click(toggle);
 
       // 应该显示配置字段（翻译键）
-      expect(screen.getByText("models.localMaxContextLengthLabel")).toBeInTheDocument();
-      expect(screen.getByText("models.localServerPortLabel")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localMaxContextLengthLabel"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localServerPortLabel"),
+      ).toBeInTheDocument();
     });
 
     it("显示从 API 加载的配置值", async () => {
@@ -540,7 +588,9 @@ describe("LocalModelManageModal", () => {
       fireEvent.change(contextInput, { target: { value: "131072" } });
 
       // 找到 max context length 旁边的保存按钮
-      const saveButtons = screen.getAllByRole("button", { name: /models.save/i });
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
       // 第一个保存按钮对应 max context length
       await user.click(saveButtons[0]);
 
@@ -572,7 +622,9 @@ describe("LocalModelManageModal", () => {
       await user.type(portInput, "9090");
 
       // 找到 server port 旁边的保存按钮
-      const saveButtons = screen.getAllByRole("button", { name: /models.save/i });
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
       // 第二个保存按钮对应 server port
       await user.click(saveButtons[1]);
 
@@ -647,7 +699,9 @@ describe("LocalModelManageModal", () => {
       });
 
       // 应该显示当前运行模型标签（翻译键）
-      expect(screen.getByText("models.localEngineCurrentModelLabel")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localEngineCurrentModelLabel"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -664,7 +718,9 @@ describe("LocalModelManageModal", () => {
       });
 
       // 应该显示无模型提示而不是崩溃
-      expect(screen.getByText("models.localNoRecommendedModels")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localNoRecommendedModels"),
+      ).toBeInTheDocument();
     });
 
     it("获取配置失败时使用默认值", async () => {
@@ -709,7 +765,9 @@ describe("LocalModelManageModal", () => {
       await user.type(contextInput, "131072");
 
       // 点击保存
-      const saveButtons = screen.getAllByRole("button", { name: /models.save/i });
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
       await user.click(saveButtons[0]);
 
       // 应该调用 API（错误会被内部处理）
@@ -728,7 +786,9 @@ describe("LocalModelManageModal", () => {
         total_bytes: 5000000,
       };
 
-      vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(downloadingProgress);
+      vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(
+        downloadingProgress,
+      );
 
       renderModal();
 
@@ -738,9 +798,12 @@ describe("LocalModelManageModal", () => {
       });
 
       // 等待轮询（3秒间隔）
-      await waitFor(() => {
-        expect(api.getLocalServerStatus).toHaveBeenCalledTimes(2);
-      }, { timeout: 5000 });
+      await waitFor(
+        () => {
+          expect(api.getLocalServerStatus).toHaveBeenCalledTimes(2);
+        },
+        { timeout: 5000 },
+      );
     });
   });
 
@@ -759,7 +822,9 @@ describe("LocalModelManageModal", () => {
       await user.click(toggle);
 
       // 应该显示 generate config 标签（翻译键）
-      expect(screen.getByText("models.modelGenerateConfig")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.modelGenerateConfig"),
+      ).toBeInTheDocument();
     });
 
     it("provider 有 generate_kwargs 时预填充", async () => {
@@ -780,7 +845,9 @@ describe("LocalModelManageModal", () => {
       await user.click(toggle);
 
       // 应该显示 generate config 字段（检查字段标签存在）
-      const generateConfigLabel = screen.queryByText("models.modelGenerateConfig");
+      const generateConfigLabel = screen.queryByText(
+        "models.modelGenerateConfig",
+      );
       // 如果标签存在，说明高级配置已展开，generate_kwargs 应该被处理
       expect(generateConfigLabel).toBeInTheDocument();
     });

@@ -29,7 +29,11 @@ describe("turnUsageStore (#5300 上下文取 max_input_length)", () => {
     it("snapshot 有 context_usage 时，新命令重置后保留原 max_input_length", () => {
       // 设置初始 snapshot，模拟已经有一轮对话
       useTurnUsageStore.getState().setSnapshot({
-        usage: { total_tokens: 100, prompt_tokens: 80, completion_tokens: 20 } as any,
+        usage: {
+          total_tokens: 100,
+          prompt_tokens: 80,
+          completion_tokens: 20,
+        } as any,
         context_usage: {
           estimated_tokens: 5000,
           max_input_length: 65536, // 当前模型的 max_input_length

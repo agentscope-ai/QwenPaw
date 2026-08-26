@@ -39,7 +39,9 @@ vi.mock("@/api/config", () => ({
 }));
 vi.mock("@/stores/agentStore", () => ({
   useAgentStore: vi.fn((selector?: (s: unknown) => any) =>
-    selector ? selector({ selectedAgent: "default" }) : { selectedAgent: "default" }
+    selector
+      ? selector({ selectedAgent: "default" })
+      : { selectedAgent: "default" },
   ),
 }));
 vi.mock("@/stores/turnUsageStore", () => ({
@@ -62,9 +64,27 @@ describe("Streaming tab switch (#2107)", () => {
       const { convertMessages } = await import("./convertMessagesHelper");
 
       const messages = [
-        { id: "1", role: "user", content: "Hello", type: "message", metadata: {} },
-        { id: "2", role: "assistant", content: "Hi there", type: "message", metadata: { timestamp: "2026-01-01 00:00:00" } },
-        { id: "3", role: "assistant", content: "How can I help?", type: "message", metadata: { timestamp: "2026-01-01 00:00:01" } },
+        {
+          id: "1",
+          role: "user",
+          content: "Hello",
+          type: "message",
+          metadata: {},
+        },
+        {
+          id: "2",
+          role: "assistant",
+          content: "Hi there",
+          type: "message",
+          metadata: { timestamp: "2026-01-01 00:00:00" },
+        },
+        {
+          id: "3",
+          role: "assistant",
+          content: "How can I help?",
+          type: "message",
+          metadata: { timestamp: "2026-01-01 00:00:01" },
+        },
       ];
 
       const result = convertMessages(messages as any);
@@ -126,10 +146,34 @@ describe("Streaming tab switch (#2107)", () => {
 
       // Simulate a streaming session with partial response
       const messages = [
-        { id: "1", role: "user", content: "Tell me a story", type: "message", metadata: {} },
-        { id: "2", role: "assistant", content: "Once upon", type: "message", metadata: { timestamp: "2026-01-01 00:00:00" } },
-        { id: "3", role: "system", content: '{"tool":"search"}', type: "plugin_call_output", metadata: { timestamp: "2026-01-01 00:00:01" } },
-        { id: "4", role: "assistant", content: "a time there was", type: "message", metadata: { timestamp: "2026-01-01 00:00:02" } },
+        {
+          id: "1",
+          role: "user",
+          content: "Tell me a story",
+          type: "message",
+          metadata: {},
+        },
+        {
+          id: "2",
+          role: "assistant",
+          content: "Once upon",
+          type: "message",
+          metadata: { timestamp: "2026-01-01 00:00:00" },
+        },
+        {
+          id: "3",
+          role: "system",
+          content: '{"tool":"search"}',
+          type: "plugin_call_output",
+          metadata: { timestamp: "2026-01-01 00:00:01" },
+        },
+        {
+          id: "4",
+          role: "assistant",
+          content: "a time there was",
+          type: "message",
+          metadata: { timestamp: "2026-01-01 00:00:02" },
+        },
       ];
 
       const result = convertMessages(messages as any);
@@ -160,10 +204,23 @@ describe("Streaming tab switch (#2107)", () => {
     it("assistant message with markdown code blocks preserves content", async () => {
       const { convertMessages } = await import("./convertMessagesHelper");
 
-      const markdownContent = "```python\nprint('hello')\n```\n\nSome **bold** text";
+      const markdownContent =
+        "```python\nprint('hello')\n```\n\nSome **bold** text";
       const messages = [
-        { id: "1", role: "user", content: "Show me code", type: "message", metadata: {} },
-        { id: "2", role: "assistant", content: markdownContent, type: "message", metadata: { timestamp: "2026-01-01 00:00:00" } },
+        {
+          id: "1",
+          role: "user",
+          content: "Show me code",
+          type: "message",
+          metadata: {},
+        },
+        {
+          id: "2",
+          role: "assistant",
+          content: markdownContent,
+          type: "message",
+          metadata: { timestamp: "2026-01-01 00:00:00" },
+        },
       ];
 
       const result = convertMessages(messages as any);
@@ -179,7 +236,13 @@ describe("Streaming tab switch (#2107)", () => {
       const { convertMessages } = await import("./convertMessagesHelper");
 
       const messages = [
-        { id: "1", role: "user", content: "Explain", type: "message", metadata: {} },
+        {
+          id: "1",
+          role: "user",
+          content: "Explain",
+          type: "message",
+          metadata: {},
+        },
         {
           id: "2",
           role: "assistant",
@@ -213,11 +276,18 @@ describe("Streaming tab switch (#2107)", () => {
 
       const userMarkdown = "Please fix **this**:\n```\nbug\n```";
       const messages = [
-        { id: "1", role: "user", content: userMarkdown, type: "message", metadata: {} },
+        {
+          id: "1",
+          role: "user",
+          content: userMarkdown,
+          type: "message",
+          metadata: {},
+        },
       ];
 
       const result = convertMessages(messages as any);
-      const inputContent = (result[0].cards?.[0]?.data as any)?.input?.[0]?.content;
+      const inputContent = (result[0].cards?.[0]?.data as any)?.input?.[0]
+        ?.content;
       expect(inputContent).toHaveLength(1);
       expect(inputContent[0].text).toBe(userMarkdown);
     });

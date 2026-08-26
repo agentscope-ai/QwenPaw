@@ -1805,7 +1805,9 @@ describe("ModelSelector", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "chat.modelSelectTooltip" })).toHaveTextContent("GPT-3.5 Turbo");
+      expect(
+        screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+      ).toHaveTextContent("GPT-3.5 Turbo");
     });
   });
 });

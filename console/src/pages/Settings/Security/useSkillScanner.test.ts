@@ -47,7 +47,11 @@ const defaultConfig: SkillScannerConfig = {
   mode: "block",
   timeout: 30,
   whitelist: [
-    { skill_name: "safe-skill", content_hash: "abc123", added_at: "2026-01-01T00:00:00Z" },
+    {
+      skill_name: "safe-skill",
+      content_hash: "abc123",
+      added_at: "2026-01-01T00:00:00Z",
+    },
   ],
 };
 
@@ -160,11 +164,17 @@ describe("useSkillScanner (A#80732993)", () => {
 
     let success = false;
     await act(async () => {
-      success = await result.current.addToWhitelist("dangerous-skill", "def456");
+      success = await result.current.addToWhitelist(
+        "dangerous-skill",
+        "def456",
+      );
     });
 
     expect(success).toBe(true);
-    expect(mockAddToWhitelist).toHaveBeenCalledWith("dangerous-skill", "def456");
+    expect(mockAddToWhitelist).toHaveBeenCalledWith(
+      "dangerous-skill",
+      "def456",
+    );
   });
 
   it("clears blocked history", async () => {

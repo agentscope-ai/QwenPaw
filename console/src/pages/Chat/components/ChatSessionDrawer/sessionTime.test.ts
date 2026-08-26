@@ -21,14 +21,14 @@ describe("pickSessionDisplayTime (#769)", () => {
     expect(
       pickSessionDisplayTime({ createdAt: CREATED, updatedAt: null }),
     ).toBe(CREATED);
-    expect(
-      pickSessionDisplayTime({ createdAt: CREATED }),
-    ).toBe(CREATED);
+    expect(pickSessionDisplayTime({ createdAt: CREATED })).toBe(CREATED);
   });
 
   it("returns null when no timestamps exist", () => {
     expect(pickSessionDisplayTime({})).toBeNull();
-    expect(pickSessionDisplayTime({ createdAt: null, updatedAt: null })).toBeNull();
+    expect(
+      pickSessionDisplayTime({ createdAt: null, updatedAt: null }),
+    ).toBeNull();
   });
 });
 

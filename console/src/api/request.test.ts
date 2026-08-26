@@ -414,6 +414,8 @@ describe("request", () => {
   it("429 with empty body falls back to 'Request failed: 429 Too Many Requests' (A#83794374)", async () => {
     mock429Fetch("");
     const error = await request("/models").catch((e) => e);
-    expect((error as Error).message).toBe("Request failed: 429 Too Many Requests");
+    expect((error as Error).message).toBe(
+      "Request failed: 429 Too Many Requests",
+    );
   });
 });

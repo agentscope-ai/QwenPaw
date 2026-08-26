@@ -96,7 +96,9 @@ describe("isPreviewable (#5863)", () => {
 // Mock dependencies for image preview tests
 vi.mock("@/stores/agentStore", () => ({
   useAgentStore: vi.fn((selector?: (s: any) => any) =>
-    selector ? selector({ selectedAgent: "default" }) : { selectedAgent: "default" }
+    selector
+      ? selector({ selectedAgent: "default" })
+      : { selectedAgent: "default" },
   ),
 }));
 vi.mock("@/api/authHeaders", () => ({
@@ -116,7 +118,8 @@ describe("FilePreview image rendering (A#82584296)", () => {
   beforeEach(() => {
     fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
-      blob: () => Promise.resolve(new Blob(["fake-image-data"], { type: "image/png" })),
+      blob: () =>
+        Promise.resolve(new Blob(["fake-image-data"], { type: "image/png" })),
     });
     global.fetch = fetchSpy as unknown as typeof fetch;
     vi.spyOn(URL, "createObjectURL").mockReturnValue(mockBlobUrl);

@@ -52,7 +52,11 @@ vi.mock("@agentscope-ai/design", () => {
         props,
         children as any,
         extra
-          ? React.createElement("span", { "data-testid": "warning" }, extra as any)
+          ? React.createElement(
+              "span",
+              { "data-testid": "warning" },
+              extra as any,
+            )
           : null,
       ),
     useForm: () => [{}],
@@ -72,8 +76,19 @@ vi.mock("@agentscope-ai/design", () => {
       React.createElement(
         "div",
         null,
-        (items as Array<{ key: string; label: string; children: React.ReactNode }>).map(
-          (item) => React.createElement("div", { key: item.key }, item.label, item.children),
+        (
+          items as Array<{
+            key: string;
+            label: string;
+            children: React.ReactNode;
+          }>
+        ).map((item) =>
+          React.createElement(
+            "div",
+            { key: item.key },
+            item.label,
+            item.children,
+          ),
         ),
       ),
     Select: passThrough,
@@ -111,7 +126,9 @@ function renderWithRetention(days: number | undefined) {
     "light_context_config.context_compact_config.reserve_threshold_ratio": 0.1,
     "light_context_config.scroll_config.history_retention_days": days,
   });
-  return render(React.createElement(LightContextCard, { maxInputLength: 128000 }));
+  return render(
+    React.createElement(LightContextCard, { maxInputLength: 128000 }),
+  );
 }
 
 describe("historyRetentionDays warning (A#80646153)", () => {

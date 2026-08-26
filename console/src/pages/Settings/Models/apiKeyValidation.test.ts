@@ -60,9 +60,9 @@ describe("validateApiKey (#79)", () => {
   });
 
   it("bypasses prefix checks in auth_token mode", () => {
-    expect(validateApiKey("auth-token-value", PREFIXES, "auth_token")).toEqual(
-      { valid: true },
-    );
+    expect(validateApiKey("auth-token-value", PREFIXES, "auth_token")).toEqual({
+      valid: true,
+    });
   });
 
   it("accepts when the key matches any one of several prefixes", () => {

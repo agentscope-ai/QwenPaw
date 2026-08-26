@@ -145,8 +145,12 @@ vi.mock("../../../stores/agentStore", () => ({
 
 import { useSkillPool } from "./useSkillPool";
 
-const { apiMocks, invalidateSkillCacheMock, messageMock, parseErrorDetailMock } =
-  hoisted;
+const {
+  apiMocks,
+  invalidateSkillCacheMock,
+  messageMock,
+  parseErrorDetailMock,
+} = hoisted;
 
 function poolSkill(overrides: Record<string, unknown> = {}) {
   return {
@@ -184,9 +188,7 @@ describe("useSkillPool — install/upload refreshes list", () => {
     // After import, loadData(true) is called which re-fetches pool skills
     apiMocks.listSkillPoolSkills
       .mockResolvedValueOnce([]) // initial load
-      .mockResolvedValueOnce(
-        importedNames.map((n) => poolSkill({ name: n })),
-      );
+      .mockResolvedValueOnce(importedNames.map((n) => poolSkill({ name: n })));
 
     const { result } = renderHook(() => useSkillPool());
 
@@ -208,7 +210,9 @@ describe("useSkillPool — install/upload refreshes list", () => {
     // Success message shown
     expect(messageMock.success).toHaveBeenCalled();
     // Data reloaded (listSkillPoolSkills called at least twice: initial + after import)
-    expect(apiMocks.listSkillPoolSkills.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      apiMocks.listSkillPoolSkills.mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("handleConfirmImport: calls invalidateSkillCache + loadData after successful hub import", async () => {
@@ -226,11 +230,15 @@ describe("useSkillPool — install/upload refreshes list", () => {
 
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({ pool: true });
     expect(messageMock.success).toHaveBeenCalled();
-    expect(apiMocks.listSkillPoolSkills.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      apiMocks.listSkillPoolSkills.mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("handleRefresh: calls invalidateSkillCache with pool+workspaces then reloads", async () => {
-    apiMocks.refreshSkillPool.mockResolvedValue([poolSkill({ name: "refreshed" })]);
+    apiMocks.refreshSkillPool.mockResolvedValue([
+      poolSkill({ name: "refreshed" }),
+    ]);
     apiMocks.listSkillPoolSkills.mockResolvedValueOnce([]);
 
     const { result } = renderHook(() => useSkillPool());
@@ -313,7 +321,11 @@ async function renderAndLoad(overrides?: {
   );
   apiMocks.listSkillWorkspaces.mockResolvedValue(overrides?.workspaces || []);
   apiMocks.getPoolBuiltinNotice.mockResolvedValue(
-    overrides?.notice || { has_updates: false, fingerprint: "", total_changes: 0 },
+    overrides?.notice || {
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
+    },
   );
   const hook = renderHook(() => useSkillPool());
   await waitFor(() => expect(hook.result.current.loading).toBe(false));
@@ -329,7 +341,9 @@ describe("useSkillPool — state management", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -347,15 +361,21 @@ describe("useSkillPool — state management", () => {
     expect(result.current.selectedPoolSkills.size).toBe(0);
 
     // Add
-    act(() => { result.current.togglePoolSelect("a"); });
+    act(() => {
+      result.current.togglePoolSelect("a");
+    });
     expect(result.current.selectedPoolSkills.has("a")).toBe(true);
 
     // Add another
-    act(() => { result.current.togglePoolSelect("b"); });
+    act(() => {
+      result.current.togglePoolSelect("b");
+    });
     expect(result.current.selectedPoolSkills.size).toBe(2);
 
     // Remove
-    act(() => { result.current.togglePoolSelect("a"); });
+    act(() => {
+      result.current.togglePoolSelect("a");
+    });
     expect(result.current.selectedPoolSkills.has("a")).toBe(false);
     expect(result.current.selectedPoolSkills.has("b")).toBe(true);
   });
@@ -372,7 +392,9 @@ describe("useSkillPool — state management", () => {
     expect(result.current.selectedPoolSkills.size).toBe(1);
     expect(result.current.batchModeEnabled).toBe(true);
 
-    act(() => { result.current.clearPoolSelection(); });
+    act(() => {
+      result.current.clearPoolSelection();
+    });
     expect(result.current.selectedPoolSkills.size).toBe(0);
     expect(result.current.batchModeEnabled).toBe(false);
   });
@@ -381,12 +403,18 @@ describe("useSkillPool — state management", () => {
     const { result } = await renderAndLoad();
 
     expect(result.current.batchModeEnabled).toBe(false);
-    act(() => { result.current.toggleBatchMode(); });
+    act(() => {
+      result.current.toggleBatchMode();
+    });
     expect(result.current.batchModeEnabled).toBe(true);
 
     // Toggling again should clear selection and disable
-    act(() => { result.current.togglePoolSelect("something"); });
-    act(() => { result.current.toggleBatchMode(); });
+    act(() => {
+      result.current.togglePoolSelect("something");
+    });
+    act(() => {
+      result.current.toggleBatchMode();
+    });
     expect(result.current.batchModeEnabled).toBe(false);
     expect(result.current.selectedPoolSkills.size).toBe(0);
   });
@@ -396,7 +424,9 @@ describe("useSkillPool — state management", () => {
       skills: [{ name: "alpha" }, { name: "beta" }],
     });
 
-    act(() => { result.current.selectAllPool(); });
+    act(() => {
+      result.current.selectAllPool();
+    });
     expect(result.current.selectedPoolSkills.size).toBe(2);
     expect(result.current.selectedPoolSkills.has("alpha")).toBe(true);
     expect(result.current.selectedPoolSkills.has("beta")).toBe(true);
@@ -406,17 +436,25 @@ describe("useSkillPool — state management", () => {
     const { result } = await renderAndLoad();
 
     expect(result.current.viewMode).toBe("card");
-    act(() => { result.current.setViewMode("list"); });
+    act(() => {
+      result.current.setViewMode("list");
+    });
     expect(result.current.viewMode).toBe("list");
 
     expect(result.current.filterOpen).toBe(false);
-    act(() => { result.current.setFilterOpen(true); });
+    act(() => {
+      result.current.setFilterOpen(true);
+    });
     expect(result.current.filterOpen).toBe(true);
 
-    act(() => { result.current.setSearchQuery("test"); });
+    act(() => {
+      result.current.setSearchQuery("test");
+    });
     expect(result.current.searchQuery).toBe("test");
 
-    act(() => { result.current.setSearchTags(["tag:a"]); });
+    act(() => {
+      result.current.setSearchTags(["tag:a"]);
+    });
     expect(result.current.searchTags).toEqual(["tag:a"]);
   });
 });
@@ -438,7 +476,9 @@ describe("useSkillPool — loadData error", () => {
     apiMocks.listSkillPoolSkills.mockRejectedValue(new Error("Network error"));
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
 
     const { result } = renderHook(() => useSkillPool());
@@ -452,7 +492,9 @@ describe("useSkillPool — loadData error", () => {
     apiMocks.listSkillPoolSkills.mockRejectedValue("string error");
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
 
     const { result } = renderHook(() => useSkillPool());
@@ -471,7 +513,9 @@ describe("useSkillPool — modal and drawer state", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -483,21 +527,27 @@ describe("useSkillPool — modal and drawer state", () => {
   it("openCreate: sets mode to create and resets form", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.openCreate(); });
+    act(() => {
+      result.current.openCreate();
+    });
     expect(result.current.mode).toBe("create");
     expect(result.current.activeSkill).toBeNull();
     expect(result.current.detailLoading).toBe(false);
     expect(result.current.configText).toBe("{}");
     expect(hoisted.formMock.resetFields).toHaveBeenCalled();
     expect(hoisted.formMock.setFieldsValue).toHaveBeenCalledWith({
-      name: "", content: "", tags: [],
+      name: "",
+      content: "",
+      tags: [],
     });
   });
 
   it("openBroadcast: sets mode to broadcast with skill name", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.openBroadcast(poolSkill({ name: "my-skill" })); });
+    act(() => {
+      result.current.openBroadcast(poolSkill({ name: "my-skill" }));
+    });
     expect(result.current.mode).toBe("broadcast");
     expect(result.current.broadcastInitialNames).toEqual(["my-skill"]);
   });
@@ -505,7 +555,9 @@ describe("useSkillPool — modal and drawer state", () => {
   it("openBroadcast: without skill sets empty initial names", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.openBroadcast(); });
+    act(() => {
+      result.current.openBroadcast();
+    });
     expect(result.current.mode).toBe("broadcast");
     expect(result.current.broadcastInitialNames).toEqual([]);
   });
@@ -514,10 +566,14 @@ describe("useSkillPool — modal and drawer state", () => {
     const { result } = await renderAndLoad();
 
     // Set some state first
-    act(() => { result.current.openCreate(); });
+    act(() => {
+      result.current.openCreate();
+    });
     expect(result.current.mode).toBe("create");
 
-    act(() => { result.current.closeModal(); });
+    act(() => {
+      result.current.closeModal();
+    });
     expect(result.current.mode).toBeNull();
     expect(result.current.activeSkill).toBeNull();
     expect(result.current.detailLoading).toBe(false);
@@ -527,8 +583,12 @@ describe("useSkillPool — modal and drawer state", () => {
   it("closeDrawer: resets drawer state", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.openCreate(); });
-    act(() => { result.current.closeDrawer(); });
+    act(() => {
+      result.current.openCreate();
+    });
+    act(() => {
+      result.current.closeDrawer();
+    });
     expect(result.current.mode).toBeNull();
     expect(result.current.activeSkill).toBeNull();
   });
@@ -536,28 +596,44 @@ describe("useSkillPool — modal and drawer state", () => {
   it("handleDrawerContentChange: updates drawer content and form", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.openCreate(); });
-    act(() => { result.current.handleDrawerContentChange("new content"); });
+    act(() => {
+      result.current.openCreate();
+    });
+    act(() => {
+      result.current.handleDrawerContentChange("new content");
+    });
     expect(result.current.drawerContent).toBe("new content");
-    expect(hoisted.formMock.setFieldsValue).toHaveBeenCalledWith({ content: "new content" });
+    expect(hoisted.formMock.setFieldsValue).toHaveBeenCalledWith({
+      content: "new content",
+    });
   });
 
   it("setConfigText / setShowMarkdown / setBuiltinAutoUpdateEnabled / setAutoSyncTargets: state setters", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.setConfigText('{"key":"val"}'); });
+    act(() => {
+      result.current.setConfigText('{"key":"val"}');
+    });
     expect(result.current.configText).toBe('{"key":"val"}');
 
-    act(() => { result.current.setShowMarkdown(false); });
+    act(() => {
+      result.current.setShowMarkdown(false);
+    });
     expect(result.current.showMarkdown).toBe(false);
 
-    act(() => { result.current.setBuiltinAutoUpdateEnabled(true); });
+    act(() => {
+      result.current.setBuiltinAutoUpdateEnabled(true);
+    });
     expect(result.current.builtinAutoUpdateEnabled).toBe(true);
 
-    act(() => { result.current.setAutoSyncEnabled(true); });
+    act(() => {
+      result.current.setAutoSyncEnabled(true);
+    });
     expect(result.current.autoSyncEnabled).toBe(true);
 
-    act(() => { result.current.setAutoSyncTargets(["agent-1"]); });
+    act(() => {
+      result.current.setAutoSyncTargets(["agent-1"]);
+    });
     expect(result.current.autoSyncTargets).toEqual(["agent-1"]);
   });
 
@@ -565,7 +641,9 @@ describe("useSkillPool — modal and drawer state", () => {
     const { result } = await renderAndLoad();
 
     expect(result.current.importModalOpen).toBe(false);
-    act(() => { result.current.setImportModalOpen(true); });
+    act(() => {
+      result.current.setImportModalOpen(true);
+    });
     expect(result.current.importModalOpen).toBe(true);
   });
 });
@@ -579,7 +657,9 @@ describe("useSkillPool — openEdit", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -675,7 +755,9 @@ describe("useSkillPool — validateFrontmatter", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -687,9 +769,9 @@ describe("useSkillPool — validateFrontmatter", () => {
   it("rejects when content is empty", async () => {
     const { result } = await renderAndLoad();
 
-    await expect(
-      result.current.validateFrontmatter(null, ""),
-    ).rejects.toThrow("skills.pleaseInputContent");
+    await expect(result.current.validateFrontmatter(null, "")).rejects.toThrow(
+      "skills.pleaseInputContent",
+    );
   });
 
   it("rejects when no frontmatter found", async () => {
@@ -745,7 +827,9 @@ describe("useSkillPool — openImportBuiltin", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -758,7 +842,9 @@ describe("useSkillPool — openImportBuiltin", () => {
     const sources = [{ name: "builtin-a" }];
     apiMocks.listPoolBuiltinSources.mockResolvedValue(sources);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
 
     const { result } = await renderAndLoad();
@@ -780,7 +866,9 @@ describe("useSkillPool — openImportBuiltin", () => {
     // Override mock AFTER initial load to return the update notice
     apiMocks.listPoolBuiltinSources.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: true, fingerprint: "fp-123", total_changes: 3,
+      has_updates: true,
+      fingerprint: "fp-123",
+      total_changes: 3,
     });
 
     await act(async () => {
@@ -789,14 +877,20 @@ describe("useSkillPool — openImportBuiltin", () => {
 
     expect(result.current.importBuiltinModalOpen).toBe(true);
     expect(result.current.builtinNotice).toEqual({
-      has_updates: true, fingerprint: "fp-123", total_changes: 3,
+      has_updates: true,
+      fingerprint: "fp-123",
+      total_changes: 3,
     });
   });
 
   it("shows error when loading sources fails", async () => {
-    apiMocks.listPoolBuiltinSources.mockRejectedValue(new Error("Fetch failed"));
+    apiMocks.listPoolBuiltinSources.mockRejectedValue(
+      new Error("Fetch failed"),
+    );
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
 
     const { result } = await renderAndLoad();
@@ -818,10 +912,14 @@ describe("useSkillPool — openImportBuiltin", () => {
     const { result } = await renderAndLoad();
 
     // Start import (will be stuck loading)
-    act(() => { result.current.openImportBuiltin(); });
+    act(() => {
+      result.current.openImportBuiltin();
+    });
 
     // Try to close while loading — should be no-op
-    act(() => { result.current.closeImportBuiltin(); });
+    act(() => {
+      result.current.closeImportBuiltin();
+    });
     // Modal should still be in whatever state (loading blocks close)
   });
 
@@ -835,7 +933,9 @@ describe("useSkillPool — openImportBuiltin", () => {
     });
     expect(result.current.importBuiltinModalOpen).toBe(true);
 
-    act(() => { result.current.closeImportBuiltin(); });
+    act(() => {
+      result.current.closeImportBuiltin();
+    });
     expect(result.current.importBuiltinModalOpen).toBe(false);
   });
 
@@ -846,22 +946,32 @@ describe("useSkillPool — openImportBuiltin", () => {
 
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.setImportModalOpen(true); });
+    act(() => {
+      result.current.setImportModalOpen(true);
+    });
     // Start import (stuck)
-    act(() => { result.current.handleConfirmImport("http://example.com/skill.zip"); });
+    act(() => {
+      result.current.handleConfirmImport("http://example.com/skill.zip");
+    });
 
     // Try close while importing
-    act(() => { result.current.closeImportModal(); });
+    act(() => {
+      result.current.closeImportModal();
+    });
     // Modal stays open because importing is true
   });
 
   it("closeImportModal: closes modal when not importing", async () => {
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.setImportModalOpen(true); });
+    act(() => {
+      result.current.setImportModalOpen(true);
+    });
     expect(result.current.importModalOpen).toBe(true);
 
-    act(() => { result.current.closeImportModal(); });
+    act(() => {
+      result.current.closeImportModal();
+    });
     expect(result.current.importModalOpen).toBe(false);
   });
 });
@@ -875,7 +985,9 @@ describe("useSkillPool — getBuiltinImportStatusLabel", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -929,7 +1041,9 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -945,7 +1059,12 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
 
     await act(async () => {
       await result.current.handleAutomationQuickAction(
-        poolSkill({ name: "auto-skill", source: "builtin", auto_sync: false, auto_update: false }),
+        poolSkill({
+          name: "auto-skill",
+          source: "builtin",
+          auto_sync: false,
+          auto_update: false,
+        }),
       );
     });
 
@@ -953,7 +1072,9 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
       "auto-skill",
       { auto_update: true, auto_sync: { enabled: true } },
     );
-    expect(messageMock.success).toHaveBeenCalledWith("skillPool.automationEnabled");
+    expect(messageMock.success).toHaveBeenCalledWith(
+      "skillPool.automationEnabled",
+    );
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
       pool: true,
       workspaces: true,
@@ -967,7 +1088,12 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
 
     await act(async () => {
       await result.current.handleAutomationQuickAction(
-        poolSkill({ name: "auto-skill", source: "builtin", auto_sync: true, auto_update: true }),
+        poolSkill({
+          name: "auto-skill",
+          source: "builtin",
+          auto_sync: true,
+          auto_update: true,
+        }),
       );
     });
 
@@ -975,7 +1101,9 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
       "auto-skill",
       { auto_update: false, auto_sync: { enabled: false } },
     );
-    expect(messageMock.success).toHaveBeenCalledWith("skillPool.automationDisabled");
+    expect(messageMock.success).toHaveBeenCalledWith(
+      "skillPool.automationDisabled",
+    );
   });
 
   it("toggles auto_sync only for non-builtin skill", async () => {
@@ -993,7 +1121,9 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
       "custom-skill",
       { auto_sync: { enabled: true } },
     );
-    expect(messageMock.success).toHaveBeenCalledWith("skillPool.autoSyncEnabled");
+    expect(messageMock.success).toHaveBeenCalledWith(
+      "skillPool.autoSyncEnabled",
+    );
   });
 
   it("warns when automation response has attention items", async () => {
@@ -1005,11 +1135,18 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
 
     await act(async () => {
       await result.current.handleAutomationQuickAction(
-        poolSkill({ name: "auto-skill", source: "builtin", auto_sync: false, auto_update: false }),
+        poolSkill({
+          name: "auto-skill",
+          source: "builtin",
+          auto_sync: false,
+          auto_update: false,
+        }),
       );
     });
 
-    expect(messageMock.warning).toHaveBeenCalledWith("skillPool.automationNeedsAttention");
+    expect(messageMock.warning).toHaveBeenCalledWith(
+      "skillPool.automationNeedsAttention",
+    );
     expect(messageMock.success).not.toHaveBeenCalled();
   });
 
@@ -1025,7 +1162,12 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
 
     await act(async () => {
       await result.current.handleAutomationQuickAction(
-        poolSkill({ name: "mixed-skill", source: "builtin", auto_sync: true, auto_update: false }),
+        poolSkill({
+          name: "mixed-skill",
+          source: "builtin",
+          auto_sync: true,
+          auto_update: false,
+        }),
       );
     });
 
@@ -1035,13 +1177,20 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
   });
 
   it("shows error when API fails", async () => {
-    apiMocks.updatePoolSkillAutomation.mockRejectedValue(new Error("Update failed"));
+    apiMocks.updatePoolSkillAutomation.mockRejectedValue(
+      new Error("Update failed"),
+    );
 
     const { result } = await renderAndLoad();
 
     await act(async () => {
       await result.current.handleAutomationQuickAction(
-        poolSkill({ name: "fail-skill", source: "builtin", auto_sync: false, auto_update: false }),
+        poolSkill({
+          name: "fail-skill",
+          source: "builtin",
+          auto_sync: false,
+          auto_update: false,
+        }),
       );
     });
 
@@ -1055,11 +1204,18 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
 
     await act(async () => {
       await result.current.handleAutomationQuickAction(
-        poolSkill({ name: "fail-skill", source: "builtin", auto_sync: false, auto_update: false }),
+        poolSkill({
+          name: "fail-skill",
+          source: "builtin",
+          auto_sync: false,
+          auto_update: false,
+        }),
       );
     });
 
-    expect(messageMock.error).toHaveBeenCalledWith("skillPool.automationFailed");
+    expect(messageMock.error).toHaveBeenCalledWith(
+      "skillPool.automationFailed",
+    );
   });
 });
 
@@ -1072,7 +1228,9 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1101,7 +1259,9 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
   it("updates language when confirmed", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.updatePoolBuiltin.mockResolvedValue(undefined);
 
@@ -1119,7 +1279,10 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
       await result.current.handleBuiltinLanguageSwitch(skill, "zh");
     });
 
-    expect(apiMocks.updatePoolBuiltin).toHaveBeenCalledWith("builtin-skill", "zh");
+    expect(apiMocks.updatePoolBuiltin).toHaveBeenCalledWith(
+      "builtin-skill",
+      "zh",
+    );
     expect(messageMock.success).toHaveBeenCalled();
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
       pool: true,
@@ -1129,7 +1292,9 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
   it("does nothing when user cancels confirmation", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onCancel: () => void }) => { opts.onCancel(); },
+      (opts: { onCancel: () => void }) => {
+        opts.onCancel();
+      },
     );
 
     const { result } = await renderAndLoad();
@@ -1151,7 +1316,9 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
   it("shows error when update fails", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.updatePoolBuiltin.mockRejectedValue(new Error("Update failed"));
 
@@ -1182,7 +1349,9 @@ describe("useSkillPool — handleImportBuiltins", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1243,10 +1412,24 @@ describe("useSkillPool — handleImportBuiltins", () => {
   });
 
   it("shows conflict modal on error with conflicts", async () => {
-    const conflictError = { response: { data: { conflicts: [{ skill_name: "s1", language: "en", status: "outdated" }] } } };
+    const conflictError = {
+      response: {
+        data: {
+          conflicts: [{ skill_name: "s1", language: "en", status: "outdated" }],
+        },
+      },
+    };
     apiMocks.importSelectedPoolBuiltins.mockRejectedValue(conflictError);
     parseErrorDetailMock.mockReturnValue({
-      conflicts: [{ skill_name: "s1", language: "en", status: "outdated", current_version_text: "1.0", source_version_text: "2.0" }],
+      conflicts: [
+        {
+          skill_name: "s1",
+          language: "en",
+          status: "outdated",
+          current_version_text: "1.0",
+          source_version_text: "2.0",
+        },
+      ],
     });
 
     const { result } = await renderAndLoad();
@@ -1261,7 +1444,9 @@ describe("useSkillPool — handleImportBuiltins", () => {
   });
 
   it("shows error on generic failure", async () => {
-    apiMocks.importSelectedPoolBuiltins.mockRejectedValue(new Error("Import failed"));
+    apiMocks.importSelectedPoolBuiltins.mockRejectedValue(
+      new Error("Import failed"),
+    );
     parseErrorDetailMock.mockReturnValue(null);
 
     const { result } = await renderAndLoad();
@@ -1285,7 +1470,9 @@ describe("useSkillPool — handleBroadcast", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1329,7 +1516,9 @@ describe("useSkillPool — handleBroadcast", () => {
       ],
     });
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
 
     const { result } = await renderAndLoad();
@@ -1355,7 +1544,9 @@ describe("useSkillPool — handleBroadcast", () => {
       ],
     });
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onCancel: () => void }) => { opts.onCancel(); },
+      (opts: { onCancel: () => void }) => {
+        opts.onCancel();
+      },
     );
 
     const { result } = await renderAndLoad();
@@ -1387,7 +1578,9 @@ describe("useSkillPool — handleBroadcast", () => {
       ],
     });
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
 
     const { result } = await renderAndLoad();
@@ -1417,7 +1610,9 @@ describe("useSkillPool — handleBroadcast", () => {
       ],
     });
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
 
     const { result } = await renderAndLoad();
@@ -1430,7 +1625,9 @@ describe("useSkillPool — handleBroadcast", () => {
   });
 
   it("shows error when broadcast fails without conflicts", async () => {
-    apiMocks.downloadSkillPoolSkill.mockRejectedValue(new Error("Broadcast error"));
+    apiMocks.downloadSkillPoolSkill.mockRejectedValue(
+      new Error("Broadcast error"),
+    );
     parseErrorDetailMock.mockReturnValue(null);
 
     const { result } = await renderAndLoad();
@@ -1478,7 +1675,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1491,7 +1690,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     hoisted.formMock.validateFields.mockRejectedValue(new Error("validation"));
 
     const { result } = await renderAndLoad();
-    act(() => { result.current.openCreate(); });
+    act(() => {
+      result.current.openCreate();
+    });
 
     await act(async () => {
       await result.current.handleSavePoolSkill();
@@ -1509,7 +1710,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     });
 
     const { result } = await renderAndLoad();
-    act(() => { result.current.openCreate(); });
+    act(() => {
+      result.current.openCreate();
+    });
 
     await act(async () => {
       await result.current.handleSavePoolSkill();
@@ -1526,7 +1729,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     });
 
     const { result } = await renderAndLoad();
-    act(() => { result.current.openCreate(); });
+    act(() => {
+      result.current.openCreate();
+    });
 
     await act(async () => {
       await result.current.handleSavePoolSkill();
@@ -1543,8 +1748,12 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     });
 
     const { result } = await renderAndLoad();
-    act(() => { result.current.openCreate(); });
-    act(() => { result.current.setConfigText("{invalid json"); });
+    act(() => {
+      result.current.openCreate();
+    });
+    act(() => {
+      result.current.setConfigText("{invalid json");
+    });
 
     await act(async () => {
       await result.current.handleSavePoolSkill();
@@ -1563,7 +1772,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     apiMocks.updatePoolSkillTags.mockResolvedValue(undefined);
 
     const { result } = await renderAndLoad();
-    act(() => { result.current.openCreate(); });
+    act(() => {
+      result.current.openCreate();
+    });
 
     await act(async () => {
       await result.current.handleSavePoolSkill();
@@ -1574,7 +1785,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
       content: "name: new-skill\ndescription: test",
       config: {},
     });
-    expect(apiMocks.updatePoolSkillTags).toHaveBeenCalledWith("new-skill", ["tag1"]);
+    expect(apiMocks.updatePoolSkillTags).toHaveBeenCalledWith("new-skill", [
+      "tag1",
+    ]);
     expect(messageMock.success).toHaveBeenCalled();
   });
 
@@ -1595,7 +1808,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
       tags: ["new-tag"],
     });
     apiMocks.saveSkillPoolSkill.mockResolvedValue({
-      success: true, mode: "edit", name: "existing",
+      success: true,
+      mode: "edit",
+      name: "existing",
     });
     apiMocks.updatePoolSkillTags.mockResolvedValue(undefined);
 
@@ -1610,7 +1825,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     });
 
     expect(apiMocks.saveSkillPoolSkill).toHaveBeenCalled();
-    expect(apiMocks.updatePoolSkillTags).toHaveBeenCalledWith("existing", ["new-tag"]);
+    expect(apiMocks.updatePoolSkillTags).toHaveBeenCalledWith("existing", [
+      "new-tag",
+    ]);
   });
 
   it("handles conflict error with overwrite confirmation in edit mode", async () => {
@@ -1640,7 +1857,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
       .mockReturnValue(null);
 
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
 
     const { result } = await renderAndLoad();
@@ -1677,7 +1896,9 @@ describe("useSkillPool — handleSavePoolSkill", () => {
     };
     apiMocks.getPoolSkill.mockResolvedValue(detail);
     apiMocks.saveSkillPoolSkill.mockResolvedValue({
-      success: true, mode: "noop", name: "noop-skill",
+      success: true,
+      mode: "noop",
+      name: "noop-skill",
     });
 
     const { result } = await renderAndLoad();
@@ -1704,7 +1925,9 @@ describe("useSkillPool — handleZipImport edge cases", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1806,7 +2029,9 @@ describe("useSkillPool — handleConfirmImport edge cases", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1816,7 +2041,9 @@ describe("useSkillPool — handleConfirmImport edge cases", () => {
   });
 
   it("shows error on import failure", async () => {
-    apiMocks.importPoolSkillFromHub.mockRejectedValue(new Error("Import failed"));
+    apiMocks.importPoolSkillFromHub.mockRejectedValue(
+      new Error("Import failed"),
+    );
     parseErrorDetailMock.mockReturnValue(null);
 
     const { result } = await renderAndLoad();
@@ -1865,7 +2092,9 @@ describe("useSkillPool — handleBatchDeletePool edge cases", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -1886,12 +2115,16 @@ describe("useSkillPool — handleBatchDeletePool edge cases", () => {
 
   it("does not delete when user cancels confirmation", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onCancel: () => void }) => { opts.onCancel(); },
+      (opts: { onCancel: () => void }) => {
+        opts.onCancel();
+      },
     );
 
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.togglePoolSelect("skill-a"); });
+    act(() => {
+      result.current.togglePoolSelect("skill-a");
+    });
 
     await act(async () => {
       await result.current.handleBatchDeletePool();
@@ -1902,7 +2135,9 @@ describe("useSkillPool — handleBatchDeletePool edge cases", () => {
 
   it("shows warning on partial failure", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.batchDeletePoolSkills.mockResolvedValue({
       results: {
@@ -1927,13 +2162,17 @@ describe("useSkillPool — handleBatchDeletePool edge cases", () => {
 
   it("shows error when batch delete API fails", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.batchDeletePoolSkills.mockRejectedValue(new Error("Batch failed"));
 
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.togglePoolSelect("skill-a"); });
+    act(() => {
+      result.current.togglePoolSelect("skill-a");
+    });
 
     await act(async () => {
       await result.current.handleBatchDeletePool();
@@ -1944,19 +2183,25 @@ describe("useSkillPool — handleBatchDeletePool edge cases", () => {
 
   it("shows generic error when batch delete fails with non-Error", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.batchDeletePoolSkills.mockRejectedValue("string error");
 
     const { result } = await renderAndLoad();
 
-    act(() => { result.current.togglePoolSelect("skill-a"); });
+    act(() => {
+      result.current.togglePoolSelect("skill-a");
+    });
 
     await act(async () => {
       await result.current.handleBatchDeletePool();
     });
 
-    expect(messageMock.error).toHaveBeenCalledWith("skillPool.batchDeleteFailed");
+    expect(messageMock.error).toHaveBeenCalledWith(
+      "skillPool.batchDeleteFailed",
+    );
   });
 });
 
@@ -1969,7 +2214,9 @@ describe("useSkillPool — handleRefresh error", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -2012,7 +2259,9 @@ describe("useSkillPool — computed properties", () => {
     vi.clearAllMocks();
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -2050,7 +2299,9 @@ describe("useSkillPool — computed properties", () => {
   it("hasUnseenBuiltinNotice is true when notice has unseen updates", async () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: true, fingerprint: "fp-new", total_changes: 5,
+      has_updates: true,
+      fingerprint: "fp-new",
+      total_changes: 5,
     });
 
     const { result } = renderHook(() => useSkillPool());
@@ -2063,7 +2314,9 @@ describe("useSkillPool — computed properties", () => {
   it("hasUnseenBuiltinNotice is false when fingerprint matches ack", async () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: true, fingerprint: "fp-seen", total_changes: 2,
+      has_updates: true,
+      fingerprint: "fp-seen",
+      total_changes: 2,
     });
 
     // Pre-set the ack in localStorage
@@ -2110,7 +2363,9 @@ describe("useSkillPool — handleDelete edge cases", () => {
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
     apiMocks.listSkillWorkspaces.mockResolvedValue([]);
     apiMocks.getPoolBuiltinNotice.mockResolvedValue({
-      has_updates: false, fingerprint: "", total_changes: 0,
+      has_updates: false,
+      fingerprint: "",
+      total_changes: 0,
     });
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
@@ -2121,7 +2376,9 @@ describe("useSkillPool — handleDelete edge cases", () => {
 
   it("delete external skill shows external confirm message", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.deleteSkillPoolSkill.mockResolvedValue(undefined);
 
@@ -2129,7 +2386,11 @@ describe("useSkillPool — handleDelete edge cases", () => {
 
     await act(async () => {
       await result.current.handleDelete(
-        poolSkill({ name: "ext-skill", external: true, external_path: "/path/to/skill" }),
+        poolSkill({
+          name: "ext-skill",
+          external: true,
+          external_path: "/path/to/skill",
+        }),
       );
     });
 
@@ -2138,7 +2399,9 @@ describe("useSkillPool — handleDelete edge cases", () => {
 
   it("delete builtin skill shows builtin confirm message", async () => {
     hoisted.modalConfirmMock.mockImplementation(
-      (opts: { onOk: () => void }) => { opts.onOk(); },
+      (opts: { onOk: () => void }) => {
+        opts.onOk();
+      },
     );
     apiMocks.deleteSkillPoolSkill.mockResolvedValue(undefined);
 

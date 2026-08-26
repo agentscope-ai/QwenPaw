@@ -201,7 +201,9 @@ describe("LoopModeSelector", () => {
       useLoopStore.getState().setSessionMode(goal, "running");
       renderWithProviders(<LoopModeSelector />);
 
-      const indicator = screen.getByText("loop.running").closest("[data-state]");
+      const indicator = screen
+        .getByText("loop.running")
+        .closest("[data-state]");
       expect(indicator).toBeTruthy();
       expect(indicator!.getAttribute("data-state")).toBe("running");
     });
