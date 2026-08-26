@@ -1,5 +1,5 @@
 # Base images — override with --build-arg for environments without ACR access.
-ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+ARG NODE_IMAGE=node:24-trixie-slim
 ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest
 
 # -----------------------------------------------------------------------------
