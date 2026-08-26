@@ -2357,7 +2357,7 @@ async def test_discovery_empty_result_surfaces_connection_error(
     assert provider.models_last_sync_error == result.error
 
 
-async def test_discovery_empty_catalog_uses_generic_message(
+async def test_discovery_empty_catalog_records_successful_sync(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -2380,8 +2380,13 @@ async def test_discovery_empty_catalog_uses_generic_message(
 
     result = await manager.discover_provider_models("openai")
 
-    assert result.success is False
-    assert result.error == "Provider returned no models"
+    assert result.success is True
+    assert result.models == []
+    assert result.discovered_count == 0
+    assert result.last_synced_at is not None
+    assert provider.discovered_models == []
+    assert provider.models_last_synced_at == result.last_synced_at
+    assert provider.models_last_sync_error is None
 
 
 async def test_discovery_merges_catalog_when_flag_enabled(
@@ -3773,6 +3778,100 @@ def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:
     )
 
     assert isinstance(provider, OpenAIProvider)
+
+
+def test_custom_provider_from_data_normalizes_discovery_policy(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+
+    provider = manager._provider_from_data(
+        {
+            "id": "custom-openai-like",
+            "name": "OpenAI Like",
+            "chat_model": "OpenAIChatModel",
+            "is_custom": True,
+            "support_model_discovery": False,
+        },
+    )
+
+    assert provider.support_model_discovery is True
+    assert provider.discovery_strategy == "openai_models"
+
+
+def test_custom_provider_protocol_update_replaces_runtime_class(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = OpenAIProvider(
+        id="custom-protocol-switch",
+        name="Protocol Switch",
+        is_custom=True,
+        chat_model="OpenAIChatModel",
+    )
+    manager.custom_providers[provider.id] = provider
+    manager._save_provider(provider, is_builtin=False)
+
+    assert manager.update_provider(
+        provider.id,
+        {"chat_model": "AnthropicChatModel"},
+    )
+
+    updated = manager.get_provider(provider.id)
+    assert updated is not None
+    assert isinstance(updated, AnthropicProvider)
+    assert updated.chat_model == "AnthropicChatModel"
+    assert updated.support_model_discovery is True
+    assert updated.discovery_strategy == "anthropic_models"
+
+
+def test_unsupported_custom_protocol_disables_discovery(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+
+    provider = manager._provider_from_data(
+        {
+            "id": "custom-dashscope",
+            "name": "Custom DashScope",
+            "chat_model": "DashScopeChatModel",
+            "is_custom": True,
+            "support_model_discovery": True,
+        },
+    )
+
+    assert provider.support_model_discovery is False
+    assert provider.discovery_strategy == "unsupported"
+
+
+def test_legacy_custom_provider_load_normalizes_discovery_policy(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider_path = manager.custom_path / "legacy-custom.json"
+    provider_path.write_text(
+        json.dumps(
+            {
+                "id": "legacy-custom",
+                "name": "Legacy Custom",
+                "base_url": "https://example.test/v1",
+                "api_key": "sk-test",
+                "chat_model": "OpenAIChatModel",
+                "discovered_models": [],
+                "models_syncing": False,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    reloaded = ProviderManager()
+    provider = reloaded.get_provider("legacy-custom")
+
+    assert provider is not None
+    assert provider.support_model_discovery is True
+    assert provider.discovery_strategy == "openai_models"
+    persisted = json.loads(provider_path.read_text(encoding="utf-8"))
+    assert persisted["support_model_discovery"] is True
 
 
 def test_init_from_storage_migrates_with_different_provider(

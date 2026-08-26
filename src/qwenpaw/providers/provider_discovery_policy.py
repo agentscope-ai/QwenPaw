@@ -106,10 +106,40 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "mimo": _OPENAI_DYNAMIC,
 }
 
+CUSTOM_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
+    "OpenAIChatModel": ProviderDiscoveryPolicy("openai_models"),
+    "OpenAIResponseModel": ProviderDiscoveryPolicy("openai_models"),
+    "AnthropicChatModel": ProviderDiscoveryPolicy("anthropic_models"),
+    "GeminiChatModel": ProviderDiscoveryPolicy("gemini_models"),
+}
+
 
 def apply_discovery_policy(provider: Provider) -> None:
     """Apply the declared built-in policy to one provider instance."""
     policy = BUILTIN_DISCOVERY_POLICIES[provider.id]
+    provider.discovery_strategy = policy.strategy
+    provider.discovery_support_reason = policy.reason
+    provider.discovery_requires_auth = policy.requires_auth
+    provider.model_sync_mode = policy.sync_mode
+    provider.support_model_discovery = policy.strategy not in {
+        "catalog_only",
+        "unsupported",
+    }
+
+
+def apply_custom_discovery_policy(provider: Provider) -> None:
+    """Normalize discovery metadata for a custom provider protocol."""
+    if not provider.is_custom:
+        return
+    policy = CUSTOM_DISCOVERY_POLICIES.get(provider.chat_model)
+    if policy is None:
+        policy = ProviderDiscoveryPolicy(
+            "unsupported",
+            reason=(
+                "This chat protocol does not expose a supported model "
+                "listing strategy."
+            ),
+        )
     provider.discovery_strategy = policy.strategy
     provider.discovery_support_reason = policy.reason
     provider.discovery_requires_auth = policy.requires_auth

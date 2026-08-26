@@ -966,7 +966,7 @@ export default function ModelSelector({
         {loadError && (
           <div className={styles.loadError} role="alert">
             <span>{t("modelSelector.partialLoadFailed")}</span>
-            <button type="button" onClick={fetchData}>
+            <button type="button" onClick={() => void fetchData()}>
               {t("modelSelector.retry")}
             </button>
           </div>

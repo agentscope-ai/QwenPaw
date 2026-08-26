@@ -149,6 +149,13 @@ class ProviderManagerDiscoveryMixin(
             self._discovery_generations[provider_id] = generation
             return provider, self._provider_revision(provider_id), generation
 
+    async def prepare_provider_model_discovery(
+        self,
+        provider_id: str,
+    ) -> bool:
+        """Expose the syncing state before a background refresh starts."""
+        return await self._begin_discovery(provider_id) is not None
+
     async def _clear_discovery_syncing(
         self,
         provider_id: str,
@@ -313,7 +320,8 @@ class ProviderManagerDiscoveryMixin(
                     fetch_provider,
                     timeout,
                 )
-                raise ValueError(reason or "Provider returned no models")
+                if reason:
+                    raise ValueError(reason)
             fetched = [
                 model
                 for model in fetched

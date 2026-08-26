@@ -344,6 +344,11 @@ async def configure_provider(
 
     provider = manager.get_provider(provider_id)
     if _should_auto_discover(body, provider):
+        if not await manager.prepare_provider_model_discovery(provider_id):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Provider '{provider_id}' not found",
+            )
         background_tasks.add_task(
             manager.discover_provider_models,
             provider_id,

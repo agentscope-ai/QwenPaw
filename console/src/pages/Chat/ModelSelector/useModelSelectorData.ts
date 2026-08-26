@@ -29,26 +29,32 @@ export function useModelSelectorData({
     [onActiveModels],
   );
 
-  const fetchData = useCallback(async () => {
-    const providersRequestId = ++providersRequestRef.current;
-    const activeRequestId = ++activeRequestRef.current;
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const result = await modelSelectorApi.loadModelSelectorData(agentId);
-      if (providersRequestId !== providersRequestRef.current) return;
-      if (result.providers) setProviders(result.providers);
-      if (result.activeModels && activeRequestId === activeRequestRef.current) {
-        applyActiveModels(result.activeModels);
+  const fetchData = useCallback(
+    async (showLoading = true) => {
+      const providersRequestId = ++providersRequestRef.current;
+      const activeRequestId = ++activeRequestRef.current;
+      if (showLoading) setLoading(true);
+      setLoadError(false);
+      try {
+        const result = await modelSelectorApi.loadModelSelectorData(agentId);
+        if (providersRequestId !== providersRequestRef.current) return;
+        if (result.providers) setProviders(result.providers);
+        if (
+          result.activeModels &&
+          activeRequestId === activeRequestRef.current
+        ) {
+          applyActiveModels(result.activeModels);
+        }
+        setLoadError(result.loadError);
+        return result;
+      } finally {
+        if (showLoading && providersRequestId === providersRequestRef.current) {
+          setLoading(false);
+        }
       }
-      setLoadError(result.loadError);
-      return result;
-    } finally {
-      if (providersRequestId === providersRequestRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [agentId, applyActiveModels]);
+    },
+    [agentId, applyActiveModels],
+  );
 
   const refreshActiveModels = useCallback(async () => {
     const requestId = ++activeRequestRef.current;
@@ -59,6 +65,15 @@ export function useModelSelectorData({
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!providers.some((provider) => provider.models_syncing)) return;
+
+    const timer = window.setInterval(() => {
+      void fetchData(false);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [fetchData, providers]);
 
   return {
     activeModels,

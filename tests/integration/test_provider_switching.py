@@ -180,6 +180,75 @@ def _unregister_provider(app_server, provider_id: str):
         pass
 
 
+@pytest.mark.integration
+@pytest.mark.p1
+def test_custom_provider_discovery_populates_model_catalog(
+    app_server,
+    mock_llm,
+):
+    """A configured custom OpenAI provider persists its discovered models."""
+    _, mock_url = mock_llm
+    provider_id = "integ-discovery-provider"
+    _unregister_provider(app_server, provider_id)
+    try:
+        created = app_server.api_request(
+            "POST",
+            "/api/models/custom-providers",
+            json={
+                "id": provider_id,
+                "name": "Integration Discovery",
+                "default_base_url": mock_url,
+                "chat_model": "OpenAIChatModel",
+                "models": [],
+            },
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert created.status_code == 201, created.text
+
+        configured = app_server.api_request(
+            "PUT",
+            f"/api/models/{provider_id}/config",
+            json={
+                "api_key": "test-key-discovery",
+                "base_url": mock_url,
+            },
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert configured.status_code == 200, configured.text
+        assert configured.json()["models_syncing"] is True
+
+        deadline = time.monotonic() + 10
+        discovered = None
+        while time.monotonic() < deadline:
+            listed = app_server.api_request(
+                "GET",
+                "/api/models",
+                timeout=_HTTP_TIMEOUT,
+            )
+            assert listed.status_code == 200, listed.text
+            discovered = next(
+                item
+                for item in listed.json()
+                if item.get("id") == provider_id
+            )
+            if (
+                not discovered.get("models_syncing")
+                and discovered.get("discovered_models")
+            ):
+                break
+            time.sleep(0.1)
+
+        assert discovered is not None
+        assert discovered["models_syncing"] is False
+        assert [
+            model["id"] for model in discovered["discovered_models"]
+        ] == ["mock-model"]
+        assert discovered["models_last_synced_at"]
+        assert discovered["models_last_sync_error"] is None
+    finally:
+        _unregister_provider(app_server, provider_id)
+
+
 # ------------------------------------------------------------------ #
 # C2: 429 rate-limit then recover
 # ------------------------------------------------------------------ #
