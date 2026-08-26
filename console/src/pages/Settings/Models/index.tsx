@@ -567,6 +567,10 @@ function ModelsPage() {
                 open={!!configModalProvider}
                 onClose={() => setConfigModalProvider(null)}
                 onSaved={refreshProvidersSilently}
+                // After a successful save, jump straight into the model
+                // management modal for the same provider instead of making the
+                // user close this modal and reopen the Models one (#4036).
+                onOpenModels={() => handleOpenModels(configModalProvider)}
               />
             )}
             {modelsModalProvider && (
