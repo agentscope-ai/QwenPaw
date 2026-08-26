@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/request";
 import FilesNavigator from "./FilesNavigator";
@@ -12,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   listDirectory: vi.fn(),
   listFiles: vi.fn(),
   setSystemPromptFiles: vi.fn(),
-  chatNotFound: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -83,7 +81,6 @@ function renderNavigator() {
       onShowMemoryGraph={vi.fn()}
       onShowFiles={vi.fn()}
       scope={{ kind: "agent", agentId: "default" }}
-      onChatNotFound={vi.fn()}
     />,
   );
 }
@@ -145,53 +142,37 @@ describe("FilesNavigator system prompt interactions", () => {
     ).toBeInTheDocument();
   });
 
-  it("reloads the agent default tree when the chat is missing", async () => {
-    mocks.getChatProjectDirectory.mockRejectedValue(
-      new ApiError(404, "Chat not found"),
+  it("uses the agent directory directly for a new conversation", async () => {
+    mocks.listDirectory.mockResolvedValue({
+      entries: [
+        {
+          name: "agent-default.txt",
+          path: "agent-default.txt",
+          kind: "file",
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    render(
+      <FilesNavigator
+        selectedPath=""
+        onSelect={vi.fn()}
+        activeMemoryGraphRoot={null}
+        onShowMemoryGraph={vi.fn()}
+        onShowFiles={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "new",
+        }}
+      />,
     );
-    mocks.listDirectory.mockImplementation((_path, _cursor, _limit, chatId) =>
-      chatId
-        ? Promise.reject(new ApiError(404, "Chat not found"))
-        : Promise.resolve({
-            entries: [
-              {
-                name: "fallback.txt",
-                path: "fallback.txt",
-                kind: "file",
-              },
-            ],
-            next_cursor: null,
-            has_more: false,
-          }),
-    );
 
-    function Harness() {
-      const [chatId, setChatId] = useState<string | undefined>("gone");
-      return (
-        <FilesNavigator
-          selectedPath=""
-          onSelect={vi.fn()}
-          activeMemoryGraphRoot={null}
-          onShowMemoryGraph={vi.fn()}
-          onShowFiles={vi.fn()}
-          scope={{
-            kind: "session",
-            agentId: "default",
-            sessionId: "s1",
-            chatId,
-          }}
-          onChatNotFound={(missingChatId) => {
-            mocks.chatNotFound(missingChatId);
-            setChatId(undefined);
-          }}
-        />
-      );
-    }
-
-    render(<Harness />);
-
-    expect(await screen.findByText("fallback.txt")).toBeInTheDocument();
-    expect(mocks.chatNotFound).toHaveBeenCalledWith("gone");
+    expect(await screen.findByText("agent-default.txt")).toBeInTheDocument();
+    expect(mocks.getChatProjectDirectory).not.toHaveBeenCalled();
+    expect(mocks.getChatProjectDirs).not.toHaveBeenCalled();
     expect(mocks.listDirectory).toHaveBeenCalledWith(
       "",
       undefined,

@@ -37,7 +37,6 @@ import {
   type ProjectDirEntry,
 } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
-import { isApiErrorWithStatus } from "../../api/request";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
@@ -74,7 +73,6 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
-  onChatNotFound: (chatId: string) => void;
   onError: (error: unknown) => void;
 }
 
@@ -163,7 +161,6 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
-  onChatNotFound,
   onError,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
@@ -191,16 +188,12 @@ function DirectoryNode({
         setCursor(page.next_cursor);
         setHasMore(page.has_more);
       } catch (error) {
-        if (chatId && isApiErrorWithStatus(error, 404)) {
-          onChatNotFound(chatId);
-          return;
-        }
         onError(error);
       } finally {
         setLoading(false);
       }
     },
-    [chatId, entry.path, onChatNotFound, onError, projectDirOverride, root],
+    [chatId, entry.path, onError, projectDirOverride, root],
   );
 
   const toggle = () => {
@@ -234,7 +227,6 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
-              onChatNotFound={onChatNotFound}
               onError={onError}
             />
           ) : (
@@ -372,7 +364,6 @@ interface FilesNavigatorProps {
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
   scope: FilesWorkspaceScope;
-  onChatNotFound: (chatId: string) => void;
 }
 
 export default function FilesNavigator({
@@ -382,7 +373,6 @@ export default function FilesNavigator({
   onShowMemoryGraph,
   onShowFiles,
   scope,
-  onChatNotFound,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
@@ -434,17 +424,6 @@ export default function FilesNavigator({
   const reportNavigatorError = useCallback((error: unknown) => {
     setNavigatorError(error instanceof Error ? error.message : String(error));
   }, []);
-  const handleChatNotFound = useCallback(
-    (missingChatId: string) => {
-      if (!chatId || missingChatId !== chatId) return;
-      setEntries([]);
-      setCursor(null);
-      setHasMore(false);
-      setNavigatorError(null);
-      onChatNotFound(missingChatId);
-    },
-    [chatId, onChatNotFound],
-  );
 
   useEffect(() => {
     setPendingProjectDir(initialProjectDirOverride);
@@ -647,22 +626,11 @@ export default function FilesNavigator({
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
-    let effectiveProject = projectDirOverride || agentInfo.path;
-    let directoryChatId = chatId;
-    if (!projectDirOverride && chatId) {
-      try {
-        effectiveProject = (await chatProjectDirectoryApi.get(chatId))
-          .project_dir;
-      } catch (err) {
-        // A chat id outlives its ownership (it stays put across an agent
-        // switch, and survives a deletion made elsewhere), and chat endpoints
-        // are scoped to the agent of the request. The agent default is the
-        // right answer for the agent now in view.
-        if (!isApiErrorWithStatus(err, 404)) throw err;
-        directoryChatId = undefined;
-        handleChatNotFound(chatId);
-      }
-    }
+    const effectiveProject = projectDirOverride
+      ? projectDirOverride
+      : chatId
+      ? (await chatProjectDirectoryApi.get(chatId)).project_dir
+      : agentInfo.path;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
     if (scopeKind !== "session") {
@@ -671,25 +639,14 @@ export default function FilesNavigator({
       return;
     }
     try {
-      const snapshot = await loadSessionProjectDirs(
-        agentId,
-        sessionId,
-        directoryChatId,
-      );
+      const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
       setBoundDirs(snapshot.dirs);
     } catch {
       // Fall back to the single directory above rather than blanking the
       // switcher: the tree itself is still perfectly usable.
       setBoundDirs([]);
     }
-  }, [
-    agentId,
-    chatId,
-    handleChatNotFound,
-    projectDirOverride,
-    scopeKind,
-    sessionId,
-  ]);
+  }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
@@ -705,16 +662,10 @@ export default function FilesNavigator({
       setEntries(page.entries);
       setCursor(page.next_cursor);
       setHasMore(page.has_more);
-    } catch (error) {
-      if (chatId && isApiErrorWithStatus(error, 404)) {
-        handleChatNotFound(chatId);
-        return;
-      }
-      throw error;
     } finally {
       setLoading(false);
     }
-  }, [chatId, handleChatNotFound, projectDirOverride, workspaceRoot]);
+  }, [chatId, projectDirOverride, workspaceRoot]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -830,10 +781,6 @@ export default function FilesNavigator({
       setHasMore(page.has_more);
       setNavigatorError(null);
     } catch (error) {
-      if (chatId && isApiErrorWithStatus(error, 404)) {
-        handleChatNotFound(chatId);
-        return;
-      }
       reportNavigatorError(error);
     }
   };
@@ -1102,7 +1049,6 @@ export default function FilesNavigator({
                       selectedPath={selectedPath}
                       onSelect={onSelect}
                       root={workspaceRoot}
-                      onChatNotFound={handleChatNotFound}
                       onError={reportNavigatorError}
                     />
                   );

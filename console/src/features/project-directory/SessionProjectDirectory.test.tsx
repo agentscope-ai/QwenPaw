@@ -334,25 +334,17 @@ describe("SessionProjectDirectory", () => {
     });
   });
 
-  // A chat id outlives its chat: it stays in the URL across an agent switch,
-  // and it survives a deletion made in another tab. Both answer 404, and the
-  // panel refreshes on every scope change — so this must degrade to the agent
-  // default instead of leaving a rejection for the page to report.
-  it("shows the agent default when the session chat is gone", async () => {
+  it("shows the read error instead of treating a missing chat as agent scope", async () => {
     vi.mocked(chatProjectDirectoryApi.getProjectDirs).mockRejectedValue(
       new ApiError(404, "Chat not found"),
     );
 
     renderWithProviders(
-      <SessionProjectDirectory scope={sessionScope} showFullPath />,
+      <SessionProjectDirectory scope={sessionScope} showFullPath open />,
     );
 
-    await waitFor(() => {
-      expect(mockGetSessionDirectory).toHaveBeenCalled();
-    });
-    expect(
-      await screen.findByText("/projects/agentscope", { exact: false }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Chat not found")).toBeInTheDocument();
+    expect(mockGetSessionDirectory).not.toHaveBeenCalled();
   });
 
   it("keeps an unexpected read failure inside the panel", async () => {

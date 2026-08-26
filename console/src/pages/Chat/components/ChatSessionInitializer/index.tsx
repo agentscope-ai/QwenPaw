@@ -11,6 +11,7 @@ import {
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
+import { useAgentStore } from "../../../../stores/agentStore";
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
@@ -62,6 +63,11 @@ const ChatSessionInitializer: React.FC = () => {
   const createNewSessionRef = useRef(createNewSession);
   createNewSessionRef.current = createNewSession;
 
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
+
+  const validatedUrlChatRef = useRef<string | null>(null);
+
   /** AbortController for embedded session switch — aborted when a new switch starts. */
   const switchControllerRef = useRef<AbortController | null>(null);
 
@@ -69,6 +75,64 @@ const ChatSessionInitializer: React.FC = () => {
    *  subsequent sessions array reference changes (from polling in pinned drawer)
    *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
   const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    sessionApi.onSessionNotFound = (sessionId, agentId) => {
+      const agentState = useAgentStore.getState();
+      if (
+        agentState.selectedAgent !== agentId ||
+        chatIdRef.current !== sessionId
+      ) {
+        return;
+      }
+
+      if (agentState.getLastChatId(agentId) === sessionId) {
+        agentState.removeLastChatId(agentId);
+      }
+      agentState.completeAgentChatSwitch(agentId);
+      sessionApi.preferredChatId = null;
+      sessionApi.lastActiveChatId = null;
+      sessionApi.lastNavigatedChatId = null;
+      sessionApi.finishSessionSwitch();
+      sessionApi.resetWindowIdentity();
+      lastAppliedChatIdRef.current = undefined;
+      validatedUrlChatRef.current = null;
+      setCurrentSessionId(undefined);
+      navigate("/chat", { replace: true });
+    };
+
+    return () => {
+      sessionApi.onSessionNotFound = null;
+    };
+  }, [navigate, setCurrentSessionId]);
+
+  // A URL chat that is absent from the active agent's list may be stale or
+  // belong to another agent. Validate it once; sessionApi owns status-aware
+  // 404 detection and the callback above owns URL/global-state cleanup.
+  useEffect(() => {
+    if (!chatId) {
+      validatedUrlChatRef.current = null;
+      return;
+    }
+
+    const matching = sessions.some((session) => {
+      const extended = session as ExtendedSession;
+      return (
+        session.id === chatId ||
+        extended.realId === chatId ||
+        extended.sessionId === chatId
+      );
+    });
+    if (matching || validatedUrlChatRef.current === chatId) return;
+
+    validatedUrlChatRef.current = chatId;
+    const controller = new AbortController();
+    void sessionApi.preloadSession(chatId, controller.signal).catch((error) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      console.error("Failed to validate chat from URL:", error);
+    });
+    return () => controller.abort();
+  }, [chatId, sessions]);
 
   useEffect(() => {
     if (!chatId || !sessions.length) return;

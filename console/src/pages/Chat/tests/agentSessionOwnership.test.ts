@@ -18,6 +18,7 @@ import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useTurnUsageStore } from "../turnUsageStore";
 import type { TurnUsageSnapshot } from "../turnUsage";
+import { ApiError } from "../../../api/request";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -69,6 +70,39 @@ afterEach(() => {
 });
 
 describe("agent session ownership epochs", () => {
+  it("reports an active 404 without selecting the missing session", async () => {
+    vi.spyOn(api, "getChat").mockRejectedValue(
+      new ApiError(404, "Chat not found"),
+    );
+    const onSessionNotFound = vi.fn();
+    const onSessionSelected = vi.fn();
+    sessionApi.onSessionNotFound = onSessionNotFound;
+    sessionApi.onSessionSelected = onSessionSelected;
+    sessionApi.setActiveAgent("agent-a");
+
+    const session = await sessionApi.getSession(A_CHAT);
+
+    expect(session.id).toBe(A_CHAT);
+    expect(session.messages).toEqual([]);
+    expect(onSessionNotFound).toHaveBeenCalledWith(A_CHAT, "agent-a");
+    expect(onSessionSelected).not.toHaveBeenCalled();
+  });
+
+  it("does not report a 404 that completes after its owner changed", async () => {
+    const pendingChat = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat").mockReturnValue(pendingChat.promise);
+    const onSessionNotFound = vi.fn();
+    sessionApi.onSessionNotFound = onSessionNotFound;
+    sessionApi.setActiveAgent("agent-a");
+
+    const pending = sessionApi.getSession(A_CHAT);
+    sessionApi.setActiveAgent("agent-b");
+    pendingChat.reject(new ApiError(404, "Chat not found"));
+    await pending;
+
+    expect(onSessionNotFound).not.toHaveBeenCalled();
+  });
+
   it("requests only host-owned sessions and history in main Chat", async () => {
     const listSpy = vi
       .spyOn(api, "listChats")
@@ -306,10 +340,18 @@ describe("agent session ownership epochs", () => {
     sessionApi.setActiveAgent("agent-a");
     // Simulate an embedded switch whose finally never ran (unmount abort).
     sessionApi.isSessionSwitching = true;
+    sessionApi.preferredChatId = A_CHAT;
+    sessionApi.lastActiveChatId = A_CHAT;
+    sessionApi.lastNavigatedChatId = A_CHAT;
+    (window as { currentSessionId?: string }).currentSessionId = A_CHAT;
 
     sessionApi.setActiveAgent("agent-b");
 
     expect(sessionApi.isSessionSwitching).toBe(false);
+    expect(sessionApi.preferredChatId).toBeNull();
+    expect(sessionApi.lastActiveChatId).toBeNull();
+    expect(sessionApi.lastNavigatedChatId).toBeNull();
+    expect((window as { currentSessionId?: string }).currentSessionId).toBe("");
   });
 
   it("the previous agent's list entries cannot leak ids into the new agent's list", async () => {
