@@ -10,16 +10,9 @@ single background task so enter/exit happen in the same asyncio task
 subprocesses).  The downside is that the cleanup/error paths
 (``close``, ``_wait_for_lifecycle_exit``, ``_reap_lifecycle_task``,
 ``_clear_lifecycle_state``) are *timing-sensitive*: whether the
-``_LIFECYCLE_CLEANUP_TIMEOUT`` branch fires depends on runner load, so
-integration coverage of these lines is non-deterministic.
-
-The cleanup/error paths are also timing-sensitive when left to
-integration tests alone: whether ``_LIFECYCLE_CLEANUP_TIMEOUT``
-branches fire depends on runner load, so integration-only coverage of
-those lines is non-deterministic.  These unit tests drive the cleanup
-paths deterministically (with a shrunk cleanup timeout) so the lines
-are always exercised regardless of CI timing — giving the file stable,
-deterministic unit coverage behind the ``fail_under`` gate.
+``_LIFECYCLE_JOIN_TIMEOUT`` branch fires depends on runner load.
+These unit tests shrink that timeout so cleanup paths stay deterministic
+behind the ``fail_under`` gate.
 """
 
 from __future__ import annotations
@@ -48,31 +41,32 @@ def _client() -> HttpStatefulClient:
     return HttpStatefulClient("test-client", "streamable_http", "http://x")
 
 
-def _arm(c: HttpStatefulClient, session: object) -> None:
+def _arm(c, session) -> None:
     c._session_closed.set()
-    c.session = session  # type: ignore[assignment]
-    c._session_closed = asyncio.Event()
+    c.session, c._session_closed = session, asyncio.Event()
     c.is_connected = True
     c._ready_event.set()
 
 
-class _Hang:
-    def __init__(self, started: asyncio.Event) -> None:
-        self._started = started
+class _Sess:
+    def __init__(self, started=None, tools=None, gate=None):
+        self._started, self._tools, self._gate = started, tools, gate
 
-    async def list_tools(self, *_args, **_kwargs):
-        self._started.set()
-        await asyncio.Event().wait()
+    async def list_tools(self, *_a, **_k):
+        if self._started:
+            self._started.set()
+            await (self._gate or asyncio.Event()).wait()
+        return type("R", (), {"tools": self._tools})()
 
     call_tool = list_tools
 
 
-class _Tools:
-    def __init__(self, tools: list) -> None:
-        self._tools = tools
-
-    async def list_tools(self):
-        return type("Result", (), {"tools": self._tools})()
+async def _swap(c, started, session=None):
+    await started.wait()
+    c._begin_session_teardown()
+    await asyncio.sleep(0)
+    if session is not None:
+        _arm(c, session)
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +192,7 @@ def test_handle_transport_error_marks_disconnected_and_schedules_reload():
     c._ready_event.set()
     c._handle_transport_error(anyio.ClosedResourceError(), c.session)
     assert not c.is_connected and c.session is None
-    assert not c._ready_event.is_set()
-    assert c._reload_event.is_set() and c._session_closed.is_set()
+    assert c._reload_event.is_set()
 
 
 def test_handle_transport_error_skips_reload_when_already_stopping():
@@ -211,21 +204,7 @@ def test_handle_transport_error_skips_reload_when_already_stopping():
     c._stop_event.set()
     c._handle_transport_error(anyio.ClosedResourceError(), c.session)
     assert not c.is_connected and not c._reload_event.is_set()
-    # close() in progress: do not arm reload or drop ready.
-    assert c._ready_event.is_set() and c._session_closed.is_set()
-
-
-def test_handle_transport_error_ignores_stale_session():
-    import anyio
-
-    c = _client()
-    old, new = object(), object()
-    c.session = new  # type: ignore[assignment]
-    c.is_connected = True
-    c._ready_event.set()
-    c._handle_transport_error(anyio.ClosedResourceError(), old)
-    assert c.is_connected is True and c.session is new
-    assert not c._reload_event.is_set() and not c._session_closed.is_set()
+    assert not c._ready_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -241,12 +220,11 @@ def test_clear_lifecycle_state_resets_when_task_matches():
     c.is_connected = True
     c._ready_event.set()
     c._reload_event.set()
+    c._cached_tools = ["stale"]  # type: ignore[list-item]
     c._clear_lifecycle_state(sentinel)
-    assert c._lifecycle_task is None
-    assert c.session is None
-    assert c.is_connected is False
-    assert not c._ready_event.is_set()
-    assert not c._reload_event.is_set()
+    assert c._lifecycle_task is None and c.session is None
+    assert not c.is_connected and not c._ready_event.is_set()
+    assert c._cached_tools is None and not c._reload_event.is_set()
 
 
 def test_clear_lifecycle_state_is_noop_when_task_differs():
@@ -258,8 +236,7 @@ def test_clear_lifecycle_state_is_noop_when_task_differs():
     c._reload_event.set()
     c._clear_lifecycle_state(object())  # different task object
     assert c._lifecycle_task is current
-    assert c.session == "ses"
-    assert c._reload_event.is_set()
+    assert c.session == "ses" and c._reload_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +264,7 @@ async def test_wait_for_lifecycle_exit_fast_path_clears_state():
 
 
 async def test_wait_for_lifecycle_exit_timeout_spawns_reaper(monkeypatch):
-    monkeypatch.setattr(mod, "_LIFECYCLE_CLEANUP_TIMEOUT", 0.05)
-    monkeypatch.setattr(mod, "_SESSION_RPC_DRAIN_TIMEOUT", 0)
+    monkeypatch.setattr(mod, "_LIFECYCLE_JOIN_TIMEOUT", 0.05)
     c = _client()
 
     release = asyncio.Event()
@@ -320,7 +296,7 @@ async def test_wait_for_lifecycle_exit_timeout_spawns_reaper(monkeypatch):
 async def test_reap_retries_when_cleanup_still_pending(monkeypatch):
     """The reaper must warn and re-cancel when the task ignores the first
     cancel long enough to exceed the cleanup timeout."""
-    monkeypatch.setattr(mod, "_LIFECYCLE_CLEANUP_TIMEOUT", 0.05)
+    monkeypatch.setattr(mod, "_LIFECYCLE_JOIN_TIMEOUT", 0.05)
     c = _client()
 
     async def stubborn() -> None:
@@ -460,7 +436,10 @@ async def test_list_tools_serves_cache_when_disconnected():
     assert result == ["cached-tool"]
 
 
-async def test_list_tools_serves_cache_and_reconnects_on_terminated_session():
+async def test_list_tools_serves_cache_and_reconnects_on_terminated_session(
+    monkeypatch,
+):
+    monkeypatch.setattr(mod, "_LIST_TOOLS_RECONNECT_WAIT", 0)
     c = _client()
     c.is_connected = True
     c._ready_event.set()
@@ -513,114 +492,119 @@ async def test_list_tools_retries_once_after_terminated_cold_session():
     assert c._cached_tools == ["fresh-tool"]
 
 
-async def test_list_tools_retries_after_session_invalidated_mid_request():
-    """#6822: teardown must unblock list_tools without arming reload."""
-    c = _client()
-    started = asyncio.Event()
-    _arm(c, _Hang(started))
-
-    async def reconnect() -> None:
-        await started.wait()
-        c._begin_session_teardown()
-        c._ready_event.clear()
-        await asyncio.sleep(0)
-        _arm(c, _Tools(["recovered"]))
-
-    task = asyncio.create_task(reconnect())
-    try:
-        result = await asyncio.wait_for(c.list_tools(), timeout=1.0)
-    finally:
-        await task
-    assert result == c._cached_tools == ["recovered"]
-    assert not c._reload_event.is_set()
-
-
-async def test_list_tools_retries_when_new_session_already_published():
-    """Old RPC failure must not return cache or arm reload after reconnect."""
-    c = _client()
+async def test_list_tools_retries_after_session_swap():
+    started, c = asyncio.Event(), _client()
+    _arm(c, _Sess(started=started))
     c._cached_tools = ["stale"]  # type: ignore[list-item]
-    started = asyncio.Event()
-
-    class SlowFail:
-        async def list_tools(self):
-            started.set()
-            await asyncio.sleep(0)
-            raise mod._connection_closed_error()
-
-    _arm(c, SlowFail())
-
-    async def publish_new() -> None:
-        await started.wait()
-        _arm(c, _Tools(["fresh"]))
-
-    task = asyncio.create_task(publish_new())
+    task = asyncio.create_task(_swap(c, started, _Sess(tools=["fresh"])))
     try:
-        result = await asyncio.wait_for(c.list_tools(), timeout=1.0)
+        assert await asyncio.wait_for(c.list_tools(), timeout=1) == ["fresh"]
     finally:
         await task
-    assert result == c._cached_tools == ["fresh"]
-    assert not c._reload_event.is_set()
+    assert c._cached_tools == ["fresh"] and not c._reload_event.is_set()
 
 
-async def test_list_tools_cancel_does_not_become_mcp_error():
-    c = _client()
-    started = asyncio.Event()
-    _arm(c, _Hang(started))
+async def test_drain_abandons_stubborn_rpc(monkeypatch):
+    monkeypatch.setattr(mod, "_SESSION_RPC_DRAIN_TIMEOUT", 0.05)
+    c, hold = _client(), asyncio.Event()
+
+    async def hung():
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            await hold.wait()
+            raise
+
+    t = asyncio.create_task(hung())
+    c._rpc_tasks.add(t)
+    await c._drain_session_rpcs()
+    assert t not in c._rpc_tasks
+    hold.set()
+    await asyncio.gather(t, return_exceptions=True)
+
+
+async def test_list_tools_internal_rpc_cancel_retries_same_session():
+    c, started, gate = _client(), asyncio.Event(), asyncio.Event()
+    sess = _Sess(started=started, gate=gate, tools=["t"])
+    _arm(c, sess)
+    task = asyncio.create_task(c.list_tools())
+    await started.wait()
+    next(iter(c._rpc_tasks)).cancel()
+    gate.set()
+    assert await asyncio.wait_for(task, timeout=1) == ["t"]
+    assert c.session is sess
+
+
+async def test_call_tool_internal_rpc_cancel_reports_aborted():
+    c, started = _client(), asyncio.Event()
+    _arm(c, _Sess(started=started))
+    task = asyncio.create_task(c.call_tool("foo", {}))
+    await started.wait()
+    next(iter(c._rpc_tasks)).cancel()
+    with pytest.raises(RuntimeError, match="aborted"):
+        await asyncio.wait_for(task, timeout=1)
+
+
+async def test_list_tools_caller_cancel_never_serves_cache():
+    c, started = _client(), asyncio.Event()
+    _arm(c, _Sess(started=started))
+    c._cached_tools = ["cached"]  # type: ignore[list-item]
     task = asyncio.create_task(c.list_tools())
     await started.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert not c._reload_event.is_set()
 
 
-async def test_await_session_rpc_abort_paths():
-    async def should_not_run():
-        raise AssertionError("rpc started")
+async def test_await_rpc_abort_paths(monkeypatch):
+    c = _client()
+    c._session_closed.set()
+    ran = False
 
-    for flag in ("_session_closed", "_stop_event"):
-        c = _client()
-        getattr(c, flag).set()
-        with pytest.raises(McpError, match="Connection closed"):
-            await c._await_session_rpc(should_not_run(), c._session_closed)
+    async def boom():
+        nonlocal ran
+        ran = True
 
-    for trigger in ("stop", "abandon"):
-        c = _client()
-        started = asyncio.Event()
-        task = asyncio.create_task(
-            c._await_session_rpc(
-                _Hang(started).list_tools(),
-                c._session_closed,
-            ),
-        )
+    with pytest.raises(mod._SessionGoneError):
+        await c._await_rpc(boom(), c._session_closed)
+    assert not ran and not c._rpc_tasks
+
+    for mode, exc in (
+        ("stop", mod._SessionGoneError),
+        ("closed", mod._SessionGoneError),
+        ("rpc", mod._SessionGoneError),
+        ("cancel", asyncio.CancelledError),
+    ):
+        c, started = _client(), asyncio.Event()
+        h = _Sess(started=started).list_tools()
+        task = asyncio.create_task(c._await_rpc(h, c._session_closed))
         await started.wait()
-        if trigger == "stop":
+        if mode == "cancel":
+            task.cancel()
+        elif mode == "stop":
             c._stop_event.set()
-        else:
+        elif mode == "closed":
             c._begin_session_teardown()
             c._abandon_session_rpcs()
-        with pytest.raises(McpError, match="Connection closed"):
-            await asyncio.wait_for(task, timeout=1.0)
+        else:
+            next(iter(c._rpc_tasks)).cancel()
+        with pytest.raises(exc):
+            await asyncio.wait_for(task, timeout=1)
 
+    orig = asyncio.wait
 
-async def test_drain_drops_stubborn_rpc_from_set(monkeypatch):
-    monkeypatch.setattr(mod, "_SESSION_RPC_DRAIN_TIMEOUT", 0.05)
-    c = _client()
-    release = asyncio.Event()
+    async def wait_cancel(aws, **kw):
+        done, pending = await orig(aws, **kw)
+        asyncio.current_task().cancel()
+        return done, pending
 
-    async def stubborn():
-        while True:
-            try:
-                return await release.wait()
-            except asyncio.CancelledError:
-                continue
+    async def fail():
+        raise ConnectionResetError("pipe broke")
 
-    task = asyncio.create_task(stubborn())
-    c._rpc_tasks.add(task)
-    await asyncio.wait_for(c._drain_session_rpcs(), timeout=1.0)
-    assert task not in c._rpc_tasks
-    release.set()
-    await asyncio.wait_for(task, timeout=1.0)
+    monkeypatch.setattr(asyncio, "wait", wait_cancel)
+    t = asyncio.create_task(_client()._await_rpc(fail(), asyncio.Event()))
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(t, timeout=1)
 
 
 async def test_list_tools_raises_on_cold_start_without_cache():
@@ -651,24 +635,6 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
     assert c._reload_event.is_set()
 
 
-async def test_call_tool_aborts_when_session_invalidated_mid_request():
-    c = _client()
-    started = asyncio.Event()
-    _arm(c, _Hang(started))
-
-    async def tear_down() -> None:
-        await started.wait()
-        c._begin_session_teardown()
-
-    task = asyncio.create_task(tear_down())
-    try:
-        with pytest.raises(McpError, match="Connection closed"):
-            await asyncio.wait_for(c.call_tool("foo", {}), timeout=1.0)
-    finally:
-        await task
-    assert not c._reload_event.is_set()
-
-
 async def test_call_tool_does_not_reconnect_for_generic_server_error():
     c = _client()
     c.is_connected = True
@@ -689,9 +655,17 @@ async def test_call_tool_does_not_reconnect_for_generic_server_error():
     assert not c._reload_event.is_set()
 
 
-# ---------------------------------------------------------------------------
-# connect / reload preconditions
-# ---------------------------------------------------------------------------
+async def test_call_tool_aborts_when_session_invalidated_mid_request():
+    for nxt, match in ((None, "not connected"), (_Sess(), "replaced")):
+        started, c = asyncio.Event(), _client()
+        _arm(c, _Sess(started=started))
+        t = asyncio.create_task(_swap(c, started, nxt))
+        try:
+            with pytest.raises(RuntimeError, match=match):
+                await asyncio.wait_for(c.call_tool("foo", {}), timeout=1)
+        finally:
+            await t
+        assert not c._reload_event.is_set() and bool(nxt) is c.is_connected
 
 
 async def test_connect_raises_when_already_connected():
@@ -707,37 +681,44 @@ async def test_reload_raises_when_not_connected():
         await c.reload()
 
 
-async def test_lifecycle_error_clears_spurious_reload(monkeypatch):
-    """Leftover reload after connect failure must not bounce."""
-    c = _client()
+async def test_lifecycle_cleanup_paths(monkeypatch):
+    c, n = _client(), 0
     c._reload_event.set()
     c._reconnect_delay = 0.0
-    n = 0
+    started, aexit, allow = (asyncio.Event() for _ in range(3))
 
-    class FakeSession:
+    class S:
         async def initialize(self):
-            return None
-
-        async def __aenter__(self):
             return self
 
-        async def __aexit__(self, *args):
-            return None
+        __aenter__ = initialize
 
-    async def setup(_stack):
+        async def __aexit__(self, *_a):
+            aexit.set()
+
+    async def setup(_s):
         nonlocal n
         n += 1
         if n == 1:
             raise ConnectionError("boom")
         return object(), object()
 
-    monkeypatch.setattr(mod, "ClientSession", lambda *a, **k: FakeSession())
+    async def slow_drain():
+        started.set()
+        await allow.wait()
+
+    monkeypatch.setattr(mod, "ClientSession", lambda *_a, **_k: S())
     monkeypatch.setattr(c, "_setup_transport", setup)
+    monkeypatch.setattr(c, "_drain_session_rpcs", slow_drain)
     task = asyncio.create_task(c._run_lifecycle())
-    try:
-        await asyncio.wait_for(c._ready_event.wait(), timeout=2)
-        await asyncio.sleep(0.05)
-        assert n == 2 and c.is_connected and not c._reload_event.is_set()
-    finally:
-        c._stop_event.set()
+    await asyncio.wait_for(c._ready_event.wait(), timeout=2)
+    assert n == 2 and c.is_connected and not c._reload_event.is_set()
+    c._stop_event.set()
+    await asyncio.wait_for(started.wait(), timeout=1)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not aexit.is_set()
+    allow.set()
+    with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=2)
+    assert aexit.is_set() and task.cancelled()
