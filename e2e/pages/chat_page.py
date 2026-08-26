@@ -67,15 +67,15 @@ class ChatPage(BasePage):
     # ``chatSessionItem`` class is gone. Anchor on the drawer list wrapper +
     # role, keeping the old class as a fallback for older builds.
     SESSION_ITEM = (
-        '[class*=listWrapper] div[role="button"], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
     SESSION_ACTIVE = (
-        '[class*=listWrapper] div[role="button"][class*=active], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"][class*=active], '
         '[class*=chatSessionItem][class*=active]'
     )
     SESSION_NAME = (
-        '[class*=listWrapper] div[role="button"] [class*=name], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"] [class*=name], '
         '[class*=chatSessionItem] [class*=name]'
     )
     # SessionItem actions now live behind a "more" button (SparkMoreLine)
@@ -159,7 +159,8 @@ class ChatPage(BasePage):
     # SidebarSessionList renders one <button class={styles.groupLabel}> per
     # non-empty bucket (Pinned / Today / Within 7 days / Within 30 days /
     # Earlier); clicking toggles collapse. "month" + "older" start collapsed.
-    SIDEBAR_GROUP_LABEL = 'button[class*="groupLabel"]'
+    SIDEBAR_GROUP_LABEL = 'div[role="button"][class*="SessionGroupHeader"]'
+    SIDEBAR_DATE_LABEL = '[data-date-group]'
     SIDEBAR_GROUP_CHEVRON = 'span[class*="groupChevron"]'
     SIDEBAR_GROUP_TEXTS = {
         "pinned": ("Pinned", "置顶"),
@@ -928,7 +929,10 @@ class ChatPage(BasePage):
         if not sessions or index >= len(sessions):
             logger.warning(f"Session at index {index} not found")
             return False
-        target = sessions[index]
+        # The sidebar is a virtual list: rows are recycled, so a locator
+        # captured via .all() can detach mid-interaction. Re-resolve by
+        # nth() right before each interaction attempt instead.
+        target = self.page.locator(self.SESSION_ITEM).nth(index)
 
         # antd keeps closed menus in the DOM with a ``-hidden`` modifier; the
         # open one is the menu WITHOUT it.
@@ -952,6 +956,20 @@ class ChatPage(BasePage):
                 self.page.mouse.move(0, 0)
             except Exception:
                 pass
+            # Virtual list: off-viewport rows are not in the DOM at all.
+            # Scroll the list container so the target row gets rendered
+            # before resolving it.
+            try:
+                if not target.is_visible():
+                    self.page.locator(
+                        '[class*="listWrapper"] [class*="scroll"], '
+                        '[class*="listWrapper"]'
+                    ).first.evaluate(
+                        "el => el.scrollTo({top: el.scrollHeight})"
+                    )
+                    self.wait(500)
+            except Exception as exc:
+                logger.warning(f"[_open_session_menu] scroll failed: {exc}")
             try:
                 target.scroll_into_view_if_needed(timeout=5000)
                 target.hover(timeout=8000)
@@ -1183,16 +1201,29 @@ class ChatPage(BasePage):
     # ========== Sidebar date groups (upstream #5643) ==========
 
     def get_sidebar_group_header(self, group: str) -> Locator:
-        """Locator for one sidebar date-group header button.
+        """Locator for one sidebar date-bucket header.
 
         Args:
             group: bucket key — pinned / today / week / month / older.
+
+        Upstream re-architected the sidebar: date buckets now render as
+        non-collapsible ``SessionDateHeader`` rows carrying a
+        ``data-date-group`` attribute, nested inside collapsible user
+        groups.
         """
         en, zh = self.SIDEBAR_GROUP_TEXTS[group]
         return self.page.locator(
-            f'{self.SIDEBAR_GROUP_LABEL}:has-text("{en}"), '
-            f'{self.SIDEBAR_GROUP_LABEL}:has-text("{zh}")'
+            f'{self.SIDEBAR_DATE_LABEL}[data-date-group="{group}"], '
+            f'{self.SIDEBAR_DATE_LABEL}:has-text("{en}"), '
+            f'{self.SIDEBAR_DATE_LABEL}:has-text("{zh}")'
         ).first
+
+    def toggle_sidebar_user_group(self) -> "ChatPage":
+        """Click the first collapsible user-group header."""
+        logger.info("Toggling the first sidebar user group")
+        self.page.locator(self.SIDEBAR_GROUP_LABEL).first.click()
+        self.wait(300)
+        return self
 
     def toggle_sidebar_group(self, group: str) -> "ChatPage":
         """Click a sidebar group header to collapse / expand it."""

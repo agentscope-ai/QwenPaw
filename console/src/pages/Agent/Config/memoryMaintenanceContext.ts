@@ -13,7 +13,6 @@ export interface MemoryMaintenanceState {
   runtimeStatus: ReMeRuntimeStatus;
   diagnosticsStatus: ReMeDiagnosticsStatus;
   checkMemoryStatus: (includeDiagnostics?: boolean) => Promise<void>;
-  configRevision: number;
 }
 
 export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
@@ -25,7 +24,6 @@ export const MemoryMaintenanceContext = createContext<MemoryMaintenanceState>({
   runtimeStatus: { type: "unknown" },
   diagnosticsStatus: { type: "unknown" },
   checkMemoryStatus: async () => {},
-  configRevision: 0,
 });
 
 export function useMemoryMaintenance() {

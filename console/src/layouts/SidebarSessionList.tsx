@@ -45,6 +45,8 @@ import {
 import { chatApi } from "../api/modules/chat";
 import type { ChatGroup } from "../api/types/chat";
 import { useAppMessage } from "../hooks/useAppMessage";
+import { useSessionAttention } from "../hooks/useSessionAttention";
+import { useAgentStore } from "../stores/agentStore";
 import styles from "./sidebarSessionList.module.less";
 
 /** Fixed height of each session item row */
@@ -74,6 +76,7 @@ type FlatRow =
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   editingSessionId: string | null;
   editValue: string;
@@ -189,6 +192,7 @@ const VirtualRow = React.memo(function VirtualRow({
           channelLabel={channelLabel}
           chatStatus={session.status}
           generating={session.generating}
+          unseenResult={data.unseenSessionIds.has(session.id)}
           archived={session.archived}
           pinned={session.pinned}
           source={session.source}
@@ -230,6 +234,7 @@ export default function SidebarSessionList({
 }: SidebarSessionListProps = {}) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
@@ -304,6 +309,12 @@ export default function SidebarSessionList({
     currentSessionId,
     onSessionClick,
   });
+
+  const unseenSessionIds = useSessionAttention(
+    selectedAgent,
+    sortedSessions,
+    currentSessionId,
+  );
 
   const handleMove = useCallback(
     async (sessionId: string, groupId: string, expandTarget = true) => {
@@ -537,6 +548,7 @@ export default function SidebarSessionList({
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       editingSessionId,
       editValue,
@@ -559,6 +571,7 @@ export default function SidebarSessionList({
     }),
     [
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       editingSessionId,
       editValue,

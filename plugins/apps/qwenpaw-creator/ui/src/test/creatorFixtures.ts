@@ -238,6 +238,7 @@ export const projectDocument: ProjectDocument = {
             creation: {
               type: "audio",
               source_asset_version_id: "cat-video-v1",
+              role: "bgm",
               gain_db: -6,
               pan: 0,
             },

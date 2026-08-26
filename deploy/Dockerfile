@@ -18,7 +18,7 @@ FROM ${UV_IMAGE} AS uv-src
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE}
 
-ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="2.1.1b1"
+ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION
 LABEL io.qwenpaw.managed-runtime-boundary.version=\
 ${QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION}
 

@@ -222,19 +222,6 @@
   font-size: 14px;
 }
 
-.showAllButton {
-  width: calc(100% - 16px);
-  margin: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--ms-border);
-  font-size: 12px;
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--ms-accent);
-  }
-}
-
 .candidateItem {
   display: flex;
   align-items: center;
@@ -986,8 +973,7 @@
 
 .viewMore,
 .moreToggle,
-.connectEntry,
-.showAllButton {
+.connectEntry {
   min-height: 38px;
   border-radius: 8px;
   color: var(--ms-text-muted);
@@ -1009,8 +995,7 @@
 
 .viewMore:hover,
 .moreToggle:hover,
-.connectEntry:hover,
-.showAllButton:hover {
+.connectEntry:hover {
   color: var(--ms-accent-strong);
   background: var(--ms-accent-soft);
 }
@@ -1171,7 +1156,6 @@
 .viewMore:focus-visible,
 .moreToggle:focus-visible,
 .connectEntry:focus-visible,
-.showAllButton:focus-visible,
 .candidateSecondaryButton:focus-visible,
 .addCandidateButton:focus-visible,
 .agentSettingsBody button:focus-visible,

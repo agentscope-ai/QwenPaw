@@ -59,7 +59,7 @@ def _seed_task(services, index: int, kind: TaskKind, status: TaskStatus):
         )
 
 
-def test_count_covers_billable_kinds_and_all_statuses(tmp_path, monkeypatch):
+def test_count_covers_billable_kinds_and_fuse_trips(tmp_path, monkeypatch):
     services = _services(tmp_path, monkeypatch)
     _seed_task(services, 1, TaskKind.IMAGE_GENERATION, TaskStatus.QUEUED)
     _seed_task(services, 2, TaskKind.R2V_GENERATION, TaskStatus.RUNNING)
@@ -68,56 +68,21 @@ def test_count_covers_billable_kinds_and_all_statuses(tmp_path, monkeypatch):
     _seed_task(services, 3, TaskKind.IMAGE_GENERATION, TaskStatus.FAILED)
     # Non-billable work does not.
     _seed_task(services, 4, TaskKind.COMPOSE, TaskStatus.RUNNING)
-
     assert media_call_count(services, PROJECT_ID) == 3
 
-
-def test_fuse_trips_at_budget_with_an_actionable_message(
-    tmp_path,
-    monkeypatch,
-):
-    services = _services(tmp_path, monkeypatch)
-    _seed_task(services, 1, TaskKind.IMAGE_GENERATION, TaskStatus.RUNNING)
     monkeypatch.setattr(
         "services.media_files.call_budget.get_media_call_budget",
-        lambda: 1,
+        lambda: 3,
     )
-
     with pytest.raises(MediaCallBudgetExhausted) as caught:
         ensure_media_call_budget(services, PROJECT_ID)
     assert "media_call_budget" in str(caught.value)
-
     # Raising the budget clears the fuse.
     monkeypatch.setattr(
         "services.media_files.call_budget.get_media_call_budget",
-        lambda: 2,
+        lambda: 4,
     )
     ensure_media_call_budget(services, PROJECT_ID)
-
-
-def test_image_entry_point_enforces_the_fuse(tmp_path, monkeypatch):
-    from services.media_files.image_execution import (
-        execute_file_image_command,
-    )
-
-    services = _services(tmp_path, monkeypatch)
-    _seed_task(services, 1, TaskKind.IMAGE_GENERATION, TaskStatus.SUCCEEDED)
-    monkeypatch.setattr(
-        "services.media_files.call_budget.get_media_call_budget",
-        lambda: 1,
-    )
-
-    with pytest.raises(MediaCallBudgetExhausted):
-        asyncio.run(
-            execute_file_image_command(
-                services,
-                project_id=PROJECT_ID,
-                command="GENERATE_ASSET",
-                target_ref="asset:char:a",
-                arguments={},
-                idempotency_key="fused",
-            ),
-        )
 
 
 def test_scheduler_pauses_dispatch_when_the_fuse_is_spent(

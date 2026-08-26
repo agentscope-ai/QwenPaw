@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Button, Tooltip, message } from "antd";
 import { ArrowUpOutlined } from "@ant-design/icons";
@@ -1702,6 +1710,7 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
   const hasMoreMessages = useCreatorSessionStore(
     (state) => state.hasMoreMessages,
   );
+  const loadingOlder = useCreatorSessionStore((state) => state.loadingOlder);
   const loadOlderMessages = useCreatorSessionStore(
     (state) => state.loadOlderMessages,
   );
@@ -2150,6 +2159,48 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
     stickBottom.current = nearBottom;
     setShowJump(!nearBottom);
   };
+  // Older-history loading: capture the scroll anchor before the request so
+  // the prepended page cannot yank the viewport; the sentinel observer makes
+  // scroll-to-top load history without hunting for the tiny button.
+  const olderAnchor = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+  const loadOlder = useCallback(() => {
+    const element = scrollRef.current;
+    const state = useCreatorSessionStore.getState();
+    if (!element || state.loadingOlder || !state.hasMoreMessages) return;
+    olderAnchor.current = {
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    };
+    void loadOlderMessages();
+  }, [loadOlderMessages]);
+  useLayoutEffect(() => {
+    if (loadingOlder) return;
+    const anchor = olderAnchor.current;
+    const element = scrollRef.current;
+    if (!anchor || !element) return;
+    olderAnchor.current = null;
+    const delta = element.scrollHeight - anchor.scrollHeight;
+    if (delta > 0) element.scrollTop = anchor.scrollTop + delta;
+  }, [loadingOlder, orderedMessages]);
+  useEffect(() => {
+    if (!open || !hasMoreMessages) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const sentinel = topSentinelRef.current;
+    const root = scrollRef.current;
+    if (!sentinel || !root) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadOlder();
+      },
+      { root, rootMargin: "160px 0px 0px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [open, hasMoreMessages, loadOlder]);
   const jumpToBottom = () => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -2438,13 +2489,19 @@ export default function AgentDock({ sidebar = false }: { sidebar?: boolean }) {
               >
                 {(runs.length > 0 || tasks.length > 0) && <AgentEventFeed />}
                 {hasMoreMessages && (
-                  <button
-                    type="button"
-                    onClick={() => void loadOlderMessages()}
-                    className="w-full text-center text-[10px] text-[var(--color-text-tertiary)]"
-                  >
-                    {t("agent.loadMoreMessages")}
-                  </button>
+                  <div ref={topSentinelRef} data-agent-history-sentinel>
+                    <button
+                      type="button"
+                      disabled={loadingOlder}
+                      onClick={loadOlder}
+                      className="flex w-full items-center justify-center gap-1 text-center text-[10px] text-[var(--color-text-tertiary)]"
+                    >
+                      {loadingOlder && (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      )}
+                      {t("agent.loadMoreMessages")}
+                    </button>
+                  </div>
                 )}
                 {orderedMessages.length === 0 &&
                 queued.length === 0 &&

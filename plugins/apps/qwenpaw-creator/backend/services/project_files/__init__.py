@@ -64,6 +64,7 @@ from .serialization import (
 )
 from .store import (
     DEFAULT_MAX_PROJECT_JSON_BYTES,
+    InvalidProjectId,
     ProjectAlreadyExists,
     ProjectConflict,
     ProjectIntegrityError,
@@ -131,6 +132,7 @@ __all__ = [
     "TransitionCreation",
     "OverlayCreation",
     "UnsafeProjectPath",
+    "InvalidProjectId",
     "UnknownAgentProjectTool",
     "agent_project_tool_manifest",
     "canonical_data",

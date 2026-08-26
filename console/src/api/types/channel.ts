@@ -37,6 +37,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   robot_code: string;
   at_sender_on_reply?: boolean;
   streaming_enabled?: boolean;
+  share_session_in_group?: boolean;
   endpoint?: string;
 }
 

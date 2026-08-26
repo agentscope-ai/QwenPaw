@@ -12,6 +12,12 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 
 const SCOPE_KEY = "agent:default";
 
+const clipboardMocks = vi.hoisted(() => ({
+  copyText: vi.fn().mockResolvedValue(undefined),
+  error: vi.fn(),
+  success: vi.fn(),
+}));
+
 vi.mock("../../monacoSetup", () => ({}));
 
 vi.mock("@monaco-editor/react", () => ({
@@ -39,10 +45,25 @@ vi.mock("../../contexts/ThemeContext", () => ({
   useTheme: () => ({ isDark: false }),
 }));
 
+vi.mock("../../utils/clipboard", () => ({
+  copyText: clipboardMocks.copyText,
+}));
+
+vi.mock("../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({
+    message: {
+      error: clipboardMocks.error,
+      success: clipboardMocks.success,
+    },
+  }),
+}));
+
 function Harness({
   onSaveFile,
+  onDownloadFile,
 }: {
   onSaveFile: (path: string, content: string) => Promise<void>;
+  onDownloadFile?: (path: string) => Promise<void>;
 }) {
   const tabs = useCodingTabsStore(
     (state) => state.tabsByAgent[SCOPE_KEY] ?? [],
@@ -71,6 +92,7 @@ function Harness({
       onTabContentChange={(path, content) =>
         store.setTabContent(SCOPE_KEY, path, content)
       }
+      onDownloadFile={onDownloadFile}
       onSaveFile={onSaveFile}
     />
   );
@@ -114,6 +136,51 @@ describe("TabbedEditor diff resolution", () => {
       expect(onSaveFile).toHaveBeenLastCalledWith("hello.txt", "original");
     });
     expect(onSaveFile).not.toHaveBeenCalledWith("hello.txt", "");
+  });
+});
+
+describe("TabbedEditor clipboard action", () => {
+  beforeEach(() => {
+    clipboardMocks.copyText.mockClear();
+    clipboardMocks.success.mockClear();
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [SCOPE_KEY]: [
+          {
+            path: "hello.txt",
+            content: "unsaved content",
+            dirty: true,
+            previewKind: "text",
+          },
+        ],
+      },
+      activeTabByAgent: { [SCOPE_KEY]: "hello.txt" },
+      diffsByAgent: { [SCOPE_KEY]: {} },
+    });
+  });
+
+  it("copies the current in-memory file content", async () => {
+    render(
+      <Harness
+        onSaveFile={vi.fn(async () => undefined)}
+        onDownloadFile={vi.fn(async () => undefined)}
+      />,
+    );
+    const copyButton = screen.getByRole("button", { name: /copy|复制/i });
+    const downloadButton = screen.getByRole("button", {
+      name: /download|下载/i,
+    });
+
+    expect(
+      copyButton.compareDocumentPosition(downloadButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(copyButton);
+
+    await waitFor(() => {
+      expect(clipboardMocks.copyText).toHaveBeenCalledWith("unsaved content");
+      expect(clipboardMocks.success).toHaveBeenCalled();
+    });
   });
 });
 

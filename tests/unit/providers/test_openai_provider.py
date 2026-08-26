@@ -10,6 +10,8 @@ from agentscope.model import OpenAIChatModel
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
+    KiloProvider,
+    OpenCodeProvider,
     OpenAIProvider,
 )
 
@@ -97,6 +99,89 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     assert models[0].max_input_length_auto_detected == 128_000
     assert models[0].max_tokens == 16_384
     assert not provider.models  # should not update provider state
+    close.assert_awaited_once()
+
+
+async def test_kilo_uses_gateway_free_flag_for_non_suffix_routes(
+    monkeypatch,
+) -> None:
+    provider = KiloProvider(
+        id="kilo",
+        name="Kilo Code",
+        base_url="https://api.kilo.ai/api/gateway",
+        require_api_key=False,
+    )
+    rows = [
+        SimpleNamespace(id="kilo-auto/free", name="Auto Free", isFree=True),
+        SimpleNamespace(
+            id="nvidia/nemotron-3-ultra-550b-a55b:free",
+            name="Nemotron 3 Ultra",
+            isFree=True,
+        ),
+        SimpleNamespace(
+            id="nex-agi/nex-n2-pro:free",
+            name="Nex N2 Pro",
+            isFree=False,
+        ),
+        SimpleNamespace(
+            id="kilo-auto/frontier",
+            name="Frontier",
+            isFree=False,
+        ),
+    ]
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            return SimpleNamespace(data=rows)
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models()
+
+    assert [model.id for model in models if model.is_free] == [
+        "kilo-auto/free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+    ]
+    assert [model.id for model in models if not model.is_free] == [
+        "nex-agi/nex-n2-pro:free",
+        "kilo-auto/frontier",
+    ]
+    close.assert_awaited_once()
+
+
+async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
+    provider = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        base_url="https://opencode.ai/zen/v1",
+        require_api_key=False,
+    )
+    rows = [
+        SimpleNamespace(id="deepseek-v4-flash-free"),
+        SimpleNamespace(id="mimo-v2.5-free"),
+        SimpleNamespace(id="nemotron-3-super-free"),
+        SimpleNamespace(id="nemotron-3-ultra-free"),
+    ]
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            return SimpleNamespace(data=rows)
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models()
+
+    assert [model.id for model in models] == [
+        "mimo-v2.5-free",
+        "nemotron-3-ultra-free",
+    ]
+    assert all(model.is_free for model in models)
     close.assert_awaited_once()
 
 

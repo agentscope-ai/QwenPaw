@@ -34,8 +34,8 @@ def _write_catalog(
 def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
-    assert len(catalog) == 19
-    assert sum(len(models) for models in catalog.values()) == 117
+    assert len(catalog) == 21
+    assert sum(len(models) for models in catalog.values()) == 133
     assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
     assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
     assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True
@@ -68,7 +68,7 @@ def test_packaged_catalog_snapshot() -> None:
         ("DASHSCOPE_MODELS", "qwen3.7-max"),
         ("OPENAI_MODELS", "gpt-5.2"),
         ("MINIMAX_MODELS", "MiniMax-M3"),
-        ("KIMI_MODELS", "kimi-k2.5"),
+        ("KIMI_MODELS", "kimi-k3"),
         ("DEEPSEEK_MODELS", "deepseek-chat"),
         ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
     }
@@ -87,18 +87,6 @@ def test_packaged_catalog_snapshot() -> None:
         model.max_input_length == 1_048_576
         for model in catalog["GEMINI_MODELS"]
     )
-    assert all(
-        model.max_input_length == 262_144 for model in catalog["KIMI_MODELS"]
-    )
-    assert {
-        model.id: model.max_input_length
-        for model in catalog["ALIYUN_CODINGPLAN_MODELS"]
-        if model.id in {"qwen3-coder-plus", "glm-5.2", "kimi-k2.5"}
-    } == {
-        "glm-5.2": 1_000_000,
-        "kimi-k2.5": 262_144,
-        "qwen3-coder-plus": 1_000_000,
-    }
     assert {
         model.id: model.max_input_length
         for model in catalog["OPENAI_MODELS"]
@@ -111,10 +99,28 @@ def test_packaged_catalog_snapshot() -> None:
     assert {
         model.id: model.max_input_length
         for model in catalog["VOLCENGINE_CODINGPLAN_MODELS"]
-        if model.id in {"minimax-m2.7", "kimi-k2.6"}
+        if model.id
+        in {"deepseek-v4-flash", "kimi-k2.7-code", "doubao-seed-2.1-turbo"}
     } == {
-        "kimi-k2.6": 262_144,
-        "minimax-m2.7": 204_800,
+        "deepseek-v4-flash": 1_048_576,
+        "kimi-k2.7-code": 262_144,
+        "doubao-seed-2.1-turbo": 262_144,
+    }
+    assert {
+        model.id: model.max_input_length
+        for model in catalog["VOLCENGINE_AGENTPLAN_MODELS"]
+        if model.id
+        in {"deepseek-v4-flash", "kimi-k2.7-code", "ark-code-latest"}
+    } == {
+        "deepseek-v4-flash": 1_048_576,
+        "kimi-k2.7-code": 262_144,
+        "ark-code-latest": 262_144,
+    }
+    assert {
+        model.id: model.max_input_length for model in catalog["MIMO_MODELS"]
+    } == {
+        "mimo-v2.5-pro": 1_048_576,
+        "mimo-v2.5": 1_048_576,
     }
 
 
@@ -133,6 +139,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                     "name": "Packaged",
                     "max_tokens": 100,
                     "supports_image": False,
+                    "is_free": True,
                 },
             ],
         },
@@ -158,6 +165,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                     "id": "model-a",
                     "name": "Local",
                     "supports_image": True,
+                    "is_free": False,
                 },
             ],
         },
@@ -169,6 +177,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].name == "Local"
     assert models[0].max_tokens == 200
     assert models[0].supports_image is True
+    assert models[0].is_free is False
 
 
 @pytest.mark.parametrize(

@@ -132,6 +132,28 @@ async def test_attach_or_start_streams_events_and_marks_completion():
 
 
 @pytest.mark.asyncio
+async def test_attach_or_start_reports_completion_before_becoming_idle():
+    tracker = TaskTracker()
+    completions = []
+
+    async def on_finished(run_key, finished_at):
+        completions.append((run_key, finished_at))
+        assert await tracker.get_status(run_key) == "running"
+
+    queue, _ = await tracker.attach_or_start(
+        "run-with-callback",
+        payload=None,
+        stream_fn=_make_stream([]),
+        on_finished=on_finished,
+    )
+    assert await asyncio.wait_for(queue.get(), timeout=1) is None
+
+    assert len(completions) == 1
+    assert completions[0][0] == "run-with-callback"
+    assert await tracker.get_status("run-with-callback") == "idle"
+
+
+@pytest.mark.asyncio
 async def test_attach_or_start_existing_run_returns_buffer_replay():
     tracker = TaskTracker()
     started = asyncio.Event()

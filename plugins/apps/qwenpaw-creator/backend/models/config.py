@@ -33,6 +33,7 @@ CREATOR_IMAGE_CONFIG_TOOL = "creator_image_model"
 CREATOR_VIDEO_CONFIG_TOOL = "creator_video_model"
 CREATOR_VLM_CONFIG_TOOL = "creator_vlm_model"
 CREATOR_GROUNDING_CONFIG_TOOL = "creator_web_grounding"
+CREATOR_LIVE_OPERATION_CONFIG_TOOL = "creator_live_operation"
 CREATOR_ASR_CONFIG_TOOL = "creator_asr_model"
 CREATOR_TTS_CONFIG_TOOL = "creator_tts_model"
 CREATOR_S2V_CONFIG_TOOL = "creator_s2v_model"
@@ -60,6 +61,7 @@ CREATOR_CONFIG_TOOLS = (
     CREATOR_VIDEO_CONFIG_TOOL,
     CREATOR_VLM_CONFIG_TOOL,
     CREATOR_GROUNDING_CONFIG_TOOL,
+    CREATOR_LIVE_OPERATION_CONFIG_TOOL,
     CREATOR_ASR_CONFIG_TOOL,
     CREATOR_TTS_CONFIG_TOOL,
     CREATOR_S2V_CONFIG_TOOL,
@@ -473,6 +475,7 @@ def _map_tool_to_section(tool_name: str) -> str:
         CREATOR_TEXT_CONFIG_TOOL: "llm",
         CREATOR_VLM_CONFIG_TOOL: "vlm",
         CREATOR_GROUNDING_CONFIG_TOOL: "grounding",
+        CREATOR_LIVE_OPERATION_CONFIG_TOOL: "live_operation",
         CREATOR_ASR_CONFIG_TOOL: "asr",
         CREATOR_TTS_CONFIG_TOOL: "tts",
         CREATOR_S2V_CONFIG_TOOL: "s2v",
@@ -647,6 +650,29 @@ def get_text_model_name() -> str:
     )
 
 
+def get_text_protocol() -> str:
+    tool_config = get_request_tool_config(CREATOR_TEXT_CONFIG_TOOL)
+    if tool_config:
+        return str(tool_config.get("protocol") or "").strip()
+    section = _get_user_config().get("llm")
+    if isinstance(section, dict) and section.get("protocol"):
+        return str(section["protocol"]).strip()
+    return os.environ.get("TEXT_PROTOCOL", "").strip()
+
+
+def get_text_chat_url() -> str:
+    """Return the chat-completion endpoint URL for the configured text model.
+
+    Protocol-aware: Anthropic/MiniMax use ``/v1/messages``, everything
+    else falls back to the OpenAI-compatible ``/chat/completions``.
+    """
+    return chat_url_for(
+        get_text_base_url(),
+        get_text_protocol(),
+        get_text_model_name(),
+    )
+
+
 def _vlm_use_llm() -> bool:
     """Return True when the persisted VLM section reuses the text model.
 
@@ -697,8 +723,73 @@ def get_vlm_model_name() -> str:
     )
 
 
+def get_vlm_protocol() -> str:
+    if _vlm_use_llm():
+        return get_text_protocol()
+    tool_config = get_request_tool_config(CREATOR_VLM_CONFIG_TOOL)
+    if tool_config:
+        return str(tool_config.get("protocol") or "").strip()
+    section = _get_user_config().get("vlm")
+    if isinstance(section, dict) and section.get("protocol"):
+        return str(section["protocol"]).strip()
+    return os.environ.get("VLM_PROTOCOL", "").strip() or get_text_protocol()
+
+
+# ── Protocol classification helpers ──────────────────────────────────────────
+# Shared by text_model, vlm_model, model_client, and model_routes to decide
+# URL path, headers, body format, and response parsing per API protocol.
+# Keep the classification logic here; every other module must import these
+# helpers instead of re-implementing them.
+
+
+def is_anthropic_protocol(protocol: str) -> bool:
+    """True when *protocol* uses the Anthropic Messages API format."""
+    lower = protocol.casefold()
+    return "anthropic" in lower or "minimax" in lower
+
+
+def is_gemini_protocol(protocol: str) -> bool:
+    """True when *protocol* uses the Google Gemini Generative AI format."""
+    lower = protocol.casefold()
+    return "gemini" in lower or "google" in lower
+
+
+def protocol_requires_api_key(protocol: str) -> bool:
+    """True when the protocol has no keyless tier and needs a credential.
+
+    Anthropic and Gemini gateways always authenticate; OpenAI-compatible
+    gateways may expose free keyless models (e.g. OpenCode Zen ``*-free``).
+    """
+    return is_anthropic_protocol(protocol) or is_gemini_protocol(protocol)
+
+
 def get_vlm_chat_url() -> str:
-    return f"{get_vlm_base_url().rstrip('/')}/chat/completions"
+    """Return the chat-completion endpoint URL for the configured VLM.
+
+    Protocol-aware via ``chat_url_for``: Anthropic/MiniMax use
+    ``/v1/messages``, Gemini uses ``/v1beta/models/{model}:generateContent``,
+    everything else falls back to the OpenAI-compatible
+    ``/chat/completions``.
+    """
+    return chat_url_for(
+        get_vlm_base_url(),
+        get_vlm_protocol(),
+        get_vlm_model_name(),
+    )
+
+
+def chat_url_for(base_url: str, protocol: str, model_name: str = "") -> str:
+    """Return the correct chat-completion URL for *base_url* + *protocol*."""
+    base = base_url.rstrip("/")
+    if is_anthropic_protocol(protocol):
+        return f"{base}/v1/messages"
+    if is_gemini_protocol(protocol):
+        return f"{base}/v1beta/models/{model_name}:generateContent"
+    return (
+        base
+        if base.endswith("/chat/completions")
+        else f"{base}/chat/completions"
+    )
 
 
 def get_vlm_concurrency() -> int:
@@ -1368,6 +1459,42 @@ def is_media_review_enabled() -> bool:
     )
 
 
+def get_self_review_operators() -> dict[str, bool]:
+    """Explicit per-operator switches from the self_review section.
+
+    Only well-formed boolean entries are returned; anything else is
+    treated as "auto" by the operator registry (能开尽开).
+    """
+    section = _get_user_config().get("self_review")
+    if not isinstance(section, dict):
+        return {}
+    operators = section.get("operators")
+    if not isinstance(operators, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in operators.items()
+        if isinstance(value, bool)
+    }
+
+
+def is_render_challenge_enabled() -> bool:
+    """Near-miss challenge pass inside the render review.
+
+    Resolution order mirrors the review tiers: an explicitly set
+    ``CREATOR_RENDER_CHALLENGE_ENABLED`` environment variable keeps full
+    control (CI / emergency override), otherwise the ``challenge`` entry
+    of the self-review operator switches decides — defaulting to auto-on
+    (能开尽开: its models are the tier's own text/VLM pair).
+    """
+    raw = os.environ.get("CREATOR_RENDER_CHALLENGE_ENABLED", "").strip()
+    if raw:
+        return raw.casefold() in {"1", "true", "yes", "on"}
+    from services.run_review.operator_registry import is_operator_enabled
+
+    return is_operator_enabled("challenge")
+
+
 def _image_provider():
     """Return the active image provider instance (lazy import avoids cycles).
 
@@ -1581,26 +1708,95 @@ def get_oss_public_base_url() -> str:
     return _first_env("OSS_PUBLIC_BASE_URL", "ALIYUN_OSS_PUBLIC_BASE_URL")
 
 
-def get_video_backend() -> str:
+def video_backend_for_protocol(protocol: str) -> str | None:
+    """Map a saved protocol label onto a video transport backend.
+
+    Single source of truth for the channel choice: the UI protocol
+    selection decides the transport (notably Kling/Vidu, which exist both
+    as Bailian-hosted models on the DashScope protocol and as official
+    channels), so it is shared by the request-scoped mapping in
+    ``api.model_routes`` and the persisted-config fallback below.
+    Returns ``None`` when the label names no known protocol.
+    """
+    # pylint: disable=too-many-return-statements
+    if not protocol:
+        return None
+    lowered = protocol.casefold()
+    if "token plan" in lowered or "tokenplan" in lowered:
+        return "wan"
+    if "dashscope" in lowered or "百炼" in protocol:
+        return "wan"
+    if "volcano" in lowered or "火山" in protocol:
+        return "seedance2"
+    if "gemini" in lowered or "veo" in lowered:
+        return "veo"
+    if "minimax" in lowered or "海螺" in protocol:
+        return "minimax"
+    if "kling" in lowered or "可灵" in protocol:
+        return "kling"
+    if "vidu" in lowered:
+        return "vidu"
+    return None
+
+
+def get_video_backend() -> (
+    str
+):  # pylint: disable=too-many-return-statements,too-many-branches
     """Return the configured video backend protocol name.
-    Priority: request-scoped _video_backend (set by protocol) > heuristic.
+
+    Priority: request-scoped ``_video_backend`` (set from the saved
+    protocol) > the saved protocol label itself (request-scoped, then the
+    persisted config so background workers resolve identically) >
+    base_url / model-name heuristics for standalone env-var deployments.
+
+    The Kling/Vidu channel (Bailian hosting vs official API) is a user
+    configuration decision, so it is resolved from the protocol or the
+    endpoint host — never inferred from the model name.
     """
     tool_cfg = get_request_tool_config(CREATOR_VIDEO_CONFIG_TOOL)
     backend = tool_cfg.get("_video_backend")
     if backend:
         return backend.strip().lower()
+    protocol_backend = video_backend_for_protocol(
+        str(tool_cfg.get("protocol") or ""),
+    )
+    if protocol_backend is not None:
+        return protocol_backend
+    # Persisted UI config: background workers run outside any HTTP request
+    # and have no request-scoped Tool Config bound; the saved protocol
+    # must select the same transport an in-request call would.
+    section = _get_user_config().get("video", {})
+    if isinstance(section, dict) and section.get("enabled"):
+        protocol_backend = video_backend_for_protocol(
+            str(section.get("protocol") or ""),
+        )
+        if protocol_backend is not None:
+            return protocol_backend
+    # Standalone/env fallbacks: the configured endpoint host decides the
+    # channel (still a user configuration choice, unlike the model name).
+    base_url = get_video_base_url().lower()
+    if "volcengine" in base_url:
+        return "seedance2"
+    if "generativelanguage" in base_url:
+        return "veo"
+    if "klingai" in base_url:
+        return "kling"
+    if "vidu.com" in base_url or "vidu.cn" in base_url:
+        return "vidu"
+    if "minimax" in base_url:
+        return "minimax"
+    # Last resort: model-name hints, only for families without any channel
+    # ambiguity. Kling/Vidu names never select a channel here — without a
+    # protocol or endpoint hint they stay on the DashScope default.
     model_name = get_video_model_name().lower()
     if "seedance" in model_name:
         return "seedance2"
-    # Bailian HappyHorse (e.g. happyhorse-1.1-r2v) shares the Wan DashScope
-    # async protocol; keep this explicit instead of relying on the "r2v"
-    # substring below.
-    if model_name.startswith("happyhorse"):
-        return "wan"
-    if model_name.startswith("wan") or "r2v" in model_name:
-        return "wan"
-    if "volcengine" in get_video_base_url().lower():
-        return "seedance2"
+    if model_name.startswith("veo"):
+        return "veo"
+    if "hailuo" in model_name or model_name.startswith(
+        ("minimax", "t2v-01", "i2v-01", "s2v-01"),
+    ):
+        return "minimax"
     return "wan"
 
 
@@ -1613,6 +1809,26 @@ def _validate_video_backend_url(backend: str, base: str) -> None:
     if backend == "wan" and "volcengine" in base_lower:
         raise ValueError(
             "VIDEO_MODEL_NAME selects Wan, but VIDEO_BASE_URL points to a Volcengine endpoint",
+        )
+    if backend == "veo" and "generativelanguage" not in base_lower:
+        raise ValueError(
+            "VIDEO_MODEL_NAME selects Veo (Gemini API), but VIDEO_BASE_URL "
+            "is not a generativelanguage.googleapis.com endpoint",
+        )
+    if backend == "minimax" and "minimax" not in base_lower:
+        raise ValueError(
+            "VIDEO_MODEL_NAME selects MiniMax, but VIDEO_BASE_URL is not a "
+            "MiniMax endpoint (api.minimax.io / api.minimaxi.com)",
+        )
+    if backend == "kling" and "klingai" not in base_lower:
+        raise ValueError(
+            "VIDEO_MODEL_NAME selects the official Kling channel, but "
+            "VIDEO_BASE_URL is not a klingai.com endpoint",
+        )
+    if backend == "vidu" and "vidu" not in base_lower:
+        raise ValueError(
+            "VIDEO_MODEL_NAME selects the official Vidu channel, but "
+            "VIDEO_BASE_URL is not a vidu.com endpoint",
         )
 
 
@@ -1725,9 +1941,11 @@ def _load_skills_config_document() -> tuple[list, list]:
                     {
                         "name": _issue_entry_name(raw, index),
                         "path": str(
-                            raw.get("path", "")
-                            if isinstance(raw, Mapping)
-                            else "",
+                            (
+                                raw.get("path", "")
+                                if isinstance(raw, Mapping)
+                                else ""
+                            ),
                         ),
                         "reason": f"schema validation failed: {exc}"[:400],
                     },
@@ -1778,3 +1996,148 @@ def _clear_skills_config_cache():
     _SKILLS_CONFIG_CACHE = None
     _SKILLS_CONFIG_CACHE_PATH = None
     _SKILLS_CONFIG_CACHE_FINGERPRINT = None
+
+
+# ─── live operation (real websites driven by the agent) ────────────────
+# Only resource ceilings and capability switches live here. What a desktop
+# application is actually allowed to do stays in the host's own Computer Use
+# authorization store, so both entry points agree on one set of grants.
+_LIVE_OPERATION_DEFAULT_FPS = 25
+_LIVE_OPERATION_DEFAULT_WIDTH = 1280
+_LIVE_OPERATION_DEFAULT_HEIGHT = 720
+_LIVE_OPERATION_DEFAULT_TAKE_SECONDS = 300.0
+_LIVE_OPERATION_DEFAULT_TIMEOUT_SECONDS = 600.0
+_LIVE_OPERATION_IDENTITIES = frozenset({"auto", "user", "avatar", "guest"})
+
+
+def _live_operation_value(field: str, env_name: str, default: str = "") -> str:
+    tool_config = get_request_tool_config(CREATOR_LIVE_OPERATION_CONFIG_TOOL)
+    value = tool_config.get(field)
+    if value not in (None, ""):
+        return str(value)
+    section = _get_user_config().get("live_operation")
+    if isinstance(section, dict):
+        value = section.get(_map_user_field(field))
+        if value not in (None, ""):
+            return str(value)
+    return os.environ.get(env_name, default)
+
+
+def _live_operation_number(
+    field: str,
+    env_name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    raw = _live_operation_value(field, env_name)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(value):
+        return default
+    return min(max(value, minimum), maximum)
+
+
+def get_live_operation_enabled() -> bool:
+    """Whether the agent may operate real websites in this deployment.
+
+    Enabled by default: there is no Creator settings UI for this switch yet,
+    so a fail-closed default would leave users with no way to turn it on.
+    Deployments can still disable it via the tool config, persisted
+    settings, or CREATOR_LIVE_OPERATION_ENABLED.
+    """
+    raw = _live_operation_value(
+        "enabled",
+        "CREATOR_LIVE_OPERATION_ENABLED",
+        "1",
+    )
+    return str(raw).strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def get_live_operation_identity() -> str:
+    """Which browser identity recordings run as.
+
+    ``guest`` is the default because a recorded screen must not carry the
+    user's logged-in accounts into footage that ends up in a video.
+    """
+    raw = _live_operation_value(
+        "identity",
+        "CREATOR_LIVE_OPERATION_IDENTITY",
+        "guest",
+    ).strip()
+    return raw if raw in _LIVE_OPERATION_IDENTITIES else "guest"
+
+
+def get_live_operation_fps() -> int:
+    return int(
+        _live_operation_number(
+            "fps",
+            "CREATOR_LIVE_OPERATION_FPS",
+            _LIVE_OPERATION_DEFAULT_FPS,
+            minimum=5,
+            maximum=60,
+        ),
+    )
+
+
+def get_live_operation_max_width() -> int:
+    return int(
+        _live_operation_number(
+            "max_width",
+            "CREATOR_LIVE_OPERATION_MAX_WIDTH",
+            _LIVE_OPERATION_DEFAULT_WIDTH,
+            minimum=320,
+            maximum=3840,
+        ),
+    )
+
+
+def get_live_operation_max_height() -> int:
+    return int(
+        _live_operation_number(
+            "max_height",
+            "CREATOR_LIVE_OPERATION_MAX_HEIGHT",
+            _LIVE_OPERATION_DEFAULT_HEIGHT,
+            minimum=240,
+            maximum=2160,
+        ),
+    )
+
+
+def get_live_operation_max_take_seconds() -> float:
+    """Ceiling for one take, so a forgotten stop cannot film forever."""
+    return _live_operation_number(
+        "max_take_seconds",
+        "CREATOR_LIVE_OPERATION_MAX_TAKE_SECONDS",
+        _LIVE_OPERATION_DEFAULT_TAKE_SECONDS,
+        minimum=10.0,
+        maximum=1800.0,
+    )
+
+
+def get_live_operation_timeout_seconds() -> float:
+    """Ceiling for one browser_use call, covering all of its steps."""
+    return _live_operation_number(
+        "timeout_seconds",
+        "CREATOR_LIVE_OPERATION_TIMEOUT_SECONDS",
+        _LIVE_OPERATION_DEFAULT_TIMEOUT_SECONDS,
+        minimum=30.0,
+        maximum=3600.0,
+    )
+
+
+def get_computer_use_enabled() -> bool:
+    """Whether the agent may operate desktop apps in this deployment.
+
+    Off by default: desktop control needs the Tauri host's native runtime and
+    is meaningless on a headless server, so it is opt-in rather than assumed.
+    """
+    raw = _live_operation_value(
+        "computer_use_enabled",
+        "CREATOR_COMPUTER_USE_ENABLED",
+        "0",
+    )
+    return str(raw).strip().casefold() not in {"0", "false", "no", "off"}

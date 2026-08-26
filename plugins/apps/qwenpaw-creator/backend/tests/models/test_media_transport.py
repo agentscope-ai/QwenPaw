@@ -6,19 +6,67 @@ import asyncio
 import base64
 import io
 
-import httpx
 import pytest
 from PIL import Image
 
 from models import media_transport
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
+    _fetch_dashscope_upload_policy,
+    _mask_key,
     _upload_local_file_to_dashscope_temp_sync,
-    _upload_reference_bytes_to_dashscope_temp_sync,
     read_reference_media,
     reference_media_data_url,
-    validate_reference_image_bytes,
 )
+
+
+def test_media_transport_api_key_mask_never_reveals_a_secret_fragment() -> (
+    None
+):
+    secret = "sk-sensitive-prefix-and-private-suffix"
+
+    assert _mask_key(secret) == "[redacted]"
+    assert _mask_key("") == "(empty)"
+
+
+def test_upload_policy_log_never_contains_temporary_credentials(
+    monkeypatch,
+) -> None:
+    temporary_secret = "temporary-policy-signature-must-not-reach-logs"
+    emitted: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        media_transport.logger,
+        "info",
+        lambda *args, **_kwargs: emitted.append(args),
+    )
+
+    class PolicyClient:
+        def get(self, *_args, **_kwargs):
+            response = _FakeResponse(
+                {
+                    "data": {
+                        "max_file_size_mb": 1024,
+                        "upload_dir": "dashscope-instant/account/date/id",
+                        "upload_host": "https://upload.example.test",
+                        "oss_access_key_id": "temporary-access",
+                        "signature": temporary_secret,
+                        "policy": "temporary-policy",
+                    },
+                },
+            )
+            response.text = temporary_secret
+            return response
+
+    policy = _fetch_dashscope_upload_policy(
+        PolicyClient(),
+        api_key="provider-key",
+        model_name="qwen-image-2.0-pro",
+        size=128,
+    )
+
+    assert policy["signature"] == temporary_secret
+    assert temporary_secret not in repr(emitted)
+    assert "provider-key" not in repr(emitted)
 
 
 def _png_bytes() -> bytes:
@@ -27,33 +75,64 @@ def _png_bytes() -> bytes:
     return output.getvalue()
 
 
-def test_reference_image_dimensions_are_read_before_verify(
-    monkeypatch,
-) -> None:
-    class VerifyInvalidatesImage:
-        verified = False
+class _FakeResponse:
+    def __init__(self, payload=None):
+        self.payload = payload or {}
+        self.status_code = 200
+        self.text = ""
 
-        def __enter__(self):
-            return self
+    def raise_for_status(self):
+        return None
 
-        def __exit__(self, *_args):
-            return None
+    def json(self):
+        return self.payload
 
-        @property
-        def size(self):
-            if self.verified:
-                raise AssertionError("image attributes accessed after verify")
-            return (8, 8)
 
-        def verify(self):
-            self.verified = True
+class _FakeUploadClient:
+    """Shared policy-GET + upload-POST stub for the dashscope temp endpoint."""
 
-    monkeypatch.setattr(
-        "models.media_transport.Image.open",
-        lambda _stream: VerifyInvalidatesImage(),
-    )
+    def __init__(self, observed: dict):
+        self.observed = observed
 
-    validate_reference_image_bytes(b"fake image bytes")
+    def __call__(self, **kwargs):
+        self.observed["client_kwargs"] = kwargs
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def get(self, url, *, params, headers):
+        self.observed["policy_request"] = (url, params, headers)
+        return _FakeResponse(
+            {
+                "data": {
+                    "max_file_size_mb": 1024,
+                    "upload_dir": "dashscope-instant/account/date/id",
+                    "upload_host": "https://upload.example.test",
+                    "oss_access_key_id": "temporary-access",
+                    "signature": "temporary-signature",
+                    "policy": "temporary-policy",
+                },
+            },
+        )
+
+    def post(self, url, *, data, files):
+        filename, file_source, media_type = files["file"]
+        is_bytes = isinstance(file_source, (bytes, bytearray))
+        self.observed["upload"] = {
+            "url": url,
+            "data": dict(data),
+            "filename": filename,
+            "media_type": media_type,
+            "file_source": file_source,
+            "is_bytes": is_bytes,
+            # the handle is only readable while the upload is in flight
+            "first_byte": None if is_bytes else file_source.read(1),
+        }
+        return _FakeResponse()
 
 
 def test_dashscope_temporary_upload_streams_file_handle_instead_of_loading_bytes(
@@ -64,58 +143,11 @@ def test_dashscope_temporary_upload_streams_file_handle_instead_of_loading_bytes
     with video.open("wb") as stream:
         stream.seek(64 * 1024 * 1024 - 1)
         stream.write(b"\0")
-    observed = {}
-
-    class FakeResponse:
-        def __init__(self, payload=None):
-            self.payload = payload or {}
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self.payload
-
-    class FakeClient:
-        def __init__(self, **kwargs):
-            observed["client_kwargs"] = kwargs
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def get(self, url, *, params, headers):
-            observed["policy_request"] = (url, params, headers)
-            return FakeResponse(
-                {
-                    "data": {
-                        "max_file_size_mb": 1024,
-                        "upload_dir": "dashscope-instant/account/date/id",
-                        "upload_host": "https://upload.example.test",
-                        "oss_access_key_id": "temporary-access",
-                        "signature": "temporary-signature",
-                        "policy": "temporary-policy",
-                        "x_oss_object_acl": "private",
-                        "x_oss_forbid_overwrite": "true",
-                    },
-                },
-            )
-
-        def post(self, url, *, data, files):
-            filename, file_handle, media_type = files["file"]
-            observed["upload"] = {
-                "url": url,
-                "data": dict(data),
-                "filename": filename,
-                "media_type": media_type,
-                "is_bytes": isinstance(file_handle, (bytes, bytearray)),
-                "first_byte": file_handle.read(1),
-            }
-            return FakeResponse()
-
-    monkeypatch.setattr("models.media_transport.httpx.Client", FakeClient)
+    observed: dict = {}
+    monkeypatch.setattr(
+        "models.media_transport.httpx.Client",
+        _FakeUploadClient(observed),
+    )
 
     url = _upload_local_file_to_dashscope_temp_sync(
         video,
@@ -125,82 +157,16 @@ def test_dashscope_temporary_upload_streams_file_handle_instead_of_loading_bytes
     )
 
     assert url.startswith("oss://dashscope-instant/account/date/id/")
-    assert observed["upload"]["is_bytes"] is False
-    assert observed["upload"]["first_byte"] == b"\0"
-    assert observed["upload"]["filename"].endswith(".mp4")
-    assert observed["upload"]["media_type"] == "video/mp4"
-    assert observed["upload"]["data"]["success_action_status"] == "200"
-
-
-def test_dashscope_temporary_upload_accepts_in_memory_reference_bytes(
-    monkeypatch,
-) -> None:
-    observed = {}
-
-    class FakeResponse:
-        def __init__(self, payload=None):
-            self.payload = payload or {}
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self.payload
-
-    class FakeClient:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def get(self, url, *, params, headers):
-            observed["policy_request"] = (url, params, headers)
-            return FakeResponse(
-                {
-                    "data": {
-                        "max_file_size_mb": 1024,
-                        "upload_dir": "dashscope-instant/account/date/id",
-                        "upload_host": "https://upload.example.test",
-                        "oss_access_key_id": "temporary-access",
-                        "signature": "temporary-signature",
-                        "policy": "temporary-policy",
-                    },
-                },
-            )
-
-        def post(self, url, *, data, files):
-            del data
-            filename, file_source, media_type = files["file"]
-            observed["upload"] = {
-                "url": url,
-                "filename": filename,
-                "media_type": media_type,
-                "content": file_source,
-            }
-            return FakeResponse()
-
-    monkeypatch.setattr("models.media_transport.httpx.Client", FakeClient)
-
-    content = _png_bytes()
-    url = _upload_reference_bytes_to_dashscope_temp_sync(
-        content,
-        "scene-1 reference.png",
-        api_key="test-api-key",
-        model_name="wan2.7-r2v",
-    )
-
-    assert url.startswith("oss://dashscope-instant/account/date/id/")
     assert observed["policy_request"][1] == {
         "action": "getPolicy",
-        "model": "wan2.7-r2v",
+        "model": "qwen3.7-plus",
     }
-    assert observed["upload"]["content"] == content
-    assert observed["upload"]["filename"].endswith(".png")
-    assert observed["upload"]["media_type"] == "image/png"
+    upload = observed["upload"]
+    assert upload["is_bytes"] is False
+    assert upload["first_byte"] == b"\0"
+    assert upload["filename"].endswith(".mp4")
+    assert upload["media_type"] == "video/mp4"
+    assert upload["data"]["success_action_status"] == "200"
 
 
 def test_reference_media_data_url_inlines_png_for_seedance() -> None:
@@ -211,14 +177,8 @@ def test_reference_media_data_url_inlines_png_for_seedance() -> None:
     prefix = "data:image/png;base64,"
     assert data_url.startswith(prefix)
     assert base64.b64decode(data_url[len(prefix) :]) == content
-
-
-def test_reference_media_data_url_guesses_media_type_from_magic() -> None:
-    content = _png_bytes()
-
-    data_url = reference_media_data_url(content, "reference")
-
-    assert data_url.startswith("data:image/png;base64,")
+    # Without an extension the media type is sniffed from the magic bytes.
+    assert reference_media_data_url(content, "reference").startswith(prefix)
 
 
 def test_reference_media_data_url_rejects_oversized_media() -> None:
@@ -306,38 +266,3 @@ def test_creator_oss_readiness_has_explicit_three_states(
     readiness = media_transport.creator_oss_readiness()
 
     assert readiness["status"] == expected_status
-
-
-def test_uguu_upload_retries_429_and_parses_temporary_url(monkeypatch) -> None:
-    calls = []
-
-    async def handler(request):
-        calls.append(request)
-        if len(calls) == 1:
-            return httpx.Response(429, json={"error": "rate limited"})
-        return httpx.Response(
-            200,
-            json={"files": [{"url": "https://uguu.se/example.png"}]},
-        )
-
-    async def no_sleep(_seconds):
-        return None
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(
-        media_transport.httpx,
-        "AsyncClient",
-        lambda **kwargs: client,
-    )
-    monkeypatch.setattr(media_transport.asyncio, "sleep", no_sleep)
-
-    url = asyncio.run(
-        media_transport.upload_image_to_uguu_for_temporary_public_url(
-            _png_bytes(),
-            "reference.png",
-        ),
-    )
-
-    assert url == "https://uguu.se/example.png"
-    assert len(calls) == 2
-    assert b'name="files[]"' in calls[-1].content

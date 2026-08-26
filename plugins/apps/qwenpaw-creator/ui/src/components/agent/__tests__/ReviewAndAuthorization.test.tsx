@@ -4,22 +4,15 @@ import DecisionTray from "@/components/agent/DecisionTray";
 import { installMockFetch } from "@/test/mockFetch";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { makePendingAuthorization } from "@/test/agentFixtures";
 
-const pending = {
-  id: "authorization-1",
-  transactionId: "round-1",
-  specialistRunId: "run-1",
-  executionRequestId: "request-1",
+const pending = makePendingAuthorization({
   targetRef: "element:r2v-window",
   scope: { operation: "r2v_generation", message: "生成 Element 视频" },
-  status: "PENDING" as const,
-  authorizationToken: "token-1",
-  provider: "dashscope",
   model: "wan2.7-r2v",
   currency: "CNY",
   maxCandidates: 2,
-  createdAt: "now",
-};
+});
 
 describe("file-native execution authorization decisions", () => {
   beforeEach(() => {
@@ -38,8 +31,7 @@ describe("file-native execution authorization decisions", () => {
     ]);
 
     render(<DecisionTray projectId="p1" />);
-    // Blocking level: tray is expanded and the summary bar says execution is
-    // blocked until confirmed.
+    // Blocking level: tray expands and the summary bar says execution is blocked.
     const tray = document.querySelector("[data-decision-tray]");
     expect(tray).toHaveAttribute("data-decision-tray-urgent", "true");
     expect(
@@ -71,8 +63,7 @@ describe("file-native execution authorization decisions", () => {
     render(<DecisionTray projectId="p1" />);
     fireEvent.click(screen.getByText("取消"));
 
-    // Once everything is handled the tray disappears entirely and stops taking
-    // up chat panel space.
+    // Once handled the tray disappears and stops taking up chat panel space.
     await waitFor(() =>
       expect(
         document.querySelector("[data-decision-tray]"),
@@ -88,7 +79,6 @@ describe("file-native execution authorization decisions", () => {
     const tray = document.querySelector("[data-decision-tray]");
     expect(tray).toHaveAttribute("data-decision-tray-collapsed", "true");
     expect(tray).toHaveAttribute("data-decision-tray-urgent", "true");
-    // Collapsing hides the cards, but the summary bar keeps the blocking notice.
     expect(screen.queryByText("生成 Element 视频")).not.toBeInTheDocument();
     expect(screen.getByText(/生产确认 1 项阻塞执行中/)).toBeInTheDocument();
   });

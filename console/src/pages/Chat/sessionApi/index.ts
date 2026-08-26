@@ -119,6 +119,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   createdAt?: string | null;
   /** ISO 8601 last-updated timestamp from backend. */
   updatedAt?: string | null;
+  /** ISO 8601 completion time of the most recent task. */
+  lastFinishedAt?: string | null;
   /** Whether the backend is still generating a response for this session. */
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
@@ -388,6 +390,7 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     status: chat.status ?? "idle",
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
+    lastFinishedAt: chat.last_finished_at ?? null,
     pinned: chat.pinned ?? false,
     source: chat.source ?? "chat",
     groupId: chat.group_id ?? null,
@@ -1278,6 +1281,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         a.name !== b.name ||
         a.status !== b.status ||
         a.updatedAt !== b.updatedAt ||
+        a.lastFinishedAt !== b.lastFinishedAt ||
         a.createdAt !== b.createdAt ||
         a.pinned !== b.pinned ||
         a.generating !== b.generating ||

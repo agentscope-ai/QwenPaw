@@ -34,7 +34,7 @@ import { baseFromRoutePath } from "./osRouteMap";
 import MenuBar from "./MenuBar";
 import Dock from "./Dock";
 import SpacesPanel from "./SpacesPanel";
-import { useEdgeReveal } from "./useEdgeReveal";
+import { shouldRevealDock, useEdgeReveal } from "./useEdgeReveal";
 import { useOsIcons, defaultIconPos } from "./osIconStore";
 import { useOsDock } from "./osDockStore";
 import { useIconDrag } from "./useIconDrag";
@@ -220,9 +220,18 @@ export default function DesktopOS() {
     .map((id) => windows[id])
     .filter((w): w is NonNullable<typeof w> => Boolean(w));
 
-  // Desktop keeps the menu bar visible above maximized windows. Mobile uses
-  // full-screen windows and keeps the menu bar hidden.
-  const { topHot } = useEdgeReveal();
+  // Desktop keeps the menu bar visible. A maximized active window hides the
+  // Dock until the pointer reaches the bottom edge; mobile keeps it visible.
+  const { topHot, bottomHot } = useEdgeReveal();
+  const activeWindow = activeId ? windows[activeId] : undefined;
+  const activeWindowMaximized = Boolean(
+    activeWindow?.maximized && !activeWindow.minimized,
+  );
+  const dockRevealed = shouldRevealDock(
+    isMobile,
+    activeWindowMaximized,
+    bottomHot,
+  );
 
   // Persisted desktop icon positions + transient drag handlers. While a
   // drag is in flight the position lives in the DOM only (rAF-coalesced);
@@ -503,7 +512,7 @@ export default function DesktopOS() {
 
       <SpacesPanel visible={topHot} />
       <MenuBar hidden={isMobile} />
-      <Dock />
+      <Dock revealed={dockRevealed} />
 
       {ctxMenu && (
         <Dropdown

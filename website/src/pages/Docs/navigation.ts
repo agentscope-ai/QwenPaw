@@ -33,6 +33,7 @@ export const DOC_GROUPS: DocGroup[] = [
         slug: "memory-evolving-and-proactive",
         titleKey: "docs.memoryEvolvingAndProactive",
       },
+      { slug: "mailbox", titleKey: "docs.mailbox" },
     ],
   },
   {

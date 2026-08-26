@@ -21,6 +21,7 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: string;
   generating?: boolean;

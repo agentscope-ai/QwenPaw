@@ -46,8 +46,16 @@ The current model matrix is grouped by capability:
 
 - **LLM / VLM**: OpenAI-compatible APIs, DashScope / Bailian, Anthropic Claude, DeepSeek, Google Gemini, Baidu Qianfan, Volcano Engine, and custom providers;
 - **Grounding**: Serper (Google) or Tavily; the validation model can reuse an LLM / VLM connection or be configured separately;
-- **Image generation**: OpenAI-compatible APIs or DashScope;
-- **Video generation**: DashScope `wan2.7` and `happyhorse-1.1` automatically select t2v / i2v / r2v from the element type; Volcano Engine `doubao-seedance-2.0` provides r2v;
+- **Image generation**: OpenAI-compatible APIs (`gpt-image-2`), DashScope / Bailian (`qwen-image-3.0`, `wan2.7-image`, `z-image-turbo`), Google Gemini (Nano Banana family; `gemini-3-pro-image` takes up to 14 reference images), Volcano Engine (`doubao-seedream` 5.0/4.5/4.0), Black Forest Labs (FLUX.2, up to 8 reference images), and Ideogram (typography and in-image text specialist);
+- **Video generation**:
+  - DashScope / Bailian: `wan3.0-video` and `wan3.0-video-prime` are All-in-One models — the same model ID handles t2v / i2v / r2v; `wan2.7` and `happyhorse-1.1` automatically select t2v / i2v / r2v from the element type; Bailian also hosts the `kling/kling-v3-*` and `vidu/viduq3-*_reference2video` families;
+  - Volcano Engine: `doubao-seedance-2-5-260628` (up to 30s, omni reference of up to 30 images + 10 videos) and the documented `doubao-seedance-2-0-*` IDs;
+  - Google Gemini: `veo-3.1` (4/6/8s, forced to 8s with reference images or 1080p/4k output, up to 3 reference images);
+  - MiniMax Hailuo: `MiniMax-Hailuo-2.3` and siblings (768P at 6/10s, 1080P at 6s); subject reference is served by `S2V-01` only;
+  - Kling official: `kling-3.0-omni` (reference-to-video, up to 7 reference images) and `kling-2.6` (t2v/i2v only, 5s or 10s);
+  - Vidu official: capability is exact-model-specific — `viduq3-turbo` supports t2v/i2v/r2v, while `viduq3-mix` and `viduq3` are r2v-only, `viduq2-pro` is i2v/r2v, and `viduq2` is t2v/r2v;
+  - Kling and Vidu are available both through Bailian hosting and their official APIs — **the protocol selected in the model configuration decides the channel**;
+  - Each protocol + exact model ID has a registered official contract: unsupported modes and invalid duration, resolution, aspect ratio or reference media are rejected before upload/task creation, and the same limits drive the settings UI and agent prompts;
 - **ASR**: DashScope Fun-ASR, DashScope Qwen3-ASR, or OpenAI Whisper;
 - **TTS / digital human**: DashScope Qwen-TTS, CosyVoice, and `wan2.2-s2v` (with free `wan2.2-s2v-detect` face validation);
 - **Embedding**: DashScope `qwen3-vl-embedding` for asset retrieval and long-source memory.

@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { DatePicker } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DatePicker, Tooltip } from "antd";
+import { Card } from "@agentscope-ai/design";
+import { Line } from "@ant-design/plots";
 import { useTranslation } from "react-i18next";
 import dayjs, { type Dayjs } from "dayjs";
 import { useTheme } from "../../../contexts/ThemeContext";
 import api from "../../../api";
 import type { TokenUsageRecord } from "../../../api/types/tokenUsage";
+import type { LlmToolDaily } from "../../../api/modules/agentStats";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -15,7 +18,10 @@ import {
   DataTables,
   EmptyState,
 } from "./components";
+import { useAgentStore } from "../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { useDataAggregation } from "./hooks/useDataAggregation";
+import { lineChartChrome } from "./hooks/lineChartChrome";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
 import styles from "./index.module.less";
@@ -24,39 +30,94 @@ function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const agents = useAgentStore((state) => state.agents);
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
+  const [llmToolDays, setLlmToolDays] = useState<LlmToolDaily[] | null>(null);
+  const [trendLoading, setTrendLoading] = useState(true);
+  const [trendError, setTrendError] = useState(false);
   const [startDate, setStartDate] = useState<Dayjs>(
     dayjs().subtract(30, "day"),
   );
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
+  const detailsFetchIdRef = useRef(0);
+  const trendFetchIdRef = useRef(0);
+  const trendAbortRef = useRef<AbortController | null>(null);
+
+  const dateRange = useMemo(
+    () => ({
+      start_date: startDate.format("YYYY-MM-DD"),
+      end_date: endDate.format("YYYY-MM-DD"),
+    }),
+    [startDate, endDate],
+  );
+
+  const fetchTrend = useCallback(
+    async (fetchId: number) => {
+      trendAbortRef.current?.abort();
+      const controller = new AbortController();
+      trendAbortRef.current = controller;
+      setTrendLoading(true);
+      setTrendError(false);
+      try {
+        const data = await api.getGlobalLlmToolTrend(dateRange, {
+          signal: controller.signal,
+        });
+        if (fetchId !== trendFetchIdRef.current) return;
+        setLlmToolDays(data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        console.error("Failed to load llm/tool trend:", err);
+        if (fetchId !== trendFetchIdRef.current) return;
+        setLlmToolDays(null);
+        setTrendError(true);
+      } finally {
+        if (fetchId === trendFetchIdRef.current) {
+          setTrendLoading(false);
+        }
+      }
+    },
+    [dateRange],
+  );
 
   const fetchData = useCallback(async () => {
+    const detailsId = ++detailsFetchIdRef.current;
+    const trendId = ++trendFetchIdRef.current;
     setLoading(true);
     setError(false);
+    void fetchTrend(trendId);
     try {
-      const detailsData = await api.getTokenUsageDetails({
-        start_date: startDate.format("YYYY-MM-DD"),
-        end_date: endDate.format("YYYY-MM-DD"),
-      });
+      const detailsData = await api.getTokenUsageDetails(dateRange);
+      if (detailsId !== detailsFetchIdRef.current) return;
       setRecords(detailsData);
     } catch (err) {
       console.error("Failed to load token usage:", err);
+      if (detailsId !== detailsFetchIdRef.current) return;
       message.error(t("tokenUsage.loadFailed"));
       setRecords([]);
       setError(true);
     } finally {
-      setLoading(false);
+      if (detailsId === detailsFetchIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, [startDate, endDate, message, t]);
+  }, [dateRange, fetchTrend, message, t]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
   const handleDateChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
-    if (!dates || !dates[0] || !dates[1]) return;
+    if (!dates || !dates[0] || !dates[1]) {
+      return;
+    }
     setStartDate(dates[0]);
     setEndDate(dates[1]);
   };
@@ -76,6 +137,26 @@ function TokenUsagePage() {
     endDate,
     isDark,
   });
+
+  const llmToolConfig = useMemo(() => {
+    const days = llmToolDays ?? [];
+    const llmLabel = t("tokenUsage.recordedTurnsAllAgents");
+    const toolLabel = t("tokenUsage.toolCalls");
+    return {
+      data: days.flatMap((row) => [
+        { date: row.date, type: llmLabel, value: row.agent_llm_calls },
+        { date: row.date, type: toolLabel, value: row.tool_calls },
+      ]),
+      ...lineChartChrome({
+        isDark,
+        tickCount: Math.min(10, Math.max(3, days.length)),
+        startDate,
+        endDate,
+        seriesField: "type",
+        colors: ["#722ed1", "#13c2c2"],
+      }),
+    };
+  }, [llmToolDays, startDate, endDate, isDark, t]);
 
   const byModelData = useMemo(() => {
     if (!aggregatedData?.by_model) return [];
@@ -101,6 +182,36 @@ function TokenUsagePage() {
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [aggregatedData?.by_date]);
 
+  const byAgentData = useMemo(() => {
+    if (!aggregatedData?.by_agent) return [];
+    return Object.entries(aggregatedData.by_agent)
+      .map(([key, stats]) => {
+        const agentId = stats.agent_id;
+        let agent: string;
+        if (!agentId) {
+          agent = t("tokenUsage.unattributed");
+        } else {
+          const profile = agentsById.get(agentId);
+          agent = profile ? getAgentDisplayName(profile, t) : agentId;
+        }
+        return {
+          key,
+          agent,
+          prompt_tokens: stats.prompt_tokens,
+          completion_tokens: stats.completion_tokens,
+          call_count: stats.call_count,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.prompt_tokens +
+          b.completion_tokens -
+          (a.prompt_tokens + a.completion_tokens),
+      );
+  }, [aggregatedData?.by_agent, agentsById, t]);
+
+  const tablesEmpty = byModelData.length === 0 && byDateData.length === 0;
+
   const pageHeader = (
     <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
   );
@@ -114,19 +225,6 @@ function TokenUsagePage() {
     );
   }
 
-  if (error && records.length === 0) {
-    return (
-      <div className={styles.container}>
-        {pageHeader}
-        <LoadingState
-          message={t("tokenUsage.loadFailed")}
-          error
-          onRetry={fetchData}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className={styles.container}>
       {pageHeader}
@@ -136,34 +234,82 @@ function TokenUsagePage() {
           <DatePicker.RangePicker
             value={[startDate, endDate]}
             onChange={handleDateChange}
-            disabledDate={(current) =>
-              current && current.isAfter(dayjs(), "day")
-            }
+            disabledDate={(current: Dayjs, info?: { from?: Dayjs }) => {
+              if (!current || current.isAfter(dayjs(), "day")) return true;
+              if (info?.from) {
+                return Math.abs(current.diff(info.from, "day")) >= 365;
+              }
+              return false;
+            }}
           />
         </div>
 
-        {aggregatedData && (
-          <SummaryCards
-            totalCalls={aggregatedData.total_calls}
-            totalPromptTokens={aggregatedData.total_prompt_tokens}
-            totalCompletionTokens={aggregatedData.total_completion_tokens}
-            totalTokens={
-              aggregatedData.total_prompt_tokens +
-              aggregatedData.total_completion_tokens
-            }
+        {error ? (
+          <LoadingState
+            message={t("tokenUsage.loadFailed")}
+            error
+            onRetry={fetchData}
           />
-        )}
-
-        <div className={styles.trendRow}>
-          <ModelTrendChart chartConfig={modelTrendConfig} />
-          <TokenTypeChart chartConfig={tokenTypeConfig} />
-        </div>
-
-        {byModelData.length === 0 && byDateData.length === 0 ? (
-          <EmptyState message={t("tokenUsage.noData")} />
         ) : (
-          <DataTables byModelData={byModelData} byDateData={byDateData} />
+          <>
+            {aggregatedData && (
+              <SummaryCards
+                totalCalls={aggregatedData.total_calls}
+                totalPromptTokens={aggregatedData.total_prompt_tokens}
+                totalCompletionTokens={aggregatedData.total_completion_tokens}
+                totalTokens={
+                  aggregatedData.total_prompt_tokens +
+                  aggregatedData.total_completion_tokens
+                }
+              />
+            )}
+
+            <div className={styles.trendRow}>
+              <ModelTrendChart chartConfig={modelTrendConfig} />
+              <TokenTypeChart chartConfig={tokenTypeConfig} />
+            </div>
+          </>
         )}
+
+        <Card
+          className={styles.chartCard}
+          title={
+            <Tooltip title={t("tokenUsage.llmAndToolTrendTooltip")}>
+              <span className={styles.chartTitle}>
+                {t("tokenUsage.llmAndToolTrend")}
+              </span>
+            </Tooltip>
+          }
+        >
+          {trendLoading ? (
+            <LoadingState message={t("common.loading", "Loading...")} />
+          ) : trendError ? (
+            <LoadingState
+              message={t("tokenUsage.llmAndToolTrendLoadFailed")}
+              error
+              onRetry={() => {
+                void fetchTrend(++trendFetchIdRef.current);
+              }}
+            />
+          ) : (llmToolDays ?? []).every(
+              (d) => d.agent_llm_calls === 0 && d.tool_calls === 0,
+            ) ? (
+            <EmptyState message={t("tokenUsage.noData")} />
+          ) : (
+            <Line {...llmToolConfig} />
+          )}
+        </Card>
+
+        {!error &&
+          (tablesEmpty ? (
+            <EmptyState message={t("tokenUsage.noData")} />
+          ) : (
+            <DataTables
+              byModelData={byModelData}
+              byDateData={byDateData}
+              byAgentData={byAgentData}
+            />
+          ))}
       </div>
     </div>
   );

@@ -1,14 +1,15 @@
 /**
- * Shared hook that drives the SSE backup-creation stream.
- * Owns progress/loading/abort state so both CreateBackupModal (user-initiated)
- * and SilentBackupModal (auto pre-restore) can share identical streaming logic.
+ * Shared hook that starts and observes an application-owned backup job.
  */
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "@/api";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import type { CreateBackupRequest } from "@/api/types/backup";
-import { handleBackupProgressEvent } from "./progress";
+import type {
+  BackupJobSnapshot,
+  CreateBackupRequest,
+} from "@/api/types/backup";
+import { handleBackupJobSnapshot } from "./progress";
 
 interface UseBackupRunnerOptions {
   onSuccess?: () => void;
@@ -16,10 +17,8 @@ interface UseBackupRunnerOptions {
 }
 
 /**
- * Returns { loading, progress, progressMsg, start, cancel, reset }.
- * - start(data): opens the SSE stream, updates progress state on every event.
- * - cancel():    aborts the in-flight request and resets state.
- * - reset():     clears progress/loading without aborting (used after modal reopens).
+ * Transport abort only detaches the observer. Cancellation is always an
+ * explicit job API request.
  */
 export function useBackupRunner({
   onSuccess,
@@ -31,50 +30,147 @@ export function useBackupRunner({
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
   const abortControllerRef = useRef<AbortController | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+  const cancelRequestedRef = useRef(false);
+
+  const applySnapshot = (snapshot: BackupJobSnapshot) => {
+    const { progress: nextProgress, msg } = handleBackupJobSnapshot(
+      snapshot,
+      t,
+    );
+    setProgress(nextProgress);
+    setProgressMsg(msg);
+  };
+
+  const isTerminal = (snapshot: BackupJobSnapshot) =>
+    ["completed", "failed", "cancelled"].includes(snapshot.status);
+
+  const observeUntilTerminal = async (initial: BackupJobSnapshot) => {
+    let latest = initial;
+    let consecutiveStatusFailures = 0;
+    applySnapshot(latest);
+
+    while (!isTerminal(latest)) {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      try {
+        await api.streamBackupJob(
+          latest.job_id,
+          (snapshot) => {
+            latest = snapshot;
+            applySnapshot(snapshot);
+          },
+          controller.signal,
+        );
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
+      } finally {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+      }
+
+      if (isTerminal(latest)) break;
+      try {
+        latest = await api.getBackupJob(latest.job_id);
+        consecutiveStatusFailures = 0;
+        applySnapshot(latest);
+      } catch (err) {
+        consecutiveStatusFailures += 1;
+        if (consecutiveStatusFailures >= 5) throw err;
+      }
+
+      if (!isTerminal(latest)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      }
+    }
+    return latest;
+  };
 
   /** Resets visual progress state; called when the modal reopens for a fresh session. */
   const reset = () => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    jobIdRef.current = null;
+    cancelRequestedRef.current = false;
     setLoading(false);
     setProgress(0);
     setProgressMsg("");
   };
 
-  /** Starts the backup stream. Resolves when the server sends the "done" event. */
-  const start = async (data: CreateBackupRequest) => {
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+  const execute = async (getInitial: () => Promise<BackupJobSnapshot>) => {
     setLoading(true);
     setProgress(0);
     setProgressMsg(t("backup.progressStarting"));
 
     try {
-      await api.createBackupStream(
-        data,
-        (event) => {
-          const { progress: p, msg } = handleBackupProgressEvent(event, t);
-          setProgress(p);
-          setProgressMsg(msg);
-        },
-        controller.signal,
-      );
+      const initial = await getInitial();
+      jobIdRef.current = initial.job_id;
+      if (cancelRequestedRef.current) {
+        try {
+          await api.cancelBackupJob(initial.job_id);
+        } catch (err) {
+          cancelRequestedRef.current = false;
+          throw err;
+        }
+        onClose?.();
+        return;
+      }
+
+      const terminal = await observeUntilTerminal(initial);
+      if (terminal.status === "failed") {
+        throw new Error(terminal.error || "Backup failed");
+      }
+      if (terminal.status === "cancelled") {
+        onClose?.();
+        return;
+      }
       message.success(t("backup.createSuccess"));
       onSuccess?.();
       onClose?.();
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (
+        cancelRequestedRef.current ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return;
+      }
       message.error(t("backup.createFailed"));
     } finally {
       setLoading(false);
       abortControllerRef.current = null;
+      jobIdRef.current = null;
     }
   };
 
-  /** Aborts the in-flight SSE request, resets state, and closes the modal. */
-  const cancel = () => {
-    abortControllerRef.current?.abort();
-    reset();
-    onClose?.();
+  const start = (data: CreateBackupRequest) =>
+    execute(async () => {
+      try {
+        return await api.startBackupJob(data);
+      } catch (err) {
+        const active = await api.getActiveBackupJob();
+        if (active) return active;
+        throw err;
+      }
+    });
+
+  const resume = (snapshot: BackupJobSnapshot) =>
+    execute(() => Promise.resolve(snapshot));
+
+  const cancel = async () => {
+    cancelRequestedRef.current = true;
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    try {
+      await api.cancelBackupJob(jobId);
+      abortControllerRef.current?.abort();
+      reset();
+      onClose?.();
+    } catch {
+      cancelRequestedRef.current = false;
+      message.error(t("backup.createFailed"));
+    }
   };
 
-  return { loading, progress, progressMsg, start, cancel, reset };
+  return { loading, progress, progressMsg, start, resume, cancel, reset };
 }

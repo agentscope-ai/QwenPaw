@@ -271,6 +271,7 @@
     "quickstart": "Inicio rapido",
     "desktop": "App Desktop",
     "console": "Console",
+    "mailbox": "Gerenciamento de E-mail",
     "tui": "Interface de Terminal",
     "multiAgent": "Multi-Agente",
     "models": "Modelos",

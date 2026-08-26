@@ -26,3 +26,9 @@ class ObservabilityConfigData(StrictModel):
         alias="logLevel",
     )
     capture_content: bool = Field(default=False, alias="captureContent")
+    retention_days: int = Field(
+        default=14,
+        ge=1,
+        le=365,
+        alias="retentionDays",
+    )

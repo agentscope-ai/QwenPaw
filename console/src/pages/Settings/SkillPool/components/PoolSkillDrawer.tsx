@@ -29,6 +29,7 @@ interface PoolSkillDrawerProps {
   mode: PoolMode | null;
   activeSkill: PoolSkillDetail | null;
   loading?: boolean;
+  saving?: boolean;
   skillName?: string;
   form: FormInstance;
   drawerContent: string;
@@ -36,16 +37,18 @@ interface PoolSkillDrawerProps {
   configText: string;
   availableTags?: string[];
   workspaces?: WorkspaceSkillSummary[];
-  autoUpdateEnabled?: boolean;
-  autoUpdateTargets?: string[];
+  builtinAutoUpdateEnabled?: boolean;
+  autoSyncEnabled?: boolean;
+  autoSyncTargets?: string[];
   onClose: () => void;
   onSave: () => void;
   onContentChange: (content: string) => void;
   onShowMarkdownChange: (value: boolean) => void;
   onConfigTextChange: (text: string) => void;
   onChangeBuiltinLanguage?: (skill: PoolSkillDetail, language: string) => void;
-  onAutoUpdateEnabledChange?: (enabled: boolean) => void;
-  onAutoUpdateTargetsChange?: (targets: string[]) => void;
+  onBuiltinAutoUpdateEnabledChange?: (enabled: boolean) => void;
+  onAutoSyncEnabledChange?: (enabled: boolean) => void;
+  onAutoSyncTargetsChange?: (targets: string[]) => void;
   validateFrontmatter: (_: unknown, value: string) => Promise<void>;
 }
 
@@ -53,6 +56,7 @@ export function PoolSkillDrawer({
   mode,
   activeSkill,
   loading = false,
+  saving = false,
   skillName = "",
   form,
   drawerContent,
@@ -60,16 +64,18 @@ export function PoolSkillDrawer({
   configText,
   availableTags = [],
   workspaces = [],
-  autoUpdateEnabled = false,
-  autoUpdateTargets = [],
+  builtinAutoUpdateEnabled = false,
+  autoSyncEnabled = false,
+  autoSyncTargets = [],
   onClose,
   onSave,
   onContentChange,
   onShowMarkdownChange,
   onConfigTextChange,
   onChangeBuiltinLanguage,
-  onAutoUpdateEnabledChange,
-  onAutoUpdateTargetsChange,
+  onBuiltinAutoUpdateEnabledChange,
+  onAutoSyncEnabledChange,
+  onAutoSyncTargetsChange,
   validateFrontmatter,
 }: PoolSkillDrawerProps) {
   const { t } = useTranslation();
@@ -86,12 +92,21 @@ export function PoolSkillDrawer({
           : t("skillPool.createTitle")
       }
       open={mode === "create" || mode === "edit"}
-      onClose={onClose}
+      onClose={() => {
+        if (!saving) onClose();
+      }}
       destroyOnHidden
       footer={
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button type="primary" onClick={onSave} disabled={loading}>
+          <Button onClick={onClose} disabled={saving}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="primary"
+            onClick={onSave}
+            loading={saving}
+            disabled={loading || saving}
+          >
             {mode === "edit" ? t("common.save") : t("common.create")}
           </Button>
         </div>
@@ -153,52 +168,80 @@ export function PoolSkillDrawer({
                 </div>
               </div>
               <div className={styles.infoSection}>
-                <div
-                  className={styles.infoLabel}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <span>{t("skillPool.autoUpdate")}</span>
-                  <Switch
-                    checked={autoUpdateEnabled}
-                    onChange={(checked) => onAutoUpdateEnabledChange?.(checked)}
-                  />
+                <div className={styles.infoLabel}>
+                  {t("skillPool.automation")}
                 </div>
-                {autoUpdateEnabled && (
-                  <div style={{ marginTop: 8 }}>
-                    <Select
-                      mode="multiple"
-                      style={{ width: "100%" }}
-                      value={autoUpdateTargets.filter((id) =>
-                        workspaces.some((ws) => ws.agent_id === id),
-                      )}
-                      onChange={(value) =>
-                        onAutoUpdateTargetsChange?.(value as string[])
-                      }
-                      placeholder={t("skillPool.autoUpdateAgentsPlaceholder")}
-                      options={workspaces.map((ws) => ({
-                        label: getAgentDisplayName(
-                          { id: ws.agent_id, name: ws.agent_name ?? "" },
-                          t,
-                        ),
-                        value: ws.agent_id,
-                      }))}
-                    />
-                    <div
-                      style={{
-                        marginTop: 4,
-                        fontSize: 12,
-                        opacity: 0.6,
-                      }}
-                    >
-                      {t("skillPool.autoUpdateAgentsHint")}
+                <div className={styles.automationPanel}>
+                  {isSkillBuiltin(activeSkill.source) && (
+                    <div className={styles.automationSetting}>
+                      <div className={styles.automationSettingHeader}>
+                        <div>
+                          <div className={styles.automationSettingTitle}>
+                            {t("skillPool.builtinAutoUpdate")}
+                          </div>
+                          <div className={styles.automationFlow}>
+                            {t("skillPool.builtinAutoUpdateFlow")}
+                          </div>
+                        </div>
+                        <Switch
+                          data-testid="builtin-auto-update-switch"
+                          aria-label={t("skillPool.builtinAutoUpdate")}
+                          checked={builtinAutoUpdateEnabled}
+                          onChange={(checked) =>
+                            onBuiltinAutoUpdateEnabledChange?.(checked)
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={styles.automationSetting}>
+                    <div className={styles.automationSettingHeader}>
+                      <div>
+                        <div className={styles.automationSettingTitle}>
+                          {t("skillPool.autoSync")}
+                        </div>
+                        <div className={styles.automationFlow}>
+                          {t("skillPool.autoSyncFlow")}
+                        </div>
+                      </div>
+                      <Switch
+                        data-testid="auto-sync-switch"
+                        aria-label={t("skillPool.autoSync")}
+                        checked={autoSyncEnabled}
+                        onChange={(checked) =>
+                          onAutoSyncEnabledChange?.(checked)
+                        }
+                      />
                     </div>
                   </div>
-                )}
+
+                  {autoSyncEnabled && (
+                    <div className={styles.automationTargets}>
+                      <Select
+                        mode="multiple"
+                        style={{ width: "100%" }}
+                        value={autoSyncTargets.filter((id) =>
+                          workspaces.some((ws) => ws.agent_id === id),
+                        )}
+                        onChange={(value) =>
+                          onAutoSyncTargetsChange?.(value as string[])
+                        }
+                        placeholder={t("skillPool.autoSyncAgentsPlaceholder")}
+                        options={workspaces.map((ws) => ({
+                          label: getAgentDisplayName(
+                            { id: ws.agent_id, name: ws.agent_name ?? "" },
+                            t,
+                          ),
+                          value: ws.agent_id,
+                        }))}
+                      />
+                      <div className={styles.automationTargetsHint}>
+                        {t("skillPool.autoSyncAgentsHint")}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

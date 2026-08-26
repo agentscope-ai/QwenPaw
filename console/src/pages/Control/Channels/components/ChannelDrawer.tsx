@@ -515,6 +515,14 @@ export function ChannelDrawer({
             >
               <Switch />
             </Form.Item>
+            <Form.Item
+              name="share_session_in_group"
+              label={t("channels.shareSessionInGroup")}
+              valuePropName="checked"
+              tooltip={t("channels.shareSessionInGroupTooltip")}
+            >
+              <Switch />
+            </Form.Item>
           </>
         );
 
