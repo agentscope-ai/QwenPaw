@@ -1,68 +1,107 @@
-# Deploying and Managing QwenPaw Hub
+# QwenPaw Hub
 
-QwenPaw Hub is a unified entry point for self-hosted, multi-user deployments. An administrator operates one Hub while every account receives a separate QwenPaw runtime with its own workspace, configuration, credentials, and conversations.
+QwenPaw Hub lets a team use QwenPaw on a shared server. Team members sign in at one address, but each person gets their own QwenPaw with separate workspaces, settings, credentials, and conversations.
 
-Hub does not replace or alter the single-user QwenPaw App. Personal devices can continue to run `qwenpaw app`; use `qwenpaw hub` only when multiple accounts need centralized management.
+If you only use QwenPaw on your own computer, keep using the desktop App. Deploy Hub only when you need to manage multiple users on a server.
 
-> **Important security boundary: Hub does not give every user a separate kernel.** Local runtimes use Bubblewrap namespaces on Linux, Seatbelt on macOS, and AppContainer plus a Job Object on Windows. All three are process sandboxes that share the host kernel. Docker runtimes share the Linux kernel used by their Docker Engine. On Docker Desktop this is normally the Docker Linux VM kernel, but it is still not one kernel per tenant. For mutually untrusted users or higher-risk multi-tenant deployments, add virtual machines, dedicated nodes, microVMs, or another stronger infrastructure boundary outside Hub.
+> QwenPaw Hub is available in non-desktop installations starting with QwenPaw 2.2.0. The desktop edition is the single-user App and does not include Hub. Earlier versions do not have the `qwenpaw hub` command.
+
+> Hub 2.2.0 is an early release intended only for internal teams whose members trust one another. Even with HTTPS and remote access configured, do not operate the current version as a public multi-tenant service for unknown users.
 
 ![Hub sign-in page and Terms dialog](https://img.alicdn.com/imgextra/i2/O1CN01hhIGAbMm89B6lBsc_!!6000000006867-2-tps-3330-1772.png)
 
-## Hub and the single-user App
+## When to use Hub
 
-| Capability | `qwenpaw app`                                | `qwenpaw hub`                                   |
-| ---------- | -------------------------------------------- | ----------------------------------------------- |
-| Use case   | Personal device, one user                    | Self-hosted, multiple users                     |
-| Identity   | Local instance authentication                | Central Hub accounts                            |
-| Runtime    | One local process                            | One managed runtime per account                 |
-| Data       | `~/.qwenpaw` by default                      | Separate runtime directories under the Hub root |
-| Operations | QwenPaw Console                              | Hub admin center and personal Console           |
-| Backend    | Local process or manually operated container | Administrator-selected Local or Docker backend  |
+Hub is designed for companies, labs, and small teams that want to run QwenPaw for trusted members on their own server. Administrators can:
 
-After signing in, a regular user is proxied to their own QwenPaw Console. Administrators can also manage accounts, runtimes, access security, and Docker policy.
+- create and manage accounts;
+- choose Local or Docker for all user runtimes;
+- inspect, stop, and restart runtimes;
+- set Docker images, resource limits, and access rules;
+- preserve user data and manage backups and upgrades centrally.
 
-## Requirements
+Hub is self-hosted software, not a cloud service operated by the QwenPaw team. The server administrator can access the server, database, and backups, so users should only join a Hub run by themselves or an organization they trust.
 
-- Install the current QwenPaw release and a supported Python version.
-- Include the built Console assets in the package, or build them in a source checkout.
-- For Local, provide the native isolation mechanism listed below.
-- For Docker, allow the Hub process to access a Docker Engine that runs Linux containers.
-- For external access, use a trusted network or an HTTPS reverse proxy.
+## Install
 
-## Install and initialize
-
-Install the Hub optional dependencies from PyPI:
-
-```bash
-pip install "qwenpaw[hub]"
-```
-
-The `hub` extra includes the Docker SDK required by the Docker backend. A normal `pip install qwenpaw` does not install it and does not change the existing QwenPaw App dependency path. Install the extra in a Hub environment even if you initially select Local, so the admin center can probe and report Docker backend availability.
-
-For an existing QwenPaw environment, install the extra in place and verify that the Hub command is present:
+Hub requires a non-desktop installation of QwenPaw 2.2.0 or later. Install or upgrade the Python package with the Hub dependencies:
 
 ```bash
 pip install -U "qwenpaw[hub]"
+```
+
+Confirm that the command is available:
+
+```bash
 qwenpaw hub --help
 ```
 
-Hub initially listens on loopback and refuses public exposure before an administrator exists. Start it locally:
+## First start
+
+Start Hub on the loopback interface first:
 
 ```bash
 qwenpaw hub --host 127.0.0.1 --port 8000
 ```
 
-For a remote server, create an SSH tunnel and open `http://127.0.0.1:8000/`:
+Open `http://127.0.0.1:8000/` and register an account. The first registered account becomes the administrator.
+
+If Hub is running on a remote server, initialize it through an SSH tunnel:
 
 ```bash
 ssh -L 8000:127.0.0.1:8000 user@example.com
 ```
 
-The first registered account becomes an administrator. Use a unique, strong password and always retain at least one enabled administrator.
+Then open `http://127.0.0.1:8000/` on your own computer.
 
-## Configuration
+> Use a strong password for the first administrator. After adding other administrators, always keep at least one administrator account that can sign in.
 
-This example selects Local and enables registration after initialization:
+## Choose a runtime backend
+
+Open **System Settings → Runtime** and select Local or Docker. The administrator manages this choice for the whole Hub; regular users do not need to work with ports, containers, or host paths.
+
+|                   | Local                                    | Docker                                      |
+| ----------------- | ---------------------------------------- | ------------------------------------------- |
+| Best for          | Internal teams and quick deployments     | Long-running deployments with resource caps |
+| Runtime           | One host process per user                | One container per user                      |
+| Requirements      | Native OS process isolation is available | Docker can run Linux containers             |
+| Resource limits   | Depend on the host                       | CPU, memory, and process limits             |
+| User data storage | Hub data directory                       | Hub data directory, mounted into containers |
+
+### Local
+
+Local uses the QwenPaw and Python environment installed on the host:
+
+- Linux requires an installed and working Bubblewrap (`bwrap`);
+- macOS requires a working system `sandbox-exec`;
+- Windows requires Windows 10 1507 or later and Hub must run as Administrator.
+
+Hub checks the required isolation before starting a user runtime. If the check fails, it does not fall back to an ordinary unsandboxed process.
+
+### Docker
+
+Docker requires Hub to access a Docker Engine that runs Linux containers. Windows and macOS normally provide this through Docker Desktop.
+
+Administrators can use an official image or provide a custom image reference. For an image that exists only on the host, set the pull policy to `never`. The default resource limits are:
+
+| Resource   | Default  |
+| ---------- | -------- |
+| CPU        | 2 cores  |
+| Memory     | 4096 MiB |
+| Processes  | 1024     |
+| `/dev/shm` | 512 MiB  |
+
+Changing the backend, image, or limits does not interrupt a running runtime. Restart the runtime to apply new settings; use **Rebuild** when moving to a different image version.
+
+The current Docker limits are one administrator-defined policy applied to all containers. Hub does not yet support different quotas per user, resource-usage accounting, multi-node capacity scheduling, or autoscaling. Local also does not provide the same resource controls as containers.
+
+![Local/Docker backend selector in System Settings](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
+
+## Give a trusted team remote access
+
+When internal members need to connect from other devices or networks, place Hub behind an HTTPS reverse proxy and set `public_base_url` to the address they open in their browsers.
+
+Create `hub.yaml`:
 
 ```yaml
 version: 1
@@ -70,28 +109,8 @@ version: 1
 control_plane:
   public_base_url: https://qwenpaw.example.com
   registration:
-    enabled: true
+    enabled: false
     default_role: user
-  security:
-    ip_blacklist: []
-    trusted_proxy_ips:
-      - 127.0.0.1/32
-    login_rate_limit:
-      enabled: true
-      max_attempts: 10
-      window_seconds: 300
-      block_seconds: 900
-    registration_rate_limit:
-      enabled: true
-      max_attempts: 5
-      window_seconds: 3600
-      block_seconds: 3600
-  proxy:
-    max_request_size_mb: 1024
-    request_idle_timeout_seconds: 60
-    response_header_timeout_seconds: 300
-    connect_timeout_seconds: 10
-    websocket_max_message_size_mb: 16
 
 runtime:
   provisioner: local
@@ -100,22 +119,7 @@ capacity:
   max_running_runtimes: 20
 ```
 
-### YAML and admin-panel precedence
-
-Configuration ownership is determined on every startup:
-
-1. With `--config hub.yaml`, Hub validates the complete YAML configuration and writes it to the database on every startup.
-2. Without `--config`, Hub uses the configuration stored by the admin panel.
-3. Admin-panel changes are written to the database immediately.
-4. A later startup with `--config` overwrites those database values with YAML again.
-
-This supports either YAML-managed or panel-managed deployments. If YAML remains authoritative, keep it in secure configuration management and remember that panel changes are temporary until the next YAML-backed restart.
-
-The `control_plane.proxy` limits bound traffic forwarded to personal runtimes. Request size and idle limits apply only while uploading a request body. The response-header timeout ends once the runtime starts its response, so SSE, agent streams, and streamed downloads remain open until either peer disconnects. All values can be overridden in YAML; sizes are measured in MiB and timeouts in seconds.
-
-## Public startup and OAuth base URL
-
-After creating an administrator and setting `public_base_url`, explicitly allow a public listener:
+Then start Hub:
 
 ```bash
 qwenpaw hub \
@@ -125,86 +129,46 @@ qwenpaw hub \
   --config hub.yaml
 ```
 
-`--force-public` does not provide TLS. Put an HTTPS reverse proxy in front of Hub on untrusted networks. `public_base_url` must exactly match the browser-facing scheme, host, and port because OpenRouter, MCP, and other integrations use it to construct OAuth callbacks.
+`--force-public` allows Hub to listen on an external address; it does not configure TLS. Do not expose unencrypted HTTP directly to an untrusted network.
 
-## User experience and runtime ownership
+An external listener only enables remote access for trusted members. It does not mean Hub is ready for open registration or operation as a public service. HTTPS, login rate limits, and IP blocking protect the entry point, but they do not strengthen kernel isolation between user runtimes.
 
-Users must read and accept the self-hosted Terms before signing in or registering. Hub then finds or creates the user's personal runtime and proxies requests to its Console.
+When you pass `--config`, the YAML file is the configuration source for that start and overwrites corresponding settings saved through the admin panel. To manage settings only through the panel later, start Hub without `--config`.
 
-Regular users can use their Console, manage their own model and integration credentials, change their password, and restart a failed or normally stopped runtime. They cannot select the backend, Docker image, or resource limits.
+### Reverse-proxy requirements
 
-Each account maps to one tenant and one default runtime. The admin list displays the username first and the immutable user ID second. Search and owner filters accept both values; if an account is deleted, historical runtimes fall back to the user ID.
+The reverse proxy must:
+
+- forward requests to the Hub listener;
+- preserve the correct host and scheme;
+- support WebSocket Upgrade;
+- use appropriate caching for the HTML entry point and hashed static assets.
+
+`public_base_url` also determines callback URLs for OpenRouter, MCP, and other OAuth integrations, so it must match the address users open in their browsers.
+
+## Manage users
+
+For an internal team, disable self-registration and create accounts in **User Management**. If trusted members need to register themselves, restrict access to the entry point and enable registration rate limiting. Do not open registration to unknown users.
+
+After signing in, regular users go directly to their own QwenPaw Console. They can manage their conversations, files, model settings, and integration credentials. They cannot choose the runtime backend, Docker image, or resource limits.
+
+Administrators can see each user's runtime and perform these actions:
+
+| Action         | Result                                                   |
+| -------------- | -------------------------------------------------------- |
+| Stop           | Stops the process or container; the user can start later |
+| Disable start  | Stops the runtime and prevents user-initiated startup    |
+| Restart        | Starts the runtime with the current global settings      |
+| Docker rebuild | Recreates the container with the current image policy    |
+| Delete         | Removes the runtime record but preserves data on disk    |
+
+Users can restart a failed or normally stopped runtime from their personal page. After an administrator disables startup, only an administrator can restore it.
 
 ![Personal runtime status and restart action](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
 
-### Switching backends
+## Where Hub stores data
 
-Changing the global backend does not interrupt a running runtime. Restarting a runtime stops its old backend and starts it with the current global policy. After switching from Local to Docker or back, restart the relevant runtimes and verify the backend in the list.
-
-## Local backend: process isolation
-
-Local starts QwenPaw on the host but never falls back to an ordinary unsandboxed process. It performs platform isolation probes first and refuses startup when the required boundary is unavailable.
-
-| Platform | Isolation                 | Requirements                                                                                                            |
-| -------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Linux    | Bubblewrap                | Executable `bwrap` and the required kernel namespaces                                                                   |
-| macOS    | Seatbelt                  | A working system `sandbox-exec`                                                                                         |
-| Windows  | AppContainer + Job Object | Windows 10 1507/build 10240 or newer; Hub runs as Administrator; `icacls.exe` and `CheckNetIsolation.exe` are available |
-
-All platforms use a deny-by-default filesystem boundary and expose only required read-only runtime dependencies plus the current tenant's data. Windows uses a kill-on-close Job Object for the complete process tree.
-
-AppContainer normally cannot connect directly to host loopback. While a runtime is active, Hub enables the Windows loopback exemption for its AppContainer SID. The AppContainer then opens an outbound reverse TCP tunnel to Hub, and Hub proxies QwenPaw through that tunnel. Stopping the runtime removes the rule and closes the tunnel. The same rule also lets Windows Local reach other host loopback services, so this is a filesystem and process boundary, not a separate network boundary. Missing privileges, ACL support, AppContainer APIs, Job Object support, rule configuration, reverse-tunnel connectivity, or the real runtime health check causes Local to fail closed.
-
-This is process and filesystem access control, not kernel isolation. Local runtimes share the host kernel and must not be treated as virtual machines, microVMs, or a sufficient boundary for hostile tenants.
-
-![Local/Docker backend selector in System Settings](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
-
-## Docker backend: container isolation
-
-Docker requires an Engine that runs Linux containers. Windows and macOS normally provide this through Docker Desktop, WSL2, or a Linux VM. Each account receives a separate container with these rules:
-
-- publish the service port only on host `127.0.0.1`;
-- prevent acquisition of new Linux privileges;
-- use an internal boundary token that users cannot override;
-- leave restart policy under Hub lifecycle control;
-- mount persistent user data from stable host directories.
-
-Containers share the Linux kernel used by the Engine. Container escape risks, Linux kernel vulnerabilities, and Docker daemon permissions remain deployment responsibilities.
-
-### Images and pull policy
-
-| Source                 | Repository                                                              |
-| ---------------------- | ----------------------------------------------------------------------- |
-| Docker Hub official    | `docker.io/agentscope/qwenpaw`                                          |
-| Alibaba Cloud official | `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` |
-| Custom                 | A complete administrator-provided image reference                       |
-
-Custom images may be remote or an existing local tag such as `qwenpaw-hub-custom:2026-08`. Select `never` for a local-only tag.
-
-| Pull policy      | Behavior                                   |
-| ---------------- | ------------------------------------------ |
-| `always`         | Pull before use                            |
-| `if_not_present` | Pull only when the image is absent locally |
-| `never`          | Use only an existing local image           |
-
-The settings page shows the effective image reference, repository, tag, local status, and digest or image ID. Administrators can pull from the image-detail card and follow task progress. A created runtime records its actual image ID/digest so a mutable tag cannot silently change during an ordinary restart. Rebuild clears the pin and applies the current image policy while preserving user data.
-
-### Resource limits
-
-| Field             | Default | Meaning                       |
-| ----------------- | ------- | ----------------------------- |
-| `cpu_limit`       | `2.0`   | CPU quota per container       |
-| `memory_limit_mb` | `4096`  | Memory limit, minimum 256 MiB |
-| `pids_limit`      | `1024`  | Process limit, minimum 64     |
-| `shm_size_mb`     | `512`   | `/dev/shm`, minimum 64 MiB    |
-
-Empty CPU, memory, or PID values mean no corresponding limit. `capacity.max_running_runtimes` limits concurrent runtimes across the Hub; it does not create multiple runtimes for one tenant.
-
-![Docker image detail, pull action, and resource limits](https://img.alicdn.com/imgextra/i2/O1CN01M5zUCZUwvZG6nhyY_!!6000000002043-2-tps-3350-1784.png)
-
-## Persistent data
-
-The Hub root defaults to `<QWENPAW_WORKING_DIR>/hub/`, or `~/.qwenpaw/hub/` when `QWENPAW_WORKING_DIR` is unset:
+Hub stores data in `~/.qwenpaw/hub/` by default. If `QWENPAW_WORKING_DIR` is set, it uses `<QWENPAW_WORKING_DIR>/hub/` instead.
 
 ```text
 <QWENPAW_WORKING_DIR>/hub/
@@ -218,68 +182,62 @@ The Hub root defaults to `<QWENPAW_WORKING_DIR>/hub/`, or `~/.qwenpaw/hub/` when
         └── logs/
 ```
 
-Paths displayed by the admin center are real persistent host paths. Docker mounts `working/` at `/app/working`, `secret/` at `/app/working.secret`, and `backups/` at `/app/working.backups`.
+Stopping, restarting, rebuilding a Docker container, or switching between Local and Docker does not delete user data. Deleting a runtime record also preserves its directories; remove them manually only after confirming that the data is no longer needed.
 
-Stopping, restarting, rebuilding, switching backends, or retiring a runtime registration does not proactively delete these directories. This protects against accidental administrative deletion, but it is not a backup.
+## Backup and upgrades
 
-## Lifecycle and start policy
-
-Hub records observed state, desired state, and start permission separately.
-
-| Action              | Result                                           | User can start it      |
-| ------------------- | ------------------------------------------------ | ---------------------- |
-| Stop                | Physically stops the process or container        | Yes                    |
-| Disable start       | Stops it and reserves startup for administrators | No                     |
-| User restart        | Starts with the current global policy            | Only when not disabled |
-| Admin start/restart | Starts with the current global policy            | Yes                    |
-| Docker rebuild      | Recreates it with current image policy           | Administrator only     |
-| Delete              | Retires registration and preserves disk data     | Not applicable         |
-
-Failed runtimes expose a restart action on the personal page. A user refresh cannot override an administrator's “Disable start” decision.
-
-## Accounts and access protection
-
-Administrators cannot change their own role or disable themselves, and Hub prevents any operation that would remove the last active administrator. Regular users cannot rename themselves or change roles; they can only change their password.
-
-For internal teams, disable self-registration and create accounts administratively. If registration is public, enable registration rate limiting. Login and registration limits are tracked separately by client IP. The blacklist accepts IPv4, IPv6, and CIDR values.
-
-Hub trusts `X-Forwarded-For` only when the direct peer is in `trusted_proxy_ips`. Never trust `0.0.0.0/0`, because clients could spoof their address and bypass limits.
-
-## OAuth callbacks
-
-Hub proxies runtime OAuth flows through a browser-reachable callback:
+Treat the entire `hub/` directory as one backup set. It must include at least:
 
 ```text
-https://qwenpaw.example.com/api/hub/oauth/callback/<runtime-id>/<route>
+control.db*
+secrets/
+runtimes/
 ```
 
-If authorization fails, verify the effective `public_base_url`, reverse-proxy Host/Scheme/WebSocket headers, provider callback policy, runtime ownership, and provider-side account errors. Some MCP servers do not publish OAuth Protected Resource Metadata; configure `auth_endpoint` and `token_endpoint` manually from the service operator's documentation.
+The database stores accounts, settings, and runtime records. `secrets/` contains keys required to decrypt credentials. `runtimes/` contains user workspaces and private configuration. Backing up only part of this set may not produce a complete recovery.
 
-## Operations, backup, and upgrades
+Before an upgrade:
 
-The admin center provides user/runtime counts, status distribution, backend availability, paginated filters, and sanitized administrative audit events. Production deployments should additionally monitor reverse-proxy and Hub logs, host CPU/memory/disk, Docker health, HTTP latency and errors, WebSocket disconnects, and backup results.
-
-Back up these paths as one consistent set:
-
-```text
-<QWENPAW_WORKING_DIR>/hub/control.db*
-<QWENPAW_WORKING_DIR>/hub/secrets/
-<QWENPAW_WORKING_DIR>/hub/runtimes/
-```
-
-The database stores accounts, configuration, runtime registration, and audit events. `secrets/.vault_key` is required to decrypt credentials and system secrets. Before an upgrade, stop Hub, take a consistent backup of the entire root, record the installed version, and then verify administrator login, pagination, runtime proxying, WebSockets, and OAuth callbacks.
+1. Stop Hub.
+2. Back up the complete `hub/` directory.
+3. Record the installed QwenPaw version.
+4. Upgrade and restart Hub.
+5. Verify administrator login, user runtimes, streaming chat, and OAuth integrations.
 
 ## Troubleshooting
 
-- **Public listening is refused:** create an enabled administrator over loopback, set `public_base_url`, and pass `--force-public`.
-- **A page remains blank:** verify that `index.html` and every hashed JS/CSS asset return the same deployment version. Do not apply long-lived asset caching to the HTML entry point.
-- **Docker is selected but a runtime still shows Local:** restart that runtime so the current global policy is applied.
-- **A local image cannot be pulled:** select Custom, enter an existing Repository:Tag from `docker image ls`, and set pull policy to `never`.
-- **Personal Console fails to load:** inspect owner, state, backend, and last error. A normal stop is user-restartable; disabled startup requires an administrator.
-- **OAuth still uses `127.0.0.1`:** correct the active `public_base_url`. Restart with `--config` for YAML management, or save it in the panel for database management.
+### Hub refuses to listen on an external address
 
-## Deployment boundary
+Register the first administrator through `127.0.0.1`, set `public_base_url`, and add `--force-public` when starting Hub.
 
-QwenPaw Hub is self-hosted software. The operator controls the server, database, backups, and processes and may be able to access data stored by users. Users should sign in only to a Hub operated by themselves or a trusted organization.
+### Existing runtimes still show Local after selecting Docker
 
-QwenPaw runtimes have constrained file, process, device, and network capabilities compared with the full personal App. Local on Linux, macOS, and Windows shares the respective host kernel; Docker shares its Engine's Linux kernel. These controls reduce cross-account interference but do not replace VM-level tenant isolation, host hardening, network boundaries, HTTPS, backup, monitoring, or organizational security policy.
+Changing the global setting does not interrupt running runtimes. Restart the relevant runtime and check its backend again.
+
+### A local Docker image fails to pull
+
+Enter the complete `Repository:Tag` shown by `docker image ls` and set the pull policy to `never`.
+
+### Sign-in succeeds, but the personal QwenPaw does not open
+
+Open **Runtimes** and inspect the user's state and latest error. Confirm that the selected Local or Docker backend is available, then try restarting the runtime.
+
+### The page opens, but chat does not keep streaming
+
+Check that the reverse proxy supports WebSocket Upgrade and does not apply an overly short timeout to long-lived connections.
+
+### OAuth callbacks still use `127.0.0.1`
+
+Check the effective `public_base_url`. If Hub starts from YAML, update `hub.yaml` and restart. Otherwise, save the address in the admin panel.
+
+## Security boundary
+
+Hub separates user workspaces, credentials, and processes or containers, but it does not give every user a separate kernel. Local runtimes share the host kernel; Docker runtimes share the Linux kernel used by the Docker Engine.
+
+Local currently uses Linux Bubblewrap, macOS Seatbelt, or Windows AppContainer plus a Job Object. Docker creates one container per user. These mechanisms reduce interference within a trusted team, but they are not a strong multi-tenant boundary for unknown users.
+
+Do not expose the current version to mutually untrusted users, high-risk code, or workloads with strict compliance requirements. Those scenarios require virtual machines, microVMs, dedicated nodes, or another stronger infrastructure boundary.
+
+For long-running use within a trusted team, also configure HTTPS, host and network access controls, monitoring, and regular backups.
+
+Future releases are planned to add per-user quotas, resource-usage accounting, Kubernetes support, multi-node scheduling, autoscaling, and stronger tenant isolation. Stay tuned, or read the [contribution guide](/docs/contributing) and help build these capabilities directly.

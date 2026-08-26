@@ -284,6 +284,12 @@ def test_minimax_request_shapes() -> None:
     )
     assert body["first_frame_image"] == _DATA_URL
     _, _, body = _minimax_submit(
+        model_name="MiniMax-Hailuo-02",
+        resolution="512P",
+        duration=10,
+    )
+    assert body["resolution"] == "512P"
+    _, _, body = _minimax_submit(
         mode="r2v",
         model_name="S2V-01",
         resolution="720P",
@@ -294,6 +300,8 @@ def test_minimax_request_shapes() -> None:
     assert body["subject_reference"] == [
         {"type": "character", "image": ["https://cdn.example/c.png"]},
     ]
+    assert "duration" not in body
+    assert "resolution" not in body
 
 
 @pytest.mark.parametrize(
@@ -311,7 +319,11 @@ def test_minimax_request_shapes() -> None:
                 "mode": "r2v",
                 "media": [{"type": "reference_image", "url": _DATA_URL}],
             },
-            "S2V-01",
+            "不支持 mode=r2v",
+        ),
+        (
+            {"model_name": "MiniMax-Hailuo-2.3-Fast", "mode": "t2v"},
+            "不支持 mode=t2v",
         ),
     ],
 )
@@ -428,7 +440,7 @@ def test_kling_direct_request_shapes(monkeypatch) -> None:
     assert captured["body"]["prompt"] == "一只小猫在雨夜的街头奔跑"
     # r2v on kling-2.6 is blocked by the capability gate before any
     # upload (no registered reference contract for the model).
-    with pytest.raises(ModelError, match="VIDEO_MODEL_CAPABILITY_UNKNOWN"):
+    with pytest.raises(ModelError, match="不支持 mode=r2v"):
         asyncio.run(
             video_model.submit_video_task(
                 "prompt",
@@ -567,6 +579,82 @@ def test_vidu_direct_request_shape(monkeypatch) -> None:
                 resolution="540p",
             ),
         )
+
+
+def test_vidu_direct_uses_mode_specific_endpoints(monkeypatch) -> None:
+    captured: dict = {}
+    _bind(
+        monkeypatch,
+        "viduq3-turbo",
+        captured,
+        backend="vidu",
+        payload={"task_id": "task-t2v", "state": "created"},
+    )
+    asyncio.run(
+        video_model.submit_video_task(
+            "A paper boat crosses a puddle.",
+            mode="t2v",
+            ratio="9:16",
+            duration=5,
+            resolution="720p",
+        ),
+    )
+    assert captured["url"] == "https://provider.example/ent/v2/text2video"
+    assert captured["body"] == {
+        "model": "viduq3-turbo",
+        "prompt": "A paper boat crosses a puddle.",
+        "duration": 5,
+        "resolution": "720p",
+        "aspect_ratio": "9:16",
+        "audio": True,
+    }
+
+    captured.clear()
+    _bind(
+        monkeypatch,
+        "viduq2-pro",
+        captured,
+        backend="vidu",
+        payload={"task_id": "task-i2v", "state": "created"},
+    )
+    asyncio.run(
+        video_model.submit_video_task(
+            "The subject turns toward camera.",
+            mode="i2v",
+            first_frame_url="/generated/first.png",
+            ratio="1:1",
+            duration=5,
+            resolution="720p",
+        ),
+    )
+    assert captured["url"] == "https://provider.example/ent/v2/img2video"
+    assert captured["body"]["images"] == [_DATA_URL]
+    assert "aspect_ratio" not in captured["body"]
+    assert "audio" not in captured["body"]
+
+    captured.clear()
+    _bind(
+        monkeypatch,
+        "viduq2-pro",
+        captured,
+        backend="vidu",
+        payload={"task_id": "task-r2v-video", "state": "created"},
+    )
+    asyncio.run(
+        video_model.submit_video_task(
+            "Follow the motion of the reference performer.",
+            mode="r2v",
+            reference_image_url_list=["https://cdn.example/motion.mp4"],
+            ratio="16:9",
+            duration=5,
+            resolution="720p",
+        ),
+    )
+    assert captured["url"].endswith("/ent/v2/reference2video")
+    assert captured["body"]["videos"] == [
+        "https://cdn.example/motion.mp4",
+    ]
+    assert captured["body"]["images"] == []
 
 
 def test_vidu_direct_check_status(monkeypatch) -> None:

@@ -269,6 +269,7 @@ def specialist_system_prompt(
         # prompt stays model-agnostic.
         values["video_model_guidance"] = video_model_prompt_guidance(
             model_config.get_video_model_name(),
+            model_config.get_video_backend(),
         )
     if role in {
         SpecialistRole.VISUAL_DEVELOPMENT,

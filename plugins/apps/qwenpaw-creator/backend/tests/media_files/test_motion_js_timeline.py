@@ -278,6 +278,29 @@ class TestCaptureTruthGate:
         error = self._verify(frames_dir, frame_ring=True)
         assert error is not None and "中心窗口必须保持透明" in error
 
+    def test_ring_frame_accepts_declared_asymmetric_transparent_window(
+        self,
+        tmp_path,
+    ) -> None:
+        window = (0.40, 0.20, 0.56, 0.56)
+
+        def asymmetric_ring(x: int, y: int) -> tuple[int, int, int, int]:
+            inside = 7 <= x < 15 and 4 <= y < 12
+            return (0, 0, 0, 0) if inside else (255, 255, 255, 255)
+
+        frames_dir = self._frames(
+            tmp_path,
+            {index: asymmetric_ring for index in _SAMPLED_INDICES},
+        )
+        assert (
+            self._verify(
+                frames_dir,
+                frame_ring=True,
+                frame_window=window,
+            )
+            is None
+        )
+
 
 class TestProbeKeyframeTruthRules:
     _FULL = [0.4] * len(_PROBE_KEYFRAME_FRACTIONS)

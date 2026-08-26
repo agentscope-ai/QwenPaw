@@ -170,7 +170,11 @@ def test_a11_matrix_rejections_are_local_only() -> None:
         validate_video_mode("wan", "wan2.7-r2v", "video_edit")
     for mode in ("t2v", "i2v", "video_edit"):
         with pytest.raises(ValueError):
-            validate_video_mode("seedance2", "doubao-seedance-2.0-pro", mode)
+            validate_video_mode(
+                "seedance2",
+                "doubao-seedance-2-0-260128",
+                mode,
+            )
 
 
 def test_a14_detect_rejects_unsuitable_portrait() -> None:

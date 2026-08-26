@@ -104,7 +104,11 @@ def test_pet_os_png_uses_the_element_anchor_box(tmp_path) -> None:
     assert 17 <= top < bottom <= 399
 
 
-def _spec(tmp_path: Path, tracks: tuple[dict, ...]) -> LocalMediaExecutionSpec:
+def _spec(
+    tmp_path: Path,
+    tracks: tuple[dict, ...],
+    speech_windows: tuple[tuple[float, float], ...] = (),
+) -> LocalMediaExecutionSpec:
     output = tmp_path / "output.mp4"
     output.write_bytes(b"video")
     return LocalMediaExecutionSpec(
@@ -119,6 +123,7 @@ def _spec(tmp_path: Path, tracks: tuple[dict, ...]) -> LocalMediaExecutionSpec:
         expected_duration_seconds=12.5,
         canvas_size=(1280, 720),
         audio_tracks=tracks,
+        speech_windows=speech_windows,
     )
 
 
@@ -169,6 +174,307 @@ def test_mix_overlapping_tracks_with_base_audio(monkeypatch, tmp_path) -> None:
     assert "pan=stereo|c0=1.000*c0|c1=0.500*c1" in graph
     assert "volume=2.000dB" in graph
     assert "adelay=3000:all=1" in graph
+    # Delivery loudness now runs as a separate final pass, not in the mix.
+    assert "loudnorm" not in graph
+    assert calls[0][calls[0].index("-map") + 3] == "[afinal]"
+
+
+def test_bgm_plays_as_low_bed_and_ducks_under_speech(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    music = tmp_path / "bgm.mp3"
+    music.write_bytes(b"mp3")
+    tracks = (_track(music, role="bgm", max_duration_seconds=12.5),)
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    runner._mix_audio_tracks(
+        _spec(tmp_path, tracks, speech_windows=((2.0, 5.0),)),
+    )
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    # Fixed music-bed gain keeps bgm under native dialogue and ambience.
+    assert "volume=-12.000dB" in graph
+    # BGM ducks itself inside the dialogue window ...
+    assert "volume=0.4:enable='between(t,2.000,5.000)'" in graph
+    # ... but never ducks the footage audio.
+    assert "[0:a]aformat=channel_layouts=stereo[base]" in graph
+
+
+def test_sfx_neither_ducks_nor_is_ducked(monkeypatch, tmp_path) -> None:
+    hit = tmp_path / "hit.wav"
+    hit.write_bytes(b"wav")
+    tracks = (
+        _track(hit, role="sfx", offset_seconds=1.0, max_duration_seconds=2.0),
+    )
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    runner._mix_audio_tracks(_spec(tmp_path, tracks))
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    assert "volume=0.35" not in graph
+    assert "volume=0.4" not in graph
+    assert "volume=-12.000dB" not in graph
+
+
+def test_bgm_segments_crossfade_via_overlapping_explicit_fades(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    first = tmp_path / "bed-a.mp3"
+    second = tmp_path / "bed-b.mp3"
+    first.write_bytes(b"mp3")
+    second.write_bytes(b"mp3")
+    # Two bgm segments whose spans overlap by 2s: each fades at its edge
+    # while amix sums them, forming the crossfade.
+    tracks = (
+        _track(
+            first,
+            role="bgm",
+            max_duration_seconds=8.0,
+            fade_in_seconds=2.0,
+            fade_out_seconds=2.0,
+        ),
+        _track(
+            second,
+            element_id="el-2",
+            role="bgm",
+            offset_seconds=6.0,
+            max_duration_seconds=6.5,
+            fade_in_seconds=2.0,
+            fade_out_seconds=2.0,
+        ),
+    )
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    runner._mix_audio_tracks(_spec(tmp_path, tracks))
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    assert "afade=t=in:d=2.000" in graph
+    assert "afade=t=out:st=6.000:d=2.000" in graph
+    assert "afade=t=out:st=4.500:d=2.000" in graph
+    assert "adelay=6000:all=1" in graph
+    assert "amix=inputs=3" in graph
+
+
+def test_audio_fades_are_clamped_to_the_span(monkeypatch, tmp_path) -> None:
+    short = tmp_path / "sting.wav"
+    short.write_bytes(b"wav")
+    tracks = (
+        _track(
+            short,
+            role="bgm",
+            max_duration_seconds=2.0,
+            fade_in_seconds=2.0,
+            fade_out_seconds=2.0,
+        ),
+    )
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    runner._mix_audio_tracks(_spec(tmp_path, tracks))
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    # 2s+2s does not fit a 2s span: both scale down to 1s.
+    assert "afade=t=in:d=1.000" in graph
+    assert "afade=t=out:st=1.000:d=1.000" in graph
+
+
+def test_unset_fades_resolve_to_a_span_adaptive_bgm_default() -> None:
+    from services.media_files.local_execution import _resolved_fade_seconds
+    from services.project_files.models import AudioCreation
+
+    def creation(**overrides) -> AudioCreation:
+        return AudioCreation(
+            source_asset_version_id="audio-version-1",
+            role="bgm",
+            **overrides,
+        )
+
+    # Long span: the default caps at 2s per edge.
+    assert _resolved_fade_seconds(creation(), 20.0) == (2.0, 2.0)
+    # Short span: min(2, span/4) keeps ramps from swallowing the bed.
+    assert _resolved_fade_seconds(creation(), 3.2) == (0.8, 0.8)
+    # Explicit values are authoritative, including an explicit 0.
+    assert _resolved_fade_seconds(
+        creation(fade_in_seconds=0.0, fade_out_seconds=5.0),
+        20.0,
+    ) == (0.0, 5.0)
+    # Non-bgm roles keep hard edges by default.
+    narration = AudioCreation(
+        source_asset_version_id="audio-version-1",
+        role="narration",
+    )
+    assert _resolved_fade_seconds(narration, 20.0) == (0.0, 0.0)
+
+
+def test_explicit_narration_still_ducks_footage(monkeypatch, tmp_path) -> None:
+    voice = tmp_path / "vo.wav"
+    voice.write_bytes(b"wav")
+    tracks = (
+        _track(
+            voice,
+            role="narration",
+            offset_seconds=2.0,
+            max_duration_seconds=3.0,
+        ),
+    )
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    runner._mix_audio_tracks(_spec(tmp_path, tracks))
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    assert "volume=0.35:enable='between(t,2.000,5.000)'" in graph
+    assert "volume=-12.000dB" not in graph
+
+
+def test_concat_fades_segment_audio_edges(monkeypatch, tmp_path) -> None:
+    first = tmp_path / "a.mp4"
+    second = tmp_path / "b.mp4"
+    first.write_bytes(b"video")
+    second.write_bytes(b"video")
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    monkeypatch.setattr(
+        runner,
+        "_probe_duration_seconds_or_none",
+        lambda path: 4.0,
+    )
+    runner._concat([first, second], tmp_path / "out.mp4", work_dir=tmp_path)
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    # Each voiced segment gets short edge fades so unrelated native
+    # ambiences step smoothly at the hard cut.
+    assert (
+        "[1:a]afade=t=in:d=0.040,afade=t=out:st=3.960:d=0.040[fade0]" in graph
+    )
+    assert (
+        "[2:a]afade=t=in:d=0.040,afade=t=out:st=3.960:d=0.040[fade1]" in graph
+    )
+    assert "[fade0][fade1]concat=n=2:v=0:a=1" in graph
+
+
+def test_concat_skips_edge_fades_when_duration_is_unknown(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    first = tmp_path / "a.mp4"
+    second = tmp_path / "b.mp4"
+    first.write_bytes(b"video")
+    second.write_bytes(b"video")
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    # Probe failure: better a hard cut than a fade landing mid-clip.
+    monkeypatch.setattr(
+        runner,
+        "_probe_duration_seconds_or_none",
+        lambda path: None,
+    )
+    runner._concat([first, second], tmp_path / "out.mp4", work_dir=tmp_path)
+
+    graph = calls[0][calls[0].index("-filter_complex") + 1]
+    assert "afade" not in graph
+    assert "[1:a][2:a]concat=n=2:v=0:a=1" in graph
+
+
+def test_delivery_loudness_applies_measured_linear_pass(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    measured = {
+        "input_i": "-23.1",
+        "input_tp": "-5.2",
+        "input_lra": "6.8",
+        "input_thresh": "-33.5",
+        "target_offset": "0.3",
+    }
+    monkeypatch.setattr(runner, "_measure_loudness", lambda path: measured)
+    spec = _spec(tmp_path, ())
+
+    warning = runner._normalize_delivery_loudness(spec)
+
+    assert warning is None
+    graph = calls[0][calls[0].index("-af") + 1]
+    # Two-pass linear loudnorm: one constant gain, no sliding-window
+    # pumping of the deliberately quiet music bed.
+    assert "loudnorm=I=-16.0:TP=-1.5:LRA=11.0" in graph
+    assert "measured_I=-23.1" in graph
+    assert "measured_TP=-5.2" in graph
+    assert "measured_LRA=6.8" in graph
+    assert "measured_thresh=-33.5" in graph
+    assert "offset=0.3" in graph
+    assert "linear=true" in graph
+    assert "aresample=48000" in graph
+    assert calls[0][calls[0].index("-c:v") + 1] == "copy"
+
+
+def test_delivery_loudness_failures_keep_the_unnormalized_film(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    # Measurement failure: warn, run nothing, keep the film untouched.
+    runner, calls = _runner_with_capture(monkeypatch, has_audio=True)
+    monkeypatch.setattr(runner, "_measure_loudness", lambda path: None)
+    spec = _spec(tmp_path, ())
+    warning = runner._normalize_delivery_loudness(spec)
+    assert warning is not None and "响度测量失败" in warning
+    assert calls == []
+    assert spec.output_path.read_bytes() == b"video"
+
+    # Apply failure: restore the pre-loudnorm film and warn.
+    monkeypatch.setattr(
+        runner,
+        "_measure_loudness",
+        lambda path: {
+            "input_i": "-23.1",
+            "input_tp": "-5.2",
+            "input_lra": "6.8",
+            "input_thresh": "-33.5",
+            "target_offset": "0.3",
+        },
+    )
+
+    def failing_run(arguments, *, cwd):
+        raise RuntimeError("ffmpeg exploded")
+
+    monkeypatch.setattr(runner, "_run", failing_run)
+    warning = runner._normalize_delivery_loudness(spec)
+    assert warning is not None and "保留未归一" in warning
+    assert spec.output_path.read_bytes() == b"video"
+
+
+def test_measure_loudness_parses_the_loudnorm_json_tail(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from services.media_files import local_execution as local_execution_mod
+
+    stderr = (
+        "size=N/A time=00:00:12.50 bitrate=N/A speed=25x\n"
+        "[Parsed_loudnorm_0 @ 0x600] \n"
+        "{\n"
+        '    "input_i" : "-23.10",\n'
+        '    "input_tp" : "-5.20",\n'
+        '    "input_lra" : "6.80",\n'
+        '    "input_thresh" : "-33.50",\n'
+        '    "output_i" : "-16.00",\n'
+        '    "target_offset" : "0.30"\n'
+        "}\n"
+    )
+
+    class _Measured:
+        returncode = 0
+        stdout = ""
+
+    _Measured.stderr = stderr
+
+    monkeypatch.setattr(
+        local_execution_mod.subprocess,
+        "run",
+        lambda *args, **kwargs: _Measured(),
+    )
+    runner = FfmpegLocalMediaRunner(executable="ffmpeg-test")
+    measured = runner._measure_loudness(tmp_path / "film.mp4")
+    assert measured == {
+        "input_i": "-23.10",
+        "input_tp": "-5.20",
+        "input_lra": "6.80",
+        "input_thresh": "-33.50",
+        "target_offset": "0.30",
+    }
 
 
 def test_wav_duration_ignores_streaming_placeholder_header() -> None:

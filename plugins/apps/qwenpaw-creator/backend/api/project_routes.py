@@ -35,6 +35,7 @@ from starlette.datastructures import UploadFile
 
 from domain.errors import (
     ConflictError,
+    NotFoundError,
     StorageIntegrityError,
     ValidationError,
     BadRequestError,
@@ -55,6 +56,7 @@ from services.project_files.models import (
     ProjectSettings,
 )
 from services.project_files.store import (
+    InvalidProjectId,
     ProjectAlreadyExists,
     ProjectIntegrityError,
     ProjectNotFound,
@@ -67,6 +69,7 @@ from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.session_store import (
     ProjectRuntimeBootstrap,
     RuntimeSessionNotFound,
+    SessionStoreError,
 )
 from services.storage_root import require_creator_data_root
 from services.project_files.serialization import load_project_json
@@ -303,6 +306,17 @@ async def list_projects(
                 session_status: str | None = session.status.value
             except RuntimeSessionNotFound:
                 session_status = None
+            except SessionStoreError as exc:
+                # One project's corrupt session record (field run
+                # 2026-08-25: a session claiming another project) must not
+                # take the whole listing down; surface the project without
+                # a status and leave the repair to its own detail view.
+                logger.warning(
+                    "project list: session snapshot failed for %s: %s",
+                    item.project_id,
+                    exc,
+                )
+                session_status = None
             items.append(
                 {
                     "projectId": item.project_id,
@@ -532,8 +546,10 @@ async def get_recreate_params(
 
     try:
         return await asyncio.to_thread(operation)
-    except ProjectNotFound:
-        raise
+    except ProjectNotFound as exc:
+        raise NotFoundError(str(exc)) from exc
+    except InvalidProjectId as exc:
+        raise BadRequestError(str(exc)) from exc
     except (ProjectIntegrityError, ProjectStoreError) as exc:
         raise StorageIntegrityError(str(exc)) from exc
 
@@ -666,8 +682,10 @@ async def copy_project(
 
     try:
         result = await asyncio.to_thread(operation)
-    except ProjectNotFound:
-        raise
+    except ProjectNotFound as exc:
+        raise NotFoundError(str(exc)) from exc
+    except InvalidProjectId as exc:
+        raise BadRequestError(str(exc)) from exc
     except (ConflictError, StorageIntegrityError):
         raise
     except (ProjectIntegrityError, ProjectStoreError, RuntimeFileError) as exc:
@@ -707,6 +725,13 @@ async def export_project(
                 "Content-Length": str(archive_size),
             },
         )
+    except ProjectNotFound as exc:
+        # A missing Project is a client addressing mistake, not a storage
+        # fault: it must stay a 404 instead of the 503 the generic branch
+        # below would report.
+        raise NotFoundError(str(exc)) from exc
+    except InvalidProjectId as exc:
+        raise BadRequestError(str(exc)) from exc
     except Exception as e:
         logger.error(
             f"failed to export project {_log_safe(project_id)}",

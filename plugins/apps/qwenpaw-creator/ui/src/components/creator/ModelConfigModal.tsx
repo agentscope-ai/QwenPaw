@@ -8,6 +8,7 @@ import {
   Button,
   message,
   AutoComplete,
+  Tooltip,
 } from "antd";
 import { Brain } from "lucide-react";
 import {
@@ -41,8 +42,13 @@ import {
   getHostProviderApiKey,
   getRealApiKey,
   getTtsCapabilities,
+  getVideoCapabilities,
 } from "@/api/creator";
-import type { HostProviderInfo, TtsCapabilities } from "@/api/creator";
+import type {
+  HostProviderInfo,
+  TtsCapabilities,
+  VideoModelCapabilities,
+} from "@/api/creator";
 import type {
   GroundingConfig,
   ModelConfigData,
@@ -311,14 +317,16 @@ const IMAGE_PRESETS: Record<string, ProtocolPreset> = {
 const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
   "DashScope（百炼）": {
     base_url: "https://dashscope.aliyuncs.com/api/v1",
-    // Family base names: the backend derives the per-mode sibling
-    // (wan2.7 → wan2.7-t2v/-i2v/-r2v) at submission, so no mode suffix
-    // is configured here. The kling/ and vidu/ entries are the
+    // Wan3.0 keeps one All-in-One model ID; Wan2/HappyHorse family base names
+    // derive their per-mode sibling at submission. The kling/ and vidu/ entries
+    // are exact Bailian-hosted models.
     // Bailian-hosted third-party models served by the same
     // video-synthesis endpoint (kling v3: t2v/i2v/refer≤7; vidu:
     // reference-to-video only, 1-7 images).
     models: [
       "wan2.7",
+      "wan3.0-video",
+      "wan3.0-video-prime",
       "happyhorse-1.1",
       "kling/kling-v3-omni-video-generation",
       "kling/kling-v3-video-generation",
@@ -337,8 +345,9 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
     // (up to 30 images + 10 videos) and 4-30s output.
     models: [
       "doubao-seedance-2-5-260628",
-      "doubao-seedance-2.0-pro",
-      "doubao-seedance-2.0-lite",
+      "doubao-seedance-2-0-260128",
+      "doubao-seedance-2-0-fast-260128",
+      "doubao-seedance-2-0-mini-260615",
     ],
   },
   "Google Gemini（Veo）": {
@@ -353,7 +362,8 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
   },
   "MiniMax（海螺）": {
     base_url: "https://api.minimax.io",
-    // Hailuo: 768P at 6/10s, 1080P at 6s; S2V-01 is the only subject
+    // Hailuo: 768P at 6/10s, 1080P at 6s (Hailuo-02 also has 512P);
+    // S2V-01 is the only subject
     // reference model (1 character image). China endpoint:
     // https://api.minimaxi.com
     models: [
@@ -372,8 +382,8 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
   },
   "Vidu（官方）": {
     base_url: "https://api.vidu.com",
-    // Official reference2video channel (Token auth), 1-7 reference
-    // images; viduq2-pro additionally accepts reference videos.
+    // Official Vidu channel (Token auth). Mode support is per exact model:
+    // e.g. q3-turbo supports t2v/i2v/r2v while q3-mix is r2v-only.
     models: ["viduq3-mix", "viduq3-turbo", "viduq3", "viduq2-pro", "viduq2"],
   },
   "Aliyun Token Plan": {
@@ -518,6 +528,7 @@ const DEFAULT_CONFIG: ModelConfigData = {
     sync_enabled: false,
     media_enabled: false,
     render_enabled: false,
+    operators: {},
   },
 };
 
@@ -596,18 +607,6 @@ const PANE_OF_TYPE: Record<TabType, SettingsPane> = {
   s2v: "media",
 };
 
-// Mirror of backend models/video_capabilities.py (VIDEO_MODE_MATRIX and
-// video_backend_key): a configured family model derives its per-mode
-// siblings at submission time, so the card can show which capabilities the
-// chosen family covers. Keep in sync with the backend matrix. Note:
-// happyhorse-1.1 has no -video-edit sibling on Bailian (verified via the
-// zero-cost sync probe), so video_edit is not advertised for the family.
-const VIDEO_MODE_MATRIX: Record<string, string[]> = {
-  happyhorse: ["r2v", "t2v", "i2v"],
-  wan: ["r2v", "t2v", "i2v"],
-  seedance2: ["r2v"],
-};
-
 const VIDEO_MODE_LABEL_KEYS: Record<string, string> = {
   r2v: "modelConfig.videoModeR2v",
   t2v: "modelConfig.videoModeT2v",
@@ -615,13 +614,9 @@ const VIDEO_MODE_LABEL_KEYS: Record<string, string> = {
   video_edit: "modelConfig.videoModeEdit",
 };
 
-export function videoBackendKey(modelName: string): string {
-  const name = (modelName || "").toLocaleLowerCase();
-  if (name.includes("happyhorse")) return "happyhorse";
-  if (name.includes("seedance")) return "seedance2";
-  return "wan";
+function isWan3VideoModel(modelName: string): boolean {
+  return /^wan3\.0-video(?:-prime)?$/i.test((modelName || "").trim());
 }
-
 // Per-pane title/description plus one scenario hint reusing the onboarding
 // guide copy, so the settings center and the guide never diverge.
 const MODEL_PANE_META = {
@@ -949,6 +944,11 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   const [hostProviders, setHostProviders] = useState<HostProviderInfo[]>([]);
   const [ttsCapabilities, setTtsCapabilities] =
     useState<TtsCapabilities | null>(null);
+  const [videoCapabilities, setVideoCapabilities] =
+    useState<VideoModelCapabilities | null>(null);
+  const [videoCapabilitiesLoading, setVideoCapabilitiesLoading] =
+    useState(false);
+  const [videoCapabilitiesError, setVideoCapabilitiesError] = useState(false);
   // What the user actually typed in a model-name dropdown. Filtering by the
   // field value would hide every other model once one is configured, so the
   // full catalog shows on open and narrows only while typing.
@@ -966,6 +966,38 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       .then(setTtsCapabilities)
       .catch(() => setTtsCapabilities(null));
   }, []);
+
+  useEffect(() => {
+    if (!open || !config.video.model_name.trim()) {
+      setVideoCapabilities(null);
+      setVideoCapabilitiesLoading(false);
+      setVideoCapabilitiesError(false);
+      return;
+    }
+    let active = true;
+    setVideoCapabilities(null);
+    setVideoCapabilitiesLoading(true);
+    setVideoCapabilitiesError(false);
+    const timer = window.setTimeout(() => {
+      getVideoCapabilities(config.video.model_name, config.video.protocol)
+        .then((value) => {
+          if (active) setVideoCapabilities(value);
+        })
+        .catch(() => {
+          if (active) {
+            setVideoCapabilities(null);
+            setVideoCapabilitiesError(true);
+          }
+        })
+        .finally(() => {
+          if (active) setVideoCapabilitiesLoading(false);
+        });
+    }, 120);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [open, config.video.model_name, config.video.protocol]);
 
   const STATIC_PROVIDER_IDS = new Set(Object.values(PROTOCOL_TO_PROVIDER_ID));
 
@@ -1244,7 +1276,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   // permission ladder’s failure handling.
   const saveSelfReview = useCallback(
     async (
-      tier: keyof ModelConfigData["selfReview"],
+      tier: "sync_enabled" | "media_enabled" | "render_enabled",
       value: boolean,
     ): Promise<void> => {
       const previous = config.selfReview;
@@ -1254,6 +1286,99 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       }));
       try {
         await patchSelfReview({ [tier]: value });
+      } catch (err) {
+        setConfig((prev) => ({ ...prev, selfReview: previous }));
+        message.error(
+          (err as Error).message || t("modelConfig.selfReviewSaveFailed"),
+        );
+      }
+    },
+    [config.selfReview],
+  );
+
+  // Persist one advanced operator switch (高级配置). ``null`` restores
+  // the auto (能开尽开) resolution; booleans record an explicit choice.
+  // Optimistic with rollback, and the read-only operatorStatus rows are
+  // re-derived locally so the badges track the toggle immediately.
+  const saveReviewOperator = useCallback(
+    async (key: string, value: boolean | null): Promise<void> => {
+      const applyLocal = (
+        prev: ModelConfigData,
+        next: boolean | null,
+      ): ModelConfigData => {
+        const operators = { ...(prev.selfReview.operators ?? {}) };
+        if (next === null) {
+          delete operators[key];
+        } else {
+          operators[key] = next;
+        }
+        const operatorStatus = (prev.selfReview.operatorStatus ?? []).map(
+          (op) =>
+            op.key === key
+              ? {
+                  ...op,
+                  source: (next === null ? "auto" : "user") as "auto" | "user",
+                  enabled:
+                    next === null
+                      ? op.capability_ok || Boolean(op.degrades)
+                      : next,
+                }
+              : op,
+        );
+        return {
+          ...prev,
+          selfReview: { ...prev.selfReview, operators, operatorStatus },
+        };
+      };
+      // Roll back only THIS pill: a render-time snapshot of the whole
+      // section would undo a sibling toggle that succeeded meanwhile.
+      const previousValue = config.selfReview.operators?.[key] ?? null;
+      setConfig((prev) => applyLocal(prev, value));
+      try {
+        await patchSelfReview({ operators: { [key]: value } });
+      } catch (err) {
+        setConfig((prev) => applyLocal(prev, previousValue));
+        message.error(
+          (err as Error).message || t("modelConfig.selfReviewSaveFailed"),
+        );
+      }
+    },
+    [config.selfReview],
+  );
+
+  // Restore a whole group of operators to the auto resolution in one
+  // PATCH. Restoration lives on the group header (a per-pill ⟳ marker
+  // read as a confusing “refresh” icon).
+  const restoreReviewOperators = useCallback(
+    async (keys: string[]): Promise<void> => {
+      if (keys.length === 0) {
+        return;
+      }
+      const previous = config.selfReview;
+      setConfig((prev) => {
+        const operators = { ...(prev.selfReview.operators ?? {}) };
+        for (const key of keys) {
+          delete operators[key];
+        }
+        const operatorStatus = (prev.selfReview.operatorStatus ?? []).map(
+          (op) =>
+            keys.includes(op.key)
+              ? {
+                  ...op,
+                  source: "auto" as const,
+                  enabled: op.capability_ok || Boolean(op.degrades),
+                }
+              : op,
+        );
+        return {
+          ...prev,
+          selfReview: { ...prev.selfReview, operators, operatorStatus },
+        };
+      });
+      try {
+        await patchSelfReview({
+          operators: Object.fromEntries(keys.map((key) => [key, null])),
+        });
       } catch (err) {
         setConfig((prev) => ({ ...prev, selfReview: previous }));
         message.error(
@@ -2830,8 +2955,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       : !!item.model_name;
     const isTested = tested[type] === true;
 
-    // The family model derives its per-mode siblings server-side, so show
-    // what the currently chosen video family actually covers.
+    const videoModes = videoCapabilities?.supportedModes ?? [];
     const videoFamilyBlock =
       type === "video" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2839,11 +2963,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             {t("modelConfig.videoFamilyCaps")}
           </span>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {(
-              VIDEO_MODE_MATRIX[videoBackendKey(config.video.model_name)] ?? [
-                "r2v",
-              ]
-            ).map((mode) => (
+            {videoModes.map((mode) => (
               <span
                 key={mode}
                 style={{
@@ -2858,6 +2978,25 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                 {t(VIDEO_MODE_LABEL_KEYS[mode] ?? mode)}
               </span>
             ))}
+            {videoCapabilitiesLoading && (
+              <span
+                style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}
+              >
+                {t("modelConfig.videoCapabilitiesLoading")}
+              </span>
+            )}
+            {!videoCapabilitiesLoading &&
+              videoCapabilities &&
+              !videoCapabilities.known && (
+                <span style={{ fontSize: 11, color: "var(--color-error)" }}>
+                  {t("modelConfig.videoCapabilityUnknown")}
+                </span>
+              )}
+            {!videoCapabilitiesLoading && videoCapabilitiesError && (
+              <span style={{ fontSize: 11, color: "var(--color-error)" }}>
+                {t("modelConfig.videoCapabilityUnavailable")}
+              </span>
+            )}
           </div>
           <span
             style={{
@@ -2866,7 +3005,15 @@ export default function ModelConfigModal({ open, onClose }: Props) {
               lineHeight: 1.6,
             }}
           >
-            {t("modelConfig.videoFamilyNote")}
+            {!videoCapabilitiesLoading &&
+              videoCapabilities &&
+              t(
+                isWan3VideoModel(config.video.model_name)
+                  ? "modelConfig.videoAllInOneNote"
+                  : videoCapabilities.derivesModeModel
+                  ? "modelConfig.videoFamilyNote"
+                  : "modelConfig.videoExactModelNote",
+              )}
           </span>
           <span
             style={{
@@ -3955,6 +4102,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                   ready: llmOk,
                   depType: "llm" as TabType,
                   depLabel: "LLM",
+                  opTiers: [1],
                 },
                 {
                   key: "media_enabled" as const,
@@ -3967,6 +4115,9 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                   ready: vlmOk,
                   depType: "vlm" as TabType,
                   depLabel: "VLM",
+                  // Tier-0 objective operators feed the media review's
+                  // evidence chain, so they are managed under this card.
+                  opTiers: [0, 2],
                 },
                 {
                   key: "render_enabled" as const,
@@ -3979,6 +4130,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                   ready: vlmOk,
                   depType: "vlm" as TabType,
                   depLabel: "VLM",
+                  opTiers: [3],
                 },
               ];
               return (
@@ -4202,6 +4354,279 @@ export default function ModelConfigModal({ open, onClose }: Props) {
                           <span className="thumb" />
                         </label>
                       </div>
+                      {(() => {
+                        // Advanced per-operator switches (高级配置): every
+                        // check is one “lit” pill — click toggles it, the
+                        // trailing i / ! badge explains it in plain words
+                        // on hover. Pills only respond while their tier
+                        // switch is on; otherwise the whole wall greys out.
+                        const ops = (
+                          config.selfReview.operatorStatus ?? []
+                        ).filter((op) => tier.opTiers.includes(op.tier));
+                        if (ops.length === 0) {
+                          return null;
+                        }
+                        const tierLive = (
+                          key:
+                            | "sync_enabled"
+                            | "media_enabled"
+                            | "render_enabled",
+                        ): boolean => {
+                          const raw = config.selfReview.envOverrides?.[key];
+                          if (raw !== undefined) {
+                            return ["1", "true", "yes", "on"].includes(
+                              raw.toLowerCase(),
+                            );
+                          }
+                          return config.selfReview[key];
+                        };
+                        // Tier-0 evidence operators feed BOTH the media
+                        // review and the final-cut review, so they stay
+                        // adjustable while either of those runs — greying
+                        // them out with only the media switch off would
+                        // hide checks that are still executing.
+                        const sharedWithRender =
+                          tier.key === "media_enabled" &&
+                          vlmOk &&
+                          tierLive("render_enabled");
+                        const tierEnabled =
+                          tier.ready &&
+                          (tierLive(tier.key) || sharedWithRender);
+                        const manualKeys = ops
+                          .filter((op) => op.source === "user")
+                          .map((op) => op.key);
+                        return (
+                          <div style={{ marginTop: 10 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11.5,
+                                color: "var(--color-text-secondary)",
+                                marginBottom: 6,
+                              }}
+                            >
+                              {t("modelConfig.reviewOpsTitle", {
+                                count: ops.filter((op) => op.enabled).length,
+                                total: ops.length,
+                              })}
+                              <Tooltip
+                                title={
+                                  <div
+                                    style={{
+                                      maxWidth: 280,
+                                      fontSize: 12,
+                                      lineHeight: 1.6,
+                                    }}
+                                  >
+                                    {t("modelConfig.reviewOpsDesc")}
+                                  </div>
+                                }
+                              >
+                                <span
+                                  aria-label={t("modelConfig.reviewOpsDesc")}
+                                  style={{
+                                    width: 13,
+                                    height: 13,
+                                    borderRadius: "50%",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: 9,
+                                    fontStyle: "italic",
+                                    fontWeight: 700,
+                                    border:
+                                      "1px solid var(--color-text-tertiary)",
+                                    color: "var(--color-text-tertiary)",
+                                    cursor: "help",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  i
+                                </span>
+                              </Tooltip>
+                              {tierEnabled && manualKeys.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void restoreReviewOperators(manualKeys)
+                                  }
+                                  style={{
+                                    marginLeft: "auto",
+                                    fontSize: 10.5,
+                                    border: "none",
+                                    background: "none",
+                                    color: "var(--color-accent)",
+                                    cursor: "pointer",
+                                    padding: 0,
+                                  }}
+                                >
+                                  {t("modelConfig.reviewOpsRestoreAll")}
+                                </button>
+                              )}
+                            </div>
+                            {!tierEnabled && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "var(--color-text-tertiary)",
+                                  marginBottom: 6,
+                                }}
+                              >
+                                {t("modelConfig.reviewOpsDisabledHint")}
+                              </div>
+                            )}
+                            {tierEnabled && sharedWithRender && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "var(--color-text-tertiary)",
+                                  marginBottom: 6,
+                                }}
+                              >
+                                {t("modelConfig.reviewOpsSharedNote")}
+                              </div>
+                            )}
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 6,
+                              }}
+                            >
+                              {ops.map((op) => {
+                                const name = t(
+                                  `modelConfig.reviewOp_${op.key}`,
+                                );
+                                const depMissing =
+                                  op.dependency !== "none" && !op.capability_ok;
+                                const lit = tierEnabled && op.enabled;
+                                const stateText =
+                                  op.source === "auto"
+                                    ? op.enabled
+                                      ? t("modelConfig.reviewOpStateAutoOn")
+                                      : t("modelConfig.reviewOpStateAutoOff")
+                                    : op.enabled
+                                    ? t("modelConfig.reviewOpStateManualOn")
+                                    : t("modelConfig.reviewOpStateManualOff");
+                                const tooltip = (
+                                  <div
+                                    style={{
+                                      maxWidth: 260,
+                                      fontSize: 12,
+                                      lineHeight: 1.6,
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 600 }}>
+                                      {name}
+                                    </div>
+                                    <div>
+                                      {t(`modelConfig.reviewOpDesc_${op.key}`)}
+                                    </div>
+                                    {op.dependency !== "none" && (
+                                      <div style={{ opacity: 0.85 }}>
+                                        {t(
+                                          `modelConfig.reviewOpDep_${op.dependency}`,
+                                        )}
+                                        {" · "}
+                                        {op.capability_ok
+                                          ? t("modelConfig.reviewOpDepReady")
+                                          : t("modelConfig.reviewOpDepMissing")}
+                                      </div>
+                                    )}
+                                    <div style={{ opacity: 0.85 }}>
+                                      {tierEnabled
+                                        ? stateText
+                                        : t(
+                                            "modelConfig.reviewOpsDisabledHint",
+                                          )}
+                                    </div>
+                                  </div>
+                                );
+                                return (
+                                  <button
+                                    key={op.key}
+                                    type="button"
+                                    data-review-operator={op.key}
+                                    aria-pressed={lit}
+                                    aria-disabled={!tierEnabled}
+                                    aria-label={name}
+                                    onClick={() => {
+                                      if (!tierEnabled) {
+                                        return;
+                                      }
+                                      void saveReviewOperator(
+                                        op.key,
+                                        !op.enabled,
+                                      );
+                                    }}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 5,
+                                      padding: "3px 9px",
+                                      borderRadius: 999,
+                                      fontSize: 11.5,
+                                      lineHeight: 1.5,
+                                      cursor: tierEnabled
+                                        ? "pointer"
+                                        : "not-allowed",
+                                      opacity: tierEnabled ? 1 : 0.45,
+                                      transition:
+                                        "background .15s ease, color .15s ease, border-color .15s ease, opacity .15s ease",
+                                      background: lit
+                                        ? "var(--color-accent-soft)"
+                                        : "transparent",
+                                      color: lit
+                                        ? "var(--color-accent)"
+                                        : "var(--color-text-tertiary)",
+                                      border: lit
+                                        ? "1px solid var(--color-accent)"
+                                        : "1px solid var(--color-border, rgba(0,0,0,0.15))",
+                                    }}
+                                  >
+                                    {name}
+                                    <Tooltip title={tooltip}>
+                                      <span
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        style={{
+                                          width: 13,
+                                          height: 13,
+                                          borderRadius: "50%",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          fontSize: 9,
+                                          fontWeight: 700,
+                                          fontStyle: depMissing
+                                            ? "normal"
+                                            : "italic",
+                                          flexShrink: 0,
+                                          cursor: "help",
+                                          border: depMissing
+                                            ? "1px solid var(--color-warning, #92400e)"
+                                            : "1px solid currentColor",
+                                          color: depMissing
+                                            ? "var(--color-warning, #92400e)"
+                                            : "inherit",
+                                          background: depMissing
+                                            ? "var(--color-warning-soft, #fef3c7)"
+                                            : "transparent",
+                                        }}
+                                      >
+                                        {depMissing ? "!" : "i"}
+                                      </span>
+                                    </Tooltip>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                   <div

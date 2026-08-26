@@ -20,7 +20,13 @@ from enum import StrEnum
 from typing import Any, Iterable, Mapping, Sequence
 
 from domain.enums import TaskKind, TaskStatus
-from services.project_files.models import Project, R2VCreation
+from services.project_files.models import (
+    ArtifactVersionRenderSource,
+    ElementOutputRenderSource,
+    Project,
+    R2VCreation,
+    SourceVersionRenderSource,
+)
 
 
 class WorkNodeStatus(StrEnum):
@@ -69,6 +75,80 @@ def _fingerprint(*parts: Any) -> str:
         "\x1f".join(str(part) for part in parts).encode("utf-8"),
     ).hexdigest()
     return digest[:16]
+
+
+def _resolved_element_version(project: Project, element_id: str) -> str | None:
+    """Resolve the version a Timeline Element would read during compose."""
+
+    element = next(
+        (
+            item
+            for timeline in project.timelines.items.values()
+            for item in [timeline.elements_by_id.get(element_id)]
+            if item is not None
+        ),
+        None,
+    )
+    if element is None:
+        return None
+    source = element.render_source
+    if isinstance(source, ElementOutputRenderSource):
+        target = next(
+            (
+                item
+                for timeline in project.timelines.items.values()
+                for item in [timeline.elements_by_id.get(source.element_id)]
+                if item is not None
+            ),
+            None,
+        )
+        output = target.outputs.get(source.output_name) if target else None
+        slot = (
+            project.assets.artifact_slots_by_id.get(output.slot_id)
+            if output is not None
+            else None
+        )
+        return slot.selected_version_id if slot is not None else None
+    if isinstance(source, ArtifactVersionRenderSource):
+        return source.version_id
+    if isinstance(source, SourceVersionRenderSource):
+        return source.version_id
+    # Legacy/in-progress R2V structures may not have render_source bound yet;
+    # the deterministic adapter selects their canonical main output.
+    if isinstance(element.creation, R2VCreation):
+        slot = project.assets.artifact_slots_by_id.get(
+            f"element:{element.element_id}:main",
+        )
+        return slot.selected_version_id if slot is not None else None
+    return None
+
+
+def _final_render_reads_current_versions(
+    project: Project,
+    version: Any,
+) -> bool:
+    """Reject a nominally-fresh master whose frozen inputs were superseded."""
+
+    metadata = getattr(version, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return True
+    selections = metadata.get("sourceSelections")
+    if not isinstance(selections, list):
+        # Legacy renders lack frozen selections; retain their prior behavior.
+        return True
+    for item in selections:
+        if not isinstance(item, Mapping):
+            continue
+        source_ref = str(item.get("sourceRef") or "")
+        if not source_ref.startswith("element:"):
+            continue
+        expected = _resolved_element_version(
+            project,
+            source_ref.removeprefix("element:"),
+        )
+        if expected is not None and item.get("versionId") != expected:
+            return False
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -547,10 +627,18 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             failure = failed.get(key)
             missing = (*_upstream_missing(deps, statuses), *gate_missing)
             upstream_selected = _element_upstream_selected(project, creation)
+            # Mirrors the submit path: agent-specified references are
+            # authoritative, so they (not the auto chain) must drive the
+            # fingerprint and staleness — editing the explicit list has to
+            # reopen dispatch and flag a stale artifact.
+            storyboard_refs: list[str | None] = (
+                list(creation.storyboard_reference_version_ids)
+                or upstream_selected
+            )
             fingerprint = _fingerprint(
                 storyboard_id,
                 creation.storyboard_prompt,
-                sorted(selected for selected in upstream_selected if selected),
+                sorted(selected for selected in storyboard_refs if selected),
             )
             if task is not None:
                 status = WorkNodeStatus.RUNNING
@@ -560,7 +648,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     if _artifact_is_stale(
                         project,
                         storyboard_slot,
-                        upstream_selected,
+                        storyboard_refs,
                     )
                     else WorkNodeStatus.DONE
                 )
@@ -615,6 +703,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 video_id,
                 creation.video_prompt,
                 storyboard_slot,
+                sorted(creation.video_reference_version_ids),
             )
             video_missing: tuple[str, ...] = ()
             if task is not None:
@@ -625,7 +714,10 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                     if _artifact_is_stale(
                         project,
                         video_slot,
-                        [storyboard_slot],
+                        [
+                            storyboard_slot,
+                            *creation.video_reference_version_ids,
+                        ],
                     )
                     else WorkNodeStatus.DONE
                 )
@@ -755,7 +847,10 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             # changes) must not read as DONE, or the unattended pipeline
             # would stop one compose short of the corrected final cut.
             version = project.assets.artifact_versions_by_id.get(final_slot)
-            if version is not None and getattr(version, "stale", False):
+            if version is not None and (
+                getattr(version, "stale", False)
+                or not _final_render_reads_current_versions(project, version)
+            ):
                 final_slot = None
         if task is not None:
             status = WorkNodeStatus.RUNNING

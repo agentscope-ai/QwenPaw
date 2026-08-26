@@ -38,9 +38,24 @@ describe("Chat message markdown layout styles", () => {
     expect(rule).toContain(".x-markdown p");
     expect(rule).toContain(".x-markdown li");
     expect(rule).toMatch(/white-space:\s*pre-wrap/);
+    expect(rule).toMatch(/\.x-markdown li[\s\S]*white-space:\s*normal/);
     expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
     expect(rule).toMatch(/overflow-x:\s*auto/);
     expect(rule).toMatch(/max-width:\s*100%/);
+  });
+
+  it("does not preserve structural whitespace between nested list items", () => {
+    const marker = '[class*="bubble-start"] .x-markdown li';
+    const markerIndex = stylesSource.indexOf(marker);
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("}", markerIndex) + 1,
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toContain(".x-markdown li");
+    expect(rule).toMatch(/white-space:\s*normal/);
+    expect(rule).not.toMatch(/white-space:\s*pre-wrap/);
   });
 });
 

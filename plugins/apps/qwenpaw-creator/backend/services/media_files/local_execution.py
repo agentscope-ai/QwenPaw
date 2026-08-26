@@ -22,6 +22,7 @@ import concurrent.futures
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
+from html import unescape
 import json
 import math
 import mimetypes
@@ -177,7 +178,7 @@ _MOTION_BURN_BATCH_SIZE = 8
 _SEGMENT_CACHE_MAX_ITEMS = 96
 # Renderer behaviour version for cached segments; bump on any semantic
 # change to segment rendering or overlay burning.
-_SEGMENT_CACHE_VERSION = 2
+_SEGMENT_CACHE_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +195,20 @@ _DEFAULT_FFMPEG_TERMINATION_GRACE_SECONDS = 5.0
 # Original-footage volume while a Timeline audio Element (narration) plays;
 # ~-9dB keeps ambience audible without competing with the voice.
 _DUCK_VOLUME = 0.35
+# BGM plays as one continuous low bed under the whole mix; the fixed bed
+# gain keeps music from competing with native dialogue and ambience.
+_BGM_BED_GAIN_DB = -12.0
+# BGM volume while any speech window (shot dialogue, s2v, narration) plays.
+_BGM_DUCK_VOLUME = 0.4
+# Unset bgm fades default to min(this, span/4): musical edges for a long
+# bed without swallowing a short segment. Explicit creation fades win.
+_BGM_DEFAULT_FADE_SECONDS = 2.0
+# Delivery loudness target for the finished film (short-form video norm).
+# Applied as a two-pass *linear* loudnorm so layer level relationships
+# (music bed vs. ducked speech windows) survive normalization.
+_LOUDNORM_TARGET_I = -16.0
+_LOUDNORM_TARGET_TP = -1.5
+_LOUDNORM_TARGET_LRA = 11.0
 # Beat-snapped xfades must keep a perceptible blend; below this the join
 # effectively degrades to a cut and the snap is skipped instead.
 _MIN_SNAPPED_BLEND_SECONDS = 0.05
@@ -224,6 +239,7 @@ class LocalMediaInput:
     start_seconds: float | None = None
     end_seconds: float | None = None
     duration_seconds: float | None = None
+    playback_rate: float = 1.0
     original_sound: str = "preserve"
     location: Mapping[str, Any] | None = None
     overlays: tuple[Mapping[str, Any], ...] = ()
@@ -248,6 +264,9 @@ class LocalMediaExecutionSpec:
     canvas_size: tuple[int, int]
     on_element_done: Callable[[int, int], None] | None = None
     audio_tracks: tuple[Mapping[str, Any], ...] = ()
+    # [start, end) seconds where clips natively speak (shot dialogue, s2v);
+    # BGM ducks itself inside these windows.
+    speech_windows: tuple[tuple[float, float], ...] = ()
     color_grade: str = ""
 
 
@@ -490,6 +509,9 @@ class FfmpegLocalMediaRunner:
         grade_warning = self._apply_color_grade(spec)
         if grade_warning:
             overlay_warnings.append(grade_warning)
+        loudness_warning = self._normalize_delivery_loudness(spec)
+        if loudness_warning:
+            overlay_warnings.append(loudness_warning)
         return overlay_warnings
 
     @staticmethod
@@ -537,7 +559,11 @@ class FfmpegLocalMediaRunner:
         durations: list[float] = []
         for item in spec.inputs:
             if item.start_seconds is not None and item.end_seconds is not None:
-                raw = item.end_seconds - item.start_seconds
+                raw = (item.end_seconds - item.start_seconds) / getattr(
+                    item,
+                    "playback_rate",
+                    1.0,
+                )
             elif item.duration_seconds is not None:
                 raw = item.duration_seconds
             else:
@@ -680,8 +706,10 @@ class FfmpegLocalMediaRunner:
         The video stream is stream-copied; each track is trimmed to its span,
         gain/pan adjusted, delayed to its Timeline offset, then mixed with the
         composed video's own audio (when present) without renormalization.
-        While a narration track plays, the original footage audio is ducked so
-        the two never fight for attention.
+        Roles keep the three sound layers apart: narration ducks the footage
+        audio under it, bgm plays as one continuous low bed that ducks itself
+        under every speech window (native dialogue, s2v, narration), and sfx
+        mixes verbatim.
         """
 
         premix = spec.work_dir / "premix.mp4"
@@ -689,14 +717,46 @@ class FfmpegLocalMediaRunner:
         arguments: list[str] = ["-y", "-i", os.fspath(premix)]
         filters: list[str] = []
         labels: list[str] = []
-        duck_windows: list[tuple[float, float]] = []
+        narration_windows: list[tuple[float, float]] = []
+        for track in spec.audio_tracks:
+            # Tracks predating the role key always ducked the footage audio,
+            # i.e. behaved as narration.
+            if str(track.get("role") or "narration") != "narration":
+                continue
+            duration = float(track.get("max_duration_seconds") or 0.0)
+            offset = float(track.get("offset_seconds") or 0.0)
+            if duration > 0:
+                narration_windows.append((offset, offset + duration))
+        bgm_duck_windows = _merge_windows(
+            [*spec.speech_windows, *narration_windows],
+        )
         for index, track in enumerate(spec.audio_tracks):
             arguments += ["-i", os.fspath(track["path"])]
+            role = str(track.get("role") or "narration")
             chain = [f"[{index + 1}:a]aformat=channel_layouts=stereo"]
             duration = float(track.get("max_duration_seconds") or 0.0)
             if duration > 0:
                 chain.append(f"atrim=0:{duration:.6f}")
+            # Edge fades on the track-local clock (before adelay). A bgm
+            # bed opens/closes musically instead of cutting in, and two
+            # overlapping bgm spans crossfade: both edges fade while amix
+            # sums them.
+            fade_in = max(0.0, float(track.get("fade_in_seconds") or 0.0))
+            fade_out = max(0.0, float(track.get("fade_out_seconds") or 0.0))
+            if 0 < duration < fade_in + fade_out:
+                scale = duration / (fade_in + fade_out)
+                fade_in *= scale
+                fade_out *= scale
+            if fade_in > 0:
+                chain.append(f"afade=t=in:d={fade_in:.3f}")
+            if fade_out > 0 and duration > 0:
+                chain.append(
+                    f"afade=t=out:st={max(0.0, duration - fade_out):.3f}"
+                    f":d={fade_out:.3f}",
+                )
             gain = float(track.get("gain_db") or 0.0)
+            if role == "bgm":
+                gain += _BGM_BED_GAIN_DB
             if gain:
                 chain.append(f"volume={gain:.3f}dB")
             pan = float(track.get("pan") or 0.0)
@@ -710,14 +770,20 @@ class FfmpegLocalMediaRunner:
             delay_ms = int(round(offset * 1000))
             if delay_ms > 0:
                 chain.append(f"adelay={delay_ms}:all=1")
-            if duration > 0:
-                duck_windows.append((offset, offset + duration))
+            if role == "bgm":
+                # After adelay, filter time equals absolute timeline time,
+                # matching the speech windows.
+                for start, end in bgm_duck_windows:
+                    chain.append(
+                        f"volume={_BGM_DUCK_VOLUME}:enable="
+                        f"'between(t,{start:.3f},{end:.3f})'",
+                    )
             label = f"[mix{index}]"
             filters.append(",".join(chain) + label)
             labels.append(label)
         if self._probe_has_audio(premix):
             base_chain = ["[0:a]aformat=channel_layouts=stereo"]
-            for start, end in _merge_windows(duck_windows):
+            for start, end in _merge_windows(narration_windows):
                 base_chain.append(
                     f"volume={_DUCK_VOLUME}:enable="
                     f"'between(t,{start:.3f},{end:.3f})'",
@@ -867,6 +933,8 @@ class FfmpegLocalMediaRunner:
         duration_seconds: float,
         freeze_duration: float = 0.0,
         freeze_audio: bool = False,
+        playback_rate: float = 1.0,
+        retime_audio: bool = False,
     ) -> str:
         """Build one anchor-based placement graph shared with the UI preview."""
 
@@ -910,7 +978,8 @@ class FfmpegLocalMediaRunner:
 
         # Build the video filter chain
         video_filters = (
-            f"[0:v]scale={box_width}:{box_height}:force_original_aspect_ratio=increase,"
+            f"[0:v]setpts=(PTS-STARTPTS)/{playback_rate:.12g},"
+            f"scale={box_width}:{box_height}:force_original_aspect_ratio=increase,"
             f"crop={box_width}:{box_height},setsar=1,format=rgba,"
             f"colorchannelmixer=aa={location['opacity']:.6f},"
             f"pad={padded_width}:{padded_height}:{pad_x}:{pad_y}:color=0x00000000,"
@@ -934,11 +1003,46 @@ class FfmpegLocalMediaRunner:
             f"[bg][fg]overlay={overlay_x}:{overlay_y}:shortest=1,format=yuv420p[outv]"
         )
 
-        # Only pad audio when freezing a source that actually has a stream.
-        if freeze_audio:
-            filter_chain += f";[0:a]apad=pad_dur={freeze_duration:.6f}[a]"
+        # Keep source sound in sync with the retimed picture. ``atempo``
+        # historically accepts factors only in [0.5, 2], so decompose more
+        # extreme rates into a stable chain instead of rejecting a Project
+        # value that already passed schema validation.
+        if retime_audio or freeze_audio:
+            audio_filters = (
+                cls._atempo_filters(playback_rate) if retime_audio else []
+            )
+            if freeze_audio:
+                audio_filters.append(f"apad=pad_dur={freeze_duration:.6f}")
+            filter_chain += f";[0:a]{','.join(audio_filters)}[a]"
 
         return filter_chain
+
+    @staticmethod
+    def _atempo_filters(playback_rate: float) -> list[str]:
+        """Return an ffmpeg atempo chain whose factors multiply to rate."""
+
+        if not math.isfinite(playback_rate) or playback_rate <= 0:
+            raise ValueError(
+                "playback_rate must be finite and greater than zero",
+            )
+        remaining = playback_rate
+        factors: list[float] = []
+        while remaining < 0.5:
+            if len(factors) >= 64:
+                raise ValueError(
+                    "playback_rate exceeds the supported audio retiming range",
+                )
+            factors.append(0.5)
+            remaining /= 0.5
+        while remaining > 2.0:
+            if len(factors) >= 64:
+                raise ValueError(
+                    "playback_rate exceeds the supported audio retiming range",
+                )
+            factors.append(2.0)
+            remaining /= 2.0
+        factors.append(remaining)
+        return [f"atempo={factor:.12g}" for factor in factors]
 
     def _segment_concurrency(self, segment_count: int) -> int:
         """Parallel segment renders for one composition.
@@ -982,6 +1086,7 @@ class FfmpegLocalMediaRunner:
                 "mediaType": item.media_type,
                 "start": item.start_seconds,
                 "end": item.end_seconds,
+                "playbackRate": item.playback_rate,
                 "sourceDuration": item.duration_seconds,
                 "segmentDuration": round(segment_duration, 6),
                 "freeze": round(freeze_duration, 6),
@@ -1085,13 +1190,24 @@ class FfmpegLocalMediaRunner:
                     "Edit Element 缺少可执行 source range",
                 )
             end_seconds = start_seconds + item.duration_seconds
+        source_window_seconds = end_seconds - start_seconds
+        rendered_window_seconds = source_window_seconds / item.playback_rate
         # For a transition pair, the tail of the `from` segment that
         # the `to` segment covers is simply not rendered; the rest of
         # the overlap is consumed by the xfade blend.
         tail_trim = tail_trims.get(item.source_ref, 0.0)
         segment_duration = max(
             1 / 30,
-            end_seconds - start_seconds - tail_trim,
+            rendered_window_seconds - tail_trim,
+        )
+
+        # ``-t`` is an input-side source range while ``tail_trim`` is in
+        # rendered Timeline time. Convert the latter back to source time;
+        # otherwise slow clips are cut to their raw duration and fast clips
+        # do not read enough frames.
+        source_read_duration = max(
+            item.playback_rate / 30,
+            source_window_seconds - tail_trim * item.playback_rate,
         )
 
         # Calculate freeze duration if target exceeds source
@@ -1101,10 +1217,18 @@ class FfmpegLocalMediaRunner:
             and item.start_seconds is not None
             and item.end_seconds is not None
         ):
-            source_duration = item.duration_seconds
-            target_duration = item.end_seconds - item.start_seconds
-            if target_duration > source_duration:
-                freeze_duration = target_duration - source_duration
+            available_source_duration = max(
+                0.0,
+                item.duration_seconds - start_seconds,
+            )
+            available_rendered_duration = (
+                min(source_read_duration, available_source_duration)
+                / item.playback_rate
+            )
+            if segment_duration > available_rendered_duration:
+                freeze_duration = (
+                    segment_duration - available_rendered_duration
+                )
 
         segment = segment_dir / f"{index:06d}.mp4"
         cache_key = self._segment_cache_key(
@@ -1145,17 +1269,17 @@ class FfmpegLocalMediaRunner:
             # apad references [0:a]; sources without an audio stream
             # (common for generated R2V footage) must keep the optional
             # 0:a? mapping or ffmpeg rejects the whole filtergraph.
-            freeze_audio = (
-                freeze_duration > 0
-                and not is_still_image
-                and self._probe_has_audio(item.path)
-            )
+            has_audio = not is_still_image and self._probe_has_audio(item.path)
+            freeze_audio = freeze_duration > 0 and has_audio
+            retime_audio = item.playback_rate != 1.0 and has_audio
             placement_filter = self._placement_filter(
                 item.location,
                 canvas_size=spec.canvas_size,
                 duration_seconds=segment_duration,
                 freeze_duration=freeze_duration,
                 freeze_audio=freeze_audio,
+                playback_rate=item.playback_rate,
+                retime_audio=retime_audio,
             )
 
             # Build FFmpeg arguments
@@ -1167,7 +1291,7 @@ class FfmpegLocalMediaRunner:
                     "-framerate",
                     "30",
                     "-t",
-                    f"{segment_duration:.6f}",
+                    f"{source_read_duration:.6f}",
                     "-i",
                     os.fspath(item.path),
                 ]
@@ -1177,7 +1301,7 @@ class FfmpegLocalMediaRunner:
                     "-ss",
                     f"{start_seconds:.6f}",
                     "-t",
-                    f"{segment_duration:.6f}",
+                    f"{source_read_duration:.6f}",
                     "-i",
                     os.fspath(item.path),
                 ]
@@ -1197,7 +1321,7 @@ class FfmpegLocalMediaRunner:
             )
 
             # Map audio if present
-            if freeze_audio:
+            if freeze_audio or retime_audio:
                 ffmpeg_args.extend(["-map", "[a]"])
             else:
                 ffmpeg_args.extend(["-map", "0:a?"])
@@ -1241,7 +1365,7 @@ class FfmpegLocalMediaRunner:
         """
         warnings: list[str] = []
         segment_duration = (
-            item.end_seconds - item.start_seconds
+            (item.end_seconds - item.start_seconds) / item.playback_rate
             if item.start_seconds is not None and item.end_seconds is not None
             else item.duration_seconds
         )
@@ -1690,7 +1814,7 @@ class FfmpegLocalMediaRunner:
         ):
             return None
         segment_duration = (
-            item.end_seconds - item.start_seconds
+            (item.end_seconds - item.start_seconds) / item.playback_rate
             if item.start_seconds is not None and item.end_seconds is not None
             else item.duration_seconds
         )
@@ -1801,6 +1925,15 @@ class FfmpegLocalMediaRunner:
 
     @staticmethod
     def _validate_supported_directives(spec: LocalMediaExecutionSpec) -> None:
+        invalid_rates = [
+            item.playback_rate
+            for item in spec.inputs
+            if not math.isfinite(item.playback_rate) or item.playback_rate <= 0
+        ]
+        if invalid_rates:
+            raise ValidationError(
+                "默认 ffmpeg runner 要求 playback_rate 是有限正数",
+            )
         unsupported_transitions: list[str] = []
         for transition in spec.transitions:
             kind = str(transition.get("kind") or "cut").strip().casefold()
@@ -1878,7 +2011,25 @@ class FfmpegLocalMediaRunner:
                 zip(inputs, audio_flags),
             ):
                 if has_audio:
-                    audio_labels.append(f"[{index + 1}:a]")
+                    # Adjacent generated clips carry unrelated ambiences; a
+                    # short edge fade per segment softens the step at every
+                    # hard cut without consuming timeline duration. The fade
+                    # needs the real duration: afade t=out holds zero gain
+                    # after its window, so a wrong (sentinel) duration would
+                    # mute the rest of the segment. Unknown duration or a
+                    # micro-clip (where the ramps would eat the audio)
+                    # passes through unfaded instead.
+                    duration = self._probe_duration_seconds_or_none(path)
+                    if duration is not None and duration >= 0.3:
+                        fade = min(0.04, duration / 4)
+                        filter_parts.append(
+                            f"[{index + 1}:a]afade=t=in:d={fade:.3f},"
+                            f"afade=t=out:st={max(0.0, duration - fade):.3f}"
+                            f":d={fade:.3f}[fade{index}]",
+                        )
+                        audio_labels.append(f"[fade{index}]")
+                    else:
+                        audio_labels.append(f"[{index + 1}:a]")
                     continue
                 duration = self._probe_duration_seconds(path)
                 filter_parts.append(
@@ -1951,7 +2102,143 @@ class FfmpegLocalMediaRunner:
             duration = None
         return duration if duration and duration > 0 else 1 / 30
 
-    def _run(self, arguments: Sequence[str], *, cwd: Path) -> None:
+    def _probe_duration_seconds_or_none(self, path: Path) -> float | None:
+        """Like ``_probe_duration_seconds`` but with a distinguishable
+        failure. The 1/30 sentinel is harmless when padding silence; a
+        caller that derives fades from it would mute everything after the
+        33ms fade-out window."""
+
+        try:
+            duration = probe_media(
+                os.fspath(path),
+                ffmpeg_path=self.executable,
+                timeout=min(self.timeout_seconds, 30.0),
+            ).duration_seconds
+        except MediaProbeError:
+            return None
+        return duration if duration and duration > 0 else None
+
+    def _measure_loudness(self, path: Path) -> dict[str, str] | None:
+        """First loudnorm pass: measure integrated stats as strings.
+
+        Returns ``None`` when the file has no audio or the measurement
+        cannot be parsed; the caller then skips normalization.
+        """
+
+        try:
+            process = subprocess.run(
+                [
+                    self.executable,
+                    "-hide_banner",
+                    "-i",
+                    os.fspath(path),
+                    "-af",
+                    (
+                        f"loudnorm=I={_LOUDNORM_TARGET_I}"
+                        f":TP={_LOUDNORM_TARGET_TP}"
+                        f":LRA={_LOUDNORM_TARGET_LRA}:print_format=json"
+                    ),
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if process.returncode != 0:
+            return None
+        tail = process.stderr[process.stderr.rfind("{") :]
+        try:
+            measured = json.loads(tail)
+        except ValueError:
+            return None
+        keys = (
+            "input_i",
+            "input_tp",
+            "input_lra",
+            "input_thresh",
+            "target_offset",
+        )
+        if not all(isinstance(measured.get(key), str) for key in keys):
+            return None
+        return {key: measured[key] for key in keys}
+
+    def _normalize_delivery_loudness(
+        self,
+        spec: LocalMediaExecutionSpec,
+    ) -> str | None:
+        """Land the finished film on the delivery loudness target.
+
+        Two-pass linear loudnorm: pass 1 measures, pass 2 applies one
+        constant gain. Single-pass loudnorm rides a sliding window and
+        would pump the deliberately quiet music bed back up between
+        speech windows, undoing the layer levels the mixer just set.
+        Every composed film is normalized, with or without audio
+        Elements. Failure keeps the un-normalized film.
+        """
+
+        if not self._probe_has_audio(spec.output_path):
+            return None
+        measured = self._measure_loudness(spec.output_path)
+        if measured is None:
+            return "交付响度测量失败，保留未归一的成片音频"
+        preloud = spec.work_dir / "preloud.mp4"
+        os.replace(spec.output_path, preloud)
+        try:
+            stderr = self._run(
+                [
+                    "-y",
+                    "-i",
+                    os.fspath(preloud),
+                    "-af",
+                    (
+                        f"loudnorm=I={_LOUDNORM_TARGET_I}"
+                        f":TP={_LOUDNORM_TARGET_TP}"
+                        f":LRA={_LOUDNORM_TARGET_LRA}"
+                        f":measured_I={measured['input_i']}"
+                        f":measured_TP={measured['input_tp']}"
+                        f":measured_LRA={measured['input_lra']}"
+                        f":measured_thresh={measured['input_thresh']}"
+                        f":offset={measured['target_offset']}"
+                        ":linear=true:print_format=json,aresample=48000"
+                    ),
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    "-movflags",
+                    "+faststart",
+                    os.fspath(spec.output_path),
+                ],
+                cwd=spec.work_dir,
+            )
+        except Exception:  # pylint: disable=broad-except
+            os.replace(preloud, spec.output_path)
+            return "交付响度归一失败，保留未归一的成片音频"
+        # linear=true is a request, not a guarantee: ffmpeg silently
+        # falls back to dynamic mode when the constant gain would break
+        # the true-peak ceiling. Make that observable.
+        tail = (stderr or "")[max((stderr or "").rfind("{"), 0) :]
+        try:
+            applied = json.loads(tail)
+        except ValueError:
+            applied = {}
+        if applied.get("normalization_type", "").lower() != "linear":
+            logger.warning(
+                "delivery loudnorm fell back to dynamic mode for %s; "
+                "layer levels may pump",
+                spec.output_path.name,
+            )
+        return None
+
+    def _run(self, arguments: Sequence[str], *, cwd: Path) -> str:
+        """Run ffmpeg to completion and return its stderr text."""
+
         try:
             process = subprocess.Popen(
                 [self.executable, *arguments],
@@ -1992,6 +2279,7 @@ class FfmpegLocalMediaRunner:
         if process.returncode != 0:
             detail = (stderr or stdout or "ffmpeg failed")[-4000:]
             raise ConflictError(f"ffmpeg 执行失败: {detail}")
+        return stderr or ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -2025,6 +2313,7 @@ class _FrozenInput:
     start_seconds: float | None = None
     end_seconds: float | None = None
     duration_seconds: float | None = None
+    playback_rate: float = 1.0
     original_sound: str = "preserve"
     location: Mapping[str, Any] | None = None
     overlays: tuple[Mapping[str, Any], ...] = ()
@@ -2046,6 +2335,11 @@ class _FrozenAudioTrack:
     max_duration_seconds: float
     gain_db: float
     pan: float
+    # Always taken from creation.role (required in the model); no default
+    # so this cannot drift from the mixer's legacy-dict narration fallback.
+    role: str
+    fade_in_seconds: float = 0.0
+    fade_out_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -2065,6 +2359,7 @@ class _ResolvedExecution:
     read_set: tuple[dict[str, Any], ...]
     source_selections: tuple[dict[str, Any], ...]
     audio_tracks: tuple[_FrozenAudioTrack, ...] = ()
+    speech_windows: tuple[tuple[float, float], ...] = ()
     color_grade: str = ""
 
 
@@ -2272,7 +2567,11 @@ def _motion_document_matches_text(html: str, text: str) -> bool:
     needle = re.sub(r"\s+", "", text)
     if not needle:
         return True
-    plain = re.sub(r"<[^>]+>", "", html)
+    # Blueprint documents commonly split copy into per-character spans and
+    # represent spaces as ``&nbsp;``. Compare the browser-visible text, not
+    # the raw entity spelling, or valid waterfall titles silently fall back
+    # to the legacy pet-OS renderer.
+    plain = unescape(re.sub(r"<[^>]+>", "", html))
     return needle in re.sub(r"\s+", "", plain)
 
 
@@ -2649,6 +2948,28 @@ def _append_motion_clip_input(
     durations.append(span_seconds)
 
 
+def _resolved_fade_seconds(
+    creation: AudioCreation,
+    span_seconds: float,
+) -> tuple[float, float]:
+    """Fades are the agent's creative call; an unset value adapts to the
+    span so a short bgm segment is not swallowed by its ramps."""
+
+    default_fade = (
+        min(_BGM_DEFAULT_FADE_SECONDS, span_seconds / 4)
+        if creation.role == "bgm"
+        else 0.0
+    )
+    return (
+        creation.fade_in_seconds
+        if creation.fade_in_seconds is not None
+        else default_fade,
+        creation.fade_out_seconds
+        if creation.fade_out_seconds is not None
+        else default_fade,
+    )
+
+
 def _timeline_execution(
     *,
     project: Project,
@@ -2749,6 +3070,11 @@ def _timeline_execution(
                 duration_seconds=version.duration_seconds,
                 start_seconds=start_seconds,
                 end_seconds=end_seconds,
+                playback_rate=(
+                    render_source.playback_rate
+                    if isinstance(element.creation, EditCreation)
+                    else 1.0
+                ),
                 original_sound=(
                     element.creation.original_sound
                     if isinstance(element.creation, EditCreation)
@@ -2828,6 +3154,9 @@ def _timeline_execution(
             if version.file_id is not None
             else None
         )
+        span_seconds = element.span.duration_tick / timeline.ticks_per_second
+        role = creation.role
+        fade_in, fade_out = _resolved_fade_seconds(creation, span_seconds)
         audio_tracks.append(
             _FrozenAudioTrack(
                 element_id=element.element_id,
@@ -2845,11 +3174,12 @@ def _timeline_execution(
                 offset_seconds=(
                     element.span.start_tick / timeline.ticks_per_second
                 ),
-                max_duration_seconds=(
-                    element.span.duration_tick / timeline.ticks_per_second
-                ),
+                max_duration_seconds=span_seconds,
                 gain_db=creation.gain_db,
                 pan=creation.pan,
+                role=role,
+                fade_in_seconds=fade_in,
+                fade_out_seconds=fade_out,
             ),
         )
         read_set.append(
@@ -2860,6 +3190,7 @@ def _timeline_execution(
                 version.checksum,
             ),
         )
+    speech_windows = _timeline_speech_windows(timeline) if audio_tracks else ()
     return _ResolvedExecution(
         command=command,
         target_ref=target_ref,
@@ -2887,8 +3218,60 @@ def _timeline_execution(
         read_set=tuple(read_set),
         source_selections=tuple(selections),
         audio_tracks=tuple(audio_tracks),
+        speech_windows=speech_windows,
         color_grade=timeline.color_grade,
     )
+
+
+def _timeline_speech_windows(
+    timeline: Timeline,
+) -> tuple[tuple[float, float], ...]:
+    """[start, end) seconds where clips natively speak.
+
+    Shot-granular for R2V: only the dialogue-bearing shots count, so BGM
+    keeps its bed level through the silent shots of the same element.
+    Shots are placed by scaling their declared durations onto the element
+    span (the provider renders the shot list into exactly the span, so
+    relative durations are the trustworthy signal); the whole element
+    span is the safe fallback when any duration is unusable. s2v digital
+    humans speak for their entire span.
+    """
+
+    windows: list[tuple[float, float]] = []
+    for element in timeline.elements_by_id.values():
+        if not element.enabled:
+            continue
+        creation = element.creation
+        element_start = element.span.start_tick / timeline.ticks_per_second
+        element_end = element.span.end_tick / timeline.ticks_per_second
+        if isinstance(creation, S2VCreation):
+            windows.append((element_start, element_end))
+            continue
+        if not isinstance(creation, R2VCreation):
+            continue
+        shots = [
+            creation.shots.items[shot_id] for shot_id in creation.shots.order
+        ]
+        if not any(shot.dialogue.strip() for shot in shots):
+            continue
+        total_seconds = sum(shot.duration_seconds for shot in shots)
+        if (
+            any(shot.duration_seconds <= 0 for shot in shots)
+            or total_seconds <= 0
+        ):
+            windows.append((element_start, element_end))
+            continue
+        scale = (element_end - element_start) / total_seconds
+        cursor = element_start
+        for shot in shots:
+            shot_start = cursor
+            cursor = min(
+                cursor + shot.duration_seconds * scale,
+                element_end,
+            )
+            if shot.dialogue.strip() and cursor > shot_start:
+                windows.append((shot_start, cursor))
+    return tuple(sorted(windows))
 
 
 def _resolve_execution(
@@ -2982,7 +3365,9 @@ def _resolved_fingerprint(resolved: _ResolvedExecution) -> str:
             # v8: caption blueprint font size scaled inversely by overlay
             # box height so apparent canvas-relative size stays consistent
             # across overlays with very different box dimensions.
-            "rendererVersion": 8,
+            # v9: Edit playback_rate retimes both picture and source sound;
+            # segment and transition durations now stay on Timeline time.
+            "rendererVersion": 9,
             "targetRef": resolved.target_ref,
             "inputs": [
                 {
@@ -2997,6 +3382,7 @@ def _resolved_fingerprint(resolved: _ResolvedExecution) -> str:
                     "sourceRef": item.source_ref,
                     "start": item.start_seconds,
                     "end": item.end_seconds,
+                    "playbackRate": item.playback_rate,
                     "originalSound": item.original_sound,
                     "location": item.location,
                     "overlays": [
@@ -3042,8 +3428,14 @@ def _resolved_fingerprint(resolved: _ResolvedExecution) -> str:
                             "maxDuration": track.max_duration_seconds,
                             "gainDb": track.gain_db,
                             "pan": track.pan,
+                            "role": track.role,
+                            "fadeIn": track.fade_in_seconds,
+                            "fadeOut": track.fade_out_seconds,
                         }
                         for track in resolved.audio_tracks
+                    ],
+                    "speechWindows": [
+                        list(window) for window in resolved.speech_windows
                     ],
                 }
                 if resolved.audio_tracks
@@ -3650,6 +4042,7 @@ class FileLocalMediaExecutionService:
                             "sourceUrl": item.source_url,
                             "start": item.start_seconds,
                             "end": item.end_seconds,
+                            "playbackRate": item.playback_rate,
                         }
                         for item in resolved.inputs
                     ],
@@ -3766,6 +4159,7 @@ class FileLocalMediaExecutionService:
                     start_seconds=frozen.start_seconds,
                     end_seconds=frozen.end_seconds,
                     duration_seconds=frozen.duration_seconds,
+                    playback_rate=frozen.playback_rate,
                     original_sound=frozen.original_sound,
                     location=frozen.location,
                     overlays=tuple(
@@ -3835,6 +4229,9 @@ class FileLocalMediaExecutionService:
                     "max_duration_seconds": track.max_duration_seconds,
                     "gain_db": track.gain_db,
                     "pan": track.pan,
+                    "role": track.role,
+                    "fade_in_seconds": track.fade_in_seconds,
+                    "fade_out_seconds": track.fade_out_seconds,
                 },
             )
 
@@ -3874,6 +4271,7 @@ class FileLocalMediaExecutionService:
             canvas_size=resolved.canvas_size,
             on_element_done=on_element_done,
             audio_tracks=tuple(local_audio_tracks),
+            speech_windows=resolved.speech_windows,
             color_grade=resolved.color_grade,
         )
         AtomicJsonRecordStore(work_dir / "spec.json").write(
@@ -3891,6 +4289,7 @@ class FileLocalMediaExecutionService:
                         "path": item.path.relative_to(project_root).as_posix(),
                         "start": item.start_seconds,
                         "end": item.end_seconds,
+                        "playbackRate": item.playback_rate,
                         "originalSound": item.original_sound,
                         "location": item.location,
                         "overlays": [dict(o) for o in item.overlays],
@@ -3911,8 +4310,14 @@ class FileLocalMediaExecutionService:
                         "maxDuration": item["max_duration_seconds"],
                         "gainDb": item["gain_db"],
                         "pan": item["pan"],
+                        "role": item["role"],
+                        "fadeIn": item["fade_in_seconds"],
+                        "fadeOut": item["fade_out_seconds"],
                     }
                     for item in local_audio_tracks
+                ],
+                "speechWindows": [
+                    list(window) for window in resolved.speech_windows
                 ],
             },
         )

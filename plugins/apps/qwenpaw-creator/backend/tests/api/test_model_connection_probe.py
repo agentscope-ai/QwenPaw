@@ -29,7 +29,6 @@ def _request(**overrides) -> ModelConnectionTestRequest:
     ("type_", "model_name", "protocol", "provider"),
     [
         ("asr", "fun-asr", "DashScope Fun-ASR", "fun-asr"),
-        ("video", "wan2.7-r2v-flash", "DashScope（百炼）", None),
     ],
 )
 def test_dashscope_probe_uses_upload_policy(
@@ -54,6 +53,39 @@ def test_dashscope_probe_uses_upload_policy(
         "model": model_name,
     }
     # Never a billable async task submission.
+    assert "X-DashScope-Async" not in headers
+
+
+@pytest.mark.parametrize(
+    ("base_url", "model_name"),
+    [
+        ("https://dashscope.aliyuncs.com/api/v1", "wan2.7-r2v"),
+        (
+            "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+            "wan3.0-video",
+        ),
+        (
+            "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+            "kling/kling-v3-video-generation",
+        ),
+    ],
+)
+def test_bailian_video_probe_uses_configured_root_without_billing(
+    base_url,
+    model_name,
+) -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="video",
+            base_url=base_url,
+            model_name=model_name,
+            protocol="DashScope（百炼）",
+            provider=None,
+        ),
+    )
+
+    assert url == f"{base_url}/tasks/11111111-1111-4111-8111-111111111111"
+    assert payload == {"_get_probe": True}
     assert "X-DashScope-Async" not in headers
 
 
@@ -95,6 +127,92 @@ def test_token_plan_video_probe_uses_models_endpoint() -> None:
     assert url == expected
     assert payload == {"_get_probe": True}
     assert headers["Authorization"] == "Bearer sk-test"
+
+
+@pytest.mark.parametrize(
+    ("protocol", "base_url", "model_name", "expected_url", "expected_params"),
+    [
+        (
+            "Google Gemini（Veo）",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "veo-3.1-generate-preview",
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "veo-3.1-generate-preview",
+            {},
+        ),
+        (
+            "MiniMax（海螺）",
+            "https://api.minimax.io",
+            "MiniMax-Hailuo-2.3",
+            "https://api.minimax.io/v1/query/video_generation",
+            {"task_id": "creator-connection-probe"},
+        ),
+        (
+            "Kling（可灵官方）",
+            "https://api-singapore.klingai.com",
+            "kling-2.6",
+            "https://api-singapore.klingai.com/tasks",
+            {"task_ids": "creator-connection-probe"},
+        ),
+        (
+            "Vidu（官方）",
+            "https://api.vidu.com",
+            "viduq3-mix",
+            "https://api.vidu.com/ent/v2/credits",
+            {"show_detail": "false"},
+        ),
+    ],
+)
+def test_direct_video_probes_are_read_only_and_protocol_specific(
+    protocol,
+    base_url,
+    model_name,
+    expected_url,
+    expected_params,
+) -> None:
+    url, headers, payload = _probe_payload(
+        _request(
+            type="video",
+            protocol=protocol,
+            base_url=base_url,
+            model_name=model_name,
+            provider=None,
+        ),
+    )
+
+    assert url == expected_url
+    assert payload.pop("_get_probe") is True
+    assert payload == expected_params
+    if protocol.startswith("Google"):
+        assert headers["x-goog-api-key"] == "sk-test"
+        assert "Authorization" not in headers
+    elif protocol.startswith("Vidu"):
+        assert headers["Authorization"] == "Token sk-test"
+    else:
+        assert headers["Authorization"] == "Bearer sk-test"
+
+
+@pytest.mark.parametrize(
+    ("model_name", "protocol"),
+    [
+        ("private-video-gateway", "DashScope（百炼）"),
+        ("doubao-seedance-2.0-pro", "Volcano Engine（火山引擎）"),
+        ("doubao-seedance-2.0-lite", "Volcano Engine（火山引擎）"),
+    ],
+)
+def test_video_probe_rejects_unknown_model_before_network(
+    model_name,
+    protocol,
+) -> None:
+    with pytest.raises(ValueError, match="VIDEO_MODEL_CAPABILITY_UNKNOWN"):
+        _probe_payload(
+            _request(
+                type="video",
+                model_name=model_name,
+                protocol=protocol,
+                provider=None,
+            ),
+        )
 
 
 def test_llm_probe_still_posts_a_chat_ping() -> None:
