@@ -23,6 +23,7 @@ describe("agentStore", () => {
       selectedAgent: "default",
       agents: [],
       lastChatIdByAgent: {},
+      pendingAgentChatSwitch: null,
     });
   });
 
@@ -45,6 +46,55 @@ describe("agentStore", () => {
   it("setSelectedAgent updates selectedAgent", () => {
     useAgentStore.getState().setSelectedAgent("agent-123");
     expect(useAgentStore.getState().selectedAgent).toBe("agent-123");
+  });
+
+  it("captures the target chat atomically when switching agents", () => {
+    useAgentStore.getState().setLastChatId("agent-123", "chat-123");
+    const updates: Array<{
+      selectedAgent: string;
+      pendingAgentChatSwitch: {
+        agentId: string;
+        chatId: string | null;
+      } | null;
+    }> = [];
+    const unsubscribe = useAgentStore.subscribe((state) => {
+      updates.push({
+        selectedAgent: state.selectedAgent,
+        pendingAgentChatSwitch: state.pendingAgentChatSwitch,
+      });
+    });
+
+    useAgentStore.getState().setSelectedAgent("agent-123");
+    unsubscribe();
+
+    expect(updates).toEqual([
+      {
+        selectedAgent: "agent-123",
+        pendingAgentChatSwitch: {
+          agentId: "agent-123",
+          chatId: "chat-123",
+        },
+      },
+    ]);
+  });
+
+  it("captures a blank chat target when the next agent has no history", () => {
+    useAgentStore.getState().setSelectedAgent("agent-123");
+
+    expect(useAgentStore.getState().pendingAgentChatSwitch).toEqual({
+      agentId: "agent-123",
+      chatId: null,
+    });
+  });
+
+  it("only completes the pending switch for its owning agent", () => {
+    useAgentStore.getState().setSelectedAgent("agent-123");
+
+    useAgentStore.getState().completeAgentChatSwitch("agent-456");
+    expect(useAgentStore.getState().pendingAgentChatSwitch).not.toBeNull();
+
+    useAgentStore.getState().completeAgentChatSwitch("agent-123");
+    expect(useAgentStore.getState().pendingAgentChatSwitch).toBeNull();
   });
 
   // ---------------------------------------------------------------------------

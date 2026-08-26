@@ -11,6 +11,7 @@ import api, {
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
 import { useAgentStore } from "../../../stores/agentStore";
+import { isApiErrorWithStatus } from "../../../api/request";
 import {
   extractTurnUsageFromOutputMessages,
   extractLatestSnapshotFromCards,
@@ -133,6 +134,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   groupId?: string | null;
   parentSessionId?: string | null;
   rootSessionId?: string | null;
+  /** The requested backend chat does not exist for the active agent. */
+  notFound?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -690,6 +693,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
+      if (extendedSession.notFound) {
+        return { session, realId };
+      }
+
       // Cache the result so subsequent getSession calls return immediately.
       const entry = { session, owner };
       this.sessionResultCache.set(sessionId, entry);
@@ -768,6 +775,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionList = [];
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
+    this.preferredChatId = null;
+    this.lastActiveChatId = null;
+    this.lastNavigatedChatId = null;
+    this.resetWindowIdentity();
     // Release the switch lock: the switch it belonged to is owned by the
     // previous epoch and its completion handler may never run (e.g. the
     // initializer aborted on unmount). Leaving it set would make the new
@@ -829,6 +840,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.onSessionRemoved = null;
     this.onSessionSelected = null;
     this.onSessionCreated = null;
+    this.onSessionNotFound = null;
   }
 
   /**
@@ -933,6 +945,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Consumers can register here to update the URL with the new session id.
    */
   onSessionCreated: ((sessionId: string) => void) | null = null;
+
+  /** Called when a backend chat is missing for the active agent. */
+  onSessionNotFound: ((sessionId: string, agentId: string) => void) | null =
+    null;
 
   /**
    * When reconnecting to a running conversation, the backend history may not
@@ -1370,6 +1386,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
+      if (extendedSession.notFound) return session;
+
       // Only trigger onSessionSelected if the result still belongs to the
       // active ownership epoch and neither the displayId nor the realId has
       // already been selected. The latter prevents the infinite loop where
@@ -1540,14 +1558,21 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         signal,
         owner,
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
       // return an empty session to prevent repeated 404 API calls.
-      // Note: the request layer throws Error(message) without attaching .status,
-      // so only message-based detection is reliable here.
-      if (error.message?.includes("Chat not found")) {
+      // Keep message-based detection for compatibility with session adapters
+      // that do not use the shared request layer's status-aware ApiError.
+      if (
+        isApiErrorWithStatus(error, 404) ||
+        (error instanceof Error && error.message.includes("Chat not found"))
+      ) {
         const emptySession = this.createEmptySession(sessionId, owner);
         emptySession.id = sessionId;
+        (emptySession as ExtendedSession).notFound = true;
+        if (this.isActiveOwner(owner)) {
+          this.onSessionNotFound?.(sessionId, owner.agentId);
+        }
         return emptySession;
       }
       throw error;

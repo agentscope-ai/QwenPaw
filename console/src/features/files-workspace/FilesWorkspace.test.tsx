@@ -14,6 +14,11 @@ const lifecycle = vi.hoisted(() => ({
   navigatorProps: null as {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+    scope: {
+      kind: "agent" | "session";
+      agentId: string;
+      chatId?: string;
+    };
   } | null,
   memoryGraphProps: null as {
     onOpenFile: (section: "daily" | "digest", path: string) => void;
@@ -64,6 +69,11 @@ vi.mock("./FilesNavigator", () => ({
   default: function MockFilesNavigator(props: {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+    scope: {
+      kind: "agent" | "session";
+      agentId: string;
+      chatId?: string;
+    };
   }) {
     lifecycle.navigatorProps = props;
     useEffect(() => {

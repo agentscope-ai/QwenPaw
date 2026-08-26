@@ -26,7 +26,13 @@ interface AgentStore {
   agents: AgentSummary[];
   /** Per-agent last active chat ID for restoring on agent switch */
   lastChatIdByAgent: Record<string, string>;
+  /** Chat target captured atomically with an agent switch. */
+  pendingAgentChatSwitch: {
+    agentId: string;
+    chatId: string | null;
+  } | null;
   setSelectedAgent: (agentId: string) => void;
+  completeAgentChatSwitch: (agentId: string) => void;
   setAgents: (agents: AgentSummary[]) => void;
   refreshAgents: () => Promise<void>;
   addAgent: (agent: AgentSummary) => void;
@@ -84,9 +90,20 @@ export const useAgentStore = create<AgentStore>()(
       selectedAgent: getInitialSelectedAgent(),
       agents: [],
       lastChatIdByAgent: {},
+      pendingAgentChatSwitch: null,
 
       setSelectedAgent: (agentId) => {
-        set({ selectedAgent: agentId });
+        set((state) => ({
+          selectedAgent: agentId,
+          ...(state.selectedAgent === agentId
+            ? {}
+            : {
+                pendingAgentChatSwitch: {
+                  agentId,
+                  chatId: state.lastChatIdByAgent[agentId] ?? null,
+                },
+              }),
+        }));
         menuRegistry.refresh();
         // Persist to localStorage so new tabs inherit this choice
         try {
@@ -95,6 +112,13 @@ export const useAgentStore = create<AgentStore>()(
           /* ignore */
         }
       },
+
+      completeAgentChatSwitch: (agentId) =>
+        set((state) =>
+          state.pendingAgentChatSwitch?.agentId === agentId
+            ? { pendingAgentChatSwitch: null }
+            : {},
+        ),
 
       setAgents: (agents) => set({ agents }),
 
@@ -123,11 +147,18 @@ export const useAgentStore = create<AgentStore>()(
         set((state) => {
           const remainingChatIds = { ...state.lastChatIdByAgent };
           delete remainingChatIds[agentId];
+          const selectedAgentRemoved = state.selectedAgent === agentId;
           return {
             agents: state.agents.filter((a) => a.id !== agentId),
             lastChatIdByAgent: remainingChatIds,
-            ...(state.selectedAgent === agentId
-              ? { selectedAgent: "default" }
+            ...(selectedAgentRemoved
+              ? {
+                  selectedAgent: "default",
+                  pendingAgentChatSwitch: {
+                    agentId: "default",
+                    chatId: remainingChatIds.default ?? null,
+                  },
+                }
               : {}),
           };
         });
@@ -169,6 +200,11 @@ export const useAgentStore = create<AgentStore>()(
     }),
     {
       name: STORAGE_KEY,
+      partialize: (state) => ({
+        selectedAgent: state.selectedAgent,
+        agents: state.agents,
+        lastChatIdByAgent: state.lastChatIdByAgent,
+      }),
       storage: {
         getItem: (name) => {
           try {

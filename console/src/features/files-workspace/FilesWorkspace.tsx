@@ -424,7 +424,9 @@ export default function FilesWorkspace({
       )}
       {activity === "files" || !codingMode ? (
         <FilesNavigator
-          key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
+          key={`${scopeKey}:${chatId ?? ""}:${
+            projectDirOverride ?? ""
+          }:${directoryRevision}`}
           scope={effectiveScope}
           selectedPath={
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??

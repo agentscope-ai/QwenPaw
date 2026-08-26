@@ -1,9 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../api/request";
 import FilesNavigator from "./FilesNavigator";
 
 const mocks = vi.hoisted(() => ({
   getProjectDirectory: vi.fn(),
+  getChatProjectDirectory: vi.fn(),
+  getChatProjectDirs: vi.fn(),
   getSystemPromptFiles: vi.fn(),
   listDirectory: vi.fn(),
   listFiles: vi.fn(),
@@ -39,6 +42,13 @@ vi.mock("../../api/modules/workspace", () => ({
 
 vi.mock("../../api/modules/projectDirectory", () => ({
   projectDirectoryApi: { get: mocks.getProjectDirectory },
+}));
+
+vi.mock("../../api/modules/chatProjectDirectory", () => ({
+  chatProjectDirectoryApi: {
+    get: mocks.getChatProjectDirectory,
+    getProjectDirs: mocks.getChatProjectDirs,
+  },
 }));
 
 vi.mock("../../stores/codingTabsStore", () => ({
@@ -85,6 +95,7 @@ describe("FilesNavigator system prompt interactions", () => {
     mocks.getProjectDirectory.mockResolvedValue({
       path: "/project",
       workspace_dir: "/workspace",
+      is_workspace_default: false,
     });
     mocks.listDirectory.mockResolvedValue({
       entries: [],
@@ -92,6 +103,8 @@ describe("FilesNavigator system prompt interactions", () => {
       has_more: false,
     });
     mocks.setSystemPromptFiles.mockImplementation(async (files) => files);
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
   });
 
   it("can add a custom prompt again after disabling it", async () => {
@@ -127,5 +140,54 @@ describe("FilesNavigator system prompt interactions", () => {
     expect(
       await screen.findByRole("switch", { name: "Toggle custom.md" }),
     ).toBeInTheDocument();
+  });
+
+  it("uses the agent directory directly for a new conversation", async () => {
+    mocks.listDirectory.mockResolvedValue({
+      entries: [
+        {
+          name: "agent-default.txt",
+          path: "agent-default.txt",
+          kind: "file",
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    render(
+      <FilesNavigator
+        selectedPath=""
+        onSelect={vi.fn()}
+        activeMemoryGraphRoot={null}
+        onShowMemoryGraph={vi.fn()}
+        onShowFiles={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "new",
+        }}
+      />,
+    );
+
+    expect(await screen.findByText("agent-default.txt")).toBeInTheDocument();
+    expect(mocks.getChatProjectDirectory).not.toHaveBeenCalled();
+    expect(mocks.getChatProjectDirs).not.toHaveBeenCalled();
+    expect(mocks.listDirectory).toHaveBeenCalledWith(
+      "",
+      undefined,
+      200,
+      undefined,
+      "project",
+      undefined,
+    );
+  });
+
+  it("shows unexpected tree failures inside the navigator", async () => {
+    mocks.listDirectory.mockRejectedValue(new ApiError(500, "tree exploded"));
+
+    renderNavigator();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("tree exploded");
   });
 });

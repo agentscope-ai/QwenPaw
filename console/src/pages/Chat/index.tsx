@@ -1177,12 +1177,25 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
-  const { selectedAgent, agents } = useAgentStore();
-  const chatId = useMemo(
+  const {
+    selectedAgent,
+    agents,
+    pendingAgentChatSwitch,
+    completeAgentChatSwitch,
+  } = useAgentStore();
+  const routeChatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
-  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
+  const hasPendingAgentChatSwitch =
+    pendingAgentChatSwitch?.agentId === selectedAgent;
+  const chatId = hasPendingAgentChatSwitch
+    ? pendingAgentChatSwitch.chatId ?? undefined
+    : routeChatId;
+  const queueSessionId =
+    chatId ??
+    (hasPendingAgentChatSwitch ? null : sessionApi.lastActiveChatId) ??
+    "new";
   const backendChatId = resolveBackendChatId(chatId);
   const pendingProjectDir = backendChatId
     ? undefined
@@ -1866,6 +1879,7 @@ export default function ChatPage() {
   /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
+  const routeChatIdRef = useRef(routeChatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const pendingSenderClearRef = useRef<string | null>(null);
@@ -2242,6 +2256,7 @@ export default function ChatPage() {
     return () => document.removeEventListener("keydown", handleShortcut);
   }, [isChatActive, whisperEnabled]);
   chatIdRef.current = chatId;
+  routeChatIdRef.current = routeChatId;
   navigateRef.current = navigate;
 
   const scheduleHistoryClear = useCallback(() => {
@@ -2283,8 +2298,16 @@ export default function ChatPage() {
   const safeLastStored = isLocalTimestampId(getLastChatId(selectedAgent))
     ? null
     : getLastChatId(selectedAgent);
-  const effectiveChatId = chatId || safeLastActive || safeLastStored;
-  if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
+  const effectiveChatId = hasPendingAgentChatSwitch
+    ? chatId
+    : chatId || safeLastActive || safeLastStored;
+  if (hasPendingAgentChatSwitch) {
+    sessionApi.preferredChatId = chatId ?? null;
+    sessionApi.lastActiveChatId = chatId ?? null;
+  } else if (
+    effectiveChatId &&
+    sessionApi.preferredChatId !== effectiveChatId
+  ) {
     sessionApi.preferredChatId = effectiveChatId;
   }
 
@@ -2494,37 +2517,49 @@ export default function ChatPage() {
       // Skip temporary local timestamp ids — they are not real backend
       // sessions and should not be restored later.
       const currentChatId =
-        chatIdRef.current || lastSessionIdRef.current || undefined;
+        routeChatIdRef.current || lastSessionIdRef.current || undefined;
       if (currentChatId && prevAgent && !isLocalTimestampId(currentChatId)) {
         setLastChatId(prevAgent, currentChatId);
-      }
-
-      // Restore last chat ID for the agent we're switching to.
-      // Ignore temporary local timestamp ids that may have been persisted
-      // before this guard was added.
-      const restored = getLastChatId(selectedAgent);
-      if (restored && !isLocalTimestampId(restored)) {
-        navigateRef.current(buildChatPath(restored), {
-          replace: true,
-        });
-        sessionApi.preferredChatId = restored;
-        sessionApi.lastActiveChatId = restored;
-      } else {
-        navigateRef.current("/chat", { replace: true });
-        sessionApi.lastActiveChatId = null;
       }
       // Mark the current session as stale so late-arriving onSessionSelected
       // callbacks from the OLD library instance are suppressed (Bug: after
       // agent switch, old library's in-flight getSession may complete and
       // trigger onSessionSelected for the wrong session).
       staleAutoSelectedIdRef.current =
-        lastSessionIdRef.current || chatIdRef.current || null;
+        lastSessionIdRef.current || routeChatIdRef.current || null;
       lastSessionIdRef.current = null;
 
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent, setLastChatId, getLastChatId]);
+  }, [selectedAgent, setLastChatId]);
+
+  // setSelectedAgent captures this target in the same store update as the
+  // agent ID. Keep using it until the router has reached the matching URL, so
+  // no render can combine the new agent with the previous agent's chat ID.
+  useEffect(() => {
+    if (!hasPendingAgentChatSwitch || !pendingAgentChatSwitch) return;
+
+    const targetChatId = pendingAgentChatSwitch.chatId;
+    sessionApi.preferredChatId = targetChatId;
+    sessionApi.lastActiveChatId = targetChatId;
+
+    const targetPath = targetChatId
+      ? buildChatPath(targetChatId)
+      : CHAT_BASE_PATH;
+    if (location.pathname !== targetPath) {
+      navigateRef.current(targetPath, { replace: true });
+      return;
+    }
+
+    completeAgentChatSwitch(selectedAgent);
+  }, [
+    completeAgentChatSwitch,
+    hasPendingAgentChatSwitch,
+    location.pathname,
+    pendingAgentChatSwitch,
+    selectedAgent,
+  ]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {

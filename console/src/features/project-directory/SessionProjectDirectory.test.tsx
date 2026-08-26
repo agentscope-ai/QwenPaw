@@ -2,6 +2,8 @@ import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
+import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import { ApiError } from "../../api/request";
 import SessionProjectDirectory from "./SessionProjectDirectory";
 
 const {
@@ -41,6 +43,13 @@ vi.mock("../../api/modules/chatProjectDirectory", () => ({
 // recent-project selection, Apply) lives on AGENT scope. Session scope
 // binds an ordered list of directories instead, so it has no path field.
 const scope = { kind: "agent" as const, agentId: "default" };
+
+const sessionScope = {
+  kind: "session" as const,
+  agentId: "default",
+  sessionId: "s1",
+  chatId: "ceb44050-d815-43f1-9212-c6b9a2054295",
+};
 
 const projects = [
   {
@@ -323,5 +332,182 @@ describe("SessionProjectDirectory", () => {
     await waitFor(() => {
       expect(mockSetSessionDirectory).toHaveBeenCalledWith("/projects/runtime");
     });
+  });
+
+  it("shows the read error instead of treating a missing chat as agent scope", async () => {
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs).mockRejectedValue(
+      new ApiError(404, "Chat not found"),
+    );
+
+    renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} showFullPath open />,
+    );
+
+    expect(await screen.findByText("Chat not found")).toBeInTheDocument();
+    expect(mockGetSessionDirectory).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unexpected read failure inside the panel", async () => {
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs).mockRejectedValue(
+      new ApiError(500, "directory service exploded"),
+    );
+
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} open />);
+
+    expect(
+      await screen.findByText("directory service exploded"),
+    ).toBeInTheDocument();
+  });
+
+  it("clears a read failure after the current scope refresh succeeds", async () => {
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs)
+      .mockRejectedValueOnce(new ApiError(500, "directory service exploded"))
+      .mockResolvedValueOnce({
+        project_dirs: [
+          {
+            path: "/projects/recovered",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+
+    const view = renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} open />,
+    );
+    expect(
+      await screen.findByText("directory service exploded"),
+    ).toBeInTheDocument();
+
+    view.rerender(
+      <SessionProjectDirectory
+        scope={{ ...sessionScope, sessionId: "s2" }}
+        open
+      />,
+    );
+
+    expect(await screen.findByText("/projects/recovered")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.queryByText("directory service exploded"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("ignores a failed refresh from the previous scope", async () => {
+    let rejectPrevious: (error: Error) => void = () => undefined;
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs)
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectPrevious = reject;
+          }),
+      )
+      .mockResolvedValueOnce({
+        project_dirs: [
+          {
+            path: "/projects/current",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+
+    const view = renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} open />,
+    );
+    await waitFor(() => {
+      expect(chatProjectDirectoryApi.getProjectDirs).toHaveBeenCalledTimes(1);
+    });
+
+    view.rerender(
+      <SessionProjectDirectory
+        scope={{ ...sessionScope, sessionId: "s2" }}
+        open
+      />,
+    );
+    expect(await screen.findByText("/projects/current")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectPrevious(new ApiError(500, "stale failure"));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("stale failure")).not.toBeInTheDocument();
+  });
+
+  it("ignores a successful refresh from the previous scope", async () => {
+    let resolvePrevious: (value: {
+      project_dirs: Array<{
+        path: string;
+        label: null;
+        exists: boolean;
+        nested_with: null;
+        is_workspace: boolean;
+      }>;
+      source: "session";
+      agent_project_dir: string;
+    }) => void = () => undefined;
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePrevious = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        project_dirs: [
+          {
+            path: "/projects/current",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+
+    const view = renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} open />,
+    );
+    await waitFor(() => {
+      expect(chatProjectDirectoryApi.getProjectDirs).toHaveBeenCalledTimes(1);
+    });
+    view.rerender(
+      <SessionProjectDirectory
+        scope={{ ...sessionScope, sessionId: "s2" }}
+        open
+      />,
+    );
+    expect(await screen.findByText("/projects/current")).toBeInTheDocument();
+
+    await act(async () => {
+      resolvePrevious({
+        project_dirs: [
+          {
+            path: "/projects/previous",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("/projects/current")).toBeInTheDocument();
+    expect(screen.queryByText("/projects/previous")).not.toBeInTheDocument();
   });
 });

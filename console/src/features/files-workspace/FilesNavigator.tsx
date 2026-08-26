@@ -18,6 +18,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Folder,
   FolderOpen,
   GripVertical,
@@ -72,6 +73,7 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  onError: (error: unknown) => void;
 }
 
 interface ProfileFileRowProps {
@@ -159,6 +161,7 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  onError,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -184,11 +187,13 @@ function DirectoryNode({
         );
         setCursor(page.next_cursor);
         setHasMore(page.has_more);
+      } catch (error) {
+        onError(error);
       } finally {
         setLoading(false);
       }
     },
-    [chatId, entry.path, projectDirOverride, root],
+    [chatId, entry.path, onError, projectDirOverride, root],
   );
 
   const toggle = () => {
@@ -222,6 +227,7 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              onError={onError}
             />
           ) : (
             <button
@@ -409,10 +415,15 @@ export default function FilesNavigator({
   const [boundDirs, setBoundDirs] = useState<ProjectDirEntry[]>([]);
   // Opens the binding panel from the switcher's "manage directories" item.
   const [managingDirs, setManagingDirs] = useState(false);
+  const [navigatorError, setNavigatorError] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
+
+  const reportNavigatorError = useCallback((error: unknown) => {
+    setNavigatorError(error instanceof Error ? error.message : String(error));
+  }, []);
 
   useEffect(() => {
     setPendingProjectDir(initialProjectDirOverride);
@@ -703,8 +714,18 @@ export default function FilesNavigator({
   }, []);
 
   useEffect(() => {
-    void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
-  }, [loadDirectoryIdentity, loadProfile, loadRoot]);
+    let active = true;
+    void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()])
+      .then(() => {
+        if (active) setNavigatorError(null);
+      })
+      .catch((error) => {
+        if (active) reportNavigatorError(error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadDirectoryIdentity, loadProfile, loadRoot, reportNavigatorError]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a
@@ -720,20 +741,48 @@ export default function FilesNavigator({
   }, [roots, workspaceRoot]);
 
   useEffect(() => {
-    if (source === "profile") void loadProfile();
-    if (source === "daily" || source === "digest") void loadMemory(source);
-  }, [loadMemory, loadProfile, source]);
+    const task =
+      source === "profile"
+        ? loadProfile()
+        : source === "daily" || source === "digest"
+        ? loadMemory(source)
+        : null;
+    if (!task) return;
+    void task.then(() => setNavigatorError(null)).catch(reportNavigatorError);
+  }, [loadMemory, loadProfile, reportNavigatorError, source]);
 
   const refreshCurrent = async () => {
-    if (source === "daily" || source === "digest") {
-      await loadMemory(source);
-      return;
+    try {
+      if (source === "daily" || source === "digest") {
+        await loadMemory(source);
+      } else if (source === "profile") {
+        await loadProfile();
+      } else {
+        await loadRoot();
+      }
+      setNavigatorError(null);
+    } catch (error) {
+      reportNavigatorError(error);
     }
-    if (source === "profile") {
-      await loadProfile();
-      return;
+  };
+
+  const loadMoreRoot = async () => {
+    try {
+      const page = await workspaceApi.listDirectory(
+        "",
+        cursor ?? undefined,
+        200,
+        chatId,
+        workspaceRoot,
+        projectDirOverride,
+      );
+      setEntries((current) => [...current, ...page.entries]);
+      setCursor(page.next_cursor);
+      setHasMore(page.has_more);
+      setNavigatorError(null);
+    } catch (error) {
+      reportNavigatorError(error);
     }
-    await loadRoot();
   };
 
   const runUpload = async (
@@ -759,7 +808,7 @@ export default function FilesNavigator({
         setConflictingNames(error.files);
         return;
       }
-      throw error;
+      reportNavigatorError(error);
     } finally {
       setUploading(false);
     }
@@ -845,7 +894,7 @@ export default function FilesNavigator({
                   beforeChange={confirmDirectoryChange}
                   onChanged={() => {
                     handleDirectoryChanged();
-                    void loadDirectoryIdentity();
+                    void loadDirectoryIdentity().catch(reportNavigatorError);
                   }}
                 />
               )}
@@ -952,6 +1001,12 @@ export default function FilesNavigator({
           strategy={verticalListSortingStrategy}
         >
           <div className={styles.tree} role="tree" aria-busy={loading}>
+            {navigatorError && (
+              <div className={styles.loadError} role="alert">
+                <CircleAlert size={15} />
+                <span>{navigatorError}</span>
+              </div>
+            )}
             {source === "profile" && (
               <button
                 type="button"
@@ -994,6 +1049,7 @@ export default function FilesNavigator({
                       selectedPath={selectedPath}
                       onSelect={onSelect}
                       root={workspaceRoot}
+                      onError={reportNavigatorError}
                     />
                   );
                 }
@@ -1035,26 +1091,14 @@ export default function FilesNavigator({
                 );
               })
             )}
-            {!loading && displayEntries.length === 0 && (
+            {!loading && !navigatorError && displayEntries.length === 0 && (
               <div className={styles.empty}>{t("files.sourceEmpty")}</div>
             )}
             {source === "workspace" && hasMore && (
               <button
                 type="button"
                 className={styles.loadMore}
-                onClick={async () => {
-                  const page = await workspaceApi.listDirectory(
-                    "",
-                    cursor ?? undefined,
-                    200,
-                    chatId,
-                    workspaceRoot,
-                    projectDirOverride,
-                  );
-                  setEntries((current) => [...current, ...page.entries]);
-                  setCursor(page.next_cursor);
-                  setHasMore(page.has_more);
-                }}
+                onClick={() => void loadMoreRoot()}
               >
                 {t("files.loadMore")}
               </button>

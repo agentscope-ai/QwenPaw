@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { request } from "./request";
+import { ApiError, isApiErrorWithStatus, request } from "./request";
 
 // mock config so URL is predictable and token is empty by default
 vi.mock("./config", () => ({
@@ -111,7 +111,10 @@ describe("request", () => {
 
   it("calls clearAuthToken and redirects to /login on 401", async () => {
     mockFetch(401);
-    await expect(request("/models")).rejects.toThrow("Not authenticated");
+    const error = await request("/models").catch((err) => err);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(401);
+    expect((error as ApiError).message).toBe("Not authenticated");
     expect(clearAuthToken).toHaveBeenCalledOnce();
     expect(window.location.href).toBe("/login?redirect=%2Fchat");
   });
@@ -143,6 +146,30 @@ describe("request", () => {
     } as unknown as Response);
 
     await expect(request("/models")).rejects.toThrow("server exploded");
+  });
+
+  // Callers that treat one status as an expected outcome (a 404 on a
+  // chat-scoped endpoint means the chat is not theirs) branch on the status
+  // rather than matching the message text.
+  it("carries the response status on the thrown error", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      headers: { get: () => "application/json" },
+      text: () => Promise.resolve('{"detail":"Chat not found"}'),
+    } as unknown as Response);
+
+    const error = await request("/chats/gone/project-dirs").catch((err) => err);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(404);
+    expect(isApiErrorWithStatus(error, 404)).toBe(true);
+    expect(isApiErrorWithStatus(error, 500)).toBe(false);
+    // The message keeps the shape message-based handling already relies on.
+    expect((error as ApiError).message).toBe(
+      'Chat not found - {"detail":"Chat not found"}',
+    );
   });
 
   it("injects Authorization header when token is present", async () => {
