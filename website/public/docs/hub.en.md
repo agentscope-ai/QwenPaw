@@ -18,7 +18,7 @@ Hub is designed for companies, labs, and small teams that want to run QwenPaw fo
 - choose Local or Docker for all user runtimes;
 - inspect, stop, and restart runtimes;
 - set Docker images, resource limits, and access rules;
-- preserve user data and manage backup and upgrades centrally.
+- preserve user data and manage backups and upgrades centrally.
 
 Hub is self-hosted software, not a cloud service operated by the QwenPaw team. The server administrator can access the server, database, and backups, so users should only join a Hub run by themselves or an organization they trust.
 

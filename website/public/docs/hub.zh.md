@@ -240,4 +240,4 @@ Local 当前使用 Linux Bubblewrap、macOS Seatbelt 或 Windows AppContainer + 
 
 可信团队长期运行 Hub 时，还应配置 HTTPS、主机与网络访问控制、日志监控和定期备份。
 
-后续版本计划继续完善按用户配额、资源用量统计、Kubernetes、多机调度、弹性扩缩容和更强的租户隔离。Stay tuned，也欢迎阅读[贡献指南](/docs/contributing)并直接参与实现。
+后续版本计划继续完善按用户配额、资源用量统计、Kubernetes、多机调度、弹性扩缩容和更强的租户隔离。后续进展敬请期待，也欢迎阅读[贡献指南](/docs/contributing)，直接参与实现。
