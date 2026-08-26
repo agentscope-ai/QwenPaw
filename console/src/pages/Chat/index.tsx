@@ -222,6 +222,7 @@ import {
   getSubmissionIdentity,
   getQueueSubmissionTarget,
   getSubmissionSdkSessionId,
+  isConversationReferenceMatch,
   isSubmissionTargetReady,
   rebindSubmissionBizParams,
 } from "./submissionBizParams";
@@ -1229,6 +1230,11 @@ export default function ChatPage() {
   const location = useLocation();
   const { isDark } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  const isAgentSwitchTransition =
+    prevSelectedAgentRef.current !== selectedAgent;
+  const agentSwitchTransitionRef = useRef(isAgentSwitchTransition);
+  agentSwitchTransitionRef.current = isAgentSwitchTransition;
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
@@ -1242,7 +1248,9 @@ export default function ChatPage() {
   const activeSessionId = chatId ?? validLastActiveChatId ?? "new";
   const queueSessionId =
     activeSessionId === "new" ? getNewQueueKey(selectedAgent) : activeSessionId;
-  const backendChatId = resolveBackendChatId(chatId);
+  const backendChatId = isAgentSwitchTransition
+    ? undefined
+    : resolveBackendChatId(chatId);
   const pendingProjectDir = backendChatId
     ? undefined
     : getPendingProjectDirectory(selectedAgent, activeSessionId) ?? undefined;
@@ -1471,6 +1479,7 @@ export default function ChatPage() {
   }, [queueSessionId]);
 
   const syncLoopModeStatus = useCallback(() => {
+    if (isAgentSwitchTransition) return Promise.resolve();
     const backendSessionId =
       activeSessionId !== "new"
         ? sessionApi.getSessionIdentity(activeSessionId).sessionId
@@ -1479,13 +1488,13 @@ export default function ChatPage() {
       chatId,
       sessionId: backendSessionId,
     });
-  }, [activeSessionId, chatId]);
+  }, [activeSessionId, chatId, isAgentSwitchTransition]);
 
   useEffect(() => {
     const controller = new AbortController();
     useLoopStore.getState().resetSessionMode();
     void fetchAvailableLoopModes(controller.signal);
-    if (chatId) {
+    if (chatId && !isAgentSwitchTransition) {
       void fetchActiveLoopMode({
         chatId,
         sessionId: sessionApi.getSessionIdentity(chatId).sessionId,
@@ -1493,7 +1502,7 @@ export default function ChatPage() {
       });
     }
     return () => controller.abort();
-  }, [chatId, selectedAgent]);
+  }, [chatId, isAgentSwitchTransition, selectedAgent]);
 
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
@@ -2597,7 +2606,6 @@ export default function ChatPage() {
   // Setup multimodal capabilities tracking via custom hook
 
   // Refresh chat when selectedAgent changes, preserving last active chat per agent
-  const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
@@ -3425,7 +3433,7 @@ export default function ChatPage() {
                 onNew={handleNewCommand}
               />
             )}
-            {usesQwenPawBackend && (
+            {usesQwenPawBackend && !isAgentSwitchTransition && (
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={compactSender}
@@ -3600,36 +3608,47 @@ export default function ChatPage() {
         },
         onFileCardClick,
         cancel(data: { session_id: string }) {
-          const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          if (resolvedChatId) {
-            chatApi.stopChat(resolvedChatId).catch((err) => {
+          const routeChatId = chatIdRef.current;
+          const routeIdentity = sessionApi.getSessionIdentity(routeChatId);
+          const resolvedRouteChatId = resolveBackendChatId(routeChatId);
+          if (
+            !agentSwitchTransitionRef.current &&
+            resolvedRouteChatId &&
+            isConversationReferenceMatch(data.session_id, routeIdentity)
+          ) {
+            chatApi.stopChat(resolvedRouteChatId).catch((err) => {
               console.error("Failed to stop chat:", err);
             });
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
+          const routeChatId = chatIdRef.current;
+          const reconnectIdentity = sessionApi.getSessionIdentity(routeChatId);
+          const resolvedRouteChatId = resolveBackendChatId(routeChatId);
+          if (
+            agentSwitchTransitionRef.current ||
+            !resolvedRouteChatId ||
+            reconnectIdentity.chatId !== resolvedRouteChatId ||
+            !reconnectIdentity.sessionId ||
+            !isConversationReferenceMatch(data.session_id, reconnectIdentity)
+          ) {
+            return;
+          }
+
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),
           };
-
-          const reconnectIdentity = sessionApi.getSessionIdentity(
-            data.session_id,
-          );
           const usageTurn = useTurnUsageStore
             .getState()
-            .beginTurn(
-              selectedAgent,
-              reconnectIdentity.sessionId || data.session_id,
-            );
+            .beginTurn(selectedAgent, reconnectIdentity.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: sessionApi.getBackendSessionId(data.session_id),
+              session_id: reconnectIdentity.sessionId,
               user_id: reconnectIdentity.userId,
               channel: reconnectIdentity.channel,
             }),
@@ -3763,6 +3782,7 @@ export default function ChatPage() {
     handleCompactCommand,
     handleNewCommand,
     compactSender,
+    isAgentSwitchTransition,
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,
@@ -3901,15 +3921,19 @@ export default function ChatPage() {
               onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {
-                const sessionId =
-                  request.rootSessionId ||
-                  sessionApi.getSessionIdentity(chatIdRef.current).sessionId;
-                const resolvedChatId =
-                  sessionApi.getRealIdForSession(sessionId) ??
-                  chatIdRef.current ??
-                  sessionId;
+                const routeChatId = chatIdRef.current;
+                const routeIdentity =
+                  sessionApi.getSessionIdentity(routeChatId);
+                const rootSessionId =
+                  request.rootSessionId || request.sessionId;
+                const resolvedChatId = resolveBackendChatId(routeChatId);
 
-                if (resolvedChatId) {
+                if (
+                  !agentSwitchTransitionRef.current &&
+                  rootSessionId &&
+                  routeIdentity.sessionId === rootSessionId &&
+                  resolvedChatId
+                ) {
                   console.log("[Chat] Calling stopChat with:", resolvedChatId);
                   chatApi
                     .stopChat(resolvedChatId)
@@ -3917,8 +3941,7 @@ export default function ChatPage() {
                       console.log("[Chat] stopChat succeeded");
                       setApprovals((prev) =>
                         prev.filter(
-                          (item) =>
-                            item.root_session_id !== request.rootSessionId,
+                          (item) => item.root_session_id !== rootSessionId,
                         ),
                       );
                     })
@@ -3926,9 +3949,7 @@ export default function ChatPage() {
                       console.error("[Chat] stopChat failed:", err);
                     });
                 } else {
-                  console.warn(
-                    "[Chat] No chat_id resolved, cannot cancel task",
-                  );
+                  console.warn("[Chat] Ignoring stale approval cancel target");
                 }
               }}
             />

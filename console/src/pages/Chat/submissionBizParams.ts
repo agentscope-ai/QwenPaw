@@ -24,6 +24,20 @@ export interface QueueSubmissionTarget {
   identity: SubmissionIdentity;
 }
 
+export function isConversationReferenceMatch(
+  referenceId: string | null | undefined,
+  identity: {
+    sdkSessionId?: string;
+    chatId?: string;
+    sessionId?: string;
+  },
+): boolean {
+  if (!referenceId) return false;
+  return [identity.sdkSessionId, identity.chatId, identity.sessionId].some(
+    (id) => !!id && id === referenceId,
+  );
+}
+
 export function buildSubmissionBizParams(
   identity: SubmissionIdentity,
   context?: Record<string, unknown>,

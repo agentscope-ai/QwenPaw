@@ -9,6 +9,7 @@ import {
   getQueueSubmissionTarget,
   getSubmissionSdkSessionId,
   getSubmissionSessionId,
+  isConversationReferenceMatch,
   isSubmissionTargetReady,
   rebindSubmissionBizParams,
 } from "./submissionBizParams";
@@ -138,6 +139,20 @@ describe("submissionBizParams", () => {
     expect(isSubmissionTargetReady(undefined, "agent-b", "chat-a", "")).toBe(
       false,
     );
+  });
+
+  it("matches only references owned by the current route identity", () => {
+    const routeIdentity = {
+      sdkSessionId: "sdk-a",
+      chatId: "chat-a",
+      sessionId: "session-a",
+    };
+
+    expect(isConversationReferenceMatch("sdk-a", routeIdentity)).toBe(true);
+    expect(isConversationReferenceMatch("chat-a", routeIdentity)).toBe(true);
+    expect(isConversationReferenceMatch("session-a", routeIdentity)).toBe(true);
+    expect(isConversationReferenceMatch("chat-b", routeIdentity)).toBe(false);
+    expect(isConversationReferenceMatch("", routeIdentity)).toBe(false);
   });
 
   it("accepts only frozen submissions matching the selected agent and route", () => {
