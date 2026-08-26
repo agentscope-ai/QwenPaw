@@ -1,5 +1,0 @@
-[flake8]
-# Integration tests are not checked by flake8 in upstream CI.
-# We ignore E501 (line too long) to avoid conflicts with black's default 88-char line length.
-max-line-length = 999
-ignore = E501

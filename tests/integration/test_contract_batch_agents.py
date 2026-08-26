@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Auto-generated endpoint contract tests (coverage sprint batch 4).
 
-Covers the HTTP surface of agents.py, agent_status.py, agent_stats.py, loops.py, harnesses.py,
-coding_mode.py. Each case drives one endpoint with a
+Covers the HTTP surface of agents.py, agent_status.py,
+agent_stats.py, loops.py, harnesses.py, coding_mode.py.
+Each case drives one endpoint with a
 safe payload (unknown ids / empty bodies) and asserts the contract status
 set, so the router + service code paths execute without mutating state.
 """
@@ -59,7 +60,8 @@ def test_get_api_agents_1(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_put_api_agents_order_2(app_server) -> None:
-    """Contract: PUT /api/agents/order with empty body is rejected or safely handled."""
+    """Contract: PUT /api/agents/order with empty body is rejected or safely
+    handled."""
     resp = _req(app_server, "PUT", "/api/agents/order", json={})
     assert resp.status_code in (
         200,
@@ -76,7 +78,8 @@ def test_put_api_agents_order_2(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_patch_api_agents_agentid_pin_3(app_server) -> None:
-    """Contract: PATCH /api/agents/{agentId}/pin with empty body is rejected or safely handled."""
+    """Contract: PATCH /api/agents/{agentId}/pin with empty body is rejected
+    or safely handled."""
     resp = _req(
         app_server,
         "PATCH",
@@ -98,7 +101,8 @@ def test_patch_api_agents_agentid_pin_3(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_get_api_agents_agentid_4(app_server) -> None:
-    """Contract: GET /api/agents/{agentId} with unknown id yields client/server-safe status."""
+    """Contract: GET /api/agents/{agentId} with unknown id yields
+    client/server-safe status."""
     resp = _req(app_server, "GET", "/api/agents/integ-unknown-xyz")
     assert resp.status_code in (
         200,
@@ -113,7 +117,8 @@ def test_get_api_agents_agentid_4(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_patch_api_agents_agentid_backend_settings_5(app_server) -> None:
-    """Contract: PATCH /api/agents/{agentId}/backend-settings with empty body is rejected or
+    """Contract: PATCH /api/agents/{agentId}/backend-settings with empty body
+    is rejected or
     safely handled."""
     resp = _req(
         app_server,
@@ -136,7 +141,8 @@ def test_patch_api_agents_agentid_backend_settings_5(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_agents_6(app_server) -> None:
-    """Contract: POST /api/agents with empty body is rejected or safely handled."""
+    """Contract: POST /api/agents with empty body is rejected or safely
+    handled."""
     resp = _req(app_server, "POST", "/api/agents", json={})
     assert resp.status_code in (
         200,
@@ -153,7 +159,8 @@ def test_post_api_agents_6(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_agents_agentid_copy_7(app_server) -> None:
-    """Contract: POST /api/agents/{agentId}/copy with empty body is rejected or safely handled."""
+    """Contract: POST /api/agents/{agentId}/copy with empty body is rejected
+    or safely handled."""
     resp = _req(
         app_server,
         "POST",
@@ -175,7 +182,8 @@ def test_post_api_agents_agentid_copy_7(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_put_api_agents_agentid_8(app_server) -> None:
-    """Contract: PUT /api/agents/{agentId} with empty body is rejected or safely handled."""
+    """Contract: PUT /api/agents/{agentId} with empty body is rejected or
+    safely handled."""
     resp = _req(app_server, "PUT", "/api/agents/integ-unknown-xyz", json={})
     assert resp.status_code in (
         200,
@@ -192,7 +200,8 @@ def test_put_api_agents_agentid_8(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_patch_api_agents_agentid_model_settings_9(app_server) -> None:
-    """Contract: PATCH /api/agents/{agentId}/model-settings with empty body is rejected or
+    """Contract: PATCH /api/agents/{agentId}/model-settings with empty body is
+    rejected or
     safely handled."""
     resp = _req(
         app_server,
@@ -215,7 +224,8 @@ def test_patch_api_agents_agentid_model_settings_9(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_agents_agentid_memory_reindex_10(app_server) -> None:
-    """Contract: POST /api/agents/{agentId}/memory/reindex with empty body is rejected or
+    """Contract: POST /api/agents/{agentId}/memory/reindex with empty body is
+    rejected or
     safely handled."""
     resp = _req(
         app_server,
@@ -238,7 +248,8 @@ def test_post_api_agents_agentid_memory_reindex_10(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_get_api_agents_agentid_memory_runtime_status_11(app_server) -> None:
-    """Contract: GET /api/agents/{agentId}/memory/runtime-status with unknown id yields
+    """Contract: GET /api/agents/{agentId}/memory/runtime-status with unknown
+    id yields
     client/server-safe status."""
     resp = _req(
         app_server,
@@ -298,7 +309,8 @@ def test_get_api_agents_agentid_memory_graph_13(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_delete_api_agents_agentid_14(app_server) -> None:
-    """Contract: DELETE /api/agents/{agentId} with unknown id is rejected or no-op."""
+    """Contract: DELETE /api/agents/{agentId} with unknown id is rejected or
+    no-op."""
     resp = _req(app_server, "DELETE", "/api/agents/integ-unknown-xyz")
     assert resp.status_code in (
         200,
@@ -313,7 +325,8 @@ def test_delete_api_agents_agentid_14(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_patch_api_agents_agentid_toggle_15(app_server) -> None:
-    """Contract: PATCH /api/agents/{agentId}/toggle with empty body is rejected or safely
+    """Contract: PATCH /api/agents/{agentId}/toggle with empty body is rejected
+    or safely
     handled."""
     resp = _req(
         app_server,
@@ -416,7 +429,8 @@ def test_get_api_loops_status_19(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_get_api_loops_gates_catalog_20(app_server) -> None:
-    """Contract: GET /api/loops/gates/catalog responds with a parseable payload."""
+    """Contract: GET /api/loops/gates/catalog responds with a parseable
+    payload."""
     resp = _req(app_server, "GET", "/api/loops/gates/catalog")
     assert resp.status_code in (
         200,
@@ -456,7 +470,8 @@ def test_get_api_loops_custom_21(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_loops_custom_22(app_server) -> None:
-    """Contract: POST /api/loops/custom with empty body is rejected or safely handled."""
+    """Contract: POST /api/loops/custom with empty body is rejected or safely
+    handled."""
     resp = _req(app_server, "POST", "/api/loops/custom", json={})
     assert resp.status_code in (
         200,
@@ -473,7 +488,8 @@ def test_post_api_loops_custom_22(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_put_api_loops_custom_mode_id_23(app_server) -> None:
-    """Contract: PUT /api/loops/custom/{mode_id} with empty body is rejected or safely handled."""
+    """Contract: PUT /api/loops/custom/{mode_id} with empty body is rejected
+    or safely handled."""
     resp = _req(
         app_server,
         "PUT",
@@ -495,7 +511,8 @@ def test_put_api_loops_custom_mode_id_23(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_delete_api_loops_custom_mode_id_24(app_server) -> None:
-    """Contract: DELETE /api/loops/custom/{mode_id} with unknown id is rejected or no-op."""
+    """Contract: DELETE /api/loops/custom/{mode_id} with unknown id is
+    rejected or no-op."""
     resp = _req(app_server, "DELETE", "/api/loops/custom/integ-unknown-xyz")
     assert resp.status_code in (
         200,
@@ -510,7 +527,8 @@ def test_delete_api_loops_custom_mode_id_24(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_loops_custom_mode_id_duplicate_25(app_server) -> None:
-    """Contract: POST /api/loops/custom/{mode_id}/duplicate with empty body is rejected or
+    """Contract: POST /api/loops/custom/{mode_id}/duplicate with empty body is
+    rejected or
     safely handled."""
     resp = _req(
         app_server,
@@ -601,7 +619,8 @@ def test_get_api_harnesses_provider_id_skills_29(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_harnesses_provider_id_status_30(app_server) -> None:
-    """Contract: POST /api/harnesses/{provider_id}/status with empty body is rejected or
+    """Contract: POST /api/harnesses/{provider_id}/status with empty body is
+    rejected or
     safely handled."""
     resp = _req(
         app_server,
@@ -624,7 +643,8 @@ def test_post_api_harnesses_provider_id_status_30(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_harnesses_provider_id_login_31(app_server) -> None:
-    """Contract: POST /api/harnesses/{provider_id}/login with empty body is rejected or safely
+    """Contract: POST /api/harnesses/{provider_id}/login with empty body is
+    rejected or safely
     handled."""
     resp = _req(
         app_server,
@@ -647,7 +667,8 @@ def test_post_api_harnesses_provider_id_login_31(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_harnesses_provider_id_logout_32(app_server) -> None:
-    """Contract: POST /api/harnesses/{provider_id}/logout with empty body is rejected or
+    """Contract: POST /api/harnesses/{provider_id}/logout with empty body is
+    rejected or
     safely handled."""
     resp = _req(
         app_server,
@@ -690,7 +711,8 @@ def test_get_api_coding_mode_33(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_coding_mode_34(app_server) -> None:
-    """Contract: POST /api/coding-mode with empty body is rejected or safely handled."""
+    """Contract: POST /api/coding-mode with empty body is rejected or safely
+    handled."""
     resp = _req(app_server, "POST", "/api/coding-mode", json={})
     assert resp.status_code in (
         200,

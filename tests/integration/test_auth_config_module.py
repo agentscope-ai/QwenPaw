@@ -67,7 +67,7 @@ def test_config_get_config_path() -> None:
     """get_config_path returns a Path."""
     from qwenpaw.config.utils import get_config_path
 
-    assert get_config_path().name.endswith(".json") or True
+    assert get_config_path().name.endswith(".json")
 
 
 @pytest.mark.integration
