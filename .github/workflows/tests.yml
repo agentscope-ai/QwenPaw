@@ -440,11 +440,12 @@ jobs:
         run: |
           if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
-            # --cov, hence --no-cov here.
+            # --cov, hence --no-cov here.  Capture the exit code with
+            # || so bash -e does not abort before the tolerance check.
+            PYTEST_RC=0
             pytest tests/integration -v --no-cov \
               -n auto --dist=loadscope --timeout=300 \
-              -m "${{ steps.marker.outputs.expr }}"
-            PYTEST_RC=$?
+              -m "${{ steps.marker.outputs.expr }}" || PYTEST_RC=$?
             # exit 5 = no tests collected: expected for the fallback
             # shard when every integration test carries a priority
             # marker. Any other nonzero code still fails.
@@ -460,14 +461,15 @@ jobs:
                 -o coverage.integration.${{ matrix.shard }}.xml || [ "$?" -eq 2 ]
             fi
           else
+            PYTEST_RC=0
             pytest tests/integration -v \
               -n auto --dist=loadscope --timeout=300 \
-              -m "${{ steps.marker.outputs.expr }}" || {
-                RC=$?
-                # exit 5 = no tests collected: expected for the
-                # fallback shard when nothing is unclassified.
-                [ "$RC" -eq 5 ] || exit "$RC"
-              }
+              -m "${{ steps.marker.outputs.expr }}" || PYTEST_RC=$?
+            # exit 5 = no tests collected: expected for the
+            # fallback shard when nothing is unclassified.
+            if [ "$PYTEST_RC" -ne 0 ] && [ "$PYTEST_RC" -ne 5 ]; then
+              exit "$PYTEST_RC"
+            fi
           fi
 
       - name: Upload integration coverage data
