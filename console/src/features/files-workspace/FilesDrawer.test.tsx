@@ -36,7 +36,7 @@ vi.mock("../../api/modules/workspace", () => ({
       content: "hello",
       etag: "etag",
     }),
-    getFileDownloadUrl: vi.fn((path: string, root: string) => `/api/files/download/${path}`),
+    getFileDownloadUrl: vi.fn((path: string, _root: string) => `/api/files/download/${path}`),
     loadFile: vi.fn().mockResolvedValue({
       content: "profile content",
     }),

@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor, act } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import { createElement } from "react";
-import { useTranslation } from "react-i18next";
 
 // ---------------------------------------------------------------------------
 // A#85241570 — 切换语言后标签滞留
@@ -40,20 +39,6 @@ const resources = {
     },
   },
 };
-
-// A mock component that renders multiple translated tags/labels, simulating
-// a real UI component with status indicators and navigation labels.
-function MockTaggedComponent() {
-  const { t } = useTranslation();
-
-  return (
-    <div>
-      <span data-testid="status-tag">{t("status.running")}</span>
-      <span data-testid="priority-tag">{t("tag.priority")}</span>
-      <span data-testid="nav-label">{t("nav.home")}</span>
-    </div>
-  );
-}
 
 describe("Language switch tag update (A#85241570)", () => {
   let i18nInstance: {
@@ -99,9 +84,7 @@ describe("Language switch tag update (A#85241570)", () => {
   it("updates all translated tags when language changes from English to Chinese", async () => {
     // We need to mock react-i18next to use our controllable i18n instance
     // and actually trigger re-renders on language change.
-    const { useTranslation: realUseTranslation } = await vi.importActual<
-      typeof import("react-i18next")
-    >("react-i18next");
+    await vi.importActual<typeof import("react-i18next")>("react-i18next");
     const { useState, useEffect, useCallback } = await import("react");
 
     vi.doMock("react-i18next", () => ({
@@ -171,9 +154,7 @@ describe("Language switch tag update (A#85241570)", () => {
     // Start in Chinese
     i18nInstance.language = "zh";
 
-    const { useTranslation: realUseTranslation } = await vi.importActual<
-      typeof import("react-i18next")
-    >("react-i18next");
+    await vi.importActual<typeof import("react-i18next")>("react-i18next");
     const { useState, useEffect, useCallback } = await import("react");
 
     vi.doMock("react-i18next", () => ({

@@ -17,7 +17,7 @@
  *   2. isGenerating detects "running" status correctly
  *   3. Generating sessions are NOT cached (so re-fetch always gets fresh data)
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Mock dependencies before importing sessionApi
 vi.mock("@/api", () => ({

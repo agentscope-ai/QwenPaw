@@ -402,18 +402,18 @@ describe("request", () => {
   it("429 with empty JSON body does not produce 'undefined' in error message (A#83794374)", async () => {
     mock429Fetch("{}");
     const error = await request("/models").catch((e) => e);
-    expect(error.message).not.toContain("undefined");
+    expect((error as Error).message).not.toContain("undefined");
   });
 
   it("429 with null detail and message does not produce 'undefined' (A#83794374)", async () => {
     mock429Fetch(JSON.stringify({ detail: null, message: null }));
     const error = await request("/models").catch((e) => e);
-    expect(error.message).not.toContain("undefined");
+    expect((error as Error).message).not.toContain("undefined");
   });
 
   it("429 with empty body falls back to 'Request failed: 429 Too Many Requests' (A#83794374)", async () => {
     mock429Fetch("");
     const error = await request("/models").catch((e) => e);
-    expect(error.message).toBe("Request failed: 429 Too Many Requests");
+    expect((error as Error).message).toBe("Request failed: 429 Too Many Requests");
   });
 });

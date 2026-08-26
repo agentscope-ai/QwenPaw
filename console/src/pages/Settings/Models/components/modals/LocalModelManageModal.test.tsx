@@ -97,7 +97,7 @@ vi.mock("@agentscope-ai/design", () => {
       },
     ),
     InputNumber: (props: Record<string, unknown>) => {
-      const { value, onChange, min, max, step, precision, className, placeholder } = props as any;
+      const { value, onChange, min, max, step, className, placeholder } = props as any;
       return React.createElement("input", {
         type: "number",
         value: value ?? "",
@@ -273,7 +273,7 @@ function setupDefaultMocks() {
   vi.mocked(api.getLocalServerUpdateStatus).mockResolvedValue(mockUpdateStatus);
   vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(mockLlamacppProgress);
   vi.mocked(api.getLocalModelDownloadProgress).mockResolvedValue(mockModelProgress);
-  vi.mocked(api.configureLocalModelSettings).mockResolvedValue(undefined);
+  vi.mocked(api.configureLocalModelSettings).mockResolvedValue({ success: true } as any);
 }
 
 function renderModal(overrides: {

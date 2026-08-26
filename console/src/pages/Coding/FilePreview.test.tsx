@@ -118,7 +118,7 @@ describe("FilePreview image rendering (A#82584296)", () => {
       ok: true,
       blob: () => Promise.resolve(new Blob(["fake-image-data"], { type: "image/png" })),
     });
-    global.fetch = fetchSpy;
+    global.fetch = fetchSpy as unknown as typeof fetch;
     vi.spyOn(URL, "createObjectURL").mockReturnValue(mockBlobUrl);
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });

@@ -131,24 +131,19 @@ vi.mock("@/api/config", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => {
-  const store = vi.fn(() => ({
+  const makeState = () => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
     agents: [],
     setLastChatId: vi.fn(),
     getLastChatId: vi.fn(() => null),
     removeLastChatId: vi.fn(),
-  }));
-  store.subscribe = vi.fn(() => vi.fn());
-  store.getState = vi.fn(() => ({
-    selectedAgent: mockSelectedAgent(),
-    setSelectedAgent: mockSetSelectedAgent,
-    agents: [],
-    setLastChatId: vi.fn(),
-    getLastChatId: vi.fn(() => null),
-    removeLastChatId: vi.fn(),
-  }));
-  store.setState = vi.fn();
+  });
+  const store = Object.assign(vi.fn(makeState), {
+    subscribe: vi.fn(() => vi.fn()),
+    getState: vi.fn(makeState),
+    setState: vi.fn(),
+  });
   return { useAgentStore: store };
 });
 

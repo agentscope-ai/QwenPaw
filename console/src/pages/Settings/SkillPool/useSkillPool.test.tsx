@@ -110,7 +110,7 @@ vi.mock("../../../utils/scanError", () => ({
 }));
 
 vi.mock("../../../utils/agentDisplayName", () => ({
-  getAgentDisplayName: (ws: { name?: string }) => ws.name || ws.id,
+  getAgentDisplayName: (ws: { name?: string; id?: string }) => ws.name || ws.id,
 }));
 
 vi.mock("../../Agent/Skills/components", async () => {

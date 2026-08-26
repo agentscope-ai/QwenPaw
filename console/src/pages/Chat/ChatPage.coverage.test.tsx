@@ -116,24 +116,19 @@ vi.mock("@/api/config", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => {
-  const store = vi.fn(() => ({
+  const makeState = () => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
     agents: [{ id: "default", name: "Default", backend: "qwenpaw" }],
     setLastChatId: vi.fn(),
     getLastChatId: vi.fn(() => null),
     removeLastChatId: vi.fn(),
-  }));
-  store.subscribe = vi.fn(() => vi.fn());
-  store.getState = vi.fn(() => ({
-    selectedAgent: mockSelectedAgent(),
-    setSelectedAgent: mockSetSelectedAgent,
-    agents: [{ id: "default", name: "Default", backend: "qwenpaw" }],
-    setLastChatId: vi.fn(),
-    getLastChatId: vi.fn(() => null),
-    removeLastChatId: vi.fn(),
-  }));
-  store.setState = vi.fn();
+  });
+  const store = Object.assign(vi.fn(makeState), {
+    subscribe: vi.fn(() => vi.fn()),
+    getState: vi.fn(makeState),
+    setState: vi.fn(),
+  });
   return { useAgentStore: store };
 });
 
@@ -1711,10 +1706,10 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.responseParser) {
-      // Send a string payload (not an object)
-      const parsed = capturedOptions.api.responseParser(JSON.stringify("just a string"));
-      // Should not crash
-      expect(true).toBe(true);
+      // Send a string payload (not an object); should not crash
+      expect(() =>
+        capturedOptions.api.responseParser(JSON.stringify("just a string")),
+      ).not.toThrow();
     }
   });
 

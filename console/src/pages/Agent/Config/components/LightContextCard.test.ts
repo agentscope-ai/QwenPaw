@@ -51,7 +51,9 @@ vi.mock("@agentscope-ai/design", () => {
         "div",
         props,
         children as any,
-        extra && React.createElement("span", { "data-testid": "warning" }, extra as any),
+        extra
+          ? React.createElement("span", { "data-testid": "warning" }, extra as any)
+          : null,
       ),
     useForm: () => [{}],
     useWatch: (path: string[]) => watchValues[path.join(".")],

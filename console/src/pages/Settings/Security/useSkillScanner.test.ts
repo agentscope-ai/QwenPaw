@@ -59,12 +59,15 @@ const blockedHistory: BlockedSkillRecord[] = [
     blocked_at: "2026-01-15T10:00:00Z",
     findings: [
       {
+        severity: "high",
         title: "Unsafe eval",
+        description: "Uses eval()",
         file_path: "index.js",
         line_number: 42,
-        description: "Uses eval()",
+        rule_id: "no-eval",
       },
     ],
+    max_severity: "high",
   },
   {
     skill_name: "suspicious-skill",
@@ -72,6 +75,7 @@ const blockedHistory: BlockedSkillRecord[] = [
     action: "warned",
     blocked_at: "2026-01-16T12:00:00Z",
     findings: [],
+    max_severity: "",
   },
 ];
 
@@ -129,7 +133,7 @@ describe("useSkillScanner (A#80732993)", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    let success = false;
+    let success: boolean | undefined = false;
     await act(async () => {
       success = await result.current.updateConfig({ mode: "warn" });
     });
@@ -191,7 +195,7 @@ describe("useSkillScanner (A#80732993)", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    let success = true;
+    let success: boolean | undefined = true;
     await act(async () => {
       success = await result.current.updateConfig({ timeout: 60 });
     });
