@@ -109,6 +109,58 @@ class MultiAgentManager:
                 exc_info=True,
             )
 
+    async def _prepare_reload_candidate(
+        self,
+        candidate: Workspace,
+        agent_id: str,
+        workspace_dir: str,
+    ) -> dict:
+        """Attach reusable state and fully start a reload candidate."""
+        async with self._lock:
+            old_instance = self.agents.get(agent_id)
+
+        reusable = {}
+        if old_instance:
+            # TaskTracker is agent-scoped rather than workspace-scoped.
+            candidate.set_task_tracker(old_instance.task_tracker)
+
+            # pylint: disable=protected-access
+            reusable = old_instance._service_manager.get_reusable_services()
+            # pylint: enable=protected-access
+            if reusable:
+                await candidate.set_reusable_components(reusable)
+                logger.info(
+                    f"Set reusable components for {agent_id}: "
+                    f"{list(reusable.keys())}",
+                )
+
+        await candidate.start()
+        candidate.set_manager(self)
+        await self._setup_workspace_plugins(candidate, str(workspace_dir))
+        logger.info(f"New workspace instance started: {agent_id}")
+        return reusable
+
+    @staticmethod
+    async def _discard_reload_candidate(
+        candidate: Workspace,
+        agent_id: str,
+        reason: str,
+    ) -> None:
+        """Log and stop a candidate rejected before the atomic swap."""
+        if reason == "removed":
+            logger.warning(
+                f"Agent {agent_id} was removed during reload, "
+                "stopping new instance",
+            )
+        else:
+            logger.info(
+                f"Discarding stale reload for {agent_id}: "
+                "configuration changed during rebuild",
+            )
+        await run_async_to_completion(
+            candidate.stop(final=True, preserve_reused=True),
+        )
+
     def get_loaded_agent(self, agent_id: str) -> Workspace | None:
         """Return an already loaded workspace without starting it."""
         return self.agents.get(agent_id)
@@ -565,40 +617,12 @@ class MultiAgentManager:
         # Until the atomic swap commits, this manager exclusively owns the
         # candidate and must stop it on every exit path.
         candidate_committed = False
-        reusable = {}
         try:
-            # Step 3.5: Set reusable components from old instance (if any)
-            async with self._lock:
-                old_instance = self.agents.get(agent_id)
-
-            if old_instance:
-                # TaskTracker is agent-scoped rather than workspace-scoped.
-                # Reuse it before startup so reconnect/status/stop requests
-                # arriving after the atomic swap can still reach in-flight
-                # runs.
-                new_instance.set_task_tracker(old_instance.task_tracker)
-
-                # Get all reusable services from the old ServiceManager.
-                # pylint: disable=protected-access
-                reusable = (
-                    old_instance._service_manager.get_reusable_services()
-                )
-                # pylint: enable=protected-access
-
-                if reusable:
-                    await new_instance.set_reusable_components(reusable)
-                    logger.info(
-                        f"Set reusable components for {agent_id}: "
-                        f"{list(reusable.keys())}",
-                    )
-
-            await new_instance.start()
-            new_instance.set_manager(self)  # Set manager reference
-            await self._setup_workspace_plugins(
+            reusable = await self._prepare_reload_candidate(
                 new_instance,
-                str(agent_ref.workspace_dir),
+                agent_id,
+                agent_ref.workspace_dir,
             )
-            logger.info(f"New workspace instance started: {agent_id}")
 
             # Step 4: Atomic swap (minimal lock time). Do not await candidate
             # cleanup while holding this lock.
@@ -636,20 +660,11 @@ class MultiAgentManager:
             raise
 
         if not candidate_committed:
-            if discard_reason == "removed":
-                logger.warning(
-                    f"Agent {agent_id} was removed during reload, "
-                    "stopping new instance",
-                )
-            else:
-                # Installing this candidate would revert a newer write. The
-                # writer's reload will deliver the fresh state.
-                logger.info(
-                    f"Discarding stale reload for {agent_id}: "
-                    "configuration changed during rebuild",
-                )
-            await run_async_to_completion(
-                new_instance.stop(final=True, preserve_reused=True),
+            assert discard_reason is not None
+            await self._discard_reload_candidate(
+                new_instance,
+                agent_id,
+                discard_reason,
             )
             return False
 

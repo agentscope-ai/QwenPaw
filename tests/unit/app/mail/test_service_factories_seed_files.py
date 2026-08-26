@@ -110,6 +110,6 @@ def test_guarded_backend_does_not_seed_files(tmp_path):
     ws = _fake_workspace("claude_code", tmp_path)
     monitor, published = _create_monitor(ws)
     assert monitor is None
-    assert published == []
+    assert not published
     assert not (tmp_path / "MAIL_TRIAGE.md").exists()
     assert not (tmp_path / "CONTACTS.md").exists()

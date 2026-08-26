@@ -51,7 +51,7 @@ def test_third_party_backend_never_starts_monitor(tmp_path):
     ws = _fake_workspace("claude_code", tmp_path)
     monitor, published = _create_monitor(ws)
     assert monitor is None
-    assert published == []
+    assert not published
 
 
 def test_qwenpaw_backend_still_starts_monitor(tmp_path):
