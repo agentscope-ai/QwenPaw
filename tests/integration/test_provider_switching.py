@@ -227,11 +227,7 @@ def test_custom_provider_discovery_populates_model_catalog(
             )
             assert listed.status_code == 200, listed.text
             discovered = next(
-                (
-                    item
-                    for item in listed.json()
-                    if item.get("id") == provider_id
-                ),
+                item for item in listed.json() if item.get("id") == provider_id
             )
             if not discovered.get("models_syncing") and discovered.get(
                 "discovered_models",
