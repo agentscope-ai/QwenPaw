@@ -481,11 +481,10 @@ jobs:
         shell: bash
         run: |
           # First, combine the three integration shards into one
-          coverage combine \
+          coverage combine --data-file=.coverage.integration \
             .coverage.integration.p0 \
             .coverage.integration.p1 \
-            .coverage.integration.p2 \
-            --data-file=.coverage.integration
+            .coverage.integration.p2
           coverage xml --data-file=.coverage.integration \
             -o coverage.integration.xml || [ "$?" -eq 2 ]
 
