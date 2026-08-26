@@ -98,9 +98,7 @@ function emptyConfig(): DataAppConfig {
   };
 }
 
-function mergeSaved(
-  saved: Partial<DataAppConfig> | null,
-): DataAppConfig {
+function mergeSaved(saved: Partial<DataAppConfig> | null): DataAppConfig {
   const base = emptyConfig();
   if (!saved) return base;
   return {
@@ -266,10 +264,7 @@ export function Configure({
   }, [api]);
 
   const setSection = useCallback(
-    <K extends keyof DataAppConfig>(
-      section: K,
-      value: DataAppConfig[K],
-    ) => {
+    <K extends keyof DataAppConfig>(section: K, value: DataAppConfig[K]) => {
       setConfig((prev) => ({ ...prev, [section]: value }));
       setSaveResult(null);
     },
@@ -523,7 +518,6 @@ export function Configure({
             onClick={() => void runTest("neo4j")}
           />
         </section>
-
       </div>
 
       <div className="qwenpaw-data-configure__footer">
@@ -620,7 +614,9 @@ function TestButton({
       </button>
       {result ? (
         <span
-          className={`qwenpaw-data-configure__test-result is-${result.ok ? "ok" : "error"}`}
+          className={`qwenpaw-data-configure__test-result is-${
+            result.ok ? "ok" : "error"
+          }`}
         >
           {result.ok
             ? t("configure.testOk")

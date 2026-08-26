@@ -377,8 +377,10 @@ export function createQwenPawDataApi(paw: PawAppSdk) {
     getConfig: () => paw.api.get<DataAppConfig>("/config"),
     setConfig: (config: DataAppConfig) =>
       paw.api.post<DataAppConfig>("/config", config),
-    testConfig: (target: "llm" | "embedding" | "neo4j", config: DataAppConfig) =>
-      paw.api.post<ConnectionTestResult>(`/config/test/${target}`, config),
+    testConfig: (
+      target: "llm" | "embedding" | "neo4j",
+      config: DataAppConfig,
+    ) => paw.api.post<ConnectionTestResult>(`/config/test/${target}`, config),
     setReuseHost: (payload: { target: "llm" | "embedding"; reuse: boolean }) =>
       paw.api.post<DataAppConfig>("/config/reuse-host-model", payload),
   };

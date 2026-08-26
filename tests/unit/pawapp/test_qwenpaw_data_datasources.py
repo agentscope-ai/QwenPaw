@@ -127,7 +127,7 @@ async def test_reuse_host_model_copies_llm_from_active(monkeypatch) -> None:
                 "sk-host",
                 ["qwen3-max"],
                 chat_model="DashScopeChatModel",
-            )
+            ),
         ],
         slot=_FakeSlot("dashscope", "qwen3-max"),
     )
@@ -165,7 +165,7 @@ async def test_reuse_host_model_embedding_keeps_local_model(
                 "https://dashscope.example.com/v1",
                 "sk-host",
                 ["qwen3-max"],
-            )
+            ),
         ],
         slot=_FakeSlot("dashscope", "qwen3-max"),
     )
@@ -178,12 +178,16 @@ async def test_reuse_host_model_embedding_keeps_local_model(
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
     monkeypatch.setattr(module, "_push_model_config", AsyncMock())
 
-    result = await module.reuse_host_model({"target": "embedding", "reuse": True})
+    result = await module.reuse_host_model(
+        {"target": "embedding", "reuse": True},
+    )
 
     # The host has no "active embedding model" concept: only the provider's
     # endpoint and key are shared, the model/dim stay locally configured.
     assert result["embedding"]["reuse_host"] is True
-    assert result["embedding"]["base_url"] == "https://dashscope.example.com/v1"
+    assert (
+        result["embedding"]["base_url"] == "https://dashscope.example.com/v1"
+    )
     assert result["embedding"]["api_key"] == "sk-host"
     assert result["embedding"]["host_provider_name"] == "DashScope"
     assert result["embedding"]["model"] == "text-embedding-v3"
@@ -214,7 +218,9 @@ async def test_reuse_host_model_disable_keeps_snapshot(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reuse_host_model_rejects_when_no_active_model(monkeypatch) -> None:
+async def test_reuse_host_model_rejects_when_no_active_model(
+    monkeypatch,
+) -> None:
     module = _load_backend()
     manager = _FakeManager(
         [
@@ -224,8 +230,8 @@ async def test_reuse_host_model_rejects_when_no_active_model(monkeypatch) -> Non
                 "https://dashscope.example.com/v1",
                 "sk-host",
                 ["qwen3-max"],
-            )
-        ]
+            ),
+        ],
     )
     _patch_manager(monkeypatch, manager)
 
@@ -254,7 +260,7 @@ async def test_reuse_host_model_rejects_native_protocol_active(
                 "sk-ant",
                 ["claude-x"],
                 chat_model="AnthropicChatModel",
-            )
+            ),
         ],
         slot=_FakeSlot("anthropic", "claude-x"),
     )
@@ -273,7 +279,7 @@ async def test_reuse_host_model_rejects_native_protocol_active(
 
 
 @pytest.mark.asyncio
-async def test_reuse_host_model_rejects_unknown_target(monkeypatch) -> None:
+async def test_reuse_host_model_rejects_unknown_target() -> None:
     module = _load_backend()
     from fastapi import HTTPException
 
@@ -293,7 +299,7 @@ async def test_set_config_resyncs_reused_models_from_host(monkeypatch) -> None:
                 "https://dashscope.example.com/v1",
                 "sk-host",
                 ["qwen3-max"],
-            )
+            ),
         ],
         slot=_FakeSlot("dashscope", "qwen3-max"),
     )
@@ -322,7 +328,9 @@ async def test_set_config_resyncs_reused_models_from_host(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_config_keeps_manual_values_without_reuse(monkeypatch) -> None:
+async def test_set_config_keeps_manual_values_without_reuse(
+    monkeypatch,
+) -> None:
     module = _load_backend()
     manager = _FakeManager(
         [
@@ -332,7 +340,7 @@ async def test_set_config_keeps_manual_values_without_reuse(monkeypatch) -> None
                 "https://dashscope.example.com/v1",
                 "sk-host",
                 ["qwen3-max"],
-            )
+            ),
         ],
         slot=_FakeSlot("dashscope", "qwen3-max"),
     )
@@ -398,7 +406,7 @@ async def test_restore_active_datasource_retries_after_failure(
         side_effect=[
             HTTPException(status_code=503),
             {"success": True},
-        ]
+        ],
     )
     module._gateway.json = gateway
 
@@ -429,7 +437,7 @@ async def test_on_before_start_resets_restore_flag(monkeypatch) -> None:
     monkeypatch.setattr(module, "on_before_start", hook)
     # The reuse sync reads config; keep the test independent of the
     # developer's real ~/.qwenpaw/apps/qwenpaw-data/config.json.
-    monkeypatch.setattr(module, "load_config", lambda: module.DataAppConfig())
+    monkeypatch.setattr(module, "load_config", module.DataAppConfig)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
     module._active_restore_done = True
 
@@ -443,14 +451,14 @@ async def test_on_before_start_resets_restore_flag(monkeypatch) -> None:
 async def test_proxy_set_active_persists_selection(monkeypatch) -> None:
     module = _load_backend()
     proxy = AsyncMock(
-        return_value=Response(status_code=200, content=b'{"success": true}')
+        return_value=Response(status_code=200, content=b'{"success": true}'),
     )
     module._gateway.proxy = proxy
 
     config = module.DataAppConfig()
     saved = []
     monkeypatch.setattr(module, "load_config", lambda: config)
-    monkeypatch.setattr(module, "save_config", lambda cfg: saved.append(cfg))
+    monkeypatch.setattr(module, "save_config", saved.append)
 
     request = _make_request(
         "PUT",
@@ -476,7 +484,7 @@ async def test_proxy_set_active_skips_persist_on_upstream_error(
     config = module.DataAppConfig()
     saved = []
     monkeypatch.setattr(module, "load_config", lambda: config)
-    monkeypatch.setattr(module, "save_config", lambda cfg: saved.append(cfg))
+    monkeypatch.setattr(module, "save_config", saved.append)
 
     request = _make_request(
         "PUT",
@@ -489,7 +497,7 @@ async def test_proxy_set_active_skips_persist_on_upstream_error(
 
     # A rejected switch keeps the previous persisted selection.
     assert response.status_code == 404
-    assert saved == []
+    assert not saved
 
 
 @pytest.mark.asyncio
@@ -503,7 +511,7 @@ async def test_proxy_delete_clears_matching_active_selection(
     config.datasources.active_id = "pg-demo"
     saved = []
     monkeypatch.setattr(module, "load_config", lambda: config)
-    monkeypatch.setattr(module, "save_config", lambda cfg: saved.append(cfg))
+    monkeypatch.setattr(module, "save_config", saved.append)
 
     await module._proxy_delete_datasource(
         "semantic-config/datasource/pg-demo",
@@ -517,11 +525,11 @@ async def test_proxy_delete_clears_matching_active_selection(
         "semantic-config/datasource/other",
         _make_request("DELETE"),
     )
-    assert saved == []
+    assert not saved
 
 
 @pytest.mark.asyncio
-async def test_config_test_rejects_non_http_endpoint(monkeypatch) -> None:
+async def test_config_test_rejects_non_http_endpoint() -> None:
     module = _load_backend()
 
     for target, section in (("llm", "llm"), ("embedding", "embedding")):
@@ -532,7 +540,7 @@ async def test_config_test_rejects_non_http_endpoint(monkeypatch) -> None:
                     "base_url": "file:///etc/passwd",
                     "api_key": "sk-test",
                     "model": "test-model",
-                }
+                },
             },
         )
         assert result["ok"] is False

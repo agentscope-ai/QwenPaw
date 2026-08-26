@@ -64,7 +64,8 @@ const en = {
   "configure.reuseHost.embedding": "Reuse QwenPaw API credentials",
   "configure.reuseHost.applying": "Syncing…",
   "configure.reuseHost.summaryLabel": "Reusing the QwenPaw model",
-  "configure.reuseHost.embeddingSummaryLabel": "API credentials reused from QwenPaw",
+  "configure.reuseHost.embeddingSummaryLabel":
+    "API credentials reused from QwenPaw",
   "configure.openaiOnlyNote":
     "The Context service speaks the OpenAI-compatible protocol; native " +
     "Anthropic and Gemini endpoints are not supported.",

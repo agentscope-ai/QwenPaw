@@ -223,13 +223,19 @@ def seed_from_env(config: DataAppConfig) -> DataAppConfig:
     Configure page and its connection tests truthful from the start.
     """
     if not config.llm.base_url:
-        config.llm.base_url = _env_default("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        config.llm.base_url = _env_default(
+            "OPENAI_BASE_URL",
+            "https://api.openai.com/v1",
+        )
     if not config.llm.model:
         config.llm.model = _env_default("LLM_MODEL", "gpt-4o-mini")
     if not config.llm.api_key:
         config.llm.api_key = _env_default("OPENAI_API_KEY")
     if not config.embedding.model:
-        config.embedding.model = _env_default("EMBED_MODEL", "text-embedding-v3")
+        config.embedding.model = _env_default(
+            "EMBED_MODEL",
+            "text-embedding-v3",
+        )
     if not config.embedding.base_url:
         config.embedding.base_url = (
             _env_default("EMBED_OPENAI_BASE_URL") or config.llm.base_url
@@ -255,7 +261,7 @@ def _quote_env(value: str) -> str:
     if not value:
         return ""
     if any(ch in value for ch in " \t\n\"'"):
-        escaped = value.replace("\\", "\\\\").replace("\"", "\\\"")
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     return value
 
@@ -281,11 +287,11 @@ def _env_lines(config: DataAppConfig) -> list[str]:
         lines.append(f"LLM_MODEL={_quote_env(config.llm.model)}")
     if config.embedding.api_key:
         lines.append(
-            f"EMBED_OPENAI_API_KEY={_quote_env(config.embedding.api_key)}"
+            f"EMBED_OPENAI_API_KEY={_quote_env(config.embedding.api_key)}",
         )
     if config.embedding.base_url:
         lines.append(
-            f"EMBED_OPENAI_BASE_URL={_quote_env(config.embedding.base_url)}"
+            f"EMBED_OPENAI_BASE_URL={_quote_env(config.embedding.base_url)}",
         )
     if config.embedding.model:
         lines.append(f"EMBED_MODEL={_quote_env(config.embedding.model)}")
@@ -311,12 +317,14 @@ def _models_json(config: DataAppConfig) -> dict[str, Any]:
     service's own defaults, matching ``_initial_from_env()`` semantics.
     """
     llm_base_url = config.llm.base_url or _env_default(
-        "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        "OPENAI_BASE_URL",
+        "https://api.openai.com/v1",
     )
     llm_model = config.llm.model or _env_default("LLM_MODEL", "gpt-4o-mini")
     llm_api_key = config.llm.api_key or _env_default("OPENAI_API_KEY")
     embed_model = config.embedding.model or _env_default(
-        "EMBED_MODEL", "text-embedding-v3"
+        "EMBED_MODEL",
+        "text-embedding-v3",
     )
     # The embedding endpoint falls back to the shared LLM endpoint/key, the
     # same way the context service resolves EMBED_OPENAI_*.
@@ -326,7 +334,9 @@ def _models_json(config: DataAppConfig) -> dict[str, Any]:
         or llm_base_url
     )
     embed_api_key = (
-        config.embedding.api_key or _env_default("EMBED_OPENAI_API_KEY") or llm_api_key
+        config.embedding.api_key
+        or _env_default("EMBED_OPENAI_API_KEY")
+        or llm_api_key
     )
     if config.embedding.dim:
         embed_dim = config.embedding.dim
@@ -359,7 +369,11 @@ def prepare_runtime_files(config: DataAppConfig) -> None:
     env_tmp.write_text(env_text, encoding="utf-8")
     env_tmp.replace(ENV_FILE_PATH)
 
-    models_text = json.dumps(_models_json(config), indent=2, ensure_ascii=False)
+    models_text = json.dumps(
+        _models_json(config),
+        indent=2,
+        ensure_ascii=False,
+    )
     models_tmp = MODELS_JSON_PATH.with_suffix(".tmp")
     models_tmp.write_text(models_text + "\n", encoding="utf-8")
     models_tmp.replace(MODELS_JSON_PATH)
@@ -382,7 +396,7 @@ _APP_MANAGED_ENV_KEYS = frozenset(
         "EMBED_OPENAI_BASE_URL",
         "EMBED_MODEL",
         "EMBED_DIM",
-    }
+    },
 )
 
 

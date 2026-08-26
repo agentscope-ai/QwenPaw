@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
 import importlib.util
@@ -37,9 +38,17 @@ def _load_config_module():
 def config_module(tmp_path: Path, monkeypatch):
     module = _load_config_module()
     monkeypatch.setattr(module, "APP_DATA_DIR", tmp_path / "qwenpaw-data")
-    monkeypatch.setattr(module, "CONFIG_JSON_PATH", module.APP_DATA_DIR / "config.json")
+    monkeypatch.setattr(
+        module,
+        "CONFIG_JSON_PATH",
+        module.APP_DATA_DIR / "config.json",
+    )
     monkeypatch.setattr(module, "ENV_FILE_PATH", module.APP_DATA_DIR / ".env")
-    monkeypatch.setattr(module, "MODELS_JSON_PATH", module.APP_DATA_DIR / "models.json")
+    monkeypatch.setattr(
+        module,
+        "MODELS_JSON_PATH",
+        module.APP_DATA_DIR / "models.json",
+    )
     # Snapshot app-managed env keys so tests that trigger load_app_env()
     # cannot leak rewritten values into the surrounding pytest process.
     for key in (
@@ -87,7 +96,9 @@ def test_save_config_writes_config_and_runtime_files(config_module) -> None:
     assert config_module.ENV_FILE_PATH.is_file()
     assert config_module.MODELS_JSON_PATH.is_file()
 
-    stored = json.loads(config_module.CONFIG_JSON_PATH.read_text(encoding="utf-8"))
+    stored = json.loads(
+        config_module.CONFIG_JSON_PATH.read_text(encoding="utf-8"),
+    )
     assert stored["llm"]["model"] == "gpt-4o-mini"
 
     env_text = config_module.ENV_FILE_PATH.read_text(encoding="utf-8")
@@ -95,7 +106,9 @@ def test_save_config_writes_config_and_runtime_files(config_module) -> None:
     assert "NEO4J_PASSWORD=secret" in env_text
     assert "OPENAI_API_KEY=sk-test" in env_text
 
-    models = json.loads(config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"))
+    models = json.loads(
+        config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"),
+    )
     assert models["llm"]["model"] == "gpt-4o-mini"
     assert models["embedding"]["api_key"] == "sk-test"
 
@@ -119,7 +132,10 @@ def test_env_file_omits_empty_optional_values(config_module) -> None:
     assert "OPENAI_BASE_URL" not in env_text
 
 
-def test_models_json_falls_back_to_env_vars(config_module, monkeypatch) -> None:
+def test_models_json_falls_back_to_env_vars(
+    config_module,
+    monkeypatch,
+) -> None:
     # An unconfigured config.json must not blank out env-derived values that
     # the context service would otherwise have initialized itself.
     monkeypatch.setenv("OPENAI_BASE_URL", "https://dashscope.example.com/v1")
@@ -132,18 +148,25 @@ def test_models_json_falls_back_to_env_vars(config_module, monkeypatch) -> None:
 
     config_module.prepare_runtime_files(config_module.DataAppConfig())
 
-    models = json.loads(config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"))
+    models = json.loads(
+        config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"),
+    )
     assert models["llm"]["base_url"] == "https://dashscope.example.com/v1"
     assert models["llm"]["model"] == "qwen3.8-max"
     assert models["llm"]["api_key"] == "sk-from-env"
     # Embedding falls back to the shared LLM endpoint/key and defaults.
     assert models["embedding"]["model"] == "text-embedding-v3"
-    assert models["embedding"]["base_url"] == "https://dashscope.example.com/v1"
+    assert (
+        models["embedding"]["base_url"] == "https://dashscope.example.com/v1"
+    )
     assert models["embedding"]["api_key"] == "sk-from-env"
     assert models["embedding"]["dim"] == 1024
 
 
-def test_models_json_prefers_config_values_over_env(config_module, monkeypatch) -> None:
+def test_models_json_prefers_config_values_over_env(
+    config_module,
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
 
     config = config_module.DataAppConfig(
@@ -161,7 +184,9 @@ def test_models_json_prefers_config_values_over_env(config_module, monkeypatch) 
     )
     config_module.prepare_runtime_files(config)
 
-    models = json.loads(config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"))
+    models = json.loads(
+        config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"),
+    )
     assert models["llm"]["api_key"] == "sk-configured"
     assert models["llm"]["model"] == "configured-model"
     assert models["embedding"]["model"] == "configured-embed"
@@ -184,7 +209,10 @@ def test_seed_from_env_fills_empty_fields(config_module, monkeypatch) -> None:
     assert config.neo4j.uri == "bolt://localhost:7687"
 
 
-def test_seed_from_env_keeps_existing_values(config_module, monkeypatch) -> None:
+def test_seed_from_env_keeps_existing_values(
+    config_module,
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("NEO4J_PASSWORD", "env-password")
     monkeypatch.setenv("LLM_MODEL", "env-model")
 
@@ -192,7 +220,7 @@ def test_seed_from_env_keeps_existing_values(config_module, monkeypatch) -> None
         config_module.DataAppConfig(
             llm=config_module.LLMConfig(model="configured-model"),
             neo4j=config_module.Neo4jConfig(password="configured-password"),
-        )
+        ),
     )
 
     assert config.llm.model == "configured-model"
@@ -219,7 +247,9 @@ def test_from_dict_ignores_legacy_sql_section(config_module) -> None:
     assert config.datasources.active_id == ""
 
     config_module.save_config(config)
-    stored = json.loads(config_module.CONFIG_JSON_PATH.read_text(encoding="utf-8"))
+    stored = json.loads(
+        config_module.CONFIG_JSON_PATH.read_text(encoding="utf-8"),
+    )
     assert "sql" not in stored
 
 
@@ -244,17 +274,24 @@ def test_save_config_restricts_file_permissions(config_module) -> None:
     assert mode == 0o600
 
 
-def test_set_context_env_vars_points_at_generated_files(config_module, monkeypatch) -> None:
+def test_set_context_env_vars_points_at_generated_files(
+    config_module,
+) -> None:
     config_module.ensure_config_dir()
     config_module.prepare_runtime_files(config_module.DataAppConfig())
     config_module.set_context_env_vars()
 
-    assert os.environ["QWENPAW_DATA_ENV_FILE"] == str(config_module.ENV_FILE_PATH)
-    assert os.environ["MODEL_CONFIG_PATH"] == str(config_module.MODELS_JSON_PATH)
+    assert os.environ["QWENPAW_DATA_ENV_FILE"] == str(
+        config_module.ENV_FILE_PATH,
+    )
+    assert os.environ["MODEL_CONFIG_PATH"] == str(
+        config_module.MODELS_JSON_PATH,
+    )
 
 
 def test_set_context_env_vars_loads_app_env_with_authority(
-    config_module, monkeypatch
+    config_module,
+    monkeypatch,
 ) -> None:
     # A user-level ~/.qwenpaw/.env (loaded by the framework at import time)
     # must not survive underneath values saved from the Configure page: the
@@ -272,7 +309,8 @@ def test_set_context_env_vars_loads_app_env_with_authority(
 
 
 def test_set_context_env_vars_clears_emptied_managed_keys(
-    config_module, monkeypatch
+    config_module,
+    monkeypatch,
 ) -> None:
     # Keys the app leaves blank are omitted from the generated .env; the
     # stale inherited value must be cleared so emptying a field sticks.
@@ -285,7 +323,8 @@ def test_set_context_env_vars_clears_emptied_managed_keys(
 
 
 def test_load_app_env_preserves_unmanaged_neo4j_keys(
-    config_module, monkeypatch
+    config_module,
+    monkeypatch,
 ) -> None:
     # Dataset-pipeline role databases (NEO4J_DATABASE_DEMO/MCP) are not owned
     # by the Configure page and must survive the managed-key cleanup.
@@ -297,7 +336,9 @@ def test_load_app_env_preserves_unmanaged_neo4j_keys(
     assert os.environ["NEO4J_DATABASE_DEMO"] == "demo-db"
 
 
-def test_password_value_is_quoted_when_it_contains_spaces(config_module) -> None:
+def test_password_value_is_quoted_when_it_contains_spaces(
+    config_module,
+) -> None:
     config = config_module.DataAppConfig(
         neo4j=config_module.Neo4jConfig(password="has spaces"),
     )
@@ -306,7 +347,9 @@ def test_password_value_is_quoted_when_it_contains_spaces(config_module) -> None
     assert 'NEO4J_PASSWORD="has spaces"' in env_text
 
 
-async def test_on_before_start_regenerates_runtime_files(config_module, monkeypatch) -> None:
+async def test_on_before_start_regenerates_runtime_files(
+    config_module,
+) -> None:
     config = config_module.DataAppConfig(
         llm=config_module.LLMConfig(api_key="sk-restart"),
     )
@@ -317,6 +360,10 @@ async def test_on_before_start_regenerates_runtime_files(config_module, monkeypa
 
     await config_module.on_before_start()
 
-    models = json.loads(config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"))
+    models = json.loads(
+        config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"),
+    )
     assert models["llm"]["api_key"] == "sk-restart"
-    assert os.environ["QWENPAW_DATA_ENV_FILE"] == str(config_module.ENV_FILE_PATH)
+    assert os.environ["QWENPAW_DATA_ENV_FILE"] == str(
+        config_module.ENV_FILE_PATH,
+    )

@@ -545,7 +545,7 @@ async def context_auth_status() -> dict[str, Any]:
 
 
 _DATASOURCE_ITEM_RE = re.compile(
-    r"(?:^|/)semantic-config/datasource/[^/]+/?$"
+    r"(?:^|/)semantic-config/datasource/[^/]+/?$",
 )
 
 
@@ -643,11 +643,9 @@ async def _push_model_config(config: DataAppConfig) -> None:
             "PUT",
             "/api/system/model-config/embedding",
             body={
-                "base_url": config.embedding.base_url
-                or config.llm.base_url,
+                "base_url": config.embedding.base_url or config.llm.base_url,
                 "model": config.embedding.model,
-                "api_key": config.embedding.api_key
-                or config.llm.api_key,
+                "api_key": config.embedding.api_key or config.llm.api_key,
                 "dim": config.embedding.dim,
             },
         )
@@ -678,7 +676,8 @@ async def _restore_active_datasource() -> None:
         )
     except HTTPException:
         logger.warning(
-            "Failed to restore active datasource %r (it may have been deleted)",
+            "Failed to restore active datasource %r "
+            "(it may have been deleted)",
             active_id,
         )
         return
@@ -714,25 +713,18 @@ def _resolve_host_active():
 
         manager = ProviderManager.get_instance()
         slot = manager.get_active_model()
-    except Exception:  # pragma: no cover - host internals unavailable
-        return None
-    if slot is None:
-        return None
-    provider_id = (getattr(slot, "provider_id", "") or "").strip()
-    model = (getattr(slot, "model", "") or "").strip()
-    if not provider_id or not model:
-        return None
-    try:
+        if slot is None:
+            return None
+        provider_id = (getattr(slot, "provider_id", "") or "").strip()
+        model = (getattr(slot, "model", "") or "").strip()
+        if not provider_id or not model:
+            return None
         provider = manager.get_provider(provider_id)
+        base_url = (getattr(provider, "base_url", "") or "").strip()
+        chat_model = (getattr(provider, "chat_model", "") or "").strip()
     except Exception:  # pragma: no cover - host internals unavailable
         return None
-    if provider is None:
-        return None
-    base_url = (getattr(provider, "base_url", "") or "").strip()
-    chat_model = (getattr(provider, "chat_model", "") or "").strip()
-    if not base_url:
-        return None
-    if chat_model in {"AnthropicChatModel", "GeminiChatModel"}:
+    if not base_url or chat_model in {"AnthropicChatModel", "GeminiChatModel"}:
         return None
     return provider, model
 
@@ -764,7 +756,7 @@ def _sync_reuse_from_host(
             )
         logger.warning(
             "Host model reuse is enabled but the QwenPaw host exposes no "
-            "usable active model; keeping the stored snapshot"
+            "usable active model; keeping the stored snapshot",
         )
         return config
     provider, model = resolved
@@ -801,7 +793,10 @@ async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
     target = (payload.get("target") or "").strip()
     reuse = bool(payload.get("reuse"))
     if target not in {"llm", "embedding"}:
-        raise HTTPException(status_code=400, detail="target must be llm or embedding")
+        raise HTTPException(
+            status_code=400,
+            detail="target must be llm or embedding",
+        )
     config = load_config()
     section = config.llm if target == "llm" else config.embedding
     section.reuse_host = reuse
@@ -823,7 +818,10 @@ def _validated_base_url(value: str) -> str:
 
 
 @router.post("/config/test/{target}")
-async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, Any]:
+async def test_config_target(
+    target: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     """Test connectivity for one configured subsystem."""
     if target not in {"llm", "embedding", "neo4j"}:
         raise HTTPException(
@@ -834,7 +832,7 @@ async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, 
     async def _test_llm(cfg: dict[str, Any]) -> dict[str, Any]:
         try:
             base_url = _validated_base_url(
-                cfg.get("base_url") or "https://api.openai.com/v1"
+                cfg.get("base_url") or "https://api.openai.com/v1",
             )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
@@ -866,7 +864,7 @@ async def test_config_target(target: str, payload: dict[str, Any]) -> dict[str, 
     async def _test_embedding(cfg: dict[str, Any]) -> dict[str, Any]:
         try:
             base_url = _validated_base_url(
-                cfg.get("base_url") or "https://api.openai.com/v1"
+                cfg.get("base_url") or "https://api.openai.com/v1",
             )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}

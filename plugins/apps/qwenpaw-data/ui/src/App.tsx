@@ -10,7 +10,12 @@ import { ChatWorkspace } from "./ChatWorkspace";
 import { Configure } from "./Configure";
 import { DataSources } from "./DataSources";
 import { EmbeddedConsole } from "./EmbeddedConsole";
-import { LayoutGridIcon, SettingsIcon, SparklesIcon, WrenchIcon } from "./icons";
+import {
+  LayoutGridIcon,
+  SettingsIcon,
+  SparklesIcon,
+  WrenchIcon,
+} from "./icons";
 import {
   LanguageProvider,
   persistLanguage,
