@@ -7,6 +7,7 @@ from .anthropic_provider import AnthropicProvider
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .lmstudio_provider import LMStudioProvider
+from .mimo_provider import MiMoProvider
 from .modelscope_provider import ModelScopeProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import (
@@ -502,7 +503,7 @@ PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
     provider_variant="token_plan",
 )
 
-PROVIDER_MIMO = OpenAIProvider(
+PROVIDER_MIMO = MiMoProvider(
     id="mimo",
     name="Xiaomi MiMo",
     base_url="https://api.xiaomimimo.com/v1",

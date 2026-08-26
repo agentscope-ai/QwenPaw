@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.08.18",
-  "published_at": "2026-08-18T00:00:00Z",
+  "catalog_version": "2026.08.24",
+  "published_at": "2026-08-24T00:00:00Z",
   "providers": {
     "MODELSCOPE_MODELS": [
       {
@@ -1856,6 +1856,23 @@
         "relay_reasoning": true
       },
       {
+        "id": "doubao-seed-evolving",
+        "name": "Doubao-Seed-Evolving",
+        "supports_image": true,
+        "supports_video": true,
+        "probe_source": "documentation",
+        "is_free": false,
+        "source": "builtin",
+        "availability_status": "unverified",
+        "availability_retryable": true,
+        "config_overrides": [],
+        "max_tokens": 262144,
+        "max_input_length": 1048576,
+        "max_input_length_configured": false,
+        "generate_kwargs": {},
+        "relay_reasoning": true
+      },
+      {
         "id": "glm-5.3",
         "name": "GLM-5.3",
         "supports_image": false,
@@ -2087,7 +2104,7 @@
     ],
     "VOLCENGINE_AGENTPLAN_MODELS": [
       {
-        "id": "doubao-seed-2-0-lite-260428",
+        "id": "doubao-seed-2.0-lite",
         "name": "Doubao-Seed-2.0-lite",
         "supports_image": true,
         "supports_video": true,
@@ -2104,7 +2121,7 @@
         "relay_reasoning": true
       },
       {
-        "id": "doubao-seed-2-0-mini-260428",
+        "id": "doubao-seed-2.0-mini",
         "name": "Doubao-Seed-2.0-mini",
         "supports_image": true,
         "supports_video": true,
@@ -2189,7 +2206,7 @@
         "relay_reasoning": true
       },
       {
-        "id": "doubao-seed-2-1-turbo",
+        "id": "doubao-seed-2.1-turbo",
         "name": "Doubao-Seed-2.1-Turbo",
         "supports_image": true,
         "supports_video": true,

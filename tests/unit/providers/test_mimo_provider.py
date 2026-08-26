@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
+from qwenpaw.providers.mimo_provider import MiMoProvider
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
     MIMO_MODELS,
@@ -22,6 +23,7 @@ def test_mimo_providers_are_openai_compatible() -> None:
     """MiMo providers should be OpenAIProvider instances."""
     assert isinstance(PROVIDER_MIMO_TOKENPLAN, OpenAIProvider)
     assert isinstance(PROVIDER_MIMO, OpenAIProvider)
+    assert isinstance(PROVIDER_MIMO, MiMoProvider)
 
 
 def test_mimo_tokenplan_provider_config() -> None:
@@ -137,3 +139,48 @@ def test_mimo_provider_list_includes_mimo(isolated_secret_dir) -> None:
     assert "mimo" in manager.builtin_providers
     assert manager.get_provider("mimo-tokenplan") is not None
     assert manager.get_provider("mimo") is not None
+
+
+def test_mimo_provider_filters_non_chat_models(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """MiMo discovery should filter ASR/TTS models and keep only chat ones.
+
+    MiMo's ``/v1/models`` returns 6 models under the same ``object: model``
+    type; the 4 non-chat ones (``-asr``/``-tts*``) must be filtered out by
+    MiMoProvider.fetch_models before they surface as chat candidates.
+    """
+    manager = ProviderManager()
+    provider = manager.get_provider("mimo")
+    assert provider is not None
+    assert isinstance(provider, MiMoProvider)
+
+    chat_ids = ["mimo-v2.5", "mimo-v2.5-pro"]
+    non_chat_ids = [
+        "mimo-v2.5-asr",
+        "mimo-v2.5-tts",
+        "mimo-v2.5-tts-voiceclone",
+        "mimo-v2.5-tts-voicedesign",
+    ]
+
+    # The reuse of OpenAIProvider._is_non_chat_model must classify MiMo's
+    # non-chat models as non-chat (token keywords include asr/tts).
+    from qwenpaw.providers.openai_provider import _is_non_chat_model
+
+    for mid in chat_ids:
+        assert _is_non_chat_model(mid) is False, mid
+    for mid in non_chat_ids:
+        assert _is_non_chat_model(mid) is True, mid
+
+    async def fake_fetch(*args, **kwargs):  # noqa: ANN001, ANN002
+        from qwenpaw.providers.provider import ModelInfo
+
+        return [ModelInfo(id=mid, name=mid) for mid in chat_ids + non_chat_ids]
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fake_fetch)
+    import asyncio
+
+    fetched = asyncio.run(provider.fetch_models(timeout=5))
+    fetched_ids = [m.id for m in fetched]
+    assert set(fetched_ids) == set(chat_ids)

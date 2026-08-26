@@ -68,7 +68,7 @@ def test_volcengine_models_list() -> None:
     model_ids = [m.id for m in VOLCENGINE_MODELS]
     assert "doubao-seed-2-0-code-preview-260215" in model_ids
     assert len(VOLCENGINE_MODELS) == 16
-    assert len(VOLCENGINE_CODINGPLAN_MODELS) == 8
+    assert len(VOLCENGINE_CODINGPLAN_MODELS) == 9
     # Coding Plan: glm-5.3 live; glm-5.2 "deprecating soon"
     # (docs updated 2026-08-18).
     codingplan_ids = [m.id for m in VOLCENGINE_CODINGPLAN_MODELS]
@@ -81,13 +81,13 @@ def test_volcengine_agentplan_models_list() -> None:
     model_ids = [m.id for m in VOLCENGINE_AGENTPLAN_MODELS]
     assert len(model_ids) == 11
     expected = [
-        "doubao-seed-2-0-lite-260428",
-        "doubao-seed-2-0-mini-260428",
+        "doubao-seed-2.0-lite",
+        "doubao-seed-2.0-mini",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
         "minimax-m3",
         "glm-5.3",
-        "doubao-seed-2-1-turbo",
+        "doubao-seed-2.1-turbo",
         "doubao-seed-evolving",
         "kimi-k3",
         "kimi-k2.7-code",
@@ -108,7 +108,7 @@ def test_volcengine_agentplan_model_limits() -> None:
         m.id: (m.max_input_length, m.max_tokens)
         for m in VOLCENGINE_AGENTPLAN_MODELS
     }
-    assert limits["doubao-seed-2-0-lite-260428"] == (256 * 1024, 128 * 1024)
+    assert limits["doubao-seed-2.0-lite"] == (256 * 1024, 128 * 1024)
     assert limits["deepseek-v4-flash"] == (1024 * 1024, 384 * 1024)
     assert limits["minimax-m3"] == (1024 * 1024, 128 * 1024)
     assert limits["glm-5.3"] == (1024 * 1024, 128 * 1024)
@@ -172,7 +172,7 @@ def test_volcengine_has_expected_models(isolated_secret_dir) -> None:
     assert provider_cn.has_model("doubao-seed-2-0-code-preview-260215")
     assert provider_codingplan.has_model("doubao-seed-2.1-turbo")
     assert provider_codingplan.has_model("ark-code-latest")
-    assert provider_agentplan.has_model("doubao-seed-2-0-lite-260428")
+    assert provider_agentplan.has_model("doubao-seed-2.0-lite")
     assert provider_agentplan.has_model("ark-code-latest")
 
 
