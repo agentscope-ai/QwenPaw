@@ -2752,11 +2752,11 @@
       "baseUrl": "Server URL",
       "token": "Bearer Token",
       "scopeId": "Memory Scope",
-      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
+      "scopeIdPlaceholder": "Deixe em branco para usar o escopo de agente exclusivo desta instalação",
       "scopeIdInvalid": "O escopo de memória não pode conter apenas espaços.",
       "timeout": "Request Timeout",
-      "maxContextBytes": "Maximum injected context (bytes)",
-      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
+      "maxContextBytes": "Contexto injetado máximo (bytes)",
+      "maxContextBytesTooltip": "Limita o total de resultados de pesquisa do PowerContext adicionados a um turno do modelo."
     },
     "dialogPath": "Dialog Storage Caminho",
     "dialogPathTooltip": "Relative path for dialog persistence storage (relative to working_dir)",

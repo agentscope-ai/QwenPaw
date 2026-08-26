@@ -15,13 +15,17 @@ from ...config.config import PowerContextMemoryConfig, load_agent_config
 from ...config.utils import get_or_create_powercontext_installation_id
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .powercontext_client import (
+    MAX_MEMORY_TEXT_BYTES,
+    TRUNCATION_MARKER,
     PowerContextConfig,
     PowerContextMemoryClient,
+    safe_powercontext_exception_summary,
     truncate_utf8_text,
 )
 from .powercontext_prompts import (
     POWERCONTEXT_MEMORY_GUIDANCE_EN,
     POWERCONTEXT_MEMORY_GUIDANCE_ZH,
+    POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,9 +54,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
             scope_id = cfg.scope_id.strip()
             if not scope_id:
                 installation_id = get_or_create_powercontext_installation_id()
-                scope_id = (
-                    f"qwenpaw:{installation_id}:agent:{self.agent_id}"
-                )
+                scope_id = f"qwenpaw:{installation_id}:agent:{self.agent_id}"
             self._client = PowerContextMemoryClient(
                 PowerContextConfig(
                     base_url=cfg.base_url.strip(),
@@ -63,7 +65,11 @@ class PowerContextMemoryManager(BaseMemoryManager):
             )
             self._resolved_scope_id = scope_id
         except Exception as exc:
-            logger.warning("PowerContext initialization failed: %s", exc)
+            summary = safe_powercontext_exception_summary(
+                exc,
+                token=cfg.token.strip(),
+            )
+            logger.warning("PowerContext initialization failed: %s", summary)
             self._client = None
             self._resolved_scope_id = ""
 
@@ -182,7 +188,10 @@ class PowerContextMemoryManager(BaseMemoryManager):
         text = "用户目标/输入:\n" + "\n".join(user[-3:])
         if assistant:
             text += "\n\nAgent结果:\n" + "\n".join(assistant[-2:])
-        self._schedule_remember("task_state", truncate_utf8_text(text))
+        self._schedule_remember(
+            "task_state",
+            truncate_utf8_text(text, marker=TRUNCATION_MARKER),
+        )
 
     async def summarize(self, messages: list[Msg], **kwargs: Any) -> str:
         await self.auto_memory(messages, **kwargs)
@@ -219,7 +228,11 @@ class PowerContextMemoryManager(BaseMemoryManager):
             return self._tool_error("PowerContext is not configured.")
 
         parts: list[str] = []
-        used_bytes = 0
+        notice_bytes = len(
+            POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE.encode("utf-8"),
+        )
+        used_bytes = notice_bytes
+        was_truncated = False
         try:
             for hit in await self._client.search(
                 query=query,
@@ -229,13 +242,14 @@ class PowerContextMemoryManager(BaseMemoryManager):
                 text = hit.get("text", "")
                 citation = self._memory_citation(hit)
                 if text and score >= min_score:
-                    separator = "\n\n" if parts else ""
+                    separator = "\n\n"
                     remaining = (
                         max_context_bytes
                         - used_bytes
                         - len(separator.encode("utf-8"))
                     )
                     if remaining <= 0:
+                        was_truncated = True
                         break
                     rendered = self._format_memory_hit(
                         index=len(parts) + 1,
@@ -246,6 +260,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
                     bounded = truncate_utf8_text(
                         rendered,
                         max_bytes=remaining,
+                        marker=TRUNCATION_MARKER,
                     )
                     if not bounded:
                         break
@@ -256,11 +271,28 @@ class PowerContextMemoryManager(BaseMemoryManager):
                     if len(bounded.encode("utf-8")) < len(
                         rendered.encode("utf-8"),
                     ):
+                        was_truncated = True
                         break
         except Exception as exc:
-            logger.warning("PowerContext memory search failed: %s", exc)
+            summary = self._safe_exception_summary(exc)
+            logger.warning("PowerContext memory search failed: %s", summary)
             return self._tool_error(
-                f"PowerContext memory search failed: {exc}",
+                f"PowerContext memory search failed: {summary}",
+            )
+        rendered_result = (
+            POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE + "\n\n" + "\n\n".join(parts)
+            if parts
+            else "No relevant memories found."
+        )
+        if (
+            was_truncated
+            and parts
+            and not rendered_result.endswith(TRUNCATION_MARKER)
+        ):
+            rendered_result = truncate_utf8_text(
+                rendered_result + ("x" * max_context_bytes),
+                max_bytes=max_context_bytes,
+                marker=TRUNCATION_MARKER,
             )
         return ToolChunk(
             is_last=True,
@@ -268,7 +300,7 @@ class PowerContextMemoryManager(BaseMemoryManager):
             content=[
                 TextBlock(
                     type="text",
-                    text="\n\n".join(parts) or "No relevant memories found.",
+                    text=rendered_result,
                 ),
             ],
         )
@@ -279,17 +311,26 @@ class PowerContextMemoryManager(BaseMemoryManager):
             return self._tool_error("PowerContext is not configured.")
         if not kind.strip() or not text.strip():
             return self._tool_error("Both kind and text are required.")
+        normalized_text = text.strip()
+        if len(normalized_text.encode("utf-8")) > MAX_MEMORY_TEXT_BYTES:
+            return self._tool_error(
+                "PowerContext memory text must not exceed "
+                "8000 UTF-8 bytes.",
+            )
         try:
             await self._client.remember(
                 kind=kind.strip(),
-                text=truncate_utf8_text(text.strip()),
+                text=normalized_text,
             )
         except Exception as exc:
+            summary = self._safe_exception_summary(exc)
             logger.warning(
                 "PowerContext explicit memory write failed: %s",
-                exc,
+                summary,
             )
-            return self._tool_error(f"PowerContext memory write failed: {exc}")
+            return self._tool_error(
+                f"PowerContext memory write failed: {summary}",
+            )
         return self._tool_success("Memory saved to PowerContext.")
 
     def _scope_id(self) -> str:
@@ -370,11 +411,23 @@ class PowerContextMemoryManager(BaseMemoryManager):
             try:
                 await client.remember(kind=kind, text=text)
             except Exception as exc:
-                logger.warning("PowerContext memory write failed: %s", exc)
+                token = str(
+                    getattr(getattr(client, "config", None), "token", ""),
+                )
+                logger.warning(
+                    "PowerContext memory write failed: %s",
+                    safe_powercontext_exception_summary(exc, token=token),
+                )
 
         task = asyncio.create_task(write())
         self._pending.add(task)
         task.add_done_callback(self._pending.discard)
+
+    def _safe_exception_summary(self, exc: BaseException) -> str:
+        token = str(
+            getattr(getattr(self._client, "config", None), "token", ""),
+        )
+        return safe_powercontext_exception_summary(exc, token=token)
 
     @staticmethod
     def _chunk_text(chunk: ToolChunk) -> str:

@@ -3383,11 +3383,11 @@
       "baseUrl": "URL Server",
       "token": "Token Bearer",
       "scopeId": "Ruang Lingkup Memori",
-      "scopeIdPlaceholder": "Leave empty to use this installation's unique agent scope",
+      "scopeIdPlaceholder": "Kosongkan untuk menggunakan ruang lingkup agen unik untuk instalasi ini",
       "scopeIdInvalid": "Ruang lingkup memori tidak boleh hanya berisi spasi.",
       "timeout": "Batas Waktu Permintaan",
-      "maxContextBytes": "Maximum injected context (bytes)",
-      "maxContextBytesTooltip": "Bounds the total PowerContext search result content added to one model turn."
+      "maxContextBytes": "Konteks maksimum yang disisipkan (byte)",
+      "maxContextBytesTooltip": "Membatasi total hasil pencarian PowerContext yang ditambahkan ke satu giliran model."
     },
     "adbpgConfig": {
       "title": "Konfigurasi Memori ADBPG",

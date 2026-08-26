@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from qwenpaw.agents.memory.powercontext_client import (
+    MAX_MEMORY_TEXT_BYTES,
     PowerContextConfig,
     PowerContextHTTPError,
     PowerContextMemoryClient,
@@ -24,7 +25,24 @@ async def test_client_maps_remember_and_search_requests():
         if request.url.path.endswith("/search"):
             return httpx.Response(
                 200,
-                json={"hits": [{"text": "decision", "score": 0.9}]},
+                json={
+                    "hits": [
+                        {
+                            "text": "decision",
+                            "score": 0.9,
+                            "matched_by": ["fts"],
+                            "citation": {
+                                "memory_ref": {
+                                    "family": "memory",
+                                    "artifact_id": "memory",
+                                    "revision": 1,
+                                },
+                                "entry_id": "entry-1",
+                                "entry_version_id": "version-1",
+                            },
+                        },
+                    ],
+                },
             )
         return httpx.Response(200, json={"memory": {"id": "m1"}})
 
@@ -60,7 +78,7 @@ async def test_client_maps_remember_and_search_requests():
 
 
 @pytest.mark.asyncio
-async def test_client_bounds_utf8_text_and_search_limit():
+async def test_client_rejects_overlimit_text_and_bounds_search_limit():
     payloads: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -75,13 +93,13 @@ async def test_client_bounds_utf8_text_and_search_limit():
         transport=httpx.MockTransport(handler),
         base_url="http://pc",
     )
-    await client.remember(kind="fact", text="你" * 3000)
+    with pytest.raises(PowerContextRequestValidationError, match="UTF-8"):
+        await client.remember(kind="fact", text="你" * 3000)
     await client.search(query="x", limit=0)
     await client.search(query="x", limit=100)
-    assert len(payloads[0]["text"].encode("utf-8")) <= 8000
-    assert payloads[0]["text"] == "你" * 2666
-    assert payloads[1]["limit"] == 1
-    assert payloads[2]["limit"] == 50
+    assert payloads[0]["limit"] == 1
+    assert payloads[1]["limit"] == 50
+    assert MAX_MEMORY_TEXT_BYTES == 8000
     await client.close()
 
 
@@ -125,6 +143,141 @@ async def test_client_rejects_success_response_without_hits():
     )
     with pytest.raises(PowerContextProtocolError, match="hits list"):
         await client.search(query="x")
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("hit", "message"),
+    [
+        ("not-an-object", "hit 0 must be an object"),
+        ({"score": 0.5}, "hit 0 has an invalid text"),
+        (
+            {
+                "text": "memory",
+                "score": 0.5,
+                "citation": {},
+                "matched_by": [],
+                "unexpected": "server-data",
+            },
+            "hit 0 has an invalid fields",
+        ),
+        (
+            {
+                "text": "memory",
+                "score": "not-a-number",
+                "citation": {},
+                "matched_by": [],
+            },
+            "hit 0 has an invalid score",
+        ),
+        (
+            {
+                "text": "memory",
+                "score": 2.0,
+                "citation": {},
+                "matched_by": [],
+            },
+            "hit 0 has an invalid score",
+        ),
+        (
+            {
+                "text": "memory",
+                "score": 0.5,
+                "citation": {},
+                "matched_by": [],
+            },
+            "hit 0 has an invalid citation",
+        ),
+        (
+            {
+                "text": "memory",
+                "score": 0.5,
+                "citation": {
+                    "memory_ref": {
+                        "family": "memory",
+                        "artifact_id": "memory",
+                        "revision": 1,
+                    },
+                    "entry_id": "entry-1",
+                    "entry_version_id": "version-1",
+                },
+                "matched_by": ["unknown"],
+            },
+            "hit 0 has an invalid matched_by",
+        ),
+        (
+            {
+                "text": "memory",
+                "score": 0.5,
+                "citation": {
+                    "memory_ref": {
+                        "family": "memory with spaces",
+                        "artifact_id": "memory",
+                        "revision": 1,
+                    },
+                    "entry_id": "entry-1",
+                    "entry_version_id": "version-1",
+                },
+                "matched_by": ["fts"],
+            },
+            "hit 0 has an invalid citation",
+        ),
+    ],
+)
+async def test_client_rejects_malformed_successful_search_hits(hit, message):
+    client = PowerContextMemoryClient(
+        PowerContextConfig("http://pc", scope_id="agent:test"),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"hits": [hit]}),
+        ),
+        base_url="http://pc",
+    )
+
+    with pytest.raises(PowerContextProtocolError, match=message):
+        await client.search(query="x")
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_successful_hit_does_not_echo_bearer_token():
+    token = "pc-secret-token-should-not-leak"
+    client = PowerContextMemoryClient(
+        PowerContextConfig(
+            "http://pc",
+            token=token,
+            scope_id="agent:test",
+        ),
+    )
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={
+                    "hits": [
+                        {
+                            "text": "memory",
+                            "score": token,
+                            "citation": {},
+                            "matched_by": [],
+                        },
+                    ],
+                },
+            ),
+        ),
+        base_url="http://pc",
+    )
+
+    with pytest.raises(PowerContextProtocolError) as error:
+        await client.search(query="x")
+
+    assert token not in str(error.value)
+    assert "hit 0 has an invalid score" in str(error.value)
     await client.close()
 
 
