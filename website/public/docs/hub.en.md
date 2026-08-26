@@ -6,11 +6,13 @@ If you only use QwenPaw on your own computer, keep using the desktop App. Deploy
 
 > QwenPaw Hub is available in non-desktop installations starting with QwenPaw 2.2.0. The desktop edition is the single-user App and does not include Hub. Earlier versions do not have the `qwenpaw hub` command.
 
+> Hub 2.2.0 is an early release intended only for internal teams whose members trust one another. Even with HTTPS and remote access configured, do not operate the current version as a public multi-tenant service for unknown users.
+
 ![Hub sign-in page and Terms dialog](https://img.alicdn.com/imgextra/i2/O1CN01hhIGAbMm89B6lBsc_!!6000000006867-2-tps-3330-1772.png)
 
 ## When to use Hub
 
-Hub is designed for companies, labs, and small teams that want to run QwenPaw on their own server. Administrators can:
+Hub is designed for companies, labs, and small teams that want to run QwenPaw for trusted members on their own server. Administrators can:
 
 - create and manage accounts;
 - choose Local or Docker for all user runtimes;
@@ -91,11 +93,13 @@ Administrators can use an official image or provide a custom image reference. Fo
 
 Changing the backend, image, or limits does not interrupt a running runtime. Restart the runtime to apply new settings; use **Rebuild** when moving to a different image version.
 
+The current Docker limits are one administrator-defined policy applied to all containers. Hub does not yet support different quotas per user, resource-usage accounting, multi-node capacity scheduling, or autoscaling. Local also does not provide the same resource controls as containers.
+
 ![Local/Docker backend selector in System Settings](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
 
-## Make Hub available to your team
+## Give a trusted team remote access
 
-For external access, place Hub behind an HTTPS reverse proxy and set `public_base_url` to the address users open in their browsers.
+When internal members need to connect from other devices or networks, place Hub behind an HTTPS reverse proxy and set `public_base_url` to the address they open in their browsers.
 
 Create `hub.yaml`:
 
@@ -127,6 +131,8 @@ qwenpaw hub \
 
 `--force-public` allows Hub to listen on an external address; it does not configure TLS. Do not expose unencrypted HTTP directly to an untrusted network.
 
+An external listener only enables remote access for trusted members. It does not mean Hub is ready for open registration or operation as a public service. HTTPS, login rate limits, and IP blocking protect the entry point, but they do not strengthen kernel isolation between user runtimes.
+
 When you pass `--config`, the YAML file is the configuration source for that start and overwrites corresponding settings saved through the admin panel. To manage settings only through the panel later, start Hub without `--config`.
 
 ### Reverse-proxy requirements
@@ -142,7 +148,7 @@ The reverse proxy must:
 
 ## Manage users
 
-For an internal team, disable self-registration and create accounts in **User Management**. Enable registration rate limiting if you decide to allow self-registration.
+For an internal team, disable self-registration and create accounts in **User Management**. If trusted members need to register themselves, restrict access to the entry point and enable registration rate limiting. Do not open registration to unknown users.
 
 After signing in, regular users go directly to their own QwenPaw Console. They can manage their conversations, files, model settings, and integration credentials. They cannot choose the runtime backend, Docker image, or resource limits.
 
@@ -228,6 +234,10 @@ Check the effective `public_base_url`. If Hub starts from YAML, update `hub.yaml
 
 Hub separates user workspaces, credentials, and processes or containers, but it does not give every user a separate kernel. Local runtimes share the host kernel; Docker runtimes share the Linux kernel used by the Docker Engine.
 
-This model reduces interference between users in a self-hosted environment where team members trust one another. For mutually untrusted users, high-risk code, or strict compliance requirements, add virtual machines, microVMs, dedicated nodes, or another stronger infrastructure boundary outside Hub.
+Local currently uses Linux Bubblewrap, macOS Seatbelt, or Windows AppContainer plus a Job Object. Docker creates one container per user. These mechanisms reduce interference within a trusted team, but they are not a strong multi-tenant boundary for unknown users.
 
-Production deployments should also use HTTPS, host and network access controls, monitoring, and regular backups.
+Do not expose the current version to mutually untrusted users, high-risk code, or workloads with strict compliance requirements. Those scenarios require virtual machines, microVMs, dedicated nodes, or another stronger infrastructure boundary.
+
+For long-running use within a trusted team, also configure HTTPS, host and network access controls, monitoring, and regular backups.
+
+Future releases are planned to add per-user quotas, resource-usage accounting, Kubernetes support, multi-node scheduling, autoscaling, and stronger tenant isolation. Stay tuned, or read the [contribution guide](/docs/contributing) and help build these capabilities directly.

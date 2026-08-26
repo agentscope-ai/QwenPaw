@@ -21,6 +21,8 @@ Team members visit one address and sign in with separate accounts. Each person g
 
 Nothing changes for personal use. The desktop edition remains the single-user App and does not include Hub. Hub is intended for multi-user server deployments.
 
+Hub 2.2.0 is still an early release. It is intended for companies, labs, and internal teams whose members trust one another, not for running a public multi-tenant service for unknown users.
+
 ![QwenPaw Hub sign-in page and admin-center overview](https://img.alicdn.com/imgextra/i3/O1CN01pmq9btaadNF6mRvU_!!6000000004218-2-tps-3340-1772.png)
 
 ## A personal QwenPaw for every team member
@@ -74,7 +76,7 @@ Hub supports two runtime backends:
 - **Local** uses the QwenPaw and Python environment installed on the host and is the shortest path to a working deployment.
 - **Docker** runs one container per user and lets administrators standardize the image and limit CPU, memory, and process count.
 
-Backend, image, and resource policy are administrative settings. Regular users do not make infrastructure choices.
+Backend, image, and resource policy are administrative settings. Regular users do not make infrastructure choices. Docker can currently apply one CPU, memory, and process-limit policy to all containers, but Hub does not yet support different quotas per user, resource-usage accounting, multi-node scheduling, or autoscaling.
 
 ![Runtime backend, image, and resource policy](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
 
@@ -90,17 +92,23 @@ The operator still controls the server and its backups. Team members should only
 
 ## Built for a team-facing entry point
 
-Hub can sit behind an existing HTTPS reverse proxy. It includes account management, a self-registration switch, separate login and registration limits, IP blocking, and an administrative audit trail.
+Hub can sit behind an existing HTTPS reverse proxy for a trusted team. It includes account management, a self-registration switch, separate login and registration limits, IP blocking, and an administrative audit trail.
 
 For OpenRouter, MCP, and other browser-based authorization flows, Hub creates callbacks from its public URL and routes the result to the correct user's QwenPaw.
 
-For an internal team, disable self-registration and let administrators create accounts. For broader access, also configure HTTPS, access controls, monitoring, and regular backups.
+For an internal team, disable self-registration and let administrators create accounts. HTTPS, rate limits, and IP blocking protect the sign-in entry point, but they do not strengthen isolation between user runtimes and do not turn the current release into a public service for unknown users.
 
 ## The isolation boundary
 
-Hub separates user data, credentials, and runtime processes, but it does not give every user a dedicated virtual machine.
+Hub separates user data, credentials, and runtime processes, but it does not give every user a dedicated virtual machine. Local currently uses Linux Bubblewrap, macOS Seatbelt, or Windows AppContainer plus a Job Object. Docker creates a separate container for each user.
 
-Local runtimes share the host kernel. Docker runtimes share the Linux kernel used by the Docker Engine. This model fits self-hosted collaboration within a trusted team. Mutually untrusted users, high-risk code, or stricter compliance requirements call for virtual machines, microVMs, dedicated nodes, or another stronger infrastructure boundary.
+Local runtimes share the host kernel. Docker runtimes share the Linux kernel used by the Docker Engine. These mechanisms fit self-hosted collaboration within a trusted team, but they are not a strong multi-tenant boundary for unknown users. Mutually untrusted users, high-risk code, or stricter compliance requirements call for virtual machines, microVMs, dedicated nodes, or another stronger infrastructure boundary.
+
+## An early foundation
+
+Version 2.2.0 starts with account management, personal runtimes, request routing, and basic container limits so trusted teams can begin using Hub. Per-user quotas, resource-usage accounting, Kubernetes support, multi-node scheduling, autoscaling, and stronger tenant isolation remain future directions.
+
+Stay tuned, or read the [contribution guide](/docs/contributing) and help design and build these capabilities directly.
 
 ## Get started
 
