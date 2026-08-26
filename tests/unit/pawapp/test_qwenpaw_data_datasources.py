@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 MAIN_FILE = (
@@ -239,8 +239,6 @@ async def test_reuse_host_model_rejects_when_no_active_model(
     monkeypatch.setattr(module, "load_config", lambda: config)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
 
-    from fastapi import HTTPException
-
     with pytest.raises(HTTPException) as excinfo:
         await module.reuse_host_model({"target": "llm", "reuse": True})
     assert excinfo.value.status_code == 400
@@ -270,8 +268,6 @@ async def test_reuse_host_model_rejects_native_protocol_active(
     monkeypatch.setattr(module, "load_config", lambda: config)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
 
-    from fastapi import HTTPException
-
     with pytest.raises(HTTPException) as excinfo:
         await module.reuse_host_model({"target": "llm", "reuse": True})
     # Native protocols cannot serve the OpenAI chat-completions client.
@@ -281,7 +277,6 @@ async def test_reuse_host_model_rejects_native_protocol_active(
 @pytest.mark.asyncio
 async def test_reuse_host_model_rejects_unknown_target() -> None:
     module = _load_backend()
-    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as excinfo:
         await module.reuse_host_model({"target": "neo4j", "reuse": True})
@@ -399,8 +394,6 @@ async def test_restore_active_datasource_applies_once(monkeypatch) -> None:
 async def test_restore_active_datasource_retries_after_failure(
     monkeypatch,
 ) -> None:
-    from fastapi import HTTPException
-
     module = _load_backend()
     gateway = AsyncMock(
         side_effect=[
@@ -529,50 +522,69 @@ async def test_proxy_delete_clears_matching_active_selection(
 
 
 @pytest.mark.asyncio
-async def test_config_test_rejects_non_http_endpoint() -> None:
+async def test_config_test_forwards_to_context_service() -> None:
     module = _load_backend()
+    gateway = AsyncMock(
+        return_value={
+            "success": True,
+            "message": "Connected. Model: qwen3-max",
+            "detected_dim": None,
+        },
+    )
+    module._gateway.json = gateway
 
-    for target, section in (("llm", "llm"), ("embedding", "embedding")):
-        result = await module.test_config_target(
-            target,
-            {
-                section: {
-                    "base_url": "file:///etc/passwd",
-                    "api_key": "sk-test",
-                    "model": "test-model",
-                },
+    result = await module.test_config_target(
+        "llm",
+        {
+            "llm": {
+                "base_url": "https://example.com/v1",
+                "api_key": "sk-test",
+                "model": "qwen3-max",
             },
-        )
-        assert result["ok"] is False
-        assert "Unsupported endpoint URL" in result["error"]
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["error"] is None
+    gateway.assert_awaited_once_with(
+        "POST",
+        "/api/system/model-config/llm/test",
+        body={
+            "base_url": "https://example.com/v1",
+            "api_key": "sk-test",
+            "model": "qwen3-max",
+        },
+    )
 
 
 @pytest.mark.asyncio
-async def test_context_proxy_routes_datasource_lifecycle(monkeypatch) -> None:
+async def test_config_test_maps_sidecar_failure() -> None:
     module = _load_backend()
-    set_active = AsyncMock(return_value=Response(status_code=200))
-    delete_ds = AsyncMock(return_value=Response(status_code=200))
-    passthrough = AsyncMock(return_value=Response(status_code=200))
-    spawn_restore = MagicMock()
-    monkeypatch.setattr(module, "_proxy_set_active_datasource", set_active)
-    monkeypatch.setattr(module, "_proxy_delete_datasource", delete_ds)
-    monkeypatch.setattr(module, "_spawn_active_restore", spawn_restore)
-    monkeypatch.setattr(module, "_spawn_source_reconcile", MagicMock())
-    module._gateway.proxy = passthrough
-
-    await module.context_proxy(
-        "datasources/active",
-        _make_request("PUT"),
+    module._gateway.json = AsyncMock(
+        return_value={"success": False, "message": "bad endpoint"},
     )
-    set_active.assert_awaited_once()
 
-    await module.context_proxy(
-        "api/semantic-config/datasource/pg-demo",
-        _make_request("DELETE"),
+    result = await module.test_config_target(
+        "embedding",
+        {"embedding": {"model": "text-embedding-v3"}},
     )
-    delete_ds.assert_awaited_once()
 
-    # The shell's source-list poll piggybacks the restore trigger.
-    await module.context_proxy("v1/cm/datasources", _make_request("GET"))
-    spawn_restore.assert_called_once()
-    passthrough.assert_awaited_once()
+    assert result["ok"] is False
+    assert result["error"] == "bad endpoint"
+    assert result["detected_dim"] is None
+
+
+@pytest.mark.asyncio
+async def test_config_test_reports_unready_gateway() -> None:
+    module = _load_backend()
+    module._gateway.json = AsyncMock(
+        side_effect=HTTPException(
+            status_code=503,
+            detail="Context gateway is not ready",
+        ),
+    )
+
+    result = await module.test_config_target("llm", {"llm": {}})
+
+    assert result["ok"] is False
+    assert "not ready" in result["error"]

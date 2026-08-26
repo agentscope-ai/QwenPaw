@@ -207,6 +207,7 @@ export interface DataAppConfig {
 export interface ConnectionTestResult {
   ok: boolean;
   error?: string;
+  detected_dim?: number | null;
 }
 
 function unwrap<T>(response: ApiEnvelope<T>): T {

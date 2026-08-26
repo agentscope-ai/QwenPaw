@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
@@ -808,86 +807,24 @@ async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
     return config.to_dict()
 
 
-def _validated_base_url(value: str) -> str:
-    """Normalize a user-entered endpoint URL, rejecting non-HTTP schemes."""
-    base_url = (value or "").strip().rstrip("/")
-    parsed = urlsplit(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(f"Unsupported endpoint URL: {base_url!r}")
-    return base_url
-
-
 @router.post("/config/test/{target}")
 async def test_config_target(
     target: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Test connectivity for one configured subsystem."""
+    """Test connectivity for one configured subsystem.
+
+    LLM and embedding endpoints are probed by the context service itself
+    (``/api/system/model-config/{llm,embedding}/test``): it owns the
+    credentials and dials with the same client the app will use, so its
+    verdict is authoritative. Neo4j is probed from this process because
+    the context service exposes no graph-store test endpoint.
+    """
     if target not in {"llm", "embedding", "neo4j"}:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported test target: {target}",
         )
-
-    async def _test_llm(cfg: dict[str, Any]) -> dict[str, Any]:
-        try:
-            base_url = _validated_base_url(
-                cfg.get("base_url") or "https://api.openai.com/v1",
-            )
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        api_key = cfg.get("api_key", "")
-        model = cfg.get("model", "")
-        if not api_key or not model:
-            return {
-                "ok": False,
-                "error": "API key and model are required",
-            }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        body = {
-            "model": model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 1,
-        }
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                f"{base_url}/chat/completions",
-                headers=headers,
-                json=body,
-            )
-            response.raise_for_status()
-        return {"ok": True}
-
-    async def _test_embedding(cfg: dict[str, Any]) -> dict[str, Any]:
-        try:
-            base_url = _validated_base_url(
-                cfg.get("base_url") or "https://api.openai.com/v1",
-            )
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        api_key = cfg.get("api_key", "")
-        model = cfg.get("model", "")
-        if not api_key or not model:
-            return {
-                "ok": False,
-                "error": "API key and model are required",
-            }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        body = {"model": model, "input": ["test"]}
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                f"{base_url}/embeddings",
-                headers=headers,
-                json=body,
-            )
-            response.raise_for_status()
-        return {"ok": True}
 
     def _test_neo4j(cfg: dict[str, Any]) -> dict[str, Any]:
         uri = cfg.get("uri", "")
@@ -909,31 +846,28 @@ async def test_config_target(
                 "error": f"Connection failed: {exc.__class__.__name__}",
             }
 
+    if target == "neo4j":
+        return _test_neo4j(payload.get("neo4j", {}))
+
     try:
-        if target == "llm":
-            result = await _test_llm(payload.get("llm", {}))
-        elif target == "embedding":
-            result = await _test_embedding(payload.get("embedding", {}))
-        else:
-            result = _test_neo4j(payload.get("neo4j", {}))
-    except httpx.HTTPStatusError as exc:
-        result = {
-            "ok": False,
-            # Keep the upstream error body (providers put the actionable
-            # message there) but bounded: some return verbose payloads.
-            "error": (
-                f"HTTP {exc.response.status_code}: "
-                f"{exc.response.text[:300]}"
-            ),
-        }
-    except httpx.RequestError as exc:
-        # Exception strings can embed internal URLs; the class name is
-        # enough to tell timeouts from refused connections.
-        result = {
-            "ok": False,
-            "error": f"Request failed: {exc.__class__.__name__}",
-        }
-    return result
+        result = await _gateway.json(
+            "POST",
+            f"/api/system/model-config/{target}/test",
+            body=payload.get(target, {}),
+        )
+    except HTTPException as exc:
+        # Covers the sidecar startup window and transport failures; the
+        # gateway's detail is already a clean user-facing string.
+        return {"ok": False, "error": str(exc.detail)}
+    return {
+        "ok": bool(result.get("success")),
+        "error": (
+            None
+            if result.get("success")
+            else str(result.get("message") or "Test failed")
+        ),
+        "detected_dim": result.get("detected_dim"),
+    }
 
 
 app.include_router(router)
