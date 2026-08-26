@@ -448,7 +448,10 @@ async def test_chat_task_rejects_duplicate_active_run(
             json=_chat_task_body(timeout=3600),
         )
         assert duplicate.status_code == 409, duplicate.text
-        assert duplicate.json()["detail"] == "Chat already has an active run"
+        assert duplicate.json()["detail"] == (
+            "A task is already running for this chat. Wait for it to finish "
+            "or use a different session_id."
+        )
         assert invocation_count == 1
 
         run = console_workspace.task_tracker._runs["chat-1"]

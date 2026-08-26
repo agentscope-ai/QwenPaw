@@ -432,7 +432,10 @@ async def post_console_chat(
             await tracker.detach_subscriber(chat.id, queue)
             raise HTTPException(
                 status_code=409,
-                detail="Chat already has an active run",
+                detail=(
+                    "A task is already running for this chat. Wait for it "
+                    "to finish or use a different session_id."
+                ),
             )
 
         # Title generation is only needed when starting a new run.
@@ -906,7 +909,10 @@ async def post_console_chat_task(
         await tracker.detach_subscriber(chat.id, queue)
         raise HTTPException(
             status_code=409,
-            detail="Chat already has an active run",
+            detail=(
+                "A task is already running for this chat. Wait for it to "
+                "finish or use a different session_id."
+            ),
         )
 
     # pylint: disable-next=too-many-branches

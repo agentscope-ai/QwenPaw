@@ -236,5 +236,8 @@ async def test_new_message_rejects_active_run(
         release.set()
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Chat already has an active run"
+    assert exc_info.value.detail == (
+        "A task is already running for this chat. Wait for it to finish or "
+        "use a different session_id."
+    )
     assert console_workspace.console_channel.stream_calls == []
