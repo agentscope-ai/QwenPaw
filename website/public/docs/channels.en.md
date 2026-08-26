@@ -77,6 +77,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
   "card_template_id": "",
   "card_template_key": "content",
   "robot_code": "",
+  "share_session_in_group": false,
   "show_tool_calls": true,
   "show_tool_results": true,
   "show_thinking": true,
@@ -87,15 +88,16 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 
 **DingTalk-specific fields:**
 
-| Field               | Type   | Default         | Description                                                                                                      |
-| ------------------- | ------ | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `client_id`         | string | `""` (required) | DingTalk app Client ID (AppKey)                                                                                  |
-| `client_secret`     | string | `""` (required) | DingTalk app Client Secret (AppSecret)                                                                           |
-| `message_type`      | string | `"markdown"`    | Message mode: `"markdown"` (default) or `"card"` (AI interactive card)                                           |
-| `card_template_id`  | string | `""`            | DingTalk AI Card template ID (required when `message_type` is `card`)                                            |
-| `card_template_key` | string | `"content"`     | AI Card variable key; must exactly match your template variable name                                             |
-| `robot_code`        | string | `""`            | Robot code (recommended explicit config for group card delivery scenarios; falls back to `client_id` when empty) |
-| `media_dir`         | string | `null`          | Media file download directory (leave empty to not save)                                                          |
+| Field                    | Type   | Default         | Description                                                                                                                |
+| ------------------------ | ------ | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `client_id`              | string | `""` (required) | DingTalk app Client ID (AppKey)                                                                                            |
+| `client_secret`          | string | `""` (required) | DingTalk app Client Secret (AppSecret)                                                                                     |
+| `message_type`           | string | `"markdown"`    | Message mode: `"markdown"` (default) or `"card"` (AI interactive card)                                                     |
+| `card_template_id`       | string | `""`            | DingTalk AI Card template ID (required when `message_type` is `card`)                                                      |
+| `card_template_key`      | string | `"content"`     | AI Card variable key; must exactly match your template variable name                                                       |
+| `robot_code`             | string | `""`            | Robot code (recommended explicit config for group card delivery scenarios; falls back to `client_id` when empty)           |
+| `share_session_in_group` | bool   | `false`         | If `true`, all group members share one conversation context; if `false` (default), each member gets an independent context |
+| `media_dir`              | string | `null`          | Media file download directory (leave empty to not save)                                                                    |
 
 > **Tips:**
 >
@@ -233,20 +235,22 @@ Find `channels.feishu` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
   "bot_prefix": "[BOT]",
   "app_id": "cli_xxxxx",
   "app_secret": "your App Secret",
-  "domain": "feishu"
+  "domain": "feishu",
+  "share_session_in_group": false
 }
 ```
 
 **Feishu-specific fields:**
 
-| Field                | Type   | Default         | Description                                    |
-| -------------------- | ------ | --------------- | ---------------------------------------------- |
-| `app_id`             | string | `""` (required) | Feishu App ID                                  |
-| `app_secret`         | string | `""` (required) | Feishu App Secret                              |
-| `domain`             | string | `"feishu"`      | `"feishu"` (China) or `"lark"` (International) |
-| `encrypt_key`        | string | `""`            | Event encryption key (optional)                |
-| `verification_token` | string | `""`            | Event verification token (optional)            |
-| `media_dir`          | string | `null`          | Directory for received media files             |
+| Field                    | Type   | Default         | Description                                                                                              |
+| ------------------------ | ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `app_id`                 | string | `""` (required) | Feishu App ID                                                                                            |
+| `app_secret`             | string | `""` (required) | Feishu App Secret                                                                                        |
+| `domain`                 | string | `"feishu"`      | `"feishu"` (China) or `"lark"` (International)                                                           |
+| `encrypt_key`            | string | `""`            | Event encryption key (optional)                                                                          |
+| `verification_token`     | string | `""`            | Event verification token (optional)                                                                      |
+| `share_session_in_group` | bool   | `false`         | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
+| `media_dir`              | string | `null`          | Directory for received media files                                                                       |
 
 > **Tip:** Other fields (encrypt_key, verification_token, media_dir) are optional; with WebSocket mode you can omit them (defaults apply).
 
@@ -627,18 +631,20 @@ Find `wecom` and fill in the corresponding information, for example:
   "bot_id": "your bot_id",
   "secret": "your secret",
   "media_dir": "~/.qwenpaw/media",
-  "max_reconnect_attempts": -1
+  "max_reconnect_attempts": -1,
+  "share_session_in_group": true
 }
 ```
 
 **WeCom-specific fields:**
 
-| Field                    | Type   | Default            | Description                                          |
-| ------------------------ | ------ | ------------------ | ---------------------------------------------------- |
-| `bot_id`                 | string | `""` (required)    | WeCom bot ID                                         |
-| `secret`                 | string | `""` (required)    | WeCom bot secret                                     |
-| `media_dir`              | string | `~/.qwenpaw/media` | Media files (images, files, etc.) download directory |
-| `max_reconnect_attempts` | int    | `-1`               | WebSocket max reconnect attempts (`-1` = unlimited)  |
+| Field                    | Type   | Default            | Description                                                                                              |
+| ------------------------ | ------ | ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `bot_id`                 | string | `""` (required)    | WeCom bot ID                                                                                             |
+| `secret`                 | string | `""` (required)    | WeCom bot secret                                                                                         |
+| `media_dir`              | string | `~/.qwenpaw/media` | Media files (images, files, etc.) download directory                                                     |
+| `max_reconnect_attempts` | int    | `-1`               | WebSocket max reconnect attempts (`-1` = unlimited)                                                      |
+| `share_session_in_group` | bool   | `true`             | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
 ### Start chatting with the bot in WeCom
 
@@ -1631,23 +1637,23 @@ Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces
 
 ### Config overview
 
-| Channel    | Config key | Main fields                                                                                                |
-| ---------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
-| DingTalk   | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code                    |
-| Feishu     | feishu     | app_id, app_secret, domain; optional encrypt_key, verification_token, media_dir                            |
-| iMessage   | imessage   | db_path, poll_sec (macOS only)                                                                             |
-| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                                                            |
-| QQ         | qq         | app_id, client_secret, markdown_enabled, max_reconnect_attempts                                            |
-| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                                                            |
-| Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                        |
-| Matrix     | matrix     | homeserver, user_id, access_token                                                                          |
-| Slack      | slack      | bot_token, app_token; optional proxy, streaming_enabled                                                    |
-| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
-| WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
-| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
-| Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                         |
-| Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
-| Azure Bot  | azure_bot  | app_id, app_password, tenant_id; optional http_port, media_dir, share_session_in_group                     |
+| Channel    | Config key | Main fields                                                                                                              |
+| ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| DingTalk   | dingtalk   | client_id, client_secret, message_type, card_template_id, card_template_key, robot_code; optional share_session_in_group |
+| Feishu     | feishu     | app_id, app_secret, domain; optional encrypt_key, verification_token, media_dir, share_session_in_group                  |
+| iMessage   | imessage   | db_path, poll_sec (macOS only)                                                                                           |
+| Discord    | discord    | bot_token; optional http_proxy, http_proxy_auth                                                                          |
+| QQ         | qq         | app_id, client_secret, markdown_enabled, max_reconnect_attempts                                                          |
+| Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                                                                          |
+| Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                                      |
+| Matrix     | matrix     | homeserver, user_id, access_token                                                                                        |
+| Slack      | slack      | bot_token, app_token; optional proxy, streaming_enabled                                                                  |
+| WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts, share_session_in_group                                       |
+| WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                                    |
+| XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                                        |
+| Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                                       |
+| Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider               |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id; optional http_port, media_dir, share_session_in_group                                   |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section below.
 

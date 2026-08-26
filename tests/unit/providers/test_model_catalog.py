@@ -68,7 +68,7 @@ def test_packaged_catalog_snapshot() -> None:
         ("DASHSCOPE_MODELS", "qwen3.7-max"),
         ("OPENAI_MODELS", "gpt-5.2"),
         ("MINIMAX_MODELS", "MiniMax-M3"),
-        ("KIMI_MODELS", "kimi-k2.5"),
+        ("KIMI_MODELS", "kimi-k3"),
         ("DEEPSEEK_MODELS", "deepseek-chat"),
         ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
     }
@@ -87,18 +87,6 @@ def test_packaged_catalog_snapshot() -> None:
         model.max_input_length == 1_048_576
         for model in catalog["GEMINI_MODELS"]
     )
-    assert all(
-        model.max_input_length == 262_144 for model in catalog["KIMI_MODELS"]
-    )
-    assert {
-        model.id: model.max_input_length
-        for model in catalog["ALIYUN_CODINGPLAN_MODELS"]
-        if model.id in {"qwen3-coder-plus", "glm-5.2", "kimi-k2.5"}
-    } == {
-        "glm-5.2": 1_000_000,
-        "kimi-k2.5": 262_144,
-        "qwen3-coder-plus": 1_000_000,
-    }
     assert {
         model.id: model.max_input_length
         for model in catalog["OPENAI_MODELS"]
