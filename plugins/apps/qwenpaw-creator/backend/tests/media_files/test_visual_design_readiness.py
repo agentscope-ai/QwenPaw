@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 from __future__ import annotations
 
 import pytest
@@ -52,22 +53,39 @@ def _project_with_visual(
     return project
 
 
+def _hero(variants: dict[str, str | None]) -> VisualEntity:
+    """char:hero requiring peak+fallen, with the given variant selections."""
+
+    return VisualEntity(
+        entity_id="char:hero",
+        kind="character",
+        name="Hero",
+        required_variant_ids=["variant:peak", "variant:fallen"],
+        variants=EntityCollection(
+            items={
+                variant_id: VisualVariant(
+                    variant_id=variant_id,
+                    selected_artifact_version_id=selected,
+                )
+                for variant_id, selected in variants.items()
+            },
+            order=list(variants),
+        ),
+    )
+
+
+def _scene() -> VisualEntity:
+    return VisualEntity(
+        entity_id="scene:street",
+        kind="scene",
+        name="Street",
+        required_variant_ids=[],
+    )
+
+
 def test_reports_missing_required_variant_before_storyboarding() -> None:
     project = _project_with_visual(
-        VisualEntity(
-            entity_id="char:hero",
-            kind="character",
-            name="Hero",
-            required_variant_ids=["variant:peak", "variant:fallen"],
-            variants=EntityCollection(
-                items={
-                    "variant:peak": VisualVariant(
-                        variant_id="variant:peak",
-                    ),
-                },
-                order=["variant:peak"],
-            ),
-        ),
+        _hero({"variant:peak": None}),
         visual_variant_refs={"char:hero": "variant:peak"},
     )
 
@@ -77,101 +95,33 @@ def test_reports_missing_required_variant_before_storyboarding() -> None:
         "MISSING_SELECTED_ARTIFACT",
         "MISSING_REQUIRED_VARIANT",
     ]
-    with pytest.raises(
-        ValidationError,
-        match="视觉设定尚未完成，分镜图未开始",
-    ):
+    with pytest.raises(ValidationError, match="视觉设定尚未完成，分镜图未开始"):
         assert_visual_design_ready_for_storyboards(project)
 
 
-def test_reports_missing_multi_variant_binding() -> None:
-    project = _project_with_visual(
-        VisualEntity(
-            entity_id="char:hero",
-            kind="character",
-            name="Hero",
-            required_variant_ids=["variant:peak", "variant:fallen"],
-            variants=EntityCollection(
-                items={
-                    "variant:peak": VisualVariant(
-                        variant_id="variant:peak",
-                        selected_artifact_version_id="artifact:peak",
-                    ),
-                    "variant:fallen": VisualVariant(
-                        variant_id="variant:fallen",
-                        selected_artifact_version_id="artifact:fallen",
-                    ),
-                },
-                order=["variant:peak", "variant:fallen"],
-            ),
-        ),
+def test_complete_contract_passes_and_binding_is_required() -> None:
+    variants = {
+        "variant:peak": "artifact:peak",
+        "variant:fallen": "artifact:fallen",
+    }
+    ready = _project_with_visual(
+        _hero(variants),
+        visual_variant_refs={"char:hero": "variant:peak"},
     )
+    assert not visual_design_readiness_issues(ready)
+    assert_visual_design_ready_for_storyboards(ready)
 
-    issues = visual_design_readiness_issues(project)
-
+    # The same finished variants without an element binding still block.
+    unbound = _project_with_visual(_hero(variants))
+    issues = visual_design_readiness_issues(unbound)
     assert [issue.code for issue in issues] == ["MISSING_VARIANT_BINDING"]
 
 
-def test_reports_ungenerated_scene_without_variants() -> None:
-    project = _project_with_visual(
-        VisualEntity(
-            entity_id="scene:street",
-            kind="scene",
-            name="Street",
-            required_variant_ids=[],
-        ),
-    )
-
-    issues = visual_design_readiness_issues(project)
-
-    assert len(issues) == 1
-    assert issues[0].code == "MISSING_SELECTED_ARTIFACT"
-    assert issues[0].variant_id is None
-
-
-def test_complete_visual_contract_passes_storyboard_gate() -> None:
-    project = _project_with_visual(
-        VisualEntity(
-            entity_id="char:hero",
-            kind="character",
-            name="Hero",
-            required_variant_ids=["variant:peak", "variant:fallen"],
-            variants=EntityCollection(
-                items={
-                    "variant:peak": VisualVariant(
-                        variant_id="variant:peak",
-                        selected_artifact_version_id="artifact:peak",
-                    ),
-                    "variant:fallen": VisualVariant(
-                        variant_id="variant:fallen",
-                        selected_artifact_version_id="artifact:fallen",
-                    ),
-                },
-                order=["variant:peak", "variant:fallen"],
-            ),
-        ),
-        visual_variant_refs={"char:hero": "variant:peak"},
-    )
-
-    assert not visual_design_readiness_issues(project)
-    assert_visual_design_ready_for_storyboards(project)
-
-
 def test_storyboard_request_enforces_visual_design_gate(tmp_path) -> None:
-    project = _project_with_visual(
-        VisualEntity(
-            entity_id="scene:street",
-            kind="scene",
-            name="Street",
-            required_variant_ids=[],
-        ),
-    )
+    project = _project_with_visual(_scene())
     snapshot = ProjectSnapshot(project=project, etag="etag-1", generation=1)
 
-    with pytest.raises(
-        ValidationError,
-        match="scene:street 尚无使用中视觉产物",
-    ):
+    with pytest.raises(ValidationError, match="scene:street 尚无使用中视觉产物"):
         _resolve_request(
             snapshot=snapshot,
             project_root=tmp_path,

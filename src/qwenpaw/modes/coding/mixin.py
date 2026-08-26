@@ -79,19 +79,15 @@ Fall back to `grep_search` only when LSP / AST cannot answer.
 ### File operations
 
 File-IO tools (`read_file`, `write_file`, `edit_file`,
-`list_directory`, etc.) resolve **relative** paths against the
-**agent workspace**, NOT the active project.  Always pass
-**absolute paths** rooted at the active project directory (shown
-below) — never a bare filename or a path relative to the project.
+`list_directory`, etc.) resolve **relative** paths against the project
+directory, so prefer project-relative paths like `src/main.py`.
 
 ### Shell commands
 
-`execute_shell_command` defaults its cwd to the **agent workspace**.
-When the command should run inside the project, always pass
-`cwd="<active project dir>"` (or prefix with
-`cd <active project dir> && ...`).  Do NOT assume `ls`, `cat`,
-`find`, `git`, etc. land in the project — without an explicit `cwd`
-they land in the workspace.
+`execute_shell_command` defaults its cwd to the project directory, so
+`git status`, `pytest` and friends run in the project without an
+explicit `cwd`.  Pass `cwd=` only when a command must run somewhere
+else.
 
 ### Working guidelines
 1. **Read before you write** — always read the relevant file(s) first.
@@ -108,27 +104,10 @@ monolithic changes.
 
 ### Active project
 
-The active project directory for this session is:
-
-    {project_dir}
-
-This is **THE** project — do NOT enumerate the agent workspace or
-its `coding_projects/` subfolder looking for "which project to work
-on".  Sibling directories are unrelated repositories and are out of
+The project directory is stated in the Directories section above, and
+it is **THE** project.  Do not go looking for "which project to work
+on" — sibling directories are unrelated repositories and are out of
 scope unless the user explicitly switches.
-
-Every `read_file` / `write_file` / `edit_file` / `list_directory`
-call must use an absolute path that starts with the directory above.
-Every `execute_shell_command` call that touches project files must
-pass `cwd` equal to the directory above.
-
-### Agent workspace
-
-The internal QwenPaw workspace (configs, sessions, memory) is at:
-
-    {workspace_dir}
-
-Do NOT read or write here unless the user explicitly asks.
 """
 
 
@@ -150,14 +129,21 @@ class CodingModeMixin:
     """
 
     def _get_coding_project_dir(self) -> str | None:
-        """Return the active coding project dir.
+        """Return the effective project dir for this turn.
 
-        Request-scoped config wins when present. Otherwise, reload from disk so
-        API changes persisted to ``agent.json`` are reflected.
+        Prefers the value resolved once in ``PRE_DISPATCH`` so the tools
+        registered here agree with where file/shell tools operate. Falls
+        back to the request-scoped config, then to a fresh disk read so
+        an API-driven project switch is picked up.
 
         Returns None when no project has been set (use workspace default).
         """
         from ...config.config import load_agent_config
+        from ...config.context import get_current_project_dir
+
+        resolved = get_current_project_dir()
+        if resolved is not None:
+            return str(resolved)
 
         agent_config = getattr(self, "_agent_config", None)
         agent_id: str | None = None

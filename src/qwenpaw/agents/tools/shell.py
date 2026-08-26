@@ -22,12 +22,11 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ...config.context import (
-    get_current_project_dir,
+    get_all_project_dir_paths,
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
-    get_current_workspace_dir,
+    get_tool_base_dir,
 )
-from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
@@ -1319,13 +1318,21 @@ async def execute_shell_command(
             timeout = configured
 
     if cwd is not None:
-        working_dir = cwd
+        # A relative cwd is taken from the primary directory; an absolute one
+        # is used as given. Not a permission boundary — the governance rules
+        # and guard chain decide what a command may touch, and a shell can
+        # `cd` anywhere regardless, so blocking here only broke ordinary use.
+        roots = get_all_project_dir_paths() or [get_tool_base_dir()]
+        candidate = Path(str(cwd)).expanduser()
+        if not candidate.is_absolute():
+            candidate = roots[0] / candidate
+        # ``resolve()`` walks the filesystem, and the subprocess it feeds is
+        # already spawned in a worker thread — leaving this one call on the
+        # event loop would make an unresponsive mount stall every other
+        # connection while nothing else about this path does.
+        working_dir = await run_sync_io(candidate.resolve)
     else:
-        working_dir = (
-            get_current_project_dir()
-            or get_current_workspace_dir()
-            or WORKING_DIR
-        )
+        working_dir = get_tool_base_dir()
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()

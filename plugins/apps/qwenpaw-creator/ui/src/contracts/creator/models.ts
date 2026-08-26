@@ -92,6 +92,7 @@ export interface ModelConnectionTestRequest {
   protocol: string;
   provider?: "whisper" | "fun-asr";
   voice?: string;
+  require_api_key?: boolean;
 }
 
 export interface ConnectionTestResponse {

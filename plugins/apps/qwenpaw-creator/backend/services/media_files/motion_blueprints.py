@@ -88,7 +88,7 @@ def _chars(text: str) -> str:
     return "".join(pieces)
 
 
-def _caption_font_css(text: str) -> str:
+def _caption_font_css(text: str, *, box_height: float | None = None) -> str:
     """Two-axis font clamp for one caption viewport.
 
     The document only knows its own viewport, so the size is expressed
@@ -96,6 +96,12 @@ def _caption_font_css(text: str) -> str:
     the vw term keeps the longest line inside narrow boxes. Every
     decorative measure in the blueprints is em-based so the whole card
     scales with this value no matter how extreme the box ratio is.
+
+    When *box_height* is provided (normalised canvas fraction, e.g. 0.25),
+    the vh term is scaled inversely so that the apparent font size on the
+    canvas stays consistent across overlays with very different box
+    heights — a small box (0.18) gets a larger vh value, a tall box
+    (0.85) gets a smaller one.
     """
 
     length = max(1, len(re.sub(r"\s+", "", text)))
@@ -108,6 +114,8 @@ def _caption_font_css(text: str) -> str:
     # leaving the root 8% inset and entrance travel untouched.
     vw = 80.0 / (per_line * 1.08 + 1.9)
     vh = 76.0 / (lines * 2.4)
+    if box_height is not None and box_height > 0:
+        vh *= 0.25 / box_height
     return f"min({vh:.1f}vh,{vw:.1f}vw)"
 
 
@@ -152,11 +160,13 @@ def _caption_stagger_pop(
     text: str,
     palette: BlueprintPalette,
     intensity: float,
+    *,
+    box_height: float | None = None,
 ) -> tuple[str, float]:
     """综艺花字：内容包裹式贴纸胶囊 + 逐字弹入 + 强调下划线。"""
 
     overshoot = 1.3 + intensity * 0.6
-    font = _caption_font_css(text)
+    font = _caption_font_css(text, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{display:flex;flex-direction:column;align-items:center;gap:.18em;max-width:96%;padding:.34em .85em .3em;font-size:{font};background:{palette.paper}f2;border:.07em solid {palette.ink};border-radius:.55em;box-shadow:.14em .18em 0 {palette.secondary}59}}
@@ -179,6 +189,8 @@ def _caption_static_capsule(
     text: str,
     palette: BlueprintPalette,
     intensity: float,
+    *,
+    box_height: float | None = None,
 ) -> tuple[str, float]:
     """静态胶囊：全片像素级一致的解说/教学字幕。
 
@@ -189,9 +201,10 @@ def _caption_static_capsule(
     """
 
     del intensity  # 静态模板没有可调幅度，保持签名一致即可
+    font = _caption_font_css(text, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
-.card{{width:max-content;max-width:94%;box-sizing:border-box;font-size:24vh;padding:.28em .9em;border-radius:.42em;background:{palette.paper}f2;border:.04em solid {palette.ink}26;box-shadow:0 .08em .3em {palette.ink}33}}
+.card{{width:max-content;max-width:94%;box-sizing:border-box;font-size:{font};padding:.28em .9em;border-radius:.42em;background:{palette.paper}f2;border:.04em solid {palette.ink}26;box-shadow:0 .08em .3em {palette.ink}33}}
 .text{{font-family:"PingFang SC","Noto Sans SC",sans-serif;font-weight:600;font-size:1em;line-height:1.35;letter-spacing:.02em;text-align:center;color:{palette.ink}}}
 """
     body = f"<div class='wrap'><div class='card'><div class='text'>{escape(text.strip())}</div></div></div>"
@@ -206,12 +219,14 @@ def _caption_ink_reveal(
     text: str,
     palette: BlueprintPalette,
     intensity: float,
+    *,
+    box_height: float | None = None,
 ) -> tuple[str, float]:
     """电影字幕：大字直压画面 + 细描边投影保可读 + 侧色条 draw-on，
     无满框底板，仅文字底部一条包裹式半透明 scrim 融入画面。"""
 
     reveal = 0.55 + intensity * 0.25
-    font = _caption_font_css(text)
+    font = _caption_font_css(text, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{display:flex;align-items:center;gap:.42em;max-width:96%;font-size:{font};padding:.22em .6em;border-radius:.3em;background:color-mix(in srgb,{palette.ink} 42%,transparent)}}
@@ -233,12 +248,14 @@ def _caption_glow_breath(
     text: str,
     palette: BlueprintPalette,
     intensity: float,
+    *,
+    box_height: float | None = None,
 ) -> tuple[str, float]:
     """情绪光晕：无底板，文字发光呼吸直压画面，背后一团包裹式柔光晕，
     两侧星芒点缀随字号缩放。"""
 
     glow = 0.12 + intensity * 0.14
-    font = _caption_font_css(text)
+    font = _caption_font_css(text, box_height=box_height)
     css = f"""
 .wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
 .card{{position:relative;display:flex;align-items:center;gap:.34em;max-width:96%;font-size:{font};padding:.3em .55em}}
@@ -253,6 +270,159 @@ tl.fromTo('.spark',{autoAlpha:.35,scale:.5,rotate:-40},{autoAlpha:1,scale:1,rota
 tl.to('.text',{scale:1.015,duration:1.1,ease:'sine.inOut'},.8);
 tl.to('.text',{scale:1,duration:1.1,ease:'sine.inOut'},1.9);
 tl.to('.spark',{rotate:18,duration:2.2,ease:'sine.inOut'},.8);
+"""
+    return _document(css, body, script, 3.0), 3.0
+
+
+def _caption_handwritten_note(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """手写笔记：纸纹底板 + 手写体微倾斜 + 墨水划线动画，适合 Vlog。"""
+
+    tilt = -1.5 - intensity * 1.5
+    font = _caption_font_css(text, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.card{{position:relative;max-width:96%;font-size:{font};padding:.4em 1.1em .35em;background:{palette.paper}f0;border-radius:.6em;transform:rotate({tilt:.1f}deg);box-shadow:.2em .25em 0 {palette.secondary}40}}
+.tex{{position:absolute;inset:0;border-radius:.6em;background-image:repeating-linear-gradient(0deg,{palette.secondary}12 0,{palette.secondary}12 .4vh,transparent .4vh,transparent 2.8vh);opacity:.7}}
+.line{{position:relative;display:flex;flex-wrap:wrap;justify-content:center;font-family:"PingFang SC","Noto Sans SC",sans-serif;font-weight:700;font-style:italic;font-size:1em;line-height:1.3;color:{palette.ink}}}
+.ch,.sp{{display:inline-block;font-style:italic}}
+.underline{{position:relative;width:60%;height:.12em;border-radius:99px;background:{palette.primary};transform-origin:left center;transform:scaleX(0);margin:.12em auto 0}}
+"""
+    body = f"<div class='wrap'><div class='card'><i class='tex'></i><div class='line'>{_chars(text)}</div><div class='underline'></div></div></div>"
+    script = """
+tl.fromTo('.card',{{autoAlpha:.3,scale:.95}},{{autoAlpha:1,scale:1,duration:.45,ease:'power2.out'}},0);
+tl.fromTo('.ch',{{autoAlpha:.3,y:'10%'}},{{autoAlpha:1,y:'0%',duration:.4,stagger:.035,ease:'power2.out'}},.05);
+tl.to('.underline',{{scaleX:1,duration:.6,ease:'power3.inOut'}},.35);
+tl.to('.card',{{y:'-2%',duration:1.0,ease:'sine.inOut'}},1.0);
+tl.to('.card',{{y:'0%',duration:1.0,ease:'sine.inOut'}},2.0);
+"""
+    return _document(css, body, script, 3.0), 3.0
+
+
+def _caption_keyword_spotlight(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """关键词聚焦：左对齐，关键词高亮色块滑入，适合教学。"""
+
+    highlight = 0.6 + intensity * 0.4
+    font = _caption_font_css(text, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.card{{position:relative;display:flex;flex-direction:column;gap:.15em;max-width:96%;font-size:{font};padding:.3em .7em}}
+.line{{position:relative;display:flex;flex-wrap:wrap;align-items:center;font-family:"PingFang SC","Noto Sans SC",sans-serif;font-weight:600;font-size:1em;line-height:1.35;color:{palette.ink}}}
+.ch,.sp{{display:inline-block}}
+.marker{{position:absolute;left:-.15em;right:-.15em;bottom:.05em;height:.42em;background:{palette.primary};opacity:{highlight:.2f};border-radius:.2em;z-index:-1}}
+"""
+    words = text.strip().split()
+    if len(words) >= 2:
+        keyword = max(words, key=len)
+        before, _, after = text.partition(keyword)
+        line_html = (
+            f"{escape(before)}"
+            f"<span class='kw' style='position:relative;display:inline-block'>"
+            f"<i class='marker'></i>"
+            f"<span style='position:relative;z-index:1;font-weight:800;color:{palette.paper}'>"
+            f"{escape(keyword)}</span></span>"
+            f"{escape(after)}"
+        )
+    else:
+        line_html = f"<span class='kw' style='position:relative;display:inline-block'><i class='marker'></i><span style='position:relative;z-index:1;font-weight:800;color:{palette.paper}'>{escape(text.strip())}</span></span>"
+    body = f"<div class='wrap'><div class='card'><div class='line'>{line_html}</div></div></div>"
+    script = """
+tl.fromTo('.card',{{autoAlpha:.35,x:'-3%'}},{{autoAlpha:1,x:'0%',duration:.4,ease:'power2.out'}},0);
+tl.fromTo('.marker',{{scaleX:0,transformOrigin:'left center'}},{{scaleX:1,duration:.5,ease:'power3.out'}},.2);
+tl.fromTo('.kw span',{{autoAlpha:.5}},{{autoAlpha:1,duration:.35,ease:'power1.out'}},.25);
+"""
+    return _document(css, body, script, 2.6), 2.6
+
+
+def _caption_drama_whisper(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """低语独白：宋体大字宽字距，逐字淡入+垂直模糊，纯文字+横线，适合短剧。"""
+
+    blur = 0.08 + intensity * 0.1
+    font = _caption_font_css(text, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.card{{position:relative;display:flex;flex-direction:column;align-items:center;gap:.3em;max-width:96%;font-size:{font}}}
+.rule{{width:40%;height:.06em;background:{palette.paper}80;transform-origin:center;transform:scaleX(0)}}
+.text{{display:flex;flex-wrap:wrap;justify-content:center;font-family:"Songti SC","STSong",serif;font-weight:400;font-size:1em;line-height:1.5;letter-spacing:.18em;color:{palette.paper};text-shadow:0 0 {blur:.2f}em {palette.ink}}}
+.ch,.sp{{display:inline-block}}
+"""
+    body = f"<div class='wrap'><div class='card'><div class='rule'></div><div class='text'>{_chars(text)}</div><div class='rule'></div></div></div>"
+    script = """
+tl.fromTo('.rule',{{scaleX:0}},{{scaleX:1,duration:.6,ease:'power2.inOut'}},0);
+tl.fromTo('.ch',{{autoAlpha:0,filter:'blur(4px)',y:'6%'}},{{autoAlpha:1,filter:'blur(0px)',y:'0%',duration:.5,stagger:.06,ease:'power1.out'}},.15);
+tl.to('.text',{{letterSpacing:'.22em',duration:1.2,ease:'sine.inOut'}},1.0);
+tl.to('.text',{{letterSpacing:'.18em',duration:1.2,ease:'sine.inOut'}},2.2);
+"""
+    return _document(css, body, script, 3.4), 3.4
+
+
+def _caption_neon_pulse(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """霓虹脉冲：暗底+亮色文字多层 glow 呼吸+霓虹描边，适合音乐/MV。"""
+
+    glow = 0.15 + intensity * 0.2
+    font = _caption_font_css(text, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.card{{position:relative;display:flex;align-items:center;justify-content:center;max-width:96%;font-size:{font};padding:.35em .9em;border:.1em solid {palette.primary}8c;border-radius:.5em;background:{palette.ink}cc;box-shadow:0 0 {glow:.2f}em {palette.primary}66,inset 0 0 {glow * 0.5:.2f}em {palette.primary}33}}
+.text{{font-family:"PingFang SC","Arial Black",sans-serif;font-weight:900;font-size:1em;line-height:1.25;color:{palette.primary};text-shadow:0 0 {glow:.2f}em {palette.primary},0 0 {glow * 2:.2f}em {palette.primary}80,0 0 {glow * 4:.2f}em {palette.primary}40}}
+"""
+    body = f"<div class='wrap'><div class='card'><div class='text'>{escape(text.strip())}</div></div></div>"
+    script = f"""
+tl.fromTo('.card',{{autoAlpha:.3,scale:.96}},{{autoAlpha:1,scale:1,duration:.4,ease:'power2.out'}},0);
+tl.to('.text',{{textShadow:'0 0 {glow * 1.4:.2f}em {palette.primary},0 0 {glow * 2.8:.2f}em {palette.primary}aa,0 0 {glow * 5:.2f}em {palette.primary}66',duration:.8,ease:'sine.inOut'}},.3);
+tl.to('.text',{{textShadow:'0 0 {glow:.2f}em {palette.primary},0 0 {glow * 2:.2f}em {palette.primary}80,0 0 {glow * 4:.2f}em {palette.primary}40',duration:.8,ease:'sine.inOut'}},1.1);
+tl.to('.card',{{boxShadow:'0 0 {glow * 1.3:.2f}em {palette.primary}80,inset 0 0 {glow * 0.7:.2f}em {palette.primary}4d',duration:.8,ease:'sine.inOut'}},.3);
+tl.to('.card',{{boxShadow:'0 0 {glow:.2f}em {palette.primary}66,inset 0 0 {glow * 0.5:.2f}em {palette.primary}33',duration:.8,ease:'sine.inOut'}},1.1);
+"""
+    return _document(css, body, script, 2.8), 2.8
+
+
+def _caption_brush_strike(
+    text: str,
+    palette: BlueprintPalette,
+    intensity: float,
+    *,
+    box_height: float | None = None,
+) -> tuple[str, float]:
+    """墨笔横扫：粗体字 clip-path 横扫揭示+对角线扫过，通用动作型。"""
+
+    sweep_dur = 0.4 + intensity * 0.2
+    font = _caption_font_css(text, box_height=box_height)
+    css = f"""
+.wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
+.card{{position:relative;max-width:96%;font-size:{font};padding:.3em .8em;overflow:hidden}}
+.accent{{position:absolute;left:-10%;top:-20%;width:30%;height:140%;background:{palette.primary}40;transform:rotate(-18deg) translateX(-120%);z-index:0}}
+.text{{position:relative;z-index:1;font-family:"PingFang SC","Arial Black",sans-serif;font-weight:900;font-size:1em;line-height:1.25;color:{palette.paper};text-shadow:0 .06em .15em {palette.ink};clip-path:inset(0 100% 0 0)}}
+"""
+    body = f"<div class='wrap'><div class='card'><i class='accent'></i><div class='text'>{escape(text.strip())}</div></div></div>"
+    script = f"""
+tl.to('.text',{{clipPath:'inset(0 0% 0 0)',duration:{sweep_dur:.2f},ease:'power3.inOut'}},.1);
+tl.to('.accent',{{x:'420%',duration:{sweep_dur + 0.3:.2f},ease:'power2.inOut'}},.05);
+tl.to('.card',{{y:'-2%',duration:1.0,ease:'sine.inOut'}},1.0);
+tl.to('.card',{{y:'0%',duration:1.0,ease:'sine.inOut'}},2.0);
 """
     return _document(css, body, script, 3.0), 3.0
 
@@ -342,6 +512,163 @@ tl.to('.core',{{scale:1.16,duration:1.6,ease:'sine.inOut'}},0);
 tl.to('.core',{{scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
 """
     return _document(css, body, script, 3.2), 3.2
+
+
+def _decor_bokeh_float(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """光斑漂浮：大柔和径向渐变圆垂直漂移+缩放呼吸，闭环。"""
+
+    drift = 2.0 + intensity * 2.5
+    css = f"""
+.blob{{position:absolute;border-radius:50%;filter:blur(1.2vh)}}
+.b1{{left:6%;top:10%;width:28%;aspect-ratio:1;background:radial-gradient(closest-side,{palette.primary}55,transparent 72%)}}
+.b2{{left:52%;top:8%;width:22%;aspect-ratio:1;background:radial-gradient(closest-side,{palette.paper}44,transparent 70%)}}
+.b3{{left:30%;top:50%;width:34%;aspect-ratio:1;background:radial-gradient(closest-side,{palette.secondary}3a,transparent 74%)}}
+.b4{{left:68%;top:44%;width:18%;aspect-ratio:1;background:radial-gradient(closest-side,{palette.primary}40,transparent 68%)}}
+.b5{{left:12%;top:62%;width:24%;aspect-ratio:1;background:radial-gradient(closest-side,{palette.paper}33,transparent 72%)}}
+"""
+    body = "<i class='blob b1'></i><i class='blob b2'></i><i class='blob b3'></i><i class='blob b4'></i><i class='blob b5'></i>"
+    script = f"""
+tl.to('.b1,.b3,.b5',{{y:'-{drift:.1f}%',scale:1.08,duration:1.5,ease:'sine.inOut'}},0);
+tl.to('.b1,.b3,.b5',{{y:'0%',scale:1,duration:1.5,ease:'sine.inOut'}},1.5);
+tl.to('.b2,.b4',{{y:'{drift * 0.7:.1f}%',scale:.94,duration:1.5,ease:'sine.inOut'}},0);
+tl.to('.b2,.b4',{{y:'0%',scale:1,duration:1.5,ease:'sine.inOut'}},1.5);
+"""
+    return _document(css, body, script, 3.0), 3.0
+
+
+def _decor_grid_pulse(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """网格脉动：细线网格+径向脉动遮罩，格点依次亮起，闭环。"""
+
+    pulse = 0.3 + intensity * 0.4
+    css = f"""
+.grid{{position:absolute;inset:4%;background:repeating-linear-gradient(0deg,transparent,transparent 9.5%,{palette.primary}33 9.5%,{palette.primary}33 10%),repeating-linear-gradient(90deg,transparent,transparent 9.5%,{palette.primary}33 9.5%,{palette.primary}33 10%)}}
+.pulse{{position:absolute;left:50%;top:50%;width:10%;aspect-ratio:1;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,{palette.primary}{int(pulse * 255):02x},transparent 72%)}}
+"""
+    body = "<i class='grid'></i><i class='pulse'></i>"
+    script = """
+tl.fromTo('.pulse',{{scale:.3,autoAlpha:.7}},{{scale:4.5,autoAlpha:0,duration:1.5,ease:'power2.out'}},0);
+tl.fromTo('.pulse',{{scale:.3,autoAlpha:.7}},{{scale:4.5,autoAlpha:0,duration:1.5,ease:'power2.out'}},1.5);
+"""
+    return _document(css, body, script, 3.0), 3.0
+
+
+def _decor_ink_splash(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """墨迹晕染：不规则色块缓慢变形+blur，有机感，闭环。"""
+
+    morph = 10 + intensity * 15
+    css = f"""
+.blob{{position:absolute;filter:blur(1.5vh);opacity:.75}}
+.b1{{left:8%;top:14%;width:30%;aspect-ratio:1;background:{palette.primary};border-radius:42% 58% 54% 46% / 48% 44% 56% 52%}}
+.b2{{left:48%;top:10%;width:26%;aspect-ratio:1;background:{palette.secondary};border-radius:56% 44% 48% 52% / 42% 58% 42% 58%}}
+.b3{{left:24%;top:52%;width:34%;aspect-ratio:1;background:{palette.paper};border-radius:48% 52% 58% 42% / 56% 46% 54% 44%;opacity:.5}}
+"""
+    body = (
+        "<i class='blob b1'></i><i class='blob b2'></i><i class='blob b3'></i>"
+    )
+    script = f"""
+tl.to('.b1',{{borderRadius:'{58 - morph * 0.3:.0f}% {42 + morph * 0.3:.0f}% {46 + morph * 0.2:.0f}% {54 - morph * 0.2:.0f}% / {52 - morph * 0.2:.0f}% {48 + morph * 0.2:.0f}% {44 + morph * 0.3:.0f}% {56 - morph * 0.3:.0f}%',scale:1.06,duration:1.5,ease:'sine.inOut'}},0);
+tl.to('.b1',{{borderRadius:'42% 58% 54% 46% / 48% 44% 56% 52%',scale:1,duration:1.5,ease:'sine.inOut'}},1.5);
+tl.to('.b2',{{borderRadius:'{44 + morph * 0.3:.0f}% {56 - morph * 0.3:.0f}% {52 + morph * 0.2:.0f}% {48 - morph * 0.2:.0f}% / {58 - morph * 0.2:.0f}% {42 + morph * 0.2:.0f}% {58 - morph * 0.3:.0f}% {42 + morph * 0.3:.0f}%',scale:.95,duration:1.5,ease:'sine.inOut'}},0);
+tl.to('.b2',{{borderRadius:'56% 44% 48% 52% / 42% 58% 42% 58%',scale:1,duration:1.5,ease:'sine.inOut'}},1.5);
+tl.to('.b3',{{borderRadius:'{52 - morph * 0.2:.0f}% {48 + morph * 0.2:.0f}% {42 + morph * 0.3:.0f}% {58 - morph * 0.3:.0f}% / {44 + morph * 0.3:.0f}% {56 - morph * 0.3:.0f}% {46 + morph * 0.2:.0f}% {54 - morph * 0.2:.0f}%',scale:1.04,duration:1.5,ease:'sine.inOut'}},0);
+tl.to('.b3',{{borderRadius:'48% 52% 58% 42% / 56% 46% 54% 44%',scale:1,duration:1.5,ease:'sine.inOut'}},1.5);
+"""
+    return _document(css, body, script, 3.0), 3.0
+
+
+def _decor_eq_bars(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """均衡律动：竖条不同高度 scaleY 振荡，音频可视化风格，闭环。"""
+
+    peak = 0.5 + intensity * 0.5
+    css = f"""
+.bar{{position:absolute;bottom:6%;border-radius:.6vh .6vh 0 0;transform-origin:bottom center}}
+.b1{{left:10%;width:6%;height:28%;background:{palette.primary}b3}}
+.b2{{left:22%;width:6%;height:40%;background:{palette.primary}99}}
+.b3{{left:34%;width:6%;height:22%;background:{palette.secondary}8c}}
+.b4{{left:46%;width:6%;height:50%;background:{palette.primary}cc}}
+.b5{{left:58%;width:6%;height:32%;background:{palette.secondary}99}}
+.b6{{left:70%;width:6%;height:44%;background:{palette.primary}b3}}
+.b7{{left:82%;width:6%;height:26%;background:{palette.secondary}80}}
+"""
+    body = (
+        "<i class='bar b1'></i><i class='bar b2'></i><i class='bar b3'></i>"
+        "<i class='bar b4'></i><i class='bar b5'></i><i class='bar b6'></i>"
+        "<i class='bar b7'></i>"
+    )
+    script = f"""
+tl.to('.b1',{{scaleY:{1 + peak * 0.6:.2f},duration:.38,ease:'sine.inOut'}},0);
+tl.to('.b1',{{scaleY:1,duration:.38,ease:'sine.inOut'}},.38);
+tl.to('.b1',{{scaleY:{1 + peak * 0.3:.2f},duration:.38,ease:'sine.inOut'}},.76);
+tl.to('.b1',{{scaleY:1,duration:.38,ease:'sine.inOut'}},1.14);
+tl.to('.b2',{{scaleY:{1 + peak * 0.8:.2f},duration:.32,ease:'sine.inOut'}},.1);
+tl.to('.b2',{{scaleY:1,duration:.32,ease:'sine.inOut'}},.42);
+tl.to('.b2',{{scaleY:{1 + peak * 0.5:.2f},duration:.32,ease:'sine.inOut'}},.74);
+tl.to('.b2',{{scaleY:1,duration:.32,ease:'sine.inOut'}},1.06);
+tl.to('.b3',{{scaleY:{1 + peak * 0.5:.2f},duration:.42,ease:'sine.inOut'}},.05);
+tl.to('.b3',{{scaleY:1,duration:.42,ease:'sine.inOut'}},.47);
+tl.to('.b3',{{scaleY:{1 + peak * 0.7:.2f},duration:.42,ease:'sine.inOut'}},.89);
+tl.to('.b3',{{scaleY:1,duration:.42,ease:'sine.inOut'}},1.31);
+tl.to('.b4',{{scaleY:{1 + peak:.2f},duration:.28,ease:'sine.inOut'}},.15);
+tl.to('.b4',{{scaleY:1,duration:.28,ease:'sine.inOut'}},.43);
+tl.to('.b4',{{scaleY:{1 + peak * 0.6:.2f},duration:.28,ease:'sine.inOut'}},.71);
+tl.to('.b4',{{scaleY:1,duration:.28,ease:'sine.inOut'}},.99);
+tl.to('.b5',{{scaleY:{1 + peak * 0.7:.2f},duration:.36,ease:'sine.inOut'}},.08);
+tl.to('.b5',{{scaleY:1,duration:.36,ease:'sine.inOut'}},.44);
+tl.to('.b5',{{scaleY:{1 + peak * 0.4:.2f},duration:.36,ease:'sine.inOut'}},.8);
+tl.to('.b5',{{scaleY:1,duration:.36,ease:'sine.inOut'}},1.16);
+tl.to('.b6',{{scaleY:{1 + peak * 0.9:.2f},duration:.3,ease:'sine.inOut'}},.12);
+tl.to('.b6',{{scaleY:1,duration:.3,ease:'sine.inOut'}},.42);
+tl.to('.b6',{{scaleY:{1 + peak * 0.5:.2f},duration:.3,ease:'sine.inOut'}},.72);
+tl.to('.b6',{{scaleY:1,duration:.3,ease:'sine.inOut'}},1.02);
+tl.to('.b7',{{scaleY:{1 + peak * 0.55:.2f},duration:.4,ease:'sine.inOut'}},.06);
+tl.to('.b7',{{scaleY:1,duration:.4,ease:'sine.inOut'}},.46);
+tl.to('.b7',{{scaleY:{1 + peak * 0.35:.2f},duration:.4,ease:'sine.inOut'}},.86);
+tl.to('.b7',{{scaleY:1,duration:.4,ease:'sine.inOut'}},1.26);
+"""
+    return _document(css, body, script, 3.0), 3.0
+
+
+def _decor_confetti_drift(
+    palette: BlueprintPalette,
+    intensity: float,
+) -> tuple[str, float]:
+    """彩纸飘落：小型旋转矩形向下飘落+旋转，循环重置，闭环。"""
+
+    fall = 30 + intensity * 30
+    css = f"""
+.bit{{position:absolute;width:3.2vh;height:1.4vh;border-radius:.3vh}}
+.c1{{left:8%;top:-6%;background:{palette.primary};transform:rotate(18deg)}}
+.c2{{left:24%;top:-10%;background:{palette.secondary};transform:rotate(-25deg)}}
+.c3{{left:42%;top:-4%;background:{palette.paper};transform:rotate(35deg)}}
+.c4{{left:58%;top:-12%;background:{palette.primary};transform:rotate(-12deg)}}
+.c5{{left:72%;top:-8%;background:{palette.secondary};transform:rotate(42deg)}}
+.c6{{left:86%;top:-5%;background:{palette.paper};transform:rotate(-30deg)}}
+"""
+    body = (
+        "<i class='bit c1'></i><i class='bit c2'></i><i class='bit c3'></i>"
+        "<i class='bit c4'></i><i class='bit c5'></i><i class='bit c6'></i>"
+    )
+    script = f"""
+tl.to('.c1,.c3,.c5',{{y:'{fall:.0f}vh',rotate:'+=180',duration:1.5,ease:'none'}},0);
+tl.set('.c1,.c3,.c5',{{y:'-{fall * 0.3:.0f}vh',rotate:'-=180'}},1.5);
+tl.to('.c1,.c3,.c5',{{y:'0%',duration:0.01,ease:'none'}},1.5);
+tl.to('.c2,.c4,.c6',{{y:'{fall:.0f}vh',rotate:'-=180',duration:1.5,ease:'none'}},0);
+tl.set('.c2,.c4,.c6',{{y:'-{fall * 0.3:.0f}vh',rotate:'+=180'}},1.5);
+tl.to('.c2,.c4,.c6',{{y:'0%',duration:0.01,ease:'none'}},1.5);
+"""
+    return _document(css, body, script, 3.0), 3.0
 
 
 # ---------------------------------------------------------------------------
@@ -495,9 +822,133 @@ tl.to('.ring',{{boxShadow:'0 .5vh 2.2vh {palette.ink}40,0 0 0 .35vh {palette.pri
     )
 
 
+def _frame_kraft_paper(
+    palette: BlueprintPalette,
+    intensity: float,
+    window: Mapping[str, float],
+) -> tuple[str, float]:
+    """牛皮纸框：棕色纸纹边框 + 遮盖胶带圆环 + 折角贴片，闭环。"""
+
+    breath = 0.04 + intensity * 0.06
+    css = (
+        _frame_geometry(window)
+        + f"""
+.strip,.patch{{background:linear-gradient(180deg,#c8a882,#b8956a)}}
+.tex{{position:absolute;inset:-8vh;background-image:repeating-linear-gradient(0deg,#a07850 0,#a07850 .3vh,transparent .3vh,transparent 2.2vh);opacity:.18}}
+.ring{{border:1.4vh solid #d4b896;box-shadow:0 .4vh 1.6vh {palette.ink}33,inset 0 0 0 .3vh #c8a88266}}
+.c{{background:#d4b896;border-radius:.6vh;width:5.4vh;height:2.2vh;box-shadow:0 .2vh .8vh {palette.ink}26}}
+.c1{{transform:translate(-46%,-46%) rotate(-8deg)}}
+.c2{{transform:translate(-54%,-46%) rotate(6deg)}}
+.c3{{transform:translate(-46%,-54%) rotate(5deg)}}
+.c4{{transform:translate(-54%,-54%) rotate(-7deg)}}
+"""
+    )
+    script = f"""
+tl.fromTo('.tex',{{x:'0vh',y:'0vh'}},{{x:'2.2vh',y:'0vh',duration:3.2,ease:'none'}},0);
+tl.to('.c1,.c4',{{scale:{1 + breath:.2f},duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.c1,.c4',{{scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
+tl.to('.c2,.c3',{{scale:{1 + breath:.2f},duration:1.6,ease:'sine.inOut'}},.8);
+tl.to('.c2,.c3',{{scale:1,duration:1.6,ease:'sine.inOut'}},2.4);
+"""
+    return (
+        _document(
+            css,
+            _FRAME_BODY,
+            script,
+            3.2,
+            exit_style="none",
+            full_bleed=True,
+            frame_ring=True,
+        ),
+        3.2,
+    )
+
+
+def _frame_chalk_board(
+    palette: BlueprintPalette,  # pylint: disable=unused-argument
+    intensity: float,
+    window: Mapping[str, float],
+) -> tuple[str, float]:
+    """黑板粉笔框：深炭色条 + 白色粉笔灰尘虚线环 + 粉笔痕角标，闭环。"""
+
+    dust = 0.4 + intensity * 0.4
+    css = (
+        _frame_geometry(window)
+        + f"""
+.strip,.patch{{background:#2d3436}}
+.tex{{position:absolute;inset:-8vh;background-image:radial-gradient(circle,#ffffff{int(dust * 30):02x} .4vh,transparent .5vh);background-size:3vh 3vh;opacity:.5}}
+.ring{{border:.4vh dashed #ffffffcc;box-shadow:0 0 1.2vh #ffffff22 inset}}
+.c{{background:transparent;border:.35vh solid #ffffffaa;width:3vh;height:3vh;border-radius:50%}}
+.c2,.c3,.c4{{border-radius:.4vh;width:3.6vh;height:1.4vh;border:none;background:#ffffffaa}}
+.c2{{transform:translate(-54%,-46%) rotate(-12deg)}}
+.c3{{transform:translate(-46%,-54%) rotate(8deg)}}
+.c4{{transform:translate(-54%,-54%) rotate(-5deg)}}
+"""
+    )
+    script = """
+tl.fromTo('.tex',{{x:'0vh',y:'0vh'}},{{x:'3vh',y:'3vh',duration:3.2,ease:'none'}},0);
+tl.to('.ring',{{opacity:.7,duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.ring',{{opacity:1,duration:1.6,ease:'sine.inOut'}},1.6);
+tl.to('.c1',{{rotate:12,scale:1.1,duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.c1',{{rotate:0,scale:1,duration:1.6,ease:'sine.inOut'}},1.6);
+"""
+    return (
+        _document(
+            css,
+            _FRAME_BODY,
+            script,
+            3.2,
+            exit_style="none",
+            full_bleed=True,
+            frame_ring=True,
+        ),
+        3.2,
+    )
+
+
+def _frame_neon_glow(
+    palette: BlueprintPalette,
+    intensity: float,
+    window: Mapping[str, float],
+) -> tuple[str, float]:
+    """霓虹灯框：暗底条 + primary 色霓虹发光环 + 发光角点，闭环。"""
+
+    glow = 0.8 + intensity * 1.2
+    css = (
+        _frame_geometry(window)
+        + f"""
+.strip,.patch{{background:#0d0d1a}}
+.tex{{position:absolute;inset:0;background:transparent}}
+.ring{{border:.5vh solid {palette.primary};box-shadow:0 0 {glow:.1f}vh {palette.primary}88,0 0 {glow * 2:.1f}vh {palette.primary}44,inset 0 0 {glow * 0.6:.1f}vh {palette.primary}66}}
+.c{{background:{palette.primary};border-radius:50%;width:2.4vh;height:2.4vh;box-shadow:0 0 {glow:.1f}vh {palette.primary},0 0 {glow * 2:.1f}vh {palette.primary}88}}
+"""
+    )
+    script = f"""
+tl.to('.ring',{{boxShadow:'0 0 {glow * 1.3:.1f}vh {palette.primary}aa,0 0 {glow * 2.6:.1f}vh {palette.primary}66,inset 0 0 {glow * 0.8:.1f}vh {palette.primary}88',duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.ring',{{boxShadow:'0 0 {glow:.1f}vh {palette.primary}88,0 0 {glow * 2:.1f}vh {palette.primary}44,inset 0 0 {glow * 0.6:.1f}vh {palette.primary}66',duration:1.6,ease:'sine.inOut'}},1.6);
+tl.to('.c',{{scale:1.2,autoAlpha:.7,duration:1.6,ease:'sine.inOut'}},0);
+tl.to('.c',{{scale:1,autoAlpha:1,duration:1.6,ease:'sine.inOut'}},1.6);
+"""
+    return (
+        _document(
+            css,
+            _FRAME_BODY,
+            script,
+            3.2,
+            exit_style="none",
+            full_bleed=True,
+            frame_ring=True,
+        ),
+        3.2,
+    )
+
+
 FRAME_BLUEPRINTS = {
     "pop_variety": _frame_pop_variety,
     "warm_journal": _frame_warm_journal,
+    "kraft_paper": _frame_kraft_paper,
+    "chalk_board": _frame_chalk_board,
+    "neon_glow": _frame_neon_glow,
 }
 
 
@@ -530,11 +981,21 @@ CAPTION_BLUEPRINTS = {
     "ink_reveal": _caption_ink_reveal,
     "glow_breath": _caption_glow_breath,
     "static_capsule": _caption_static_capsule,
+    "handwritten_note": _caption_handwritten_note,
+    "keyword_spotlight": _caption_keyword_spotlight,
+    "drama_whisper": _caption_drama_whisper,
+    "neon_pulse": _caption_neon_pulse,
+    "brush_strike": _caption_brush_strike,
 }
 DECORATION_BLUEPRINTS = {
     "wave_flow": _decor_wave_flow,
     "particle_drift": _decor_particle_drift,
     "orbit_rings": _decor_orbit_rings,
+    "bokeh_float": _decor_bokeh_float,
+    "grid_pulse": _decor_grid_pulse,
+    "ink_splash": _decor_ink_splash,
+    "eq_bars": _decor_eq_bars,
+    "confetti_drift": _decor_confetti_drift,
 }
 # Deterministic rotation order for the caption fallback chain.
 CAPTION_BLUEPRINT_ORDER = ("stagger_pop", "ink_reveal", "glow_breath")
@@ -544,22 +1005,51 @@ _BLUEPRINT_HINTS = {
     "ink_reveal": "电影字幕：横向揭示+侧色条，适合叙事/沉稳/收尾语气",
     "glow_breath": "情绪光晕：发光呼吸+星芒点缀，适合治愈/夜景/抒情",
     "static_capsule": "静态胶囊：固定字号白底深字零动画，适合解说/教学/纪录片逐句字幕",
+    "handwritten_note": "手写笔记：纸纹底板+手写体微倾斜+墨水划线，适合Vlog/日常/手账",
+    "keyword_spotlight": "关键词聚焦：左对齐+关键词高亮色块滑入，适合教学/知识/重点强调",
+    "drama_whisper": "低语独白：宋体大字宽字距+逐字淡入模糊，适合短剧/情感/文艺",
+    "neon_pulse": "霓虹脉冲：暗底+亮色文字多层glow呼吸+霓虹描边，适合音乐/MV/夜间",
+    "brush_strike": "墨笔横扫：粗体字clip-path横扫揭示+对角线扫过，适合动作/高燃/通用",
     "wave_flow": "波浪流动：多层弧带起伏，适合水面/舒缓/自然场景",
     "particle_drift": "微光粒子：光点漂浮呼吸，适合梦幻/温柔/光斑画面",
     "orbit_rings": "几何圆环：双环旋转+光核脉动，适合科技/聚焦/节奏点",
+    "bokeh_float": "光斑漂浮：大柔和径向渐变圆漂移+缩放呼吸，适合Vlog/日常/唯美",
+    "grid_pulse": "网格脉动：细线网格+径向脉动遮罩，适合教学/科技/结构化",
+    "ink_splash": "墨迹晕染：不规则色块缓慢变形+blur，适合短剧/情感/艺术",
+    "eq_bars": "均衡律动：竖条不同高度scaleY振荡，适合音乐/MV/节奏",
+    "confetti_drift": "彩纸飘落：小型旋转矩形向下飘落+旋转，适合庆祝/欢快/通用",
     "pop_variety": "综艺贴纸框：撞色波点边框+四角星星贴纸，适合活泼/高光/搞笑时刻",
     "warm_journal": "手账拍立得框：奶油纸边框+胶带贴角，适合温馨/家庭/治愈时刻",
+    "kraft_paper": "牛皮纸框：棕色纸纹边框+遮盖胶带圆环，适合Vlog/日常/复古",
+    "chalk_board": "黑板粉笔框：深炭色条+白色粉笔灰尘虚线环，适合教学/知识/校园",
+    "neon_glow": "霓虹灯框：暗底条+霓虹发光环+发光角点，适合音乐/MV/夜间",
 }
 
 
-def blueprint_catalog_text(kind: str) -> str:
-    """Prompt-ready catalog listing for one blueprint family."""
+def blueprint_catalog_text(
+    kind: str,
+    *,
+    content_type: str | None = None,
+) -> str:
+    """Prompt-ready catalog listing for one blueprint family.
 
-    names = (
-        CAPTION_BLUEPRINT_ORDER
-        if kind == "caption"
-        else tuple(DECORATION_BLUEPRINTS)
-    )
+    When *content_type* is given the listing is filtered to the preferred
+    subset for that type (4-6 entries); otherwise every registered
+    blueprint is listed (backward-compatible).
+    """
+
+    if content_type and content_type in _CONTENT_TYPE_PALETTES:
+        prefs = _CONTENT_TYPE_PALETTES[content_type]
+        if kind == "caption":
+            names = prefs["caption_order"]
+        else:
+            names = prefs["decoration_catalog"]
+    else:
+        names = (
+            CAPTION_BLUEPRINT_ORDER
+            if kind == "caption"
+            else tuple(DECORATION_BLUEPRINTS)
+        )
     return "\n".join(f"- {name}: {_BLUEPRINT_HINTS[name]}" for name in names)
 
 
@@ -569,6 +1059,7 @@ def render_caption_blueprint(
     *,
     palette: object = None,
     intensity: object = None,
+    box_height: float | None = None,
 ) -> tuple[str, float]:
     """Render one caption card blueprint; returns ``(html, hf duration)``."""
 
@@ -580,6 +1071,7 @@ def render_caption_blueprint(
         text,
         validated_palette(palette),
         _clamped(intensity, 0.55, 0.0, 1.0),
+        box_height=box_height,
     )
 
 
@@ -721,8 +1213,117 @@ tl.fromTo('.result',{autoAlpha:.35,scale:.94},{autoAlpha:1,scale:1,duration:.6,e
     )
 
 
+def _scene_lyric_card(
+    content: Mapping[str, object],
+    palette: BlueprintPalette,
+) -> tuple[str, float]:
+    """歌词卡：暗色渐变全屏+大字歌词+发光+歌曲标题角标，适合 MV 间奏。"""
+
+    lyric = require_chinese_copy(str(content.get("lyric") or ""), "lyric")
+    title = require_chinese_copy(str(content.get("title") or ""), "title")
+    if not lyric:
+        raise ValueError("歌词卡至少需要 lyric 文案")
+
+    parts = [f"<div class='lyric'>{escape(lyric)}</div>"]
+    if title:
+        parts.insert(0, f"<div class='badge'>{escape(title)}</div>")
+
+    css = f"""
+html,body{{width:100%;height:100%;margin:0;overflow:hidden}}
+.stage{{position:absolute;inset:0;background:linear-gradient(160deg,{palette.secondary},{palette.ink});font-family:"PingFang SC","Songti SC",serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3vh}}
+.glow{{position:absolute;left:30%;top:20%;width:40%;aspect-ratio:1;border-radius:50%;background:radial-gradient(closest-side,{palette.primary}33,transparent 72%);filter:blur(2vh)}}
+.badge{{padding:1vh 2.8vh;border-radius:99px;border:.2vh solid {palette.primary}8c;color:{palette.primary};font-size:2.8vh;font-weight:600;letter-spacing:.06em}}
+.lyric{{position:relative;text-align:center;font-size:7vh;font-weight:700;color:{palette.paper};text-shadow:0 0 .3em {palette.primary}88,0 0 .8em {palette.primary}44;line-height:1.4;padding:0 8%;max-width:90%}}
+"""
+    body = "<div class='stage'><i class='glow'></i>" f"{''.join(parts)}</div>"
+    script = f"""
+tl.fromTo('.stage',{{autoAlpha:.5}},{{autoAlpha:1,duration:.5,ease:'power1.out'}},0);
+tl.fromTo('.lyric',{{autoAlpha:.3,y:'4%',scale:.97}},{{autoAlpha:1,y:'0%',scale:1,duration:.7,ease:'power2.out'}},.1);
+tl.fromTo('.badge',{{autoAlpha:.3,scale:.9}},{{autoAlpha:1,scale:1,duration:.5,ease:'back.out(1.3)'}},.2);
+tl.to('.lyric',{{textShadow:'0 0 .4em {palette.primary}aa,0 0 1.2em {palette.primary}66',duration:1.0,ease:'sine.inOut'}},.8);
+tl.to('.lyric',{{textShadow:'0 0 .3em {palette.primary}88,0 0 .8em {palette.primary}44',duration:1.0,ease:'sine.inOut'}},1.8);
+"""
+    return (
+        _document(
+            css,
+            body,
+            script,
+            2.8,
+            exit_style="soft_fade",
+            full_bleed=True,
+        ),
+        2.8,
+    )
+
+
+def _scene_comparison_card(
+    content: Mapping[str, object],
+    palette: BlueprintPalette,  # pylint: disable=unused-argument
+) -> tuple[str, float]:
+    """对比推导卡：左右分栏+标签+箭头+底部结果高亮，适合教学对比。"""
+
+    left_label = require_chinese_copy(
+        str(content.get("left_label") or ""),
+        "left_label",
+    )
+    right_label = require_chinese_copy(
+        str(content.get("right_label") or ""),
+        "right_label",
+    )
+    left_text = require_chinese_copy(
+        str(content.get("left_text") or ""),
+        "left_text",
+    )
+    right_text = require_chinese_copy(
+        str(content.get("right_text") or ""),
+        "right_text",
+    )
+    result = require_chinese_copy(str(content.get("result") or ""), "result")
+    if not (left_text and right_text):
+        raise ValueError("对比卡需要 left_text 和 right_text")
+
+    css = """
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+.stage{position:absolute;inset:0;background:linear-gradient(160deg,#f8fafc 0%,#eef2ff 55%,#e0e7ff 100%);font-family:"PingFang SC","Noto Sans SC",sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2.4vh}
+.row{display:flex;align-items:stretch;gap:3vw;width:86%}
+.panel{flex:1;display:flex;flex-direction:column;align-items:center;gap:1.4vh;padding:3vh 3vw;background:#ffffff;border-radius:2vh;border:.3vh solid rgba(99,102,241,.2);box-shadow:0 .4vh 1.6vh rgba(99,102,241,.08)}
+.label{padding:.8vh 2.4vh;border-radius:99px;font-size:2.8vh;font-weight:700;letter-spacing:.04em}
+.l-label{background:#fee2e2;color:#dc2626}
+.r-label{background:#dcfce7;color:#16a34a}
+.body{font-family:Georgia,"Times New Roman","Songti SC",serif;font-size:5vh;color:#0f172a;text-align:center;line-height:1.4}
+.arrow{font-size:5vh;color:#6366f1;flex:none;display:flex;align-items:center}
+.result{padding:1.4vh 3vh;border-radius:1.6vh;background:#ecfdf5;border:.3vh solid rgba(16,185,129,.5);font-size:4.4vh;color:#047857;font-weight:700}
+"""
+    body = (
+        "<div class='stage'>"
+        "<div class='row'>"
+        f"<div class='panel'><div class='label l-label'>{escape(left_label or '前')}</div>"
+        f"<div class='body'>{escape(left_text)}</div></div>"
+        "<div class='arrow'>→</div>"
+        f"<div class='panel'><div class='label r-label'>{escape(right_label or '后')}</div>"
+        f"<div class='body'>{escape(right_text)}</div></div>"
+        "</div>"
+    )
+    if result:
+        body += f"<div class='result'>{escape(result)}</div>"
+    body += "</div>"
+
+    script = """
+tl.fromTo('.stage',{autoAlpha:.5},{autoAlpha:1,duration:.4,ease:'power1.out'},0);
+tl.fromTo('.panel',{autoAlpha:.3,y:'3%'},{autoAlpha:1,y:'0%',duration:.5,stagger:.15,ease:'power3.out'},.1);
+tl.fromTo('.arrow',{autoAlpha:.3,scale:.7},{autoAlpha:1,scale:1,duration:.4,ease:'back.out(1.4)'},.3);
+tl.fromTo('.result',{autoAlpha:.35,scale:.94},{autoAlpha:1,scale:1,duration:.5,ease:'back.out(1.4)'},.8);
+"""
+    return (
+        _document(css, body, script, 2.2, exit_style="none", full_bleed=True),
+        2.2,
+    )
+
+
 SCENE_BLUEPRINTS = {
     "edu_step_card": _scene_edu_step_card,
+    "lyric_card": _scene_lyric_card,
+    "comparison_card": _scene_comparison_card,
 }
 
 
@@ -761,20 +1362,230 @@ def render_decoration_blueprint(
     )
 
 
+# ---------------------------------------------------------------------------
+# Content-type aware effect matching
+# ---------------------------------------------------------------------------
+
+CONTENT_TYPES = (
+    "short_drama",
+    "interview",
+    "pets",
+    "gaming",
+    "sports",
+    "travel",
+    "general",
+)
+
+_CONTENT_TYPE_PALETTES: dict[str, dict[str, object]] = {
+    "short_drama": {
+        "caption_order": (
+            "ink_reveal",
+            "drama_whisper",
+            "glow_breath",
+            "brush_strike",
+        ),
+        "decoration_catalog": ("ink_splash", "particle_drift", "bokeh_float"),
+        "frame": "warm_journal",
+        "transitions": ("fade", "fadeblack", "fadewhite", "dissolve"),
+        "color_grade": "ink_wash",
+        "palette": {
+            "primary": "#e99e88",
+            "secondary": "#8a6f60",
+            "ink": "#55473d",
+            "paper": "#fffaf2",
+        },
+    },
+    "interview": {
+        "caption_order": ("static_capsule", "keyword_spotlight", "ink_reveal"),
+        "decoration_catalog": ("particle_drift", "grid_pulse", "wave_flow"),
+        "frame": "chalk_board",
+        "transitions": ("fade", "fadeblack", "slideleft", "horzopen"),
+        "color_grade": "clean_cool",
+        "palette": {
+            "primary": "#4a90d9",
+            "secondary": "#2c3e50",
+            "ink": "#1a1a2e",
+            "paper": "#f5f7fa",
+        },
+    },
+    "pets": {
+        "caption_order": ("handwritten_note", "stagger_pop", "glow_breath"),
+        "decoration_catalog": (
+            "bokeh_float",
+            "confetti_drift",
+            "particle_drift",
+            "wave_flow",
+        ),
+        "frame": "kraft_paper",
+        "transitions": ("fade", "wipeleft", "wiperight", "circleopen"),
+        "color_grade": "vlog_fresh",
+        "palette": {
+            "primary": "#ff9a2f",
+            "secondary": "#5a3d1f",
+            "ink": "#231f1a",
+            "paper": "#fff8df",
+        },
+    },
+    "gaming": {
+        "caption_order": ("neon_pulse", "brush_strike", "stagger_pop"),
+        "decoration_catalog": (
+            "eq_bars",
+            "orbit_rings",
+            "grid_pulse",
+            "confetti_drift",
+        ),
+        "frame": "neon_glow",
+        "transitions": ("fade", "pixelize", "circleclose", "radial", "zoomin"),
+        "color_grade": "neon_vivid",
+        "palette": {
+            "primary": "#70f0dc",
+            "secondary": "#3a3560",
+            "ink": "#171527",
+            "paper": "#f8f5ff",
+        },
+    },
+    "sports": {
+        "caption_order": ("brush_strike", "stagger_pop", "keyword_spotlight"),
+        "decoration_catalog": ("orbit_rings", "eq_bars", "confetti_drift"),
+        "frame": "pop_variety",
+        "transitions": (
+            "fade",
+            "wipeleft",
+            "slideright",
+            "circleopen",
+            "zoomin",
+        ),
+        "color_grade": "warm_bright",
+        "palette": {
+            "primary": "#e63946",
+            "secondary": "#1d3557",
+            "ink": "#0d1b2a",
+            "paper": "#f1faee",
+        },
+    },
+    "travel": {
+        "caption_order": ("handwritten_note", "glow_breath", "stagger_pop"),
+        "decoration_catalog": (
+            "bokeh_float",
+            "wave_flow",
+            "particle_drift",
+            "confetti_drift",
+        ),
+        "frame": "kraft_paper",
+        "transitions": (
+            "fade",
+            "wipeleft",
+            "wiperight",
+            "dissolve",
+            "circleopen",
+        ),
+        "color_grade": "vlog_fresh",
+        "palette": {
+            "primary": "#2ec4b6",
+            "secondary": "#cbf3f0",
+            "ink": "#1a535c",
+            "paper": "#ffefe8",
+        },
+    },
+    "general": {
+        "caption_order": (
+            "stagger_pop",
+            "ink_reveal",
+            "glow_breath",
+            "static_capsule",
+        ),
+        "decoration_catalog": (
+            "particle_drift",
+            "wave_flow",
+            "orbit_rings",
+            "bokeh_float",
+        ),
+        "frame": "pop_variety",
+        "transitions": ("fade", "fadeblack", "dissolve", "wipeleft"),
+        "color_grade": "warm_bright",
+        "palette": {
+            "primary": "#ffb35c",
+            "secondary": "#2a2622",
+            "ink": "#241f1b",
+            "paper": "#fff8ec",
+        },
+    },
+}
+
+
+def suggested_transitions_for_content(content_type: str) -> tuple[str, ...]:
+    """Preferred transition palette for a content type."""
+
+    prefs = _CONTENT_TYPE_PALETTES.get(content_type)
+    if prefs:
+        return tuple(prefs["transitions"])  # type: ignore[arg-type]
+    return ("fade", "fadeblack", "dissolve")
+
+
+def suggested_color_grade(content_type: str) -> str:
+    """Default color grade preset for a content type."""
+
+    prefs = _CONTENT_TYPE_PALETTES.get(content_type)
+    if prefs:
+        return str(prefs["color_grade"])
+    return ""
+
+
+def content_type_palette(content_type: str) -> BlueprintPalette | None:
+    """Default palette for a content type, or None if unknown."""
+
+    prefs = _CONTENT_TYPE_PALETTES.get(content_type)
+    if not prefs:
+        return None
+    raw = prefs["palette"]
+    if not isinstance(raw, dict):
+        return None
+    return BlueprintPalette(
+        primary=_color(raw.get("primary"), "#ffb35c"),
+        secondary=_color(raw.get("secondary"), "#2a2622"),
+        ink=_color(raw.get("ink"), "#241f1b"),
+        paper=_color(raw.get("paper"), "#fff8ec"),
+    )
+
+
+def content_type_frame(content_type: str) -> str:
+    """Default frame blueprint for a content type."""
+
+    prefs = _CONTENT_TYPE_PALETTES.get(content_type)
+    if prefs:
+        return str(prefs["frame"])
+    return "pop_variety"
+
+
+def content_type_caption_order(content_type: str) -> tuple[str, ...]:
+    """Caption blueprint fallback rotation for a content type."""
+
+    prefs = _CONTENT_TYPE_PALETTES.get(content_type)
+    if prefs:
+        return tuple(prefs["caption_order"])  # type: ignore[arg-type]
+    return CAPTION_BLUEPRINT_ORDER
+
+
 __all__ = [
     "BLUEPRINT_VERSION",
     "CAPTION_BLUEPRINTS",
     "CAPTION_BLUEPRINT_ORDER",
+    "CONTENT_TYPES",
     "DECORATION_BLUEPRINTS",
     "FRAME_BLUEPRINTS",
     "SCENE_BLUEPRINTS",
     "BlueprintPalette",
     "blueprint_catalog_text",
+    "content_type_caption_order",
+    "content_type_frame",
+    "content_type_palette",
     "render_caption_blueprint",
     "render_decoration_blueprint",
     "render_frame_blueprint",
     "render_scene_blueprint",
     "require_chinese_copy",
+    "suggested_color_grade",
+    "suggested_transitions_for_content",
     "validated_frame_window",
     "validated_palette",
 ]

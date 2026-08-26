@@ -24,7 +24,9 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
     assert not any("qoder-agent-sdk" in item for item in dependencies)
     assert extras["codex"] == ["openai-codex==0.144.4"]
     assert extras["qoder"] == ["qoder-agent-sdk==1.0.9"]
-    assert extras["full"] == ["qwenpaw[local,whisper,codex,qoder]"]
+    assert extras["full"] == [
+        "qwenpaw[hub,local,whisper,codex,qoder]",
+    ]
 
 
 @pytest.mark.asyncio

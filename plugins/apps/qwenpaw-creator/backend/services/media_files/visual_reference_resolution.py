@@ -4,9 +4,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from domain.errors import ValidationError
-from services.project_files.models import Project, R2VCreation, VisualEntity
+from services.project_files.models import (
+    Project,
+    R2VCreation,
+    VisualEntity,
+)
 
 
 def _owner_entity_id(owner_ref: str | None) -> str | None:
@@ -185,4 +190,81 @@ def resolve_r2v_visual_reference_version_ids(
     )
 
 
-__all__ = ["resolve_r2v_visual_reference_version_ids"]
+def preview_r2v_reference_order(
+    project: Project,
+    element_id: str,
+) -> dict[str, Any]:
+    """Authoritative ``[Image N]`` order preview for one r2v Element.
+
+    Mirrors the submit path exactly (storyboard first, then the resolved
+    visual reference chain, deduplicated in order) so the frontend can label
+    each reference with the index the video prompt will cite.  Entity
+    binding and deduplication reorder references, which makes the order
+    impossible to reconstruct client-side from the raw creation fields.
+    """
+
+    from services.media_files.element_adapter import (
+        find_timeline_element,
+        selected_element_output,
+    )
+
+    _, element = find_timeline_element(project, element_id)
+    creation = element.creation
+    if not isinstance(creation, R2VCreation):
+        raise ValidationError(
+            f"Element creation.type={creation.type} 不使用 [Image N] 参考序列",
+        )
+    selected_storyboard = selected_element_output(
+        project,
+        element,
+        "storyboard",
+    )
+    storyboard_id = (
+        selected_storyboard[1] if selected_storyboard is not None else None
+    )
+    version_ids = list(
+        dict.fromkeys(
+            [
+                *([storyboard_id] if storyboard_id else []),
+                *resolve_r2v_visual_reference_version_ids(
+                    project,
+                    creation,
+                    creation.video_reference_version_ids,
+                ),
+            ],
+        ),
+    )
+    references: list[dict[str, Any]] = []
+    for index, version_id in enumerate(version_ids, start=1):
+        source = project.assets.source_versions_by_id.get(version_id)
+        artifact = project.assets.artifact_versions_by_id.get(version_id)
+        version = source if source is not None else artifact
+        if version_id == storyboard_id:
+            kind = "storyboard"
+        elif source is not None:
+            kind = "source"
+        else:
+            kind = "artifact"
+        references.append(
+            {
+                "index": index,
+                "versionId": version_id,
+                "kind": kind,
+                "name": (
+                    version.name
+                    if version is not None and version.name
+                    else version_id
+                ),
+            },
+        )
+    return {
+        "elementId": element_id,
+        "storyboardSelected": storyboard_id is not None,
+        "references": references,
+    }
+
+
+__all__ = [
+    "preview_r2v_reference_order",
+    "resolve_r2v_visual_reference_version_ids",
+]

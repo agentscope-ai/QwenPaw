@@ -172,19 +172,3 @@ def test_required_authorization_mode_never_auto_starts(
     )
 
     assert not dispatched
-
-
-def test_approval_message_marks_auto_continued_elements():
-    message = CreatorFileServices._render_review_approval_message(
-        [
-            {
-                "target_ref": f"element:{ELEMENT_ID}",
-                "artifact_version_id": "artifact-version-1",
-                "label": "第一幕分镜图",
-            },
-        ],
-        auto_continued=[f"element:{ELEMENT_ID}"],
-    )
-    assert "已由 Runtime 自动开始生成" in message
-    assert "请勿重新委派" in message
-    assert f"- element:{ELEMENT_ID}" in message

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextvars import ContextVar
+from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
 
+from qwenpaw.app.agent_context import peek_current_agent_id
 from qwenpaw.token_usage.buffer import (
     TokenUsageBuffer,
     _UsageEvent,
@@ -20,9 +23,38 @@ from qwenpaw.token_usage.manager import (
     TokenUsageRecord,
     TokenUsageStats,
     TokenUsageSummary,
+    _usage_agent_id,
 )
 from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 from qwenpaw.token_usage.storage import load_data, save_data_sync
+
+_EMPTY_AGENT_KEY = "\x1f".join(("", "openai", "gpt-4"))
+_NAMED_AGENT_KEY = "\x1f".join(("bot-a", "openai", "gpt-4"))
+
+
+def _ev(**kwargs) -> _UsageEvent:
+    base = {
+        "provider_id": "openai",
+        "model_name": "gpt-4",
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "date_str": "2026-04-24",
+        "now_iso": "2026-04-24T10:00:00+00:00",
+    }
+    base.update(kwargs)
+    return _UsageEvent(**base)
+
+
+def _row(**kwargs) -> dict:
+    base = {
+        "provider_id": "openai",
+        "model_name": "gpt-4",
+        "prompt_tokens": 1,
+        "completion_tokens": 1,
+        "call_count": 1,
+    }
+    base.update(kwargs)
+    return base
 
 
 # =============================================================================
@@ -52,19 +84,8 @@ class TestApplyEvent:
     def test_apply_event_creates_new_entry(self):
         """Should create new entry for first event."""
         cache = {}
-        event = _UsageEvent(
-            provider_id="openai",
-            model_name="gpt-4",
-            prompt_tokens=100,
-            completion_tokens=50,
-            date_str="2026-04-24",
-            now_iso="2026-04-24T10:00:00+00:00",
-        )
-        _apply_event(cache, event)
-
-        assert "2026-04-24" in cache
-        assert "openai:gpt-4" in cache["2026-04-24"]
-        entry = cache["2026-04-24"]["openai:gpt-4"]
+        _apply_event(cache, _ev())
+        entry = cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 100
         assert entry["completion_tokens"] == 50
         assert entry["call_count"] == 1
@@ -73,21 +94,37 @@ class TestApplyEvent:
         """Should accumulate tokens for same provider:model on same date."""
         cache = {}
         for _ in range(3):
-            _apply_event(
-                cache,
-                _UsageEvent(
-                    provider_id="openai",
-                    model_name="gpt-4",
-                    prompt_tokens=100,
-                    completion_tokens=50,
-                    date_str="2026-04-24",
-                    now_iso="2026-04-24T10:00:00+00:00",
-                ),
-            )
-
-        entry = cache["2026-04-24"]["openai:gpt-4"]
+            _apply_event(cache, _ev())
+        entry = cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
+
+    def test_apply_event_does_not_merge_into_legacy_row(self):
+        """Named/empty agent ids stay off the legacy provider:model row."""
+        cache = {
+            "2026-04-24": {
+                "openai:gpt-4": _row(prompt_tokens=10, completion_tokens=5),
+                _EMPTY_AGENT_KEY: _row(
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    agent_id="",
+                ),
+            },
+        }
+        _apply_event(cache, _ev(agent_id="bot-a"))
+        _apply_event(
+            cache,
+            _ev(
+                agent_id="",
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        )
+        day = cache["2026-04-24"]
+        assert day["openai:gpt-4"]["call_count"] == 1
+        assert day[_NAMED_AGENT_KEY]["agent_id"] == "bot-a"
+        assert day[_EMPTY_AGENT_KEY]["agent_id"] == ""
+        assert day[_EMPTY_AGENT_KEY]["call_count"] == 2
 
 
 # =============================================================================
@@ -216,7 +253,7 @@ class TestTokenUsageBuffer:
         await asyncio.sleep(0.2)
         await buffer.stop()
 
-        entry = buffer._disk_cache["2026-04-24"]["openai:gpt-4"]
+        entry = buffer._disk_cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
 
@@ -299,7 +336,7 @@ class TestTokenUsageBuffer:
 
         written = json.loads(path.read_text(encoding="utf-8"))
         assert written["2026-04-23"]["openai:gpt-4"]["prompt_tokens"] == 7
-        assert written["2026-04-24"]["openai:gpt-4"]["prompt_tokens"] == 100
+        assert written["2026-04-24"][_EMPTY_AGENT_KEY]["prompt_tokens"] == 100
 
     @pytest.mark.asyncio
     async def test_flush_retries_after_transient_write_failure(
@@ -394,6 +431,7 @@ class TestTokenUsageModels:
         assert record.date == "2026-04-24"
         assert record.provider_id == "openai"
         assert record.model == "gpt-4"
+        assert record.agent_id is None
 
     def test_empty_summary(self):
         """Should create empty summary with defaults."""
@@ -606,8 +644,124 @@ class TestTokenUsageManagerCore:
         models = {r.model for r in details}
         assert "gpt-4" in models
         assert "qwen3-max" in models
+        assert all(r.agent_id == "" for r in details)
 
         await manager.stop()
+
+    @pytest.mark.asyncio
+    async def test_get_details_legacy_and_agent_rows(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Legacy rows stay unattributed; agent keys keep model and id."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "t.json",
+        )
+        (tmp_path / "t.json").write_text(
+            json.dumps(
+                {
+                    "2026-04-24": {
+                        "k": _row(
+                            provider_id="o",
+                            model_name="m",
+                        ),
+                        _EMPTY_AGENT_KEY: _row(model_name=""),
+                        _NAMED_AGENT_KEY: _row(agent_id="bot-a"),
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+        manager = TokenUsageManager()
+        manager.start(flush_interval=10)
+        rows = await manager.get_details(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 24),
+        )
+        assert rows[0].agent_id is None
+        missing = next(r for r in rows if r.provider_id == "openai")
+        assert missing.model == "gpt-4"
+        assert "\x1f" not in missing.model
+        named = next(r for r in rows if r.agent_id == "bot-a")
+        assert named.model == "gpt-4"
+        await manager.stop()
+
+    @pytest.mark.asyncio
+    async def test_query_legacy_key_fallback_without_model_name(self):
+        """Legacy colon keys should recover the model name from the key."""
+        manager = TokenUsageManager()
+        merged = {
+            "2026-04-24": {
+                "prov2:model-from-key": {
+                    "provider_id": "prov2",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "call_count": 1,
+                },
+                "ollama:namespace:model:tag": {
+                    "provider_id": "ollama",
+                    "prompt_tokens": 7,
+                    "completion_tokens": 3,
+                    "call_count": 2,
+                },
+            },
+        }
+
+        # pylint: disable=protected-access
+        rows = await manager._query(
+            merged,
+            date(2026, 4, 24),
+            date(2026, 4, 24),
+            None,
+            None,
+        )
+
+        assert [row.model_dump() for row in rows] == [
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "call_count": 1,
+                "date": "2026-04-24",
+                "provider_id": "prov2",
+                "model": "model-from-key",
+                "agent_id": None,
+            },
+            {
+                "prompt_tokens": 7,
+                "completion_tokens": 3,
+                "call_count": 2,
+                "date": "2026-04-24",
+                "provider_id": "ollama",
+                "model": "namespace:model:tag",
+                "agent_id": None,
+            },
+        ]
+
+        # pylint: disable=protected-access
+        filtered = await manager._query(
+            merged,
+            date(2026, 4, 24),
+            date(2026, 4, 24),
+            "model-from-key",
+            None,
+        )
+        assert [row.model_dump() for row in filtered] == [
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "call_count": 1,
+                "date": "2026-04-24",
+                "provider_id": "prov2",
+                "model": "model-from-key",
+                "agent_id": None,
+            },
+        ]
 
 
 # =============================================================================
@@ -619,6 +773,16 @@ class TestTokenRecordingModelWrapper:
     """Test TokenRecordingModelWrapper."""
 
     # pylint: disable=protected-access
+
+    def _stream_harness(self, _tmp_path, monkeypatch):
+        captured: list = []
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper.get_token_usage_manager",
+            lambda: MagicMock(enqueue=captured.append),
+        )
+        model = MagicMock()
+        model.model = "gpt-4"
+        return TokenRecordingModelWrapper("openai", model), captured
 
     def test_init_wraps_model(self, tmp_path, monkeypatch):
         """Should wrap a ChatModelBase instance."""
@@ -670,6 +834,38 @@ class TestTokenRecordingModelWrapper:
         mock_usage.output_tokens = 50
 
         wrapper._record_usage(mock_usage)
+
+    def test_record_usage_uses_contextvar_agent_id(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Should stamp ContextVar agent id onto the event."""
+        fake_var = MagicMock()
+        fake_var.get.return_value = "bot-a"
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context._current_agent_id",
+            fake_var,
+        )
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 100
+        usage.output_tokens = 50
+        wrapper._record_usage(usage)
+        assert captured[0].agent_id == "bot-a"
+        fake_var.get.return_value = None
+        wrapper._record_usage(usage)
+        assert captured[1].agent_id == ""
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context._current_agent_id",
+            ContextVar("current_agent_id", default=None),
+        )
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_active_agent_id",
+            lambda: "default",
+        )
+        assert peek_current_agent_id() == ""
+        assert _usage_agent_id() == ""
 
     def test_record_usage_includes_context_and_threshold(
         self,

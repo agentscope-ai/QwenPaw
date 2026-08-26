@@ -15,6 +15,8 @@ import {
   DataTables,
   EmptyState,
 } from "./components";
+import { useAgentStore } from "../../../stores/agentStore";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { useDataAggregation } from "./hooks/useDataAggregation";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
@@ -24,6 +26,11 @@ function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const agents = useAgentStore((state) => state.agents);
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
@@ -101,6 +108,34 @@ function TokenUsagePage() {
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [aggregatedData?.by_date]);
 
+  const byAgentData = useMemo(() => {
+    if (!aggregatedData?.by_agent) return [];
+    return Object.entries(aggregatedData.by_agent)
+      .map(([key, stats]) => {
+        const agentId = stats.agent_id;
+        let agent: string;
+        if (!agentId) {
+          agent = t("tokenUsage.unattributed");
+        } else {
+          const profile = agentsById.get(agentId);
+          agent = profile ? getAgentDisplayName(profile, t) : agentId;
+        }
+        return {
+          key,
+          agent,
+          prompt_tokens: stats.prompt_tokens,
+          completion_tokens: stats.completion_tokens,
+          call_count: stats.call_count,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.prompt_tokens +
+          b.completion_tokens -
+          (a.prompt_tokens + a.completion_tokens),
+      );
+  }, [aggregatedData?.by_agent, agentsById, t]);
+
   const pageHeader = (
     <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
   );
@@ -162,7 +197,11 @@ function TokenUsagePage() {
         {byModelData.length === 0 && byDateData.length === 0 ? (
           <EmptyState message={t("tokenUsage.noData")} />
         ) : (
-          <DataTables byModelData={byModelData} byDateData={byDateData} />
+          <DataTables
+            byModelData={byModelData}
+            byDateData={byDateData}
+            byAgentData={byAgentData}
+          />
         )}
       </div>
     </div>

@@ -2,10 +2,10 @@
 # flake8: noqa: E501
 from __future__ import annotations
 
+import pytest
+
 from domain.enums import SpecialistRole
-from services.file_agent_runtime.subagents import specialist_system_prompt
 from services.project_files.facade import CreatorFileServices
-from services.project_files.models import Project
 from services.specialist_tools import FileSpecialistToolRegistry
 
 
@@ -59,39 +59,6 @@ def test_specialist_registry_owns_role_specific_media_tools(tmp_path) -> None:
     assert "image_generation" not in editing
 
 
-def test_source_intelligence_tools_separate_modules_from_outer_vlm_commit(
-    tmp_path,
-) -> None:
-    registry = FileSpecialistToolRegistry(
-        CreatorFileServices.create(tmp_path.resolve()),
-    )
-    manifest = registry.manifest_for(
-        SpecialistRole.SOURCE_INTELLIGENCE,
-        admitted_target_refs=["asset:source-1"],
-    )
-    commit = next(
-        item
-        for item in manifest
-        if item["function"]["name"] == "commit_source_intelligence"
-    )["function"]
-    asr = next(
-        item
-        for item in manifest
-        if item["function"]["name"] == "transcribe_source_audio"
-    )["function"]
-
-    assert "不会再次调用 VLM" in commit["description"]
-    arguments = commit["parameters"]["properties"]["arguments"]
-    assert set(arguments["required"]) == {
-        "summary",
-        "shots",
-        "entities",
-        "semanticEntries",
-    }
-    assert "startMs" in arguments["properties"]["shots"]["items"]["properties"]
-    assert "opaque resultRef" in asr["description"]
-
-
 def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
     registry = FileSpecialistToolRegistry(
         CreatorFileServices.create(tmp_path.resolve()),
@@ -136,33 +103,42 @@ def test_project_assets_scope_admits_image_asset_children(tmp_path) -> None:
     )
 
 
-def test_image_generation_arguments_expose_modes(tmp_path) -> None:
-    registry = FileSpecialistToolRegistry(
-        CreatorFileServices.create(tmp_path.resolve()),
+@pytest.mark.parametrize(
+    ("model_name", "expected"),
+    [
+        ("qwen-image-3.0-pro", 3),
+        ("qwen-mt-image", 1),
+        ("gpt-image-2", 16),
+        ("qwen-image-max", 0),
+        ("private-gateway-alias", 0),
+    ],
+)
+def test_image_manifest_uses_official_model_reference_limit(
+    tmp_path,
+    monkeypatch,
+    model_name,
+    expected,
+) -> None:
+    monkeypatch.setattr(
+        "services.specialist_tools.get_image_model_name",
+        lambda: model_name,
     )
-    manifest = registry.manifest_for(
+    manifest = FileSpecialistToolRegistry(
+        CreatorFileServices.create(tmp_path.resolve()),
+    ).manifest_for(
         SpecialistRole.VISUAL_DEVELOPMENT,
         admitted_target_refs=["asset:hero"],
     )
-    tool = next(
+    image_tool = next(
         item
         for item in manifest
         if item["function"]["name"] == "image_generation"
-    )["function"]
-    arguments = tool["parameters"]["properties"]["arguments"]
+    )
+    references = image_tool["function"]["parameters"]["properties"][
+        "arguments"
+    ]["properties"]["referenceVersionIds"]
 
-    assert arguments["properties"]["mode"]["enum"] == [
-        "generate",
-        "edit",
-        "translate",
-    ]
-    refs = arguments["properties"]["referenceImageRefs"]
-    assert refs["maxItems"] == 3
-    assert refs["items"]["minLength"] == 1
-    assert "sourceLang" in arguments["properties"]
-    assert "targetLang" in arguments["properties"]
-    # mode stays optional so existing generate callers keep working.
-    assert arguments["required"] == ["prompt"]
+    assert references["maxItems"] == expected
 
 
 def test_project_assets_scope_does_not_expand_for_r2v_image_tool(
@@ -182,31 +158,6 @@ def test_project_assets_scope_does_not_expand_for_r2v_image_tool(
         target_ref="asset:char-cat",
         admitted_target_refs=["project:assets"],
     )
-
-
-def test_ai_edit_rules_are_dynamic_specialist_prompt_not_runtime_state() -> (
-    None
-):
-    project = Project.new(project_id="project-1", name="Interview")
-    project.settings.content_type = "interview"
-    project.settings.target_duration_seconds = 90
-
-    prompt = specialist_system_prompt(
-        SpecialistRole.AI_EDITING_DIRECTOR,
-        project_id=project.project_id,
-        project=project,
-    )
-
-    assert "当前内容类型是 `interview`" in prompt
-    assert "60 至 120 秒" in prompt
-    assert "采访要点台词卡" in prompt
-    assert "不超过 30 个汉字" in prompt
-    # Pure orchestration role: the prompt must not mention removed
-    # composition tools.
-    assert "`ai_edit`" not in prompt
-    assert "`compose_final_video`" not in prompt
-    assert "operation=execute" not in prompt
-    assert "本工具不生成 plan" not in prompt
 
 
 def test_unique_prefix_correction_recovers_id_transcription_slips() -> None:

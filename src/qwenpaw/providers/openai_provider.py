@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any, ClassVar, List
 from urllib.parse import urlparse
 
 import httpx
@@ -848,7 +848,7 @@ class OpenAIProvider(Provider):
 
 
 class _FreeSuffixProviderMixin:
-    """Mixin for providers that mark models as free by suffix."""
+    """Mixin for providers with API or suffix-based free model flags."""
 
     _FREE_SUFFIX = "-free"
 
@@ -856,7 +856,7 @@ class _FreeSuffixProviderMixin:
         self,
         timeout: float = 5,
     ) -> List[ModelInfo]:
-        """Fetch models and mark free ones by suffix."""
+        """Fetch models and resolve free status from API data or suffix."""
         client = self._client(timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
@@ -875,7 +875,17 @@ class _FreeSuffixProviderMixin:
             if not model_id or model_id in seen:
                 continue
             seen.add(model_id)
-            is_free = model_id.endswith(suffix)
+            # Prefer the gateway's explicit pricing flag when available.
+            # Some Kilo free routes, such as ``kilo-auto/free``, do not use
+            # the provider's usual ``:free`` suffix.
+            api_free = getattr(row, "isFree", None)
+            if api_free is None:
+                api_free = getattr(row, "is_free", None)
+            is_free = (
+                bool(api_free)
+                if api_free is not None
+                else model_id.endswith(suffix)
+            )
             display_name = (
                 model_id.removesuffix(suffix)
                 .replace("-", " ")
@@ -896,6 +906,24 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """OpenCode provider with dynamic free model detection."""
 
     _FREE_SUFFIX = "-free"
+    _UNAVAILABLE_MODEL_IDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "deepseek-v4-flash-free",
+            "nemotron-3-super-free",
+        },
+    )
+
+    async def fetch_models(
+        self,
+        timeout: float = 5,
+    ) -> List[ModelInfo]:
+        """Exclude models that OpenCode lists but no longer serves."""
+        models = await super().fetch_models(timeout=timeout)
+        return [
+            model
+            for model in models
+            if model.id not in self._UNAVAILABLE_MODEL_IDS
+        ]
 
 
 class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):

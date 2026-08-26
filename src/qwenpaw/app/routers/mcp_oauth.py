@@ -33,6 +33,7 @@ from ...drivers.constants import PROTOCOL_MCP
 from ...drivers.credentials.store import AsyncCredentialStore
 from ...drivers.credentials.types import CredentialRecord
 from ...drivers.errors import CredentialNotFoundError
+from ...utils.oauth_callback import managed_oauth_callback_url
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +340,9 @@ def _redirect_uri(request: Request) -> str:
     automatically included.  Falls back to a manually constructed URL
     if url_for is unavailable (e.g. in tests).
     """
+    managed_url = managed_oauth_callback_url(request)
+    if managed_url:
+        return managed_url
     try:
         return str(request.url_for("oauth_callback"))
     except Exception:

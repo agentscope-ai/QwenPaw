@@ -628,7 +628,7 @@
   border: 1px solid rgba(250, 173, 20, 0.2);
 }
 
-.autoUpdateTag {
+.automationTag {
   font-size: 11px;
   padding: 1px 8px;
   border-radius: 4px;
@@ -870,12 +870,76 @@
   color: rgba(20, 20, 19, 0.55);
 }
 
-.autoUpdateButton {
+.automationButton {
   flex: 0 0 auto;
   width: 34px;
   height: 34px;
   cursor: pointer;
   border-radius: 8px;
+}
+
+.automationMixedButton {
+  position: relative;
+  border-color: #d48806;
+  color: #d48806;
+  background: rgba(250, 173, 20, 0.08);
+
+  &::after {
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    width: 10px;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    content: "";
+    transform: translateX(-50%);
+  }
+}
+
+.automationPanel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(239, 240, 243, 0.35);
+}
+
+.automationSetting {
+  display: grid;
+  gap: 5px;
+
+  & + & {
+    padding-top: 12px;
+    border-top: 1px solid rgba(0, 0, 0, 0.07);
+  }
+}
+
+.automationSettingHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.automationSettingTitle {
+  color: rgba(20, 20, 19, 0.88);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.automationFlow,
+.automationTargetsHint {
+  color: rgba(20, 20, 19, 0.55);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.automationTargets {
+  display: grid;
+  gap: 4px;
+  padding-top: 4px;
 }
 
 /* ─── Dark Mode ───────────────────────────────────────────────────────────── */
@@ -1031,10 +1095,36 @@
     border-color: rgba(250, 173, 20, 0.25);
   }
 
-  .autoUpdateTag {
+  .automationTag {
     background-color: rgba(82, 196, 26, 0.15);
     color: #73d13d;
     border-color: rgba(82, 196, 26, 0.25);
+  }
+
+  .automationPanel {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .automationSetting {
+    & + & {
+      border-top-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .automationSettingTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .automationFlow,
+  .automationTargetsHint {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .automationMixedButton {
+    border-color: #ffc53d;
+    color: #ffc53d;
+    background: rgba(250, 173, 20, 0.12);
   }
 
   .metaInfoRow {
