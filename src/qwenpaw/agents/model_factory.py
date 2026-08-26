@@ -482,7 +482,11 @@ async def _prepare_media_sources(
 
 
 def _resize_base64_images(items: list, max_pixels: int) -> int:
-    """Resize base64 images in a copied request message tree."""
+    """Resize base64 images in a copied request message tree.
+
+    Resize failures intentionally propagate so unsupported or corrupt
+    images are never sent unchanged as an implicit fallback.
+    """
     resized_count = 0
     for block in items:
         kind = _media_kind(block)

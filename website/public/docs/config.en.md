@@ -125,6 +125,8 @@ You can customize paths and behavior via environment variables:
 | `QWENPAW_MAX_IMAGE_PIXELS`             | unset           | Maximum inline-image pixel count (`width * height`) used for request-time proportional resizing. Unset, empty, or `0` disables resizing; invalid or negative values fail the request with a configuration error |
 | `QWENPAW_CONSOLE_STATIC_DIR`           | _(auto-detect)_ | Console frontend static files path                                                                                                                                                                              |
 
+When resizing is enabled, an image that requires resizing but cannot be processed fails the request with an explicit error. The original image is not sent as a fallback.
+
 **LLM streaming timeouts:**
 
 | Variable                                   | Default | Description                                                                                                                     |
