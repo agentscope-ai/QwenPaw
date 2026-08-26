@@ -1515,11 +1515,11 @@ class TestDingTalkWorkspaceIntegration:
         dingtalk_channel.set_workspace(mock_workspace)
         return dingtalk_channel
 
-    async def test_stream_with_tracker_yields_sse_events(
+    async def test_stream_with_tracker_yields_event_snapshots(
         self,
         dingtalk_with_workspace,
     ):
-        """_stream_with_tracker should yield SSE formatted events."""
+        """_stream_with_tracker should yield structured event snapshots."""
         from qwenpaw.schemas import (
             RunStatus,
             Event,
@@ -1563,7 +1563,7 @@ class TestDingTalkWorkspaceIntegration:
             break  # Just check first event
 
         assert len(events) == 1
-        assert "data:" in events[0]
+        assert events[0]["type"] == "message.completed"
 
 
 @pytest.mark.asyncio

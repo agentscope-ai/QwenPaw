@@ -8,6 +8,7 @@ client's stream reader completes normally and falls back to loading the
 persisted history. Returning ``None`` produced a JSON ``null`` body,
 which left the chat UI blank until a manual refresh.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ def console_workspace(workspace_mock):
 
     async def _stream_one(payload):
         stream_calls.append(payload)
-        yield "data: should-not-happen\n\n"
+        yield {"type": "should-not-happen"}
 
     console_channel.stream_one = _stream_one
     console_channel.stream_calls = stream_calls
@@ -130,7 +131,8 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     release = asyncio.Event()
 
     async def slow_stream(_payload):
-        yield "data: first\n\n"
+        yield {"type": "heartbeat"}
+        yield {"type": "first"}
         await release.wait()
 
     await tracker.attach_or_start("chat-1", None, slow_stream)
@@ -173,7 +175,8 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     finally:
         release.set()
 
-    assert received[0] == "data: first\n\n"
+    # Heartbeats are delivered live but excluded from reconnect replay.
+    assert json.loads(received[0][len("data: ") :]) == {"type": "first"}
     payload = json.loads(received[1][len("data: ") :])
     assert payload == {"type": "replay_end"}
     # No fresh run was started by the reconnect.

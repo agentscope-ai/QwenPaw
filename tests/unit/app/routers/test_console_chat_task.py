@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Regression tests for background console task completion."""
+
 # pylint: disable=protected-access,unused-argument
 from __future__ import annotations
 
@@ -106,8 +107,8 @@ class _ConsoleChannel:
     async def stream_one(
         self,
         payload: dict[str, Any],
-    ) -> AsyncGenerator[str, None]:
-        yield 'data: {"type":"message","output":[]}\n\n'
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        yield {"type": "message", "output": []}
 
 
 class _ChannelManager:

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for bounded multi-agent startup scheduling."""
+
 # pylint: disable=protected-access
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ import qwenpaw.app.multi_agent_manager as multi_agent_manager_module
 import qwenpaw.constant as constants
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
-from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
+from qwenpaw.app.task_tracker import REPLAY_END_EVENT, TaskTracker
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.agents.memory.adbpg_memory_manager import ADBPGMemoryManager
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
@@ -201,10 +202,10 @@ async def test_reload_reuses_tracker_for_active_stream_reconnect(
     emitted = asyncio.Event()
 
     async def producer(_payload):
-        yield "data: replayed\n\n"
+        yield {"type": "replayed"}
         emitted.set()
         await release.wait()
-        yield "data: live\n\n"
+        yield {"type": "live"}
 
     original_queue, _ = await old_workspace.task_tracker.attach_or_start(
         "chat-1",
@@ -221,13 +222,13 @@ async def test_reload_reuses_tracker_for_active_stream_reconnect(
 
     reconnect_queue = await new_workspace.task_tracker.attach("chat-1")
     assert reconnect_queue is not None
-    assert await reconnect_queue.get() == "data: replayed\n\n"
-    assert await reconnect_queue.get() == REPLAY_END_SSE
+    assert await reconnect_queue.get() == {"type": "replayed"}
+    assert await reconnect_queue.get() == REPLAY_END_EVENT
 
     cleanup_tasks = list(manager._cleanup_tasks)
     assert cleanup_tasks
     release.set()
-    assert await reconnect_queue.get() == "data: live\n\n"
+    assert await reconnect_queue.get() == {"type": "live"}
     assert await reconnect_queue.get() is None
     async for _ in old_workspace.task_tracker.stream_from_queue(
         original_queue,

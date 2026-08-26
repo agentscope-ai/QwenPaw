@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import json as _json
 import logging
 import os
 import sys
@@ -45,7 +44,6 @@ from ..base import (
     TextContent,
 )
 from ..utils import file_url_to_local_path
-
 
 logger = logging.getLogger(__name__)
 
@@ -355,8 +353,11 @@ class ConsoleChannel(BaseChannel):
         )
         self._safe_print(f"📝 {turn_line}{ctx_line}")
 
-    async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
-        """Process one payload and yield SSE-formatted events"""
+    async def stream_one(
+        self,
+        payload: Any,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Process one payload and yield JSON-compatible event snapshots."""
         if isinstance(payload, dict) and "content_parts" in payload:
             session_id = self.resolve_session_id(
                 payload.get("sender_id") or "",
@@ -454,18 +455,18 @@ class ConsoleChannel(BaseChannel):
                         headline_stream_states,
                         msg_id=msg_id,
                     ):
-                        yield f"data: {pending_data}\n\n"
+                        yield pending_data
                 elif obj == "response" and status == RunStatus.Completed:
                     for pending_data in self._flush_headline_stream_states(
                         headline_stream_states,
                     ):
-                        yield f"data: {pending_data}\n\n"
+                        yield pending_data
 
-                data = self._serialize_event_for_sse(
+                data = self._event_to_stream_data(
                     event,
                     headline_stream_states,
                 )
-                yield f"data: {data}\n\n"
+                yield data
 
                 if obj == "message" and status == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
@@ -477,19 +478,19 @@ class ConsoleChannel(BaseChannel):
             for pending_data in self._flush_headline_stream_states(
                 headline_stream_states,
             ):
-                yield f"data: {pending_data}\n\n"
+                yield pending_data
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
                 self._clear_session_turn_usage(session_id)
                 self._print_error(err_msg)
             else:
-                for sse in await self._commit_turn_usage(
+                for usage_event in await self._commit_turn_usage(
                     request,
                     session_id,
-                    emit_sse=True,
+                    emit_event=True,
                 ):
-                    yield sse
+                    yield usage_event
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
@@ -512,14 +513,11 @@ class ConsoleChannel(BaseChannel):
             self._clear_session_turn_usage(session_id)
             logger.warning("rate limit hit: %s", e)
             alternatives = self._get_free_model_alternatives()
-            rl_event = _json.dumps(
-                {
-                    "type": "rate_limited",
-                    "error": str(e).strip(),
-                    "alternatives": alternatives,
-                },
-            )
-            yield f"data: {rl_event}\n\n"
+            yield {
+                "type": "rate_limited",
+                "error": str(e).strip(),
+                "alternatives": alternatives,
+            }
             self._print_error(str(e).strip())
         except Exception as e:
             self._clear_session_turn_usage(session_id)

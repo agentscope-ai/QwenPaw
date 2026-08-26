@@ -12,16 +12,14 @@ Covers:
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import asyncio
-import json
-
 import pytest
 
-from qwenpaw.app.task_tracker import TaskTracker
-
+from qwenpaw.app.task_tracker import REPLAY_END_EVENT, TaskTracker
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,7 +34,7 @@ async def _drain(queue: asyncio.Queue, n: int) -> list:
     return items
 
 
-def _make_stream(events: list[str]):
+def _make_stream(events: list[dict]):
     async def stream(_payload):
         for ev in events:
             await asyncio.sleep(0)  # cooperate
@@ -81,7 +79,7 @@ async def test_has_active_tasks_excluding_uses_task_identity():
         )
         started.set()
         await release.wait()
-        yield "data: done\n\n"
+        yield {"type": "done"}
 
     queue, _ = await tracker.attach_or_start(
         "tracked-producer",
@@ -108,7 +106,7 @@ async def test_has_active_tasks_excluding_uses_task_identity():
 @pytest.mark.asyncio
 async def test_attach_or_start_streams_events_and_marks_completion():
     tracker = TaskTracker()
-    events = ["data: a\n\n", "data: b\n\n"]
+    events = [{"type": "a"}, {"type": "b"}]
 
     queue, is_new = await tracker.attach_or_start(
         "run-1",
@@ -160,10 +158,10 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
     release = asyncio.Event()
 
     async def slow_stream(_payload):
-        yield "data: first\n\n"
+        yield {"type": "first"}
         started.set()
         await release.wait()
-        yield "data: second\n\n"
+        yield {"type": "second"}
 
     queue_a, new_a = await tracker.attach_or_start(
         "run-2",
@@ -188,7 +186,7 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
 
     # queue_b should be pre-filled with the buffered first event.
     first_b = await asyncio.wait_for(queue_b.get(), timeout=1)
-    assert first_b == "data: first\n\n"
+    assert first_b == {"type": "first"}
 
     # Let the producer finish.
     release.set()
@@ -197,8 +195,44 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
     rest_a = await _drain(queue_a, 3)  # first, second, SENTINEL
     rest_b = await _drain(queue_b, 2)  # second, SENTINEL
 
-    assert rest_a == ["data: first\n\n", "data: second\n\n", None]
-    assert rest_b == ["data: second\n\n", None]
+    assert rest_a == [{"type": "first"}, {"type": "second"}, None]
+    assert rest_b == [{"type": "second"}, None]
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_is_live_but_not_buffered_for_reconnect():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    heartbeat = {"type": "heartbeat"}
+    content = {"type": "content", "text": "heartbeat"}
+
+    async def slow_stream(_payload):
+        yield heartbeat
+        yield content
+        started.set()
+        await release.wait()
+
+    live_queue, _ = await tracker.attach_or_start(
+        "run-heartbeat",
+        payload=None,
+        stream_fn=slow_stream,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    assert await _drain(live_queue, 2) == [heartbeat, content]
+
+    reconnect_queue = await tracker.attach("run-heartbeat")
+    assert reconnect_queue is not None
+    assert await _drain(reconnect_queue, 2) == [
+        content,
+        REPLAY_END_EVENT,
+    ]
+
+    release.set()
+    assert await asyncio.wait_for(live_queue.get(), timeout=1) is None
+    assert await asyncio.wait_for(reconnect_queue.get(), timeout=1) is None
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +248,7 @@ async def test_request_stop_cancels_live_run():
     async def long_stream(_payload):
         started.set()
         await asyncio.sleep(60)
-        yield "never"
+        yield {"type": "never"}
 
     await tracker.attach_or_start(
         "run-cancel",
@@ -242,12 +276,12 @@ async def test_request_stop_returns_false_when_no_run():
 
 
 # ---------------------------------------------------------------------------
-# Error path: producer exception broadcasts an error SSE.
+# Error path: producer exception broadcasts an error event.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_producer_exception_emits_error_sse():
+async def test_producer_exception_emits_error_event():
     tracker = TaskTracker()
 
     async def boom(_payload):
@@ -266,9 +300,7 @@ async def test_producer_exception_emits_error_sse():
     err = await asyncio.wait_for(queue.get(), timeout=1)
     sentinel = await asyncio.wait_for(queue.get(), timeout=1)
 
-    assert err.startswith("data: ")
-    payload = json.loads(err[len("data: ") :].rstrip("\n"))
-    assert payload == {"error": "internal server error"}
+    assert err == {"error": "internal server error"}
     assert sentinel is None
 
 
@@ -286,7 +318,7 @@ async def test_detach_subscriber_is_idempotent():
     async def gated(_payload):
         started.set()
         await release.wait()
-        yield "data: done\n\n"
+        yield {"type": "done"}
 
     queue, _ = await tracker.attach_or_start(
         "run-detach",
@@ -314,7 +346,7 @@ async def test_detach_subscriber_is_idempotent():
 @pytest.mark.asyncio
 async def test_stream_from_queue_yields_until_sentinel_and_detaches():
     tracker = TaskTracker()
-    events = ["data: 1\n\n", "data: 2\n\n"]
+    events = [{"type": "1"}, {"type": "2"}]
 
     queue, _ = await tracker.attach_or_start(
         "run-stream",
@@ -350,7 +382,7 @@ async def test_wait_all_done_times_out_when_task_runs():
 
     async def producer(_payload):
         await release.wait()
-        yield "data: done\n\n"
+        yield {"type": "done"}
 
     queue, _ = await tracker.attach_or_start(
         "run-long",
@@ -375,7 +407,7 @@ async def test_snapshot_active_tasks_filters_by_owner():
 
     async def producer(_payload):
         await release.wait()
-        yield "data: done\n\n"
+        yield {"type": "done"}
 
     queue_a, _ = await tracker.attach_or_start(
         "run-owner-a",
@@ -409,11 +441,11 @@ async def test_wait_tasks_done_ignores_runs_started_after_snapshot():
 
     async def old_producer(_payload):
         await release_old.wait()
-        yield "data: old\n\n"
+        yield {"type": "old"}
 
     async def new_producer(_payload):
         await release_new.wait()
-        yield "data: new\n\n"
+        yield {"type": "new"}
 
     old_queue, _ = await tracker.attach_or_start(
         "run-old",
@@ -456,7 +488,7 @@ async def test_concurrent_attach_or_start_only_one_producer():
         nonlocal invocations
         invocations += 1
         await release.wait()
-        yield "data: done\n\n"
+        yield {"type": "done"}
 
     queues = await asyncio.gather(
         tracker.attach_or_start("run-concurrent", None, producer),
@@ -492,10 +524,10 @@ async def test_attach_appends_replay_end_marker_after_buffer():
     release = asyncio.Event()
 
     async def slow_stream(_payload):
-        yield "data: first\n\n"
+        yield {"type": "first"}
         started.set()
         await release.wait()
-        yield "data: second\n\n"
+        yield {"type": "second"}
 
     queue_a, _ = await tracker.attach_or_start(
         "run-replay",
@@ -510,15 +542,12 @@ async def test_attach_appends_replay_end_marker_after_buffer():
 
     first = await asyncio.wait_for(queue_b.get(), timeout=1)
     marker = await asyncio.wait_for(queue_b.get(), timeout=1)
-    assert first == "data: first\n\n"
-    assert marker.startswith("data: ")
-    assert json.loads(marker[len("data: ") :].strip()) == {
-        "type": "replay_end",
-    }
+    assert first == {"type": "first"}
+    assert marker == REPLAY_END_EVENT
 
     release.set()
     rest_b = await _drain(queue_b, 2)
-    assert rest_b == ["data: second\n\n", None]
+    assert rest_b == [{"type": "second"}, None]
     # The original (non-reconnect) subscriber never sees the marker.
     rest_a = await _drain(queue_a, 3)
-    assert rest_a == ["data: first\n\n", "data: second\n\n", None]
+    assert rest_a == [{"type": "first"}, {"type": "second"}, None]

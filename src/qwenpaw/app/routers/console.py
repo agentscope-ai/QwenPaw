@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,6 @@ from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -64,6 +64,11 @@ class MarkInboxReadRequest(BaseModel):
 
 
 MAX_DEBUG_LOG_LINES = 1000
+
+
+def _encode_sse(data: Dict[str, Any]) -> str:
+    """Encode one internal stream event at the HTTP transport boundary."""
+    return f"data: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
 def _resolve_effective_stream_task_timeout(
@@ -446,10 +451,10 @@ async def post_console_chat(
         try:
             try:
                 async for event_data in stream_it:
-                    yield event_data
+                    yield _encode_sse(event_data)
             except Exception as e:
                 logger.exception("Console chat stream error")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                yield _encode_sse({"error": str(e)})
         finally:
             await stream_it.aclose()
 
@@ -710,17 +715,6 @@ async def get_inbox_trace(run_id: str):
 # ── Background chat task endpoints ──
 
 
-def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
-    """Parse a single SSE data line into a dict."""
-    stripped = line.strip()
-    if stripped.startswith("data: "):
-        try:
-            return json.loads(stripped[6:])
-        except (json.JSONDecodeError, ValueError):
-            return None
-    return None
-
-
 async def _finalize_background_fork(
     project_dir: str,
     branch: str,
@@ -875,12 +869,11 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         last_response: Optional[Dict[str, Any]] = None
         finalize_started = False
         try:
-            async for sse_line in console_channel.stream_one(
+            async for event_data in console_channel.stream_one(
                 native_payload,
             ):
-                parsed = _parse_sse_payload(sse_line)
-                if parsed and parsed.get("type") != "turn_usage":
-                    last_response = parsed
+                if event_data.get("type") != "turn_usage":
+                    last_response = event_data
 
             # Fork subagents: commit dirty worktree so branch tips are
             # mergeable before exposing a completed task result.

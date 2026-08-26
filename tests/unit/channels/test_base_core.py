@@ -14,6 +14,7 @@ Corresponding Tier Strategy:
 - This file: As B-tier supplement, covers complex internal logic
   (debounce, merge, permissions)
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=reimported,broad-exception-raised,using-constant-test
 from __future__ import annotations
@@ -27,7 +28,6 @@ import pytest
 # Import BaseChannel directly for internal logic testing
 from qwenpaw.app.channels.base import BaseChannel, ProcessHandler
 from qwenpaw.app.channels.console.channel import ConsoleChannel
-
 
 # =============================================================================
 # Test Fixtures (Shared Infrastructure)
@@ -890,8 +890,11 @@ class TestStreamWithTracker:
     Core streaming logic through TaskTracker.
     """
 
-    async def test_stream_with_tracker_yields_sse_events(self, base_channel):
-        """_stream_with_tracker should yield SSE-formatted events."""
+    async def test_stream_with_tracker_yields_event_snapshots(
+        self,
+        base_channel,
+    ):
+        """_stream_with_tracker should yield structured event snapshots."""
         from qwenpaw.schemas import (
             RunStatus,
             Event,
@@ -951,7 +954,7 @@ class TestStreamWithTracker:
                         break  # Just check first event
 
                     assert len(events) == 1
-                    assert "data:" in events[0]
+                    assert events[0]["type"] == "message.in_progress"
 
     async def test_stream_with_tracker_handles_exception(self, base_channel):
         """_stream_with_tracker should handle exceptions gracefully."""
@@ -1052,9 +1055,8 @@ class TestStreamWithTracker:
                         break
 
         assert len(events) == 1
-        assert events[0].startswith("data: ")
-        assert "\\ud83c" not in events[0]
-        assert "? broken" in events[0]
+        assert "\ud83c" not in events[0]["text"]
+        assert "? broken" in events[0]["text"]
 
 
 # =============================================================================

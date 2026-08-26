@@ -4,6 +4,7 @@
 """
 Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -889,8 +890,8 @@ class BaseChannel(ABC):
     async def _stream_with_tracker(
         self,
         payload: Any,
-    ) -> AsyncGenerator[str, None]:
-        """Stream events via TaskTracker, yielding SSE strings.
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream event snapshots via TaskTracker.
 
         When ``streaming_enabled``, streaming hooks are invoked for
         reasoning / message events alongside the normal path.
@@ -939,19 +940,19 @@ class BaseChannel(ABC):
                         headline_stream_states,
                         msg_id=msg_id,
                     ):
-                        yield f"data: {pending_data}\n\n"
+                        yield pending_data
                 elif obj == "response" and status == RunStatus.Completed:
                     for pending_data in self._flush_headline_stream_states(
                         headline_stream_states,
                     ):
-                        yield f"data: {pending_data}\n\n"
+                        yield pending_data
 
-                data = self._serialize_event_for_sse(
+                data = self._event_to_stream_data(
                     event,
                     headline_stream_states,
                 )
 
-                yield f"data: {data}\n\n"
+                yield data
 
                 # --- streaming path ---
                 handled_by_streaming = False
@@ -996,7 +997,7 @@ class BaseChannel(ABC):
             for pending_data in self._flush_headline_stream_states(
                 headline_stream_states,
             ):
-                yield f"data: {pending_data}\n\n"
+                yield pending_data
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
@@ -1012,12 +1013,12 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
-                for sse in await self._commit_turn_usage(
+                for usage_event in await self._commit_turn_usage(
                     request,
                     session_id,
-                    emit_sse=True,
+                    emit_event=True,
                 ):
-                    yield sse
+                    yield usage_event
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -1082,13 +1083,13 @@ class BaseChannel(ABC):
     @staticmethod
     def _strip_event_headlines(
         event: Any,
-        fallback: str,
+        fallback: Dict[str, Any],
         headline_stream_states: dict[str, Any] | None = None,
-    ) -> str:
-        """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
+    ) -> Dict[str, Any]:
+        """Drop scroll headlines from an independent event snapshot.
 
         Channels strip headlines via ``MessageRenderer``, but this raw-event
-        SSE path (console + web UI) bypasses it, so the comment leaks into the
+        stream path (console + web UI) bypasses it, so the comment leaks into
         rendered chat. We strip a dumped *copy* here — the live event, the
         persisted ``conversation_history`` row, and the durable index all keep
         the headline verbatim (those go through separate paths). A no-op on any
@@ -1144,20 +1145,25 @@ class BaseChannel(ABC):
             return node
 
         payload = walk(payload)
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        return BaseChannel._sanitize_for_json(payload)
 
-    def _serialize_event_for_sse(
+    def _event_to_stream_data(
         self,
         event: Any,
         headline_stream_states: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> Dict[str, Any]:
+        """Return an independent JSON-compatible snapshot of *event*."""
         try:
-            if hasattr(event, "model_dump_json"):
-                data = event.model_dump_json()
-            elif hasattr(event, "json"):
-                data = event.json()
+            if hasattr(event, "model_dump"):
+                data = event.model_dump(mode="json")
+            elif hasattr(event, "dict"):
+                data = event.dict()
+            elif isinstance(event, dict):
+                data = dict(event)
             else:
-                data = json.dumps({"text": str(event)}, ensure_ascii=True)
+                data = {"text": str(event)}
+
+            data = self._sanitize_for_json(data)
 
             # Headlines reach the UI only through this raw-event path; rewrite
             # to strip them, but only when a fence marker is actually present
@@ -1167,9 +1173,23 @@ class BaseChannel(ABC):
                 and getattr(event, "object", None) == "content"
                 and getattr(event, "delta", False)
             )
+
+            def contains_headline_marker(node: Any) -> bool:
+                if isinstance(node, str):
+                    return "⟦" in node or "〚" in node
+                if isinstance(node, dict):
+                    return any(
+                        contains_headline_marker(value)
+                        for value in node.values()
+                    )
+                if isinstance(node, list):
+                    return any(
+                        contains_headline_marker(value) for value in node
+                    )
+                return False
+
             should_strip = (
-                "⟦" in data
-                or "〚" in data
+                contains_headline_marker(data)
                 or bool(headline_stream_states)
                 or is_tracked_delta
             )
@@ -1180,11 +1200,11 @@ class BaseChannel(ABC):
                     headline_stream_states,
                 )
 
-            return self._sanitize_surrogate_text(data)
+            return data
 
         except Exception as err:
             logger.warning(
-                "Event JSON serialization failed; using safe fallback: %s",
+                "Event snapshot failed; using safe fallback: %s",
                 err,
             )
             try:
@@ -1196,31 +1216,30 @@ class BaseChannel(ABC):
                     payload = {"text": str(event)}
 
                 payload = self._sanitize_for_json(payload)
-                return json.dumps(payload, ensure_ascii=True, default=str)
+                if isinstance(payload, dict):
+                    return payload
+                return {"text": str(payload)}
             except Exception as fallback_err:
                 logger.error(
-                    "Fallback event serialization failed: %s",
+                    "Fallback event snapshot failed: %s",
                     fallback_err,
                 )
-                return json.dumps(
-                    {
-                        "text": self._sanitize_surrogate_text(str(event)),
-                    },
-                    ensure_ascii=True,
-                )
+                return {
+                    "text": self._sanitize_surrogate_text(str(event)),
+                }
 
     @staticmethod
     def _flush_headline_stream_states(
         headline_stream_states: dict[str, Any],
         *,
         msg_id: str | None = None,
-    ) -> list[str]:
+    ) -> list[Dict[str, Any]]:
         """Finalize buffered marker prefixes as ordinary content deltas."""
         from qwenpaw.agents.context.scroll.serialize import (
             flush_headline_delta,
         )
 
-        flushed: list[str] = []
+        flushed: list[Dict[str, Any]] = []
         for stream_key, state in list(headline_stream_states.items()):
             stream_msg_id, separator, raw_index = stream_key.rpartition(":")
             if not separator:
@@ -1236,16 +1255,13 @@ class BaseChannel(ABC):
             except ValueError:
                 index = 0
             flushed.append(
-                json.dumps(
-                    {
-                        "object": "content",
-                        "delta": True,
-                        "msg_id": stream_msg_id,
-                        "index": index,
-                        "text": text,
-                    },
-                    ensure_ascii=False,
-                ),
+                {
+                    "object": "content",
+                    "delta": True,
+                    "msg_id": stream_msg_id,
+                    "index": index,
+                    "text": text,
+                },
             )
         return flushed
 
@@ -1600,7 +1616,7 @@ class BaseChannel(ABC):
                 await self._commit_turn_usage(
                     request,
                     session_id,
-                    emit_sse=False,
+                    emit_event=False,
                 )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -1922,9 +1938,9 @@ class BaseChannel(ABC):
         request: "AgentRequest",
         session_id: str,
         *,
-        emit_sse: bool = True,
-    ) -> List[str]:
-        """Resolve, persist, and optionally emit a ``turn_usage`` SSE."""
+        emit_event: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Resolve, persist, and optionally emit a ``turn_usage`` event."""
         if not session_id:
             return []
         try:
@@ -1976,7 +1992,7 @@ class BaseChannel(ABC):
                         "turn usage persist skipped",
                         exc_info=True,
                     )
-            if not emit_sse:
+            if not emit_event:
                 return []
             payload: Dict[str, Any] = {
                 "type": "turn_usage",
@@ -1984,9 +2000,7 @@ class BaseChannel(ABC):
                 "usage": turn,
                 "context_usage": ctx,
             }
-            return [
-                f"data: {json.dumps(payload, ensure_ascii=False)}\n\n",
-            ]
+            return [payload]
         except Exception:
             logger.warning("turn usage commit skipped", exc_info=True)
             return []

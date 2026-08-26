@@ -12,6 +12,7 @@ Key patterns demonstrated:
 3. Lifecycle testing (start/stop)
 4. Simple mocking (no external dependencies)
 """
+
 # pylint: disable=redefined-outer-name,reimported,protected-access
 # pylint: disable=unused-argument
 from __future__ import annotations
@@ -108,12 +109,14 @@ class TestConsoleChannelUnit:
 
         data = ConsoleChannel._strip_event_headlines(
             _FakeDumpEvent(payload),
-            "{}",
+            {},
         )
 
-        assert "streamed headline" not in data
-        assert "completed headline" not in data
-        assert "visible" in data
+        assert "streamed headline" not in data["delta"]
+        assert (
+            "completed headline" not in data["output"][0]["content"][0]["text"]
+        )
+        assert "visible" in data["output"][0]["content"][0]["text"]
 
     def test_sse_headline_strip_tracks_split_delta_line(self):
         """Later headline chunks stay hidden without repeating the opener."""
@@ -135,15 +138,15 @@ class TestConsoleChannelUnit:
             }
             data = ConsoleChannel._strip_event_headlines(
                 _FakeDumpEvent(payload),
-                "{}",
+                {},
                 stream_states,
             )
             rendered.append(data)
 
-        assert "visible" in rendered[0]
-        assert all("model discovery" not in item for item in rendered)
-        assert all("status: fixed" not in item for item in rendered)
-        assert all("anchors: TC-1" not in item for item in rendered)
+        assert "visible" in rendered[0]["text"]
+        assert all("model discovery" not in item["text"] for item in rendered)
+        assert all("status: fixed" not in item["text"] for item in rendered)
+        assert all("anchors: TC-1" not in item["text"] for item in rendered)
         assert not stream_states
 
     def test_sse_serializer_hides_split_delta_line(self, channel):
@@ -167,16 +170,16 @@ class TestConsoleChannelUnit:
                 },
             )
             rendered.append(
-                channel._serialize_event_for_sse(
+                channel._event_to_stream_data(
                     event,
                     stream_states,
                 ),
             )
 
-        assert "visible" in rendered[0]
-        assert all("model discovery" not in item for item in rendered)
-        assert all("status: fixed" not in item for item in rendered)
-        assert all("anchors: TC-1" not in item for item in rendered)
+        assert "visible" in rendered[0]["text"]
+        assert all("model discovery" not in item["text"] for item in rendered)
+        assert all("status: fixed" not in item["text"] for item in rendered)
+        assert all("anchors: TC-1" not in item["text"] for item in rendered)
         assert not stream_states
 
     def test_sse_serializer_buffers_split_opening_marker(self, channel):
@@ -198,8 +201,8 @@ class TestConsoleChannelUnit:
                     "text": text,
                 },
             )
-            data = channel._serialize_event_for_sse(event, stream_states)
-            visible.append(json.loads(data)["text"])
+            data = channel._event_to_stream_data(event, stream_states)
+            visible.append(data["text"])
 
         assert "".join(visible) == "answer\n"
         assert not stream_states
@@ -221,11 +224,11 @@ class TestConsoleChannelUnit:
             },
         )
 
-        data = channel._serialize_event_for_sse(event, stream_states)
+        data = channel._event_to_stream_data(event, stream_states)
         flushed = channel._flush_headline_stream_states(stream_states)
 
-        assert json.loads(data)["text"] == "ordinary comparison ends in "
-        assert [json.loads(item)["text"] for item in flushed] == [suffix]
+        assert data["text"] == "ordinary comparison ends in "
+        assert [item["text"] for item in flushed] == [suffix]
         assert not stream_states
 
     def test_sse_serializer_discards_confirmed_headline_at_end(self, channel):
@@ -240,10 +243,10 @@ class TestConsoleChannelUnit:
             },
         )
 
-        data = channel._serialize_event_for_sse(event, stream_states)
+        data = channel._event_to_stream_data(event, stream_states)
         flushed = channel._flush_headline_stream_states(stream_states)
 
-        assert json.loads(data)["text"] == "answer\n"
+        assert data["text"] == "answer\n"
         assert flushed == []
         assert not stream_states
 
@@ -649,7 +652,7 @@ class TestConsoleStreaming:
             break
 
         assert len(events) == 1
-        assert "data:" in events[0]
+        assert events[0]["type"] == "message.completed"
 
     @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
     async def test_stream_one_flushes_pending_prefix_before_completion(
@@ -709,10 +712,7 @@ class TestConsoleStreaming:
         }
 
         events = [event async for event in stream_channel.stream_one(payload)]
-        payloads = [
-            json.loads(event.removeprefix("data: ").strip())
-            for event in events
-        ]
+        payloads = events
 
         assert payloads[0]["text"] == "ordinary comparison ends in "
         assert payloads[1]["text"] == suffix
@@ -878,16 +878,18 @@ class TestConsoleStreaming:
             break
 
         assert len(events) == 1
-        assert events[0].startswith("data: ")
-        assert "\\ud83d" not in events[0]
-        assert "? broken" in events[0]
+        assert "\ud83d" not in events[0]["text"]
+        assert "? broken" in events[0]["text"]
 
     async def test_consume_one_drain_stream(self, stream_channel):
         """consume_one should drain stream_one."""
         from unittest.mock import patch, AsyncMock
 
         mock_stream = AsyncMock()
-        mock_stream.__aiter__.return_value = ["event1", "event2"]
+        mock_stream.__aiter__.return_value = [
+            {"type": "event1"},
+            {"type": "event2"},
+        ]
 
         with patch.object(
             stream_channel,
