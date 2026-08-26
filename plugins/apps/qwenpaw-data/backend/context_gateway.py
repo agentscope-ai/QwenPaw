@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 from urllib.parse import unquote
 
@@ -44,6 +45,17 @@ _FORWARDED_RESPONSE_HEADERS = {
     "retry-after",
     "x-request-id",
 }
+# Structural shape of every forwarded path: one of the routes from
+# _ALLOWED_ROUTES followed by non-empty segments that contain none of
+# the characters that can alter or escape the path component ("?", "#",
+# "\\", control characters), plus an optional trailing slash (the Context
+# service mounts some routes at "/", e.g. GET /api/system/model-config/).
+# Segment semantics (allowlist, traversal) remain _validate_path's job.
+_CONTEXT_PATH_RE = re.compile(
+    r"/api/(?:health|auth/status"
+    r"|(?:v1|system/model-config|semantic-config|datasources)"
+    r"(?:/[^/?#\\\x00-\x20]+)*/?)\Z",
+)
 
 
 class ContextGateway:
@@ -135,6 +147,16 @@ class ContextGateway:
 
     async def _send(self, method: str, path: str, **kwargs) -> httpx.Response:
         self._validate_path(path)
+        # Inline structural guard applied at the request call site: only
+        # allowlisted route prefixes followed by non-empty segments, so
+        # the URL built below cannot contain characters that alter or
+        # escape the path component. Complements the semantic validation
+        # in _validate_path.
+        if not _CONTEXT_PATH_RE.fullmatch(path):
+            raise HTTPException(
+                status_code=404,
+                detail="Context route is not exposed",
+            )
         if self._client is None:
             raise HTTPException(
                 status_code=503,

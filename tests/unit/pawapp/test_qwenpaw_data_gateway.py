@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 from pathlib import Path
 
@@ -19,7 +20,7 @@ GATEWAY_FILE = (
 )
 
 
-def _gateway_class():
+def _gateway_module():
     spec = importlib.util.spec_from_file_location(
         "qwenpaw_data_context_gateway_under_test",
         GATEWAY_FILE,
@@ -27,7 +28,11 @@ def _gateway_class():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.ContextGateway
+    return module
+
+
+def _gateway_class():
+    return _gateway_module().ContextGateway
 
 
 @pytest.mark.parametrize(
@@ -82,4 +87,56 @@ def test_context_gateway_rejects_boundary_and_traversal_paths(
 ) -> None:
     with pytest.raises(HTTPException) as error:
         _gateway_class()._validate_path(path)
+    assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/health",
+        "/api/auth/status",
+        "/api/v1/cm/datasources",
+        "/api/system/model-config",
+        # The Context service mounts its config listing at "/".
+        "/api/system/model-config/",
+        "/api/system/model-config/llm/test",
+        "/api/semantic-config/domains",
+        "/api/datasources/active",
+        "/api/v1/cm/datasources/6f9a2b1e-0c4d-4e5f-9a8b-1c2d3e4f5a6b",
+        "/api/system/model-config/models/qwen3.8-max",
+        # Non-ASCII and percent-encoded segments are structurally fine;
+        # semantics stay _validate_path's job.
+        "/api/semantic-config/metric-lib/销售额",
+        "/api/v1/x%20y",
+    ],
+)
+def test_plain_path_guard_allows_forwarded_routes(path: str) -> None:
+    assert _gateway_module()._CONTEXT_PATH_RE.fullmatch(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/secret",
+        "/api/v1/private?token=leak",
+        "/api/v1/x#frag",
+        # Empty segment.
+        "/api/v1//x",
+        "/api/v1\\private",
+        # Control characters cannot reach the URL.
+        "/api/v1/x\ty",
+    ],
+)
+def test_plain_path_guard_rejects_path_escape_characters(
+    path: str,
+) -> None:
+    assert not _gateway_module()._CONTEXT_PATH_RE.fullmatch(path)
+
+
+def test_send_rejects_traversal_path_before_dispatch() -> None:
+    # Structurally plain, but _validate_path rejects the traversal
+    # segment before any client is touched.
+    gateway = _gateway_class()(service=object(), managed_token="")
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(gateway._send("GET", "/api/v1/../private"))
     assert error.value.status_code == 404
