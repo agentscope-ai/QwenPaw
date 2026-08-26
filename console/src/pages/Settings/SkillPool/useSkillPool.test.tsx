@@ -25,7 +25,7 @@ const hoisted = vi.hoisted(() => {
     uploadSkillPoolZip: vi.fn(),
     importPoolSkillFromHub: vi.fn(),
     downloadSkillPoolSkill: vi.fn(),
-    updatePoolSkillAutoUpdate: vi.fn(),
+    updatePoolSkillAutomation: vi.fn(),
     updatePoolBuiltin: vi.fn(),
     importSelectedPoolBuiltins: vi.fn(),
     updatePoolSkillTags: vi.fn(),
@@ -542,7 +542,7 @@ describe("useSkillPool — modal and drawer state", () => {
     expect(hoisted.formMock.setFieldsValue).toHaveBeenCalledWith({ content: "new content" });
   });
 
-  it("setConfigText / setShowMarkdown / setAutoUpdateEnabled / setAutoUpdateTargets: state setters", async () => {
+  it("setConfigText / setShowMarkdown / setBuiltinAutoUpdateEnabled / setAutoSyncTargets: state setters", async () => {
     const { result } = await renderAndLoad();
 
     act(() => { result.current.setConfigText('{"key":"val"}'); });
@@ -551,11 +551,14 @@ describe("useSkillPool — modal and drawer state", () => {
     act(() => { result.current.setShowMarkdown(false); });
     expect(result.current.showMarkdown).toBe(false);
 
-    act(() => { result.current.setAutoUpdateEnabled(true); });
-    expect(result.current.autoUpdateEnabled).toBe(true);
+    act(() => { result.current.setBuiltinAutoUpdateEnabled(true); });
+    expect(result.current.builtinAutoUpdateEnabled).toBe(true);
 
-    act(() => { result.current.setAutoUpdateTargets(["agent-1"]); });
-    expect(result.current.autoUpdateTargets).toEqual(["agent-1"]);
+    act(() => { result.current.setAutoSyncEnabled(true); });
+    expect(result.current.autoSyncEnabled).toBe(true);
+
+    act(() => { result.current.setAutoSyncTargets(["agent-1"]); });
+    expect(result.current.autoSyncTargets).toEqual(["agent-1"]);
   });
 
   it("setImportModalOpen: controls import modal visibility", async () => {
@@ -592,7 +595,8 @@ describe("useSkillPool — openEdit", () => {
       config: { key: "value" },
       tags: ["tag1"],
       auto_update: true,
-      auto_update_targets: ["agent-1"],
+      auto_sync: true,
+      auto_sync_targets: ["agent-1"],
     };
     apiMocks.getPoolSkill.mockResolvedValue(detail);
 
@@ -605,8 +609,9 @@ describe("useSkillPool — openEdit", () => {
     expect(result.current.mode).toBe("edit");
     expect(result.current.activeSkill).toEqual(detail);
     expect(result.current.drawerContent).toBe(detail.content);
-    expect(result.current.autoUpdateEnabled).toBe(true);
-    expect(result.current.autoUpdateTargets).toEqual(["agent-1"]);
+    expect(result.current.builtinAutoUpdateEnabled).toBe(true);
+    expect(result.current.autoSyncEnabled).toBe(true);
+    expect(result.current.autoSyncTargets).toEqual(["agent-1"]);
     expect(result.current.detailLoading).toBe(false);
     expect(hoisted.formMock.setFieldsValue).toHaveBeenCalledWith({
       name: "my-skill",
@@ -655,8 +660,9 @@ describe("useSkillPool — openEdit", () => {
     });
 
     expect(result.current.configText).toBe("{}");
-    expect(result.current.autoUpdateEnabled).toBe(false);
-    expect(result.current.autoUpdateTargets).toEqual([]);
+    expect(result.current.builtinAutoUpdateEnabled).toBe(false);
+    expect(result.current.autoSyncEnabled).toBe(false);
+    expect(result.current.autoSyncTargets).toEqual([]);
   });
 });
 
@@ -892,7 +898,7 @@ describe("useSkillPool — getBuiltinImportStatusLabel", () => {
     expect(typeof result.current.handleBroadcast).toBe("function");
     expect(typeof result.current.handleImportBuiltins).toBe("function");
     expect(typeof result.current.handleBuiltinLanguageSwitch).toBe("function");
-    expect(typeof result.current.handleToggleAutoUpdate).toBe("function");
+    expect(typeof result.current.handleAutomationQuickAction).toBe("function");
     expect(typeof result.current.handleSavePoolSkill).toBe("function");
     expect(typeof result.current.handleDelete).toBe("function");
     expect(typeof result.current.handleZipImport).toBe("function");
@@ -913,9 +919,11 @@ describe("useSkillPool — getBuiltinImportStatusLabel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleToggleAutoUpdate
+// handleAutomationQuickAction (上游 #7232 重构后替代 handleToggleAutoUpdate：
+// 内置技能统一切换 auto_update + auto_sync；非内置技能仅切换 auto_sync；
+// 内置技能 auto_update/auto_sync 不一致（mixed）时转交 openEdit 处理)
 // ---------------------------------------------------------------------------
-describe("useSkillPool — handleToggleAutoUpdate", () => {
+describe("useSkillPool — handleAutomationQuickAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.listSkillPoolSkills.mockResolvedValue([]);
@@ -930,57 +938,110 @@ describe("useSkillPool — handleToggleAutoUpdate", () => {
     hoisted.checkScanWarningsMock.mockResolvedValue(undefined);
   });
 
-  it("enables auto-update and shows success", async () => {
-    apiMocks.updatePoolSkillAutoUpdate.mockResolvedValue(undefined);
+  it("enables automation for builtin skill and shows success", async () => {
+    apiMocks.updatePoolSkillAutomation.mockResolvedValue({});
 
     const { result } = await renderAndLoad();
 
     await act(async () => {
-      await result.current.handleToggleAutoUpdate(
-        poolSkill({ name: "auto-skill" }),
-        true,
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "auto-skill", source: "builtin", auto_sync: false, auto_update: false }),
       );
     });
 
-    expect(apiMocks.updatePoolSkillAutoUpdate).toHaveBeenCalledWith(
+    expect(apiMocks.updatePoolSkillAutomation).toHaveBeenCalledWith(
       "auto-skill",
-      { enabled: true, targets: null },
+      { auto_update: true, auto_sync: { enabled: true } },
     );
-    expect(messageMock.success).toHaveBeenCalled();
+    expect(messageMock.success).toHaveBeenCalledWith("skillPool.automationEnabled");
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
       pool: true,
       workspaces: true,
     });
   });
 
-  it("disables auto-update and shows success", async () => {
-    apiMocks.updatePoolSkillAutoUpdate.mockResolvedValue(undefined);
+  it("disables automation for builtin skill and shows success", async () => {
+    apiMocks.updatePoolSkillAutomation.mockResolvedValue({});
 
     const { result } = await renderAndLoad();
 
     await act(async () => {
-      await result.current.handleToggleAutoUpdate(
-        poolSkill({ name: "auto-skill" }),
-        false,
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "auto-skill", source: "builtin", auto_sync: true, auto_update: true }),
       );
     });
 
-    expect(apiMocks.updatePoolSkillAutoUpdate).toHaveBeenCalledWith(
+    expect(apiMocks.updatePoolSkillAutomation).toHaveBeenCalledWith(
       "auto-skill",
-      { enabled: false, targets: null },
+      { auto_update: false, auto_sync: { enabled: false } },
     );
-    expect(messageMock.success).toHaveBeenCalled();
+    expect(messageMock.success).toHaveBeenCalledWith("skillPool.automationDisabled");
   });
 
-  it("shows error when API fails", async () => {
-    apiMocks.updatePoolSkillAutoUpdate.mockRejectedValue(new Error("Update failed"));
+  it("toggles auto_sync only for non-builtin skill", async () => {
+    apiMocks.updatePoolSkillAutomation.mockResolvedValue({});
 
     const { result } = await renderAndLoad();
 
     await act(async () => {
-      await result.current.handleToggleAutoUpdate(
-        poolSkill({ name: "fail-skill" }),
-        true,
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "custom-skill", source: "local", auto_sync: false }),
+      );
+    });
+
+    expect(apiMocks.updatePoolSkillAutomation).toHaveBeenCalledWith(
+      "custom-skill",
+      { auto_sync: { enabled: true } },
+    );
+    expect(messageMock.success).toHaveBeenCalledWith("skillPool.autoSyncEnabled");
+  });
+
+  it("warns when automation response has attention items", async () => {
+    apiMocks.updatePoolSkillAutomation.mockResolvedValue({
+      automation: { pool_failed: ["auto-skill"], sync_failed: [] },
+    });
+
+    const { result } = await renderAndLoad();
+
+    await act(async () => {
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "auto-skill", source: "builtin", auto_sync: false, auto_update: false }),
+      );
+    });
+
+    expect(messageMock.warning).toHaveBeenCalledWith("skillPool.automationNeedsAttention");
+    expect(messageMock.success).not.toHaveBeenCalled();
+  });
+
+  it("opens edit drawer instead of toggling for builtin skill with mixed state", async () => {
+    apiMocks.getPoolSkill.mockResolvedValue({
+      name: "mixed-skill",
+      content: "",
+      config: {},
+      tags: [],
+    });
+
+    const { result } = await renderAndLoad();
+
+    await act(async () => {
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "mixed-skill", source: "builtin", auto_sync: true, auto_update: false }),
+      );
+    });
+
+    expect(apiMocks.updatePoolSkillAutomation).not.toHaveBeenCalled();
+    expect(apiMocks.getPoolSkill).toHaveBeenCalledWith("mixed-skill");
+    expect(result.current.mode).toBe("edit");
+  });
+
+  it("shows error when API fails", async () => {
+    apiMocks.updatePoolSkillAutomation.mockRejectedValue(new Error("Update failed"));
+
+    const { result } = await renderAndLoad();
+
+    await act(async () => {
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "fail-skill", source: "builtin", auto_sync: false, auto_update: false }),
       );
     });
 
@@ -988,18 +1049,17 @@ describe("useSkillPool — handleToggleAutoUpdate", () => {
   });
 
   it("shows generic error when error is not Error instance", async () => {
-    apiMocks.updatePoolSkillAutoUpdate.mockRejectedValue("string error");
+    apiMocks.updatePoolSkillAutomation.mockRejectedValue("string error");
 
     const { result } = await renderAndLoad();
 
     await act(async () => {
-      await result.current.handleToggleAutoUpdate(
-        poolSkill({ name: "fail-skill" }),
-        true,
+      await result.current.handleAutomationQuickAction(
+        poolSkill({ name: "fail-skill", source: "builtin", auto_sync: false, auto_update: false }),
       );
     });
 
-    expect(messageMock.error).toHaveBeenCalledWith("skillPool.autoUpdateFailed");
+    expect(messageMock.error).toHaveBeenCalledWith("skillPool.automationFailed");
   });
 });
 
@@ -1061,7 +1121,10 @@ describe("useSkillPool — handleBuiltinLanguageSwitch", () => {
 
     expect(apiMocks.updatePoolBuiltin).toHaveBeenCalledWith("builtin-skill", "zh");
     expect(messageMock.success).toHaveBeenCalled();
-    expect(invalidateSkillCacheMock).toHaveBeenCalledWith({ pool: true });
+    expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
+      pool: true,
+      workspaces: true,
+    });
   });
 
   it("does nothing when user cancels confirmation", async () => {
@@ -1155,7 +1218,10 @@ describe("useSkillPool — handleImportBuiltins", () => {
     });
 
     expect(messageMock.success).toHaveBeenCalled();
-    expect(invalidateSkillCacheMock).toHaveBeenCalledWith({ pool: true });
+    expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
+      pool: true,
+      workspaces: true,
+    });
   });
 
   it("shows info when only unchanged results", async () => {
