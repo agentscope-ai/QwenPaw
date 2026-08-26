@@ -550,6 +550,54 @@ export default function Sidebar({
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
+  // Collapsed mode (#7125): the session (chat) entry is pinned above the
+  // scrollable remainder so users can always jump back to chat, even after
+  // scrolling down to reach plugins or settings.
+  const renderCollapsedItem = (item: FlatMenuEntry) => {
+    const isActive =
+      item.key === "core.chat" ? isChatActive : selectedKey === item.key;
+    return (
+      <Tooltip
+        key={item.key}
+        title={item.label}
+        placement="right"
+        overlayInnerStyle={{
+          background: "rgba(0,0,0,0.75)",
+          color: "#fff",
+        }}
+      >
+        <button
+          className={`${styles.collapsedNavItem} ${
+            isActive ? styles.collapsedNavItemActive : ""
+          }${
+            item.key === "core.inbox" && effectiveShake
+              ? ` ${styles.inboxShake}`
+              : ""
+          }`}
+          onClick={() => {
+            if (item.href) {
+              window.open(item.href, "_blank", "noopener,noreferrer");
+            } else {
+              navigate(item.path);
+            }
+          }}
+          onMouseEnter={
+            item.key === "core.inbox" ? handleInboxHover : undefined
+          }
+        >
+          {item.icon}
+        </button>
+      </Tooltip>
+    );
+  };
+
+  const collapsedStickyEntry = collapsedNavItems.find(
+    (item) => item.key === "core.chat",
+  );
+  const collapsedScrollEntries = collapsedNavItems.filter(
+    (item) => item.key !== "core.chat",
+  );
+
   // On mobile, the expanded sidebar shows sessions (like simple mode) instead
   // of the full menu — matching the desktop history panel UX.
   const isSimpleExpanded = (sidebarMode === "simple" || isMobile) && !collapsed;
@@ -572,45 +620,10 @@ export default function Sidebar({
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>
-          {collapsedNavItems.map((item) => {
-            const isActive =
-              item.key === "core.chat"
-                ? isChatActive
-                : selectedKey === item.key;
-            return (
-              <Tooltip
-                key={item.key}
-                title={item.label}
-                placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                }}
-              >
-                <button
-                  className={`${styles.collapsedNavItem} ${
-                    isActive ? styles.collapsedNavItemActive : ""
-                  }${
-                    item.key === "core.inbox" && effectiveShake
-                      ? ` ${styles.inboxShake}`
-                      : ""
-                  }`}
-                  onClick={() => {
-                    if (item.href) {
-                      window.open(item.href, "_blank", "noopener,noreferrer");
-                    } else {
-                      navigate(item.path);
-                    }
-                  }}
-                  onMouseEnter={
-                    item.key === "core.inbox" ? handleInboxHover : undefined
-                  }
-                >
-                  {item.icon}
-                </button>
-              </Tooltip>
-            );
-          })}
+          {collapsedStickyEntry && renderCollapsedItem(collapsedStickyEntry)}
+          <div className={styles.collapsedNavScroll}>
+            {collapsedScrollEntries.map(renderCollapsedItem)}
+          </div>
         </nav>
       ) : isSimpleExpanded ? (
         <>
