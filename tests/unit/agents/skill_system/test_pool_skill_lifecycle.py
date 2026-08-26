@@ -2,16 +2,13 @@
 # pylint: disable=redefined-outer-name
 """Pool-level skill unit tests (skill_system service layer).
 
-Regression scope (后端单测缺口补齐第 1 批，A 档)：
-- GitHub issue #1281: list_all_skills 不得对同名技能重复计数
-- GitHub issue #2770: 重命名技能必须保留目录内脚本等文件
-- GitHub issue #2887 / #2915 / #3420: 保存 SKILL.md 不得删除技能目录下其他文件
-- GitHub issue #3702: manifest 中畸形条目不得导致列表崩溃
-- GitHub issue #6537 (#3270 回归): 重启协调（reconcile）必须保留已有 tags
-- GitHub issue #1367: 技能名含路径分隔符必须被拒绝
-
-出处：泰哥 2026-08-23 批复（xiaoyi:a1430f5b2a1640a89057fd9acb572757，
-姜子牙转达）后端单测缺口补齐计划第 1 批。
+Regression coverage:
+- GitHub issue #1281: list_all_skills must not double-count same-name skills
+- GitHub issue #2770: rename must keep scripts and other directory files
+- GitHub issue #2887/#2915/#3420: saving SKILL.md must keep other files
+- GitHub issue #3702: malformed manifest entries must not crash skill listing
+- GitHub issue #6537 (#3270): restart reconciliation must preserve tags
+- GitHub issue #1367: skill names containing path separators must be rejected
 """
 
 from __future__ import annotations
@@ -88,7 +85,7 @@ def pool_env(tmp_path, monkeypatch):
 
 
 class TestSavePreservesFiles:
-    """GitHub issue #2887 / #2915 / #3420 簇。"""
+    """GitHub issue #2887 / #2915 / #3420 cluster."""
 
     def test_save_preserves_scripts_and_references(self, pool_env):
         service, pool_dir = pool_env
@@ -110,7 +107,7 @@ class TestSavePreservesFiles:
         skill_dir = pool_dir / "demo"
         assert (
             skill_dir / "scripts" / "run.py"
-        ).exists(), "保存 SKILL.md 不得删除技能目录下的脚本（#2887 簇）"
+        ).exists(), "saving SKILL.md must not delete other skill files (#2887)"
         assert (skill_dir / "references" / "doc.md").exists()
         assert "updated" in (skill_dir / "SKILL.md").read_text(
             encoding="utf-8",
@@ -127,7 +124,7 @@ class TestSavePreservesFiles:
 
 
 class TestRenamePreservesFiles:
-    """GitHub issue #2770：重命名不得清空脚本等文件。"""
+    """GitHub issue #2770: rename must not wipe scripts and other files."""
 
     def test_rename_preserves_directory_contents(self, pool_env):
         service, pool_dir = pool_env
@@ -150,7 +147,7 @@ class TestRenamePreservesFiles:
         new_dir = pool_dir / "new_name"
         assert (
             new_dir / "scripts" / "helper.sh"
-        ).exists(), "重命名必须保留目录内容（#2770）"
+        ).exists(), "rename must keep directory contents (#2770)"
         assert (new_dir / "data.txt").exists()
         assert not (pool_dir / "old_name").exists()
 
@@ -174,13 +171,13 @@ class TestRenamePreservesFiles:
 
 
 class TestListAllSkills:
-    """GitHub issue #1281：列表不得对同名技能重复计数。"""
+    """#1281: listing must not double-count same-name skills."""
 
     def test_no_duplicate_entries_per_name(self, pool_env):
         service, pool_dir = pool_env
         service.create_skill("solo", _skill_md("solo"))
 
-        # 双池根同名技能（主池 + 额外只读根）→ 只能出现一次
+        # same-named skill in both pool roots must appear only once
         extra_root = pool_dir.parent / "extra_pool"
         _write_skill_dir(extra_root / "solo", "solo")
         assert service.list_all_skills() is not None
@@ -203,13 +200,15 @@ class TestListAllSkills:
 
         skills = service.list_all_skills()
         names = [skill.name for skill in skills]
-        assert names.count("shadowed") == 1, "主池与额外根同名技能只能计一次（#1281）"
+        assert (
+            names.count("shadowed") == 1
+        ), "same-named skills across pool roots must be counted once (#1281)"
         listed = next(s for s in skills if s.name == "shadowed")
-        assert listed.description == "primary", "主池条目必须胜出"
+        assert listed.description == "primary", "the main pool entry must win"
 
 
 class TestReconcilePreservesUserState:
-    """GitHub issue #6537（#3270 回归）：重启协调保留 tags 等用户状态。"""
+    """#6537 (#3270): restart reconciliation preserves user tags."""
 
     def test_reconcile_preserves_tags_and_config(self, pool_env):
         _service, pool_dir = pool_env
@@ -229,7 +228,10 @@ class TestReconcilePreservesUserState:
         skill_registry.reconcile_pool_manifest()
 
         entry = _read_pool_manifest(pool_dir)["skills"]["tagged"]
-        assert entry["tags"] == ["ops", "demo"], "协调（重启路径）不得丢失 tags（#6537）"
+        assert entry["tags"] == [
+            "ops",
+            "demo",
+        ], "reconciliation (restart path) must not lose tags (#6537)"
         assert entry["config"] == {"foo": "bar"}
 
     def test_reconcile_adds_new_and_removes_gone(self, pool_env):
@@ -249,10 +251,12 @@ class TestReconcilePreservesUserState:
 
         skills = _read_pool_manifest(pool_dir)["skills"]
         assert "fresh" in skills
-        assert "ghost" not in skills, "目录已不存在的条目必须被移除"
+        assert (
+            "ghost" not in skills
+        ), "entries whose directory no longer exists must be removed"
 
     def test_reconcile_tolerates_malformed_entry(self, pool_env):
-        """GitHub issue #3702：畸形条目不得导致整池报错。"""
+        """#3702: a malformed entry must not break the whole pool."""
         _service, pool_dir = pool_env
         _write_skill_dir(pool_dir / "good", "good")
         manifest_path = pool_dir / "skill.json"
@@ -274,12 +278,14 @@ class TestReconcilePreservesUserState:
         skill_registry.reconcile_pool_manifest()
 
         skills = _read_pool_manifest(pool_dir)["skills"]
-        assert "good" in skills, "畸形兄弟条目不得影响正常技能加载（#3702）"
+        assert (
+            "good" in skills
+        ), "malformed sibling entry must not break valid skill load (#3702)"
         assert isinstance(skills.get("junk", {}), dict)
 
 
 class TestSkillNameValidation:
-    """GitHub issue #1367：含路径分隔符的技能名必须被拒绝。"""
+    """#1367: skill names with path separators must be rejected."""
 
     @pytest.mark.parametrize("bad_name", ["a/b", "a\\b", "../x", "", ".."])
     def test_create_rejects_path_traversal_names(self, pool_env, bad_name):
@@ -288,7 +294,7 @@ class TestSkillNameValidation:
             service.create_skill(bad_name, _skill_md("x"))
 
     def test_register_entry_preserves_tags_from_existing(self, pool_env):
-        """tags 合并入口：显式传入与 preserve_from 继承两路都不得丢。"""
+        """tags merge entry points must retain tags (both paths)."""
         from qwenpaw.agents.skill_system.pool_service import (
             _register_pool_skill_entry,
         )
@@ -317,7 +323,7 @@ class TestSkillNameValidation:
 
 
 class TestDeleteSkill:
-    """GitHub issue #1711：删除技能必须干净无报错（目录+清单一致清除）。"""
+    """#1711: delete a skill cleanly (directory + manifest removed)."""
 
     def test_delete_removes_dir_and_manifest_entry(self, pool_env):
         service, pool_dir = pool_env
@@ -335,7 +341,7 @@ class TestDeleteSkill:
         self,
         pool_env,
     ):
-        """目录已被手动删掉（#1711 场景）时，清单条目仍应能被清除。"""
+        """Manifest entry must clear even if its directory is gone."""
         service, pool_dir = pool_env
         service.create_skill("half_gone", _skill_md("half_gone"))
         import shutil as _shutil
@@ -351,7 +357,7 @@ class TestDeleteSkill:
 
 
 class TestWorkspaceReconcilePreservesEnabled:
-    """GitHub issue #4807 / #1693：升级/重启协调不得把已禁用技能重置为启用。"""
+    """#4807/#1693: reconciliation must not re-enable disabled skills."""
 
     @pytest.fixture()
     def workspace_env(self, tmp_path):
@@ -386,7 +392,9 @@ class TestWorkspaceReconcilePreservesEnabled:
         entry = json.loads(manifest_path.read_text(encoding="utf-8"))[
             "skills"
         ]["disabled_skill"]
-        assert entry["enabled"] is False, "升级/重启协调不得把已禁用技能重置为启用（#4807）"
+        assert (
+            entry["enabled"] is False
+        ), "reconciliation must not re-enable disabled skills (#4807)"
 
     def test_enabled_and_channels_preserved_after_reconcile(
         self,
@@ -408,11 +416,13 @@ class TestWorkspaceReconcilePreservesEnabled:
             "skills"
         ]["disabled_skill"]
         assert entry["enabled"] is True
-        assert entry["channels"] == ["dingtalk"], "协调不得丢失渠道启用范围（#1693 相关）"
+        assert entry["channels"] == [
+            "dingtalk",
+        ], "reconciliation must not lose the enabled channel scope (#1693)"
 
 
 class TestZipImportValidation:
-    """GitHub issue #5474：坏 YAML frontmatter 的 ZIP 不得假成功占位。"""
+    """#5474: broken YAML frontmatter must not claim a slot."""
 
     @staticmethod
     def _make_zip(skill_md_content: str) -> bytes:
@@ -429,14 +439,16 @@ class TestZipImportValidation:
         pool_env,
     ):
         service, pool_dir = pool_env
-        # 未闭合的流式序列 → yaml.YAMLError
+        # unclosed flow sequence -> yaml.YAMLError
         bad_md = "---\nname: [unclosed\ndescription: x\n---\nbody\n"
 
         with pytest.raises(Exception):
             service.import_from_zip(self._make_zip(bad_md))
 
         manifest = _read_pool_manifest(pool_dir)
-        assert manifest["skills"] == {}, "坏 frontmatter 不得占用命名空间（#5474）"
+        assert (
+            manifest["skills"] == {}
+        ), "broken frontmatter must not occupy the namespace (#5474)"
         assert not (pool_dir / "broken_skill").exists()
 
     def test_valid_frontmatter_zip_imports(self, pool_env):
@@ -448,7 +460,7 @@ class TestZipImportValidation:
 
 
 def test_working_dir_is_isolated(pool_env):
-    """夹具自检：测试池必须落在临时目录，不得污染真实工作区。"""
+    """Fixture self-check: the test pool lives in a temp dir."""
     _service, pool_dir = pool_env
     # tempfile root differs per platform ("/tmp" vs C:\...\Temp);
     # Windows runners may expose the short-name form (RUNNER~1) in
@@ -456,5 +468,6 @@ def test_working_dir_is_isolated(pool_env):
     # so resolve both sides before comparing.
     temp_root = Path(tempfile.gettempdir()).resolve()
     assert pool_dir.resolve().is_relative_to(temp_root), (
-        f"技能池未隔离到临时目录: {pool_dir}（真实 WORKING_DIR=" f"{WORKING_DIR}）"
+        f"skill pool not isolated into a temp dir: {pool_dir} "
+        f"(real WORKING_DIR={WORKING_DIR})"
     )

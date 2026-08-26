@@ -2,10 +2,9 @@
 # pylint: disable=protected-access
 """Builtin skill language preference unit tests.
 
-Regression scope (后端单测缺口补齐第 1 批，A 档)：
-- GitHub issue #3688: 内置技能描述必须尊重语言设置（builtin_skill_language / UI language）
-
-出处：泰哥 2026-08-23 批复后端单测缺口补齐计划第 1 批。
+Regression coverage:
+- GitHub issue #3688: builtin skill descriptions must respect the language
+  setting (builtin_skill_language / UI language).
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ def test_language_preference_from_settings(
     settings,
     expected,
 ):
-    """#3688：语言设置必须传导到内置技能语言选择。"""
+    """#3688: language setting must drive builtin skill language."""
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path)
     (tmp_path / "settings.json").write_text(
         json.dumps(settings),
