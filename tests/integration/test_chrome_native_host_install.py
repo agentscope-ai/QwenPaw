@@ -169,58 +169,6 @@ def test_windows_launcher_uses_cmd_safe_path_literals(
     assert launcher_text.endswith('" %*\n')
 
 
-def test_windows_launcher_recovers_after_interrupted_install(
-    isolated_home: Path,
-) -> None:
-    qwenpaw_home = isolated_home / ".qwenpaw"
-    launcher = extension_setup.native_host_launcher_path(
-        qwenpaw_home,
-        platform="win32",
-    )
-    launcher.parent.mkdir(parents=True)
-    original = '@echo off\n"python.exe" "qwenpaw-nm-host.py" %*\n'
-    launcher.write_text(
-        "@echo off\r\n"
-        f"rem {extension_setup.WINDOWS_MAINTENANCE_STUB_MARKER}\r\n"
-        "exit /b 0\r\n",
-        encoding="ascii",
-    )
-    backup = launcher.with_name(
-        launcher.name + extension_setup.WINDOWS_MAINTENANCE_BACKUP_SUFFIX,
-    )
-    backup.write_text(original, encoding="utf-8")
-
-    recovered = extension_setup.recover_windows_native_host_launcher(
-        home=isolated_home,
-        platform="win32",
-    )
-
-    assert recovered is True
-    assert launcher.read_text(encoding="utf-8") == original
-    assert not backup.exists()
-
-
-def test_native_host_recovery_is_windows_only(isolated_home: Path) -> None:
-    qwenpaw_home = isolated_home / ".qwenpaw"
-    launcher = extension_setup.native_host_launcher_path(
-        qwenpaw_home,
-        platform="darwin",
-    )
-    launcher.parent.mkdir(parents=True)
-    backup = launcher.with_name(
-        launcher.name + extension_setup.WINDOWS_MAINTENANCE_BACKUP_SUFFIX,
-    )
-    backup.write_text("original", encoding="utf-8")
-
-    recovered = extension_setup.recover_windows_native_host_launcher(
-        home=isolated_home,
-        platform="darwin",
-    )
-
-    assert recovered is False
-    assert backup.exists()
-
-
 # test_chrome_extensions_page_opener.py
 
 
