@@ -198,4 +198,18 @@ describe("submissionBizParams", () => {
 
     expect(getQueueSubmissionTarget(test2Item, "agent-1")).toBeUndefined();
   });
+
+  it("keeps a new-chat placeholder unresolved until the SDK binds it", () => {
+    const placeholder = buildSubmissionBizParams(
+      { sessionId: "", userId: "default", channel: "console" },
+      {
+        agent_id: "agent-1",
+        chat_id: "new",
+        sdk_session_id: "new",
+      },
+    );
+
+    expect(getSubmissionChatId(placeholder)).toBe("new");
+    expect(getQueueSubmissionTarget(placeholder, "agent-1")).toBeUndefined();
+  });
 });

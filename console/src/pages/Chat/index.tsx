@@ -386,6 +386,20 @@ async function startBackgroundQueue(queueKey: string) {
     const clientMessageId = item.clientMessageId ?? item.id;
     const itemTarget = getQueueSubmissionTarget(item.bizParams, item.agentId);
     if (!itemTarget) {
+      // A new-chat placeholder has no routable conversation yet. Keep it
+      // pending so the foreground SDK can bind it to the created session.
+      if (
+        isNewQueueKey(queueKey) &&
+        getSubmissionChatId(item.bizParams) === "new" &&
+        getSubmissionAgentId(item.bizParams) === item.agentId &&
+        item.bizParams.session_id === "" &&
+        typeof item.bizParams.user_id === "string" &&
+        !!item.bizParams.user_id &&
+        typeof item.bizParams.channel === "string" &&
+        !!item.bizParams.channel
+      ) {
+        break;
+      }
       useMessageQueueStore
         .getState()
         .setItemStatus(
