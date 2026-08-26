@@ -354,6 +354,26 @@ def test_matrix_bot_own_message_ignored(
         unregister_mock_provider(app_server, provider_id)
 
 
+def _wait_no_new_events_for_room(
+    sent_events: list,
+    room_id: str,
+    baseline: int,
+    deadline: float,
+) -> list:
+    """Poll until no new events for ``room_id`` appear after ``baseline``.
+
+    Returns the list of new events (empty if none).
+    """
+    while time.time() < deadline:
+        new_events = [
+            e for e in sent_events[baseline:] if e.get("room_id") == room_id
+        ]
+        if not new_events:
+            return []
+        time.sleep(1.0)
+    return [e for e in sent_events[baseline:] if e.get("room_id") == room_id]
+
+
 @pytest.mark.integration
 @pytest.mark.p2
 def test_matrix_dm_disabled_drops_message(
@@ -389,16 +409,20 @@ def test_matrix_dm_disabled_drops_message(
         timeout=_HTTP_TIMEOUT,
     )
     assert put.status_code == 200, app_server.logs_tail()
+    target_room = "!integmockdmdisabled:mock.local"
     try:
-        before = len(matrix_channel_up.sent_events)
+        baseline = len(matrix_channel_up.sent_events)
         matrix_channel_up.push_text_event(
             text="dm while disabled",
-            room_id="!integmockdmdisabled:mock.local",
+            room_id=target_room,
         )
-        time.sleep(15.0)
-        assert (
-            len(matrix_channel_up.sent_events) == before
-        ), matrix_channel_up.sent_events[before:]
+        new_events = _wait_no_new_events_for_room(
+            matrix_channel_up.sent_events,
+            target_room,
+            baseline,
+            time.time() + 30.0,
+        )
+        assert not new_events, new_events
     finally:
         unregister_mock_provider(app_server, provider_id)
         app_server.api_request(

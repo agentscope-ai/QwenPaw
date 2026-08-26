@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-creator",
   "name": "QwenPaw Creator",
-  "version": "1.0.3",
+  "version": "1.1.1",
   "type": "app",
   "description": "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands.",
   "description_i18n": {
@@ -24,7 +24,7 @@
     "numpy"
   ],
   "qwenpaw_version": {
-    "min": "2.0.1"
+    "min": "2.1.0"
   },
   "pack_exclude": [
     "backend/tests",
@@ -318,6 +318,98 @@
         ]
       },
       {
+        "name": "creator_live_operation",
+        "description": "QwenPaw Creator live website operation and take recording limits",
+        "icon": "\ud83d\udda5\ufe0f",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "enabled",
+            "label": "Live Operation Enabled",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": [
+              "true",
+              "false"
+            ],
+            "help": "Lets the agent operate real websites and record takes as Project source material."
+          },
+          {
+            "name": "identity",
+            "label": "Browser Identity",
+            "type": "select",
+            "required": false,
+            "default": "guest",
+            "options": [
+              "guest",
+              "avatar",
+              "user",
+              "auto"
+            ],
+            "help": "guest keeps recorded footage free of the user's logged-in accounts; user drives the real Chrome profile."
+          },
+          {
+            "name": "fps",
+            "label": "Take Frame Rate",
+            "type": "number",
+            "required": false,
+            "default": 25,
+            "min": 5,
+            "max": 60
+          },
+          {
+            "name": "max_width",
+            "label": "Take Max Width",
+            "type": "number",
+            "required": false,
+            "default": 1280,
+            "min": 320,
+            "max": 3840
+          },
+          {
+            "name": "max_height",
+            "label": "Take Max Height",
+            "type": "number",
+            "required": false,
+            "default": 720,
+            "min": 240,
+            "max": 2160
+          },
+          {
+            "name": "max_take_seconds",
+            "label": "Max Seconds Per Take",
+            "type": "number",
+            "required": false,
+            "default": 300,
+            "min": 10,
+            "max": 1800,
+            "help": "Ceiling for one recording, so a forgotten stop cannot film indefinitely."
+          },
+          {
+            "name": "timeout_seconds",
+            "label": "Max Seconds Per Call",
+            "type": "number",
+            "required": false,
+            "default": 600,
+            "min": 30,
+            "max": 3600
+          },
+          {
+            "name": "computer_use_enabled",
+            "label": "Desktop Operation Enabled",
+            "type": "select",
+            "required": false,
+            "default": "false",
+            "options": [
+              "true",
+              "false"
+            ],
+            "help": "Lets the agent operate desktop apps via the native Computer Use runtime (Windows/macOS desktop host only). Off by default. This switch does not bypass QwenPaw Computer Use grants or OS Accessibility and Screen Recording permissions."
+          }
+        ]
+      },
+      {
         "name": "creator_asr_model",
         "description": "QwenPaw Creator speech-to-text configuration for source understanding",
         "icon": "🎙️",
@@ -388,7 +480,7 @@
       },
       {
         "name": "creator_video_model",
-        "description": "QwenPaw Creator reference-to-video configuration",
+        "description": "QwenPaw Creator multi-mode video generation configuration",
         "icon": "🎬",
         "requires_config": true,
         "config_fields": [
@@ -406,7 +498,8 @@
             "type": "text",
             "required": false,
             "default": "https://dashscope.aliyuncs.com/api/v1",
-            "placeholder": "https://dashscope.aliyuncs.com/api/v1"
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1",
+            "help": "The legacy DashScope API root remains the default for compatibility. Bailian video models also accept a regional Workspace API root when its model and API Key are in the same region."
           },
           {
             "name": "model",
@@ -415,7 +508,7 @@
             "required": false,
             "default": "wan2.7-r2v",
             "placeholder": "wan2.7-r2v",
-            "help": "Supported: Bailian wan2.x r2v family, Bailian happyhorse-1.x-r2v, Volcano doubao-seedance-2.x. Environment fallback: VIDEO_MODEL_NAME."
+            "help": "Supported: Bailian wan3.0-video and wan3.0-video-prime All-in-One (t2v/i2v/r2v, 2-30s), wan2.x and happyhorse-1.x families, plus the Creator video presets. Environment fallback: VIDEO_MODEL_NAME."
           },
           {
             "name": "submit_timeout",

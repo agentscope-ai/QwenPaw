@@ -44,11 +44,12 @@ def delegator_guidance() -> str:
     capability = require_capability(model_config.get_tts_model_name())
     lines = [
         "\n# 旁白与配音能力\n",
-        "- ai_editing_director 具备旁白生成能力：可把旁白文本合成为音频资产、"
-        "创建 creation.type=audio 的 Element 并重新合成成片。旁白/配音需求直接"
-        "委派它到 timeline:<timelineId>，在任务中写明旁白文案要求，并要求按"
-        "镜头/语义分段生成、每段 span 对齐对应画面；自带人声的区间（如"
-        " creation.type=s2v 的数字人口播）不安排旁白；不需要用户提供音频文件。",
+        "- ai_editing_director 具备旁白生成能力：可把旁白文本合成为音频资产并"
+        "创建 creation.type=audio、role=narration 的 Element，写回后成片由"
+        "系统自动重新合成。旁白/配音需求直接委派它到 timeline:<timelineId>，"
+        "在任务中写明旁白文案要求，并要求按镜头/语义分段生成、每段 span 对齐"
+        "对应画面；自带人声的区间（creation.type=s2v 的数字人口播、"
+        "shots.dialogue 非空的 R2V Element）不安排旁白；不需要用户提供音频文件。",
     ]
     if capability.has_system_voices:
         lines.append(
@@ -140,12 +141,14 @@ def _editing_guidance(capability, scenario: str) -> str:
     )
     lines.append(
         "- 自带人声的区间不安排旁白：数字人口播（creation.type=s2v）的"
-        " span 内视频自身就是人声，台词/现场声为内容重点的片段同理；"
-        "旁白 Element 的 span 不得与这些区间重叠。",
+        " span 内视频自身就是人声，任何 shots.dialogue 非空的 R2V Element "
+        "同理（生成视频会原生说出台词）；旁白 Element 的 span 不得与这些"
+        "区间重叠，系统会直接拒绝这类写入。",
     )
     lines.append(
         "- 音频上片：用 jq_project 在目标 Timeline 创建 creation.type=audio 的"
-        " Element，引用对应 version id；音频 Element 不需要 location，"
+        " Element，旁白必须设 role=narration（配乐用 role=bgm、音效用"
+        " role=sfx），引用对应 version id；音频 Element 不需要 location，"
         "gain_db 调音量、pan 调声像。",
     )
     lines.append(

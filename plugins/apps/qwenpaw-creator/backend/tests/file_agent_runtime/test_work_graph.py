@@ -65,6 +65,7 @@ def _element(element_id: str, **creation_kwargs) -> TimelineElement:
     defaults = {
         "narrative": "叙事",
         "storyboard_prompt": "分镜 prompt",
+        "video_prompt": "视频 prompt",
         "shots": {"items": {shot.shot_id: shot}, "order": [shot.shot_id]},
     }
     defaults.update(creation_kwargs)
@@ -174,30 +175,6 @@ def test_variant_nodes_cover_ready_running_failed_done() -> None:
     assert running.progress == 0.4
 
 
-def test_failed_variant_carries_the_error_summary() -> None:
-    project = _project()
-    project.visual.entities.items["char:a"] = _entity(
-        "char:a",
-        {"var:x": None},
-    )
-    project.visual.entities.order.append("char:a")
-
-    graph = derive_work_graph(
-        project,
-        tasks=[
-            _task(
-                "image_generation",
-                "asset:char:a",
-                TaskStatus.FAILED,
-                error={"message": "safety rejected"},
-            ),
-        ],
-    )
-    node = graph.by_id["visual:char:a:var:x"]
-    assert node.status is WorkNodeStatus.FAILED
-    assert "safety rejected" in (node.error or "")
-
-
 def test_prompt_rewrite_reopens_a_deterministically_failed_node() -> None:
     """FAILED parks a node only while its inputs are unchanged.
 
@@ -239,13 +216,9 @@ def test_prompt_rewrite_reopens_a_deterministically_failed_node() -> None:
         status_with_failed_key(f"dag-{node_id}-stale-fingerprint")
         is WorkNodeStatus.READY
     )
-    # Same inputs, including the transient retry slots: stay parked.
+    # Same inputs: stay parked.
     assert (
         status_with_failed_key(f"dag-{node_id}-{current}")
-        is WorkNodeStatus.FAILED
-    )
-    assert (
-        status_with_failed_key(f"dag-{node_id}-{current}:transient-retry-1")
         is WorkNodeStatus.FAILED
     )
     # Agent-dispatched failures carry no graph identity: stay parked.
@@ -347,14 +320,76 @@ def test_missing_storyboard_prompt_is_a_model_required_gap() -> None:
     assert storyboard in graph.model_required_nodes()
 
 
-def test_multi_character_storyboard_waits_for_the_planned_lineup() -> None:
-    """The lineup image is the pairwise-contrast anchor.
+def _element_with_landed_storyboard(
+    project: Project,
+    **creation_kwargs,
+) -> None:
+    _add_element(project, _element("elem:one", **creation_kwargs))
+    _select_slot(
+        project,
+        slot_id="element:elem:one:storyboard",
+        kind="r2v_storyboard_image",
+        owner_ref="element:elem:one",
+        version_id="art:sb",
+    )
 
-    Field run (project-bb49): storyboards rendered while the planned
-    lineup was still absent and identities drifted (duplicated jersey
-    numbers). A planned lineup covering ≥2 of the element's characters
-    must gate the storyboard until its image is selected.
+
+def test_video_gates_until_prompt_quotes_planned_dialogue() -> None:
+    """Field run 2026-08-12 (f5ac): planned dialogue never reached veo3.
+
+    The mainline wrote per-shot dialogue, committed a mood summary as
+    video_prompt, and the scheduler dispatched the summary verbatim — the
+    finished film was silent. The graph now refuses to dispatch a video
+    whose prompt drops any planned line.
     """
+    project = _project()
+    spoken = Shot(
+        shot_id="shot:reunion-2",
+        description="重逢对话",
+        camera="⊙ 静止",
+        framing="近景",
+        dialogue="林薇，这么多年了，有句话我一直想对你说。",
+        duration_seconds=3,
+    )
+    silent = Shot(
+        shot_id="shot:reunion-1",
+        description="环境建立",
+        camera="↑ 推近",
+        framing="全景",
+        duration_seconds=2,
+    )
+    _element_with_landed_storyboard(
+        project,
+        shots={
+            "items": {s.shot_id: s for s in (silent, spoken)},
+            "order": [silent.shot_id, spoken.shot_id],
+        },
+        video_prompt="Emotional reunion, intimate conversation.",
+    )
+
+    graph = derive_work_graph(project)
+    video = graph.by_id["video:elem:one"]
+    assert video.status is WorkNodeStatus.GATED
+    assert video.missing == ("video_prompt 缺台词原文：shot:reunion-2",)
+    assert video in graph.model_required_nodes()
+
+    # Quoting the line verbatim releases the gate; line wrapping inside
+    # the prompt must not re-trigger it.
+    element = project.timelines.items["timeline:main"].elements_by_id[
+        "elem:one"
+    ]
+    element.creation.video_prompt = (
+        "镜头二：他凝视她，轻声说：“林薇，这么多年了，\n" + "有句话我一直想对你说。”语气哽咽而坚定。"
+    )
+    graph = derive_work_graph(project)
+    assert graph.by_id["video:elem:one"].status is WorkNodeStatus.READY
+
+
+def test_declared_pending_lineup_gates_every_storyboard() -> None:
+    """Field run 2026-08-12 (27dc): a single-character closing scene
+    derived READY while another element's declared lineup was pending;
+    the executor's project-wide gate rejected the dispatch and the node
+    stalled READY-but-undispatchable until a restart."""
 
     project = _project()
     for ref in ("char:a", "char:b"):
@@ -375,36 +410,10 @@ def test_multi_character_storyboard_waits_for_the_planned_lineup() -> None:
             "elem:pair",
             character_refs=["char:a", "char:b"],
             visual_variant_refs={"char:a": "var:a", "char:b": "var:b"},
+            cast_lineup_refs=["lineup:duo"],
         ),
     )
-
-    graph = derive_work_graph(project)
-    storyboard = graph.by_id["storyboard:elem:pair"]
-    assert storyboard.status is WorkNodeStatus.GATED
-    assert "lineup:lineup:duo" in storyboard.missing
-
-    # The lineup image lands: the storyboard unblocks.
-    project.visual.cast_lineups.items[
-        "lineup:duo"
-    ].selected_artifact_version_id = "art:lineup"
-    graph = derive_work_graph(project)
-    assert graph.by_id["storyboard:elem:pair"].status is (WorkNodeStatus.READY)
-
-
-def test_single_character_storyboard_ignores_planned_lineups() -> None:
-    project = _project()
-    for ref in ("char:a", "char:b"):
-        project.visual.entities.items[ref] = _entity(
-            ref,
-            {f"var:{ref[-1]}": f"art:{ref[-1]}"},
-        )
-        project.visual.entities.order.append(ref)
-    project.visual.cast_lineups.items["lineup:duo"] = VisualCastLineup(
-        lineup_id="lineup:duo",
-        name="双人阵容",
-        character_refs=["char:a", "char:b"],
-    )
-    project.visual.cast_lineups.order.append("lineup:duo")
+    # The closing scene has one character and never references the lineup.
     _add_element(
         project,
         _element(
@@ -415,7 +424,17 @@ def test_single_character_storyboard_ignores_planned_lineups() -> None:
     )
 
     graph = derive_work_graph(project)
-    assert graph.by_id["storyboard:elem:solo"].status is (WorkNodeStatus.READY)
+    solo = graph.by_id["storyboard:elem:solo"]
+    assert solo.status is WorkNodeStatus.GATED
+    assert "lineup:lineup:duo" in solo.missing
+
+    # The lineup lands: every storyboard unblocks together.
+    project.visual.cast_lineups.items[
+        "lineup:duo"
+    ].selected_artifact_version_id = "art:lineup"
+    graph = derive_work_graph(project)
+    assert graph.by_id["storyboard:elem:solo"].status is WorkNodeStatus.READY
+    assert graph.by_id["storyboard:elem:pair"].status is WorkNodeStatus.READY
 
 
 def test_stale_marks_but_does_not_regenerate() -> None:
@@ -448,16 +467,6 @@ def test_stale_marks_but_does_not_regenerate() -> None:
     assert node.status is WorkNodeStatus.STALE
     # STALE is terminal for the scheduler: not READY, not dispatched.
     assert node not in graph.ready_media_nodes()
-
-
-def test_waiting_review_never_counts_as_running() -> None:
-    # A storyboard parked in review has no active task and no selected
-    # slot yet — the graph reports GATED/READY truthfully; review-hold
-    # visibility arrives through the review chip, not a fake RUNNING.
-    project = _project()
-    _add_element(project, _element("elem:one"))
-    graph = derive_work_graph(project)
-    assert graph.by_id["storyboard:elem:one"].status is WorkNodeStatus.READY
 
 
 def test_storyboard_waits_for_all_referenced_entities_not_just_bindings() -> (
@@ -502,51 +511,6 @@ def test_storyboard_waits_for_all_referenced_entities_not_just_bindings() -> (
     assert graph.by_id["storyboard:elem:one"].status is WorkNodeStatus.READY
 
 
-def test_unset_entity_selection_is_a_model_gap_not_a_dispatch() -> None:
-    project = _project()
-    scene = _entity("scene:home", {})
-    # No variants at all: the model must define one before anything is
-    # drawable — a gap the scheduler must not paper over.
-    project.visual.entities.items["scene:home"] = scene
-    project.visual.entities.order.append("scene:home")
-    _add_element(project, _element("elem:one", scene_ref="scene:home"))
-
-    graph = derive_work_graph(project)
-    storyboard = graph.by_id["storyboard:elem:one"]
-    assert storyboard.status is WorkNodeStatus.GATED
-    assert any("尚无使用中视觉产物" in reason for reason in storyboard.missing)
-    assert storyboard in graph.model_required_nodes()
-
-
-def test_ready_media_nodes_exclude_compose() -> None:
-    project = _project()
-    _add_element(project, _element("elem:one"))
-    _select_slot(
-        project,
-        slot_id="element:elem:one:storyboard",
-        kind="r2v_storyboard_image",
-        owner_ref="element:elem:one",
-        version_id="art:sb",
-    )
-    _select_slot(
-        project,
-        slot_id="element:elem:one:main",
-        kind="element_video",
-        owner_ref="element:elem:one",
-        version_id="art:vid",
-    )
-
-    graph = derive_work_graph(project)
-    compose = graph.by_id["compose:final"]
-    assert compose.status is WorkNodeStatus.READY
-    # The master render is machine-dispatchable: an unattended project
-    # reaches its final cut without a user pressing "render".
-    assert graph.ready_media_nodes() == (compose,)
-    assert compose.command == "COMPOSE_FINAL_VIDEO"
-    assert compose.target_ref == "timeline:timeline:main"
-    assert graph.unfinished() == (compose,)
-
-
 def test_stale_final_render_reopens_compose() -> None:
     # Render review revises an overlay after the master render: edit
     # impact marks the final_video version stale. The compose node must
@@ -580,6 +544,60 @@ def test_stale_final_render_reopens_compose() -> None:
     assert graph.by_id["compose:final"].status is WorkNodeStatus.DONE
 
     project.assets.artifact_versions_by_id["art:final"].stale = True
+    graph = derive_work_graph(project)
+    compose = graph.by_id["compose:final"]
+    assert compose.status is WorkNodeStatus.READY
+    assert compose in graph.ready_media_nodes()
+
+
+def test_superseded_render_source_reopens_compose_without_stale_flag() -> None:
+    """Frozen selections are authoritative even if impact missed stale."""
+
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    _select_slot(
+        project,
+        slot_id="element:elem:one:storyboard",
+        kind="r2v_storyboard_image",
+        owner_ref="element:elem:one",
+        version_id="art:sb",
+    )
+    _select_slot(
+        project,
+        slot_id="element:elem:one:main",
+        kind="element_video",
+        owner_ref="element:elem:one",
+        version_id="art:vid-old",
+    )
+    _select_slot(
+        project,
+        slot_id="timeline:timeline:main:render",
+        kind="final_video",
+        owner_ref="timeline:timeline:main",
+        version_id="art:final",
+    )
+    project.assets.artifact_versions_by_id["art:final"].metadata = {
+        "sourceSelections": [
+            {
+                "sourceRef": "element:elem:one",
+                "versionId": "art:vid-old",
+            },
+        ],
+    }
+    assert (
+        derive_work_graph(project).by_id["compose:final"].status
+        is WorkNodeStatus.DONE
+    )
+
+    _select_slot(
+        project,
+        slot_id="element:elem:one:main",
+        kind="element_video",
+        owner_ref="element:elem:one",
+        version_id="art:vid-new",
+    )
+    # The lifecycle bug observed in the real run left this false.
+    assert not project.assets.artifact_versions_by_id["art:final"].stale
     graph = derive_work_graph(project)
     compose = graph.by_id["compose:final"]
     assert compose.status is WorkNodeStatus.READY

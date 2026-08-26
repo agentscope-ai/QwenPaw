@@ -25,6 +25,7 @@ import pytest
 from playwright.sync_api import expect
 
 from pages.coding_page import CodingPage
+from config import config
 from utils.helpers import log_test_step, log_test_result
 
 
@@ -53,31 +54,34 @@ class TestEnterAndExitCodingMode:
         log_test_step("0. Reset agent to Chat mode (defensive)")
         coding_page.api_set_coding_mode(api_context, False)
 
-        log_test_step("1. Open /chat and verify the Code toggle is visible")
-        coding_page.open_chat()
-        expect(
-            coding_page.page.locator(coding_page.TOGGLE_ENTER).first
-        ).to_be_visible(timeout=coding_page.timeout)
-
-        log_test_step("2. Enter Coding Mode (workspace default)")
-        coding_page.enter_coding_mode_with_workspace_default()
-        assert coding_page.is_in_coding_mode(), (
-            f"Expected URL to contain /coding, got {coding_page.page.url}"
-        )
-
-        log_test_step("3. Verify IDE shell rendered")
-        assert coding_page.verify_ide_layout_visible(), (
-            "Coding Mode IDE shell did not render the Chat panel"
-        )
-
-        log_test_step("4. Exit Coding Mode and verify route back to /chat")
-        coding_page.exit_coding_mode()
+        log_test_step("1. Open /files and verify the IDE rail is absent")
+        coding_page.page.goto(coding_page.CODING_URL)
+        coding_page.page.wait_for_load_state("domcontentloaded")
+        coding_page.page.wait_for_timeout(3000)
         assert not coding_page.is_in_coding_mode(), (
-            f"Expected URL to leave /coding, got {coding_page.page.url}"
+            "IDE rail should be absent while Coding Mode is off"
         )
-        expect(
-            coding_page.page.locator(coding_page.TOGGLE_ENTER).first
-        ).to_be_visible(timeout=coding_page.timeout)
+
+        log_test_step("2. Enable Coding Mode via API and verify IDE rail")
+        coding_page.api_set_coding_mode(api_context, True)
+        coding_page.page.reload()
+        coding_page.page.wait_for_timeout(3000)
+        assert coding_page.verify_ide_layout_visible(), (
+            "Coding Mode IDE surface did not render after enabling"
+        )
+
+        log_test_step("3. Verify mode signal")
+        assert coding_page.is_in_coding_mode(), (
+            "Expected Coding Mode IDE surface to be active"
+        )
+
+        log_test_step("4. Disable Coding Mode and verify rail gone")
+        coding_page.api_set_coding_mode(api_context, False)
+        coding_page.page.reload()
+        coding_page.page.wait_for_timeout(3000)
+        assert not coding_page.is_in_coding_mode(), (
+            "Expected IDE rail to disappear after disabling Coding Mode"
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")
@@ -113,17 +117,10 @@ class TestCreateEmptyProjectAndOpen:
         coding_page.api_set_coding_mode(api_context, True)
 
         try:
-            log_test_step("2. Navigate directly to /coding and verify IDE")
-            coding_page.open_chat()
-            coding_page.page.goto(
-                coding_page.CODING_URL,
-                wait_until="commit",
-                timeout=coding_page.timeout,
-            )
-            coding_page.page.wait_for_url(
-                "**/coding",
-                timeout=coding_page.timeout,
-            )
+            log_test_step("2. Navigate to the files IDE and verify it")
+            coding_page.page.goto(coding_page.CODING_URL)
+            coding_page.page.wait_for_load_state("domcontentloaded")
+            coding_page.page.wait_for_timeout(3000)
             assert coding_page.verify_ide_layout_visible(), (
                 "IDE shell did not render after creating project"
             )
@@ -181,18 +178,11 @@ class TestOpenExistingDirectory:
         log_test_step("2. Enable Coding Mode and assert IDE renders")
         coding_page.api_set_coding_mode(api_context, True)
         try:
-            coding_page.open_chat()
-            coding_page.page.goto(
-                coding_page.CODING_URL,
-                wait_until="commit",
-                timeout=coding_page.timeout,
-            )
-            coding_page.page.wait_for_url(
-                "**/coding",
-                timeout=coding_page.timeout,
-            )
+            coding_page.page.goto(coding_page.CODING_URL)
+            coding_page.page.wait_for_load_state("domcontentloaded")
+            coding_page.page.wait_for_timeout(3000)
             assert coding_page.verify_ide_layout_visible(), (
-                "IDE shell did not render after opening existing directory"
+                "IDE surface did not render after opening existing directory"
             )
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed (path: {active_path})")
@@ -239,24 +229,19 @@ class TestChatInCodingMode:
         coding_page.api_set_coding_mode(api_context, True)
 
         try:
-            log_test_step("2. Open IDE and locate the embedded chat input")
-            coding_page.open_chat()
-            coding_page.page.goto(
-                coding_page.CODING_URL,
-                wait_until="commit",
-                timeout=coding_page.timeout,
-            )
-            coding_page.page.wait_for_url(
-                "**/coding",
-                timeout=coding_page.timeout,
-            )
+            log_test_step("2. Open the files IDE and verify it renders")
+            coding_page.page.goto(coding_page.CODING_URL)
+            coding_page.page.wait_for_load_state("domcontentloaded")
+            coding_page.page.wait_for_timeout(3000)
             assert coding_page.verify_ide_layout_visible(), (
-                "IDE shell did not render"
+                "IDE surface did not render"
             )
 
             log_test_step("3. Send a question that mentions README.md")
+            coding_page.open_chat()
+            coding_page.page.wait_for_timeout(3000)
             chat_input = coding_page.page.locator(
-                '.qwenpaw-sender [role="textbox"][contenteditable="true"]:visible'
+                '.qwenpaw-sender textarea:visible, .qwenpaw-sender [role="textbox"]:visible'
             ).first
             expect(chat_input).to_be_visible(timeout=coding_page.timeout)
             chat_input.fill(
@@ -318,18 +303,11 @@ class TestFileTreeOpenTab:
 
         try:
             log_test_step("2. Open IDE")
-            coding_page.open_chat()
-            coding_page.page.goto(
-                coding_page.CODING_URL,
-                wait_until="commit",
-                timeout=coding_page.timeout,
-            )
-            coding_page.page.wait_for_url(
-                "**/coding",
-                timeout=coding_page.timeout,
-            )
+            coding_page.page.goto(coding_page.CODING_URL)
+            coding_page.page.wait_for_load_state("domcontentloaded")
+            coding_page.page.wait_for_timeout(3000)
             assert coding_page.verify_ide_layout_visible(), (
-                "IDE shell did not render"
+                "IDE surface did not render"
             )
 
             log_test_step("3. Editor empty hint should be visible initially")
@@ -348,7 +326,7 @@ class TestFileTreeOpenTab:
                 f"4. Click '{seed_filename}' in the file tree"
             )
             tree_node = coding_page.page.locator(
-                f'div[role="button"]:has(span:text-is("{seed_filename}"))'
+                f'button[class*="treeRow"]:has(span:text-is("{seed_filename}"))'
             ).first
             expect(tree_node).to_be_visible(timeout=15000)
             tree_node.click()

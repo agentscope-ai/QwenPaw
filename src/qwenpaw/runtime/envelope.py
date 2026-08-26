@@ -224,7 +224,10 @@ class Envelope:
                 self._message_started = True
             block_id = event.block_id
             index = len(self._text_blocks)
-            self._text_blocks[block_id] = {"index": index, "text": ""}
+            self._text_blocks[block_id] = {
+                "index": index,
+                "text_fragments": [],
+            }
 
         elif evt_type == EventType.TEXT_BLOCK_DELTA.value:
             if not self._message_started:
@@ -234,9 +237,12 @@ class Envelope:
             delta = event.delta or ""
             state = self._text_blocks.setdefault(
                 block_id,
-                {"index": len(self._text_blocks), "text": ""},
+                {
+                    "index": len(self._text_blocks),
+                    "text_fragments": [],
+                },
             )
-            state["text"] += delta
+            state["text_fragments"].append(delta)
             chunk = TextContent(
                 type=ContentType.TEXT,
                 text=delta,
@@ -251,9 +257,10 @@ class Envelope:
             state = self._text_blocks.get(block_id)
             if state is None:
                 return
+            text = "".join(state["text_fragments"])
             final_chunk = TextContent(
                 type=ContentType.TEXT,
-                text=state["text"],
+                text=text,
                 delta=False,
                 index=state["index"],
             )
@@ -262,11 +269,12 @@ class Envelope:
             self._completed_message.content.append(
                 TextContent(
                     type=ContentType.TEXT,
-                    text=state["text"],
+                    text=text,
                     delta=False,
                     index=state["index"],
                 ),
             )
+            state.pop("text_fragments", None)
 
         # === THINKING BLOCK ===
         elif evt_type == EventType.THINKING_BLOCK_START.value:
@@ -296,7 +304,7 @@ class Envelope:
             self._reasoning_blocks[block_id] = {
                 "msg_id": r_msg_id,
                 "envelope": r_envelope,
-                "text": "",
+                "text_fragments": [],
             }
             yield self._tag_seq(r_envelope)
 
@@ -324,11 +332,11 @@ class Envelope:
                 state = {
                     "msg_id": r_msg_id,
                     "envelope": r_envelope,
-                    "text": "",
+                    "text_fragments": [],
                 }
                 self._reasoning_blocks[block_id] = state
                 yield self._tag_seq(r_envelope)
-            state["text"] += delta
+            state["text_fragments"].append(delta)
             r_chunk = TextContent(
                 type=ContentType.TEXT,
                 text=delta,
@@ -343,9 +351,10 @@ class Envelope:
             state = self._reasoning_blocks.get(block_id)
             if state is None:
                 return
+            text = "".join(state["text_fragments"])
             r_final = TextContent(
                 type=ContentType.TEXT,
-                text=state["text"],
+                text=text,
                 delta=False,
                 index=0,
             )
@@ -354,13 +363,14 @@ class Envelope:
             state["envelope"].content.append(
                 TextContent(
                     type=ContentType.TEXT,
-                    text=state["text"],
+                    text=text,
                     delta=False,
                     index=0,
                 ),
             )
             state["envelope"].status = RunStatus.Completed
             self._response.output.append(state["envelope"])
+            state.pop("text_fragments", None)
             yield self._tag_seq(state["envelope"])
 
         # === TOOL CALL ===
@@ -401,7 +411,7 @@ class Envelope:
                 "name": event.tool_call_name,
                 "argument_fragments": [],
                 "message": plugin_call_message,
-                "output_text_acc": "",
+                "output_text_fragments": [],
                 "output_data_blocks": {},
             }
 
@@ -456,7 +466,7 @@ class Envelope:
                 state = {
                     "name": event.tool_call_name,
                     "argument_fragments": [],
-                    "output_text_acc": "",
+                    "output_text_fragments": [],
                     "output_data_blocks": {},
                 }
                 self._tool_calls[call_id] = state
@@ -488,7 +498,7 @@ class Envelope:
             yield self._tag_seq(stub_content.in_progress())
 
             state["output_message"] = out_message
-            state["output_text_acc"] = ""
+            state["output_text_fragments"] = []
             state["output_data_blocks"] = {}
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
@@ -496,7 +506,7 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["output_text_acc"] += event.delta or ""
+            state["output_text_fragments"].append(event.delta or "")
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -588,6 +598,7 @@ class Envelope:
             out_message.add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
+            state.pop("output_text_fragments", None)
             yield self._tag_seq(out_message.completed())
 
         # === DATA BLOCK ===
@@ -729,7 +740,7 @@ class Envelope:
         from ..schemas import DataContent
 
         blocks_dict: dict = state.get("output_data_blocks", {})
-        text_acc: str = state.get("output_text_acc", "")
+        text_acc = "".join(state.get("output_text_fragments", []))
 
         if blocks_dict:
             output_blocks: list[dict[str, Any]] = list(
@@ -764,7 +775,15 @@ class Envelope:
     # ------------------------------------------------------------------
 
     async def heartbeat(self) -> AsyncGenerator[Any, None]:
-        yield self._tag_seq(self._response)
+        from ..schemas import Event
+
+        # Heartbeats only keep the transport alive. Re-emitting the mutable
+        # response would serialize every completed tool result and media block
+        # again, and TaskTracker retains each SSE event for reconnect replay.
+        # A long idle period after several screenshots could therefore retain
+        # gigabytes of duplicate response snapshots.
+        heartbeat = Event(object="message", type="heartbeat")
+        yield self._tag_seq(heartbeat)
 
     # ------------------------------------------------------------------
     # Command short-circuit
@@ -845,7 +864,7 @@ class Envelope:
             # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
             if not self._completed_message.content:
                 for state in self._text_blocks.values():
-                    text = state.get("text", "")
+                    text = "".join(state.get("text_fragments", []))
                     if text:
                         self._completed_message.content.append(
                             TextContent(
@@ -900,12 +919,12 @@ class Envelope:
             env = state.get("envelope")
             if env is not None and env.status == RunStatus.Completed:
                 continue
-            text = state.get("text", "")
+            text = "".join(state.get("text_fragments", []))
             if text:
                 result.append(("thinking", text))
 
         for state in self._text_blocks.values():
-            text = state.get("text", "")
+            text = "".join(state.get("text_fragments", []))
             if text:
                 result.append(("text", text))
 
@@ -915,11 +934,11 @@ class Envelope:
         """Return ``{call_id: accumulated_output}`` for tool calls that
         received partial results before the stream was interrupted.
 
-        Only includes entries where ``output_text_acc`` is non-empty.
+        Only includes entries where ``output_text_fragments`` is non-empty.
         """
         result: dict[str, str] = {}
         for call_id, state in self._tool_calls.items():
-            output = state.get("output_text_acc", "")
+            output = "".join(state.get("output_text_fragments", []))
             if output:
                 result[call_id] = output
         return result

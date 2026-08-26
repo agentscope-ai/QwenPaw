@@ -101,7 +101,9 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     ),
     "volcengine-cn": _OPENAI_DYNAMIC,
     "volcengine-cn-codingplan": _CATALOG_PLAN,
+    "volcengine-cn-agentplan": _CATALOG_PLAN,
     "mimo-tokenplan": _CATALOG_PLAN,
+    "mimo": _OPENAI_DYNAMIC,
 }
 
 

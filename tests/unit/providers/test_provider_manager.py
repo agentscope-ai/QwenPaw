@@ -26,6 +26,7 @@ from qwenpaw.providers.capping_formatter import (
 from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
+    OpenCodeProvider,
     OpenAIProvider,
 )
 from qwenpaw.providers.openai_response_provider import OpenAIResponseProvider
@@ -140,6 +141,48 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
         model_ids = [m.id for m in provider.models]
         assert len(model_ids) > 0
         assert len(model_ids) == len(set(model_ids))
+
+
+def test_builtin_restore_preserves_catalog_free_flags() -> None:
+    builtin = OpenAIProvider(
+        id="catalog-provider",
+        name="Catalog Provider",
+        models=[
+            ModelInfo(id="free-model", name="Free", is_free=True),
+            ModelInfo(id="paid-model", name="Paid", is_free=False),
+        ],
+    )
+    stored = builtin.model_copy(deep=True)
+    stored.models[0].is_free = False
+    stored.models[1].is_free = True
+
+    ProviderManager._restore_builtin_provider(builtin, stored)
+
+    assert [model.is_free for model in builtin.models] == [True, False]
+
+
+def test_builtin_restore_drops_provider_unavailable_models() -> None:
+    builtin = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        models=[ModelInfo(id="mimo-v2.5-free", name="Mimo")],
+    )
+    stored = builtin.model_copy(deep=True)
+    stored.extra_models = [
+        ModelInfo(id="nemotron-3-super-free", name="Nemotron Super"),
+        ModelInfo(id="user-model", name="User Model"),
+    ]
+    stored.discovered_models = [
+        ModelInfo(id="deepseek-v4-flash-free", name="DeepSeek Flash"),
+        ModelInfo(id="remote-model", name="Remote Model"),
+    ]
+
+    ProviderManager._restore_builtin_provider(builtin, stored)
+
+    assert [model.id for model in builtin.extra_models] == ["user-model"]
+    assert [model.id for model in builtin.discovered_models] == [
+        "remote-model",
+    ]
 
 
 async def test_add_custom_provider_and_reload_from_storage(
@@ -2902,13 +2945,15 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
     monkeypatch.setattr(
         provider_manager_module.EnvVarLoader,
         "get_str",
-        lambda name: "https://example.invalid/catalog.json"
-        if name
-        in {
-            provider_manager_module.model_catalog.CATALOG_URL_ENV,
-            capability_baseline_module.CAPABILITY_URL_ENV,
-        }
-        else "",
+        lambda name: (
+            "https://example.invalid/catalog.json"
+            if name
+            in {
+                provider_manager_module.model_catalog.CATALOG_URL_ENV,
+                capability_baseline_module.CAPABILITY_URL_ENV,
+            }
+            else ""
+        ),
     )
 
     def update_model() -> None:
@@ -3089,9 +3134,11 @@ async def test_remote_capability_sync_updates_documentation_annotations(
     monkeypatch.setattr(
         provider_manager_module.EnvVarLoader,
         "get_str",
-        lambda name: "https://example.invalid/capabilities.json"
-        if name == capability_baseline_module.CAPABILITY_URL_ENV
-        else "",
+        lambda name: (
+            "https://example.invalid/capabilities.json"
+            if name == capability_baseline_module.CAPABILITY_URL_ENV
+            else ""
+        ),
     )
 
     def update_capability() -> None:
@@ -3632,11 +3679,21 @@ def test_provider_group_metadata(isolated_secret_dir) -> None:
         assert p is not None, f"{pid} not found"
         assert p.provider_group == "kimi"
 
-    volcengine_ids = ["volcengine-cn", "volcengine-cn-codingplan"]
+    volcengine_ids = [
+        "volcengine-cn",
+        "volcengine-cn-codingplan",
+        "volcengine-cn-agentplan",
+    ]
     for pid in volcengine_ids:
         p = manager.get_provider(pid)
         assert p is not None, f"{pid} not found"
         assert p.provider_group == "volcengine"
+
+    mimo_ids = ["mimo-tokenplan", "mimo"]
+    for pid in mimo_ids:
+        p = manager.get_provider(pid)
+        assert p is not None, f"{pid} not found"
+        assert p.provider_group == "mimo"
 
 
 async def test_provider_group_in_get_info(isolated_secret_dir) -> None:

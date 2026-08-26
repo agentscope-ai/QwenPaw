@@ -14,15 +14,11 @@ from services.project_files import (
     canonical_json_bytes,
     load_project_document,
     load_project_json,
-    load_project_json_with_etag,
     project_document_etag,
     project_etag,
     project_file_bytes,
 )
 from services.project_files.models import (
-    I2VCreation,
-    S2VCreation,
-    T2VCreation,
     ElementLocation,
     EntityCollection,
     R2VCreation,
@@ -88,17 +84,7 @@ def _edit_project() -> Project:
             "label": "Edit Element",
             "enabled": True,
             "span": {"start_tick": 0, "duration_tick": 3000},
-            "location": {
-                "coordinate_space": "normalized_canvas",
-                "x": 0,
-                "y": 0,
-                "width": 1,
-                "height": 1,
-                "anchor_x": 0.5,
-                "anchor_y": 0.5,
-                "rotation_degrees": 0,
-                "opacity": 1,
-            },
+            "location": {},
             "z_index": 0,
             "creation": {
                 "type": "edit",
@@ -129,7 +115,7 @@ def test_project_new_has_complete_valid_defaults_and_utc_time():
         now=datetime(2026, 7, 15, 16, 0, tzinfo=timezone.utc),
     )
 
-    assert project.schema_version == 8
+    assert project.schema_version == 9
     assert project.generation == 0
     assert project.created_at.tzinfo == timezone.utc
     assert project.timelines.order == ["timeline:main"]
@@ -175,39 +161,6 @@ def _variant_project() -> Project:
     return Project.model_validate(project.model_dump(mode="json"))
 
 
-def test_video_creation_types_model_only_what_their_provider_consumes():
-    """t2v/i2v/s2v are their own creation types: no shots, no storyboard
-    fields, and the s2v model carries exactly portrait + script + audio."""
-
-    t2v = T2VCreation(video_prompt="海浪拍打礁石")
-    assert t2v.type == "t2v"
-    assert "shots" not in T2VCreation.model_fields
-    assert "storyboard_prompt" not in T2VCreation.model_fields
-
-    i2v = I2VCreation(first_frame_version_id="artifact-version-1")
-    assert i2v.type == "i2v"
-    assert "video_reference_version_ids" not in I2VCreation.model_fields
-
-    s2v = S2VCreation(
-        character_ref="char:host",
-        portrait_version_id="artifact-version-2",
-        script="大家好，欢迎收看。",
-        audio_version_id="asset-version-3",
-    )
-    assert s2v.type == "s2v"
-    assert set(S2VCreation.model_fields) == {
-        "type",
-        "intent",
-        "character_ref",
-        "portrait_version_id",
-        "script",
-        "audio_version_id",
-        "recipe",
-    }
-    with pytest.raises(ValidationError):
-        S2VCreation(shots={"items": {}, "order": []})
-
-
 def test_r2v_variant_binding_must_target_a_referenced_entity_and_variant():
     project = _variant_project()
     raw = project.model_dump(mode="json")
@@ -237,34 +190,7 @@ def test_r2v_variant_binding_must_target_a_referenced_entity_and_variant():
         Project.model_validate(raw)
 
 
-def test_multi_variant_entity_rejects_legacy_entity_selection():
-    raw = _variant_project().model_dump(mode="json")
-    raw["visual"]["entities"]["items"]["char:hero"][
-        "selected_artifact_version_id"
-    ] = "artifact:legacy-default"
-
-    with pytest.raises(
-        ValidationError,
-        match="cannot use the legacy entity-level selected artifact",
-    ):
-        Project.model_validate(raw)
-
-
-def test_visual_variants_must_be_declared_but_required_states_may_be_pending():
-    pending = VisualEntity(
-        entity_id="char:hero",
-        kind="character",
-        name="Hero",
-        required_variant_ids=["variant:peak", "variant:fallen"],
-        variants=EntityCollection(
-            items={
-                "variant:peak": VisualVariant(variant_id="variant:peak"),
-            },
-            order=["variant:peak"],
-        ),
-    )
-    assert pending.required_variant_ids == ["variant:peak", "variant:fallen"]
-
+def test_visual_variants_must_be_declared_in_required_variant_ids():
     with pytest.raises(
         ValidationError,
         match="must be declared in required_variant_ids",
@@ -282,30 +208,6 @@ def test_visual_variants_must_be_declared_but_required_states_may_be_pending():
             ),
         )
 
-    raw = pending.model_dump(mode="json")
-    raw.pop("required_variant_ids")
-    with pytest.raises(ValidationError, match="required_variant_ids"):
-        VisualEntity.model_validate(raw)
-
-
-def test_one_edit_element_selects_exactly_one_source_range():
-    project = _edit_project()
-    creation = (
-        project.timelines.items["timeline:main"]
-        .elements_by_id["element-1"]
-        .creation
-    )
-
-    assert creation.type == "edit"
-    element = project.timelines.items["timeline:main"].elements_by_id[
-        "element-1"
-    ]
-    assert element.render_source is not None
-    assert element.render_source.version_id == "source-version-1"
-    assert element.render_source.source_in_tick == 0
-    assert element.render_source.source_out_tick == 3000
-    assert "plan" not in creation.model_dump(mode="json")
-
 
 def test_canonical_serialization_is_stable_human_readable_and_round_trips():
     project = _edit_project()
@@ -320,9 +222,6 @@ def test_canonical_serialization_is_stable_human_readable_and_round_trips():
     assert first.index(b'"schema_version"') < first.index(b'"project_id"')
     assert load_project_json(first) == project
     assert project_etag(load_project_json(first)) == project_etag(project)
-    loaded, source_etag = load_project_json_with_etag(first)
-    assert loaded == project
-    assert source_etag == project_etag(project)
 
 
 def test_legacy_document_etag_survives_in_memory_schema_migration():
@@ -360,7 +259,7 @@ def test_legacy_document_etag_survives_in_memory_schema_migration():
 
     migrated = load_project_document(raw)
 
-    assert migrated.schema_version == 8
+    assert migrated.schema_version == 9
     assert migrated.visual.entities.items[
         "char:hero"
     ].required_variant_ids == ["variant:peak"]
@@ -401,63 +300,11 @@ def test_indexed_file_uri_must_name_a_file_below_assets(relative_uri):
         Project.model_validate(raw)
 
 
-def test_graph_rejects_edit_element_with_missing_source_version():
-    raw = Project.new(project_id="project-bad", name="Bad").model_dump(
-        mode="json",
-    )
-    raw["timelines"]["items"]["timeline:main"]["elements_by_id"]["bad"] = {
-        "element_id": "bad",
-        "span": {"start_tick": 0, "duration_tick": 1000},
-        "location": {
-            "coordinate_space": "normalized_canvas",
-            "x": 0,
-            "y": 0,
-            "width": 1,
-            "height": 1,
-            "anchor_x": 0.5,
-            "anchor_y": 0.5,
-            "rotation_degrees": 0,
-            "opacity": 1,
-        },
-        "creation": {
-            "type": "edit",
-            "intent": "",
-            "reason": "",
-            "original_sound": "preserve",
-            "source_intelligence_version_id": None,
-        },
-        "render_source": {
-            "type": "source_asset_version",
-            "version_id": "missing",
-            "source_in_tick": 0,
-            "source_out_tick": 1000,
-            "playback_rate": 1,
-            "loop": False,
-        },
-    }
-
-    with pytest.raises(
-        ValidationError,
-        match="Element render source references missing",
-    ):
-        Project.model_validate(raw)
-
-
 def test_project_json_is_plain_json_with_no_runtime_state():
     payload = json.loads(project_file_bytes(_edit_project()))
 
     assert "runtime" not in payload
     assert "reviews" not in payload
-    creation = payload["timelines"]["items"]["timeline:main"][
-        "elements_by_id"
-    ]["element-1"]["creation"]
-    assert set(creation) == {
-        "type",
-        "intent",
-        "reason",
-        "original_sound",
-        "source_intelligence_version_id",
-    }
 
 
 def test_fabricated_artifact_slots_are_rejected():

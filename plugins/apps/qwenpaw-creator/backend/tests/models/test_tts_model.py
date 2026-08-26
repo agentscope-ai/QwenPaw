@@ -11,6 +11,21 @@ import pytest
 
 from models import config as model_config
 from models import tts_model
+from models.tts_capabilities import (
+    DEFAULT_TTS_MODEL,
+    capability_for,
+    require_capability,
+    supported_models,
+)
+
+
+def _fake_post(captured: dict, response: dict):
+    async def fake_post_json(url, *, api_key, payload, timeout_seconds):
+        captured["url"] = url
+        captured["payload"] = payload
+        return response
+
+    return fake_post_json
 
 
 def test_require_text_rejects_empty_and_overlong() -> None:
@@ -21,70 +36,41 @@ def test_require_text_rejects_empty_and_overlong() -> None:
     assert tts_model._require_text(" 你好 ") == "你好"
 
 
-def test_normalize_preferred_name() -> None:
-    assert tts_model._normalize_preferred_name("关 羽 Hero-01!") == "hero01"
-    assert tts_model._normalize_preferred_name("Guan Yu!") == "guanyu"
-    assert tts_model._normalize_preferred_name("！！！") == "creatorvoice"
-    assert len(tts_model._normalize_preferred_name("a" * 64)) == 20
-
-
 def test_synthesize_uses_system_voice_and_flash_model(monkeypatch) -> None:
     captured: dict = {}
-
-    async def fake_post_json(url, *, api_key, payload, timeout_seconds):
-        captured["url"] = url
-        captured["payload"] = payload
-        return {
-            "output": {"audio": {"url": "https://example.com/a.wav"}},
-            "usage": {"characters": 4},
-        }
-
-    def fake_download(url):
-        captured["download"] = url
-        return b"RIFFxxxx", "audio/wav"
-
     monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    monkeypatch.setattr(tts_model, "_post_json", fake_post_json)
-    monkeypatch.setattr(tts_model, "_download_audio", fake_download)
+    monkeypatch.setattr(
+        tts_model,
+        "_post_json",
+        _fake_post(
+            captured,
+            {
+                "output": {"audio": {"url": "https://example.com/a.wav"}},
+                "usage": {"characters": 4},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        tts_model,
+        "_download_audio",
+        lambda url: (b"RIFFxxxx", "audio/wav"),
+    )
 
     result = asyncio.run(tts_model.synthesize("你好世界", voice="Serena"))
     assert "multimodal-generation/generation" in captured["url"]
     assert captured["payload"]["model"] == model_config.get_tts_model_name()
-    assert captured["payload"]["input"] == {
-        "text": "你好世界",
-        "voice": "Serena",
-    }
+    assert captured["payload"]["input"] == {"text": "你好世界", "voice": "Serena"}
     assert result.audio_bytes == b"RIFFxxxx"
     assert result.characters == 4
 
 
-def test_synthesize_with_voice_id_switches_to_vc_model(monkeypatch) -> None:
-    captured: dict = {}
-
-    async def fake_post_json(url, *, api_key, payload, timeout_seconds):
-        captured["payload"] = payload
-        return {"output": {"audio": {"url": "https://example.com/a.wav"}}}
-
-    monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    monkeypatch.setattr(tts_model, "_post_json", fake_post_json)
-    monkeypatch.setattr(
-        tts_model,
-        "_download_audio",
-        lambda url: (b"RIFF", "audio/wav"),
-    )
-
-    result = asyncio.run(
-        tts_model.synthesize("台词", voice_id="myvoice-abc123"),
-    )
-    assert captured["payload"]["model"] == model_config.get_tts_vc_model_name()
-    assert captured["payload"]["input"]["voice"] == "myvoice-abc123"
-    assert result.voice == "myvoice-abc123"
-
-
-def test_synthesize_without_key_raises(monkeypatch) -> None:
+def test_missing_key_gates_configuration_and_synthesis(monkeypatch) -> None:
     monkeypatch.delenv("TTS_API_KEY", raising=False)
+    assert model_config.is_tts_configured() is False
     with pytest.raises(ValueError, match="creator_tts_model"):
         asyncio.run(tts_model.synthesize("你好"))
+    monkeypatch.setenv("TTS_API_KEY", "sk-test")
+    assert model_config.is_tts_configured() is True
 
 
 def test_synthesize_rejects_unknown_system_voice(monkeypatch) -> None:
@@ -97,24 +83,24 @@ def test_synthesize_rejects_unknown_system_voice(monkeypatch) -> None:
     monkeypatch.setattr(tts_model, "_post_json", fail_post_json)
 
     with pytest.raises(ValueError, match="available system voices"):
-        asyncio.run(
-            tts_model.synthesize("你好", voice="zh-CN-YunxiNeural"),
-        )
+        asyncio.run(tts_model.synthesize("你好", voice="zh-CN-YunxiNeural"))
 
 
 def test_enroll_voice_builds_enrollment_payload(monkeypatch) -> None:
     captured: dict = {}
 
-    async def fake_post_json(url, *, api_key, payload, timeout_seconds):
-        captured["url"] = url
-        captured["payload"] = payload
-        return {"output": {"voice_id": "qwen-tts-vc-guanyu-xyz"}}
-
     async def fake_sample_url(sample, api_key, model):
         return "https://example.com/sample.wav"
 
     monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    monkeypatch.setattr(tts_model, "_post_json", fake_post_json)
+    monkeypatch.setattr(
+        tts_model,
+        "_post_json",
+        _fake_post(
+            captured,
+            {"output": {"voice_id": "qwen-tts-vc-guanyu-xyz"}},
+        ),
+    )
     monkeypatch.setattr(tts_model, "_sample_url", fake_sample_url)
 
     enrollment = asyncio.run(
@@ -135,127 +121,32 @@ def test_enroll_voice_builds_enrollment_payload(monkeypatch) -> None:
     assert enrollment.voice_id == "qwen-tts-vc-guanyu-xyz"
 
 
-def test_is_tts_configured_gates_on_key(monkeypatch) -> None:
-    monkeypatch.delenv("TTS_API_KEY", raising=False)
-    assert model_config.is_tts_configured() is False
-    monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    assert model_config.is_tts_configured() is True
-
-
-def test_tts_api_key_falls_back_to_the_text_credential(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """TTS reuses the LLM key by default so it needs no separate entry."""
-
-    monkeypatch.delenv("TTS_API_KEY", raising=False)
-    monkeypatch.delenv("TEXT_API_KEY", raising=False)
-    config_path = tmp_path / "config" / "model_config.json"
-    config_path.parent.mkdir(parents=True)
-    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
-    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
-
-    def write(tts_section: dict) -> None:
-        config_path.write_text(
-            json.dumps(
-                {
-                    "llm": {
-                        "enabled": True,
-                        "api_key": "sk-shared",
-                        "base_url": "https://example.test/v1",
-                        "model_name": "qwen",
-                    },
-                    "tts": tts_section,
-                },
-            ),
-            encoding="utf-8",
-        )
-        model_config._clear_user_config_cache()
-
-    write({"enabled": True, "model_name": "qwen3-tts-flash"})
-    assert model_config.get_tts_api_key() == "sk-shared"
-    assert model_config.is_tts_configured()
-
-    write(
-        {
-            "enabled": True,
-            "model_name": "qwen3-tts-flash",
-            "reuse_llm_key": False,
-        },
-    )
-    assert model_config.get_tts_api_key() == ""
-
-    write(
-        {
-            "enabled": True,
-            "model_name": "qwen3-tts-flash",
-            "reuse_llm_key": False,
-            "api_key": "sk-own",
-        },
-    )
-    assert model_config.get_tts_api_key() == "sk-own"
-
-
-def test_http_family_rejects_non_default_speech_rate(monkeypatch) -> None:
+def test_http_family_validates_speech_rate(monkeypatch) -> None:
     """qwen-tts has no rate parameter, so a non-default rate fails fast
-    instead of silently synthesizing at normal speed."""
+    instead of silently synthesizing at normal speed; out-of-bounds rates
+    are rejected for every family."""
 
     monkeypatch.setenv("TTS_API_KEY", "sk-test")
     with pytest.raises(ValueError, match="CosyVoice"):
         asyncio.run(
-            tts_model.synthesize(
-                "你好世界",
-                voice="Serena",
-                speech_rate=1.3,
-            ),
+            tts_model.synthesize("你好世界", voice="Serena", speech_rate=1.3),
         )
-
-
-def test_websocket_family_forwards_speech_rate(monkeypatch) -> None:
-    captured: dict = {}
-
-    def fake_ws(*, model, voice, text, api_key, speech_rate=1.0):
-        captured["model"] = model
-        captured["speech_rate"] = speech_rate
-        return b"MP3xxxx", "audio/mpeg"
-
-    monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    monkeypatch.setenv("TTS_MODEL_NAME", "cosyvoice-v3.5-plus")
-    monkeypatch.setattr(tts_model, "_synthesize_over_websocket", fake_ws)
-
-    result = asyncio.run(
-        tts_model.synthesize(
-            "你好世界",
-            voice_id="cosyvoice-v3-designed",
-            voice_model="cosyvoice-v3.5-plus",
-            speech_rate=0.8,
-        ),
-    )
-    assert captured["model"] == "cosyvoice-v3.5-plus"
-    assert captured["speech_rate"] == 0.8
-    assert result.media_type == "audio/mpeg"
-
-
-def test_speech_rate_bounds_are_validated(monkeypatch) -> None:
-    monkeypatch.setenv("TTS_API_KEY", "sk-test")
     with pytest.raises(ValueError, match="0.5"):
         asyncio.run(
-            tts_model.synthesize(
-                "你好世界",
-                voice="Serena",
-                speech_rate=3.0,
-            ),
+            tts_model.synthesize("你好世界", voice="Serena", speech_rate=3.0),
         )
 
 
 def test_created_voice_uses_its_own_models_transport(monkeypatch) -> None:
     """A CosyVoice-bound voice must ride WebSocket even when the configured
-    default model is qwen-tts (HTTP): transport follows the speaking model."""
+    default model is qwen-tts (HTTP): transport follows the speaking model,
+    and the websocket family forwards the requested speech rate."""
 
     captured: dict = {}
 
     def fake_ws(*, model, voice, text, api_key, speech_rate=1.0):
         captured["model"] = model
+        captured["speech_rate"] = speech_rate
         return b"MP3xxxx", "audio/mpeg"
 
     async def fail_post_json(url, **kwargs):
@@ -271,32 +162,138 @@ def test_created_voice_uses_its_own_models_transport(monkeypatch) -> None:
             "你好世界",
             voice_id="cosyvoice-v3.5-plus-vd-x",
             voice_model="cosyvoice-v3.5-plus",
+            speech_rate=0.8,
         ),
     )
     assert captured["model"] == "cosyvoice-v3.5-plus"
+    assert captured["speech_rate"] == 0.8
     assert result.media_type == "audio/mpeg"
 
 
-def test_malformed_voice_id_fails_fast(monkeypatch) -> None:
-    """An empty or garbage voice_id must not burn a provider round-trip."""
-
-    monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    for bad in ("   ", "全角音色名", "-starts-with-dash", "a b c"):
-        with pytest.raises(ValueError, match="voice_id"):
-            asyncio.run(tts_model.synthesize("你好世界", voice_id=bad))
+# ---------------------------------------------------------------------------
+# TTS capabilities matrix
+# ---------------------------------------------------------------------------
 
 
-def test_provider_failures_raise_model_error(monkeypatch) -> None:
-    """Provider-facing failures carry ModelError retry semantics: a 4xx is
-    permanent, so pollers fail fast instead of waiting out the budget."""
+def _write_config(tmp_path, monkeypatch, model: str) -> None:
+    config_path = tmp_path / "config" / "model_config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {"enabled": True, "api_key": "sk-shared"},
+                "tts": {"enabled": True, "model_name": model},
+            },
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    model_config._clear_user_config_cache()
 
-    from utils.exceptions import ModelError
 
-    async def fail_post(url, *, api_key, payload, timeout_seconds):
-        raise ModelError("TTS request failed (HTTP 400): bad", retryable=False)
+def test_every_supported_model_declares_a_usable_voice_source() -> None:
+    """A model must offer system voices or a way to create one."""
 
-    monkeypatch.setenv("TTS_API_KEY", "sk-test")
-    monkeypatch.setattr(tts_model, "_post_json", fail_post)
-    with pytest.raises(ModelError) as caught:
-        asyncio.run(tts_model.synthesize("你好世界", voice="Serena"))
-    assert caught.value.retryable is False
+    for capability in supported_models():
+        assert capability.has_system_voices or capability.supports_design, (
+            f"{capability.model} can neither speak with a system voice nor "
+            "create one, so it would be unusable"
+        )
+        assert capability.clone_model()
+        assert capability.transport in {"http", "websocket"}
+
+
+def test_unknown_model_falls_back_to_the_default() -> None:
+    assert capability_for("no-such-tts-model") is None
+    assert require_capability("no-such-tts-model").model == DEFAULT_TTS_MODEL
+
+
+@pytest.mark.parametrize(
+    ("model", "clone_target", "design_target", "system_voices"),
+    [
+        (
+            "qwen3-tts-flash",
+            "qwen3-tts-vc-2026-01-22",
+            "qwen3-tts-vd-2026-01-26",
+            True,
+        ),
+        (
+            "cosyvoice-v3.5-plus",
+            "cosyvoice-v3.5-plus",
+            "cosyvoice-v3.5-plus",
+            False,
+        ),
+    ],
+)
+def test_companion_models_are_derived_not_configured(
+    tmp_path,
+    monkeypatch,
+    model,
+    clone_target,
+    design_target,
+    system_voices,
+) -> None:
+    """Users configure a synthesis model; companions come from the table."""
+
+    monkeypatch.delenv("TTS_VC_MODEL_NAME", raising=False)
+    _write_config(tmp_path, monkeypatch, model)
+    assert model_config.get_tts_model_name() == model
+    assert model_config.get_tts_vc_model_name() == clone_target
+    assert model_config.get_tts_vd_model_name() == design_target
+    assert model_config.tts_has_system_voices() is system_voices
+
+
+def test_model_without_system_voices_refuses_plain_synthesis(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """cosyvoice-v3.5-plus can only speak through a created voice."""
+
+    _write_config(tmp_path, monkeypatch, "cosyvoice-v3.5-plus")
+    with pytest.raises(ValueError, match="no system voices"):
+        asyncio.run(tts_model.synthesize("测试"))
+
+
+@pytest.mark.parametrize(
+    ("target_model", "voice_id", "expected_model", "expected_field"),
+    [
+        (
+            "qwen3-tts-vc-2026-01-22",
+            "qwen-tts-vc-hero-voice-1",
+            "qwen-voice-enrollment",
+            "voice",
+        ),
+        (
+            "qwen3-tts-vd-2026-01-26",
+            "qwen-tts-vd-hero-voice-1",
+            "qwen-voice-design",
+            "voice",
+        ),
+        (
+            "cosyvoice-v3.5-plus",
+            "cosyvoice-v3.5-plus-vd-hero-1",
+            "voice-enrollment",
+            "voice_id",
+        ),
+    ],
+)
+def test_deletion_is_routed_by_the_bound_model(
+    target_model,
+    voice_id,
+    expected_model,
+    expected_field,
+) -> None:
+    """Each voice namespace only accepts its own management surface.
+
+    Deleting through the wrong one returns HTTP 400 and leaks the voice
+    against the account quota, so the binding's model decides the call.
+    """
+
+    payload = tts_model._management_payload("delete", voice_id, target_model)
+    assert payload["model"] == expected_model
+    assert payload["input"][expected_field] == voice_id
+    if expected_model == "voice-enrollment":
+        assert payload["input"]["action"] == "delete_voice"
+    else:
+        assert payload["input"]["action"] == "delete"

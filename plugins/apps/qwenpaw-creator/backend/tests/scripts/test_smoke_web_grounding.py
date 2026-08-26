@@ -10,8 +10,6 @@ import pytest
 from scripts.smoke_web_grounding import evaluate_result
 
 
-# This file validates only the smoke result evaluator with local fixtures.
-# The real-provider smoke is the opt-in scripts/smoke_web_grounding.py CLI.
 pytestmark = pytest.mark.unit
 
 

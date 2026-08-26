@@ -14,6 +14,7 @@ import time
 import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
@@ -59,6 +60,18 @@ _FRONTMATTER_ENCODINGS = (
 )
 _MAX_FRONTMATTER_LINES = 4096
 _MAX_FRONTMATTER_BYTES = 256 * 1024
+_POOL_MANIFEST_SCHEMA = "skill-pool-manifest.v1"
+_LEGACY_POOL_AUTOMATION_KEYS = (
+    "auto_update",
+    "auto_update_targets",
+    "auto_update_synced_hash",
+)
+_FLAT_POOL_AUTOMATION_KEYS = (
+    *_LEGACY_POOL_AUTOMATION_KEYS,
+    "auto_sync",
+    "auto_sync_targets",
+    "auto_sync_synced_hash",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +521,7 @@ def default_workspace_manifest() -> dict[str, Any]:
 
 def default_pool_manifest() -> dict[str, Any]:
     return {
-        "schema_version": "skill-pool-manifest.v1",
+        "schema_version": _POOL_MANIFEST_SCHEMA,
         "version": 0,
         "skills": {},
         "builtin_skill_names": [],
@@ -532,6 +545,176 @@ def is_pool_builtin_entry(entry: dict[str, Any] | None) -> bool:
         bool(normalized)
         and str(normalized.get("source", "") or "") == "builtin"
     )
+
+
+@dataclass(frozen=True)
+class PoolSkillAutomation:
+    """Canonical automation settings for one Skill Pool entry."""
+
+    auto_update: bool = False
+    auto_sync: bool = False
+    auto_sync_targets: tuple[str, ...] | None = None
+    auto_sync_synced_hash: str = ""
+
+
+def _automation_enabled(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return bool(value.get("enabled", False))
+
+
+def _automation_targets(value: Any) -> tuple[str, ...] | None:
+    if not isinstance(value, list):
+        return None
+    targets = tuple(
+        dict.fromkeys(
+            str(target).strip() for target in value if str(target).strip()
+        ),
+    )
+    return targets or None
+
+
+def read_pool_skill_automation(entry: Any) -> PoolSkillAutomation:
+    """Read canonical settings, accepting the released legacy sync fields."""
+    if not isinstance(entry, dict):
+        return PoolSkillAutomation()
+
+    if "automation" in entry:
+        automation = entry.get("automation")
+        if not isinstance(automation, dict):
+            logger.warning("Ignoring malformed Skill Pool automation config")
+            return PoolSkillAutomation()
+        auto_update = automation.get("auto_update")
+        auto_sync = automation.get("auto_sync")
+        sync_config = auto_sync if isinstance(auto_sync, dict) else {}
+        return PoolSkillAutomation(
+            auto_update=(
+                _automation_enabled(auto_update)
+                if is_pool_builtin_entry(entry)
+                else False
+            ),
+            auto_sync=_automation_enabled(auto_sync),
+            auto_sync_targets=_automation_targets(
+                sync_config.get("targets"),
+            ),
+            auto_sync_synced_hash=str(
+                sync_config.get("synced_hash", "") or "",
+            ),
+        )
+
+    return PoolSkillAutomation(
+        auto_update=False,
+        auto_sync=bool(entry.get("auto_update", False)),
+        auto_sync_targets=_automation_targets(
+            entry.get("auto_update_targets"),
+        ),
+        auto_sync_synced_hash=str(
+            entry.get("auto_update_synced_hash", "") or "",
+        ),
+    )
+
+
+def write_pool_skill_automation(
+    entry: dict[str, Any],
+    settings: PoolSkillAutomation,
+) -> bool:
+    """Write canonical automation and return whether the entry changed."""
+    existing = entry.get("automation")
+    automation = dict(existing) if isinstance(existing, dict) else {}
+
+    if is_pool_builtin_entry(entry):
+        update_value = automation.get("auto_update")
+        update_config = (
+            dict(update_value) if isinstance(update_value, dict) else {}
+        )
+        update_config["enabled"] = bool(settings.auto_update)
+        automation["auto_update"] = update_config
+    else:
+        automation.pop("auto_update", None)
+
+    sync_value = automation.get("auto_sync")
+    sync_config = dict(sync_value) if isinstance(sync_value, dict) else {}
+    sync_config["enabled"] = bool(settings.auto_sync)
+    if settings.auto_sync_targets:
+        sync_config["targets"] = list(settings.auto_sync_targets)
+    else:
+        sync_config.pop("targets", None)
+    if settings.auto_sync_synced_hash:
+        sync_config["synced_hash"] = settings.auto_sync_synced_hash
+    else:
+        sync_config.pop("synced_hash", None)
+    automation["auto_sync"] = sync_config
+
+    changed = existing != automation or any(
+        key in entry for key in _FLAT_POOL_AUTOMATION_KEYS
+    )
+    entry["automation"] = automation
+    for key in _FLAT_POOL_AUTOMATION_KEYS:
+        entry.pop(key, None)
+    return changed
+
+
+def copy_pool_skill_automation(
+    source: Any,
+    target: dict[str, Any],
+) -> None:
+    """Copy automation settings when rebuilding a Pool manifest entry."""
+    if not isinstance(source, dict) or not (
+        "automation" in source
+        or any(key in source for key in _LEGACY_POOL_AUTOMATION_KEYS)
+    ):
+        return
+    settings = read_pool_skill_automation(source)
+    if not is_pool_builtin_entry(target):
+        settings = replace(settings, auto_update=False)
+    write_pool_skill_automation(target, settings)
+
+
+def normalize_pool_manifest_payload(payload: dict[str, Any]) -> bool:
+    """Normalize released legacy automation fields into their namespace."""
+    schema_version = str(payload.get("schema_version", "") or "")
+    if schema_version not in {"", _POOL_MANIFEST_SCHEMA}:
+        return False
+
+    changed = False
+    if not schema_version:
+        payload["schema_version"] = _POOL_MANIFEST_SCHEMA
+        changed = True
+
+    skills = payload.get("skills", {})
+    if not isinstance(skills, dict):
+        return changed
+
+    for raw_entry in skills.values():
+        if not isinstance(raw_entry, dict):
+            continue
+        has_canonical = "automation" in raw_entry
+        has_legacy = any(
+            key in raw_entry for key in _LEGACY_POOL_AUTOMATION_KEYS
+        )
+        if has_canonical or has_legacy:
+            changed = (
+                write_pool_skill_automation(
+                    raw_entry,
+                    read_pool_skill_automation(raw_entry),
+                )
+                or changed
+            )
+    return changed
+
+
+def mutate_pool_manifest(
+    mutator: Callable[[dict[str, Any]], _RegistryResult],
+) -> _RegistryResult:
+    """Normalize and atomically mutate the primary Skill Pool manifest."""
+    path = get_pool_skill_manifest_path()
+    with _file_write_lock(_lock_path_for(path)):
+        payload = _read_json_unlocked(path, default_pool_manifest())
+        normalized = normalize_pool_manifest_payload(payload)
+        result = mutator(payload)
+        if result is not False or normalized:
+            write_json_atomic(path, payload)
+        return result
 
 
 def classify_pool_skill_source(
@@ -934,7 +1117,9 @@ def read_skill_manifest(
 def read_skill_pool_manifest() -> dict[str, Any]:
     """Return the pool skill manifest from a cached file snapshot."""
     path = get_pool_skill_manifest_path()
-    return _read_json_snapshot_cached(path, default_pool_manifest())
+    payload = _read_json_snapshot_cached(path, default_pool_manifest())
+    normalize_pool_manifest_payload(payload)
+    return payload
 
 
 # ---------------------------------------------------------------------------

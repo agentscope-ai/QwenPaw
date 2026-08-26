@@ -2,9 +2,9 @@ import { FileWarning, Files, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../api/authHeaders";
-import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
+import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
 import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import { workspaceApi } from "../../api/modules/workspace";
 import GitPanel from "../../pages/Coding/GitPanel";
@@ -18,7 +18,7 @@ import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import MemoryGraphView from "./MemoryGraphView";
-import { directoriesMatch } from "./directorySources";
+import { projectRootPath, workspaceRoots } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
@@ -64,6 +64,12 @@ export default function FilesWorkspace({
   const { codingMode } = useCodingMode();
   const scopeKey = filesWorkspaceScopeKey(scope);
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  // Primitives rather than `scope`: the object is rebuilt by the parent on
+  // every render, and callbacks keyed on it feed effects that would then
+  // refetch and re-activate the initial tab on unrelated re-renders.
+  const scopeKind = scope.kind;
+  const agentId = scope.agentId;
+  const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const projectDirOverride =
     scope.kind === "session" && !scope.chatId
       ? getPendingProjectDirectory(scope.agentId, scope.sessionId) ??
@@ -119,15 +125,22 @@ export default function FilesWorkspace({
       }
       try {
         const agentInfo = await projectDirectoryApi.get();
-        const projectDirectory = chatId
-          ? (await chatProjectDirectoryApi.get(chatId)).project_dir
-          : agentInfo.path;
         const workspaceDirectory = agentInfo.workspace_dir ?? agentInfo.path;
+        // An attachment can live under any directory the session is bound to,
+        // so every one is a candidate — checking only the primary would leave
+        // a file in an extra root stuck as a read-only historical artifact.
+        const boundDirs =
+          scopeKind === "session"
+            ? (await loadSessionProjectDirs(agentId, sessionId, chatId)).dirs
+            : [
+                {
+                  path: agentInfo.path,
+                  label: null,
+                  exists: true,
+                  nested_with: null,
+                },
+              ];
         const directPath = toProjectRelativePath(target.path);
-        const sameDirectory = directoriesMatch(
-          projectDirectory,
-          workspaceDirectory,
-        );
         const candidates: Array<{
           path: string;
           root: WorkspaceRoot;
@@ -141,23 +154,16 @@ export default function FilesWorkspace({
           }
         };
 
-        if (sameDirectory) {
+        workspaceRoots(boundDirs).forEach((root) => {
+          const directory =
+            root === "workspace"
+              ? workspaceDirectory
+              : projectRootPath(root) ?? boundDirs[0]?.path ?? "";
           addCandidate(
-            directPath ??
-              toProjectRelativePath(target.path, workspaceDirectory),
-            "workspace",
+            directPath ?? toProjectRelativePath(target.path, directory),
+            root,
           );
-        } else {
-          addCandidate(
-            directPath ?? toProjectRelativePath(target.path, projectDirectory),
-            "project",
-          );
-          addCandidate(
-            directPath ??
-              toProjectRelativePath(target.path, workspaceDirectory),
-            "workspace",
-          );
-        }
+        });
 
         for (const candidate of candidates) {
           try {
@@ -174,7 +180,7 @@ export default function FilesWorkspace({
               root: candidate.root,
             };
           } catch {
-            // Try the other visible directory root.
+            // Try the next visible directory root.
           }
         }
       } catch {
@@ -182,7 +188,7 @@ export default function FilesWorkspace({
       }
       return target;
     },
-    [chatId, projectDirOverride],
+    [agentId, chatId, projectDirOverride, scopeKind, sessionId],
   );
 
   const loadTarget = useCallback(
@@ -289,10 +295,16 @@ export default function FilesWorkspace({
   const openTarget = useCallback(
     async (target: FileTarget) => {
       const resolvedTarget = await resolveEditableTarget(target);
+      // Tab identity has to include the root: the same relative path exists in
+      // more than one bound directory, and a bare path would make two different
+      // files share one tab (and one dirty buffer). The primary keeps its bare
+      // path so previously persisted tabs still match.
       const tabPath =
         resolvedTarget.source === "workspace"
           ? resolvedTarget.root === "workspace"
             ? `workspace-root::${resolvedTarget.path}`
+            : resolvedTarget.root && resolvedTarget.root !== "project"
+            ? `${resolvedTarget.root}::${resolvedTarget.path}`
             : resolvedTarget.path
           : `${resolvedTarget.source}::${resolvedTarget.path}`;
       targetsByTab.current.set(tabPath, resolvedTarget);

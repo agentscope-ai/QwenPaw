@@ -796,53 +796,54 @@ class TestMemorySummaryConfig:
         log_test_step("Navigate to the runtime config page")
         navigate_to_agent_config(page)
 
-        log_test_step("Switch to the Memory Summary tab")
+        log_test_step("Switch to the Long-term Memory tab")
         memory_tab = page.locator(
-            '[data-node-key="memorySummary"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Memory")'
+            '[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn, '
+            '.qwenpaw-tabs-tab-btn:has-text("Long-term Memory"), '
+            '.qwenpaw-tabs-tab-btn:has-text("长期记忆")'
         ).first
         expect(memory_tab).to_be_visible(timeout=5000)
         memory_tab.click()
         page.wait_for_timeout(1500)
-        logger.info("Switched to Memory Summary tab")
+        logger.info("Switched to the memory tab")
 
-        log_test_step("Verify active panel content")
-        active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
-        expect(active_panel).to_be_visible(timeout=5000)
+        log_test_step("Verify the memory card rendered (dream cron input)")
+        cron_input = page.locator(
+            'input[id$="reme_light_memory_config_dream_cron"]'
+        ).first
+        expect(cron_input).to_be_visible(timeout=10000)
+        logger.info("Dream cron input present")
 
-        # Verify the card title
-        card_title = active_panel.locator('.qwenpaw-spark-title').first
-        expect(card_title).to_be_visible()
-        title_text = card_title.inner_text()
-        assert "Memory" in title_text or "Summary" in title_text, \
-            f"Card title does not contain expected keywords: {title_text}"
-        logger.info(f"Card title verified: {title_text}")
-
-        log_test_step("Verify the memory summary switch exists")
-        switches = active_panel.locator('.qwenpaw-switch').all()
-        assert len(switches) >= 1, f"Memory summary switch not found; found {len(switches)} switches"
-        logger.info(f"Found {len(switches)} switches")
-
-        log_test_step("Verify the Cron expression input exists")
-        cron_input = active_panel.locator('#memory_summary_dream_cron, input[id*="dream_cron"]').first
-        if cron_input.count() == 0:
-            cron_input = active_panel.locator('input').nth(0)
-        assert cron_input.count() > 0, "Cron expression input not found"
-        logger.info("Cron expression input present")
+        log_test_step("Verify the memory switches exist")
+        switches = page.locator(
+            'button[role="switch"][id*="reme_light_memory_config"]'
+        ).all()
+        assert len(switches) >= 1, (
+            f"Memory switches not found; found {len(switches)}"
+        )
+        logger.info(f"Found {len(switches)} memory switches")
 
         log_test_step("Verify number inputs exist")
-        number_inputs = active_panel.locator('.qwenpaw-input-number').all()
-        assert len(number_inputs) >= 1, f"No number inputs found; got {len(number_inputs)}"
+        number_inputs = page.locator(
+            'input[id*="reme_light_memory_config_auto_memory_interval"], '
+            'input[id*="reme_light_memory_config_max_results"], '
+            'input[id*="reme_light_memory_config"][type="text"]'
+        ).all()
+        assert len(number_inputs) >= 1, (
+            f"No number inputs found; got {len(number_inputs)}"
+        )
         logger.info(f"Found {len(number_inputs)} number inputs")
 
-        log_test_step("Toggle the memory summary switch")
+        log_test_step("Toggle a memory switch and restore")
         first_switch = switches[0]
         original_state = first_switch.get_attribute("aria-checked")
         first_switch.click()
         page.wait_for_timeout(1000)
         new_state = first_switch.get_attribute("aria-checked")
-        assert original_state != new_state, \
-            f"Switch toggle had no effect: before={original_state}, after={new_state}"
+        assert original_state != new_state, (
+            f"Switch toggle had no effect: before={original_state}, "
+            f"after={new_state}"
+        )
         logger.info(f"Switch toggled: {original_state} -> {new_state}")
 
         # Restore the original state

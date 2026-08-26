@@ -1037,6 +1037,7 @@ class TestWindowsStylePathExtraction:
     def test_extract_target_joins_backslash_relative_path(self):
         """Relative targets with backslash segments still join to workspace."""
         import ntpath
+        import os
 
         registry = ToolRegistry()
         register_tool_governance(
@@ -1055,7 +1056,10 @@ class TestWindowsStylePathExtraction:
             {"file_path": relative},
             workspace_dir=workspace,
         )
-        assert target.startswith(workspace)
+        # extract_target normpath()s the join, which on Windows also
+        # rewrites the workspace's forward slashes as backslashes — so
+        # compare against the platform's own spelling of it.
+        assert target.startswith(os.path.normpath(workspace))
         assert "main.py" in target
         # ntpath.basename still sees the leaf under Windows separators.
         assert ntpath.basename(relative) == "main.py"

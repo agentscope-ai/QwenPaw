@@ -8,8 +8,9 @@ from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
+from ..utils.model_response import safe_attr
 from .buffer import _UsageEvent
-from .manager import get_token_usage_manager
+from .manager import _usage_agent_id, get_token_usage_manager
 
 
 class TokenRecordingModelWrapper(ChatModelBase):
@@ -75,6 +76,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
             now_iso=datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds",
             ),
+            agent_id=_usage_agent_id(),
         )
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
@@ -112,7 +114,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
         **kwargs: Any,
     ) -> Any:
         result = await self._model.generate_structured_output(*args, **kwargs)
-        self._record_usage(getattr(result, "usage", None))
+        self._record_usage(safe_attr(result, "usage"))
         return result
 
     async def __call__(
@@ -145,7 +147,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
         if isinstance(result, AsyncGenerator):
             return self._wrap_stream(result)
-        self._record_usage(getattr(result, "usage", None))
+        self._record_usage(safe_attr(result, "usage"))
         return result
 
     async def _wrap_stream(
@@ -155,8 +157,9 @@ class TokenRecordingModelWrapper(ChatModelBase):
         last_usage: ChatUsage | None = None
         try:
             async for chunk in stream:
-                if getattr(chunk, "usage", None) is not None:
-                    last_usage = chunk.usage
+                usage = safe_attr(chunk, "usage")
+                if usage is not None:
+                    last_usage = usage
                 yield chunk
         finally:
             await stream.aclose()

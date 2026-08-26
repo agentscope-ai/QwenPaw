@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input, Select, Tooltip } from "antd";
 import type { InputRef } from "antd";
@@ -21,13 +21,31 @@ import {
   useProjectLaunch,
 } from "./useProjectLaunch";
 import ModelConfigModal from "./ModelConfigModal";
+import { useRecreateStore } from "@/store/recreateStore";
 
 const { TextArea } = Input;
 
 /** Inline hero composer on the redesigned home page. */
 export default function HeroComposerCard() {
   const { t } = useTranslation();
-  const launch = useProjectLaunch();
+  const recreateParams = useRecreateStore((state) => state.params);
+  const consumeParams = useRecreateStore((state) => state.consumeParams);
+  const launch = useProjectLaunch({
+    initialValues: recreateParams
+      ? {
+          name: recreateParams.name,
+          description: recreateParams.description,
+          scenario: recreateParams.scenario as
+            | "short_drama"
+            | "video_edit"
+            | "general",
+          contentType: recreateParams.contentType,
+          resolution: recreateParams.resolution,
+          aspectRatio: recreateParams.aspectRatio,
+          sourceUrls: recreateParams.sourceUrls,
+        }
+      : undefined,
+  });
   const {
     projectName,
     setProjectName,
@@ -64,6 +82,12 @@ export default function HeroComposerCard() {
   } = launch;
   const [urlInputOpen, setUrlInputOpen] = useState(false);
   const urlInputRef = useRef<InputRef>(null);
+
+  useEffect(() => {
+    if (recreateParams) {
+      consumeParams();
+    }
+  }, []);
 
   const pillSelectClassNames = {
     content:

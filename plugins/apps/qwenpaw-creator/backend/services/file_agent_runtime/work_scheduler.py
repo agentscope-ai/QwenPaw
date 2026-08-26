@@ -22,13 +22,17 @@ Safety posture:
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from domain.enums import CreatorCommandType
 from models.config import (
     EXECUTION_AUTHORIZATION_ALLOW_ALL,
     get_execution_authorization_mode,
+    get_image_model_name,
     get_media_parallelism,
+    get_video_model_name,
+    get_vlm_timeout_seconds,
 )
 from services.media_files.call_budget import (
     MediaCallBudgetExhausted,
@@ -44,7 +48,6 @@ from services.project_files.facade import CreatorFileServices
 from services.runtime_files.execution_store import ProjectExecutionStore
 from utils.logger import setup_logger
 
-
 logger = setup_logger("creator.work_scheduler")
 
 # Loop exits after this long without a wake; any later wake restarts it.
@@ -54,6 +57,16 @@ _IDLE_EXIT_SECONDS = 300.0
 # reopen the ledger this many times per (node, fingerprint); deterministic
 # failures (safety rejections, validation) stay locked until inputs change.
 _TRANSIENT_RETRY_LIMIT = 2
+# A provider having a bad hour outlives the immediate retry budget.
+# Field run 2026-08-12 (project 27dc): gpt-image-2 threw WriteTimeout /
+# ReadError for ~40 minutes; every storyboard burned its 2 retries and
+# FAILED terminally with nothing left to try once the provider recovered
+# — a human nudge was the only way back. After the immediate budget is
+# spent, one further retry is granted per cooldown window up to a hard
+# cap, so the pipeline self-heals from provider weather while paid
+# spend stays bounded.
+_TRANSIENT_RETRY_HARD_CAP = 6
+_TRANSIENT_RETRY_COOLDOWN_SECONDS = 300.0
 
 # Scheduler-only transient markers; the shared media-side classifier
 # (is_transient_error_message) supplies the common ones (connection,
@@ -63,6 +76,19 @@ _TRANSIENT_ERROR_MARKERS = (
     "429",
     "status 5",
     "temporarily",
+)
+
+# Error codes that indicate permanent structural issues requiring explicit
+# agent intervention. These errors will never resolve through project state
+# changes alone — the agent must modify the project (e.g., reduce reference
+# count) before retry is allowed.
+_DETERMINISTIC_ERROR_CODES = frozenset(
+    {
+        "IMAGE_REFERENCE_BUDGET_EXCEEDED",
+        "VIDEO_REFERENCE_BUDGET_EXCEEDED",
+        "IMAGE_MODEL_CAPABILITY_UNKNOWN",
+        "VIDEO_MODEL_CAPABILITY_UNKNOWN",
+    },
 )
 
 
@@ -109,6 +135,31 @@ def _quarantined_stale_targets(tasks: Sequence[Any]) -> set[str]:
 _R2V_COMMANDS = {CreatorCommandType.GENERATE_R2V_VIDEO.value}
 _COMPOSE_COMMANDS = {CreatorCommandType.COMPOSE_FINAL_VIDEO.value}
 
+# Publication stays non-blocking, but dependent unattended work waits for the
+# asynchronous reviewer to settle. Otherwise a short image review can replace
+# a storyboard while a paid two-minute video is already running; that finished
+# video is quarantined as stale and the provider gets billed a second time.
+# Independent visual/lineup image nodes remain parallel.
+_MEDIA_REVIEW_DEPENDENT_KINDS = frozenset({"storyboard", "video", "compose"})
+
+
+def _blocked_by_active_media_review(
+    node: WorkNode,
+    active_slots: frozenset[str],
+) -> bool:
+    return bool(active_slots) and node.kind in _MEDIA_REVIEW_DEPENDENT_KINDS
+
+
+def _blocked_by_active_sync_review(
+    node: WorkNode,
+    *,
+    sync_review_pending: bool,
+) -> bool:
+    """Fence storyboard/video/compose until pre-generation text review ends."""
+
+    return sync_review_pending and node.kind in _MEDIA_REVIEW_DEPENDENT_KINDS
+
+
 DispatchHook = Callable[[str, WorkGraph], Awaitable[None]]
 
 
@@ -133,13 +184,66 @@ class WorkGraphScheduler:
         # (project_id, node_id, fingerprint) -> already dispatched once.
         self._dispatched: set[tuple[str, str, str]] = set()
         self._transient_retries: dict[tuple[str, str, str], int] = {}
+        self._transient_last: dict[tuple[str, str, str], float] = {}
         self._inflight: dict[str, set[str]] = {}
+        self._dispatch_tasks: dict[str, set[asyncio.Task[None]]] = {}
+        self._sync_gate_rechecks: dict[str, asyncio.TimerHandle] = {}
+        self._cancelled_projects: set[str] = set()
+        # Keyed by (project, node, fingerprint): a deterministic failure
+        # locks exactly the inputs that produced it. Fixing the inputs
+        # changes the fingerprint and unlocks dispatch; a (project, node)
+        # key would deadlock the node forever, because the entry is only
+        # popped after a successful dispatch that the entry itself blocks.
+        self._deterministic_failure_nodes: dict[tuple[str, str, str], str] = {}
+
+    def _transient_budget_available(
+        self,
+        ledger_key: tuple[str, str, str],
+    ) -> bool:
+        count = self._transient_retries.get(ledger_key, 0)
+        if count < _TRANSIENT_RETRY_LIMIT:
+            return True
+        if count >= _TRANSIENT_RETRY_HARD_CAP:
+            return False
+        last = self._transient_last.get(ledger_key, 0.0)
+        return (time.monotonic() - last) >= _TRANSIENT_RETRY_COOLDOWN_SECONDS
+
+    def _note_transient_retry(
+        self,
+        ledger_key: tuple[str, str, str],
+    ) -> None:
+        self._transient_retries[ledger_key] = (
+            self._transient_retries.get(ledger_key, 0) + 1
+        )
+        self._transient_last[ledger_key] = time.monotonic()
+
+    @staticmethod
+    def _ledger_fingerprint(node: WorkNode) -> str:
+        """Ledger identity of one dispatch: node inputs + media models.
+
+        The graph fingerprint covers the node's own inputs (prompt,
+        references); the configured media models are equally part of what
+        a dispatch means. Without them, switching to a model with a
+        larger reference budget after IMAGE_REFERENCE_BUDGET_EXCEEDED
+        left the node deterministically locked forever (same inputs,
+        same fingerprint, no unlock path).
+        """
+
+        base = node.dispatch_fingerprint or node.node_id
+        return (
+            f"{base}|img:{get_image_model_name().strip()}"
+            f"|vid:{get_video_model_name().strip()}"
+        )
 
     # -- lifecycle -----------------------------------------------------
 
     def wake(self, project_id: str) -> None:
         """Signal that durable state changed; start the loop if needed."""
 
+        # A real post-stop Project change/new run explicitly re-arms the
+        # scheduler. Cancelled dispatch finalizers do not call this method (see
+        # _dispatch), so they cannot resurrect a stopped project by themselves.
+        self._cancelled_projects.discard(project_id)
         event = self._wakes.setdefault(project_id, asyncio.Event())
         event.set()
         task = self._loops.get(project_id)
@@ -149,9 +253,17 @@ class WorkGraphScheduler:
             )
 
     async def shutdown(self) -> None:
-        for task in self._loops.values():
+        tasks = [
+            *self._loops.values(),
+            *(
+                task
+                for project_tasks in self._dispatch_tasks.values()
+                for task in project_tasks
+            ),
+        ]
+        for task in tasks:
             task.cancel()
-        for task in list(self._loops.values()):
+        for task in tasks:
             try:
                 await task
             except (
@@ -160,6 +272,44 @@ class WorkGraphScheduler:
             ):  # pylint: disable=broad-except
                 pass
         self._loops.clear()
+        self._dispatch_tasks.clear()
+        for handle in self._sync_gate_rechecks.values():
+            handle.cancel()
+        self._sync_gate_rechecks.clear()
+        self._cancelled_projects.clear()
+
+    def cancel_project(self, project_id: str) -> None:
+        """Synchronously signal every scheduler-owned task for one Project."""
+
+        self._cancelled_projects.add(project_id)
+        loop = self._loops.pop(project_id, None)
+        if loop is not None:
+            loop.cancel()
+        for task in self._dispatch_tasks.pop(project_id, set()):
+            task.cancel()
+        self._inflight.pop(project_id, None)
+        self._wakes.pop(project_id, None)
+        recheck = self._sync_gate_rechecks.pop(project_id, None)
+        if recheck is not None:
+            recheck.cancel()
+        self._dispatched = {
+            key for key in self._dispatched if key[0] != project_id
+        }
+        self._transient_retries = {
+            key: value
+            for key, value in self._transient_retries.items()
+            if key[0] != project_id
+        }
+        self._transient_last = {
+            key: value
+            for key, value in self._transient_last.items()
+            if key[0] != project_id
+        }
+        self._deterministic_failure_nodes = {
+            key: value
+            for key, value in self._deterministic_failure_nodes.items()
+            if key[0] != project_id
+        }
 
     # -- loop ----------------------------------------------------------
 
@@ -194,6 +344,7 @@ class WorkGraphScheduler:
             == EXECUTION_AUTHORIZATION_ALLOW_ALL
         )
 
+    # pylint: disable=too-many-statements
     async def tick(self, project_id: str) -> WorkGraph | None:
         """Derive the graph once and dispatch what capacity allows."""
 
@@ -213,7 +364,36 @@ class WorkGraphScheduler:
         except Exception:  # pylint: disable=broad-except
             logger.exception("work-graph state read failed for %s", project_id)
             return None
+
+        # Auto-rereview stale scene locks before deriving the graph.
+        # Without this, compose stays GATED (scene locks expired) but
+        # auto_review_stale_scenes only runs inside compose execution —
+        # a chicken-and-egg deadlock that halts the unattended pipeline.
+        snapshot, tasks = await self._rereview_stale_scenes(
+            project_id,
+            snapshot,
+            tasks,
+        )
+
         graph = derive_work_graph(snapshot.project, tasks=tasks)
+        from services.run_review import admission
+        from services.run_review.media_review import active_media_review_slots
+
+        reviewing_slots = active_media_review_slots(project_id)
+        reports_root = (
+            self.services.projects.project_root(project_id)
+            / "runtime"
+            / "run-review"
+        )
+        sync_fences = await asyncio.to_thread(
+            admission.active_sync_fences,
+            reports_root,
+        )
+        sync_review_pending = bool(sync_fences)
+        if sync_review_pending:
+            delay = admission.sync_fence_expiry_delay(sync_fences)
+            if delay is not None:
+                self._schedule_sync_gate_recheck(project_id, delay)
         inflight = self._inflight.setdefault(project_id, set())
         try:
             # Wallet fuse: a spent budget pauses automatic dispatch; the
@@ -240,19 +420,142 @@ class WorkGraphScheduler:
         for node in self._dispatch_candidates(project_id, graph, tasks):
             if capacity <= 0:
                 break
-            fingerprint = node.dispatch_fingerprint or node.node_id
+            if _blocked_by_active_sync_review(
+                node,
+                sync_review_pending=sync_review_pending,
+            ):
+                logger.info(
+                    "work-graph node %s waits for synchronous text review",
+                    node.node_id,
+                )
+                continue
+            if _blocked_by_active_media_review(node, reviewing_slots):
+                logger.info(
+                    "work-graph node %s waits for async review of %s",
+                    node.node_id,
+                    sorted(reviewing_slots),
+                )
+                continue
+            fingerprint = self._ledger_fingerprint(node)
             ledger_key = (project_id, node.node_id, fingerprint)
             if ledger_key in self._dispatched or node.node_id in inflight:
                 continue
             self._dispatched.add(ledger_key)
             inflight.add(node.node_id)
             capacity -= 1
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._dispatch(project_id, node, fingerprint),
             )
+            project_tasks = self._dispatch_tasks.setdefault(project_id, set())
+            project_tasks.add(task)
+
+            def discard(
+                done: asyncio.Task[None],
+                *,
+                owner: str = project_id,
+            ) -> None:
+                owned = self._dispatch_tasks.get(owner)
+                if owned is not None:
+                    owned.discard(done)
+                    if not owned:
+                        self._dispatch_tasks.pop(owner, None)
+                if not done.cancelled():
+                    done.exception()
+
+            task.add_done_callback(discard)
         if self._on_tick is not None:
             await self._on_tick(project_id, graph)
         return graph
+
+    async def _rereview_stale_scenes(
+        self,
+        project_id: str,
+        snapshot: Any,
+        tasks: Sequence[Any],
+    ) -> tuple[Any, Sequence[Any]]:
+        """Re-review expired scene locks, returning the state to derive on.
+
+        Fail-open: any failure (timeout included) keeps the state that was
+        read before, so a review outage only leaves the graph stale.
+        """
+
+        try:
+            from services.render_review.scene_review import (
+                auto_review_stale_scenes,
+                collect_scene_review_targets,
+            )
+
+            for timeline_id in snapshot.project.timelines.order:
+                timeline = snapshot.project.timelines.items[timeline_id]
+                stale, drafts = collect_scene_review_targets(timeline)
+                if not (stale or drafts):
+                    continue
+                review_timeout = min(
+                    max(len(stale) + len(drafts), 1)
+                    * int(get_vlm_timeout_seconds()),
+                    600,
+                )
+                try:
+                    await asyncio.wait_for(
+                        auto_review_stale_scenes(
+                            self.services,
+                            project_id=project_id,
+                            timeline_ref=f"timeline:{timeline_id}",
+                            timeline=timeline,
+                        ),
+                        timeout=review_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "pre-compose auto-rereview timed out after "
+                        "%ds for %s; proceeding with stale graph",
+                        review_timeout,
+                        project_id,
+                    )
+                    break
+                fresh_snapshot, fresh_tasks = await asyncio.gather(
+                    asyncio.to_thread(
+                        self.services.projects.read,
+                        project_id,
+                    ),
+                    asyncio.to_thread(
+                        self.executions.list_tasks,
+                        project_id,
+                    ),
+                )
+                return fresh_snapshot, fresh_tasks
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "pre-compose auto-rereview failed for %s; proceeding "
+                "with stale graph",
+                project_id,
+                exc_info=True,
+            )
+        return snapshot, tasks
+
+    def _schedule_sync_gate_recheck(
+        self,
+        project_id: str,
+        delay: float,
+    ) -> None:
+        """Wake once when a crash/abandoned-review fence becomes fail-open."""
+
+        loop = asyncio.get_running_loop()
+        due = loop.time() + delay
+        current = self._sync_gate_rechecks.get(project_id)
+        if current is not None and not current.cancelled():
+            if current.when() <= due:
+                return
+            current.cancel()
+
+        def recheck() -> None:
+            self._sync_gate_rechecks.pop(project_id, None)
+            self.wake(project_id)
+
+        self._sync_gate_rechecks[project_id] = loop.call_later(
+            delay,
+            recheck,
+        )
 
     def _dispatch_candidates(
         self,
@@ -271,8 +574,8 @@ class WorkGraphScheduler:
 
         candidates = list(graph.ready_media_nodes())
         rescuable = _quarantined_stale_targets(tasks)
+        inflight = self._inflight.get(project_id, set())
         if rescuable:
-            inflight = self._inflight.get(project_id, set())
             for node in candidates:
                 # A dispatched node that re-derives READY while a
                 # quarantined-stale sibling result exists means its task
@@ -282,21 +585,26 @@ class WorkGraphScheduler:
                 # the stored result instead of paying a second render.
                 if node.target_ref not in rescuable:
                     continue
-                fingerprint = node.dispatch_fingerprint or node.node_id
+                fingerprint = self._ledger_fingerprint(node)
                 ledger_key = (project_id, node.node_id, fingerprint)
                 if (
                     ledger_key not in self._dispatched
                     or node.node_id in inflight
                 ):
                     continue
-                if self._transient_retries.get(ledger_key, 0) >= (
-                    _TRANSIENT_RETRY_LIMIT
-                ):
+                if not self._transient_budget_available(ledger_key):
                     continue
-                self._transient_retries[ledger_key] = (
-                    self._transient_retries.get(ledger_key, 0) + 1
-                )
+                self._note_transient_retry(ledger_key)
                 self._dispatched.discard(ledger_key)
+        recorded_keys = tuple(
+            str(getattr(task, "idempotency_key", "") or "") for task in tasks
+        )
+        self._reopen_recordless_ready_nodes(
+            project_id,
+            candidates,
+            inflight,
+            recorded_keys,
+        )
         for node in graph.nodes:
             if (
                 node.status.value != "failed"
@@ -312,18 +620,56 @@ class WorkGraphScheduler:
                 RuntimeError(node.error),
             ):
                 continue
-            fingerprint = node.dispatch_fingerprint or node.node_id
+            fingerprint = self._ledger_fingerprint(node)
             ledger_key = (project_id, node.node_id, fingerprint)
-            if self._transient_retries.get(ledger_key, 0) >= (
-                _TRANSIENT_RETRY_LIMIT
-            ):
+            if not self._transient_budget_available(ledger_key):
                 continue
-            self._transient_retries[ledger_key] = (
-                self._transient_retries.get(ledger_key, 0) + 1
-            )
+            self._note_transient_retry(ledger_key)
             self._dispatched.discard(ledger_key)
             candidates.append(node)
         return candidates
+
+    def _reopen_recordless_ready_nodes(
+        self,
+        project_id: str,
+        candidates: Sequence[WorkNode],
+        inflight: set[str],
+        recorded_keys: Sequence[str],
+    ) -> None:
+        """Reopen READY nodes whose last dispatch died before admission.
+
+        READY + ledger-marked + not inflight + no durable task record
+        means the last dispatch died before admitting a task — a
+        pre-spend rejection (execution gate, validation) or a transport
+        fault ahead of admission. Real executors admit the task before
+        any provider spend, so no record ⇒ nothing paid; a marked ledger
+        would otherwise strand the node READY-but-undispatchable forever
+        (field run 2026-08-12, project 27dc: a single-character scene
+        stalled 25 minutes behind a project-wide lineup gate until a
+        restart cleared the ledger). The bounded budget — not the ledger
+        — stops a graph/executor mismatch from hot-looping.
+        """
+
+        for node in candidates:
+            fingerprint = self._ledger_fingerprint(node)
+            if (
+                project_id,
+                node.node_id,
+                fingerprint,
+            ) in self._deterministic_failure_nodes:
+                continue
+            ledger_key = (project_id, node.node_id, fingerprint)
+            if ledger_key not in self._dispatched or node.node_id in inflight:
+                continue
+            prefix = f"dag-{node.node_id}-{fingerprint}"
+            if any(key.startswith(prefix) for key in recorded_keys):
+                # A durable record exists (running / failed / quarantined):
+                # the record — not this reopen path — owns its lifecycle.
+                continue
+            if not self._transient_budget_available(ledger_key):
+                continue
+            self._note_transient_retry(ledger_key)
+            self._dispatched.discard(ledger_key)
 
     async def _dispatch(
         self,
@@ -339,22 +685,22 @@ class WorkGraphScheduler:
         )
         try:
             await self.dispatch_node(project_id, node, fingerprint)
+            self._deterministic_failure_nodes.pop(
+                (project_id, node.node_id, fingerprint),
+                None,
+            )
         except Exception as exc:  # pylint: disable=broad-except
             ledger_key = (project_id, node.node_id, fingerprint)
-            if (
-                _is_transient_dispatch_error(exc)
-                and self._transient_retries.get(ledger_key, 0)
-                < _TRANSIENT_RETRY_LIMIT
-            ):
+            if _is_transient_dispatch_error(
+                exc,
+            ) and self._transient_budget_available(ledger_key):
                 # Field run 2026-08-06: the first live fan-out lost five
                 # storyboards to provider timeouts and the ledger locked
                 # them as if the failure were deterministic. Transient
                 # faults reopen the ledger (bounded) so the next tick
                 # retries; the durable idempotency slot resumes the same
                 # task instead of paying twice.
-                self._transient_retries[ledger_key] = (
-                    self._transient_retries.get(ledger_key, 0) + 1
-                )
+                self._note_transient_retry(ledger_key)
                 self._dispatched.discard(ledger_key)
                 logger.warning(
                     "work-graph dispatch transient failure project=%s "
@@ -362,13 +708,25 @@ class WorkGraphScheduler:
                     project_id,
                     node.node_id,
                     self._transient_retries[ledger_key],
-                    _TRANSIENT_RETRY_LIMIT,
+                    _TRANSIENT_RETRY_HARD_CAP,
                     exc,
                 )
             else:
-                # The task record carries the durable failure; the graph
-                # will surface it as FAILED and the ledger prevents a paid
-                # retry until the node's inputs change.
+                # The durable task record (real executors admit the task
+                # before any provider spend) carries the failure: the
+                # graph surfaces it as FAILED and the marked ledger
+                # prevents a paid retry until the node's inputs change.
+                # Failures without a record re-enter through the bounded
+                # no-record reopen in _dispatch_candidates.
+                # Only block retries for specific structural errors that
+                # require explicit agent intervention (e.g., reference
+                # budget exceeded). Other validation errors may resolve
+                # when project state changes.
+                error_code = getattr(exc, "code", None)
+                if error_code in _DETERMINISTIC_ERROR_CODES:
+                    self._deterministic_failure_nodes[
+                        (project_id, node.node_id, fingerprint)
+                    ] = str(exc)[:200]
                 logger.warning(
                     "work-graph dispatch failed project=%s node=%s: %s",
                     project_id,
@@ -377,7 +735,8 @@ class WorkGraphScheduler:
                 )
         finally:
             self._inflight.get(project_id, set()).discard(node.node_id)
-            self.wake(project_id)
+            if project_id not in self._cancelled_projects:
+                self.wake(project_id)
 
     async def dispatch_node(
         self,
@@ -390,7 +749,8 @@ class WorkGraphScheduler:
         if node.command is None or node.target_ref is None:
             raise ValueError(f"node {node.node_id} is not dispatchable")
         idempotency_key = (
-            f"dag-{node.node_id}-{fingerprint or node.dispatch_fingerprint}"
+            f"dag-{node.node_id}-"
+            f"{fingerprint or self._ledger_fingerprint(node)}"
         )
         if node.command in _COMPOSE_COMMANDS:
             # A failed master render is retried without content changes
@@ -400,7 +760,7 @@ class WorkGraphScheduler:
             ledger_key = (
                 project_id,
                 node.node_id,
-                fingerprint or node.dispatch_fingerprint or node.node_id,
+                fingerprint or self._ledger_fingerprint(node),
             )
             generation = self._transient_retries.get(ledger_key, 0)
             if generation:
@@ -535,6 +895,7 @@ async def _default_compose_dispatch(
         timeline = snapshot.project.timelines.items.get(timeline_id)
         from services.media_files.motion_design import (
             _is_frame_overlay,
+            _is_keyword_overlay,
             _is_trusted_caption_motion,
         )
 
@@ -555,6 +916,14 @@ async def _default_compose_dispatch(
                 # a hand-written thin border would ship black letterbox
                 # bars, so the design pass upgrades it before rendering.
                 or _is_frame_overlay(element)
+                # Keyword overlays (text="" but prompt describes a
+                # styled keyword display) also need VLM design.
+                or (
+                    _is_keyword_overlay(element)
+                    and not _is_trusted_caption_motion(
+                        getattr(element.creation, "motion", None),
+                    )
+                )
             )
             for element in timeline.elements_by_id.values()
         )

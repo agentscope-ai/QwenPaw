@@ -15,7 +15,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from hashlib import sha256
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import threading
 
 from json_repair import repair_json
@@ -132,9 +132,9 @@ def _transcript_boundaries_ms(
     indexed = project.assets.files_by_id.get(record.file_id)
     if indexed is None or indexed.kind != "source_intelligence":
         return ()
-    cached = _TRANSCRIPT_BOUNDARY_CACHE.get(indexed.checksum)
+    cached = _TRANSCRIPT_BOUNDARY_CACHE.get(indexed.sha256)
     if cached is not None:
-        _TRANSCRIPT_BOUNDARY_CACHE.move_to_end(indexed.checksum)
+        _TRANSCRIPT_BOUNDARY_CACHE.move_to_end(indexed.sha256)
         return cached
     payload = AssetFileStore(project_root).read_verified(indexed)
     raw = json.loads(payload.decode("utf-8"))
@@ -149,7 +149,7 @@ def _transcript_boundaries_ms(
         if isinstance(end, int) and not isinstance(end, bool):
             boundaries.add(end)
     result = tuple(sorted(boundaries))
-    _TRANSCRIPT_BOUNDARY_CACHE[indexed.checksum] = result
+    _TRANSCRIPT_BOUNDARY_CACHE[indexed.sha256] = result
     while len(_TRANSCRIPT_BOUNDARY_CACHE) > _TRANSCRIPT_BOUNDARY_CACHE_MAX:
         _TRANSCRIPT_BOUNDARY_CACHE.popitem(last=False)
     return result
@@ -1008,31 +1008,44 @@ class AgentProjectTools:
                 code="JQ_RESULT_NOT_PROJECT_ROOT",
                 details={"changedProtectedPointers": changed_protected},
             )
-        result = self.commits.commit(
-            base=base,
-            candidate=candidate,
-            **self.context.commit_metadata(),
+        sync_fence = self._begin_sync_review_fence(
+            base.project.model_dump(mode="json"),
+            candidate,
         )
-        self._remember(result.snapshot)
-        snapshot = self._snapshot_result(result.snapshot)
-        commit_result = AgentProjectCommitResult(
-            **snapshot.model_dump(mode="python"),
-            transactionId=result.transaction_id,
-            changedPointers=[
-                change.json_pointer
-                for change in result.changeset.changes
-                if change.json_pointer is not None
-            ],
-            normalizedPointers=normalized_pointers,
-            reviewId=result.review.review_id
-            if result.review is not None
-            else None,
-        )
-        advisory = self._sync_review_advisory(commit_result)
-        if advisory is not None:
-            commit_result = commit_result.model_copy(
-                update={"review_advisory": advisory},
+        try:
+            result = self.commits.commit(
+                base=base,
+                candidate=candidate,
+                **self.context.commit_metadata(),
             )
+            self._remember(result.snapshot)
+            snapshot = self._snapshot_result(result.snapshot)
+            commit_result = AgentProjectCommitResult(
+                **snapshot.model_dump(mode="python"),
+                transactionId=result.transaction_id,
+                changedPointers=[
+                    change.json_pointer
+                    for change in result.changeset.changes
+                    if change.json_pointer is not None
+                ],
+                normalizedPointers=normalized_pointers,
+                reviewId=result.review.review_id
+                if result.review is not None
+                else None,
+            )
+            advisory = self._sync_review_advisory(
+                commit_result,
+                changed_pointers=(
+                    sync_fence[2] if sync_fence is not None else None
+                ),
+                gate_token=(sync_fence[1] if sync_fence is not None else None),
+            )
+            if advisory is not None:
+                commit_result = commit_result.model_copy(
+                    update={"review_advisory": advisory},
+                )
+        finally:
+            self._end_sync_review_fence(sync_fence)
         plan_advisory = self._edit_plan_advisory(base.project, commit_result)
         if plan_advisory is not None:
             commit_result = commit_result.model_copy(
@@ -1083,6 +1096,9 @@ class AgentProjectTools:
     def _sync_review_advisory(
         self,
         commit_result: AgentProjectCommitResult,
+        *,
+        changed_pointers: Sequence[str] | None = None,
+        gate_token: str | None = None,
     ) -> dict[str, Any] | None:
         """Advisory in-run review of freshly committed creative text.
 
@@ -1107,12 +1123,73 @@ class AgentProjectTools:
                     commit_result.project.project_id,
                 ),
                 project_json=commit_result.project.model_dump(mode="json"),
-                changed_pointers=commit_result.changed_pointers,
+                changed_pointers=(
+                    list(changed_pointers)
+                    if changed_pointers is not None
+                    else commit_result.changed_pointers
+                ),
                 transaction_id=commit_result.transaction_id,
+                gate_token=gate_token,
             )
         except Exception:
             logger.exception("sync review advisory failed")
             return None
+
+    def _begin_sync_review_fence(
+        self,
+        base_json: Mapping[str, Any],
+        candidate: Mapping[str, Any],
+    ) -> tuple[Any, str, list[str]] | None:
+        """Register a durable media fence before creative text is committed."""
+
+        if self.context.round_id is None:
+            return None
+        try:
+            from models.config import is_sync_review_enabled
+
+            if not is_sync_review_enabled():
+                return None
+            from services.project_files.json_pointer import diff_json
+            from services.run_review import admission
+            from services.run_review.text_review import (
+                reviewable_changed_pointers,
+            )
+
+            raw_pointers = [
+                change.pointer for change in diff_json(base_json, candidate)
+            ]
+            reviewed_pointers = reviewable_changed_pointers(
+                candidate,
+                raw_pointers,
+            )
+            if not reviewed_pointers:
+                return None
+            project_id = str(candidate.get("project_id") or "")
+            reports_root = (
+                self.store.project_root(project_id) / "runtime" / "run-review"
+            )
+            token = admission.begin_sync_fence(
+                reports_root,
+                project_id=project_id,
+                reviewed_pointers=reviewed_pointers,
+            )
+            return reports_root, token, reviewed_pointers
+        except Exception:
+            logger.exception("failed to begin sync-review fence")
+            return None
+
+    @staticmethod
+    def _end_sync_review_fence(
+        fence: tuple[Any, str, list[str]] | None,
+    ) -> None:
+        if fence is None:
+            return
+        try:
+            from services.run_review import admission
+
+            admission.end_sync_fence(fence[0], fence[1])
+        except Exception:
+            logger.exception("failed to end sync-review fence")
 
     def _edit_plan_advisory(
         self,
@@ -1296,31 +1373,44 @@ class AgentProjectTools:
         apply_patch_ops(candidate, request.ops)
         candidate = self._apply_agent_edit_impacts(base, candidate)
         normalized_pointers = normalize_project_candidate(candidate)
-        result = self.commits.commit(
-            base=base,
-            candidate=candidate,
-            **self.context.commit_metadata(),
+        sync_fence = self._begin_sync_review_fence(
+            base.project.model_dump(mode="json"),
+            candidate,
         )
-        self._remember(result.snapshot)
-        snapshot = self._snapshot_result(result.snapshot)
-        commit_result = AgentProjectCommitResult(
-            **snapshot.model_dump(mode="python"),
-            transactionId=result.transaction_id,
-            changedPointers=[
-                change.json_pointer
-                for change in result.changeset.changes
-                if change.json_pointer is not None
-            ],
-            normalizedPointers=normalized_pointers,
-            reviewId=result.review.review_id
-            if result.review is not None
-            else None,
-        )
-        advisory = self._sync_review_advisory(commit_result)
-        if advisory is not None:
-            commit_result = commit_result.model_copy(
-                update={"review_advisory": advisory},
+        try:
+            result = self.commits.commit(
+                base=base,
+                candidate=candidate,
+                **self.context.commit_metadata(),
             )
+            self._remember(result.snapshot)
+            snapshot = self._snapshot_result(result.snapshot)
+            commit_result = AgentProjectCommitResult(
+                **snapshot.model_dump(mode="python"),
+                transactionId=result.transaction_id,
+                changedPointers=[
+                    change.json_pointer
+                    for change in result.changeset.changes
+                    if change.json_pointer is not None
+                ],
+                normalizedPointers=normalized_pointers,
+                reviewId=result.review.review_id
+                if result.review is not None
+                else None,
+            )
+            advisory = self._sync_review_advisory(
+                commit_result,
+                changed_pointers=(
+                    sync_fence[2] if sync_fence is not None else None
+                ),
+                gate_token=(sync_fence[1] if sync_fence is not None else None),
+            )
+            if advisory is not None:
+                commit_result = commit_result.model_copy(
+                    update={"review_advisory": advisory},
+                )
+        finally:
+            self._end_sync_review_fence(sync_fence)
         plan_advisory = self._edit_plan_advisory(base.project, commit_result)
         if plan_advisory is not None:
             commit_result = commit_result.model_copy(

@@ -1,4 +1,4 @@
-/** Single token usage record (per date + provider + model). */
+/** Single token usage record (per date + agent + provider + model). */
 export interface TokenUsageRecord {
   date: string; // YYYY-MM-DD
   provider_id: string;
@@ -6,6 +6,7 @@ export interface TokenUsageRecord {
   prompt_tokens: number;
   completion_tokens: number;
   call_count: number;
+  agent_id?: string | null;
 }
 
 /** Per-model (has provider_id, model) or per-date (no provider_id, model) stats. */

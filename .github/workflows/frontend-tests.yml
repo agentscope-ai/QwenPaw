@@ -8,9 +8,6 @@ on:
       - '.github/workflows/frontend-tests.yml'
   pull_request:
     branches: [main, master, dev, develop]
-    paths:
-      - 'console/**'
-      - '.github/workflows/frontend-tests.yml'
 
 jobs:
   spam-gate:
@@ -20,11 +17,38 @@ jobs:
     with:
       author: ${{ github.event.pull_request.user.login }}
 
+  # Replaces the former `on.pull_request.paths` filter: the workflow now runs
+  # (and reports a status) on every PR so `Frontend Summary` can be a
+  # required check; PRs not touching the console skip the actual test run
+  # and the summary reports an explicit success instead of a skip.
+  changes:
+    name: Detect console changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'console/**'
+              - '.github/workflows/frontend-tests.yml'
+
   vitest:
     name: Vitest Unit Tests
-    needs: [spam-gate]
+    needs: [spam-gate, changes]
+    # Also guard on the detection job's RESULT: if detection failed/was
+    # cancelled its `code` output is empty and this job would silently skip,
+    # which a ruleset cannot distinguish from a bypass. The frontend-summary
+    # job below turns that detection failure into a hard red.
     if: |
       always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.code == 'true' &&
       (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     defaults:
@@ -43,10 +67,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm run test:run
-
-      - name: Coverage ratchet (blocks PR on regression)
+      # A single vitest pass: runs the full suite AND enforces the coverage
+      # ratchet (fails on test failures or coverage regression). The previous
+      # separate `npm run test:run` pass executed the identical suite twice.
+      - name: Run unit tests with coverage (ratchet blocks PR on regression)
         run: npm run test:coverage
 
       - name: Upload coverage report
@@ -56,3 +80,45 @@ jobs:
           name: coverage-report
           path: console/coverage/
           retention-days: 7
+
+  frontend-summary:
+    name: Frontend Summary
+    needs: [changes, spam-gate, vitest]
+    # Fail-closed gate. This job ALWAYS runs (no path condition) so the
+    # required-check context can never be satisfied by an accidental skip.
+    # Three-state decision, mirroring `Test Summary` in tests.yml:
+    #   1. change detection did not succeed -> red;
+    #   2. detection succeeded, no console changes -> explicit green;
+    #   3. console change -> vitest must be strictly `success`.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check frontend results
+        shell: bash
+        run: |
+          echo "Changes detection: ${{ needs.changes.result }}"
+          echo "Spam gate: ${{ needs.spam-gate.result }}"
+          echo "Vitest: ${{ needs.vitest.result }}"
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "❌ Change detection did not succeed (${{ needs.changes.result }}) — gate closed, refusing untested merge"
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.code }}" != "true" ]; then
+            echo "✅ No console changes — vitest not required"
+            exit 0
+          fi
+
+          if [ "${{ needs.spam-gate.result }}" = "success" ] && \
+             [ "${{ needs.spam-gate.outputs.blocked }}" = "true" ]; then
+            echo "❌ Spam gate blocked this PR"
+            exit 1
+          fi
+
+          if [ "${{ needs.vitest.result }}" != "success" ]; then
+            echo "❌ Vitest must be success (failure/cancelled/skipped are all rejected)"
+            exit 1
+          fi
+
+          echo "✅ Frontend tests passed"

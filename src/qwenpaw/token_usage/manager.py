@@ -16,6 +16,20 @@ from .buffer import TokenUsageBuffer, _UsageEvent
 logger = logging.getLogger(__name__)
 
 
+def _usage_agent_id() -> str:
+    """ContextVar agent id only; empty when unset."""
+    try:
+        from ..app.agent_context import peek_current_agent_id
+
+        return peek_current_agent_id()
+    except Exception:
+        logger.warning(
+            "token_usage: failed to read agent id",
+            exc_info=True,
+        )
+        return ""
+
+
 class TokenUsageStats(BaseModel):
     """Prompt/completion tokens and call count."""
 
@@ -25,11 +39,20 @@ class TokenUsageStats(BaseModel):
 
 
 class TokenUsageRecord(TokenUsageStats):
-    """Single row from token usage query (per date + provider + model)."""
+    """Single row from token usage query.
+
+    With agent tracking, a row is (date, agent, provider, model).
+    """
 
     date: str = Field(..., description="Date (YYYY-MM-DD)")
     provider_id: str = Field("", description="Provider ID")
     model: str = Field(..., description="Model name")
+    agent_id: Optional[str] = Field(
+        None,
+        description=(
+            "Owning agent ID; null if the stored row predates agent tracking"
+        ),
+    )
 
 
 class TokenUsageByModel(TokenUsageStats):
@@ -135,6 +158,7 @@ class TokenUsageManager:
                 now_iso=datetime.now(tz=timezone.utc).isoformat(
                     timespec="seconds",
                 ),
+                agent_id=_usage_agent_id(),
             ),
         )
 
@@ -154,8 +178,20 @@ class TokenUsageManager:
             date_str = current.isoformat()
             by_key = merged.get(date_str, {})
             for _key, entry in by_key.items():
-                rec_provider = entry.get("provider_id", "")
-                rec_model = entry.get("model_name") or _key
+                rec_provider = entry.get("provider_id", "") or ""
+                if "agent_id" not in entry:
+                    rec_agent = None
+                else:
+                    rec_agent = entry.get("agent_id") or ""
+                rec_model = entry.get("model_name") or ""
+                if not rec_model:
+                    key = str(_key)
+                    if "\x1f" in key:
+                        rec_model = key.rsplit("\x1f", 1)[-1]
+                    elif ":" in key:
+                        rec_model = key.split(":", 1)[1]
+                    else:
+                        rec_model = key
                 if model_name is not None and rec_model != model_name:
                     continue
                 if provider_id is not None and rec_provider != provider_id:
@@ -168,6 +204,7 @@ class TokenUsageManager:
                         prompt_tokens=entry.get("prompt_tokens", 0),
                         completion_tokens=entry.get("completion_tokens", 0),
                         call_count=entry.get("call_count", 0),
+                        agent_id=rec_agent,
                     ),
                 )
             current += timedelta(days=1)
@@ -242,7 +279,11 @@ class TokenUsageManager:
             # Aggregate by date
             bd = by_date_raw.setdefault(
                 r.date,
-                {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
+                {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "call_count": 0,
+                },
             )
             bd["prompt_tokens"] += pt
             bd["completion_tokens"] += ct
@@ -278,7 +319,8 @@ class TokenUsageManager:
             provider_id: Optional provider ID filter.
 
         Returns:
-            List of TokenUsageRecord with per-date per-model data.
+            List of TokenUsageRecord. With agent tracking, a row is
+            (date, agent, provider, model).
         """
         if end_date is None:
             end_date = date.today()

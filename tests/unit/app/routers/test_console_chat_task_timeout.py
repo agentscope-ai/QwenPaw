@@ -140,7 +140,7 @@ def console_workspace(workspace_mock, monkeypatch):
     )
     monkeypatch.setattr(
         console_mod,
-        "_apply_session_project_dir",
+        "_persist_pending_project_dirs",
         AsyncMock(side_effect=lambda _ws, chat_obj, _payload: chat_obj),
     )
     return workspace_mock

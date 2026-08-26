@@ -697,8 +697,9 @@ class MailClient:
                 operation="search_messages(keyword)",
                 provider_name=provider_name,
                 alternatives=[
-                    "使用 since/before 日期范围缩小后配合 list_messages 浏览",
-                    "在网页版邮箱进行全文搜索",
+                    "Narrow the date range with since/before, then browse "
+                    "with `list_messages`",
+                    "Perform a full-text search in webmail",
                 ],
             )
         if from_address and not caps.search_from:
@@ -706,8 +707,9 @@ class MailClient:
                 operation="search_messages(from_address)",
                 provider_name=provider_name,
                 alternatives=[
-                    "使用 list_messages 获取列表后按发件人本地过滤",
-                    "使用 since/before 日期搜索",
+                    "Fetch messages with `list_messages`, then filter locally "
+                    "by sender",
+                    "Search by date with since/before",
                 ],
             )
         criteria: list[str] = []
@@ -1012,7 +1014,10 @@ class MailClient:
             if not expunge.expunged:
                 if not self.config.capabilities.uid_expunge:
                     result["note"] = (
-                        "该服务商不支持 UID EXPUNGE 即时清除，邮件已标记删除，" + "将由服务器或其他客户端清理"
+                        "This provider does not support immediate cleanup "
+                        "with UID EXPUNGE. The message was marked "
+                        "for deletion and will be cleaned up by the server "
+                        "or another client."
                     )
                 else:
                     result[

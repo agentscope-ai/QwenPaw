@@ -24,7 +24,12 @@ from typing import Any
 
 from domain.enums import CreatorCommandType, SpecialistRole, TaskKind
 from domain.errors import PermissionDeniedError, ValidationError
-from models.config import is_s2v_configured, is_tts_configured
+from models.config import (
+    get_image_model_name,
+    is_s2v_configured,
+    is_tts_configured,
+)
+from models.image.base import image_reference_limit
 from services.runtime_files.errors import RecordNotFoundError
 from services.media.source_observation import source_observation_service
 from services.media.source_video_reader import source_video_reader_service
@@ -280,7 +285,6 @@ _IMAGE_ARGUMENTS = _arguments_schema(
         "referenceVersionIds": {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
-            "maxItems": 5,
             "uniqueItems": True,
         },
         "variantId": {
@@ -305,7 +309,7 @@ _R2V_ARGUMENTS = _arguments_schema(
                 "视频生成模式，缺省 r2v（storyboard + 参考图，保持现状）。"
                 "t2v：纯文本生视频；i2v：首帧生视频（需 firstFrameRef）；"
                 "video_edit：按 prompt 指令编辑已有视频（需 videoRef，仅 "
-                "HappyHorse 模型）。支持的组合以当前模型的能力矩阵为准，"
+                "HappyHorse 1.0 模型）。支持的组合以当前精确模型能力为准，"
                 "不支持时会返回可读错误并提示替代。"
             ),
         },
@@ -328,18 +332,33 @@ _R2V_ARGUMENTS = _arguments_schema(
         "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 60},
         "ratio": {
             "type": "string",
-            "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"],
+            "enum": ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4"],
+            "description": (
+                "跨供应商候选画幅；实际可用值以当前协议 + 精确模型能力为准，" "执行层会在上传或建单前拒绝不支持的值。"
+            ),
         },
         "resolution": {
             "type": "string",
-            "enum": ["720P", "1080P", "720p", "1080p"],
+            "enum": ["480P", "720P", "1080P", "480p", "720p", "1080p"],
+            "description": (
+                "跨供应商候选分辨率；实际可用值以当前协议 + 精确模型能力" "为准，schema 枚举不代表每个模型都支持全部选项。"
+            ),
         },
         "watermark": {
             "type": "boolean",
             "default": False,
             "description": "默认 false（无水印）；仅在用户明确要求时传 true",
         },
-        "generateAudio": {"type": "boolean"},
+        "generateAudio": {
+            "type": "boolean",
+            "default": True,
+            "description": (
+                "默认 true：生成视频原生自带台词与环境音（人声的唯一来源）。"
+                "背景音乐不要写进 prompt（配乐由 Project 中独立的 "
+                "creation.type=audio Element 承载，与本工具无关）；"
+                "仅在明确需要无声画面时传 false"
+            ),
+        },
     },
     ("prompt", "durationSeconds", "ratio", "resolution"),
 )
@@ -986,7 +1005,9 @@ _SPECS = (
             "写入 Asset Index，返回 exact version id 与 durationSeconds。长旁白"
             "按镜头/语义分段多次调用，每段对应一个独立 audio Element。传 "
             "characterRef 且该角色已绑定音色时自动使用其复刻音色；上 Timeline "
-            "需再用 jq_project 创建引用该 version 的 audio Element。"
+            "需再用 jq_project 创建引用该 version 的 audio Element。相同项目中"
+            "文本、模型、音色、语速和角色绑定完全一致时会直接复用已有版本，"
+            "即使工具调用 idempotency key 不同也不会再次请求付费 TTS。"
         ),
         roles=frozenset(
             {
@@ -1081,11 +1102,30 @@ class FileSpecialistToolRegistry:
             if role is not SpecialistRole.SOURCE_INTELLIGENCE
             or item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
         ]
-        business_tools = [
-            spec.manifest(role=role, admitted_target_refs=admitted_target_refs)
-            for spec in _SPECS
-            if role in spec.roles and _tool_available(spec.name)
-        ]
+        business_tools = []
+        for spec in _SPECS:
+            if role not in spec.roles or not _tool_available(spec.name):
+                continue
+            manifest = spec.manifest(
+                role=role,
+                admitted_target_refs=admitted_target_refs,
+            )
+            if spec.name == "image_generation":
+                model_name = get_image_model_name().strip()
+                reference_limit = image_reference_limit(model_name)
+                references = manifest["function"]["parameters"]["properties"][
+                    "arguments"
+                ]["properties"]["referenceVersionIds"]
+                references["maxItems"] = reference_limit or 0
+                references["description"] = (
+                    f"当前图片模型 {model_name or '未配置'} 的输入参考图，"
+                    f"官方上限为 {reference_limit or 0} 张；只传 Project 中"
+                    "已存在的 exact version id。未知模型别名按 0 张处理，"
+                    "不会套用通用猜测上限。显式传入即为最终参考列表（执行层"
+                    "不再自动注入阵容图或实体锚点），由你自控张数与顺序；"
+                    "不传时才使用自动引用链。"
+                )
+            business_tools.append(manifest)
         names = [
             item["function"]["name"]
             for item in (*project_tools, *business_tools)

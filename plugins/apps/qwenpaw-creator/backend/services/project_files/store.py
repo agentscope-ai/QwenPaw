@@ -70,6 +70,15 @@ class UnsafeProjectPath(ProjectStoreError):
     pass
 
 
+class InvalidProjectId(UnsafeProjectPath):
+    """The caller supplied a malformed id, as opposed to a damaged store.
+
+    Kept under UnsafeProjectPath so existing handlers that skip unusable
+    directory names keep working, while routes can single it out as a client
+    input mistake rather than a storage fault.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectSnapshot:
     project: Project
@@ -507,6 +516,7 @@ class ProjectStore:
         """Atomically remove a Project from discovery, then delete its tree."""
 
         safe_id = _safe_project_id(project_id)
+        tombstone: Path | None = None
         with self.lifecycle_lock(safe_id), self._lock:
             current = self.read(safe_id)
             if expected_etag is not None and current.etag != expected_etag:
@@ -522,15 +532,27 @@ class ProjectStore:
                 raise ProjectStoreError(
                     f"Cannot delete Project: {safe_id}",
                 ) from exc
+        # The atomic rename above is the deletion boundary. Physical cleanup
+        # is deliberately detached: a large tree or an open provider file must
+        # not keep DELETE/Stop waiting after the Project is already absent.
+        # Startup recovery also removes any tombstone left by a crash.
+        assert tombstone is not None
+
+        def cleanup_deleted_tree() -> None:
             try:
                 shutil.rmtree(tombstone)
-            except OSError as exc:
-                # The Project is already logically absent. Leave the hidden
-                # tombstone for startup cleanup instead of moving it back and
-                # accidentally resurrecting stale data.
-                raise ProjectStoreError(
-                    f"Project was removed but tombstone cleanup failed: {safe_id}",
-                ) from exc
+            except OSError:
+                logger.warning(
+                    "Project tombstone cleanup deferred to startup: %s",
+                    tombstone,
+                    exc_info=True,
+                )
+
+        threading.Thread(
+            target=cleanup_deleted_tree,
+            name=f"creator-delete-cleanup:{safe_id}",
+            daemon=True,
+        ).start()
         logger.info("project deleted: %s", safe_id)
 
     def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
@@ -550,25 +572,28 @@ class ProjectStore:
         logger.info(f"exporting to:{str(export_root / zip_file_stem)}")
 
         archive_path = None
-        with self.lifecycle_lock(safe_id), self._lock:
-            # Confirm the Project exists and is loadable before archiving.
-            self.read(safe_id)
-            try:
-                archive_path = shutil.make_archive(
-                    str(export_root / zip_file_stem),
-                    "zip",
-                    root_dir=str(self.root),
-                    base_dir=safe_id,
-                )
-                logger.info(f"export file path:{archive_path}")
-            except Exception as e:
-                logger.error(
-                    f"failed to create export file for project {safe_id}",
-                    exc_info=True,
-                )
-                raise ProjectStoreError(
-                    f"failed to create export file for project {safe_id}",
-                ) from e
+        # Confirm it exists before starting. The archive itself intentionally
+        # runs without either the lifecycle or in-process store lock: Project
+        # files are atomically replaced, and export is explicitly a best-effort
+        # snapshot. Holding the global mutation boundary across ZIP I/O caused
+        # common 10-second lock timeouts on large Projects.
+        self.read(safe_id)
+        try:
+            archive_path = shutil.make_archive(
+                str(export_root / zip_file_stem),
+                "zip",
+                root_dir=str(self.root),
+                base_dir=safe_id,
+            )
+            logger.info(f"export file path:{archive_path}")
+        except Exception as e:
+            logger.error(
+                f"failed to create export file for project {safe_id}",
+                exc_info=True,
+            )
+            raise ProjectStoreError(
+                f"failed to create export file for project {safe_id}",
+            ) from e
 
         return (
             Path(archive_path).stat().st_size,
@@ -593,14 +618,26 @@ class ProjectStore:
             Path(archive_path).unlink(missing_ok=True)
             logger.info(f"deleted project export zip file {archive_path}")
 
-    def lifecycle_lock(self, project_id: str) -> CrossProcessFileLock:
-        """Serialize creation/deletion with all Project-scoped mutations."""
+    def lifecycle_lock(
+        self,
+        project_id: str,
+        *,
+        shared: bool = False,
+    ) -> CrossProcessFileLock:
+        """Guard a Project lifetime without serializing unrelated Runtime domains.
+
+        Project creation, deletion and Project-state publication use the
+        default exclusive side. Runtime-only transitions use ``shared=True``:
+        they may proceed in parallel with one another, but still cannot race a
+        delete or Project commit that owns the exclusive side.
+        """
 
         return CrossProcessFileLock(
             self.root
             / ".locks"
             / f"project-{_safe_project_id(project_id)}.lock",
             timeout_seconds=10.0,
+            shared=shared,
         )
 
     def _checked_payload(self, project: Project) -> bytes:
@@ -695,7 +732,7 @@ def _safe_project_id(value: str) -> str:
         or not _SAFE_PROJECT_ID.fullmatch(value)
         or "\x00" in value
     ):
-        raise UnsafeProjectPath(f"Unsafe project id: {value!r}")
+        raise InvalidProjectId(f"Unsafe project id: {value!r}")
     return value
 
 
@@ -722,6 +759,7 @@ def _fsync_directory(directory: Path) -> None:
 
 __all__ = [
     "DEFAULT_MAX_PROJECT_JSON_BYTES",
+    "InvalidProjectId",
     "ProjectAlreadyExists",
     "ProjectConflict",
     "ProjectIntegrityError",

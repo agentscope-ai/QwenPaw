@@ -56,6 +56,10 @@ from ..providers.retry_chat_model import (
 )
 from ..token_usage import TokenRecordingModelWrapper
 from ..utils.io_utils import run_sync_io
+from ..utils.image_resize import (
+    get_max_image_pixels,
+    resize_base64_image,
+)
 from ..utils.logging import sanitize_log_value
 from ..utils.media_paths import (
     file_url_to_path as _file_url_to_path,
@@ -475,6 +479,82 @@ async def _prepare_media_sources(
             local=key[0] == "local",
             max_bytes=max_bytes,
         )
+
+
+def _resize_base64_images(items: list, max_pixels: int) -> int:
+    """Resize base64 images in a copied request message tree.
+
+    Resize failures intentionally propagate so unsupported or corrupt
+    images are never sent unchanged as an implicit fallback.
+    """
+    resized_count = 0
+    for block in items:
+        kind = _media_kind(block)
+        source = (
+            block.get("source")
+            if isinstance(block, dict)
+            else getattr(block, "source", None)
+        )
+        source_type = _media_source_value(source, "type")
+        data = _media_source_value(source, "data", "")
+        if kind == "image" and source_type == "base64" and data:
+            resized_data, changed = resize_base64_image(
+                str(data),
+                max_pixels,
+            )
+            if changed:
+                if isinstance(source, dict):
+                    source["data"] = resized_data
+                else:
+                    source.data = resized_data
+                resized_count += 1
+
+        block_type = (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
+        )
+        nested = None
+        if block_type == "tool_result":
+            nested = (
+                block.get("output")
+                if isinstance(block, dict)
+                else getattr(block, "output", None)
+            )
+        elif block_type == "hint":
+            nested = (
+                block.get("hint")
+                if isinstance(block, dict)
+                else getattr(block, "hint", None)
+            )
+        if isinstance(nested, list):
+            resized_count += _resize_base64_images(nested, max_pixels)
+    return resized_count
+
+
+async def _resize_request_images(msgs: list) -> int:
+    """Resize oversized images in request copies when explicitly enabled."""
+    max_pixels = get_max_image_pixels()
+    if max_pixels <= 0:
+        return 0
+    return await run_sync_io(
+        _resize_base64_images_in_messages,
+        msgs,
+        max_pixels,
+    )
+
+
+def _resize_base64_images_in_messages(
+    msgs: list,
+    max_pixels: int,
+) -> int:
+    """Synchronously resize images across copied request messages."""
+    resized_count = 0
+    for msg in msgs:
+        content = getattr(msg, "content", None)
+        if isinstance(content, list):
+            resized_count += _resize_base64_images(content, max_pixels)
+    return resized_count
 
 
 def _prepared_task_result(
@@ -1455,11 +1535,6 @@ def _create_file_block_support_formatter(
             self._qwenpaw_last_wire_media_count = 0
             self._qwenpaw_last_wire_audio_count = 0
 
-            # Per-wire-request dedup scope — second occurrence of the
-            # same media source becomes a text placeholder.  Reset on
-            # every call so state never leaks across requests.
-            seen_media_token = _FORMATTER_SEEN_MEDIA_KEYS.set(set())
-
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
                 if isinstance(block, dict):
@@ -1534,7 +1609,13 @@ def _create_file_block_support_formatter(
                     MAX_INLINE_MEDIA_BYTES,
                 ),
             )
+            await _resize_request_images(normalized_msgs)
 
+            # Per-wire-request dedup scope — second occurrence of the
+            # same media source becomes a text placeholder. Set this only
+            # after request preparation succeeds so preparation failures
+            # cannot leak context state.
+            seen_media_token = _FORMATTER_SEEN_MEDIA_KEYS.set(set())
             try:
                 # OpenAI-family formatters reject video blocks; substitute
                 # them with text placeholders before formatting and restore

@@ -49,3 +49,11 @@ class AgentStatsSummary(BaseModel):
     agent_prompt_tokens: int = 0
     agent_completion_tokens: int = 0
     agent_llm_calls: int = 0
+
+
+class LlmToolDaily(BaseModel):
+    """Per-day LLM turns and tool calls aggregated across agents."""
+
+    date: str
+    agent_llm_calls: int = 0
+    tool_calls: int = 0

@@ -50,6 +50,7 @@ import {
   type ChatDateGroup,
 } from "../../../../utils/chatGroups";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
+import { useSessionAttention } from "../../../../hooks/useSessionAttention";
 import styles from "./index.module.less";
 import type { ChatGroup, ChatStatus } from "../../../../api/types/chat";
 
@@ -78,6 +79,7 @@ type FlatRow =
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   switchingSessionId: string | null;
   editingSessionId: string | null;
@@ -197,6 +199,7 @@ const VirtualRow = React.memo(function VirtualRow({
           channelLabel={channelLabel}
           chatStatus={session.status}
           generating={session.generating}
+          unseenResult={data.unseenSessionIds.has(session.id)}
           archived={session.archived}
           pinned={session.pinned}
           source={session.source}
@@ -234,6 +237,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
@@ -421,6 +425,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
   }, [resolvedSessions]);
+
+  const unseenSessionIds = useSessionAttention(
+    selectedAgent,
+    sortedSessions as ExtendedChatSession[],
+    currentSessionId,
+  );
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -930,6 +940,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -953,6 +964,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     }),
     [
       flatRows,
+      unseenSessionIds,
       currentSessionId,
       switchingSessionId,
       editingSessionId,

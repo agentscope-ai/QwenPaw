@@ -9,7 +9,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
+import tempfile
 import threading
 import weakref
 from collections import OrderedDict
@@ -29,6 +31,7 @@ from .models import (
 from .store import (
     build_skill_metadata,
     classify_pool_skill_source,
+    copy_pool_skill_automation,
     copy_skill_dir,
     default_pool_manifest,
     default_workspace_manifest,
@@ -42,9 +45,10 @@ from .store import (
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
     mutate_json,
+    mutate_pool_manifest,
     normalize_skill_manifest_entry,
     read_frontmatter_safe_from_path,
-    read_json,
+    read_pool_skill_automation,
     read_skill_manifest,
     read_skill_pool_manifest,
     safe_skill_dir,
@@ -217,6 +221,12 @@ def _get_packaged_builtin_registry() -> (
             registry.setdefault(variant.name, {})[variant.language] = variant
         _builtin_cache["registry"] = registry
         return registry
+
+
+def refresh_packaged_builtin_registry() -> None:
+    """Make the next builtin lookup rescan the packaged skill files."""
+    with _BUILTIN_CACHE_LOCK:
+        _builtin_cache.pop("registry", None)
 
 
 def _select_builtin_variant(
@@ -577,12 +587,12 @@ def _build_builtin_import_candidate(
     }
     return {
         "name": canonical_name,
-        "description": preferred_variant.description
-        if preferred_variant
-        else "",
-        "version_text": preferred_variant.version_text
-        if preferred_variant
-        else "",
+        "description": (
+            preferred_variant.description if preferred_variant else ""
+        ),
+        "version_text": (
+            preferred_variant.version_text if preferred_variant else ""
+        ),
         "current_version_text": current_version_text,
         "current_source": current_source,
         "current_language": current_language,
@@ -774,8 +784,6 @@ def import_builtin_skills(
     imported: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
-    manifest_path = get_pool_skill_manifest_path()
-    manifest_default = default_pool_manifest()
 
     def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
         skills = payload.setdefault("skills", {})
@@ -819,13 +827,7 @@ def import_builtin_skills(
                 entry["config"] = existing.get("config")
             if "tags" in existing:
                 entry["tags"] = existing.get("tags")
-            for au_key in (
-                "auto_update",
-                "auto_update_targets",
-                "auto_update_synced_hash",
-            ):
-                if au_key in existing:
-                    entry[au_key] = existing.get(au_key)
+            copy_pool_skill_automation(existing, entry)
             skills[skill_name] = entry
 
         return {
@@ -835,11 +837,7 @@ def import_builtin_skills(
             "conflicts": conflicts,
         }
 
-    return mutate_json(
-        manifest_path,
-        manifest_default,
-        _process,
-    )
+    return mutate_pool_manifest(_process)
 
 
 def migrate_pool_builtin_language_fields() -> bool:
@@ -881,11 +879,7 @@ def migrate_pool_builtin_language_fields() -> bool:
         return changed
 
     return bool(
-        mutate_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-            _update,
-        ),
+        mutate_pool_manifest(_update),
     )
 
 
@@ -994,13 +988,7 @@ def _build_reconciled_pool_entry(
     existing_installed_from = existing.get("installed_from")
     if existing_installed_from:
         new_entry["installed_from"] = existing_installed_from
-    for au_key in (
-        "auto_update",
-        "auto_update_targets",
-        "auto_update_synced_hash",
-    ):
-        if au_key in existing:
-            new_entry[au_key] = existing.get(au_key)
+    copy_pool_skill_automation(existing, new_entry)
     return new_entry
 
 
@@ -1065,11 +1053,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
 
         return payload
 
-    return mutate_json(
-        manifest_path,
-        default_pool_manifest(),
-        _update,
-    )
+    return mutate_pool_manifest(_update)
 
 
 def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
@@ -1347,10 +1331,7 @@ def get_pool_builtin_sync_status(
 
     pref = get_builtin_skill_language_preference()
     if pool_skills is None:
-        manifest = read_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-        )
+        manifest = read_skill_pool_manifest()
         pool_skills = manifest.get("skills", {})
     result: dict[str, dict[str, Any]] = {}
     for name, variants in registry.items():
@@ -1422,10 +1403,7 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
     """
     registry = _get_packaged_builtin_registry()
     pref = get_builtin_skill_language_preference()
-    manifest = read_json(
-        get_pool_skill_manifest_path(),
-        default_pool_manifest(),
-    )
+    manifest = read_skill_pool_manifest()
     pool_skills = manifest.get("skills", {})
 
     previous_builtin_names = {
@@ -1548,12 +1526,10 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
     }
 
 
-def update_single_builtin(
+def _resolve_builtin_update_variant(
     skill_name: str,
-    *,
-    language: str | None = None,
-) -> dict[str, Any]:
-    """Update one builtin skill in the pool to the latest packaged version."""
+    language: str | None,
+) -> tuple[str, str, BuiltinSkillVariant]:
     registry = _get_packaged_builtin_registry()
     canonical_name = _canonical_builtin_skill_name(skill_name, registry)
     if canonical_name not in registry:
@@ -1588,13 +1564,59 @@ def update_single_builtin(
                 f"language '{selected_language}'"
             ),
         )
+    return canonical_name, selected_language, variant
+
+
+def update_single_builtin(
+    skill_name: str,
+    *,
+    language: str | None = None,
+) -> dict[str, Any]:
+    """Replace one builtin Pool skill with its current packaged version."""
+    (
+        canonical_name,
+        selected_language,
+        variant,
+    ) = _resolve_builtin_update_variant(skill_name, language)
 
     pool_dir = get_skill_pool_dir()
+    pool_dir.mkdir(parents=True, exist_ok=True)
     target = pool_dir / canonical_name
+    transaction_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".builtin_update_{canonical_name}_",
+            dir=pool_dir,
+        ),
+    )
+    staged_target = transaction_root / "staged"
+    backup_target = transaction_root / "backup"
+    target_replaced = False
+
+    def _rollback_target() -> None:
+        nonlocal target_replaced
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        if backup_target.exists():
+            backup_target.rename(target)
+        target_replaced = False
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
-        copy_skill_dir(variant.skill_dir, target)
         payload.setdefault("skills", {})
+        current = payload.get("skills", {}).get(canonical_name, {})
+        if not is_pool_builtin_entry(current):
+            raise SkillsError(
+                message=f"'{canonical_name}' is not a builtin pool skill",
+            )
+        nonlocal target_replaced
+        if target.exists():
+            target.rename(backup_target)
+        try:
+            staged_target.rename(target)
+            target_replaced = True
+        except Exception:
+            _rollback_target()
+            raise
+
         entry = build_skill_metadata(
             canonical_name,
             target,
@@ -1603,23 +1625,125 @@ def update_single_builtin(
         )
         entry["builtin_language"] = selected_language
         entry["builtin_source_name"] = variant.source_name
-        current = payload.get("skills", {}).get(canonical_name, {})
         if "config" in current:
             entry["config"] = current["config"]
         if "tags" in current:
             entry["tags"] = current["tags"]
-        for au_key in (
-            "auto_update",
-            "auto_update_targets",
-            "auto_update_synced_hash",
-        ):
-            if au_key in current:
-                entry[au_key] = current.get(au_key)
+        copy_pool_skill_automation(current, entry)
         payload["skills"][canonical_name] = entry
         return entry
 
-    return mutate_json(
-        get_pool_skill_manifest_path(),
-        default_pool_manifest(),
-        _update,
-    )
+    try:
+        copy_skill_dir(variant.skill_dir, staged_target)
+        try:
+            return mutate_pool_manifest(_update)
+        except Exception:
+            if target_replaced or backup_target.exists():
+                _rollback_target()
+            raise
+    finally:
+        shutil.rmtree(transaction_root, ignore_errors=True)
+
+
+def auto_update_builtin_skills(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Make opted-in builtin Pool entries match the packaged versions."""
+    updated: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    checked = 0
+
+    registry = _get_packaged_builtin_registry()
+    manifest = read_skill_pool_manifest()
+    entries = manifest.get("skills", {})
+
+    for name, raw_entry in sorted(entries.items()):
+        entry = normalize_skill_manifest_entry(raw_entry)
+        if not read_pool_skill_automation(entry).auto_update:
+            continue
+        if skill_name is not None and name != skill_name:
+            continue
+        if not is_pool_builtin_entry(entry):
+            continue
+
+        variants = registry.get(name) or {}
+        if not variants:
+            continue
+        checked += 1
+
+        configured_language = (
+            str(entry.get("builtin_language", "") or "").strip().lower()
+        )
+        if configured_language and configured_language not in variants:
+            failed.append(
+                {
+                    "skill": name,
+                    "language": configured_language,
+                    "from_version": str(
+                        entry.get("version_text", "") or "",
+                    ),
+                    "to_version": "",
+                    "reason": "language_unavailable",
+                },
+            )
+            continue
+
+        language = configured_language or _resolve_pool_builtin_language(
+            name,
+            entry,
+            registry,
+            preferred_language=get_builtin_skill_language_preference(),
+        )
+        variant = variants.get(language)
+        current_version_text = str(entry.get("version_text", "") or "")
+        target_version_text = (
+            str(variant.version_text or "") if variant is not None else ""
+        )
+        if variant is None:
+            failed.append(
+                {
+                    "skill": name,
+                    "language": language,
+                    "from_version": current_version_text,
+                    "to_version": target_version_text,
+                    "reason": "language_unavailable",
+                },
+            )
+            continue
+        if current_version_text == target_version_text:
+            continue
+
+        try:
+            update_single_builtin(name, language=language)
+        except Exception as exc:  # keep the batch retryable per skill
+            logger.warning(
+                "builtin auto-update failed for '%s'",
+                name,
+                exc_info=True,
+            )
+            failed.append(
+                {
+                    "skill": name,
+                    "language": language,
+                    "from_version": current_version_text,
+                    "to_version": target_version_text,
+                    "reason": "update_failed",
+                    "detail": str(exc),
+                },
+            )
+            continue
+
+        updated.append(
+            {
+                "skill": name,
+                "language": language,
+                "from_version": current_version_text,
+                "to_version": target_version_text,
+            },
+        )
+
+    return {
+        "updated": updated,
+        "failed": failed,
+        "checked": checked,
+    }
