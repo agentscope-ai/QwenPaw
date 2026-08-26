@@ -16,7 +16,13 @@ import type {
   CronDispatchTargetItem,
   CronJobSpecOutput,
 } from "../../../../api/types";
+import api from "../../../../api";
 import { DEFAULT_FORM_VALUES } from "./constants";
+import {
+  buildModelOverrideOptions,
+  modelOverrideToFormValue,
+  type ModelOverrideOption,
+} from "./modelOverride";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
@@ -54,6 +60,14 @@ export function JobDrawer({
   const [channelSearch, setChannelSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [sessionSearch, setSessionSearch] = useState("");
+  const [providerModelOptions, setProviderModelOptions] = useState<
+    ModelOverrideOption[]
+  >([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const selectedModelOverride = Form.useWatch(
+    ["request", "model_slot_override"],
+    form,
+  );
   const selectedChannel = Form.useWatch(["dispatch", "channel"], form);
   const selectedTaskType = Form.useWatch("task_type", form);
   const selectedTargetUserId = Form.useWatch(
@@ -72,8 +86,29 @@ export function JobDrawer({
       onReloadTargets().catch((error) =>
         console.error("Failed to reload cron dispatch targets", error),
       );
+      setModelsLoading(true);
+      api
+        .listProviders()
+        .then((providers) =>
+          setProviderModelOptions(buildModelOverrideOptions(providers)),
+        )
+        .catch((error) => {
+          console.error("Failed to load providers for model override", error);
+          setProviderModelOptions([]);
+        })
+        .finally(() => setModelsLoading(false));
     }
   }, [open, editingJob?.id, onReloadTargets]);
+
+  const modelOverrideOptions = useMemo(() => {
+    const selected = modelOverrideToFormValue(selectedModelOverride);
+    if (selected && !providerModelOptions.some((o) => o.value === selected)) {
+      // Keep a previously saved override selectable even when the model is
+      // no longer listed by its provider.
+      return [...providerModelOptions, { value: selected, label: selected }];
+    }
+    return providerModelOptions;
+  }, [providerModelOptions, selectedModelOverride]);
 
   useEffect(() => {
     if (selectedTaskType === "text") {
@@ -610,6 +645,27 @@ export function JobDrawer({
                     style={{ fontFamily: "monospace", fontSize: 12 }}
                   />
                 </Form.Item>
+
+                {agentRequired && (
+                  <Form.Item
+                    name={["request", "model_slot_override"]}
+                    label={t("cronJobs.modelOverride")}
+                    tooltip={t("cronJobs.modelOverrideTooltip")}
+                  >
+                    <Select
+                      showSearch
+                      allowClear
+                      loading={modelsLoading}
+                      placeholder={t("cronJobs.modelOverrideDefault")}
+                      options={modelOverrideOptions}
+                      filterOption={(input, option) =>
+                        (option?.label?.toString() || "")
+                          .toLowerCase()
+                          .includes(input.toLowerCase())
+                      }
+                    />
+                  </Form.Item>
+                )}
               </>
             );
           }}
