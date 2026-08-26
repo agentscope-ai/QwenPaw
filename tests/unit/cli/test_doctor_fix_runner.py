@@ -1689,6 +1689,9 @@ class TestRunDoctorFix:
         backed = sessions[0] / "files" / "ws" / "agent.json"
         assert backed.read_text() == "{invalid"
         meta = json.loads((sessions[0] / "meta.json").read_text())
-        assert meta["backed_up_files_relative"] == ["ws/agent.json"]
+        # The runner records native separators (ws\\agent.json on Windows).
+        assert [
+            Path(rel).as_posix() for rel in meta["backed_up_files_relative"]
+        ] == ["ws/agent.json"]
         reset = json.loads(bad.read_text())
         assert reset["id"] == "a"

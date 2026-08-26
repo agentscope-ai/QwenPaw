@@ -17,6 +17,7 @@ Regression scope (后端单测缺口补齐第 1 批，A 档)：
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -449,6 +450,7 @@ class TestZipImportValidation:
 def test_working_dir_is_isolated(pool_env):
     """夹具自检：测试池必须落在临时目录，不得污染真实工作区。"""
     _service, pool_dir = pool_env
-    assert str(pool_dir).startswith("/tmp"), (
+    # tempfile root differs per platform ("/tmp" vs C:\...\Temp).
+    assert str(pool_dir).startswith(tempfile.gettempdir()), (
         f"技能池未隔离到临时目录: {pool_dir}（真实 WORKING_DIR=" f"{WORKING_DIR}）"
     )

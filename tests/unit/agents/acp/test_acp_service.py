@@ -10,6 +10,9 @@ and process-tree helpers, which previously had zero unit-test coverage.
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 import qwenpaw.agents.acp.service as acp_service
@@ -101,25 +104,30 @@ class TestKillProcessTree:
 
 
 class TestResolveProcessCommand:
+    @staticmethod
+    def _host_exe(name: str) -> str:
+        # shutil.which on Windows only matches PATHEXT extensions.
+        return f"{name}.exe" if sys.platform == "win32" else name
+
     def test_found_on_path(self, tmp_path):
-        exe = tmp_path / "mytool"
+        exe = tmp_path / self._host_exe("mytool")
         exe.write_text("#!/bin/sh\n")
         exe.chmod(0o755)
         result = acp_service._resolve_process_command(
             "mytool",
             {"PATH": str(tmp_path)},
         )
-        assert result == str(exe)
+        assert os.path.normcase(result) == os.path.normcase(str(exe))
 
     def test_case_insensitive_path_key(self, tmp_path):
-        exe = tmp_path / "mytool"
+        exe = tmp_path / self._host_exe("mytool")
         exe.write_text("#!/bin/sh\n")
         exe.chmod(0o755)
         result = acp_service._resolve_process_command(
             "mytool",
             {"Path": str(tmp_path)},
         )
-        assert result == str(exe)
+        assert os.path.normcase(result) == os.path.normcase(str(exe))
 
     def test_not_found_returns_original(self, tmp_path):
         result = acp_service._resolve_process_command(

@@ -211,7 +211,7 @@ class TestMigrateLegacyWorkspace:
 
         ws = working_dir / "workspaces" / "default"
         assert (ws / "agent.json").exists()
-        agent = json.loads((ws / "agent.json").read_text())
+        agent = json.loads((ws / "agent.json").read_text(encoding="utf-8"))
         assert agent["id"] == "default"
         assert agent["name"] == "Default Agent"
         # legacy items migrated into the new workspace

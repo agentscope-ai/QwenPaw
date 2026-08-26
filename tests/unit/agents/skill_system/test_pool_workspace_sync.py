@@ -383,7 +383,7 @@ class TestTagsAndAutoUpdate:
         _write_pool_manifest(pool_dir, {})
         assert service.set_pool_skill_tags("bad/name", None) is False
 
-    def test_set_skill_auto_update_enable_and_disable(
+    def test_set_skill_auto_sync_enable_and_disable(
         self,
         pool_env,
         monkeypatch,
@@ -396,7 +396,7 @@ class TestTagsAndAutoUpdate:
         )
         service.create_skill("demo", _skill_md("demo"))
 
-        enabled = service.set_skill_auto_update(
+        enabled = service.set_skill_auto_sync(
             "demo",
             enabled=True,
             targets=["agent_x"],
@@ -409,34 +409,38 @@ class TestTagsAndAutoUpdate:
             "checked": 1,
         }
         entry = _read_pool_manifest(pool_dir)["skills"]["demo"]
-        assert entry["auto_update"] is True
-        assert entry["auto_update_targets"] == ["agent_x"]
+        sync_config = entry["automation"]["auto_sync"]
+        assert sync_config["enabled"] is True
+        assert sync_config["targets"] == ["agent_x"]
         # The immediate sync stamps the hash (no targets to push to).
-        assert entry["auto_update_synced_hash"]
+        assert sync_config["synced_hash"]
+        # Legacy flat keys are migrated into the automation namespace.
+        assert "auto_update" not in entry
 
-        disabled = service.set_skill_auto_update(
+        disabled = service.set_skill_auto_sync(
             "demo",
             enabled=False,
             targets=None,
         )
         assert disabled == {"synced": [], "failed": [], "checked": 0}
         entry = _read_pool_manifest(pool_dir)["skills"]["demo"]
-        assert entry["auto_update"] is False
-        assert "auto_update_targets" not in entry
+        sync_config = entry["automation"]["auto_sync"]
+        assert sync_config["enabled"] is False
+        assert "targets" not in sync_config
 
-    def test_set_skill_auto_update_unknown_returns_none(self, pool_env):
+    def test_set_skill_auto_sync_unknown_returns_none(self, pool_env):
         service, pool_dir, _ws = pool_env
         _write_pool_manifest(pool_dir, {})
         assert (
-            service.set_skill_auto_update("ghost", enabled=True, targets=None)
+            service.set_skill_auto_sync("ghost", enabled=True, targets=None)
             is None
         )
 
-    def test_set_skill_auto_update_bad_name_returns_none(self, pool_env):
+    def test_set_skill_auto_sync_bad_name_returns_none(self, pool_env):
         service, pool_dir, _ws = pool_env
         _write_pool_manifest(pool_dir, {})
         assert (
-            service.set_skill_auto_update(
+            service.set_skill_auto_sync(
                 "bad/name",
                 enabled=True,
                 targets=None,
@@ -538,7 +542,9 @@ class TestAutoUpdateSync:
         assert result["synced"][0]["agents"] == ["Agent X"]
         assert (workspace_dir / "skills" / "demo" / "SKILL.md").exists()
         entry = _read_pool_manifest(pool_dir)["skills"]["demo"]
-        assert entry["auto_update_synced_hash"]
+        # The stamped hash lives in the automation namespace (flat keys
+        # are migrated away on write).
+        assert entry["automation"]["auto_sync"]["synced_hash"]
 
     def test_run_sync_name_filter(self, pool_env, monkeypatch):
         service, pool_dir, workspace_dir = pool_env
