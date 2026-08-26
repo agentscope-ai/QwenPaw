@@ -450,7 +450,11 @@ class TestZipImportValidation:
 def test_working_dir_is_isolated(pool_env):
     """夹具自检：测试池必须落在临时目录，不得污染真实工作区。"""
     _service, pool_dir = pool_env
-    # tempfile root differs per platform ("/tmp" vs C:\...\Temp).
-    assert str(pool_dir).startswith(tempfile.gettempdir()), (
+    # tempfile root differs per platform ("/tmp" vs C:\...\Temp);
+    # Windows runners may expose the short-name form (RUNNER~1) in
+    # tempfile.gettempdir() while pytest hands out the long-name path,
+    # so resolve both sides before comparing.
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    assert pool_dir.resolve().is_relative_to(temp_root), (
         f"技能池未隔离到临时目录: {pool_dir}（真实 WORKING_DIR=" f"{WORKING_DIR}）"
     )
