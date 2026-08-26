@@ -3052,12 +3052,14 @@ export default function ChatPage() {
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
+        const submissionQueueKey =
+          getSubmissionConversationReference(data.biz_params) ?? queueSessionId;
         const textarea = getActiveSenderTextarea();
         const val = textarea?.value.trim() ?? "";
         if (!val) return false;
         const currentQ = useMessageQueueStore
           .getState()
-          .getQueue(queueSessionId);
+          .getQueue(submissionQueueKey);
         if (currentQ.length >= MAX_QUEUE_SIZE) {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
@@ -3065,14 +3067,18 @@ export default function ChatPage() {
         const queueText = usesQwenPawBackend
           ? prepareLoopModeMessage(val)
           : val;
-        const enqueueIdentity = sessionApi.getSessionIdentity(activeSessionId);
-        const queueBizParams = buildSubmissionBizParams(enqueueIdentity, {
-          source: "console_chat_queue",
-          agent_id: selectedAgent,
-          chat_id: activeSessionId,
-          sdk_session_id: enqueueIdentity.sdkSessionId,
-        });
-        useMessageQueueStore.getState().enqueue(queueSessionId, {
+        const frozenBizParams = data.biz_params as Record<string, unknown>;
+        const frozenRequestContext = frozenBizParams.request_context;
+        const queueBizParams = {
+          ...frozenBizParams,
+          request_context: {
+            ...(frozenRequestContext && typeof frozenRequestContext === "object"
+              ? (frozenRequestContext as Record<string, unknown>)
+              : {}),
+            source: "console_chat_queue",
+          },
+        };
+        useMessageQueueStore.getState().enqueue(submissionQueueKey, {
           text: queueText,
           attachments:
             pendingFileListRef.current.length > 0
