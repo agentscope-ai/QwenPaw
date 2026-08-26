@@ -11,7 +11,6 @@ import inspect
 import logging
 import time
 from dataclasses import dataclass, field
-from functools import partial
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -24,6 +23,7 @@ from typing import (
     Union,
 )
 
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
@@ -100,7 +100,6 @@ class ServiceManager:
         self.services: Dict[str, Any] = {}
         self.descriptors: Dict[str, ServiceDescriptor] = {}
         self.reused_services: Set[str] = set()
-        self._required_cleanup_services: Set[str] = set()
 
     def register(self, descriptor: ServiceDescriptor) -> None:
         """Register a service descriptor.
@@ -294,35 +293,23 @@ class ServiceManager:
 
         except Exception as e:
             if descriptor.optional:
-                # A post_init hook may already have published a partially
-                # initialized service.  Keep ownership until cleanup has
-                # completed; otherwise pop() would make it unreachable by
-                # the workspace's later stop_all().  Borrowed services still
-                # belong to the workspace currently serving requests.
-                cleanup_succeeded = False
                 try:
                     await self._stop_service(
                         descriptor,
                         final=True,
                         preserve_reused=True,
                     )
-                    cleanup_succeeded = True
                 except Exception as cleanup_error:
-                    self._required_cleanup_services.add(name)
+                    descriptor.require_clean_stop = True
                     logger.warning(
                         "Failed to clean up optional service '%s'; "
                         "aborting workspace startup",
                         name,
                         exc_info=True,
                     )
-                    # Keep the instance registered so Workspace.start() can
-                    # retry cleanup, but do not expose it through a workspace
-                    # that was reported as successfully started.
                     raise cleanup_error from e
-                finally:
-                    self.reused_services.discard(name)
-                    if cleanup_succeeded:
-                        self.services.pop(name, None)
+                self.reused_services.discard(name)
+                self.services.pop(name, None)
                 logger.warning(
                     f"Optional service '{name}' failed to start for "
                     f"{sanitize_log_value(self.workspace.agent_id)} "
@@ -395,57 +382,14 @@ class ServiceManager:
         if descriptor.init_args:
             init_kwargs = descriptor.init_args(self.workspace)
 
-        def register_service(service: Any) -> None:
+        def create_and_register() -> Any:
+            service = service_cls(**init_kwargs)
             self.services[descriptor.name] = service
+            return service
 
-        # A running thread cannot be cancelled.  Delay propagation of task
-        # cancellation until construction has finished, and register the
-        # resulting instance first so workspace cleanup retains ownership.
-        service = await self._run_sync_to_completion(
-            partial(service_cls, **init_kwargs),
-            on_success=register_service,
-        )
-        return service
-
-    @staticmethod
-    async def _run_sync_to_completion(
-        func: Callable[[], Any],
-        on_success: Optional[Callable[[Any], None]] = None,
-    ) -> Any:
-        """Run synchronous lifecycle work without abandoning its thread.
-
-        Cancelling a task waiting on ``asyncio.to_thread`` does not stop a
-        thread that is already running.  Shield the worker and defer
-        cancellation until it completes.  ``on_success`` runs before the
-        cancellation is propagated, allowing a newly constructed service to
-        be registered for cleanup.
-        """
-        worker = asyncio.create_task(asyncio.to_thread(func))
-        cancellation: Optional[asyncio.CancelledError] = None
-
-        while True:
-            try:
-                result = await asyncio.shield(worker)
-                break
-            except asyncio.CancelledError as error:
-                if worker.cancelled():
-                    if cancellation is not None:
-                        raise cancellation from error
-                    raise
-                if cancellation is None:
-                    cancellation = error
-            except BaseException as error:
-                if cancellation is not None:
-                    raise cancellation from error
-                raise
-
-        if on_success is not None:
-            on_success(result)
-
-        if cancellation is not None:
-            raise cancellation
-
-        return result
+        # Register inside the worker before it completes so cancellation can
+        # never leave a successfully constructed service unowned.
+        return await run_sync_io(create_and_register)
 
     async def _run_post_init(
         self,
@@ -511,7 +455,7 @@ class ServiceManager:
         if asyncio.iscoroutinefunction(start_fn):
             await start_fn()
         else:
-            await self._run_sync_to_completion(start_fn)
+            await run_sync_io(start_fn)
 
         logger.debug(
             f"Service '{descriptor.name}' started for "
@@ -570,10 +514,7 @@ class ServiceManager:
                     logger.warning(
                         f"Error stopping service '{desc.name}': {result}",
                     )
-                    if (
-                        desc.require_clean_stop
-                        or desc.name in self._required_cleanup_services
-                    ):
+                    if desc.require_clean_stop:
                         clean_stop_errors.append((desc.name, result))
 
         if clean_stop_errors:
@@ -629,7 +570,6 @@ class ServiceManager:
 
         service = self.services.get(name)
         if not service:
-            self._required_cleanup_services.discard(name)
             return
 
         try:
@@ -639,12 +579,11 @@ class ServiceManager:
                     if asyncio.iscoroutinefunction(stop_fn):
                         await stop_fn()
                     else:
-                        await self._run_sync_to_completion(stop_fn)
+                        await run_sync_io(stop_fn)
                     logger.debug(
                         f"Service '{name}' stopped "
                         f"for {self.workspace.agent_id}",
                     )
-            self._required_cleanup_services.discard(name)
         except Exception as e:
             logger.warning(
                 f"Error stopping service '{name}' "
