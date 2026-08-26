@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -140,3 +142,25 @@ def test_send_rejects_traversal_path_before_dispatch() -> None:
     with pytest.raises(HTTPException) as error:
         asyncio.run(gateway._send("GET", "/api/v1/../private"))
     assert error.value.status_code == 404
+
+
+def test_send_maps_not_ready_runtime_error_to_structured_503() -> None:
+    # The startup hook can leave a live client behind while the managed
+    # service is still booting; base_url then raises RuntimeError, which
+    # must surface as the structured 503, never a bare framework 500.
+    class _NotReadyService:
+        is_external = False
+
+        @property
+        def base_url(self):
+            raise RuntimeError("managed service context is not ready")
+
+    gateway = _gateway_class()(
+        service=_NotReadyService(),
+        managed_token="token",
+    )
+    gateway._client = SimpleNamespace(request=AsyncMock())
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(gateway._send("GET", "/api/health"))
+    assert error.value.status_code == 503
+    assert error.value.detail == "Context service is unavailable"
