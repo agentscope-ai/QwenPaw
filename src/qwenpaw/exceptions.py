@@ -101,9 +101,12 @@ class ModelTimeoutException(AgentRuntimeErrorException):
     ) -> None:
         self.model = model
         self.timeout = timeout
+        message = f"Model '{model}' timed out"
+        if timeout is not None:
+            message = f"{message} after {timeout:g}s"
         super().__init__(
             error_code="MODEL_TIMEOUT",
-            message=f"Model '{model}' timed out after {timeout}s",
+            message=message,
             details=details,
             **kwargs,
         )
@@ -789,10 +792,16 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
             "deadline exceeded",
         ]
     ):
+        timeout_seconds = getattr(exc, "timeout_seconds", None)
+        if isinstance(timeout_seconds, bool) or not isinstance(
+            timeout_seconds,
+            (int, float),
+        ):
+            timeout_seconds = None
         return _append_error_detail(
             ModelTimeoutException(
                 model,
-                timeout=60,
+                timeout=timeout_seconds,
                 details=details,
             ),
             exc,
