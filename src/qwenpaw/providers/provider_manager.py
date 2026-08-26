@@ -267,8 +267,7 @@ class ProviderManager(
                 **candidate.model_dump(),
             )
         elif (
-            current.__class__ is not candidate.__class__
-            and current.is_custom
+            current.__class__ is not candidate.__class__ and current.is_custom
         ):
             self.custom_providers[provider_id] = candidate
         else:
