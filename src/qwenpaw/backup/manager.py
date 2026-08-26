@@ -9,7 +9,6 @@ import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from ._ops.create import BackupCancelled, create_backup
@@ -36,7 +35,7 @@ class BackupOperationConflict(RuntimeError):
     def __init__(self, active_operation: str) -> None:
         self.active_operation = active_operation
         super().__init__(
-            f"Backup operation already running: {active_operation}"
+            f"Backup operation already running: {active_operation}",
         )
 
 
@@ -165,7 +164,7 @@ class BackupManager:
                 )
             except RuntimeError:
                 logger.debug(
-                    "Event loop closed while reporting backup progress"
+                    "Event loop closed while reporting backup progress",
                 )
 
         try:
@@ -183,7 +182,6 @@ class BackupManager:
             self._update_job(
                 job,
                 status=BackupJobStatus.CANCELLED,
-                finished_at=datetime.now(timezone.utc),
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.exception("Backup creation failed for %s", meta.id)
@@ -191,7 +189,6 @@ class BackupManager:
                 job,
                 status=BackupJobStatus.FAILED,
                 error=str(exc),
-                finished_at=datetime.now(timezone.utc),
             )
         else:
             self._update_job(
@@ -200,7 +197,6 @@ class BackupManager:
                 phase=BackupJobPhase.FINALIZING,
                 percent=100,
                 result=result,
-                finished_at=datetime.now(timezone.utc),
             )
         finally:
             if self._active_job_id == job.snapshot.job_id:
@@ -242,7 +238,6 @@ class BackupManager:
             )
 
     def _update_job(self, job: _BackupJob, **updates: Any) -> None:
-        updates["updated_at"] = datetime.now(timezone.utc)
         job.snapshot = job.snapshot.model_copy(update=updates)
         self._publish(job)
 

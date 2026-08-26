@@ -111,13 +111,6 @@ class BackupJobSnapshot(BaseModel):
     current_agent: Optional[str] = None
     agent_index: int = 0
     total_agents: int = 0
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-    )
-    finished_at: Optional[datetime] = None
     result: Optional[BackupMeta] = None
     error: Optional[str] = None
 

@@ -51,9 +51,6 @@ export interface BackupJobSnapshot {
   current_agent: string | null;
   agent_index: number;
   total_agents: number;
-  created_at: string;
-  updated_at: string;
-  finished_at: string | null;
   result: BackupMeta | null;
   error: string | null;
 }

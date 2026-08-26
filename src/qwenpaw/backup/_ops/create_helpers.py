@@ -189,17 +189,11 @@ def add_files_to_zip(
     ):
         return []
 
-    if stop_event and stop_event.is_set():
-        return []
     if meta.scope.include_global_config:
         add_global_config(zf)
-    if stop_event and stop_event.is_set():
-        return []
     if meta.scope.include_secrets:
         if not add_secrets(zf, stop_event):
             return []
-    if stop_event and stop_event.is_set():
-        return []
     if meta.scope.include_skill_pool:
         if not add_skill_pool(zf, stop_event):
             return []

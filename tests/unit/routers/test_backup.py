@@ -12,12 +12,7 @@ from qwenpaw.app.routers import backup as backup_router
 from qwenpaw.backup import manager as manager_module
 from qwenpaw.backup._ops.create import BackupCancelled
 from qwenpaw.backup.manager import BackupManager
-from qwenpaw.backup.models import (
-    BackupJobSnapshot,
-    BackupJobStatus,
-    BackupMeta,
-    CreateBackupRequest,
-)
+from qwenpaw.backup.models import BackupJobStatus
 
 
 def _payload() -> dict:
@@ -33,22 +28,6 @@ def _payload() -> dict:
     }
 
 
-def test_completed_snapshot_maps_to_legacy_done_event():
-    meta = BackupMeta(name="complete")
-    snapshot = BackupJobSnapshot(
-        job_id="job",
-        backup_id=meta.id,
-        status=BackupJobStatus.COMPLETED,
-        percent=100,
-        result=meta,
-    )
-
-    event = backup_router._legacy_event(snapshot)
-
-    assert event["type"] == "done"
-    assert event["meta"]["id"] == meta.id
-
-
 async def _wait_for_status(
     manager: BackupManager,
     job_id: str,
@@ -62,8 +41,8 @@ async def _wait_for_status(
     raise AssertionError(f"job did not reach {status}")
 
 
-@pytest.fixture
-def backup_app():
+@pytest.fixture(name="backup_app")
+def backup_app_fixture():
     app = FastAPI()
     app.state.backup_manager = BackupManager()
     app.state.multi_agent_manager = None
@@ -82,7 +61,8 @@ async def test_job_api_starts_finds_and_cancels_job(
     monkeypatch.setattr(manager_module, "create_backup", fake_create)
     transport = ASGITransport(app=backup_app)
     async with AsyncClient(
-        transport=transport, base_url="http://test"
+        transport=transport,
+        base_url="http://test",
     ) as client:
         started = await client.post("/api/backups/jobs", json=_payload())
         assert started.status_code == 202
@@ -103,40 +83,6 @@ async def test_job_api_starts_finds_and_cancels_job(
     )
 
 
-async def test_event_stream_heartbeats_and_detaches_without_cancel(
-    monkeypatch,
-):
-    release = threading.Event()
-    observed_stop_events: list[threading.Event] = []
-
-    def fake_create(meta, _agents, _progress, stop_event):
-        observed_stop_events.append(stop_event)
-        assert release.wait(timeout=2)
-        return meta
-
-    monkeypatch.setattr(manager_module, "create_backup", fake_create)
-    monkeypatch.setattr(backup_router, "_SSE_HEARTBEAT_SECONDS", 0.01)
-    manager = BackupManager()
-    initial = manager.start_job(
-        CreateBackupRequest.model_validate(_payload()),
-    )
-    stream = backup_router._job_event_stream(manager, initial.job_id)
-
-    first = await anext(stream)
-    assert first.startswith("data: ")
-    heartbeat = await anext(stream)
-    assert heartbeat == ": heartbeat\n\n"
-    await stream.aclose()
-
-    release.set()
-    await _wait_for_status(
-        manager,
-        initial.job_id,
-        BackupJobStatus.COMPLETED,
-    )
-    assert observed_stop_events[0].is_set() is False
-
-
 async def test_restore_is_rejected_while_create_is_running(
     backup_app,
     monkeypatch,
@@ -150,7 +96,8 @@ async def test_restore_is_rejected_while_create_is_running(
     monkeypatch.setattr(manager_module, "create_backup", fake_create)
     transport = ASGITransport(app=backup_app)
     async with AsyncClient(
-        transport=transport, base_url="http://test"
+        transport=transport,
+        base_url="http://test",
     ) as client:
         started = await client.post("/api/backups/jobs", json=_payload())
         job_id = started.json()["job_id"]

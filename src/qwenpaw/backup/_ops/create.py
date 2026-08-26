@@ -142,6 +142,9 @@ def _compress_to_tmp(
         raise BackupCancelled()
 
     signed_meta = replace_meta_with_local_signature(tmp, meta, dest_zip=dest)
+    if stop_event.is_set():
+        dest.unlink(missing_ok=True)
+        raise BackupCancelled()
     meta.signature = signed_meta.signature
     meta.accepted_via_trust = signed_meta.accepted_via_trust
     tmp.unlink(missing_ok=True)

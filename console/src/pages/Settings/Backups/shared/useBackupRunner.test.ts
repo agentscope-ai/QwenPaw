@@ -57,9 +57,6 @@ const runningSnapshot: BackupJobSnapshot = {
   current_agent: null,
   agent_index: 0,
   total_agents: 0,
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-  finished_at: null,
   result: null,
   error: null,
 };
@@ -69,7 +66,6 @@ const completedSnapshot: BackupJobSnapshot = {
   status: "completed",
   phase: "finalizing",
   percent: 100,
-  finished_at: "2026-01-01T00:00:01Z",
 };
 
 describe("useBackupRunner", () => {
@@ -111,21 +107,25 @@ describe("useBackupRunner", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("start with AbortError stays silent (no message.error)", async () => {
-    const abortErr = new Error("aborted");
-    abortErr.name = "AbortError";
+  it("recovers from a lost event stream by polling job status", async () => {
     apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
-    apiMocks.streamBackupJob.mockRejectedValue(abortErr);
+    apiMocks.streamBackupJob.mockRejectedValue(new Error("stream lost"));
+    apiMocks.getBackupJob.mockResolvedValue(completedSnapshot);
+    const onSuccess = vi.fn();
+    const onClose = vi.fn();
 
     const { result } = renderHook(() =>
-      useBackupRunner({ onSuccess: vi.fn(), onClose: vi.fn() }),
+      useBackupRunner({ onSuccess, onClose }),
     );
 
     await act(async () => {
       await result.current.start(data);
     });
 
-    expect(messageMock.error).not.toHaveBeenCalled();
+    expect(apiMocks.getBackupJob).toHaveBeenCalledWith("job-1");
+    expect(messageMock.success).toHaveBeenCalledWith("backup.createSuccess");
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(result.current.loading).toBe(false);
   });
 

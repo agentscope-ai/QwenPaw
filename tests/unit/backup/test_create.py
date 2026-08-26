@@ -114,3 +114,45 @@ def test_cancelled_create_removes_temp_and_final_archive(
 
     assert not destination.exists()
     assert not destination.with_suffix(".tmp").exists()
+
+
+def test_cancelled_during_signing_removes_temp_and_final_archive(
+    tmp_path,
+    monkeypatch,
+):
+    destination = tmp_path / "backup.zip"
+    stop_event = threading.Event()
+    meta = BackupMeta(
+        name="cancelled-during-signing",
+        scope=BackupScope(
+            include_agents=False,
+            include_global_config=False,
+            include_secrets=False,
+            include_skill_pool=False,
+        ),
+    )
+
+    monkeypatch.setattr(create_module, "BACKUP_DIR", tmp_path)
+    monkeypatch.setattr(create_module, "zip_path", lambda _id: destination)
+    monkeypatch.setattr(
+        create_module,
+        "load_config",
+        lambda: SimpleNamespace(agents=SimpleNamespace(profiles={})),
+    )
+
+    def cancel_during_signing(_src_zip, signed_meta, *, dest_zip):
+        dest_zip.write_bytes(b"published")
+        stop_event.set()
+        return signed_meta
+
+    monkeypatch.setattr(
+        create_module,
+        "replace_meta_with_local_signature",
+        cancel_during_signing,
+    )
+
+    with pytest.raises(BackupCancelled):
+        create_module.create_backup(meta, [], lambda _event: None, stop_event)
+
+    assert not destination.exists()
+    assert not destination.with_suffix(".tmp").exists()
