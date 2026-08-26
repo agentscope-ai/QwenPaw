@@ -5,7 +5,7 @@ The ProviderManager singleton, local-model manager and every interactive
 prompt are replaced with fakes, so all commands (interactive and
 non-interactive) run fully in-process.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,unnecessary-lambda,unused-argument,unused-import,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio
@@ -328,9 +328,7 @@ class TestSelectProviderInteractive:
             return default
 
         monkeypatch.setattr(pcmd, "prompt_choice", fake_prompt)
-        assert (
-            pcmd._select_provider_interactive(default_pid="b") == "b"
-        )
+        assert pcmd._select_provider_interactive(default_pid="b") == "b"
         assert "B" in seen["default"]
 
 
@@ -570,9 +568,7 @@ class TestSelectLlmModel:
     def test_use_defaults_prefers_current(self):
         p = FakeProvider("p", models=[ModelInfo(id="m1", name="M1")])
         slot = SimpleNamespace(provider_id="p", model="m1")
-        assert (
-            pcmd._select_llm_model(p, "p", slot, use_defaults=True) == "m1"
-        )
+        assert pcmd._select_llm_model(p, "p", slot, use_defaults=True) == "m1"
 
     def test_use_defaults_first_model_when_no_current(self):
         p = FakeProvider("p", models=[ModelInfo(id="m1", name="M1")])
@@ -589,9 +585,7 @@ class TestSelectLlmModel:
             "_pick_model_from_list",
             lambda models, text, current_model="": "m1",
         )
-        assert (
-            pcmd._select_llm_model(p, "p", None, use_defaults=False) == "m1"
-        )
+        assert pcmd._select_llm_model(p, "p", None, use_defaults=False) == "m1"
 
     def test_interactive_free_text_when_no_models(self, monkeypatch):
         p = FakeProvider("p")
@@ -601,8 +595,7 @@ class TestSelectLlmModel:
             lambda text, current_model="": "typed",
         )
         assert (
-            pcmd._select_llm_model(p, "p", None, use_defaults=False)
-            == "typed"
+            pcmd._select_llm_model(p, "p", None, use_defaults=False) == "typed"
         )
 
 
@@ -622,7 +615,11 @@ class TestConfigureLlmSlotInteractive:
         monkeypatch,
         capsys,
     ):
-        p = FakeProvider("p1", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "p1",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["p1"] = p
         # first pass: configured() True so it is eligible right away
         monkeypatch.setattr(
@@ -650,7 +647,11 @@ class TestConfigureLlmSlotInteractive:
         assert exc.value.code == 1
 
     def test_use_defaults_keeps_current_slot(self, manager, capsys):
-        p = FakeProvider("p1", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "p1",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["p1"] = p
         manager.active_model = SimpleNamespace(provider_id="p1", model="old")
         pcmd.configure_llm_slot_interactive(use_defaults=True)
@@ -661,7 +662,11 @@ class TestConfigureLlmSlotInteractive:
         manager,
         capsys,
     ):
-        p = FakeProvider("p1", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "p1",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["p1"] = p
         manager.active_model = SimpleNamespace(provider_id="gone", model="x")
         pcmd.configure_llm_slot_interactive(use_defaults=True)
@@ -679,7 +684,11 @@ class TestConfigureLlmSlotInteractive:
         assert manager.activated == []
 
     def test_activation_error_exits_interactive(self, manager, monkeypatch):
-        p = FakeProvider("explode", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "explode",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["explode"] = p
         monkeypatch.setattr(
             pcmd,
@@ -696,13 +705,21 @@ class TestConfigureLlmSlotInteractive:
         monkeypatch,
         capsys,
     ):
-        p = FakeProvider("explode", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "explode",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["explode"] = p
         pcmd.configure_llm_slot_interactive(use_defaults=True)
         assert "Skip default activation" in capsys.readouterr().out
 
     def test_provider_vanishes_exits(self, manager, monkeypatch):
-        p = FakeProvider("p1", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "p1",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["p1"] = p
 
         def choose(q, options, default=None):
@@ -756,7 +773,11 @@ class TestConfigureProvidersInteractive:
             pcmd.configure_providers_interactive()
 
     def test_loop_then_activate(self, manager, monkeypatch):
-        p = FakeProvider("p1", api_key="k", models=[ModelInfo(id="m", name="M")])
+        p = FakeProvider(
+            "p1",
+            api_key="k",
+            models=[ModelInfo(id="m", name="M")],
+        )
         manager._providers["p1"] = p
         monkeypatch.setattr(
             pcmd,
@@ -1028,7 +1049,14 @@ class TestRemoveModelCmd:
 
 class _LocalMgr:
     def __init__(self):
-        self.progress_seq = [{"status": "downloading"}, {"status": "completed", "local_path": "/m", "downloaded_bytes": 5 * 1024 * 1024}]
+        self.progress_seq = [
+            {"status": "downloading"},
+            {
+                "status": "completed",
+                "local_path": "/m",
+                "downloaded_bytes": 5 * 1024 * 1024,
+            },
+        ]
         self.started = []
         self.cancelled = []
         self.removed = []
@@ -1105,7 +1133,11 @@ class TestListLocalCmd:
 
     def test_lists_models(self, local_mgr):
         local_mgr.list_downloaded_models = lambda: [
-            SimpleNamespace(name="Tiny", id="tiny", size_bytes=2 * 1024 * 1024),
+            SimpleNamespace(
+                name="Tiny",
+                id="tiny",
+                size_bytes=2 * 1024 * 1024,
+            ),
         ]
         res = CliRunner().invoke(pcmd.models_group, ["local"])
         assert res.exit_code == 0

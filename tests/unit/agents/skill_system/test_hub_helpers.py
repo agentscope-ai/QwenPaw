@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for skills hub helpers (qwenpaw.agents.skill_system.hub).
 
 Coverage-driven backfill (batch 2, coverage-first per the 2026-08-24
@@ -52,8 +53,14 @@ class TestEnvConfigReaders:
         assert hub._hub_http_retries() == expected
 
     def test_backoff_base_and_cap_defaults(self, monkeypatch):
-        monkeypatch.delenv("QWENPAW_SKILLS_HUB_HTTP_BACKOFF_BASE", raising=False)
-        monkeypatch.delenv("QWENPAW_SKILLS_HUB_HTTP_BACKOFF_CAP", raising=False)
+        monkeypatch.delenv(
+            "QWENPAW_SKILLS_HUB_HTTP_BACKOFF_BASE",
+            raising=False,
+        )
+        monkeypatch.delenv(
+            "QWENPAW_SKILLS_HUB_HTTP_BACKOFF_CAP",
+            raising=False,
+        )
         assert hub._hub_http_backoff_base() == 0.8
         assert hub._hub_http_backoff_cap() == 6.0
 
@@ -468,7 +475,9 @@ class TestExtractErrorMessageFromPayload:
 
     def test_json_without_message_fields(self):
         payload = json.dumps({"other": 1}).encode()
-        assert hub._extract_error_message_from_payload(payload) == '{"other": 1}'
+        assert (
+            hub._extract_error_message_from_payload(payload) == '{"other": 1}'
+        )
 
     def test_whitespace_only(self):
         assert hub._extract_error_message_from_payload(b"   ") == ""
@@ -481,7 +490,11 @@ class TestFormatHttpErrorBody:
             content=json.dumps({"error": "gone"}).encode(),
             request=httpx.Request("GET", "https://x.test/y"),
         )
-        error = httpx.HTTPStatusError("bad", request=response.request, response=response)
+        error = httpx.HTTPStatusError(
+            "bad",
+            request=response.request,
+            response=response,
+        )
         assert hub._format_http_error_body(error) == "gone"
 
     def test_empty_body_falls_back_to_str(self):
@@ -490,7 +503,11 @@ class TestFormatHttpErrorBody:
             content=b"",
             request=httpx.Request("GET", "https://x.test/y"),
         )
-        error = httpx.HTTPStatusError("bad", request=response.request, response=response)
+        error = httpx.HTTPStatusError(
+            "bad",
+            request=response.request,
+            response=response,
+        )
         assert hub._format_http_error_body(error) == str(error)
 
 
@@ -626,7 +643,10 @@ class TestExtractModelscopeSpec:
 
 class TestExtractQwenpawSpec:
     def test_uuid_detail_page(self):
-        url = "https://platform.agentscope.io/skills/12345678-1234-1234-1234-123456789abc"
+        url = (
+            "https://platform.agentscope.io/skills/"
+            "12345678-1234-1234-1234-123456789abc"
+        )
         assert hub._extract_qwenpaw_skill_spec(url) == (
             "",
             "12345678-1234-1234-1234-123456789abc",
@@ -634,9 +654,15 @@ class TestExtractQwenpawSpec:
         )
 
     def test_archive_url(self):
-        assert hub._extract_qwenpaw_skill_spec(
-            "https://platform.agentscope.io/skills/@team/skill/archive/zip/2.0.zip",
-        ) == ("@team", "skill", "2.0")
+        url = (
+            "https://platform.agentscope.io/"
+            "skills/@team/skill/archive/zip/2.0.zip"
+        )
+        assert hub._extract_qwenpaw_skill_spec(url) == (
+            "@team",
+            "skill",
+            "2.0",
+        )
 
     @pytest.mark.parametrize(
         "url",

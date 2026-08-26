@@ -6,7 +6,7 @@ Every function under test is side-effect free (read-only checks for
 few external collaborators (disk usage, provider manager, agent config
 loading) so the logic is exercised deterministically in-process.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-variable,use-dict-literal,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio
@@ -147,7 +147,11 @@ class TestCheckBrowserReadiness:
         cfg.browser.experimental = False
         fake = types.ModuleType("playwright.async_api")
         fake.async_playwright = lambda: None
-        monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+        monkeypatch.setitem(
+            sys.modules,
+            "playwright",
+            types.ModuleType("playwright"),
+        )
         monkeypatch.setitem(sys.modules, "playwright.async_api", fake)
         ok, msg = dc.check_browser_readiness(cfg)
         assert ok is True
@@ -338,7 +342,9 @@ class TestEnvironmentSummaryLines:
         lines = dc.environment_summary_lines(
             server_python_environment="venv-x",
         )
-        assert any("qwenpaw_python_environment: venv-x" in l for l in lines)
+        assert any(
+            "qwenpaw_python_environment: venv-x" in line for line in lines
+        )
 
     def test_server_note_fallback(self, fake_working_dir, monkeypatch):
         monkeypatch.setattr(
@@ -347,7 +353,7 @@ class TestEnvironmentSummaryLines:
             lambda p: SimpleNamespace(free=10 * 1024**3),
         )
         lines = dc.environment_summary_lines(server_python_note="no server")
-        assert any("no server" in l for l in lines)
+        assert any("no server" in line for line in lines)
 
     def test_env_var_qwenpaw(self, fake_working_dir, monkeypatch):
         monkeypatch.setenv("QWENPAW_WORKING_DIR", "/custom/wd")
@@ -357,7 +363,9 @@ class TestEnvironmentSummaryLines:
             lambda p: SimpleNamespace(free=10 * 1024**3),
         )
         lines = dc.environment_summary_lines()
-        assert any("QWENPAW_WORKING_DIR (env): /custom/wd" in l for l in lines)
+        assert any(
+            "QWENPAW_WORKING_DIR (env): /custom/wd" in line for line in lines
+        )
 
     def test_env_var_legacy(self, fake_working_dir, monkeypatch):
         monkeypatch.delenv("QWENPAW_WORKING_DIR", raising=False)
@@ -368,7 +376,7 @@ class TestEnvironmentSummaryLines:
             lambda p: SimpleNamespace(free=10 * 1024**3),
         )
         lines = dc.environment_summary_lines()
-        assert any("COPAW_WORKING_DIR (env, legacy)" in l for l in lines)
+        assert any("COPAW_WORKING_DIR (env, legacy)" in line for line in lines)
 
     def test_old_sqlite_note(self, fake_working_dir, monkeypatch):
         monkeypatch.setattr(dc.sqlite3, "sqlite_version", "3.30.0")
@@ -378,7 +386,7 @@ class TestEnvironmentSummaryLines:
             lambda p: SimpleNamespace(free=10 * 1024**3),
         )
         lines = dc.environment_summary_lines()
-        assert any("SQLite < 3.35" in l for l in lines)
+        assert any("SQLite < 3.35" in line for line in lines)
 
     def test_bad_sqlite_version_swallowed(self, fake_working_dir, monkeypatch):
         monkeypatch.setattr(dc.sqlite3, "sqlite_version", "not.a.version")
@@ -397,7 +405,7 @@ class TestEnvironmentSummaryLines:
             lambda p: SimpleNamespace(free=0.1 * 1024**3),
         )
         lines = dc.environment_summary_lines()
-        assert any("very low free space" in l for l in lines)
+        assert any("very low free space" in line for line in lines)
 
     def test_disk_usage_oserror(self, fake_working_dir, monkeypatch):
         def _du(p):
@@ -405,7 +413,7 @@ class TestEnvironmentSummaryLines:
 
         monkeypatch.setattr(dc.shutil, "disk_usage", _du)
         lines = dc.environment_summary_lines()
-        assert any("could not stat" in l for l in lines)
+        assert any("could not stat" in line for line in lines)
 
 
 # ---------------------------------------------------------------------------
@@ -696,7 +704,8 @@ class TestEmbeddingHelpers:
             running=SimpleNamespace(
                 reme_light_memory_config=SimpleNamespace(
                     embedding_model_config=SimpleNamespace(
-                        backend="dashscope", api_key="",
+                        backend="dashscope",
+                        api_key="",
                     ),
                     auto_memory_search_config=SimpleNamespace(enabled=True),
                 ),
@@ -713,7 +722,8 @@ class TestEmbeddingHelpers:
             running=SimpleNamespace(
                 reme_light_memory_config=SimpleNamespace(
                     embedding_model_config=SimpleNamespace(
-                        backend="dashscope", api_key="sk-1",
+                        backend="dashscope",
+                        api_key="sk-1",
                     ),
                     auto_memory_search_config=SimpleNamespace(enabled=True),
                 ),
@@ -728,7 +738,8 @@ class TestEmbeddingHelpers:
             running=SimpleNamespace(
                 reme_light_memory_config=SimpleNamespace(
                     embedding_model_config=SimpleNamespace(
-                        backend="dashscope", api_key="",
+                        backend="dashscope",
+                        api_key="",
                     ),
                     auto_memory_search_config=SimpleNamespace(enabled=False),
                 ),
@@ -973,91 +984,104 @@ class TestEnabledChannelNotes:
 
     def test_discord_missing_token(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, discord={"enabled": True, "bot_token": ""},
+            tmp_path,
+            discord={"enabled": True, "bot_token": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("discord" in n for n in notes)
 
     def test_telegram_missing_token(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, telegram={"enabled": True, "bot_token": ""},
+            tmp_path,
+            telegram={"enabled": True, "bot_token": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("telegram" in n for n in notes)
 
     def test_dingtalk_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, dingtalk={"enabled": True, "client_id": ""},
+            tmp_path,
+            dingtalk={"enabled": True, "client_id": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("dingtalk" in n for n in notes)
 
     def test_feishu_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, feishu={"enabled": True, "app_id": ""},
+            tmp_path,
+            feishu={"enabled": True, "app_id": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("feishu" in n for n in notes)
 
     def test_qq_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, qq={"enabled": True, "app_id": ""},
+            tmp_path,
+            qq={"enabled": True, "app_id": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("qq" in n for n in notes)
 
     def test_mattermost_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, mattermost={"enabled": True, "url": ""},
+            tmp_path,
+            mattermost={"enabled": True, "url": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("mattermost" in n for n in notes)
 
     def test_mqtt_empty_host(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, mqtt={"enabled": True, "host": ""},
+            tmp_path,
+            mqtt={"enabled": True, "host": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("mqtt" in n for n in notes)
 
     def test_matrix_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, matrix={"enabled": True, "homeserver": ""},
+            tmp_path,
+            matrix={"enabled": True, "homeserver": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("matrix" in n for n in notes)
 
     def test_voice_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, voice={"enabled": True, "twilio_account_sid": ""},
+            tmp_path,
+            voice={"enabled": True, "twilio_account_sid": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("voice" in n for n in notes)
 
     def test_wecom_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, wecom={"enabled": True, "bot_id": ""},
+            tmp_path,
+            wecom={"enabled": True, "bot_id": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("wecom" in n for n in notes)
 
     def test_xiaoyi_incomplete(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, xiaoyi={"enabled": True, "ak": ""},
+            tmp_path,
+            xiaoyi={"enabled": True, "ak": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("xiaoyi" in n for n in notes)
 
     def test_wechat_no_token(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, wechat={"enabled": True, "bot_token": ""},
+            tmp_path,
+            wechat={"enabled": True, "bot_token": ""},
         )
         notes = dc.enabled_channel_notes(cfg)
         assert any("wechat" in n and "unset" in n for n in notes)
 
     def test_wechat_token_ok_no_note(self, tmp_path):
         cfg = self._cfg_with_channels(
-            tmp_path, wechat={"enabled": True, "bot_token": "tok"},
+            tmp_path,
+            wechat={"enabled": True, "bot_token": "tok"},
         )
         assert dc.enabled_channel_notes(cfg) == []
 
@@ -1140,7 +1164,8 @@ class TestMcpClientProblems:
         defaults.update(client_kwargs)
         client = MCPClientConfig.model_construct(**defaults)
         return MCPConfig.model_construct(
-            clients={"c": client}, migration_version=0,
+            clients={"c": client},
+            migration_version=0,
         )
 
     def test_none_mcp(self):
@@ -1152,7 +1177,10 @@ class TestMcpClientProblems:
 
     def test_stdio_empty_command(self):
         mcp = self._mcp_with_client(
-            name="x", enabled=True, transport="stdio", command="",
+            name="x",
+            enabled=True,
+            transport="stdio",
+            command="",
         )
         problems = dc._mcp_client_problems(mcp, "root")
         assert any("command is empty" in p for p in problems)
@@ -1160,7 +1188,10 @@ class TestMcpClientProblems:
     def test_stdio_exe_not_found(self, monkeypatch):
         monkeypatch.setattr(dc.shutil, "which", lambda exe: None)
         mcp = self._mcp_with_client(
-            name="x", enabled=True, transport="stdio", command="no-such-exe",
+            name="x",
+            enabled=True,
+            transport="stdio",
+            command="no-such-exe",
         )
         problems = dc._mcp_client_problems(mcp, "root")
         assert any("not found on PATH" in p for p in problems)
@@ -1168,20 +1199,29 @@ class TestMcpClientProblems:
     def test_stdio_exe_found(self, monkeypatch):
         monkeypatch.setattr(dc.shutil, "which", lambda exe: "/usr/bin/x")
         mcp = self._mcp_with_client(
-            name="x", enabled=True, transport="stdio", command="python3 -m m",
+            name="x",
+            enabled=True,
+            transport="stdio",
+            command="python3 -m m",
         )
         assert dc._mcp_client_problems(mcp, "root") == []
 
     def test_http_empty_url(self):
         mcp = self._mcp_with_client(
-            name="x", enabled=True, transport="streamable_http", url="",
+            name="x",
+            enabled=True,
+            transport="streamable_http",
+            url="",
         )
         problems = dc._mcp_client_problems(mcp, "root")
         assert any("url is empty" in p for p in problems)
 
     def test_http_bad_url(self):
         mcp = self._mcp_with_client(
-            name="x", enabled=True, transport="sse", url="ftp://x",
+            name="x",
+            enabled=True,
+            transport="sse",
+            url="ftp://x",
         )
         problems = dc._mcp_client_problems(mcp, "root")
         assert any("does not look like" in p for p in problems)
@@ -1398,7 +1438,8 @@ class TestActiveLlmLocalFailureHint:
 
     def test_qwenpaw_local(self):
         hint = dc.active_llm_local_failure_hint(
-            SimpleNamespace(), "qwenpaw-local",
+            SimpleNamespace(),
+            "qwenpaw-local",
         )
         assert "llama.cpp" in hint
 
@@ -1514,16 +1555,22 @@ class TestResolveAgentEffectiveModelSlot:
         slot = SimpleNamespace(provider_id="p", model="m")
         routing = SimpleNamespace(enabled=True, mode="local_first")
         slot2, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(active_model=slot, routing=routing), None,
+            self._agent_cfg(active_model=slot, routing=routing),
+            None,
         )
         assert slot2 is slot
         assert source == "agent.active_model"
 
     def test_routing_cloud_first_uses_cloud(self):
         cloud = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=cloud)
+        routing = SimpleNamespace(
+            enabled=True,
+            mode="cloud_first",
+            cloud=cloud,
+        )
         slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), None,
+            self._agent_cfg(routing=routing),
+            None,
         )
         assert slot is cloud
 
@@ -1531,7 +1578,8 @@ class TestResolveAgentEffectiveModelSlot:
         active = SimpleNamespace(provider_id="p", model="m")
         routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
         slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), active,
+            self._agent_cfg(routing=routing),
+            active,
         )
         assert slot is active
         assert "cloud fallback" in source
@@ -1539,22 +1587,29 @@ class TestResolveAgentEffectiveModelSlot:
     def test_routing_cloud_first_nothing(self):
         routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
         slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), None,
+            self._agent_cfg(routing=routing),
+            None,
         )
         assert slot is None
 
     def test_routing_local_first(self):
         local = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(enabled=True, mode="local_first", local=local)
+        routing = SimpleNamespace(
+            enabled=True,
+            mode="local_first",
+            local=local,
+        )
         slot, _ = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), None,
+            self._agent_cfg(routing=routing),
+            None,
         )
         assert slot is local
 
     def test_routing_local_first_unset(self):
         routing = SimpleNamespace(enabled=True, mode="local_first", local=None)
         slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), None,
+            self._agent_cfg(routing=routing),
+            None,
         )
         assert slot is None
         assert "local slot is not set" in source
@@ -1563,7 +1618,8 @@ class TestResolveAgentEffectiveModelSlot:
         active = SimpleNamespace(provider_id="p", model="m")
         routing = SimpleNamespace(enabled=False)
         slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), active,
+            self._agent_cfg(routing=routing),
+            active,
         )
         assert slot is active
         assert source == "providers.active_llm"
@@ -1571,16 +1627,23 @@ class TestResolveAgentEffectiveModelSlot:
     def test_nothing_anywhere(self):
         routing = SimpleNamespace(enabled=False)
         slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing), None,
+            self._agent_cfg(routing=routing),
+            None,
         )
         assert slot is None
 
     def test_slot_is_set(self):
         assert dc._slot_is_set(None) is False
-        assert dc._slot_is_set(SimpleNamespace(provider_id="", model="m")) is False
-        assert dc._slot_is_set(
-            SimpleNamespace(provider_id="p", model="m"),
-        ) is True
+        assert (
+            dc._slot_is_set(SimpleNamespace(provider_id="", model="m"))
+            is False
+        )
+        assert (
+            dc._slot_is_set(
+                SimpleNamespace(provider_id="p", model="m"),
+            )
+            is True
+        )
 
 
 class TestCheckEnabledAgentsModelConnections:
@@ -1604,7 +1667,9 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({})
         ok, lines, notes = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is True
@@ -1625,11 +1690,13 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": ref})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("load_agent_config failed" in l for l in lines)
+        assert any("load_agent_config failed" in line for line in lines)
 
     def test_no_model_resolved(self, monkeypatch):
         class _Mgr:
@@ -1645,11 +1712,13 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("no model resolved" in l for l in lines)
+        assert any("no model resolved" in line for line in lines)
 
     def test_provider_not_found(self, monkeypatch):
         class _Mgr:
@@ -1668,15 +1737,19 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("provider not found" in l for l in lines)
+        assert any("provider not found" in line for line in lines)
 
     def test_cloud_provider_missing_base_url(self, monkeypatch):
         provider = SimpleNamespace(
-            is_local=False, base_url="", require_api_key=False,
+            is_local=False,
+            base_url="",
+            require_api_key=False,
         )
 
         class _Mgr:
@@ -1695,15 +1768,19 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("base_url is not set" in l for l in lines)
+        assert any("base_url is not set" in line for line in lines)
 
     def test_missing_api_key(self, monkeypatch):
         provider = SimpleNamespace(
-            is_local=False, base_url="http://x", require_api_key=True,
+            is_local=False,
+            base_url="http://x",
+            require_api_key=True,
             api_key="",
         )
 
@@ -1723,11 +1800,13 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("API key is required" in l for l in lines)
+        assert any("API key is required" in line for line in lines)
 
     def test_connection_ok(self, monkeypatch):
         class _Provider:
@@ -1755,11 +1834,13 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is True
-        assert any("reachable" in l for l in lines)
+        assert any("reachable" in line for line in lines)
 
     def test_check_skipped_for_provider(self, monkeypatch):
         class _Provider:
@@ -1784,11 +1865,13 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is True
-        assert any("live check skipped" in l for l in lines)
+        assert any("live check skipped" in line for line in lines)
 
     def test_connection_fails_local_hint(self, monkeypatch):
         class _Provider:
@@ -1816,12 +1899,14 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("unreachable" in l for l in lines)
-        assert any("ollama serve" in l for l in lines)
+        assert any("unreachable" in line for line in lines)
+        assert any("ollama serve" in line for line in lines)
 
     def test_check_exception_treated_as_failure(self, monkeypatch):
         class _Provider:
@@ -1849,11 +1934,13 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, _ = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=False,
+                cfg,
+                timeout=1.0,
+                deep=False,
             ),
         )
         assert ok is False
-        assert any("boom" in l for l in lines)
+        assert any("boom" in line for line in lines)
 
     def test_deep_local_provider_adds_notes(self, monkeypatch):
         class _Provider:
@@ -1886,7 +1973,9 @@ class TestCheckEnabledAgentsModelConnections:
         cfg = _make_config({"a": _profile_ref("a", "/x")})
         ok, lines, notes = asyncio.run(
             dc.check_enabled_agents_model_connections(
-                cfg, timeout=1.0, deep=True,
+                cfg,
+                timeout=1.0,
+                deep=True,
             ),
         )
         assert ok is True
@@ -1942,21 +2031,33 @@ class TestApiTargetMismatchNote:
         return SimpleNamespace(last_api=SimpleNamespace(host=host, port=port))
 
     def test_no_last_api(self):
-        assert dc.api_target_mismatch_note(self._cfg(None, None), "http://x") is None
+        assert (
+            dc.api_target_mismatch_note(self._cfg(None, None), "http://x")
+            is None
+        )
 
     def test_match(self):
-        assert dc.api_target_mismatch_note(
-            self._cfg("127.0.0.1", 8088), "http://127.0.0.1:8088",
-        ) is None
+        assert (
+            dc.api_target_mismatch_note(
+                self._cfg("127.0.0.1", 8088),
+                "http://127.0.0.1:8088",
+            )
+            is None
+        )
 
     def test_defaults_applied(self):
-        assert dc.api_target_mismatch_note(
-            self._cfg(None, None), "http://127.0.0.1:8088",
-        ) is None
+        assert (
+            dc.api_target_mismatch_note(
+                self._cfg(None, None),
+                "http://127.0.0.1:8088",
+            )
+            is None
+        )
 
     def test_mismatch(self):
         note = dc.api_target_mismatch_note(
-            self._cfg("0.0.0.0", 9999), "http://127.0.0.1:8088",
+            self._cfg("0.0.0.0", 9999),
+            "http://127.0.0.1:8088",
         )
         assert note is not None
         assert "CLI targets" in note

@@ -6,7 +6,7 @@ config-system collaborators are monkeypatched at their source modules, so
 every code path runs in-process against temporary directories. The Click
 commands are driven through ``CliRunner`` against the ``plugin`` group.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,unnecessary-lambda,unused-argument,unused-variable  # noqa: E501
 from __future__ import annotations
 
 import io
@@ -43,14 +43,18 @@ class _FakeResp(io.BytesIO):
 
 
 def _http_error(payload: bytes | None = None) -> urllib.error.HTTPError:
-    body = payload if payload is not None else json.dumps(
-        {"detail": "boom"},
-    ).encode()
+    body = (
+        payload
+        if payload is not None
+        else json.dumps(
+            {"detail": "boom"},
+        ).encode()
+    )
     return urllib.error.HTTPError(
         "http://x/api",
         500,
         "server error",
-        {},
+        {},  # type: ignore[arg-type]
         io.BytesIO(body),
     )
 
@@ -228,7 +232,12 @@ class TestApiUploadPlugin:
         assert pc._api_upload_plugin(z) is False
         assert "down" in capsys.readouterr().err
 
-    def test_http_error_with_non_json_body(self, monkeypatch, tmp_path, capsys):
+    def test_http_error_with_non_json_body(
+        self,
+        monkeypatch,
+        tmp_path,
+        capsys,
+    ):
         _patch_base(monkeypatch)
         z = tmp_path / "p.zip"
         z.write_bytes(b"x")
@@ -640,7 +649,12 @@ class TestRemoveToolPluginFromAgents:
         assert "Removed tool from 1 agent" in out
         assert "t1" not in cfg.tools.builtin_tools
 
-    def test_load_failure_is_warned_not_raised(self, monkeypatch, tmp_path, capsys):
+    def test_load_failure_is_warned_not_raised(
+        self,
+        monkeypatch,
+        tmp_path,
+        capsys,
+    ):
         d1 = tmp_path / "a1"
         d1.mkdir()
         (d1 / "agent.json").write_text("{}")
@@ -931,7 +945,7 @@ class TestInstallCommandOffline:
 
     def test_requirements_failure_aborts(self, monkeypatch, tmp_path):
         self._offline(monkeypatch)
-        pdir = _patch_plugins_dir(monkeypatch, tmp_path)
+        _patch_plugins_dir(monkeypatch, tmp_path)
         src = tmp_path / "src"
         src.mkdir()
         _write_plugin(src)
@@ -952,7 +966,7 @@ class TestInstallCommandOffline:
         tmp_path,
     ):
         self._offline(monkeypatch)
-        pdir = _patch_plugins_dir(monkeypatch, tmp_path)
+        _patch_plugins_dir(monkeypatch, tmp_path)
         src = tmp_path / "src"
         src.mkdir()
         _write_plugin(src)

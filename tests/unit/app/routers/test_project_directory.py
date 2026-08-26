@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 """Unit tests for project_directory.py security and path helpers.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -28,10 +29,13 @@ def fake_home(tmp_path, monkeypatch):
 
 class TestMatchDirSequence:
     def test_contiguous_match(self):
-        assert pd._match_dir_sequence(
-            ("a", ".config", "gh", "b"),
-            (".config", "gh"),
-        ) is True
+        assert (
+            pd._match_dir_sequence(
+                ("a", ".config", "gh", "b"),
+                (".config", "gh"),
+            )
+            is True
+        )
 
     def test_no_match(self):
         assert pd._match_dir_sequence(("a", "b"), (".config", "gh")) is False

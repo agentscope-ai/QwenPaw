@@ -7,7 +7,7 @@ cache, HTTP fetch primitives (retry/backoff/limits), bundle tree
 normalization, provider URL parsers, zip→bundle converters, provider
 routing and the install pipeline — with all network I/O mocked.
 """
-# pylint: disable=protected-access
+# pylint: disable=wrong-import-position,protected-access,redefined-outer-name,too-many-public-methods,unused-argument,unused-import,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio
@@ -34,8 +34,12 @@ from qwenpaw.exceptions import (  # noqa: E402
 
 
 def _run(coro):
-    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-        coro,
+    return (
+        asyncio.get_event_loop_policy()
+        .new_event_loop()
+        .run_until_complete(
+            coro,
+        )
     )
 
 
@@ -103,8 +107,14 @@ class TestEnvConfig:
         assert hub._hub_http_retries() == 3
 
     def test_backoff_base_and_cap(self, monkeypatch):
-        monkeypatch.delenv("QWENPAW_SKILLS_HUB_HTTP_BACKOFF_BASE", raising=False)
-        monkeypatch.delenv("QWENPAW_SKILLS_HUB_HTTP_BACKOFF_CAP", raising=False)
+        monkeypatch.delenv(
+            "QWENPAW_SKILLS_HUB_HTTP_BACKOFF_BASE",
+            raising=False,
+        )
+        monkeypatch.delenv(
+            "QWENPAW_SKILLS_HUB_HTTP_BACKOFF_CAP",
+            raising=False,
+        )
         assert hub._hub_http_backoff_base() == 0.8
         assert hub._hub_http_backoff_cap() == 6.0
         monkeypatch.setenv("QWENPAW_SKILLS_HUB_HTTP_BACKOFF_BASE", "0.05")
@@ -381,7 +391,11 @@ class TestMaybeRetry:
             with pytest.raises(SkillImportCancelled):
                 _run(
                     hub._maybe_retry(
-                        1, 3, "http://x", RuntimeError("e"), "reason",
+                        1,
+                        3,
+                        "http://x",
+                        RuntimeError("e"),
+                        "reason",
                     ),
                 )
 
@@ -526,7 +540,8 @@ class TestHttpFetch:
         client = _FakeClient(
             [
                 _FakeResponse(
-                    200, b"abc",
+                    200,
+                    b"abc",
                     {"Content-Length": "10", "Content-Encoding": "gzip"},
                 ),
             ],
@@ -537,7 +552,8 @@ class TestHttpFetch:
         client = _FakeClient(
             [
                 _FakeResponse(
-                    200, b"abc",
+                    200,
+                    b"abc",
                     {"Content-Length": "10", "Transfer-Encoding": "chunked"},
                 ),
             ],
@@ -671,8 +687,13 @@ class TestStreamToBytes:
 
 class TestHttpWrappers:
     def _patch_fetch(self, payload):
-        async def _fake_fetch(url, params=None, accept="application/json",
-                             max_bytes=None, timeout=None):
+        async def _fake_fetch(
+            url,
+            params=None,
+            accept="application/json",
+            max_bytes=None,
+            timeout=None,
+        ):
             return payload
 
         return patch.object(hub, "_http_fetch", _fake_fetch)
@@ -935,7 +956,9 @@ class TestNameHelpers:
         assert hub._sanitize_skill_dir_name("plain") == "plain"
         assert hub._sanitize_skill_dir_name("Excel / XLSX") == "excel-xlsx"
         assert hub._sanitize_skill_dir_name("") == "imported-skill"
-        assert hub._sanitize_skill_dir_name(None) == "imported-skill"  # type: ignore
+        assert (
+            hub._sanitize_skill_dir_name(None) == "imported-skill"
+        )  # type: ignore
 
     def test_is_http_url(self):
         assert hub._is_http_url("https://a.b/c") is True
@@ -982,13 +1005,21 @@ class TestNameHelpers:
             content=b'{"error": "server exploded"}',
             request=request,
         )
-        err = httpx.HTTPStatusError("HTTP 500", request=request, response=response)
+        err = httpx.HTTPStatusError(
+            "HTTP 500",
+            request=request,
+            response=response,
+        )
         assert hub._format_http_error_body(err) == "server exploded"
 
     def test_format_http_error_body_empty(self):
         request = httpx.Request("GET", "http://x")
         response = httpx.Response(500, content=b"", request=request)
-        err = httpx.HTTPStatusError("HTTP 500", request=request, response=response)
+        err = httpx.HTTPStatusError(
+            "HTTP 500",
+            request=request,
+            response=response,
+        )
         assert hub._format_http_error_body(err) == str(err)
 
 
@@ -1017,21 +1048,28 @@ class TestUrlParsers:
         assert hub._extract_skills_sh_spec(
             "https://skills.sh/owner/repo/skill",
         ) == ("owner", "repo", "skill")
-        assert (
-            hub._extract_skills_sh_spec("https://www.skills.sh/o/r/s")
-            == ("o", "r", "s")
+        assert hub._extract_skills_sh_spec("https://www.skills.sh/o/r/s") == (
+            "o",
+            "r",
+            "s",
         )
         assert hub._extract_skills_sh_spec("https://skills.sh/o/r") is None
         assert hub._extract_skills_sh_spec("https://other.sh/o/r/s") is None
         assert hub._extract_skills_sh_spec("https://skills.sh//r/s") is None
 
     def test_skillsmp_slug(self):
-        assert hub._extract_skillsmp_slug(
-            "https://skillsmp.com/skills/abc-skill-md",
-        ) == "abc-skill-md"
-        assert hub._extract_skillsmp_slug(
-            "https://www.skillsmp.com/skills/x",
-        ) == "x"
+        assert (
+            hub._extract_skillsmp_slug(
+                "https://skillsmp.com/skills/abc-skill-md",
+            )
+            == "abc-skill-md"
+        )
+        assert (
+            hub._extract_skillsmp_slug(
+                "https://www.skillsmp.com/skills/x",
+            )
+            == "x"
+        )
         assert hub._extract_skillsmp_slug("https://skillsmp.com/") == ""
         assert hub._extract_skillsmp_slug("https://skillsmp.com/other/x") == ""
         assert hub._extract_skillsmp_slug("https://other.com/skills/x") == ""
@@ -1051,7 +1089,8 @@ class TestUrlParsers:
         )
         assert hub._extract_lobehub_identifier("https://lobehub.com/") == ""
         assert (
-            hub._extract_lobehub_identifier("https://lobehub.com/other/x") == ""
+            hub._extract_lobehub_identifier("https://lobehub.com/other/x")
+            == ""
         )
         assert (
             hub._extract_lobehub_identifier(
@@ -1071,16 +1110,28 @@ class TestUrlParsers:
         assert hub._extract_modelscope_skill_spec(
             "https://modelscope.cn/skills/o/n/archive/zip/v1",
         ) == ("o", "n", "v1")
-        assert hub._extract_modelscope_skill_spec(
-            "https://modelscope.cn/other/o/n",
-        ) is None
-        assert hub._extract_modelscope_skill_spec(
-            "https://modelscope.cn/skills/o",
-        ) is None
-        assert hub._extract_modelscope_skill_spec(
-            "https://modelscope.cn/skills//n",
-        ) is None
-        assert hub._extract_modelscope_skill_spec("https://x.cn/skills/o/n") is None
+        assert (
+            hub._extract_modelscope_skill_spec(
+                "https://modelscope.cn/other/o/n",
+            )
+            is None
+        )
+        assert (
+            hub._extract_modelscope_skill_spec(
+                "https://modelscope.cn/skills/o",
+            )
+            is None
+        )
+        assert (
+            hub._extract_modelscope_skill_spec(
+                "https://modelscope.cn/skills//n",
+            )
+            is None
+        )
+        assert (
+            hub._extract_modelscope_skill_spec("https://x.cn/skills/o/n")
+            is None
+        )
 
     def test_qwenpaw_spec(self):
         uuid = "12345678-1234-1234-1234-123456789abc"
@@ -1093,16 +1144,28 @@ class TestUrlParsers:
         assert hub._extract_qwenpaw_skill_spec(
             "https://platform.agentscope.io/skills/o/n/archive/zip/v2.zip",
         ) == ("o", "n", "v2")
-        assert hub._extract_qwenpaw_skill_spec(
-            "https://platform.agentscope.io/skills/onlyone",
-        ) is None
-        assert hub._extract_qwenpaw_skill_spec(
-            "https://platform.agentscope.io/other/x",
-        ) is None
-        assert hub._extract_qwenpaw_skill_spec(
-            "https://platform.agentscope.io/skills//n",
-        ) is None
-        assert hub._extract_qwenpaw_skill_spec("https://other.io/skills/x") is None
+        assert (
+            hub._extract_qwenpaw_skill_spec(
+                "https://platform.agentscope.io/skills/onlyone",
+            )
+            is None
+        )
+        assert (
+            hub._extract_qwenpaw_skill_spec(
+                "https://platform.agentscope.io/other/x",
+            )
+            is None
+        )
+        assert (
+            hub._extract_qwenpaw_skill_spec(
+                "https://platform.agentscope.io/skills//n",
+            )
+            is None
+        )
+        assert (
+            hub._extract_qwenpaw_skill_spec("https://other.io/skills/x")
+            is None
+        )
 
     def test_aliyun_spec(self):
         assert (
@@ -1117,14 +1180,18 @@ class TestUrlParsers:
             )
             == "sk-2"
         )
-        assert hub._extract_aliyun_skill_spec("https://api.aliyun.com/x") is None
+        assert (
+            hub._extract_aliyun_skill_spec("https://api.aliyun.com/x") is None
+        )
         assert (
             hub._extract_aliyun_skill_spec(
                 "https://api.aliyun.com/agentexplorer/other/sk",
             )
             is None
         )
-        assert hub._extract_aliyun_skill_spec("https://other.com/a/b/c") is None
+        assert (
+            hub._extract_aliyun_skill_spec("https://other.com/a/b/c") is None
+        )
 
     def test_github_spec(self):
         assert hub._extract_github_spec(
@@ -1143,7 +1210,9 @@ class TestUrlParsers:
         assert hub._extract_github_spec("https://gitlab.com/o/r") is None
 
     def test_resolve_clawhub_slug(self):
-        assert hub._resolve_clawhub_slug("https://clawhub.ai/skills/s1") == "s1"
+        assert (
+            hub._resolve_clawhub_slug("https://clawhub.ai/skills/s1") == "s1"
+        )
         assert hub._resolve_clawhub_slug("https://other.ai/x") == ""
 
 
@@ -1361,9 +1430,12 @@ class TestResolveSkillsmpSpec:
         assert _run(hub._resolve_skillsmp_spec("https://x.com/")) is None
 
     def test_too_few_tokens(self):
-        assert _run(
-            hub._resolve_skillsmp_spec("https://skillsmp.com/skills/a-b"),
-        ) is None
+        assert (
+            _run(
+                hub._resolve_skillsmp_spec("https://skillsmp.com/skills/a-b"),
+            )
+            is None
+        )
 
     def test_repo_found(self, monkeypatch):
         async def _exists(owner, repo):
@@ -1552,7 +1624,8 @@ class TestQwenpawDetailArchiveToBundle:
 class TestAliyunResponseToBundle:
     def test_valid(self):
         bundle = hub._aliyun_response_to_bundle(
-            "sk-1", {"requestId": "r", "content": "# md"},
+            "sk-1",
+            {"requestId": "r", "content": "# md"},
         )
         assert bundle == {"name": "sk-1", "files": {"SKILL.md": "# md"}}
 
@@ -1585,11 +1658,14 @@ class TestFetchBundleSkillsSh:
 
         monkeypatch.setattr(hub, "_github_get_default_branch", _branch)
         monkeypatch.setattr(
-            hub, "_fetch_bundle_from_repo_and_skill_hint", _fetch,
+            hub,
+            "_fetch_bundle_from_repo_and_skill_hint",
+            _fetch,
         )
         bundle, url = _run(
             hub._fetch_bundle_from_skills_sh_url(
-                "https://skills.sh/o/r/skill", "",
+                "https://skills.sh/o/r/skill",
+                "",
             ),
         )
         assert bundle["name"] == "skill"
@@ -1723,11 +1799,14 @@ class TestFetchBundleGithubUrl:
 
         monkeypatch.setattr(hub, "_github_get_default_branch", _branch)
         monkeypatch.setattr(
-            hub, "_fetch_bundle_from_repo_and_skill_hint", _fetch,
+            hub,
+            "_fetch_bundle_from_repo_and_skill_hint",
+            _fetch,
         )
         _run(
             hub._fetch_bundle_from_github_url(
-                "https://github.com/o/r/tree/main/skills/x/SKILL.md", "",
+                "https://github.com/o/r/tree/main/skills/x/SKILL.md",
+                "",
             ),
         )
         assert captured["skill_hint"] == "skills/x"
@@ -1744,11 +1823,14 @@ class TestFetchBundleGithubUrl:
 
         monkeypatch.setattr(hub, "_github_get_default_branch", _branch)
         monkeypatch.setattr(
-            hub, "_fetch_bundle_from_repo_and_skill_hint", _fetch,
+            hub,
+            "_fetch_bundle_from_repo_and_skill_hint",
+            _fetch,
         )
         _run(
             hub._fetch_bundle_from_github_url(
-                "https://github.com/o/r/tree/main/SKILL.md", "",
+                "https://github.com/o/r/tree/main/SKILL.md",
+                "",
             ),
         )
         assert captured["skill_hint"] == ""
@@ -1776,7 +1858,8 @@ class TestFetchBundleLobehub:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         bundle, url = _run(
             hub._fetch_bundle_from_lobehub_url(
-                "https://lobehub.com/skills/my-skill", "",
+                "https://lobehub.com/skills/my-skill",
+                "",
             ),
         )
         assert bundle["name"] == "demo-skill"
@@ -1793,7 +1876,8 @@ class TestFetchBundleLobehub:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         _run(
             hub._fetch_bundle_from_lobehub_url(
-                "https://lobehub.com/skills/my-skill", "v2",
+                "https://lobehub.com/skills/my-skill",
+                "v2",
             ),
         )
         assert seen["params"] == {"version": "v2"}
@@ -1810,7 +1894,8 @@ class TestFetchBundleLobehub:
         with pytest.raises(SkillsError, match="download failed"):
             _run(
                 hub._fetch_bundle_from_lobehub_url(
-                    "https://lobehub.com/skills/x", "",
+                    "https://lobehub.com/skills/x",
+                    "",
                 ),
             )
 
@@ -1822,7 +1907,8 @@ class TestFetchBundleLobehub:
         with pytest.raises(SkillsError, match="bad value"):
             _run(
                 hub._fetch_bundle_from_lobehub_url(
-                    "https://lobehub.com/skills/x", "",
+                    "https://lobehub.com/skills/x",
+                    "",
                 ),
             )
 
@@ -1842,7 +1928,8 @@ class TestFetchBundleModelscope:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         bundle, _ = _run(
             hub._fetch_bundle_from_modelscope_url(
-                "https://modelscope.cn/skills/@owner/name", "",
+                "https://modelscope.cn/skills/@owner/name",
+                "",
             ),
         )
         assert bundle["name"] == "demo-skill"
@@ -1858,7 +1945,8 @@ class TestFetchBundleModelscope:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         _run(
             hub._fetch_bundle_from_modelscope_url(
-                "https://modelscope.cn/skills/o/n/archive/zip/v9.zip", "",
+                "https://modelscope.cn/skills/o/n/archive/zip/v9.zip",
+                "",
             ),
         )
         assert "v9" in urls[0]
@@ -1875,7 +1963,8 @@ class TestFetchBundleModelscope:
         with pytest.raises(SkillsError, match="download failed"):
             _run(
                 hub._fetch_bundle_from_modelscope_url(
-                    "https://modelscope.cn/skills/o/n", "",
+                    "https://modelscope.cn/skills/o/n",
+                    "",
                 ),
             )
 
@@ -1896,7 +1985,8 @@ class TestFetchBundleQwenpaw:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         bundle, _ = _run(
             hub._fetch_bundle_from_qwenpaw_url(
-                "https://platform.agentscope.io/skills/@owner/name", "",
+                "https://platform.agentscope.io/skills/@owner/name",
+                "",
             ),
         )
         assert bundle["name"] == "demo-skill"
@@ -1914,7 +2004,8 @@ class TestFetchBundleQwenpaw:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         bundle, _ = _run(
             hub._fetch_bundle_from_qwenpaw_url(
-                f"https://platform.agentscope.io/skills/{uuid}", "",
+                f"https://platform.agentscope.io/skills/{uuid}",
+                "",
             ),
         )
         assert bundle["name"] == "demo-skill"
@@ -1931,7 +2022,8 @@ class TestFetchBundleQwenpaw:
         monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
         _run(
             hub._fetch_bundle_from_qwenpaw_url(
-                "https://platform.agentscope.io/skills/o/n", "v5",
+                "https://platform.agentscope.io/skills/o/n",
+                "v5",
             ),
         )
         assert "v5" in urls[0]
@@ -1948,7 +2040,8 @@ class TestFetchBundleQwenpaw:
         with pytest.raises(SkillsError, match="download failed"):
             _run(
                 hub._fetch_bundle_from_qwenpaw_url(
-                    "https://platform.agentscope.io/skills/o/n", "",
+                    "https://platform.agentscope.io/skills/o/n",
+                    "",
                 ),
             )
 
@@ -1966,11 +2059,14 @@ class TestFetchBundleAliyun:
             return {"content": "# aliyun skill"}
 
         monkeypatch.setattr(
-            aliyun_mod, "call_aliyun_action_async", _call,
+            aliyun_mod,
+            "call_aliyun_action_async",
+            _call,
         )
         bundle, url = _run(
             hub._fetch_bundle_from_aliyun_url(
-                "https://api.aliyun.com/agentexplorer/skills/sk-9", "",
+                "https://api.aliyun.com/agentexplorer/skills/sk-9",
+                "",
             ),
         )
         assert bundle["files"]["SKILL.md"] == "# aliyun skill"
@@ -1983,12 +2079,15 @@ class TestFetchBundleAliyun:
             raise RuntimeError("denied")
 
         monkeypatch.setattr(
-            aliyun_mod, "call_aliyun_action_async", _call,
+            aliyun_mod,
+            "call_aliyun_action_async",
+            _call,
         )
         with pytest.raises(SkillsError, match="GetSkillContent failed"):
             _run(
                 hub._fetch_bundle_from_aliyun_url(
-                    "https://api.aliyun.com/agentexplorer/skills/sk-9", "",
+                    "https://api.aliyun.com/agentexplorer/skills/sk-9",
+                    "",
                 ),
             )
 
@@ -2003,7 +2102,9 @@ class TestHydrateClawhubPayload:
         data = {"content": "x"}
         out = _run(
             hub._hydrate_clawhub_payload(
-                data, slug="s", requested_version="",
+                data,
+                slug="s",
+                requested_version="",
             ),
         )
         assert out == data
@@ -2031,7 +2132,11 @@ class TestHydrateClawhubPayload:
     def test_no_version_hint_returns_data(self, monkeypatch):
         data = {"skill": {"slug": "s1"}}
         out = _run(
-            hub._hydrate_clawhub_payload(data, slug="s1", requested_version=""),
+            hub._hydrate_clawhub_payload(
+                data,
+                slug="s1",
+                requested_version="",
+            ),
         )
         assert out == data
 
@@ -2054,7 +2159,9 @@ class TestHydrateClawhubPayload:
         data = {"skill": {"slug": "s1", "displayName": "Skill One"}}
         out = _run(
             hub._hydrate_clawhub_payload(
-                data, slug="s1", requested_version="1.0",
+                data,
+                slug="s1",
+                requested_version="1.0",
             ),
         )
         assert out["name"] == "Skill One"
@@ -2068,7 +2175,9 @@ class TestHydrateClawhubPayload:
         data = {"skill": {"slug": "s1"}}
         out = _run(
             hub._hydrate_clawhub_payload(
-                data, slug="s1", requested_version="1.0",
+                data,
+                slug="s1",
+                requested_version="1.0",
             ),
         )
         assert out == data
@@ -2081,7 +2190,9 @@ class TestHydrateClawhubPayload:
         data = {"skill": {"slug": "s1"}}
         out = _run(
             hub._hydrate_clawhub_payload(
-                data, slug="s1", requested_version="1.0",
+                data,
+                slug="s1",
+                requested_version="1.0",
             ),
         )
         assert out == data
@@ -2103,7 +2214,9 @@ class TestHydrateClawhubPayload:
         with pytest.raises(SkillsError, match="Failed to fetch SKILL.md"):
             _run(
                 hub._hydrate_clawhub_payload(
-                    data, slug="s1", requested_version="1.0",
+                    data,
+                    slug="s1",
+                    requested_version="1.0",
                 ),
             )
 
@@ -2119,7 +2232,9 @@ class TestHydrateClawhubPayload:
         data = {"skill": {"slug": "s1"}}
         out = _run(
             hub._hydrate_clawhub_payload(
-                data, slug="s1", requested_version="1.0",
+                data,
+                slug="s1",
+                requested_version="1.0",
             ),
         )
         assert out == data
@@ -2158,7 +2273,8 @@ class TestFetchBundleClawhub:
         monkeypatch.setattr(hub, "_http_json_get", _json)
         bundle, _ = _run(
             hub._fetch_bundle_from_clawhub_url(
-                "https://clawhub.ai/skills/s2", "",
+                "https://clawhub.ai/skills/s2",
+                "",
             ),
         )
         assert bundle == {"content": "c"}
@@ -2305,7 +2421,9 @@ class TestPrepareInstallPayload:
         monkeypatch.setattr(hub, "_resolve_bundle_from_url", _resolve)
         payload = _run(
             hub._prepare_install_payload(
-                "https://example.com/x", "", "Custom/Name",
+                "https://example.com/x",
+                "",
+                "Custom/Name",
             ),
         )
         assert payload.name == "custom-name"
@@ -2325,7 +2443,9 @@ class TestPrepareInstallPayload:
             with pytest.raises(SkillImportCancelled):
                 _run(
                     hub._prepare_install_payload(
-                        "https://example.com/x", "", None,
+                        "https://example.com/x",
+                        "",
+                        None,
                     ),
                 )
 
@@ -2423,7 +2543,8 @@ class TestInstallSkillFromHub:
         with pytest.raises(SkillConflictError):
             _run(
                 hub.install_skill_from_hub(
-                    workspace_dir=tmp_path, bundle_url="http://x",
+                    workspace_dir=tmp_path,
+                    bundle_url="http://x",
                 ),
             )
 

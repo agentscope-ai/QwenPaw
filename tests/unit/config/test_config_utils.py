@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for config/utils.py helpers.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -69,7 +70,9 @@ class TestNormalizeWorkingDirBoundPaths:
 
 class TestExecExecutableToken:
     def test_plain_executable(self):
-        assert cu._exec_executable_token("/usr/bin/chrome") == "/usr/bin/chrome"
+        assert (
+            cu._exec_executable_token("/usr/bin/chrome") == "/usr/bin/chrome"
+        )
 
     def test_env_wrapper_with_vars(self):
         value = "env GTK_IM_MODULE=ibus /usr/bin/google-chrome %U"
@@ -99,9 +102,15 @@ class TestLinuxDesktopToKindAndPath:
         ("exe", "expected"),
         [
             ("/usr/bin/google-chrome", ("chromium", "/usr/bin/google-chrome")),
-            ("/usr/bin/chromium-browser", ("chromium", "/usr/bin/chromium-browser")),
+            (
+                "/usr/bin/chromium-browser",
+                ("chromium", "/usr/bin/chromium-browser"),
+            ),
             ("/usr/bin/firefox", ("firefox", "/usr/bin/firefox")),
-            ("/usr/bin/microsoft-edge", ("chromium", "/usr/bin/microsoft-edge")),
+            (
+                "/usr/bin/microsoft-edge",
+                ("chromium", "/usr/bin/microsoft-edge"),
+            ),
             ("/opt/unknown/browser", ("chromium", "/opt/unknown/browser")),
         ],
     )

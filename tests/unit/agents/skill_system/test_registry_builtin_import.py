@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for registry builtin-import resolution layer.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -58,14 +59,22 @@ class TestResolvePoolBuiltinLanguage:
     def test_configured_language_wins(self, builtin_registry):
         entry = {"builtin_language": "zh"}
         assert (
-            reg._resolve_pool_builtin_language("browser", entry, builtin_registry)
+            reg._resolve_pool_builtin_language(
+                "browser",
+                entry,
+                builtin_registry,
+            )
             == "zh"
         )
 
     def test_source_name_identity_fallback(self, builtin_registry):
         entry = {"builtin_source_name": "browser-en"}
         assert (
-            reg._resolve_pool_builtin_language("browser", entry, builtin_registry)
+            reg._resolve_pool_builtin_language(
+                "browser",
+                entry,
+                builtin_registry,
+            )
             == "en"
         )
 
@@ -88,11 +97,20 @@ class TestResolvePoolBuiltinLanguage:
         )
         entry = {}
         assert (
-            reg._resolve_pool_builtin_language("browser", entry, builtin_registry)
+            reg._resolve_pool_builtin_language(
+                "browser",
+                entry,
+                builtin_registry,
+            )
             == "zh"
         )
 
-    def test_cjk_content_guesses_zh(self, builtin_registry, tmp_path, monkeypatch):
+    def test_cjk_content_guesses_zh(
+        self,
+        builtin_registry,
+        tmp_path,
+        monkeypatch,
+    ):
         pool_dir = tmp_path / "pool"
         skill_dir = pool_dir / "browser"
         skill_dir.mkdir(parents=True)
@@ -101,11 +119,20 @@ class TestResolvePoolBuiltinLanguage:
         monkeypatch.setattr(reg, "get_skill_pool_dir", lambda: pool_dir)
         entry = {}
         assert (
-            reg._resolve_pool_builtin_language("browser", entry, builtin_registry)
+            reg._resolve_pool_builtin_language(
+                "browser",
+                entry,
+                builtin_registry,
+            )
             == "zh"
         )
 
-    def test_hash_match_picks_variant(self, builtin_registry, tmp_path, monkeypatch):
+    def test_hash_match_picks_variant(
+        self,
+        builtin_registry,
+        tmp_path,
+        monkeypatch,
+    ):
         pool_dir = tmp_path / "pool"
         skill_dir = pool_dir / "browser"
         skill_dir.mkdir(parents=True)
@@ -115,7 +142,10 @@ class TestResolvePoolBuiltinLanguage:
         )
         (skill_dir / "SKILL.md").write_text(en_body, encoding="utf-8")
         monkeypatch.setattr(reg, "get_skill_pool_dir", lambda: pool_dir)
-        assert reg._resolve_pool_builtin_language("browser", {}, builtin_registry) == "en"
+        assert (
+            reg._resolve_pool_builtin_language("browser", {}, builtin_registry)
+            == "en"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +214,11 @@ class TestBuildBuiltinLanguageSpec:
 
 
 class TestBuildBuiltinImportCandidate:
-    def test_missing_status_for_absent_skill(self, builtin_registry, monkeypatch):
+    def test_missing_status_for_absent_skill(
+        self,
+        builtin_registry,
+        monkeypatch,
+    ):
         monkeypatch.setattr(
             reg,
             "get_builtin_skill_language_preference",
@@ -199,7 +233,11 @@ class TestBuildBuiltinImportCandidate:
         assert candidate["available_languages"] == ["en", "zh"]
         assert candidate["current_source"] == ""
 
-    def test_current_status_for_installed_builtin(self, builtin_registry, monkeypatch):
+    def test_current_status_for_installed_builtin(
+        self,
+        builtin_registry,
+        monkeypatch,
+    ):
         monkeypatch.setattr(
             reg,
             "get_builtin_skill_language_preference",
@@ -238,7 +276,11 @@ class TestBuildBuiltinImportCandidate:
         )
         assert candidate["name"] == "browser"
 
-    def test_unknown_skill_empty_candidate(self, builtin_registry, monkeypatch):
+    def test_unknown_skill_empty_candidate(
+        self,
+        builtin_registry,
+        monkeypatch,
+    ):
         monkeypatch.setattr(
             reg,
             "get_builtin_skill_language_preference",
@@ -289,7 +331,11 @@ class TestSelectBuiltinVariant:
 
 class TestNormalizeBuiltinImportRequests:
     def test_valid_request(self, builtin_registry):
-        normalized, unknown, unsupported = reg._normalize_builtin_import_requests(
+        (
+            normalized,
+            unknown,
+            unsupported,
+        ) = reg._normalize_builtin_import_requests(
             [{"skill_name": "browser", "language": "zh"}],
             builtin_registry,
             {"browser": {}},
@@ -314,10 +360,17 @@ class TestNormalizeBuiltinImportRequests:
         )
         assert unknown == ["ghost"]
 
-    def test_unsupported_language_falls_back_to_default(self, builtin_registry):
+    def test_unsupported_language_falls_back_to_default(
+        self,
+        builtin_registry,
+    ):
         # An unsupported requested language is normalised to the default
         # fallback (never reported as unsupported).
-        normalized, unknown, unsupported = reg._normalize_builtin_import_requests(
+        (
+            normalized,
+            unknown,
+            unsupported,
+        ) = reg._normalize_builtin_import_requests(
             [{"skill_name": "solo", "language": "fr"}],
             builtin_registry,
             {"solo": {}},

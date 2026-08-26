@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-import  # noqa: E501
 """Pure-logic unit tests for skill_system/registry.py helpers.
 
 Coverage-driven backfill (batch 3, coverage-first per the 2026-08-24
@@ -66,7 +67,9 @@ class TestNormalizeBuiltinSkillLanguage:
         ],
     )
     def test_known_languages(self, raw, expected):
-        assert skill_registry._normalize_builtin_skill_language(raw) == expected
+        assert (
+            skill_registry._normalize_builtin_skill_language(raw) == expected
+        )
 
     @pytest.mark.parametrize("raw", ["", None, "fr", "de", "unknown"])
     def test_unknown_falls_back_to_en(self, raw):
@@ -123,14 +126,22 @@ class TestBuiltinLanguagePreference:
         )
         assert skill_registry.get_builtin_skill_language_preference() == "zh"
 
-    def test_reads_ui_language_default_en(self, clean_caches, fake_working_dir):
+    def test_reads_ui_language_default_en(
+        self,
+        clean_caches,
+        fake_working_dir,
+    ):
         (fake_working_dir / "settings.json").write_text(
             json.dumps({"language": "en-US"}),
             encoding="utf-8",
         )
         assert skill_registry.get_builtin_skill_language_preference() == "en"
 
-    def test_missing_settings_defaults_en(self, clean_caches, fake_working_dir):
+    def test_missing_settings_defaults_en(
+        self,
+        clean_caches,
+        fake_working_dir,
+    ):
         assert skill_registry.get_builtin_skill_language_preference() == "en"
 
     def test_invalid_json_defaults_en(self, clean_caches, fake_working_dir):
@@ -196,8 +207,7 @@ class TestCanonicalBuiltinSkillName:
 
     def test_non_variant_passthrough(self):
         assert (
-            skill_registry._canonical_builtin_skill_name("custom")
-            == "custom"
+            skill_registry._canonical_builtin_skill_name("custom") == "custom"
         )
 
     def test_registry_membership_filter(self):
@@ -246,7 +256,9 @@ class TestSkillEnvVarName:
     def test_stringify_values(self):
         assert skill_registry._stringify_skill_env_value("plain") == "plain"
         assert skill_registry._stringify_skill_env_value(5) == "5"
-        assert skill_registry._stringify_skill_env_value({"a": 1}) == '{"a": 1}'
+        assert (
+            skill_registry._stringify_skill_env_value({"a": 1}) == '{"a": 1}'
+        )
 
 
 class TestBuildSkillConfigEnvOverrides:
@@ -355,13 +367,21 @@ class TestApplySkillConfigEnvOverrides:
         )
 
         key = "QWENPAW_SKILL_CONFIG_DEMO"
-        with skill_registry.apply_skill_config_env_overrides(tmp_path, "console"):
+        with skill_registry.apply_skill_config_env_overrides(
+            tmp_path,
+            "console",
+        ):
             assert os.environ["API_KEY"] == "secret"
             assert key in os.environ
         assert "API_KEY" not in os.environ
         assert key not in os.environ
 
-    def test_skills_without_config_skipped(self, clean_caches, tmp_path, monkeypatch):
+    def test_skills_without_config_skipped(
+        self,
+        clean_caches,
+        tmp_path,
+        monkeypatch,
+    ):
         manifest = {
             "skills": {
                 "empty": {"config": {}, "requirements": {}},
@@ -377,7 +397,10 @@ class TestApplySkillConfigEnvOverrides:
             "resolve_effective_skills",
             lambda workspace_dir, channel: ["empty"],
         )
-        with skill_registry.apply_skill_config_env_overrides(tmp_path, "console"):
+        with skill_registry.apply_skill_config_env_overrides(
+            tmp_path,
+            "console",
+        ):
             assert not [
                 k for k in os.environ if k.startswith("QWENPAW_SKILL_CONFIG_")
             ]

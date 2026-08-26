@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for file_search module — _is_text_file and _walk_and_grep."""
 
-# pylint: disable=redefined-outer-name,protected-access
+# pylint: disable=protected-access,redefined-outer-name,reimported
 import os
 import re
 import tempfile
@@ -540,6 +540,7 @@ def test_walk_and_grep_file_read_error(temp_dir):
         # Skip this test in that environment.
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             import pytest
+
             pytest.skip("root user bypasses file permission checks")
         f = temp_dir / "noperm.txt"
         f.write_text("secret\n")

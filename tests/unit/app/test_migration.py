@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=consider-using-from-import,protected-access,redefined-outer-name,unnecessary-lambda,unused-argument,unused-import,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for app/migration.py legacy migration helpers.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -162,7 +163,10 @@ class TestMigrateLegacyWorkspace:
     def test_multi_agent_config_skipped(self, working_dir, monkeypatch):
         cfg = _config(
             {
-                "default": _ref("default", str(working_dir / "ws" / "default")),
+                "default": _ref(
+                    "default",
+                    str(working_dir / "ws" / "default"),
+                ),
                 "other": _ref("other", str(working_dir / "ws" / "other")),
             },
         )
@@ -193,7 +197,11 @@ class TestMigrateLegacyWorkspace:
         cfg = _config({})
         monkeypatch.setattr(migration, "load_config", lambda: cfg)
         saved = []
-        monkeypatch.setattr(migration, "save_config", lambda c: saved.append(c))
+        monkeypatch.setattr(
+            migration,
+            "save_config",
+            lambda c: saved.append(c),
+        )
 
         # legacy artifacts at the working-dir root
         (working_dir / "chats.json").write_text('{"version": 1}')
@@ -298,7 +306,11 @@ class TestEnsureDefaultAgent:
         )
         monkeypatch.setattr(migration, "load_config", lambda: cfg)
         saved = []
-        monkeypatch.setattr(migration, "save_config", lambda c: saved.append(c))
+        monkeypatch.setattr(
+            migration,
+            "save_config",
+            lambda c: saved.append(c),
+        )
         migration._do_ensure_default_agent()
         assert saved == []
 
@@ -306,7 +318,11 @@ class TestEnsureDefaultAgent:
         cfg = _config({})
         monkeypatch.setattr(migration, "load_config", lambda: cfg)
         saved = []
-        monkeypatch.setattr(migration, "save_config", lambda c: saved.append(c))
+        monkeypatch.setattr(
+            migration,
+            "save_config",
+            lambda c: saved.append(c),
+        )
         agent_configs = []
         monkeypatch.setattr(
             migration,
@@ -348,7 +364,11 @@ class TestEnsureQaAgent:
         )
         monkeypatch.setattr(migration, "load_config", lambda: cfg)
         saved = []
-        monkeypatch.setattr(migration, "save_config", lambda c: saved.append(c))
+        monkeypatch.setattr(
+            migration,
+            "save_config",
+            lambda c: saved.append(c),
+        )
         migration._do_ensure_qa_agent()
         assert saved == []
 
@@ -360,7 +380,6 @@ class TestLegacyQaDisable:
         cfg = _config(
             {LEGACY_QA_AGENT_ID: _ref(LEGACY_QA_AGENT_ID, "/tmp/ws_qa")},
         )
-        profile = cfg.agents.profiles[LEGACY_QA_AGENT_ID]
         migration._apply_legacy_qa_disable_for_migration(cfg)
         # the legacy profile should have been removed/disabled
         assert LEGACY_QA_AGENT_ID not in cfg.agents.profiles or (

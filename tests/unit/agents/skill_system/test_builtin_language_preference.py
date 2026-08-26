@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Builtin skill language preference unit tests.
 
 Regression scope (后端单测缺口补齐第 1 批，A 档)：

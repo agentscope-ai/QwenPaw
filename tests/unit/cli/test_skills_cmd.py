@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=reimported,protected-access,unused-argument,unused-import
 """Unit tests for cli/skills_cmd.py helpers and commands.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -175,7 +176,10 @@ class TestRunSkillTest:
     def test_valid_skill_returns_name(self, tmp_path):
         skill_dir = tmp_path / "demo"
         skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text(_skill_md("demo"), encoding="utf-8")
+        (skill_dir / "SKILL.md").write_text(
+            _skill_md("demo"),
+            encoding="utf-8",
+        )
 
         from types import SimpleNamespace
 
@@ -208,7 +212,10 @@ class TestRunSkillTest:
     def test_scan_blocked_raises(self, tmp_path):
         skill_dir = tmp_path / "blocked"
         skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text(_skill_md("blocked"), encoding="utf-8")
+        (skill_dir / "SKILL.md").write_text(
+            _skill_md("blocked"),
+            encoding="utf-8",
+        )
 
         def boom(*a, **kw):
             raise sc.SkillScanError(
@@ -344,7 +351,11 @@ class TestListCmd:
         assert result.exit_code == 0
         assert "No skills found." in result.output
 
-    def test_list_workspace_status_filter_no_match(self, tmp_path, monkeypatch):
+    def test_list_workspace_status_filter_no_match(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
         from types import SimpleNamespace
 
         monkeypatch.setattr(

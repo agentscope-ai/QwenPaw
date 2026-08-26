@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=wrong-import-order,unreachable,protected-access,redefined-outer-name,too-many-public-methods,unused-argument,unused-variable  # noqa: E501
 """Unit tests for run_tool_batch helpers and control flow.
 
 Covers the pure-logic surface of ``agents/tools/run_tool_batch.py``:
@@ -27,7 +28,10 @@ rtb = importlib.import_module("qwenpaw.agents.tools.run_tool_batch")
 # ---------------------------------------------------------------------------
 
 
-def _text_chunk(text: str, state: ToolResultState = ToolResultState.SUCCESS) -> ToolChunk:
+def _text_chunk(
+    text: str,
+    state: ToolResultState = ToolResultState.SUCCESS,
+) -> ToolChunk:
     return ToolChunk(
         state=state,
         content=[TextBlock(type="text", text=text)],
@@ -55,7 +59,12 @@ def _run(actions: list[dict], stop_on_error: bool = True, maxstep: int = 50):
 
 def asyncio_run(coro):
     import asyncio
-    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
+
+    return (
+        asyncio.get_event_loop_policy()
+        .new_event_loop()
+        .run_until_complete(coro)
+    )
 
 
 @pytest.fixture()
@@ -109,7 +118,11 @@ class TestIsErrorText:
 class TestExtractFilesInfo:
     def test_data_block_with_source_dict(self):
         blocks = [
-            {"type": "data", "source": {"url": "http://x/f.pdf"}, "name": "f.pdf"},
+            {
+                "type": "data",
+                "source": {"url": "http://x/f.pdf"},
+                "name": "f.pdf",
+            },
         ]
         info = rtb._extract_files_info(blocks)
         assert info == [{"url": "http://x/f.pdf", "name": "f.pdf"}]
@@ -203,8 +216,20 @@ class TestResponsePayload:
 
 
 RESULTS: list[dict[str, Any]] = [
-    {"step": 0, "tool_name": "t", "ok": True, "text": "line1\nline2", "value": 2},
-    {"step": 1, "tool_name": "t", "ok": True, "text": "abc", "items": ["a", "b"]},
+    {
+        "step": 0,
+        "tool_name": "t",
+        "ok": True,
+        "text": "line1\nline2",
+        "value": 2,
+    },
+    {
+        "step": 1,
+        "tool_name": "t",
+        "ok": True,
+        "text": "abc",
+        "items": ["a", "b"],
+    },
 ]
 
 
@@ -256,7 +281,9 @@ class TestResolveStepRefs:
         results = RESULTS + [
             {"step": 0, "tool_name": "t", "ok": True, "text": "second-run"},
         ]
-        assert rtb.resolve_step_refs("${steps.0.text}", results) == "second-run"
+        assert (
+            rtb.resolve_step_refs("${steps.0.text}", results) == "second-run"
+        )
 
     def test_vars_exact(self):
         out = rtb.resolve_step_refs("${vars.i}", [], {"i": 7})
@@ -267,7 +294,11 @@ class TestResolveStepRefs:
         assert out == "i=3!"
 
     def test_vars_nested_path(self):
-        out = rtb.resolve_step_refs("${vars.cfg.name}", [], {"cfg": {"name": "x"}})
+        out = rtb.resolve_step_refs(
+            "${vars.cfg.name}",
+            [],
+            {"cfg": {"name": "x"}},
+        )
         assert out == "x"
 
     def test_vars_missing_raises(self):
@@ -298,7 +329,10 @@ class TestBuildLabelMap:
         assert rtb._build_label_map(actions) == {"start": 0, "end": 2}
 
     def test_skips_non_dict_steps(self):
-        actions = ["not-a-dict", {"tool_name": "label", "arguments": {"name": "a"}}]
+        actions = [
+            "not-a-dict",
+            {"tool_name": "label", "arguments": {"name": "a"}},
+        ]
         assert rtb._build_label_map(actions) == {"a": 1}
 
     def test_duplicate_label_raises(self):
@@ -467,12 +501,17 @@ class TestEvaluateSetVarExpr:
         assert rtb._evaluate_set_var_expr("i=0", [], {}) == ("i", 0)
 
     def test_bool_literal(self):
-        assert rtb._evaluate_set_var_expr("flag=true", [], {}) == ("flag", True)
+        assert rtb._evaluate_set_var_expr("flag=true", [], {}) == (
+            "flag",
+            True,
+        )
 
     def test_string_value_via_step_ref(self):
         # A step ref that resolves to a string returns the string value.
         name, value = rtb._evaluate_set_var_expr(
-            "line=${steps.0.text}", RESULTS, {}
+            "line=${steps.0.text}",
+            RESULTS,
+            {},
         )
         assert name == "line"
         assert value == RESULTS[0]["text"]
@@ -487,7 +526,9 @@ class TestEvaluateSetVarExpr:
 
     def test_step_ref_rhs(self):
         name, value = rtb._evaluate_set_var_expr(
-            "total=${steps.0.value}", RESULTS, {}
+            "total=${steps.0.value}",
+            RESULTS,
+            {},
         )
         assert (name, value) == ("total", 2)
 
@@ -496,7 +537,11 @@ class TestEvaluateSetVarExpr:
         assert (name, value) == ("j", 9)
 
     def test_complex_arithmetic(self):
-        name, value = rtb._evaluate_set_var_expr("i=(${vars.i}+1)*2", [], {"i": 3})
+        name, value = rtb._evaluate_set_var_expr(
+            "i=(${vars.i}+1)*2",
+            [],
+            {"i": 3},
+        )
         assert (name, value) == ("i", 8)
 
     def test_undefined_var_in_rhs_raises(self):
@@ -520,7 +565,15 @@ class TestEvaluateSetVarExpr:
 class TestLoadBatchFile:
     def test_actions_object(self, tmp_path):
         f = tmp_path / "batch.json"
-        f.write_text(json.dumps({"actions": [{"tool_name": "label", "arguments": {"name": "a"}}]}))
+        f.write_text(
+            json.dumps(
+                {
+                    "actions": [
+                        {"tool_name": "label", "arguments": {"name": "a"}},
+                    ],
+                },
+            ),
+        )
         out = rtb._load_batch_file(str(f))
         assert out == [{"tool_name": "label", "arguments": {"name": "a"}}]
 
@@ -598,7 +651,12 @@ class TestLookupArg:
 class TestStepError:
     def test_full(self):
         err = rtb._step_error(3, "boom", "shell")
-        assert err == {"ok": False, "error": "boom", "step": 3, "tool_name": "shell"}
+        assert err == {
+            "ok": False,
+            "error": "boom",
+            "step": 3,
+            "tool_name": "shell",
+        }
 
     def test_no_step(self):
         err = rtb._step_error(None, "boom")
@@ -608,14 +666,16 @@ class TestStepError:
 class TestWaitAfterStep:
     def test_no_wait(self):
         import asyncio
+
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-            rtb._wait_after_step({})
+            rtb._wait_after_step({}),
         )
 
     def test_zero_wait(self):
         import asyncio
+
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-            rtb._wait_after_step({"wait": 0})
+            rtb._wait_after_step({"wait": 0}),
         )
 
 
@@ -698,7 +758,10 @@ class TestRunStepsControlFlow:
         actions = [
             {"tool_name": "label", "arguments": {"name": "top"}},
             {"tool_name": "echo_tool", "arguments": {}},
-            {"tool_name": "goto", "arguments": {"label": "top", "condition": "false"}},
+            {
+                "tool_name": "goto",
+                "arguments": {"label": "top", "condition": "false"},
+            },
         ]
         results, _, _ = _run(actions)
         # label + tool + goto (no jump) = 3 results, loop ends
@@ -831,7 +894,9 @@ class TestRunStepsControlFlow:
         actions = [{"tool_name": "t", "arguments": {}}]
         results, blocks, last_text = _run(actions)
         assert len(blocks) == 1  # data block collected
-        assert results[0]["files"] == [{"url": "http://x/a.png", "name": "a.png"}]
+        assert results[0]["files"] == [
+            {"url": "http://x/a.png", "name": "a.png"},
+        ]
 
     def test_interrupted_state_breaks(self, patch_call_tool):
         patch_call_tool.return_value = ToolChunk(
@@ -870,7 +935,11 @@ class TestCallTool:
             with patch.object(rtb, "get_current_toolkit", return_value=None):
                 return await rtb._call_tool("anything", {})
 
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_go())
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is False
         assert "No toolkit" in payload["error"]
@@ -879,11 +948,23 @@ class TestCallTool:
         import asyncio
 
         async def _go():
-            with patch.object(rtb, "get_current_toolkit", return_value=object()):
-                with patch.object(rtb, "get_current_agent_state", return_value=None):
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=object(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=None,
+                ):
                     return await rtb._call_tool("anything", {})
 
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_go())
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is False
         assert "No agent state" in payload["error"]
@@ -897,11 +978,23 @@ class TestCallTool:
                 yield  # pragma: no cover — marks as async generator
 
         async def _go():
-            with patch.object(rtb, "get_current_toolkit", return_value=_Toolkit()):
-                with patch.object(rtb, "get_current_agent_state", return_value=object()):
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=object(),
+                ):
                     return await rtb._call_tool("anything", {})
 
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_go())
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is False
         assert "kaboom" in payload["error"]
@@ -915,11 +1008,23 @@ class TestCallTool:
                 yield  # pragma: no cover
 
         async def _go():
-            with patch.object(rtb, "get_current_toolkit", return_value=_Toolkit()):
-                with patch.object(rtb, "get_current_agent_state", return_value=object()):
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=object(),
+                ):
                     return await rtb._call_tool("anything", {})
 
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_go())
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is False
         assert "no response" in payload["error"]
@@ -933,11 +1038,23 @@ class TestCallTool:
                 yield ToolChunk(state=ToolResultState.SUCCESS, content=[])
 
         async def _go():
-            with patch.object(rtb, "get_current_toolkit", return_value=_Toolkit()):
-                with patch.object(rtb, "get_current_agent_state", return_value=object()):
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=object(),
+                ):
                     return await rtb._call_tool("anything", {})
 
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_go())
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
         assert chunk.state == ToolResultState.INTERRUPTED
 
 
@@ -976,7 +1093,12 @@ class TestBuildBatchResponse:
             {"step": 0, "ok": True, "text": "a"},
             {"step": 1, "ok": True, "text": "b"},
         ]
-        chunk = rtb._build_batch_response([{}, {}], results, [], last_only=True)
+        chunk = rtb._build_batch_response(
+            [{}, {}],
+            results,
+            [],
+            last_only=True,
+        )
         payload = _summary_payload(chunk)
         assert "results" not in payload
         assert payload["last_step_result"] == results[-1]
@@ -985,17 +1107,25 @@ class TestBuildBatchResponse:
         block = DataBlock(
             type="data",
             source=URLSource(
-                type="url", url="http://x/u.png", media_type="image/png"
+                type="url",
+                url="http://x/u.png",
+                media_type="image/png",
             ),
             name="n",
         )
-        chunk = rtb._build_batch_response([{}], [{"step": 0, "ok": True}], [block])
+        chunk = rtb._build_batch_response(
+            [{}],
+            [{"step": 0, "ok": True}],
+            [block],
+        )
         assert block in chunk.content
 
 
 class TestShouldIncludeLastTextBlock:
     def test_none_block(self):
-        assert rtb._should_include_last_text_block(None, [{"ok": True}]) is False
+        assert (
+            rtb._should_include_last_text_block(None, [{"ok": True}]) is False
+        )
 
     def test_empty_results(self):
         assert rtb._should_include_last_text_block({"text": "x"}, []) is False
@@ -1030,10 +1160,15 @@ class TestShouldIncludeLastTextBlock:
 
 class TestLastStepResultContainsText:
     def test_invalid_json_returns_false(self):
-        assert rtb._last_step_result_contains_text({"text": "other"}, "not json") is False
+        assert (
+            rtb._last_step_result_contains_text({"text": "other"}, "not json")
+            is False
+        )
 
     def test_json_none_value(self):
-        assert rtb._last_step_result_contains_text({"value": [1]}, "[1]") is True
+        assert (
+            rtb._last_step_result_contains_text({"value": [1]}, "[1]") is True
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1065,7 +1200,11 @@ class TestPrepareBatchInputs:
         f = tmp_path / "a.json"
         f.write_text(
             json.dumps(
-                {"actions": [{"tool_name": "t", "arguments": {"x": "${args.v}"}}]},
+                {
+                    "actions": [
+                        {"tool_name": "t", "arguments": {"x": "${args.v}"}},
+                    ],
+                },
             ),
         )
         actions, _ = rtb._prepare_batch_inputs(
@@ -1093,7 +1232,10 @@ class TestPrepareBatchInputs:
             rtb._prepare_batch_inputs(None, "", None, 10)
 
     def test_too_many_steps_raises(self):
-        actions = [{"tool_name": "label", "arguments": {"name": f"l{i}"}} for i in range(51)]
+        actions = [
+            {"tool_name": "label", "arguments": {"name": f"l{i}"}}
+            for i in range(51)
+        ]
         with pytest.raises(ValueError, match="Too many steps"):
             rtb._prepare_batch_inputs(actions, "", None, 10)
 
@@ -1108,9 +1250,20 @@ class TestPrepareBatchInputs:
     def test_file_path_loads_and_resolves_args(self, tmp_path):
         f = tmp_path / "b.json"
         f.write_text(
-            json.dumps({"actions": [{"tool_name": "t", "arguments": {"x": "${args.v}"}}]}),
+            json.dumps(
+                {
+                    "actions": [
+                        {"tool_name": "t", "arguments": {"x": "${args.v}"}},
+                    ],
+                },
+            ),
         )
-        actions, maxstep = rtb._prepare_batch_inputs(None, str(f), {"v": 42}, 10)
+        actions, maxstep = rtb._prepare_batch_inputs(
+            None,
+            str(f),
+            {"v": 42},
+            10,
+        )
         assert actions[0]["arguments"]["x"] == 42
 
 
@@ -1123,10 +1276,18 @@ class TestRunToolBatchEntry:
     def test_invalid_input_returns_error_chunk(self):
         import asyncio
 
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-            rtb.run_tool_batch.__wrapped__(actions=None, file_path="", args=None)
-            if hasattr(rtb.run_tool_batch, "__wrapped__")
-            else rtb.run_tool_batch(actions=None, file_path="", args=None),
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(
+                rtb.run_tool_batch.__wrapped__(
+                    actions=None,
+                    file_path="",
+                    args=None,
+                )
+                if hasattr(rtb.run_tool_batch, "__wrapped__")
+                else rtb.run_tool_batch(actions=None, file_path="", args=None),
+            )
         )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is False
@@ -1139,10 +1300,22 @@ class TestRunToolBatchEntry:
             {"tool_name": "set_var", "arguments": {"expr": "i=1"}},
             {"tool_name": "echo_tool", "arguments": {"x": "${vars.i}"}},
         ]
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-            rtb.run_tool_batch.__wrapped__(actions=actions, file_path="", args=None)
-            if hasattr(rtb.run_tool_batch, "__wrapped__")
-            else rtb.run_tool_batch(actions=actions, file_path="", args=None),
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(
+                rtb.run_tool_batch.__wrapped__(
+                    actions=actions,
+                    file_path="",
+                    args=None,
+                )
+                if hasattr(rtb.run_tool_batch, "__wrapped__")
+                else rtb.run_tool_batch(
+                    actions=actions,
+                    file_path="",
+                    args=None,
+                ),
+            )
         )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is True
@@ -1153,12 +1326,24 @@ class TestRunToolBatchEntry:
 
         patch_call_tool.return_value = _text_chunk("done")
         actions = [{"tool_name": "echo_tool", "arguments": {}}]
-        chunk = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-            rtb.run_tool_batch.__wrapped__(
-                actions=actions, file_path="", args=None, last_only=True
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(
+                rtb.run_tool_batch.__wrapped__(
+                    actions=actions,
+                    file_path="",
+                    args=None,
+                    last_only=True,
+                )
+                if hasattr(rtb.run_tool_batch, "__wrapped__")
+                else rtb.run_tool_batch(
+                    actions=actions,
+                    file_path="",
+                    args=None,
+                    last_only=True,
+                ),
             )
-            if hasattr(rtb.run_tool_batch, "__wrapped__")
-            else rtb.run_tool_batch(actions=actions, file_path="", args=None, last_only=True),
         )
         payload = rtb._response_payload(chunk)
         assert payload["ok"] is True

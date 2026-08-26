@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 """Pool workspace-sync unit tests (skill_system service layer).
 
 Coverage-driven backfill (batch 3, coverage-first per the 2026-08-24
@@ -19,8 +20,8 @@ from qwenpaw.agents.skill_system import pool_service as skill_pool_service
 from qwenpaw.agents.skill_system import registry as skill_registry
 from qwenpaw.agents.skill_system.pool_service import (
     SkillPoolService,
-    _detect_changed_auto_update_skills,
-    run_pool_auto_update_sync,
+    _detect_changed_auto_sync_skills,
+    run_pool_auto_sync,
 )
 
 
@@ -30,7 +31,10 @@ def _skill_md(name: str, body: str = "# body") -> str:
 
 def _write_skill_dir(skill_dir: Path, name: str, body: str = "# body") -> None:
     skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "SKILL.md").write_text(_skill_md(name, body), encoding="utf-8")
+    (skill_dir / "SKILL.md").write_text(
+        _skill_md(name, body),
+        encoding="utf-8",
+    )
 
 
 def _write_pool_manifest(pool_dir: Path, skills: dict) -> None:
@@ -423,12 +427,22 @@ class TestTagsAndAutoUpdate:
     def test_set_skill_auto_update_unknown_returns_none(self, pool_env):
         service, pool_dir, _ws = pool_env
         _write_pool_manifest(pool_dir, {})
-        assert service.set_skill_auto_update("ghost", enabled=True, targets=None) is None
+        assert (
+            service.set_skill_auto_update("ghost", enabled=True, targets=None)
+            is None
+        )
 
     def test_set_skill_auto_update_bad_name_returns_none(self, pool_env):
         service, pool_dir, _ws = pool_env
         _write_pool_manifest(pool_dir, {})
-        assert service.set_skill_auto_update("bad/name", enabled=True, targets=None) is None
+        assert (
+            service.set_skill_auto_update(
+                "bad/name",
+                enabled=True,
+                targets=None,
+            )
+            is None
+        )
 
 
 class TestAutoUpdateSync:
@@ -441,7 +455,7 @@ class TestAutoUpdateSync:
             "off": {"auto_update": False},
             "junk": "not-a-dict",
         }
-        changed, checked = _detect_changed_auto_update_skills(entries, None)
+        changed, checked = _detect_changed_auto_sync_skills(entries, None)
         assert checked == 1
         assert [name for name, _entry, _hash in changed] == ["on"]
 
@@ -453,7 +467,7 @@ class TestAutoUpdateSync:
             "a": {"auto_update": True},
             "b": {"auto_update": True},
         }
-        changed, checked = _detect_changed_auto_update_skills(entries, "a")
+        changed, checked = _detect_changed_auto_sync_skills(entries, "a")
         assert checked == 1
         assert [name for name, *_ in changed] == ["a"]
 
@@ -462,7 +476,7 @@ class TestAutoUpdateSync:
         entries = {
             "ghost": {"auto_update": True},
         }
-        changed, checked = _detect_changed_auto_update_skills(entries, None)
+        changed, checked = _detect_changed_auto_sync_skills(entries, None)
         assert checked == 1
         assert changed == []
 
@@ -472,16 +486,19 @@ class TestAutoUpdateSync:
         skill_md = (pool_dir / "same" / "SKILL.md").read_text(encoding="utf-8")
         current_hash = hashlib.sha256(skill_md.encode("utf-8")).hexdigest()
         entries = {
-            "same": {"auto_update": True, "auto_update_synced_hash": current_hash},
+            "same": {
+                "auto_update": True,
+                "auto_update_synced_hash": current_hash,
+            },
         }
-        changed, checked = _detect_changed_auto_update_skills(entries, None)
+        changed, checked = _detect_changed_auto_sync_skills(entries, None)
         assert checked == 1
         assert changed == []
 
     def test_run_sync_no_changed_skills(self, pool_env):
         _service, pool_dir, _ws = pool_env
         _write_pool_manifest(pool_dir, {"off": {"auto_update": False}})
-        result = run_pool_auto_update_sync()
+        result = run_pool_auto_sync()
         assert result == {"synced": [], "failed": [], "checked": 0}
 
     def test_run_sync_pushes_to_target_workspaces(self, pool_env, monkeypatch):
@@ -514,7 +531,7 @@ class TestAutoUpdateSync:
             ],
         )
 
-        result = run_pool_auto_update_sync()
+        result = run_pool_auto_sync()
 
         assert result["failed"] == []
         assert result["synced"][0]["skill"] == "demo"
@@ -549,7 +566,7 @@ class TestAutoUpdateSync:
         )
 
         # Filtering by another name → nothing synced.
-        assert run_pool_auto_update_sync(skill_name="other") == {
+        assert run_pool_auto_sync(skill_name="other") == {
             "synced": [],
             "failed": [],
             "checked": 0,
@@ -603,7 +620,11 @@ class TestRenameBroadcast:
         result = service.rename_in_workspaces("bad/name", "new")
         assert result == {"renamed": [], "overwritten": []}
 
-    def test_rename_source_missing_in_pool_is_noop(self, pool_env, monkeypatch):
+    def test_rename_source_missing_in_pool_is_noop(
+        self,
+        pool_env,
+        monkeypatch,
+    ):
         service, pool_dir, workspace_dir = pool_env
         monkeypatch.setattr(skill_registry, "list_workspaces", lambda: [])
         result = service.rename_in_workspaces("ghost", "new")

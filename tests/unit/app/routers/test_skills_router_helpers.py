@@ -7,7 +7,7 @@ rises by at least 5 percentage points). Target: the snapshot/rollback,
 hub-install task lifecycle, and spec-building helpers which previously
 sat at ~36% coverage.
 """
-# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import asyncio
@@ -45,7 +45,9 @@ def _write_workspace_manifest(workspace_dir: Path, skills: dict) -> None:
 
 
 def _read_manifest(workspace_dir: Path) -> dict:
-    return json.loads((workspace_dir / "skill.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (workspace_dir / "skill.json").read_text(encoding="utf-8"),
+    )
 
 
 @pytest.fixture()
@@ -268,9 +270,9 @@ class TestHubTaskFinishRuntime:
         task.updated_at = old_stamp
         skills_module._hub_install_tasks[task.task_id] = task
         skills_module._hub_install_runtime_tasks[task.task_id] = object()
-        skills_module._hub_install_cancel_events[task.task_id] = (
-            asyncio.Event()
-        )
+        skills_module._hub_install_cancel_events[
+            task.task_id
+        ] = asyncio.Event()
 
         await skills_module._hub_task_finish_runtime(task.task_id)
 

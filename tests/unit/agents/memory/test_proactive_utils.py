@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unnecessary-lambda,unused-import
 """Unit tests for proactive_utils.py pure helpers.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -56,7 +57,9 @@ class TestIsAgentBusy:
         async def boom():
             raise RuntimeError("tracker down")
 
-        workspace = SimpleNamespace(task_tracker=SimpleNamespace(has_active_tasks=boom))
+        workspace = SimpleNamespace(
+            task_tracker=SimpleNamespace(has_active_tasks=boom),
+        )
         assert await pu.is_agent_busy(workspace) is False
 
 
@@ -74,9 +77,7 @@ class TestLoadJsonSafely:
         assert pu.load_json_safely('{"a": 1}') == {"a": 1}
 
     def test_json_code_block(self):
-        assert (
-            pu.load_json_safely('```json\n{"a": 1}\n```') == {"a": 1}
-        )
+        assert pu.load_json_safely('```json\n{"a": 1}\n```') == {"a": 1}
 
     def test_plain_code_block(self):
         assert pu.load_json_safely('```\n{"a": 1}\n```') == {"a": 1}
@@ -229,9 +230,7 @@ class TestFormatSessionMessages:
         assert out.count("[user]:") == 3
 
     def test_char_limit_stops_early(self):
-        messages = [
-            self._msg("user", "x" * 100, float(i)) for i in range(20)
-        ]
+        messages = [self._msg("user", "x" * 100, float(i)) for i in range(20)]
         out = pu._format_session_messages(messages, max_chars=200)
         assert len(out) <= 300
 

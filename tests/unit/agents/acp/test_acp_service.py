@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unnecessary-lambda,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for agents/acp/service.py process & registry helpers.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -128,7 +129,11 @@ class TestResolveProcessCommand:
         assert result == "definitely-not-a-real-tool"
 
     def test_no_path_key(self, monkeypatch):
-        monkeypatch.setattr(acp_service.shutil, "which", lambda c, path=None: None)
+        monkeypatch.setattr(
+            acp_service.shutil,
+            "which",
+            lambda c, path=None: None,
+        )
         assert acp_service._resolve_process_command("x", {}) == "x"
 
 

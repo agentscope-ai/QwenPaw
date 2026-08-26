@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unreachable,protected-access,too-many-public-methods,unnecessary-lambda,unused-argument,unused-import  # noqa: E501
 """Unit tests for the run_tool_batch engine.
 
 Coverage-driven backfill (batch 2, coverage-first per the 2026-08-24
@@ -26,7 +27,10 @@ from agentscope.tool import ToolChunk
 rtb = importlib.import_module("qwenpaw.agents.tools.run_tool_batch")
 
 
-def _ok_chunk(payload: dict | None = None, text: str | None = None) -> ToolChunk:
+def _ok_chunk(
+    payload: dict | None = None,
+    text: str | None = None,
+) -> ToolChunk:
     if text is not None:
         return ToolChunk(
             state=ToolResultState.SUCCESS,
@@ -55,7 +59,12 @@ def _make_mock_call_tool(monkeypatch, handler):
 class TestResolveStepRefs:
     RESULTS = [
         {"step": 0, "tool_name": "a", "ok": True, "text": "first", "n": 7},
-        {"step": 1, "tool_name": "b", "ok": True, "value": {"items": [10, 20]}},
+        {
+            "step": 1,
+            "tool_name": "b",
+            "ok": True,
+            "value": {"items": [10, 20]},
+        },
     ]
 
     def test_exact_step_ref_preserves_type(self):
@@ -173,7 +182,14 @@ class TestBuildLabelMap:
 class TestParseScalar:
     @pytest.mark.parametrize(
         ("raw", "expected"),
-        [("true", True), ("False", False), ("7", 7), ("-3", -3), ("1.5", "1.5"), ("x", "x")],
+        [
+            ("true", True),
+            ("False", False),
+            ("7", 7),
+            ("-3", -3),
+            ("1.5", "1.5"),
+            ("x", "x"),
+        ],
     )
     def test_scalars(self, raw, expected):
         assert rtb._parse_scalar(raw) == expected
@@ -198,9 +214,7 @@ class TestEvaluateCondition:
     def test_comparisons(self, expr, expected):
         # Bare identifiers resolve as variables, so seed them explicitly.
         variables = {"a": "a", "b": "b"}
-        assert (
-            rtb._evaluate_condition(expr, [], variables) is expected
-        )
+        assert rtb._evaluate_condition(expr, [], variables) is expected
 
     def test_plain_true(self):
         assert rtb._evaluate_condition("true", [], {}) is True
@@ -213,8 +227,16 @@ class TestEvaluateCondition:
         assert rtb._evaluate_condition("0", [], {}) is False
 
     def test_var_refs_in_condition(self):
-        assert rtb._evaluate_condition("${vars.i}<=${vars.total}", [], {"i": 2, "total": 3})
-        assert not rtb._evaluate_condition("${vars.i}<=${vars.total}", [], {"i": 4, "total": 3})
+        assert rtb._evaluate_condition(
+            "${vars.i}<=${vars.total}",
+            [],
+            {"i": 2, "total": 3},
+        )
+        assert not rtb._evaluate_condition(
+            "${vars.i}<=${vars.total}",
+            [],
+            {"i": 4, "total": 3},
+        )
 
     def test_steps_refs_in_condition(self):
         results = [{"step": 0, "value": 5}]
@@ -297,14 +319,25 @@ class TestEvaluateSetVarExpr:
         assert rtb._evaluate_set_var_expr("i=0", [], {}) == ("i", 0)
 
     def test_arithmetic_with_var(self):
-        assert rtb._evaluate_set_var_expr("i=${vars.i}+1", [], {"i": 2}) == ("i", 3)
+        assert rtb._evaluate_set_var_expr("i=${vars.i}+1", [], {"i": 2}) == (
+            "i",
+            3,
+        )
 
     def test_arithmetic_with_parens(self):
-        assert rtb._evaluate_set_var_expr("i=(${vars.i}+1)*2", [], {"i": 2}) == ("i", 6)
+        assert rtb._evaluate_set_var_expr(
+            "i=(${vars.i}+1)*2",
+            [],
+            {"i": 2},
+        ) == ("i", 6)
 
     def test_from_step_ref(self):
         results = [{"step": 1, "value": 5}]
-        assert rtb._evaluate_set_var_expr("total=${steps.1.value}", results, {}) == ("total", 5)
+        assert rtb._evaluate_set_var_expr(
+            "total=${steps.1.value}",
+            results,
+            {},
+        ) == ("total", 5)
 
     def test_string_literal(self):
         # Bare identifiers look like variables; use a non-identifier literal.
@@ -318,11 +351,18 @@ class TestEvaluateSetVarExpr:
             rtb._evaluate_set_var_expr("name=hello", [], {})
 
     def test_bool_string(self):
-        assert rtb._evaluate_set_var_expr("flag=true", [], {}) == ("flag", True)
+        assert rtb._evaluate_set_var_expr("flag=true", [], {}) == (
+            "flag",
+            True,
+        )
 
     def test_non_string_rhs_passthrough(self):
         results = [{"step": 0, "value": {"k": 1}}]
-        assert rtb._evaluate_set_var_expr("d=${steps.0.value}", results, {}) == ("d", {"k": 1})
+        assert rtb._evaluate_set_var_expr(
+            "d=${steps.0.value}",
+            results,
+            {},
+        ) == ("d", {"k": 1})
 
     def test_invalid_assignment_raises(self):
         with pytest.raises(ValueError, match="simple assignment"):
@@ -384,7 +424,10 @@ class TestResolveArgs:
         assert rtb._resolve_args("${args.n}", {"n": 5}) == 5
 
     def test_inline_ref(self):
-        assert rtb._resolve_args("dir=${args.folder}", {"folder": "/d"}) == "dir=/d"
+        assert (
+            rtb._resolve_args("dir=${args.folder}", {"folder": "/d"})
+            == "dir=/d"
+        )
 
     def test_inline_non_string_jsonified(self):
         assert rtb._resolve_args("x=${args.n}", {"n": 5}) == "x=5"
@@ -432,7 +475,9 @@ class TestCallTool:
         monkeypatch.setattr(rtb, "get_current_agent_state", lambda: None)
         response = await rtb._call_tool("any", {})
         payload = json.loads(rtb._extract_text(response))
-        assert payload["error"] == "No agent state available in current context"
+        assert (
+            payload["error"] == "No agent state available in current context"
+        )
 
     async def test_successful_call_returns_last_chunk(self, monkeypatch):
         async def stream(tool_call, agent_state):
@@ -519,7 +564,11 @@ class TestResponsePayload:
             content=[TextBlock(type="text", text="[1, 2]")],
         )
         payload = rtb._response_payload(chunk)
-        assert payload == {"ok": True, "value": [1, 2], "_raw_blocks": list(chunk.content)}
+        assert payload == {
+            "ok": True,
+            "value": [1, 2],
+            "_raw_blocks": list(chunk.content),
+        }
 
     def test_plain_text_ok(self):
         chunk = _ok_chunk(text="hello")
@@ -576,8 +625,16 @@ class TestExtractHelpers:
 
     def test_extract_files_info(self):
         blocks = [
-            {"type": "data", "source": {"url": "file:///a.txt"}, "name": "a.txt"},
-            SimpleNamespace(type="data", source=SimpleNamespace(url="file:///b"), name=""),
+            {
+                "type": "data",
+                "source": {"url": "file:///a.txt"},
+                "name": "a.txt",
+            },
+            SimpleNamespace(
+                type="data",
+                source=SimpleNamespace(url="file:///b"),
+                name="",
+            ),
             {"type": "text", "text": "x"},
             {"type": "data", "source": None},
         ]
@@ -918,7 +975,12 @@ async def _async_ok(payload: dict | None = None, text: str | None = None):
 class TestPrepareBatchInputs:
     def test_actions_and_file_path_conflict(self):
         with pytest.raises(ValueError, match="not both"):
-            rtb._prepare_batch_inputs([{"tool_name": "x"}], "/a.json", None, 10)
+            rtb._prepare_batch_inputs(
+                [{"tool_name": "x"}],
+                "/a.json",
+                None,
+                10,
+            )
 
     def test_actions_json_string(self):
         actions, maxstep = rtb._prepare_batch_inputs(

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-import
 """Unit tests for cli/channels_cmd.py helper functions.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -184,7 +185,11 @@ class TestGetChannelConfigurators:
                 return plugin_configurator
 
         monkeypatch.setattr(cc, "get_available_channels", lambda: ("plug",))
-        monkeypatch.setattr(cc, "get_channel_registry", lambda: {"plug": _Plugin})
+        monkeypatch.setattr(
+            cc,
+            "get_channel_registry",
+            lambda: {"plug": _Plugin},
+        )
         configurators = cc.get_channel_configurators()
         assert "plug" in configurators
         display, run = configurators["plug"]
@@ -220,7 +225,7 @@ class TestGetChannelConfigurators:
 
 
 class TestDefaultPluginConfiguratorBehavior:
-    """The default configurator is exercised through the wrapped plugin path."""
+    """Default configurator exercised through wrapped plugin path."""
 
     def test_sets_enabled_and_prefix(self, monkeypatch):
         class _Plugin:

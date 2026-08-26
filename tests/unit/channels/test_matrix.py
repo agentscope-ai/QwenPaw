@@ -131,17 +131,21 @@ def mock_async_client():
     _fake_login.__signature__ = inspect.Signature(
         parameters=[
             inspect.Parameter(
-                "user", inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                "user",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
             ),
             inspect.Parameter(
-                "password", inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                "password",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
             ),
             inspect.Parameter(
-                "device_name", inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                "device_name",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 default="",
             ),
             inspect.Parameter(
-                "device_id", inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                "device_id",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 default="",
             ),
         ],

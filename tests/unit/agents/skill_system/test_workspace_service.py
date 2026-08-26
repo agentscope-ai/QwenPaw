@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name
 """Unit tests for skill_system/workspace_service.py (SkillService).
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -37,7 +38,9 @@ def ws_env(tmp_path, monkeypatch):
 
 
 def _read_manifest(workspace_dir: Path) -> dict:
-    return json.loads((workspace_dir / "skill.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (workspace_dir / "skill.json").read_text(encoding="utf-8"),
+    )
 
 
 class TestCreateSkill:
@@ -50,7 +53,9 @@ class TestCreateSkill:
         )
         assert created == "demo"
         assert (workspace_dir / "skills" / "demo" / "SKILL.md").exists()
-        assert (workspace_dir / "skills" / "demo" / "scripts" / "run.py").exists()
+        assert (
+            workspace_dir / "skills" / "demo" / "scripts" / "run.py"
+        ).exists()
         entry = _read_manifest(workspace_dir)["skills"]["demo"]
         assert entry["enabled"] is False  # create defaults to disabled
 
@@ -113,7 +118,9 @@ class TestSaveSkill:
             content=_skill_md("demo", "updated"),
         )
         assert result["success"] is True
-        assert (workspace_dir / "skills" / "demo" / "scripts" / "run.py").exists()
+        assert (
+            workspace_dir / "skills" / "demo" / "scripts" / "run.py"
+        ).exists()
         assert "updated" in (
             workspace_dir / "skills" / "demo" / "SKILL.md"
         ).read_text(encoding="utf-8")

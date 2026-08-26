@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=consider-using-with
 """Unit tests for backup/_utils/meta.py and backup/_utils/constants.py.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -78,7 +79,11 @@ class TestGetSystemInfo:
 
 class TestFinalizeBackupMeta:
     def test_populates_fields(self):
-        meta = SimpleNamespace(agent_count=0, qwenpaw_version="", system_info={})
+        meta = SimpleNamespace(
+            agent_count=0,
+            qwenpaw_version="",
+            system_info={},
+        )
         bm.finalize_backup_meta(meta, 3)
         assert meta.agent_count == 3
         assert meta.qwenpaw_version != ""

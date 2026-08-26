@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=consider-using-with,protected-access,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for backup restore planning helpers.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -107,7 +108,10 @@ class TestDedupeRestoreTargets:
 class TestCollectAgentIds:
     def test_include_agents_false(self):
         zf = zipfile.ZipFile(io.BytesIO(_zip_bytes({})))
-        ids, ws = restore_mod._collect_agent_ids(zf, _request(include_agents=False))
+        ids, ws = restore_mod._collect_agent_ids(
+            zf,
+            _request(include_agents=False),
+        )
         assert ids == []
         assert ws == set()
 
@@ -271,11 +275,17 @@ class TestResolvePreserveFlag:
     def test_defaults_to_trust_flag(self):
         req = _request(preserve_local_protected_config=None)
         assert (
-            rh.resolve_preserve_flag(req, SimpleNamespace(accepted_via_trust=True))
+            rh.resolve_preserve_flag(
+                req,
+                SimpleNamespace(accepted_via_trust=True),
+            )
             is True
         )
         assert (
-            rh.resolve_preserve_flag(req, SimpleNamespace(accepted_via_trust=False))
+            rh.resolve_preserve_flag(
+                req,
+                SimpleNamespace(accepted_via_trust=False),
+            )
             is False
         )
 
@@ -325,7 +335,9 @@ class TestCollectWorkspaceAgentsFromZip:
         assert rh.collect_workspace_agents_from_zip(zf) == {"a1", "a2"}
 
     def test_empty_zip(self):
-        zf = zipfile.ZipFile(io.BytesIO(_zip_bytes({"data/config.json": "{}"})))
+        zf = zipfile.ZipFile(
+            io.BytesIO(_zip_bytes({"data/config.json": "{}"})),
+        )
         assert rh.collect_workspace_agents_from_zip(zf) == set()
 
 

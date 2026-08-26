@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-import,unused-variable
 """Unit tests for visual compression renderer layout logic.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24

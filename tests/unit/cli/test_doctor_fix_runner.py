@@ -7,7 +7,7 @@ All filesystem mutations happen inside ``tmp_path``; module-level
 collaborators (config loading, validation, repo-root detection, npm) are
 monkeypatched on the runner module itself.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,superfluous-parens,unnecessary-lambda,unused-argument,unused-variable,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import json
@@ -95,9 +95,7 @@ class TestNormalizeCronFields:
         assert dfr._normalize_cron_fields_in_jobs_dict({}) is False
 
     def test_jobs_not_list(self):
-        assert (
-            dfr._normalize_cron_fields_in_jobs_dict({"jobs": "x"}) is False
-        )
+        assert dfr._normalize_cron_fields_in_jobs_dict({"jobs": "x"}) is False
 
     def test_non_dict_jobs_and_non_dict_schedules_skipped(self):
         data = {
@@ -451,7 +449,12 @@ class TestPlanFixes:
         with pytest.raises(ValueError, match="not writable"):
             dfr._plan_fixes(["ensure-working-dir"], target, yes=True)
 
-    def test_ensure_working_dir_noop_when_exists(self, wd, monkeypatch, no_config):
+    def test_ensure_working_dir_noop_when_exists(
+        self,
+        wd,
+        monkeypatch,
+        no_config,
+    ):
         monkeypatch.setattr(dfr, "load_config", lambda: _EmptyCfg())
         msgs, planned = dfr._plan_fixes(["ensure-working-dir"], wd, yes=True)
         assert planned == []
@@ -1353,7 +1356,7 @@ class TestRunDoctorFix:
             working_dir=wd,
         )
         assert code == 0
-        assert any("Nothing to do" in l for l in lines)
+        assert any("Nothing to do" in line for line in lines)
 
     def test_readonly_validation_only_ok_and_fail(
         self,
@@ -1381,7 +1384,7 @@ class TestRunDoctorFix:
             working_dir=wd,
         )
         assert code == 0
-        assert any("read-only jobs.json validation" in l for l in lines)
+        assert any("read-only jobs.json validation" in line for line in lines)
         monkeypatch.setattr(
             dfr,
             "check_cron_jobs_files",
@@ -1414,9 +1417,9 @@ class TestRunDoctorFix:
             working_dir=target,
         )
         assert code == 0
-        assert any("Planned operations" in l for l in lines)
-        assert any("[ensure-working-dir]" in l for l in lines)
-        assert any("(dry-run" in l for l in lines)
+        assert any("Planned operations" in line for line in lines)
+        assert any("[ensure-working-dir]" in line for line in lines)
+        assert any("(dry-run" in line for line in lines)
         assert not target.exists()
 
     def test_confirm_declined_aborts(self, wd, monkeypatch, no_config):
@@ -1432,7 +1435,7 @@ class TestRunDoctorFix:
             confirm_fn=lambda msg: False,
         )
         assert code == 0
-        assert any("Aborted" in l for l in lines)
+        assert any("Aborted" in line for line in lines)
         assert not target.exists()
 
     def test_apply_creates_dir_and_backup_session(
@@ -1453,8 +1456,8 @@ class TestRunDoctorFix:
         )
         assert code == 0
         assert target.is_dir()
-        assert any("Done." in l for l in lines)
-        assert any(l.startswith("Backup session:") for l in lines)
+        assert any("Done." in line for line in lines)
+        assert any(line.startswith("Backup session:") for line in lines)
         backups = list((target / dfr.BACKUP_SUBDIR).iterdir())
         assert len(backups) == 1
         meta = json.loads((backups[0] / "meta.json").read_text())

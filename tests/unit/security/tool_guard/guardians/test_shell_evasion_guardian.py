@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-import,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for ShellEvasionGuardian quote-aware checks.
 
 Coverage-driven backfill (batch 4, coverage-first per the 2026-08-24
@@ -156,18 +157,14 @@ class TestCheckBackslashWhitespace:
     def test_escaped_space_detected(self):
         finding = seg._check_backslash_escaped_whitespace("echo\\ test")
         assert finding is not None
-        assert (
-            finding.rule_id == "SHELL_EVASION_BACKSLASH_WHITESPACE"
-        )
+        assert finding.rule_id == "SHELL_EVASION_BACKSLASH_WHITESPACE"
 
     def test_escaped_tab_detected(self):
         finding = seg._check_backslash_escaped_whitespace("echo\\\tx")
         assert finding is not None
 
     def test_escaped_space_inside_double_quotes_clean(self):
-        assert (
-            seg._check_backslash_escaped_whitespace('echo "a\\ b"') is None
-        )
+        assert seg._check_backslash_escaped_whitespace('echo "a\\ b"') is None
 
     def test_normal_command_clean(self):
         assert seg._check_backslash_escaped_whitespace("ls -la") is None
@@ -265,8 +262,7 @@ class TestShellEvasionGuardian:
         )
         assert len(findings) >= 1
         assert any(
-            f.rule_id == "SHELL_EVASION_COMMAND_SUBSTITUTION"
-            for f in findings
+            f.rule_id == "SHELL_EVASION_COMMAND_SUBSTITUTION" for f in findings
         )
 
     def test_disabled_checks_skipped(self):

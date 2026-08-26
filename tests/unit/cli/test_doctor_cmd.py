@@ -8,7 +8,7 @@ entry points ``doctor`` (``run_doctor_checks``) and ``doctor fix``
 ``doctor_cmd`` namespace is monkeypatched so the whole flow runs
 in-process with no network or disk access to real state.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,too-many-public-methods,unnecessary-lambda,unused-argument,unused-import,unused-variable  # noqa: E501
 from __future__ import annotations
 
 import json
@@ -78,7 +78,10 @@ class TestIsConsoleStaticPositiveNote:
         assert dc._is_console_static_positive_note(line) is False
 
     def test_npm_on_path_found(self):
-        assert dc._is_console_static_positive_note("npm on PATH: /usr/bin/npm") is True
+        assert (
+            dc._is_console_static_positive_note("npm on PATH: /usr/bin/npm")
+            is True
+        )
 
     def test_npm_on_path_not_found(self):
         assert (
@@ -131,23 +134,43 @@ class TestHttpGet:
 
 class TestProviderIsConfigured:
     def test_local(self):
-        p = SimpleNamespace(is_local=True, base_url="", require_api_key=True, api_key="")
+        p = SimpleNamespace(
+            is_local=True,
+            base_url="",
+            require_api_key=True,
+            api_key="",
+        )
         assert dc._provider_is_configured(p) == (True, "")
 
     def test_missing_base_url(self):
-        p = SimpleNamespace(is_local=False, base_url="  ", require_api_key=False, api_key="")
+        p = SimpleNamespace(
+            is_local=False,
+            base_url="  ",
+            require_api_key=False,
+            api_key="",
+        )
         ok, why = dc._provider_is_configured(p)
         assert ok is False
         assert "base_url" in why
 
     def test_missing_api_key(self):
-        p = SimpleNamespace(is_local=False, base_url="http://x", require_api_key=True, api_key=" ")
+        p = SimpleNamespace(
+            is_local=False,
+            base_url="http://x",
+            require_api_key=True,
+            api_key=" ",
+        )
         ok, why = dc._provider_is_configured(p)
         assert ok is False
         assert "API key" in why
 
     def test_ok(self):
-        p = SimpleNamespace(is_local=False, base_url="http://x", require_api_key=True, api_key="k")
+        p = SimpleNamespace(
+            is_local=False,
+            base_url="http://x",
+            require_api_key=True,
+            api_key="k",
+        )
         assert dc._provider_is_configured(p) == (True, "")
 
 

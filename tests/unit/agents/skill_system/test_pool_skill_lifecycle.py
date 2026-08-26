@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name
 """Pool-level skill unit tests (skill_system service layer).
 
 Regression scope (后端单测缺口补齐第 1 批，A 档)：
@@ -105,9 +107,9 @@ class TestSavePreservesFiles:
         assert result["mode"] == "edit"
 
         skill_dir = pool_dir / "demo"
-        assert (skill_dir / "scripts" / "run.py").exists(), (
-            "保存 SKILL.md 不得删除技能目录下的脚本（#2887 簇）"
-        )
+        assert (
+            skill_dir / "scripts" / "run.py"
+        ).exists(), "保存 SKILL.md 不得删除技能目录下的脚本（#2887 簇）"
         assert (skill_dir / "references" / "doc.md").exists()
         assert "updated" in (skill_dir / "SKILL.md").read_text(
             encoding="utf-8",
@@ -145,9 +147,9 @@ class TestRenamePreservesFiles:
         assert result["name"] == "new_name"
 
         new_dir = pool_dir / "new_name"
-        assert (new_dir / "scripts" / "helper.sh").exists(), (
-            "重命名必须保留目录内容（#2770）"
-        )
+        assert (
+            new_dir / "scripts" / "helper.sh"
+        ).exists(), "重命名必须保留目录内容（#2770）"
         assert (new_dir / "data.txt").exists()
         assert not (pool_dir / "old_name").exists()
 
@@ -200,9 +202,7 @@ class TestListAllSkills:
 
         skills = service.list_all_skills()
         names = [skill.name for skill in skills]
-        assert names.count("shadowed") == 1, (
-            "主池与额外根同名技能只能计一次（#1281）"
-        )
+        assert names.count("shadowed") == 1, "主池与额外根同名技能只能计一次（#1281）"
         listed = next(s for s in skills if s.name == "shadowed")
         assert listed.description == "primary", "主池条目必须胜出"
 
@@ -228,9 +228,7 @@ class TestReconcilePreservesUserState:
         skill_registry.reconcile_pool_manifest()
 
         entry = _read_pool_manifest(pool_dir)["skills"]["tagged"]
-        assert entry["tags"] == ["ops", "demo"], (
-            "协调（重启路径）不得丢失 tags（#6537）"
-        )
+        assert entry["tags"] == ["ops", "demo"], "协调（重启路径）不得丢失 tags（#6537）"
         assert entry["config"] == {"foo": "bar"}
 
     def test_reconcile_adds_new_and_removes_gone(self, pool_env):
@@ -387,9 +385,7 @@ class TestWorkspaceReconcilePreservesEnabled:
         entry = json.loads(manifest_path.read_text(encoding="utf-8"))[
             "skills"
         ]["disabled_skill"]
-        assert entry["enabled"] is False, (
-            "升级/重启协调不得把已禁用技能重置为启用（#4807）"
-        )
+        assert entry["enabled"] is False, "升级/重启协调不得把已禁用技能重置为启用（#4807）"
 
     def test_enabled_and_channels_preserved_after_reconcile(
         self,
@@ -411,9 +407,7 @@ class TestWorkspaceReconcilePreservesEnabled:
             "skills"
         ]["disabled_skill"]
         assert entry["enabled"] is True
-        assert entry["channels"] == ["dingtalk"], (
-            "协调不得丢失渠道启用范围（#1693 相关）"
-        )
+        assert entry["channels"] == ["dingtalk"], "协调不得丢失渠道启用范围（#1693 相关）"
 
 
 class TestZipImportValidation:
@@ -441,9 +435,7 @@ class TestZipImportValidation:
             service.import_from_zip(self._make_zip(bad_md))
 
         manifest = _read_pool_manifest(pool_dir)
-        assert manifest["skills"] == {}, (
-            "坏 frontmatter 不得占用命名空间（#5474）"
-        )
+        assert manifest["skills"] == {}, "坏 frontmatter 不得占用命名空间（#5474）"
         assert not (pool_dir / "broken_skill").exists()
 
     def test_valid_frontmatter_zip_imports(self, pool_env):
@@ -458,6 +450,5 @@ def test_working_dir_is_isolated(pool_env):
     """夹具自检：测试池必须落在临时目录，不得污染真实工作区。"""
     _service, pool_dir = pool_env
     assert str(pool_dir).startswith("/tmp"), (
-        f"技能池未隔离到临时目录: {pool_dir}（真实 WORKING_DIR="
-        f"{WORKING_DIR}）"
+        f"技能池未隔离到临时目录: {pool_dir}（真实 WORKING_DIR=" f"{WORKING_DIR}）"
     )

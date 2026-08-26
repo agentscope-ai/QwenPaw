@@ -107,10 +107,7 @@ _RM_CATASTROPHIC_TARGET = (
     # macOS firmlink prefix ``/System/Volumes/Data/...`` can fall through
     # to resolve + _logical_posix_parts (same policy as /Users, /tmp, …).
     + r"|/(?:boot|dev|applications|etc|usr|bin|sbin|lib|"
-    r"opt|windows|library|proc|sys)"
-    + r"(?:/|"
-    + _PATH_END
-    + r")"
+    r"opt|windows|library|proc|sys)" + r"(?:/|" + _PATH_END + r")"
     # /root is the root user's home directory, not a plain system tree.
     # Match /root itself and /root/* (home-content wipe) but NOT
     # /root/project (workspace subpath under root's home).
