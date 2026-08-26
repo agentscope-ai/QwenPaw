@@ -386,7 +386,7 @@ describe("LocalModelManageModal", () => {
 
       // 应该显示自定义模型标题（翻译键）
       expect(screen.getByText("models.localCustomModelTitle")).toBeInTheDocument();
-      
+
       // 应该显示输入框
       const input = screen.getByPlaceholderText("models.localRepoIdPlaceholder");
       expect(input).toBeInTheDocument();
@@ -476,7 +476,7 @@ describe("LocalModelManageModal", () => {
 
       // 应该显示高级配置标题（翻译键）
       expect(screen.getByText("models.localAdvancedConfigTitle")).toBeInTheDocument();
-      
+
       // 但不应显示配置字段
       expect(screen.queryByText("models.localMaxContextLengthLabel")).not.toBeInTheDocument();
     });
@@ -727,7 +727,7 @@ describe("LocalModelManageModal", () => {
         downloaded_bytes: 1000000,
         total_bytes: 5000000,
       };
-      
+
       vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(downloadingProgress);
 
       renderModal();
