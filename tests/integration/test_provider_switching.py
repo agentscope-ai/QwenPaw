@@ -227,10 +227,14 @@ def test_custom_provider_discovery_populates_model_catalog(
             )
             assert listed.status_code == 200, listed.text
             discovered = next(
-                item for item in listed.json() if item.get("id") == provider_id
+                (
+                    item
+                    for item in listed.json()
+                    if item.get("id") == provider_id
+                ),
             )
             if not discovered.get("models_syncing") and discovered.get(
-                "discovered_models"
+                "discovered_models",
             ):
                 break
             time.sleep(0.1)
@@ -238,7 +242,7 @@ def test_custom_provider_discovery_populates_model_catalog(
         assert discovered is not None
         assert discovered["models_syncing"] is False
         assert [model["id"] for model in discovered["discovered_models"]] == [
-            "mock-model"
+            "mock-model",
         ]
         assert discovered["models_last_synced_at"]
         assert discovered["models_last_sync_error"] is None
