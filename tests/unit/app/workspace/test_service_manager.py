@@ -614,3 +614,85 @@ async def test_workspace_cleans_up_when_start_is_cancelled(
     closed.assert_awaited_once_with()
     assert workspace._started is False
     assert workspace._start_attempted is False
+
+
+@pytest.mark.asyncio
+async def test_workspace_cleanup_survives_repeated_cancellation(
+    monkeypatch,
+    tmp_path,
+):
+    start_entered = asyncio.Event()
+    close_entered = asyncio.Event()
+    release_close = asyncio.Event()
+    close_finished = asyncio.Event()
+
+    class _BlockingService:
+        async def start(self) -> None:
+            start_entered.set()
+            await asyncio.Event().wait()
+
+        async def close(self) -> None:
+            close_entered.set()
+            await release_close.wait()
+            close_finished.set()
+
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager = ServiceManager(workspace)
+    workspace._service_manager.register(
+        ServiceDescriptor(
+            name="blocking",
+            service_class=_BlockingService,
+            start_method="start",
+            stop_method="close",
+            concurrent_init=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config",
+        lambda _agent_id: SimpleNamespace(),
+    )
+    monkeypatch.setattr(workspace, "_migrate_legacy_weixin_data", lambda: None)
+
+    start_task = asyncio.create_task(workspace.start())
+    await start_entered.wait()
+    start_task.cancel("initial cancellation")
+    await close_entered.wait()
+    start_task.cancel("repeated cancellation")
+    await asyncio.sleep(0)
+
+    assert not start_task.done()
+    release_close.set()
+    with pytest.raises(asyncio.CancelledError, match="initial cancellation"):
+        await start_task
+
+    assert close_finished.is_set()
+    assert workspace._started is False
+    assert workspace._start_attempted is False
+
+
+@pytest.mark.asyncio
+async def test_synchronous_stop_does_not_block_event_loop():
+    close_entered = threading.Event()
+    release_close = threading.Event()
+    state = SimpleNamespace(released_by_event_loop=False)
+
+    class _BlockingSyncService:
+        def close(self) -> None:
+            close_entered.set()
+            state.released_by_event_loop = release_close.wait(timeout=0.25)
+
+    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager.register(ServiceDescriptor(name="sync", stop_method="close"))
+    manager.services["sync"] = _BlockingSyncService()
+
+    async def release_from_event_loop() -> None:
+        while not close_entered.is_set():
+            await asyncio.sleep(0)
+        release_close.set()
+
+    await asyncio.gather(
+        manager.stop_all(final=True),
+        release_from_event_loop(),
+    )
+
+    assert state.released_by_event_loop is True

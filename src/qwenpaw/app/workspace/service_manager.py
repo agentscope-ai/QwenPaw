@@ -639,7 +639,7 @@ class ServiceManager:
                     if asyncio.iscoroutinefunction(stop_fn):
                         await stop_fn()
                     else:
-                        stop_fn()
+                        await self._run_sync_to_completion(stop_fn)
                     logger.debug(
                         f"Service '{name}' stopped "
                         f"for {self.workspace.agent_id}",

@@ -17,6 +17,7 @@ from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
+from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
@@ -620,7 +621,14 @@ class Workspace:
                 )
             # Clean up partially started components
             try:
-                await self.stop(final=True, preserve_reused=True)
+                await run_async_to_completion(
+                    self.stop(final=True, preserve_reused=True),
+                )
+            except asyncio.CancelledError:
+                # A later cancellation request was delayed until cleanup
+                # completed. Preserve the original startup cancellation.
+                if not isinstance(error, asyncio.CancelledError):
+                    raise
             except BaseException as cleanup_error:
                 logger.warning(
                     "Failed to clean up partially started workspace "

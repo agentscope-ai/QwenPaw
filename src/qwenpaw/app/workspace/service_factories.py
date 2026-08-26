@@ -8,7 +8,7 @@ improve testability and code organization.
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 from ...utils.io_utils import run_sync_io
 
@@ -18,25 +18,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _publish_service(
-    ws: "Workspace",
-    name: str,
-    service: Any,
-    publish: Optional[Callable[[Any], None]],
-) -> None:
-    """Publish ownership through ServiceManager, with direct-call fallback."""
-    if publish is not None:
-        publish(service)
-    else:
-        # Preserve direct factory calls used by focused unit tests and other
-        # internal callers outside ServiceManager.
-        getattr(ws, "_service_manager").services[name] = service
-
-
 async def create_driver_service(
     ws: "Workspace",
     _service,
-    publish: Optional[Callable[[Any], None]] = None,
+    publish: Callable[[Any], None],
 ):
     """Create and initialize the per-workspace DriverManager.
 
@@ -96,7 +81,7 @@ async def create_driver_service(
     )
     # Publish immediately after construction and before migration/start can
     # suspend.  Cancellation can then always find and shut down the manager.
-    _publish_service(ws, "driver_manager", driver_manager, publish)
+    publish(driver_manager)
     # Future Driver protocols should be registered here together with their
     # endpoint validator and tests.  This PR intentionally keeps the concrete
     # runtime surface to MCP while leaving DriverManager protocol-neutral.
@@ -113,7 +98,7 @@ async def create_driver_service(
 async def create_driver_config_watcher(
     ws: "Workspace",
     _service,
-    publish: Optional[Callable[[Any], None]] = None,
+    publish: Callable[[Any], None],
 ):
     """Create watcher for manual DriverCard edits.
 
@@ -132,7 +117,7 @@ async def create_driver_config_watcher(
         driver_manager,
         ws.workspace_dir / "drivers",
     )
-    _publish_service(ws, "driver_config_watcher", watcher, publish)
+    publish(watcher)
     return watcher
     # pylint: enable=protected-access
 
@@ -140,7 +125,7 @@ async def create_driver_config_watcher(
 async def create_chat_service(
     ws: "Workspace",
     service,
-    publish: Optional[Callable[[Any], None]] = None,
+    publish: Callable[[Any], None],
 ):
     """Create chat manager, or reuse existing one.
 
@@ -171,7 +156,7 @@ async def create_chat_service(
             repo=chat_repo,
             on_session_closed=close_browser_session,
         )
-        _publish_service(ws, "chat_manager", cm, publish)
+        publish(cm)
         logger.info(f"ChatManager created: {chats_path}")
     cm.set_on_session_closed(close_browser_session)
 
@@ -196,7 +181,7 @@ async def create_chat_service(
 async def create_channel_service(
     ws: "Workspace",
     _,
-    publish: Optional[Callable[[Any], None]] = None,
+    publish: Callable[[Any], None],
 ):
     """Create channel manager if configured.
 
@@ -238,7 +223,7 @@ async def create_channel_service(
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
     )
-    _publish_service(ws, "channel_manager", cm, publish)
+    publish(cm)
 
     cm.set_workspace(ws)
     from ..approvals import get_approval_service
@@ -256,7 +241,7 @@ async def create_channel_service(
 async def create_mail_monitor_service(
     ws: "Workspace",
     _,
-    publish: Optional[Callable[[Any], None]] = None,
+    publish: Callable[[Any], None],
 ):
     """Create the mail push monitor when enabled for this agent.
 
@@ -309,7 +294,7 @@ async def create_mail_monitor_service(
         workspace=ws,
         mail_config=mail,
     )
-    _publish_service(ws, "mail_monitor", monitor, publish)
+    publish(monitor)
     return monitor
     # pylint: enable=protected-access
 
@@ -317,7 +302,7 @@ async def create_mail_monitor_service(
 async def create_agent_config_watcher(
     ws: "Workspace",
     _,
-    publish: Optional[Callable[[Any], None]] = None,
+    publish: Callable[[Any], None],
 ):
     """Create agent config watcher if channel/cron exists.
 
@@ -348,6 +333,6 @@ async def create_agent_config_watcher(
         workspace_dir=ws.workspace_dir,
         workspace=ws,
     )
-    _publish_service(ws, "agent_config_watcher", watcher, publish)
+    publish(watcher)
     return watcher
     # pylint: enable=protected-access
