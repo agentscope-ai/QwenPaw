@@ -95,12 +95,26 @@ jobs:
 
       - name: Stage Tauri Windows installer and updater assets
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
+          $output = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            $installer = Get-ChildItem `
+              "console/src-tauri/target/release/bundle/nsis/*-setup.exe" |
+              Select-Object -First 1
+            if (-not $installer) {
+              throw "No Tauri Windows installer found"
+            }
+            Copy-Item -Force $installer.FullName $output
+            Write-Host "Staged installer without updater metadata: $output"
+            exit 0
+          }
           python scripts/pack-tauri/generate_update_manifest.py stage `
             --bundle-dir console/src-tauri/target/release/bundle/nsis `
             --pattern '*-setup.exe' `
             --target windows-x86_64 `
-            --output "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe" `
+            --output $output `
             --pubkey-config console/src-tauri/tauri.version.conf.json
 
       - name: Verify desktop (Tauri Windows)
@@ -154,6 +168,7 @@ jobs:
           path: dist/QwenPaw-Tauri-*-Windows-setup.exe
 
       - name: Upload Tauri Windows updater metadata
+        if: hashFiles('dist/QwenPaw-Tauri-*-Windows-setup.exe.sig') != ''
         uses: actions/upload-artifact@v4
         with:
           name: tauri-updater-meta-windows
@@ -270,6 +285,7 @@ jobs:
           path: dist/QwenPaw-Tauri-*-macOS.zip
 
       - name: Upload Tauri macOS updater metadata
+        if: hashFiles('dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig') != ''
         uses: actions/upload-artifact@v4
         with:
           name: tauri-updater-meta-macos

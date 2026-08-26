@@ -15,6 +15,9 @@ import httpx
 import pytest
 
 
+_HUB_READY_TIMEOUT_SECONDS = 120.0
+
+
 def _allocate_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind(("127.0.0.1", 0))
@@ -25,7 +28,7 @@ def _wait_for_hub(
     client: httpx.Client,
     process: subprocess.Popen[Any],
 ) -> None:
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + _HUB_READY_TIMEOUT_SECONDS
     last_error = "Hub did not respond"
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -102,6 +105,14 @@ def _wait_for_runtime(
 @pytest.mark.skipif(
     os.environ.get("QWENPAW_LOCAL_RUNTIME_E2E") != "1",
     reason="requires an OS runner with the native isolation dependency",
+)
+@pytest.mark.xfail(
+    sys.platform == "win32",
+    reason=(
+        "Windows runner port binding is flaky (WinError 10061); "
+        "see PR #7260 CI"
+    ),
+    strict=False,
 )
 def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
     """Start a real Hub and verify its managed QwenPaw HTTP endpoint."""

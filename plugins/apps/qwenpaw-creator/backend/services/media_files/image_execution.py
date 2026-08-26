@@ -88,7 +88,11 @@ from services.media_files.visual_design_readiness import (
 from services.observability import report_error
 from services.project_files.remote_cache import public_source_url
 from services.project_files.store import ProjectSnapshot
-from services.run_review.media_review import schedule_media_review
+from services.run_review.media_review import (
+    release_media_review_reservation,
+    reserve_media_review,
+    schedule_media_review,
+)
 from services.runtime_files.atomic_store import (
     AtomicJsonRecordStore,
     canonical_json_bytes,
@@ -876,12 +880,13 @@ def _resolve_request(
         ]
         model_label = image_model_name.strip() or "当前图片模型"
         raise ImageReferenceBudgetError(
-            "IMAGE_REFERENCE_BUDGET_EXCEEDED: 执行层解析 Project 自动引用与"
-            f"本次显式引用后，共得到 {len(urls)} 张参考图，但模型 "
-            f"{model_label} 单次最多接受 {reference_limit} 张。执行层没有静默"
-            "截断，也没有调用 provider。请先 read_project，删除不必要的 Project "
-            "引用字段或缩减 referenceVersionIds/referenceImageUrls，再用已变更的"
-            "参数重试。",
+            f"IMAGE_REFERENCE_BUDGET_EXCEEDED: 本次解析后共 {len(urls)} 张"
+            f"参考图，但模型 {model_label} 单次最多接受 {reference_limit} 张。"
+            "执行层没有静默截断，也没有调用 provider。参考图由你显式指定时"
+            "（referenceVersionIds / storyboard_reference_version_ids），"
+            "请直接把显式列表缩减到上限内（多角色同框优先保留阵容图）；"
+            "未显式指定时是自动引用链超限，请显式写一份不超过上限的参考"
+            "列表，或精简 Element 的引用字段后重试。",
             details={
                 "modelName": model_label,
                 "limit": reference_limit,
@@ -2338,6 +2343,11 @@ class FileImageExecutionService:
         if not isinstance(task.result, dict):
             raise StorageIntegrityError("RUNNING 图片 Task 缺少可重放 result")
         result = dict(task.result)
+        review_reservation = reserve_media_review(
+            self.services,
+            project_id=task.project_id,
+            published_result=result,
+        )
 
         def commit_if_live() -> tuple[str, TaskRecord, ProjectSnapshot | None]:
             # Cancellation and Project import share one lifecycle decision.
@@ -2420,10 +2430,15 @@ class FileImageExecutionService:
                     )
                 return "SUCCEEDED", latest, snapshot
 
-        outcome, current_task, snapshot = await asyncio.to_thread(
-            commit_if_live,
-        )
+        try:
+            outcome, current_task, snapshot = await asyncio.to_thread(
+                commit_if_live,
+            )
+        except BaseException:
+            release_media_review_reservation(review_reservation)
+            raise
         if outcome == "CANCELLED":
+            release_media_review_reservation(review_reservation)
             await self._quarantine(
                 task=current_task,
                 ids=ids,
@@ -2433,6 +2448,7 @@ class FileImageExecutionService:
             )
             raise ConflictError("图片 Task 已取消，迟到结果已隔离")
         if outcome == "STALE":
+            release_media_review_reservation(review_reservation)
             await self._quarantine(
                 task=current_task,
                 ids=ids,
@@ -2442,29 +2458,41 @@ class FileImageExecutionService:
             )
             raise ConflictError("图片生成期间 Project 已变化，结果已隔离")
         if outcome != "SUCCEEDED" or snapshot is None:
+            release_media_review_reservation(review_reservation)
             raise ConflictError(f"图片 Task 已终止: {outcome}")
-        await asyncio.to_thread(self.services.poller.note_commit, snapshot)
-        success = (
-            current_task.result
-            if isinstance(current_task.result, dict)
-            else {
-                **result,
-                "projectEtag": snapshot.etag,
-                "projectGeneration": snapshot.generation,
-            }
-        )
-        await self._finish_run(
-            task.project_id,
-            ids["run_id"],
-            SpecialistRunStatus.SUCCEEDED,
-            summary=(
-                "已生成并选择 "
-                + ArtifactVersion.model_validate(
-                    success["artifactVersion"],
-                ).name
-            ),
-        )
-        return self._result_from_task(current_task, replayed=replayed)
+        try:
+            await asyncio.to_thread(self.services.poller.note_commit, snapshot)
+            success = (
+                current_task.result
+                if isinstance(current_task.result, dict)
+                else {
+                    **result,
+                    "projectEtag": snapshot.etag,
+                    "projectGeneration": snapshot.generation,
+                }
+            )
+            await self._finish_run(
+                task.project_id,
+                ids["run_id"],
+                SpecialistRunStatus.SUCCEEDED,
+                summary=(
+                    "已生成并选择 "
+                    + ArtifactVersion.model_validate(
+                        success["artifactVersion"],
+                    ).name
+                ),
+            )
+            return self._result_from_task(
+                current_task,
+                replayed=replayed,
+                review_reservation=review_reservation,
+            )
+        except BaseException:
+            # A commit-listener wake may already have observed this fence. Do
+            # not strand it if post-commit work fails before ownership moves
+            # to the detached review task.
+            release_media_review_reservation(review_reservation)
+            raise
 
     @staticmethod
     def _result_is_converged(
@@ -2791,25 +2819,36 @@ class FileImageExecutionService:
                 )
                 return commit.snapshot
 
-        snapshot = await asyncio.to_thread(commit_rescue)
-        if snapshot is None:
-            return None
-        await asyncio.to_thread(self.services.poller.note_commit, snapshot)
-        logger.info(
-            "rescued quarantined image result | task=%s target=%s",
-            task.task_id,
-            result.get("targetRef"),
-        )
-        published = {
-            **result,
-            "projectEtag": snapshot.etag,
-            "projectGeneration": snapshot.generation,
-        }
-        schedule_media_review(
+        review_reservation = reserve_media_review(
             self.services,
             project_id=task.project_id,
-            published_result=published,
+            published_result=result,
         )
+        try:
+            snapshot = await asyncio.to_thread(commit_rescue)
+            if snapshot is None:
+                release_media_review_reservation(review_reservation)
+                return None
+            await asyncio.to_thread(self.services.poller.note_commit, snapshot)
+            logger.info(
+                "rescued quarantined image result | task=%s target=%s",
+                task.task_id,
+                result.get("targetRef"),
+            )
+            published = {
+                **result,
+                "projectEtag": snapshot.etag,
+                "projectGeneration": snapshot.generation,
+            }
+            schedule_media_review(
+                self.services,
+                project_id=task.project_id,
+                published_result=published,
+                reservation_token=review_reservation,
+            )
+        except BaseException:
+            release_media_review_reservation(review_reservation)
+            raise
         return FileImageExecutionResult(
             task_id=task.task_id,
             run_id=str(task.run_id or ""),
@@ -2922,6 +2961,7 @@ class FileImageExecutionService:
         task: TaskRecord,
         *,
         replayed: bool,
+        review_reservation: str | None = None,
     ) -> FileImageExecutionResult:
         result = task.result if isinstance(task.result, dict) else {}
         try:
@@ -2942,6 +2982,7 @@ class FileImageExecutionService:
             self.services,
             project_id=task.project_id,
             published_result=result,
+            reservation_token=review_reservation,
         )
         return FileImageExecutionResult(
             task_id=task.task_id,

@@ -25,7 +25,9 @@ from typing import Any, Mapping
 from uuid import NAMESPACE_URL, uuid5
 
 from domain.errors import ValidationError
+from models import config as model_config
 from models import tts_model
+from models.tts_capabilities import require_capability
 from services.project_files.assets import AssetAlreadyExists, AssetFileStore
 from services.project_files.commit import ProjectCommitError
 from services.project_files.facade import CreatorFileServices
@@ -311,6 +313,92 @@ def _register_audio_asset(
     )
 
 
+def _requested_tts_identity(
+    *,
+    voice: str,
+    voice_id: str | None,
+    voice_model: str,
+) -> tuple[str, str]:
+    """Resolve the provider-visible model and voice without making a call."""
+
+    capability = require_capability(model_config.get_tts_model_name())
+    if voice_id:
+        return (voice_model or capability.clone_model(), voice_id)
+    return (capability.model, voice or model_config.get_tts_voice())
+
+
+def _find_reusable_tts_asset(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    text: str,
+    model: str,
+    voice: str,
+    speech_rate: float,
+    character_entity_id: str,
+) -> FileTtsExecutionResult | None:
+    """Reuse an exact semantic TTS result before another paid provider call.
+
+    Agent retries do not necessarily preserve a tool-call idempotency key.  A
+    stale planning turn can therefore ask for the same narration again under a
+    new key.  TTS source versions carry enough immutable request metadata to
+    make that retry safe and free.  Older versions pre-dating ``textSha256``
+    are reusable only when their complete text fits in ``textPreview``.
+    """
+
+    snapshot = services.projects.read(project_id)
+    project = snapshot.project
+    expected_text_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    for version in reversed(project.assets.source_versions_by_id.values()):
+        metadata = version.metadata
+        if metadata.get("sourceKind") != "tts_generation":
+            continue
+        stored_digest = str(metadata.get("textSha256") or "")
+        if stored_digest:
+            if stored_digest != expected_text_digest:
+                continue
+        elif len(text) > 120 or str(metadata.get("textPreview") or "") != text:
+            continue
+        try:
+            stored_rate = float(metadata.get("speechRate", 1.0))
+        except (TypeError, ValueError):
+            continue
+        stored_identity = (
+            str(metadata.get("model") or ""),
+            str(metadata.get("voice") or ""),
+            stored_rate,
+            str(metadata.get("characterEntityId") or ""),
+        )
+        requested_identity = (model, voice, speech_rate, character_entity_id)
+        if stored_identity != requested_identity:
+            continue
+        if version.media_kind != "audio" or version.file_id is None:
+            continue
+        indexed = project.assets.files_by_id.get(version.file_id)
+        if indexed is None:
+            continue
+        # Do not turn a missing/corrupt source into a successful semantic
+        # replay.  The verified read is small relative to a provider call and
+        # makes the returned exact version immediately consumable.
+        AssetFileStore(
+            services.projects.project_root(project_id),
+        ).read_verified(
+            indexed,
+        )
+        return FileTtsExecutionResult(
+            source_asset_version_id=version.version_id,
+            logical_asset_id=version.logical_asset_id,
+            file_id=version.file_id,
+            duration_seconds=version.duration_seconds,
+            voice=voice,
+            model=model,
+            project_etag=snapshot.etag,
+            project_generation=snapshot.generation,
+            replayed=True,
+        )
+    return None
+
+
 async def execute_file_tts_command(
     services: CreatorFileServices,
     *,
@@ -346,6 +434,32 @@ async def execute_file_tts_command(
             # A created voice only speaks through the model it is bound to.
             voice_model = entity.voice.target_model
 
+    requested_model, requested_voice = _requested_tts_identity(
+        voice=voice,
+        voice_id=voice_id,
+        voice_model=voice_model,
+    )
+    normalized_rate = 1.0 if speech_rate is None else speech_rate
+    reusable = await asyncio.to_thread(
+        _find_reusable_tts_asset,
+        services,
+        project_id=project_id,
+        text=text,
+        model=requested_model,
+        voice=requested_voice,
+        speech_rate=normalized_rate,
+        character_entity_id=character_entity_id,
+    )
+    if reusable is not None:
+        logger.info(
+            "TTS semantic replay: project=%s version=%s model=%s voice=%s",
+            project_id,
+            reusable.source_asset_version_id,
+            reusable.model,
+            reusable.voice,
+        )
+        return reusable
+
     synthesis = await tts_model.synthesize(
         text,
         voice=voice or None,
@@ -362,6 +476,7 @@ async def execute_file_tts_command(
         "model": synthesis.model,
         "voice": synthesis.voice,
         "textPreview": text[:120],
+        "textSha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "characters": synthesis.characters,
     }
     if speech_rate is not None and speech_rate != 1.0:

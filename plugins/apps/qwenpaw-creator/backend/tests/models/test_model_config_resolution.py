@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 """Config-tree resolution: env fallbacks, request overrides, turn limits."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -16,11 +17,18 @@ from models.config import (
     get_specialist_max_model_turns,
     scale_mainline_max_model_turns,
 )
+from models.image.base import _mask_key as mask_image_api_key
 from models.image.dashscope_provider import DashScopeImageModel
 from models.image.openai_provider import OpenAIImageModel
 
-
 pytestmark = pytest.mark.unit
+
+
+def test_image_api_key_mask_never_reveals_a_secret_fragment() -> None:
+    secret = "sk-sensitive-prefix-and-private-suffix"
+
+    assert mask_image_api_key(secret) == "[redacted]"
+    assert mask_image_api_key("") == "(empty)"
 
 
 def _patch_user_config(monkeypatch, data: dict) -> None:
@@ -71,6 +79,35 @@ def test_explicit_image_backend_still_wins(monkeypatch) -> None:
     monkeypatch.setenv("IMAGE_MODEL", "OPENAI")
     monkeypatch.setenv("IMAGE_MODEL_NAME", "qwen-image-2.0-pro")
     assert image_models.get_image_backend() == "OPENAI"
+
+
+def test_persisted_image_backend_log_never_contains_api_key(
+    monkeypatch,
+) -> None:
+    secret = "sk-creator-must-never-reach-logs"
+    _patch_user_config(
+        monkeypatch,
+        {
+            "image": {
+                "enabled": True,
+                "protocol": "DashScope（百炼）",
+                "model_name": "qwen-image-2.0-pro",
+                "base_url": "https://workspace.example/api/v1",
+                "api_key": secret,
+            },
+        },
+    )
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+    emitted: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        image_models.logger,
+        "info",
+        lambda *args, **_kwargs: emitted.append(args),
+    )
+
+    assert image_models.get_image_backend() == "DASHSCOPE"
+    assert secret not in repr(emitted)
+    assert "workspace.example" in repr(emitted)
 
 
 def test_unconfigured_concurrency_follows_the_scheduler_dispatch_cap(
@@ -140,6 +177,44 @@ def test_wan_video_urls_accept_api_root_or_full_endpoint(monkeypatch) -> None:
     assert (
         config.get_video_task_url("task-2")
         == "https://workspace.example/api/v1/tasks/task-2"
+    )
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    ["wan2.7", "wan3.0-video", "kling/kling-v3-video-generation"],
+)
+def test_bailian_video_models_accept_legacy_and_workspace_api_roots(
+    monkeypatch,
+    model_name,
+) -> None:
+    monkeypatch.setattr(config, "get_video_backend", lambda: "wan")
+    monkeypatch.setattr(
+        config,
+        "get_video_model_name",
+        lambda: model_name,
+    )
+    monkeypatch.setattr(
+        config,
+        "get_video_base_url",
+        lambda: "https://dashscope.aliyuncs.com/api/v1",
+    )
+    assert config.get_video_submit_url() == (
+        "https://dashscope.aliyuncs.com/api/v1/"
+        "services/aigc/video-generation/video-synthesis"
+    )
+
+    monkeypatch.setattr(
+        config,
+        "get_video_base_url",
+        lambda: "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+    )
+    assert config.get_video_submit_url() == (
+        "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/"
+        "services/aigc/video-generation/video-synthesis"
+    )
+    assert config.get_video_task_url("task-wan3") == (
+        "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1/tasks/task-wan3"
     )
 
 

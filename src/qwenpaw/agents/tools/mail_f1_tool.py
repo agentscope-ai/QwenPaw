@@ -64,9 +64,11 @@ async def activate_f1_exploration_mode() -> ToolChunk:
                 TextBlock(
                     type="text",
                     text=(
-                        "F1 探索模式激活失败：当前请求缺少 session_id，"
-                        "无法登记逐步审批状态。请按最严格标准自行处理"
-                        "（不确定的操作一律不要执行）。"
+                        "Failed to activate F1 Exploration Mode: the current "
+                        "request has no session_id, so the step-by-step "
+                        "approval state could not be registered. Apply the "
+                        "strictest safety standard yourself, and do not "
+                        "perform any action if uncertain."
                     ),
                 ),
             ],
@@ -79,16 +81,19 @@ async def activate_f1_exploration_mode() -> ToolChunk:
             TextBlock(
                 type="text",
                 text=(
-                    "F1 探索模式已激活。请按以下方式工作：\n"
-                    "1. 先分析：代入收件人（用户）的身份通读这封邮件，"
-                    "判断邮件意图、用户在这个场景下会怎么处理，"
-                    "输出简短分析和处理计划。\n"
-                    "2. 再行动：每次调用工具前，先用一句话说明理由"
-                    "（例如“我想再仔细阅读一下这封邮件的细节”），"
-                    "然后直接调用工具。\n"
-                    "系统会自动拦截每个工具调用，"
-                    "把你的理由和操作展示给用户审批：同意则执行；"
-                    "拒绝则换一种思路。不要在对话中自行询问用户是否批准。"
+                    "F1 Exploration Mode is active. Work as follows:\n"
+                    "1. Analyze first: read the entire email from the "
+                    "recipient's (user's) perspective, determine the email's "
+                    "intent and how the user would handle it, and provide a "
+                    "brief analysis and handling plan.\n"
+                    "2. Then act: before each tool call, state the reason in "
+                    "one sentence (for example, \"I want to read the email's "
+                    'details more carefully"), then call the tool directly.\n'
+                    "The system automatically intercepts every tool call and "
+                    "shows your reason and proposed action to the user for "
+                    "approval. If approved, the tool executes; if denied, "
+                    "try a different approach. Do not ask the user for "
+                    "approval yourself in the conversation."
                 ),
             ),
         ],

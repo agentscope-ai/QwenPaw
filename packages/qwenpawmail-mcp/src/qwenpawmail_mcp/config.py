@@ -70,9 +70,10 @@ def load_config(env: dict[str, str] | None = None) -> Config:
             "full address (e.g. someone@163.com, someone@qq.com, "
             "or someone@gmail.com) and QWENPAWMAIL_AUTH_CODE to "
             "the credential for your provider — this may be an "
-            "authorization code (网易/QQ/新浪), an app-specific "
+            "authorization code (NetEase, QQ Mail, or Sina Mail), "
+            "an app-specific "
             "password (Gmail), or your login password "
-            "(阿里邮箱/企业邮). For custom domains not in the "
+            "(Aliyun Mail or enterprise mail). For custom domains not in the "
             "built-in provider list, also set "
             "QWENPAWMAIL_IMAP_HOST and QWENPAWMAIL_SMTP_HOST.",
         )

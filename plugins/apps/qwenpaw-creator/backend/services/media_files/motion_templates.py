@@ -75,9 +75,14 @@ def render_caption_template(
 
     theme = theme if theme in SUPPORTED_THEMES else "comic_patrol"
     emotion = emotion if emotion in SUPPORTED_EMOTIONS else "chill"
-    safe_text = escape(text.strip())
-    text_length = len(text.strip())
-    font_size = _compute_caption_font_size(text_length, box_width, box_height)
+    safe_text = "<br>".join(escape(line) for line in text.strip().splitlines())
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    max_line_length = max((len(line) for line in lines), default=1)
+    font_size = _compute_caption_font_size(
+        max_line_length,
+        box_width,
+        box_height,
+    )
     palettes = {
         "comic_patrol": ("#fff8df", "#231f1a", "#ff9a2f"),
         "soft_journal": ("#fffaf2", "#55473d", "#e99e88"),

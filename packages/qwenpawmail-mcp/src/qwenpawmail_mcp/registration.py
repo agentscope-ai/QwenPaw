@@ -54,33 +54,36 @@ def validate_username(username: str, domain: str) -> tuple[bool, list[str]]:
     if provider_type == "netease":
         min_len, max_len = 6, 18
         allowed = set(string.ascii_letters + string.digits + "_.")
-        char_desc = "字母、数字、下划线和点"
+        char_desc = "letters, digits, underscores, and periods"
     elif provider_type == "tencent":
         min_len, max_len = 5, 18
         allowed = set(string.ascii_letters + string.digits + ".-")
-        char_desc = "字母、数字、点和减号"
+        char_desc = "letters, digits, periods, and hyphens"
     else:
         return False, [
-            f"不支持的域名：{domain}，支持的域名为 "
+            f"Unsupported domain: {domain}. Supported domains are "
             "163.com/126.com/yeah.net/qq.com/foxmail.com",
         ]
 
     length = len(username)
     if length < min_len:
         errors.append(
-            f"用户名长度不能少于 {min_len} 个字符（当前 {length} 个）",
+            f"Username must be at least {min_len} characters long "
+            f"(currently {length}).",
         )
     if length > max_len:
         errors.append(
-            f"用户名长度不能超过 {max_len} 个字符（当前 {length} 个）",
+            f"Username must be no more than {max_len} characters long "
+            f"(currently {length}).",
         )
     if username and username[0] not in string.ascii_letters:
-        errors.append("用户名必须以字母开头")
+        errors.append("Username must start with a letter.")
 
     bad_chars = sorted({ch for ch in username if ch not in allowed})
     if bad_chars:
         errors.append(
-            f"用户名包含非法字符：{''.join(bad_chars)}，仅允许{char_desc}",
+            f"Username contains invalid characters: {''.join(bad_chars)}. "
+            f"Only {char_desc} are allowed.",
         )
 
     return (len(errors) == 0), errors
@@ -151,63 +154,76 @@ def build_registration_guide(
 
     if provider_type == "netease":
         steps = [
-            f"1. 点击 {provider.registration_url} 打开注册页面",
-            f"2. 选择域名 @{domain}，输入用户名 {username}",
-            "3. 设置密码（8-16字符，区分大小写）",
-            "4. 输入手机号，获取并填写短信验证码",
-            "5. 勾选同意服务条款，完成注册",
-            f"6. 登录 https://mail.{domain}/ → 设置 → "
-            f"POP3/SMTP/IMAP → 开启 IMAP/SMTP 服务",
-            "7. 按提示发送短信完成验证，复制生成的 16 位授权码（只显示一次，请立即保存）",
-            f"8. 设置环境变量："
-            f"QWENPAWMAIL_EMAIL={email} 和 "
-            f"QWENPAWMAIL_AUTH_CODE=<你的授权码>",
-            "9. 调用 check_auth 工具验证连通性",
+            f"1. Open the registration page: {provider.registration_url}",
+            f"2. Select the @{domain} domain and enter username {username}.",
+            "3. Create a password of 8-16 case-sensitive characters.",
+            "4. Enter a mobile phone number and the SMS verification code.",
+            "5. Accept the terms of service and complete registration.",
+            f"6. Sign in at https://mail.{domain}/, open Settings > "
+            "POP3/SMTP/IMAP, and enable IMAP/SMTP.",
+            "7. Complete the requested SMS verification and copy the "
+            "generated 16-character authorization code. It is shown only "
+            "once, so save it immediately.",
+            f"8. Set QWENPAWMAIL_EMAIL={email} and "
+            "QWENPAWMAIL_AUTH_CODE=<your_authorization_code>.",
+            "9. Call check_auth to verify connectivity.",
         ]
         notes = [
-            "用户名可用性需在注册页面实时检查",
-            "虚拟手机号不支持",
-            "授权码只显示一次，请立即保存",
+            "Username availability must be checked on the registration page.",
+            "Virtual phone numbers are not supported.",
+            "The authorization code is shown only once; save it immediately.",
         ]
         auth_code_setup_url = f"https://mail.{domain}/"
     elif provider_type == "tencent":
         if domain == "foxmail.com":
             steps = [
-                f"1. 点击 {provider.registration_url} 打开 QQ 号注册页面",
-                "2. 输入手机号，获取短信验证码，设置密码，完成 QQ 号注册",
-                "3. 用 QQ 号登录 mail.qq.com，按提示激活 QQ 邮箱",
-                f"4. foxmail.com 别名目前仅限邀请制"
-                f"开通。如有邀请资格，在 设置 → 帐户"
-                f" → 账号管理 中申请 foxmail 别名"
-                f" {username}",
-                "5. 在 设置 → 账号与安全 → 安全设置 中开启 IMAP/SMTP 服务",
-                "6. 按提示完成身份验证，复制生成的 16 位授权码",
-                f"7. 设置环境变量："
-                f"QWENPAWMAIL_EMAIL={email} 和 "
-                f"QWENPAWMAIL_AUTH_CODE=<你的授权码>",
-                "8. 调用 check_auth 工具验证连通性",
+                f"1. Open the QQ account registration page: "
+                f"{provider.registration_url}",
+                "2. Enter a mobile phone number and SMS verification code, "
+                "create a password, and finish registering the QQ account.",
+                "3. Sign in to mail.qq.com with the QQ account and activate "
+                "QQ Mail when prompted.",
+                "4. foxmail.com aliases are currently invitation-only. If "
+                "your account is eligible, request the foxmail alias "
+                f"{username} under Settings > Accounts > Account Management.",
+                "5. Enable IMAP/SMTP under Settings > Account & Security > "
+                "Security Settings.",
+                "6. Complete identity verification and copy the generated "
+                "16-character authorization code.",
+                f"7. Set QWENPAWMAIL_EMAIL={email} and "
+                "QWENPAWMAIL_AUTH_CODE=<your_authorization_code>.",
+                "8. Call check_auth to verify connectivity.",
             ]
         else:
             steps = [
-                f"1. 点击 {provider.registration_url} 打开 QQ 号注册页面",
-                "2. 输入手机号，获取短信验证码，设置密码，完成 QQ 号注册",
-                "3. 用 QQ 号登录 mail.qq.com，按提示激活 QQ 邮箱",
-                f"4. 在 设置 → 帐户 中注册英文邮箱账号 {username}@qq.com（如需指定用户名）",
-                "5. 在 设置 → 账号与安全 → 安全设置 中开启 IMAP/SMTP 服务",
-                "6. 按提示完成身份验证，复制生成的 16 位授权码",
-                f"7. 设置环境变量："
-                f"QWENPAWMAIL_EMAIL={email} 和 "
-                f"QWENPAWMAIL_AUTH_CODE=<你的授权码>",
-                "8. 调用 check_auth 工具验证连通性",
+                f"1. Open the QQ account registration page: "
+                f"{provider.registration_url}",
+                "2. Enter a mobile phone number and SMS verification code, "
+                "create a password, and finish registering the QQ account.",
+                "3. Sign in to mail.qq.com with the QQ account and activate "
+                "QQ Mail when prompted.",
+                f"4. To choose a username, register {username}@qq.com under "
+                "Settings > Accounts.",
+                "5. Enable IMAP/SMTP under Settings > Account & Security > "
+                "Security Settings.",
+                "6. Complete identity verification and copy the generated "
+                "16-character authorization code.",
+                f"7. Set QWENPAWMAIL_EMAIL={email} and "
+                "QWENPAWMAIL_AUTH_CODE=<your_authorization_code>.",
+                "8. Call check_auth to verify connectivity.",
             ]
         notes = [
-            "QQ 邮箱必须先注册 QQ 号才能开通",
-            "修改 QQ 密码后授权码会失效，需重新生成",
-            "foxmail 别名目前仅限邀请制，无法主动申请",
+            "A QQ account must be registered before QQ Mail can be activated.",
+            "Changing the QQ account password invalidates existing "
+            "authorization codes; generate a new code afterward.",
+            "foxmail.com aliases are invitation-only and cannot be requested "
+            "without eligibility.",
         ]
         auth_code_setup_url = "https://mail.qq.com/"
     else:
-        raise RegistrationError(f"不支持的提供商类型：{provider_type!r}")
+        raise RegistrationError(
+            f"Unsupported provider type: {provider_type!r}",
+        )
 
     return {
         "registration_url": provider.registration_url,
@@ -217,8 +233,10 @@ def build_registration_guide(
         "auth_code_setup_url": auth_code_setup_url,
         "notes": notes,
         "next_action": (
-            "1. 打开注册页面检查用户名是否可用。如被占用，使用 alternatives "
-            "中的备选名重试。2. 完成注册后设置 QWENPAWMAIL_EMAIL 和 "
-            "QWENPAWMAIL_AUTH_CODE 环境变量，然后调用 check_auth 验证连通性。"
+            "1. Open the registration page and check whether the username "
+            "is available. If it is taken, retry with a name from "
+            "alternatives. 2. After registration, set QWENPAWMAIL_EMAIL and "
+            "QWENPAWMAIL_AUTH_CODE, then call check_auth to verify "
+            "connectivity."
         ),
     }

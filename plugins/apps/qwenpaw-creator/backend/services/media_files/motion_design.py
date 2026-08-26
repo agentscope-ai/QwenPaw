@@ -41,6 +41,11 @@ from services.media_files.keyframe_cache import (
     materialize_keyframe,
     verified_indexed_path,
 )
+from services.media_files.live_operation import (
+    facts_within,
+    project_location_to_canvas,
+    read_take_manifest,
+)
 from services.media_files.motion_blueprints import (
     CONTENT_TYPES,
     blueprint_catalog_text,
@@ -632,12 +637,17 @@ def _validated_design(
     blueprint = str(raw.get("blueprint") or "").strip()
     uses_blueprint = bool(blueprint)
     _box_height: float | None = None
+    _box_width: float | None = None
     _raw_loc = raw.get("location")
     if isinstance(_raw_loc, Mapping):
         try:
             _box_height = float(_raw_loc.get("height", 0)) or None
         except (TypeError, ValueError):
             _box_height = None
+        try:
+            _box_width = float(_raw_loc.get("width", 0)) or None
+        except (TypeError, ValueError):
+            _box_width = None
     if uses_blueprint:
         # Catalog route: the VLM picked a verified GSAP skeleton and only
         # supplies frame-derived parameters; the html body is rendered
@@ -649,6 +659,7 @@ def _validated_design(
                     required_text,
                     palette=raw.get("palette"),
                     intensity=raw.get("intensity"),
+                    box_width=_box_width,
                     box_height=_box_height,
                 )
             else:
@@ -721,7 +732,9 @@ def _validated_design(
         html,
         re.IGNORECASE,
     ):
-        raise ValidationError("design html 不允许包含脚本、本机文件或嵌入网页 URL")
+        raise ValidationError(
+            "design html 不允许包含脚本、本机文件或嵌入网页 URL",
+        )
     if re.search(
         r"""(?:src|href)\s*=\s*["']?\s*(?:https?:)?//""",
         html,
@@ -876,13 +889,99 @@ def _externalized_motion(
         # verify the bytes on disk still match before reusing them.
         file_store.abandon(staged)
         if not file_store.inspect(indexed).available:
-            raise StorageIntegrityError("动效文档路径已存在但内容不一致") from exc
+            raise StorageIntegrityError(
+                "动效文档路径已存在但内容不一致",
+            ) from exc
     return (
         motion.model_copy(
             update={"html": None, "html_file_id": indexed.file_id},
         ),
         indexed,
     )
+
+
+def _live_operation_facts(
+    *,
+    project: Project,
+    project_root: Path,
+    element: TimelineElement,
+    start_seconds: float,
+    end_seconds: float,
+) -> list[str]:
+    """Describe the real operations a recorded clip covers, if it has any.
+
+    Footage produced by live operation carries the coordinates and instants
+    its actions actually happened at. Handing those to the designer is what
+    lets emphasis land on the element that was clicked instead of on a guess
+    derived from looking at pixels. Ordinary footage has no such record and
+    simply yields nothing here.
+    """
+
+    render_source = element.render_source
+    if not isinstance(render_source, SourceVersionRenderSource):
+        return []
+    version = project.assets.source_versions_by_id.get(
+        render_source.version_id,
+    )
+    if version is None:
+        return []
+    manifest = read_take_manifest(
+        project,
+        AssetFileStore(project_root),
+        version,
+    )
+    if not manifest:
+        return []
+    facts = facts_within(
+        manifest,
+        start_ms=start_seconds * 1000,
+        end_ms=end_seconds * 1000,
+        playback_rate=render_source.playback_rate,
+    )
+    if not facts:
+        return []
+    lines = [
+        "本片段来自真实操作录屏，以下是这段时间内真实发生的操作事实"
+        "（location 已穿过当前 Edit 的缩放/裁切/位移，表示最终成片中的"
+        "归一化画布坐标，可直接用作 location 的 x/y/width/height）：",
+    ]
+    placement = (
+        element.location.model_dump(mode="json")
+        if element.location is not None
+        else None
+    )
+    for fact in facts:
+        offset = float(fact.get("clip_offset_ms", 0)) / 1000
+        target = str(fact.get("target") or "").strip()
+        detail = f"- {offset:.2f}s {fact.get('op')}"
+        if target:
+            detail += f" → {target}"
+        location = fact.get("location")
+        if isinstance(location, Mapping):
+            canvas_location = project_location_to_canvas(location, placement)
+            if canvas_location is not None:
+                detail += (
+                    " location="
+                    f"x={canvas_location.get('x')}, "
+                    f"y={canvas_location.get('y')}, "
+                    f"width={canvas_location.get('width')}, "
+                    f"height={canvas_location.get('height')}"
+                )
+            else:
+                detail += "（目标在当前裁切中不可见或画面有旋转，无可靠坐标）"
+        else:
+            detail += "（无坐标）"
+        if fact.get("failed"):
+            detail += "（该操作失败）"
+        lines.append(detail)
+    lines.append(
+        "操作教程类画面的动效方法：空间上以事件坐标为锚，强调发生在操作真正"
+        "发生的位置，讲解锁定在目标元素的盒体上；时间上贴合动作时刻，持续"
+        "时长与动作节奏匹配；保持克制，服务于“看清操作”，不遮挡目标本体，"
+        "同屏只给一个焦点；全片操作强调的视觉语言保持自洽。具体用什么视觉"
+        "形式达到这些目的，由你根据画面自己创作。",
+    )
+    return lines
 
 
 def _design_task_text(
@@ -898,6 +997,7 @@ def _design_task_text(
     story_role: str | None = None,
     story_motif: str | None = None,
     content_type: str = "",
+    live_operation_facts: list[str] | None = None,
 ) -> str:
     creation = element.creation
     assert isinstance(creation, EditCreation)
@@ -926,10 +1026,14 @@ def _design_task_text(
             + "。若剧情语义允许，请换一种造型，形成有变化但统一的视觉节奏。",
         )
     if os_context:
-        lines.append("同一时段的猫咪 OS 语义如下；装饰造型必须呼应这些台词/情绪，但不得重复显示文字：")
+        lines.append(
+            "同一时段的猫咪 OS 语义如下；装饰造型必须呼应这些台词/情绪，但不得重复显示文字：",
+        )
         lines.extend(f"- {context}" for context in os_context)
     if avoid_locations:
-        lines.append("以下猫咪 OS/字幕卡会在同一时段出现，装饰动效的 location 盒子不得与它们重叠：")
+        lines.append(
+            "以下猫咪 OS/字幕卡会在同一时段出现，装饰动效的 location 盒子不得与它们重叠：",
+        )
         lines.extend(
             f"- {label}: {location.model_dump(mode='json')}"
             for label, location in avoid_locations
@@ -945,6 +1049,8 @@ def _design_task_text(
     }
     if content_type in _CONTENT_TYPE_HINTS:
         lines.append(_CONTENT_TYPE_HINTS[content_type])
+    if live_operation_facts:
+        lines.extend(live_operation_facts)
     lines.append(
         "附图是该片段内按时间顺序抽取的真实画面帧，请从中判断主体位置、留白区域和配色。严格按系统要求只输出一个 JSON 对象。",
     )
@@ -1879,6 +1985,7 @@ async def design_motion_overlays(
                 creation.text,
                 palette=palette_arg,
                 intensity=0.55,
+                box_width=location.width,
                 box_height=location.height,
             )
             motion = MotionGraphic(
@@ -1970,13 +2077,22 @@ async def design_motion_overlays(
                 anchor_x=0.5,
                 anchor_y=0.5,
             )
-        concept = f"全片统一解说字幕卡 {_UNIFORM_CAPTION_BLUEPRINT}"
+        uniform_blueprint = (
+            "precision_subtitle"
+            if content_type == "tutorial"
+            else _UNIFORM_CAPTION_BLUEPRINT
+        )
+        concept = f"全片统一解说字幕卡 {uniform_blueprint}"
         try:
             blueprint_html, _hf = render_caption_blueprint(
-                _UNIFORM_CAPTION_BLUEPRINT,
+                uniform_blueprint,
                 creation.text,
-                palette=_THEME_BLUEPRINT_PALETTES.get(theme),
+                palette=(
+                    content_type_palette(content_type)
+                    or _THEME_BLUEPRINT_PALETTES.get(theme)
+                ),
                 intensity=_UNIFORM_CAPTION_INTENSITY,
+                box_width=location.width,
                 box_height=location.height,
             )
             motion = MotionGraphic(
@@ -2439,6 +2555,13 @@ async def design_motion_overlays(
                         story_role=story_role,
                         story_motif=story_motif,
                         content_type=content_type,
+                        live_operation_facts=_live_operation_facts(
+                            project=project,
+                            project_root=project_root,
+                            element=element,
+                            start_seconds=start_seconds,
+                            end_seconds=end_seconds,
+                        ),
                     ),
                     frame_paths=frames,
                     canvas_size=canvas_size,
@@ -2508,14 +2631,16 @@ async def design_motion_overlays(
     # Text cards choose their final locations first. Decorations then receive
     # those committed-in-memory boxes as hard collision constraints.
     text_results = list(
-        await asyncio.gather(
-            *(
-                style_text_overlay(overlay, card_index)
-                for card_index, overlay in enumerate(text_overlays)
-            ),
-        )
-        if caption_style == "varied"
-        else [uniform_text_style(overlay) for overlay in text_overlays],
+        (
+            await asyncio.gather(
+                *(
+                    style_text_overlay(overlay, card_index)
+                    for card_index, overlay in enumerate(text_overlays)
+                ),
+            )
+            if caption_style == "varied"
+            else [uniform_text_style(overlay) for overlay in text_overlays]
+        ),
     )
     clip_results = list(
         await asyncio.gather(

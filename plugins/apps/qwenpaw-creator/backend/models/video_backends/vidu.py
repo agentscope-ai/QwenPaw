@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
-"""Vidu video generation protocol (official channel, reference-to-video).
+"""Vidu video generation protocol (official channel).
 
 Endpoints (official .md references under https://platform.vidu.com/docs):
 
+    POST {base}/ent/v2/text2video
+    POST {base}/ent/v2/img2video
     POST {base}/ent/v2/reference2video
     GET  {base}/ent/v2/tasks/{id}/creations
 
@@ -25,6 +27,7 @@ import httpx
 from models.video_capabilities import (
     VIDU_DIRECT_SPECS,
     VIDU_MAX_PROMPT_CHARS,
+    validate_video_mode,
 )
 from utils.exceptions import ModelError
 from utils.logger import setup_logger
@@ -37,6 +40,47 @@ DEFAULT_BASE_URL = "https://api.vidu.com"
 _IMAGE_BASE64_MAX_CHARS = 10 * 1024 * 1024 * 4 // 3
 
 
+def _with_duration(spec: dict, low: int, high: int) -> dict:
+    return {**spec, "durations": (low, high)}
+
+
+# Vidu publishes independent accepted-model tables for each endpoint. Mode
+# membership below is explicit and never inferred from the r2v table; entries
+# reuse an r2v constraint mapping only where the independently documented
+# duration/resolution/ratio values are identical.
+_VIDU_DIRECT_MODE_SPECS: dict[str, dict[str, dict]] = {
+    "r2v": VIDU_DIRECT_SPECS,
+    "t2v": {
+        "viduq3-turbo": {
+            **_with_duration(VIDU_DIRECT_SPECS["viduq3-turbo"], 1, 16),
+            "ratios": ("16:9", "9:16", "3:4", "4:3", "1:1"),
+        },
+        "viduq2": VIDU_DIRECT_SPECS["viduq2"],
+        "viduq1": VIDU_DIRECT_SPECS["viduq1"],
+    },
+    "i2v": {
+        "viduq3-turbo": _with_duration(
+            VIDU_DIRECT_SPECS["viduq3-turbo"],
+            1,
+            16,
+        ),
+        "viduq2-pro": _with_duration(VIDU_DIRECT_SPECS["viduq2-pro"], 1, 10),
+        "viduq1": VIDU_DIRECT_SPECS["viduq1"],
+        "vidu2.0": {
+            **VIDU_DIRECT_SPECS["vidu2.0"],
+            "durations": (4, 8),
+            "duration_values": (4, 8),
+            "resolutions": ("360p", "720p", "1080p"),
+            "resolution_durations": {
+                "360p": (4,),
+                "720p": (4, 8),
+                "1080p": (4,),
+            },
+        },
+    },
+}
+
+
 def _api_base(base_url: str) -> str:
     return base_url.rstrip("/")
 
@@ -44,6 +88,7 @@ def _api_base(base_url: str) -> str:
 def build_submit_request(
     *,
     prompt: str,
+    mode: str,
     media: list[dict],
     ratio: str,
     duration: int,
@@ -53,14 +98,21 @@ def build_submit_request(
     api_key: str,
     base_url: str,
 ) -> tuple[str, dict, dict]:
-    """Render the official-channel Vidu reference2video request."""
-    # pylint: disable=too-many-branches
-    spec = VIDU_DIRECT_SPECS.get(model_name.strip())
+    """Render the mode-specific official-channel Vidu request."""
+    # The official Vidu endpoint has mode-specific validation and payloads.
+    # Keep that contract visible in one adapter instead of hiding it in
+    # generic helpers that would blur provider rules.
+    # pylint: disable=too-many-branches,too-many-statements
+    model = model_name.strip()
+    try:
+        normalized_mode = validate_video_mode("vidu", model, mode)
+    except ValueError as exc:
+        raise ModelError(str(exc), model_name=model_name) from exc
+    spec = _VIDU_DIRECT_MODE_SPECS[normalized_mode].get(model)
     if spec is None:
         raise ModelError(
-            f"Vidu model `{model_name}` is not one of the official "
-            "reference2video models "
-            f"({', '.join(sorted(VIDU_DIRECT_SPECS))})",
+            f"Vidu model `{model_name}` is not accepted by the official "
+            f"{normalized_mode} endpoint",
             model_name=model_name,
         )
     if len(prompt) > VIDU_MAX_PROMPT_CHARS:
@@ -70,10 +122,18 @@ def build_submit_request(
             model_name=model_name,
         )
     low, high = spec["durations"]
-    if duration < low or duration > high:
+    duration_values = spec.get("duration_values")
+    if (duration_values and duration not in duration_values) or (
+        not duration_values and (duration < low or duration > high)
+    ):
+        duration_rule = (
+            f"one of {list(duration_values)}"
+            if duration_values
+            else f"an integer between {low} and {high}"
+        )
         raise ModelError(
-            f"Vidu model `{model_name}` duration must be an integer "
-            f"between {low} and {high} seconds, got {duration}",
+            f"Vidu model `{model_name}` duration must be {duration_rule} "
+            f"seconds, got {duration}",
             model_name=model_name,
         )
     normalized_resolution = (
@@ -85,8 +145,18 @@ def build_submit_request(
             f"{list(spec['resolutions'])}, got {resolution!r}",
             model_name=model_name,
         )
+    resolution_durations = spec.get("resolution_durations", {})
+    if resolution_durations and duration not in resolution_durations.get(
+        normalized_resolution,
+        (),
+    ):
+        raise ModelError(
+            f"Vidu model `{model_name}` does not support {duration}s at "
+            f"{normalized_resolution}",
+            model_name=model_name,
+        )
     ratio_value = ratio or "16:9"
-    if ratio_value not in spec["ratios"]:
+    if normalized_mode != "i2v" and ratio_value not in spec["ratios"]:
         raise ModelError(
             f"Vidu model `{model_name}` supports aspect ratios "
             f"{list(spec['ratios'])}, got {ratio!r}",
@@ -111,31 +181,51 @@ def build_submit_request(
                 model_name=model_name,
             )
         images.append(url)
-    if videos and not images:
+    if normalized_mode == "t2v" and (images or videos):
         raise ModelError(
-            "Vidu reference generation requires at least 1 reference "
-            "image even when reference videos are supplied",
+            "Vidu text2video does not accept reference media",
             model_name=model_name,
         )
-    if videos and len(images) > 4:
+    if normalized_mode == "i2v" and (
+        len(images) != 1
+        or videos
+        or any(item.get("type") != "first_frame" for item in media)
+    ):
+        raise ModelError(
+            "Vidu img2video requires exactly one first-frame image",
+            model_name=model_name,
+        )
+    if normalized_mode == "r2v" and not images and not videos:
+        raise ModelError(
+            "Vidu reference2video requires at least 1 reference image or video",
+            model_name=model_name,
+        )
+    if normalized_mode == "r2v" and videos and len(images) > 4:
         raise ModelError(
             "viduq2-pro accepts at most 4 reference images together with "
             f"reference videos, got {len(images)}",
             model_name=model_name,
         )
     body: dict = {
-        "model": model_name.strip(),
-        "images": images,
+        "model": model,
         "prompt": prompt,
         "duration": duration,
         "resolution": normalized_resolution,
-        "aspect_ratio": ratio_value,
     }
-    if videos:
+    if normalized_mode != "t2v":
+        body["images"] = images
+    if normalized_mode != "i2v":
+        body["aspect_ratio"] = ratio_value
+    if normalized_mode == "r2v" and videos:
         body["videos"] = videos
     if spec["audio"]:
         body["audio"] = bool(generate_audio)
-    url = f"{_api_base(base_url)}/ent/v2/reference2video"
+    endpoint = {
+        "t2v": "text2video",
+        "i2v": "img2video",
+        "r2v": "reference2video",
+    }[normalized_mode]
+    url = f"{_api_base(base_url)}/ent/v2/{endpoint}"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Token {api_key}",

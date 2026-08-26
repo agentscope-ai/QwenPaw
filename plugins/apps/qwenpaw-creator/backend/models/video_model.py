@@ -2,7 +2,7 @@
 # flake8: noqa: E501
 # pylint: disable=line-too-long,raise-missing-from,too-many-branches
 # pylint: disable=too-many-statements,wrong-import-order
-"""Video model wrapper for DashScope Bailian Wan2.7 video synthesis."""
+"""Video model wrapper for DashScope Bailian video synthesis."""
 
 import asyncio
 import json
@@ -36,9 +36,14 @@ from models.video_capabilities import (
     KLING_RATIOS,
     KLING_REFER_MAX_IMAGES_WITH_VIDEO,
     SEEDANCE_FAMILY_SPECS,
+    WAN_30_MAX_DURATION_SECONDS,
+    WAN_30_MIN_DURATION_SECONDS,
+    WAN_30_RATIOS,
+    WAN_30_RESOLUTIONS,
     VIDU_MODEL_SPECS,
     VIDU_SIZE_MAP,
     effective_video_model_name,
+    is_wan3_video_model,
     seedance_video_generation,
     validate_video_mode,
     video_backend_key,
@@ -330,6 +335,46 @@ def _validate_happyhorse_mode_parameters(
     return normalized_resolution
 
 
+def _validate_wan3_parameters(
+    *,
+    resolution: str,
+    ratio: str,
+    duration: int,
+    model_name: str,
+) -> str:
+    """Validate Wan3.0's shared All-in-One generation parameters.
+
+    The Creator timeline supplies a concrete positive duration, while the
+    low-level wrapper also accepts the upstream smart-duration sentinel ``-1``
+    for callers outside that fixed-timeline workflow.
+    """
+
+    normalized_resolution = (resolution or "1080P").upper()
+    if normalized_resolution not in WAN_30_RESOLUTIONS:
+        raise ModelError(
+            f"Wan3.0 resolution must be one of "
+            f"{sorted(WAN_30_RESOLUTIONS)}, got {resolution!r}",
+            model_name=model_name,
+        )
+    normalized_ratio = ratio or "adaptive"
+    if normalized_ratio not in WAN_30_RATIOS:
+        raise ModelError(
+            f"Wan3.0 ratio must be one of {sorted(WAN_30_RATIOS)}, "
+            f"got {ratio!r}",
+            model_name=model_name,
+        )
+    if duration != -1 and not (
+        WAN_30_MIN_DURATION_SECONDS <= duration <= WAN_30_MAX_DURATION_SECONDS
+    ):
+        raise ModelError(
+            f"Wan3.0 duration must be -1 (smart duration) or an integer "
+            f"between {WAN_30_MIN_DURATION_SECONDS} and "
+            f"{WAN_30_MAX_DURATION_SECONDS} seconds, got {duration}",
+            model_name=model_name,
+        )
+    return normalized_resolution
+
+
 def _build_kling_body(
     *,
     prompt: str,
@@ -553,7 +598,11 @@ async def submit_video_task(
     uses_seedance = protocol_backend == "seedance2"
     backend_key = video_backend_key(model_name, protocol_backend)
     try:
-        normalized_mode = validate_video_mode(backend_key, model_name, mode)
+        normalized_mode = validate_video_mode(
+            protocol_backend,
+            model_name,
+            mode,
+        )
     except ValueError as exc:
         raise ModelError(str(exc), model_name=model_name) from exc
 
@@ -574,6 +623,7 @@ async def submit_video_task(
         if item and item.strip()
     ]
     uses_happyhorse = not uses_seedance and backend_key == "happyhorse"
+    uses_wan3 = backend_key == "wan" and is_wan3_video_model(model_name)
 
     # Mode-specific input contract, checked before any provider-bound
     # upload so violations fail fast without wasting reference transport.
@@ -668,6 +718,17 @@ async def submit_video_task(
     elif uses_happyhorse:
         happyhorse_resolution = _validate_happyhorse_mode_parameters(
             mode=normalized_mode,
+            resolution=resolution,
+            ratio=ratio,
+            duration=duration,
+            model_name=effective_model,
+        )
+
+    wan3_resolution = ""
+    if uses_wan3:
+        # Wan3.0 shares one request contract across t2v/i2v/r2v. Validate
+        # before any local media is uploaded to DashScope temporary storage.
+        wan3_resolution = _validate_wan3_parameters(
             resolution=resolution,
             ratio=ratio,
             duration=duration,
@@ -777,6 +838,7 @@ async def submit_video_task(
         # Official Vidu channel (api.vidu.com).
         url, submit_headers, body = vidu_backend.build_submit_request(
             prompt=prompt,
+            mode=normalized_mode,
             media=media,
             ratio=ratio,
             duration=duration,
@@ -886,17 +948,20 @@ async def submit_video_task(
             "X-DashScope-OssResourceResolve": "enable",
         }
         default_resolution = resolution.upper() if resolution else "720P"
-        active_resolution = happyhorse_resolution or default_resolution
+        active_resolution = (
+            happyhorse_resolution or wan3_resolution or default_resolution
+        )
         if normalized_mode == "t2v":
-            # wan2.7 t2v documents resolution/ratio/duration (plus
-            # prompt_extend/watermark); happyhorse t2v matches upstream.
             parameters = {
                 "resolution": active_resolution,
                 "ratio": ratio,
                 "watermark": watermark,
                 "duration": duration,
             }
-            if not uses_happyhorse:
+            if uses_wan3:
+                parameters["audio"] = bool(generate_audio)
+                parameters["prompt_extend"] = True
+            elif not uses_happyhorse:
                 parameters["prompt_extend"] = False
             body = {
                 "model": effective_model,
@@ -904,14 +969,18 @@ async def submit_video_task(
                 "parameters": parameters,
             }
         elif normalized_mode == "i2v":
-            # The output ratio follows the first frame, so no ratio is sent
-            # (per the wan2.7 i2v reference and upstream happyhorse.py).
+            # Wan2.7/HappyHorse follow the first-frame ratio. Wan3.0 exposes
+            # its shared ratio control for every All-in-One generation mode.
             parameters = {
                 "resolution": active_resolution,
                 "watermark": watermark,
                 "duration": duration,
             }
-            if not uses_happyhorse:
+            if uses_wan3:
+                parameters["ratio"] = ratio
+                parameters["audio"] = bool(generate_audio)
+                parameters["prompt_extend"] = True
+            elif not uses_happyhorse:
                 parameters["prompt_extend"] = False
             body = {
                 "model": effective_model,
@@ -944,6 +1013,10 @@ async def submit_video_task(
                 # only; Wan-specific fields would risk InvalidParameter.
                 parameters["resolution"] = happyhorse_resolution
                 parameters.pop("prompt_extend")
+            elif uses_wan3:
+                parameters["resolution"] = wan3_resolution
+                parameters["audio"] = bool(generate_audio)
+                parameters["prompt_extend"] = True
             body = {
                 "model": effective_model,
                 "input": {

@@ -2,14 +2,19 @@
 """Regression tests for partial thread deletion."""
 
 import asyncio
+import re
 from unittest.mock import patch
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from qwenpawmail_mcp.config import load_config
 from qwenpawmail_mcp.errors import MailError
 from qwenpawmail_mcp.server import create_server
 from qwenpawmail_mcp.thread_store import ThreadStore
+
+
+_HAN_RE = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
 class _Client:
@@ -26,6 +31,12 @@ class _Client:
             raise OSError(f"cannot move {uid}")
         self.moved.append((folder, str(uid), target_folder))
         return {"moved": True}
+
+
+class _NoTrashClient(_Client):
+    @staticmethod
+    def list_folders():
+        return [{"name": "INBOX", "flags": []}]
 
 
 def _config():
@@ -107,3 +118,36 @@ def test_delete_thread_already_in_trash_removes_index(tmp_path):
             tmp_path,
             "tester@163.com",
         ).thread_messages(thread_id)
+
+
+def test_delete_thread_total_failure_error_is_english(tmp_path):
+    thread_id = _seed_thread(tmp_path, ["INBOX", "INBOX"])
+    client = _Client(failed_uids={"1", "2"})
+    with patch.dict(
+        "os.environ",
+        {"QWENPAWMAIL_STATE_DIR": str(tmp_path)},
+    ):
+        with pytest.raises(ToolError) as error:
+            _delete_thread(create_server(_config(), client), thread_id)
+
+    message = str(error.value)
+    assert _HAN_RE.search(message) is None
+    assert "All 2 messages failed to move to the trash folder" in message
+    assert "First error: cannot move 1\nTry deleting" in message
+
+
+def test_delete_thread_missing_trash_error_is_english(tmp_path):
+    thread_id = _seed_thread(tmp_path, ["INBOX"])
+    with patch.dict(
+        "os.environ",
+        {"QWENPAWMAIL_STATE_DIR": str(tmp_path)},
+    ):
+        with pytest.raises(ToolError) as error:
+            _delete_thread(
+                create_server(_config(), _NoTrashClient()),
+                thread_id,
+            )
+
+    message = str(error.value)
+    assert _HAN_RE.search(message) is None
+    assert "No trash folder was found" in message

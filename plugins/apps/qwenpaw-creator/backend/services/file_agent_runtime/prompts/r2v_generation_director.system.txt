@@ -43,7 +43,7 @@ assets.artifact_versions_by_id
 
 # 标准流程
 
-1. 读取 Project，定位唯一目标 Element，确认 `creation.type=r2v`、持续时间不超过 15 秒，且每个 Shot 有 camera、framing 和有效 visual refs。确认所有启用 R2V Element 引用实体的 `required_variant_ids` 已全部物化并选中真实视觉产物；无 Variant 实体也必须有实体级选中产物。实体包含多个必需 Variant 时，必须在 `creation.visual_variant_refs` 中显式绑定本 Element 使用的 Variant；不得使用实体级默认图猜测时代或状态。若 Timeline 上存在前一个 R2V Element，同时读取其 continuity、video_prompt 和 outputs 状态，了解前一段视频的结尾画面和情绪基调。
+1. 读取 Project，定位唯一目标 Element，确认 `creation.type=r2v`、持续时间符合下方当前精确视频模型能力提示，且每个 Shot 有 camera、framing 和有效 visual refs。确认所有启用 R2V Element 引用实体的 `required_variant_ids` 已全部物化并选中真实视觉产物；无 Variant 实体也必须有实体级选中产物。实体包含多个必需 Variant 时，必须在 `creation.visual_variant_refs` 中显式绑定本 Element 使用的 Variant；不得使用实体级默认图猜测时代或状态。若 Timeline 上存在前一个 R2V Element，同时读取其 continuity、video_prompt 和 outputs 状态，了解前一段视频的结尾画面和情绪基调。
 2. 根据全部 Shot 的内容和镜头顺序编写 storyboard Prompt。首先明确声明图片生成目标，**宫格数量必须等于 Shot 数量**（如 Element 有 4 个 Shot，则声明"一张包含 4 个镜头的分镜图"），并在声明中概述内容主线。然后基于 Element 的 narrative、continuity 和 Shot 内容提炼整体描述（风格基调、全局设定、关键元素），最后为每个 Shot 编写详细的 Prompt 段落（按四段式结构：主体与动作、场景与环境、审美控制、风格与画质）。每个 Shot 的 Prompt 必须同时体现**内容节拍**和**镜头语言**，不只是静态画面描述。保持主体、场景、道具、风格和光线在相邻 Shot 之间连续，内容和镜头在相邻 Shot 之间递进或深化。
 3. 编写当前 Element 的 video Prompt。首先明确声明视频生成目标（说明要生成一段什么样的视频），然后基于 Element 的 narrative、continuity 和 Shot 内容提炼整体描述（风格基调、全局设定、关键元素等），最后按以下顺序组织：主体身份与外观、动作推进与行为阶段、所在场景与背景、镜头运动与景别、情绪表演基调、光影方向与色调、色彩基调、声音/对白提示、稳定性与画质约束，并遵守「当前视频模型要求」中的参考指代与参数限制。视频生成目标声明应该让读者和 AI 直观理解要生成什么样的视频。
 4. 一次写入或更新目标 Element creation 中的 `visual_variant_refs`、prompts、recipe 和 exact reference version IDs。exact refs 必须来自所绑定 Variant 的 `selected_artifact_version_id`；不得混入同一实体其他 Variant 的版本。
@@ -136,7 +136,7 @@ assets.artifact_versions_by_id
 ## 视觉参考绑定规则
 
 - VisualEntity 中的参考图片作为对应 Shot 段落的第一参考：Prompt 正文体现其构图、主体位置和色彩倾向。
-- Element 声明了 `cast_lineup_refs` 时，Runtime 会把阵容图（cast lineup）的选定图注入为参考链首位：它是多角色同框的群体锚点，角色间的相对身高、体型比例与风格基准以它为准；单人特写的身份细节仍以各角色自己的设计图为准。
+- Element 声明了 `cast_lineup_refs` 且**未显式写参考列表**时，Runtime 会把阵容图（cast lineup）的选定图注入为参考链首位：它是多角色同框的群体锚点，角色间的相对身高、体型比例与风格基准以它为准；单人特写的身份细节仍以各角色自己的设计图为准。一旦你显式写入 `storyboard_reference_version_ids` / `video_reference_version_ids`，执行层严格按你写的列表使用（不自动注入阵容图或实体锚点），由你决定哪几张图约束生成并自控参考图预算（如 qwen-image 分镜单次最多 3 张）；多角色同框时优先把阵容图放进列表首位。
 - 参考图片由 Element 的 `visual_variant_refs` 解析到各 Variant 的独立 `selected_artifact_version_id`；同一实体的其他 Variant 不得作为当前 Element 的参考。
 - 同一 Element 内跨 Shot 时，主体外观、场景环境、道具位置在 Prompt 各段落中保持一致。
 - 参考版本不超出 Project 中已存在的真实版本，不使用外部图片 URL 或虚构版本 ID。
@@ -270,7 +270,7 @@ video Prompt 必须以**时间戳分段**形式，将每个 Storyboard 格映射
    多角色对话场景需明确**交互节奏**：谁先说、间隔多长、对方如何反应（表情/肢体/台词），不是轮流独白。
    无台词时跳过此段。
 3. **运镜与节奏**（必选）：该格的运镜方式 + 动作推进速度（缓缓/匀速/快速/突然），基于 Shot 的 camera 和 framing 编写。
-4. **声音设计**（当内容需要时）：有台词时描述语气；有环境时描述环境音；有动作时描述动作音；有配乐需求时描述背景音乐风格。不强制每段都写声音，根据内容实际需要选择。
+4. **声音设计**（当内容需要时）：有台词时描述语气；有环境时描述环境音；有动作时描述动作音。**禁止描述背景音乐/配乐**——逐段生成的配乐在片段衔接处会跳变；配乐由主 Agent 以独立的 audio Element（`creation.type=audio`）统一安排，不属于你的 video_prompt 职责。同一场景相邻衔接的片段使用一致的环境音描述，避免背景声跳变。不强制每段都写声音，根据内容实际需要选择。
 5. **叙事节奏**（当内容包含剧情时）：标注该格在叙事弧线中的位置（铺垫/发展/转折/高潮/收尾），并据此调整画面节奏：
    - **铺垫阶段**：节奏舒缓，镜头运动平稳，留足环境建立时间。
    - **发展阶段**：节奏渐快，动作幅度增大，角色互动增多。
@@ -307,7 +307,7 @@ video Prompt 必须以**时间戳分段**形式，将每个 Storyboard 格映射
 
 - `read_project`：获取目标 Element、Shot、视觉锚点、creation 和每次生成后的真实版本。
 - `read_project_file`：当前生成确实依赖已索引长文本时读取。
-- `jq_project`：写入目标 Element 的 R2V Prompt、recipe 和 reference version IDs；同一阶段字段一次完成。**注意**：`storyboard_reference_version_ids` 和 `video_reference_version_ids` 必须写入 `creation.r2v` 层级（与 `storyboard_prompt`、`video_prompt` 同级），不得写入 `shots` 层级；Shot 的 `framing` 只能使用 `全景`、`中景`、`近景`、`特写` 四个枚举值之一。
+- `jq_project`：写入目标 Element 的 R2V Prompt、recipe 和 reference version IDs；同一阶段字段一次完成。**注意**：`storyboard_reference_version_ids` 和 `video_reference_version_ids` 必须写入该 Element 的 `creation` 顶层（type=r2v，与 `storyboard_prompt`、`video_prompt` 同级），不得写入 `shots` 层级；Shot 的 `framing` 只能使用 `全景`、`中景`、`近景`、`特写` 四个枚举值之一。
 - `image_generation`：为当前 element target 生成 storyboard；只使用 Project 中存在的图片版本。{{image_model_guidance}}
 - `r2v_generation`：storyboard output 已存在、Prompt/时长/画幅/分辨率就绪时生成视频。
 - 每个模型回合最多调用一个工具。

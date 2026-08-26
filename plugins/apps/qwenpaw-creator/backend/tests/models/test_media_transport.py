@@ -12,10 +12,61 @@ from PIL import Image
 from models import media_transport
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
+    _fetch_dashscope_upload_policy,
+    _mask_key,
     _upload_local_file_to_dashscope_temp_sync,
     read_reference_media,
     reference_media_data_url,
 )
+
+
+def test_media_transport_api_key_mask_never_reveals_a_secret_fragment() -> (
+    None
+):
+    secret = "sk-sensitive-prefix-and-private-suffix"
+
+    assert _mask_key(secret) == "[redacted]"
+    assert _mask_key("") == "(empty)"
+
+
+def test_upload_policy_log_never_contains_temporary_credentials(
+    monkeypatch,
+) -> None:
+    temporary_secret = "temporary-policy-signature-must-not-reach-logs"
+    emitted: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        media_transport.logger,
+        "info",
+        lambda *args, **_kwargs: emitted.append(args),
+    )
+
+    class PolicyClient:
+        def get(self, *_args, **_kwargs):
+            response = _FakeResponse(
+                {
+                    "data": {
+                        "max_file_size_mb": 1024,
+                        "upload_dir": "dashscope-instant/account/date/id",
+                        "upload_host": "https://upload.example.test",
+                        "oss_access_key_id": "temporary-access",
+                        "signature": temporary_secret,
+                        "policy": "temporary-policy",
+                    },
+                },
+            )
+            response.text = temporary_secret
+            return response
+
+    policy = _fetch_dashscope_upload_policy(
+        PolicyClient(),
+        api_key="provider-key",
+        model_name="qwen-image-2.0-pro",
+        size=128,
+    )
+
+    assert policy["signature"] == temporary_secret
+    assert temporary_secret not in repr(emitted)
+    assert "provider-key" not in repr(emitted)
 
 
 def _png_bytes() -> bytes:

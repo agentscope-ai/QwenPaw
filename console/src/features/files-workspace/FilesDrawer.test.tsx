@@ -4,6 +4,25 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
 
+const clipboardMocks = vi.hoisted(() => ({
+  copyText: vi.fn().mockResolvedValue(undefined),
+  error: vi.fn(),
+  success: vi.fn(),
+}));
+
+vi.mock("../../utils/clipboard", () => ({
+  copyText: clipboardMocks.copyText,
+}));
+
+vi.mock("../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({
+    message: {
+      error: clipboardMocks.error,
+      success: clipboardMocks.success,
+    },
+  }),
+}));
+
 vi.mock("../../api/modules/workspace", () => ({
   workspaceApi: {
     getFileMetadata: vi.fn().mockResolvedValue({
@@ -25,6 +44,50 @@ vi.mock("./FilesWorkspace", () => ({
 }));
 
 describe("FilesDrawer", () => {
+  it("copies the complete text file content", async () => {
+    clipboardMocks.copyText.mockClear();
+    clipboardMocks.success.mockClear();
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: {
+            source: "workspace",
+            path: "hello.txt",
+            root: "project",
+          },
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    const copyButton = await screen.findByRole("button", {
+      name: /copy|复制/i,
+    });
+    const downloadButton = screen.getByRole("button", {
+      name: /download|下载/i,
+    });
+
+    expect(
+      copyButton.compareDocumentPosition(downloadButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await user.click(copyButton);
+
+    await waitFor(() => {
+      expect(clipboardMocks.copyText).toHaveBeenCalledWith("hello");
+      expect(clipboardMocks.success).toHaveBeenCalled();
+    });
+  });
+
   it("does not repeat the Workspace label in the expanded header", async () => {
     renderWithProviders(
       <FilesDrawer
