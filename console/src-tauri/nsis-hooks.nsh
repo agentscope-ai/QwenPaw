@@ -117,11 +117,13 @@ FunctionEnd
 Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   Push $0
   Push $1
+  Push $2
   InitPluginsDir
   File /oname=$PLUGINSDIR\qwenpaw-manage-install-processes.ps1 "..\..\..\..\nsis\manage-install-processes.ps1"
+  System::Call 'kernel32::GetCurrentProcessId() i .r2'
 
   qwenpaw_prepare_retry:
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR"`
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
   Pop $0
   Pop $1
   ${If} $0 == 0
@@ -135,6 +137,7 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   Quit
 
   qwenpaw_prepare_done:
+  Pop $2
   Pop $1
   Pop $0
 FunctionEnd

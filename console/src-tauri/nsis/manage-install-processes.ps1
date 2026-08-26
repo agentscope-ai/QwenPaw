@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
     [ValidateSet("Prepare", "Restore")]
-    [string]$Action = "Prepare"
+    [string]$Action = "Prepare",
+    [int]$NsisProcessId = 0
 )
 
 # Prepare a recognized QwenPaw installation for NSIS replacement. The script
@@ -157,9 +158,16 @@ function Test-IsQwenPawInstall {
 }
 
 function Get-ScopedProcesses {
-    param([string]$Root)
+    param(
+        [string]$Root,
+        [int]$ExcludedProcessId = 0
+    )
 
     $result = foreach ($process in @(Get-CimInstance Win32_Process)) {
+        if ($ExcludedProcessId -gt 0 -and
+            $process.ProcessId -eq $ExcludedProcessId) {
+            continue
+        }
         $path = Get-NormalizedPath -Path "$($process.ExecutablePath)"
         if (Test-PathBelowRoot -Path $path -Root $Root) {
             @{
@@ -236,7 +244,7 @@ try {
     }
 
     Enable-NativeHostGate -Root $root
-    $scoped = Get-ScopedProcesses -Root $root
+    $scoped = Get-ScopedProcesses -Root $root -ExcludedProcessId $NsisProcessId
     $automatic = @(
         $scoped | Where-Object {
             Test-IsAutomaticProcess -Process $_ -Root $root
@@ -244,7 +252,7 @@ try {
     )
     Stop-ProcessRecords -Processes $automatic
 
-    $remaining = Get-ScopedProcesses -Root $root
+    $remaining = Get-ScopedProcesses -Root $root -ExcludedProcessId $NsisProcessId
     if ($remaining.Count -gt 0) {
         Write-Output "Close these processes before continuing:"
         Write-ProcessList -Processes $remaining -Root $root
