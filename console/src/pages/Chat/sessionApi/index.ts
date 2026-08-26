@@ -1539,8 +1539,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     } catch (error: any) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
       // return an empty session to prevent repeated 404 API calls.
-      // Note: the request layer throws Error(message) without attaching .status,
-      // so only message-based detection is reliable here.
+      // Keep message-based detection for compatibility with session adapters
+      // that do not use the shared request layer's status-aware ApiError.
       if (error.message?.includes("Chat not found")) {
         const emptySession = this.createEmptySession(sessionId, owner);
         emptySession.id = sessionId;

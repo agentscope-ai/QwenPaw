@@ -111,7 +111,10 @@ describe("request", () => {
 
   it("calls clearAuthToken and redirects to /login on 401", async () => {
     mockFetch(401);
-    await expect(request("/models")).rejects.toThrow("Not authenticated");
+    const error = await request("/models").catch((err) => err);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(401);
+    expect((error as ApiError).message).toBe("Not authenticated");
     expect(clearAuthToken).toHaveBeenCalledOnce();
     expect(window.location.href).toBe("/login?redirect=%2Fchat");
   });

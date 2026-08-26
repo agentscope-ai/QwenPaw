@@ -68,6 +68,9 @@ export default function FilesWorkspace({
     scopeKey: string;
     chatId: string;
   } | null>(null);
+  const activeChatScopeRef = useRef({ scopeKey, chatId });
+  activeChatScopeRef.current = { scopeKey, chatId };
+  const missingChatScopeRef = useRef(missingChatScope);
   const effectiveChatId =
     missingChatScope?.scopeKey === scopeKey &&
     missingChatScope.chatId === chatId
@@ -120,11 +123,20 @@ export default function FilesWorkspace({
 
   const handleChatNotFound = useCallback(
     (missingChatId: string) => {
-      if (!chatId || missingChatId !== chatId) return;
-      clearProjectTabs(scopeKey);
-      setMissingChatScope({ scopeKey, chatId: missingChatId });
+      const current = activeChatScopeRef.current;
+      if (!current.chatId || missingChatId !== current.chatId) return;
+      if (
+        missingChatScopeRef.current?.scopeKey === current.scopeKey &&
+        missingChatScopeRef.current.chatId === missingChatId
+      ) {
+        return;
+      }
+      const missing = { scopeKey: current.scopeKey, chatId: missingChatId };
+      missingChatScopeRef.current = missing;
+      clearProjectTabs(current.scopeKey);
+      setMissingChatScope(missing);
     },
-    [chatId, clearProjectTabs, scopeKey],
+    [clearProjectTabs],
   );
 
   useEffect(
@@ -214,13 +226,7 @@ export default function FilesWorkspace({
       }
       return target;
     },
-    [
-      agentId,
-      effectiveChatId,
-      projectDirOverride,
-      scopeKind,
-      sessionId,
-    ],
+    [agentId, effectiveChatId, projectDirOverride, scopeKind, sessionId],
   );
 
   const loadTarget = useCallback(

@@ -138,6 +138,7 @@ export default function SessionProjectDirectory({
   // Only the most recent request is allowed to update state, preventing stale
   // responses from overwriting newer results when requests complete out of order.
   const browseSeq = useRef(0);
+  const refreshSeq = useRef(0);
   // Session scope binds an ordered list of directories, index 0 = primary.
   // It replaces the single-path field, so the list is the whole selection.
   // Only used when !isAgentScope; agent scope stays single-valued via `draft`.
@@ -181,40 +182,53 @@ export default function SessionProjectDirectory({
     [],
   );
 
-  const refresh = useCallback(async () => {
-    if (isAgentScope) {
-      const next = await projectDirectoryApi.get();
-      const fallback: EffectiveProjectDirectory = {
-        project_dir: next.path,
-        source: next.is_workspace_default ? "workspace_fallback" : "agent",
-        agent_project_dir: next.is_workspace_default ? null : next.path,
-        exists: next.exists ?? true,
-      };
-      setInfo(fallback);
-      updateDraft(fallback.project_dir);
-      return;
-    }
-    // Shared with the Files navigator so the panel and the tree can never
-    // disagree about which directories the session is bound to.
-    const snapshot = await loadSessionProjectDirs(
-      selectedAgent,
-      sessionId,
-      chatId,
-    );
-    applyList(snapshot.dirs, {
-      source: snapshot.source,
-      agent_project_dir: snapshot.agentProjectDir,
-    });
-  }, [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft]);
+  const refresh = useCallback(
+    async (requestedSeq?: number) => {
+      const seq = requestedSeq ?? ++refreshSeq.current;
+      const isCurrent = () => seq === refreshSeq.current;
+      if (isAgentScope) {
+        const next = await projectDirectoryApi.get();
+        if (!isCurrent()) return;
+        const fallback: EffectiveProjectDirectory = {
+          project_dir: next.path,
+          source: next.is_workspace_default ? "workspace_fallback" : "agent",
+          agent_project_dir: next.is_workspace_default ? null : next.path,
+          exists: next.exists ?? true,
+        };
+        setInfo(fallback);
+        updateDraft(fallback.project_dir);
+        return;
+      }
+      // Shared with the Files navigator so the panel and the tree can never
+      // disagree about which directories the session is bound to.
+      const snapshot = await loadSessionProjectDirs(
+        selectedAgent,
+        sessionId,
+        chatId,
+      );
+      if (!isCurrent()) return;
+      applyList(snapshot.dirs, {
+        source: snapshot.source,
+        agent_project_dir: snapshot.agentProjectDir,
+      });
+    },
+    [applyList, chatId, isAgentScope, selectedAgent, sessionId, updateDraft],
+  );
 
   useEffect(() => {
-    // Keep a failed read inside the panel: it re-runs on every scope change,
-    // including the moment an agent switch pairs the new agent with the
-    // outgoing chat, and an unhandled rejection there surfaces as a page
-    // error even though the trigger just keeps its previous directory.
-    void refresh().catch((err) => {
-      setListError(err instanceof Error ? err.message : String(err));
-    });
+    const seq = ++refreshSeq.current;
+    void refresh(seq)
+      .then(() => {
+        if (seq === refreshSeq.current) setListError(null);
+      })
+      .catch((err) => {
+        if (seq === refreshSeq.current) {
+          setListError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      if (seq === refreshSeq.current) refreshSeq.current += 1;
+    };
   }, [refresh]);
 
   const browse = useCallback(

@@ -153,7 +153,7 @@ export async function request<T = unknown>(
           if (!isLoginPath(window.location.pathname)) {
             window.location.href = getLoginHref(window.location);
           }
-          throw new Error("Not authenticated");
+          throw new ApiError(response.status, "Not authenticated");
         }
 
         const text = await response.text().catch(() => "");

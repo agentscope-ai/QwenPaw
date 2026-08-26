@@ -14,6 +14,12 @@ const lifecycle = vi.hoisted(() => ({
   navigatorProps: null as {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+    onChatNotFound: (chatId: string) => void;
+    scope: {
+      kind: "agent" | "session";
+      agentId: string;
+      chatId?: string;
+    };
   } | null,
   memoryGraphProps: null as {
     onOpenFile: (section: "daily" | "digest", path: string) => void;
@@ -64,6 +70,12 @@ vi.mock("./FilesNavigator", () => ({
   default: function MockFilesNavigator(props: {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+    onChatNotFound: (chatId: string) => void;
+    scope: {
+      kind: "agent" | "session";
+      agentId: string;
+      chatId?: string;
+    };
   }) {
     lifecycle.navigatorProps = props;
     useEffect(() => {
@@ -138,6 +150,29 @@ describe("FilesWorkspace directory changes", () => {
     expect(lifecycle.navigatorMounted).toHaveBeenCalledTimes(2);
     expect(lifecycle.editorUnmounted).toHaveBeenCalledTimes(1);
     expect(lifecycle.editorMounted).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a missing chat from the effective file scope", async () => {
+    render(
+      <FilesWorkspace
+        scope={{
+          kind: "session",
+          agentId: "agent-a",
+          sessionId: "session-a",
+          chatId: "chat-a",
+        }}
+      />,
+    );
+
+    expect(lifecycle.navigatorProps?.scope.chatId).toBe("chat-a");
+    act(() => lifecycle.navigatorProps?.onChatNotFound("chat-a"));
+
+    await waitFor(() => {
+      expect(lifecycle.navigatorProps?.scope.chatId).toBeUndefined();
+    });
+    expect(lifecycle.clearProjectTabs).toHaveBeenCalledWith(
+      "session:agent-a:session-a",
+    );
   });
 
   it("saves with the loaded ETag and stores the returned version", async () => {

@@ -366,4 +366,156 @@ describe("SessionProjectDirectory", () => {
       await screen.findByText("directory service exploded"),
     ).toBeInTheDocument();
   });
+
+  it("clears a read failure after the current scope refresh succeeds", async () => {
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs)
+      .mockRejectedValueOnce(new ApiError(500, "directory service exploded"))
+      .mockResolvedValueOnce({
+        project_dirs: [
+          {
+            path: "/projects/recovered",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+
+    const view = renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} open />,
+    );
+    expect(
+      await screen.findByText("directory service exploded"),
+    ).toBeInTheDocument();
+
+    view.rerender(
+      <SessionProjectDirectory
+        scope={{ ...sessionScope, sessionId: "s2" }}
+        open
+      />,
+    );
+
+    expect(await screen.findByText("/projects/recovered")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.queryByText("directory service exploded"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("ignores a failed refresh from the previous scope", async () => {
+    let rejectPrevious: (error: Error) => void = () => undefined;
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs)
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectPrevious = reject;
+          }),
+      )
+      .mockResolvedValueOnce({
+        project_dirs: [
+          {
+            path: "/projects/current",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+
+    const view = renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} open />,
+    );
+    await waitFor(() => {
+      expect(chatProjectDirectoryApi.getProjectDirs).toHaveBeenCalledTimes(1);
+    });
+
+    view.rerender(
+      <SessionProjectDirectory
+        scope={{ ...sessionScope, sessionId: "s2" }}
+        open
+      />,
+    );
+    expect(await screen.findByText("/projects/current")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectPrevious(new ApiError(500, "stale failure"));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("stale failure")).not.toBeInTheDocument();
+  });
+
+  it("ignores a successful refresh from the previous scope", async () => {
+    let resolvePrevious: (value: {
+      project_dirs: Array<{
+        path: string;
+        label: null;
+        exists: boolean;
+        nested_with: null;
+        is_workspace: boolean;
+      }>;
+      source: "session";
+      agent_project_dir: string;
+    }) => void = () => undefined;
+    vi.mocked(chatProjectDirectoryApi.getProjectDirs)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePrevious = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        project_dirs: [
+          {
+            path: "/projects/current",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+
+    const view = renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} open />,
+    );
+    await waitFor(() => {
+      expect(chatProjectDirectoryApi.getProjectDirs).toHaveBeenCalledTimes(1);
+    });
+    view.rerender(
+      <SessionProjectDirectory
+        scope={{ ...sessionScope, sessionId: "s2" }}
+        open
+      />,
+    );
+    expect(await screen.findByText("/projects/current")).toBeInTheDocument();
+
+    await act(async () => {
+      resolvePrevious({
+        project_dirs: [
+          {
+            path: "/projects/previous",
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          },
+        ],
+        source: "session",
+        agent_project_dir: "/projects/agentscope",
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("/projects/current")).toBeInTheDocument();
+    expect(screen.queryByText("/projects/previous")).not.toBeInTheDocument();
+  });
 });
