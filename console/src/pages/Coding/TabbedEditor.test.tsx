@@ -295,7 +295,7 @@ describe("TabbedEditor tab context menu", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Project switch — regression for A#82628675 (切项目文件未随切)
+// Project switch — regression for A#82628675 (open files not following project switch)
 // When the user switches projects/agents, the open file list must update
 // to reflect the new project's tabs (or be empty if the new project has
 // no open tabs). The store's clearAgent/clearProjectTabs handles this.

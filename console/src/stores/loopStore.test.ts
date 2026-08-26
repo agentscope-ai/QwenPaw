@@ -1,5 +1,5 @@
 /**
- * loopStore.test.ts — regression for A#85096690 (loop 指示器不刷新)
+ * loopStore.test.ts — regression for A#85096690 (loop indicator not refreshing)
  *
  * The loop indicator must update when session events arrive:
  *   - idle → starting → running → awaiting_user → idle

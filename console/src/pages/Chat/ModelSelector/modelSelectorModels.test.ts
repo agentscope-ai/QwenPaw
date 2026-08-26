@@ -48,7 +48,7 @@ describe("modelSelectorModels (#5784 压缩阈值跨 provider 校验)", () => {
     it("由 provider_id:model_id 组成唯一键", () => {
       expect(modelKey("dashscope", "qwen-max")).toBe("dashscope:qwen-max");
       expect(modelKey("openai", "qwen-max")).toBe("openai:qwen-max");
-      // 同名 model 在不同 provider 下 key 不同
+      // same model name under different providers gets a different key
       expect(modelKey("dashscope", "qwen-max")).not.toBe(
         modelKey("openai", "qwen-max"),
       );
@@ -81,13 +81,13 @@ describe("modelSelectorModels (#5784 压缩阈值跨 provider 校验)", () => {
         .find((p) => p.id === "provider-b")!
         .models.find((m) => m.id === sharedModelId)!;
 
-      // 关键断言：同名 model 在不同 provider 下取各自的 max_input_length
+      // Key assertion: same model name under different providers keeps its own max_input_length
       expect(modelA.max_input_length).toBe(32768);
       expect(modelB.max_input_length).toBe(131072);
     });
 
     it("effective_max_input_length 应取匹配 provider_id + model_id 的值", () => {
-      // 模拟后端返回的 effective_max_input_length 是按 provider+model 匹配的
+      // backend effective_max_input_length is matched by provider + model
       const providers: ProviderInfo[] = [
         makeProvider({
           id: "dashscope",
@@ -103,14 +103,14 @@ describe("modelSelectorModels (#5784 压缩阈值跨 provider 校验)", () => {
 
       const eligible = buildEligibleProviders(providers);
 
-      // 当 active model 是 dashscope:qwen-max 时，effective_max_input_length 应为 32768
+      // active model dashscope:qwen-max -> effective_max_input_length 32768
       const dashscopeProvider = eligible.find((p) => p.id === "dashscope")!;
       const dashscopeModel = dashscopeProvider.models.find(
         (m) => m.id === "qwen-max",
       )!;
       expect(dashscopeModel.max_input_length).toBe(32768);
 
-      // 当 active model 是 openai:qwen-max 时，effective_max_input_length 应为 128000
+      // active model openai:qwen-max -> effective_max_input_length 128000
       const openaiProvider = eligible.find((p) => p.id === "openai")!;
       const openaiModel = openaiProvider.models.find(
         (m) => m.id === "qwen-max",

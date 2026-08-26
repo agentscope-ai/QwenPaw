@@ -129,7 +129,7 @@ describe("LoopModeSelector", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // A#85096690 — session 事件触发指示器更新
+  // A#85096690 — session events trigger the indicator update
   // ---------------------------------------------------------------------------
   describe("session event triggers indicator refresh (#85096690)", () => {
     it("transitions from idle → starting → running and updates the indicator", () => {

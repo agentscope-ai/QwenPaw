@@ -1031,9 +1031,9 @@ describe("useSkillPool — getBuiltinImportStatusLabel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleAutomationQuickAction (上游 #7232 重构后替代 handleToggleAutoUpdate：
-// 内置技能统一切换 auto_update + auto_sync；非内置技能仅切换 auto_sync；
-// 内置技能 auto_update/auto_sync 不一致（mixed）时转交 openEdit 处理)
+// handleAutomationQuickAction (replaces handleToggleAutoUpdate after upstream #7232:
+// builtin skills toggle auto_update + auto_sync together; others toggle auto_sync only;
+// when a builtin skill has mixed auto_update/auto_sync, defer to openEdit)
 // ---------------------------------------------------------------------------
 describe("useSkillPool — handleAutomationQuickAction", () => {
   beforeEach(() => {

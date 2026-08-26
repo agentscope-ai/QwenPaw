@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Sidebar.test.tsx — regression for A#84552933 (应用导航入口缺失)
+ * Sidebar.test.tsx — regression for A#84552933 (missing apps nav entry)
  *
- * The "应用" (marketplace/apps) navigation entry must be present in the
+ * The "Apps" (marketplace/apps) navigation entry must be present in the
  * sidebar's agent-scoped menu. We test the builtinMenu data directly
  * because the full Sidebar component has heavy dependencies.
  *

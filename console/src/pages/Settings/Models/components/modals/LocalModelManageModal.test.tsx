@@ -310,7 +310,7 @@ describe("LocalModelManageModal", () => {
   describe("组件渲染", () => {
     it("当 open=false 时不渲染内容", () => {
       renderModal({ open: false });
-      // Modal 关闭时不应显示内容
+      // the modal content must not render when closed
       expect(
         screen.queryByText("models.localModelsTitle"),
       ).not.toBeInTheDocument();
@@ -337,7 +337,7 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      // 应该显示 loading（翻译键）
+      // the loading translation key must be shown
       await waitFor(() => {
         expect(screen.getByText("common.loading")).toBeInTheDocument();
       });
@@ -354,7 +354,7 @@ describe("LocalModelManageModal", () => {
         expect(api.listRecommendedLocalModels).toHaveBeenCalled();
       });
 
-      // 应该显示模型名称
+      // model names must be shown
       expect(screen.getByText("Llama 2 7B")).toBeInTheDocument();
       expect(screen.getByText("Mistral 7B")).toBeInTheDocument();
     });
@@ -368,7 +368,7 @@ describe("LocalModelManageModal", () => {
         expect(api.listRecommendedLocalModels).toHaveBeenCalled();
       });
 
-      // 应该显示无模型提示（翻译键）
+      // the no-recommended-model hint (translation key) must be shown
       expect(
         screen.getByText("models.localNoRecommendedModels"),
       ).toBeInTheDocument();
@@ -389,7 +389,7 @@ describe("LocalModelManageModal", () => {
         expect(api.listRecommendedLocalModels).toHaveBeenCalled();
       });
 
-      // 应该显示无已下载模型提示（翻译键）
+      // the no-downloaded-model hint (translation key) must be shown
       expect(
         screen.getByText("models.localNoDownloadedModelsHint"),
       ).toBeInTheDocument();
@@ -404,12 +404,12 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 应该显示自定义模型标题（翻译键）
+      // the custom model section title (translation key) must be shown
       expect(
         screen.getByText("models.localCustomModelTitle"),
       ).toBeInTheDocument();
 
-      // 应该显示输入框
+      // the input must be shown
       const input = screen.getByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
@@ -428,20 +428,20 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 输入 repo ID
+      // type the repo ID
       const input = screen.getByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       await user.type(input, "custom/model");
 
-      // 找到自定义模型区域的下载按钮（最后一个 download 按钮）
+      // find the download button in the custom model section (the last download button)
       const downloadButtons = screen.getAllByRole("button", {
         name: /common.download/i,
       });
       const customDownloadBtn = downloadButtons[downloadButtons.length - 1];
       await user.click(customDownloadBtn);
 
-      // 应该调用下载 API
+      // the download API must be called
       await waitFor(() => {
         expect(api.startLocalModelDownload).toHaveBeenCalledWith(
           "custom/model",
@@ -457,7 +457,7 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 自定义模型的下载按钮应该被禁用（最后一个）
+      // the custom model download button (the last one) must be disabled
       const downloadButtons = screen.getAllByRole("button", {
         name: /common.download/i,
       });
@@ -477,26 +477,26 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 输入 repo ID
+      // type the repo ID
       const input = screen.getByPlaceholderText(
         "models.localRepoIdPlaceholder",
       );
       await user.type(input, "custom/model");
 
-      // 切换源选择器 - 点击 ModelScope 选项
+      // switch the source selector - click the ModelScope option
       const modelscopeOption = screen.getByRole("option", {
         name: "models.localSourceModelScope",
       });
       await user.click(modelscopeOption);
 
-      // 找到自定义模型区域的下载按钮（最后一个）
+      // find the download button in the custom model section (the last one)
       const downloadButtons = screen.getAllByRole("button", {
         name: /common.download/i,
       });
       const customDownloadBtn = downloadButtons[downloadButtons.length - 1];
       await user.click(customDownloadBtn);
 
-      // 应该使用 modelscope 源
+      // the modelscope source must be used
       await waitFor(() => {
         expect(api.startLocalModelDownload).toHaveBeenCalledWith(
           "custom/model",
@@ -514,12 +514,12 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 应该显示高级配置标题（翻译键）
+      // the advanced settings title (translation key) must be shown
       expect(
         screen.getByText("models.localAdvancedConfigTitle"),
       ).toBeInTheDocument();
 
-      // 但不应显示配置字段
+      // but the settings fields must not be shown
       expect(
         screen.queryByText("models.localMaxContextLengthLabel"),
       ).not.toBeInTheDocument();
@@ -534,11 +534,11 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 点击展开
+      // click to expand
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 应该显示配置字段（翻译键）
+      // the settings fields (translation keys) must be shown
       expect(
         screen.getByText("models.localMaxContextLengthLabel"),
       ).toBeInTheDocument();
@@ -560,11 +560,11 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalModelConfig).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 应该显示加载的值
+      // the loaded values must be shown
       expect(screen.getByDisplayValue("131072")).toBeInTheDocument();
       expect(screen.getByDisplayValue("9090")).toBeInTheDocument();
     });
@@ -579,22 +579,22 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalModelConfig).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 修改 max context length - use fireEvent.change for reliable number input handling
+      // change max context length - use fireEvent.change for reliable number input handling
       const contextInput = screen.getByDisplayValue("65536");
       fireEvent.change(contextInput, { target: { value: "131072" } });
 
-      // 找到 max context length 旁边的保存按钮
+      // find the save button next to max context length
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      // 第一个保存按钮对应 max context length
+      // the first save button belongs to max context length
       await user.click(saveButtons[0]);
 
-      // 应该调用配置 API
+      // the settings API must be called
       await waitFor(() => {
         expect(api.configureLocalModelSettings).toHaveBeenCalledWith({
           max_context_length: 131072,
@@ -612,23 +612,23 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalModelConfig).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 修改 server port
+      // change the server port
       const portInput = screen.getByDisplayValue("8080");
       await user.clear(portInput);
       await user.type(portInput, "9090");
 
-      // 找到 server port 旁边的保存按钮
+      // find the save button next to server port
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      // 第二个保存按钮对应 server port
+      // the second save button belongs to server port
       await user.click(saveButtons[1]);
 
-      // 应该调用配置 API
+      // the settings API must be called
       await waitFor(() => {
         expect(api.configureLocalModelSettings).toHaveBeenCalledWith({
           port: 9090,
@@ -645,7 +645,7 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 应该显示 runtime 面板（翻译键）
+      // the runtime panel (translation key) must be shown
       expect(screen.getByText("models.localLlamacppName")).toBeInTheDocument();
     });
 
@@ -662,7 +662,7 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 应该显示 runtime 缺失提示（翻译键）- use getAllByText since there may be multiple
+      // the runtime-missing hint (translation key) must be shown - use getAllByText since there may be multiple
       const elements = screen.getAllByText("models.localRuntimeMissing");
       expect(elements.length).toBeGreaterThan(0);
     });
@@ -681,7 +681,7 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 应该显示不支持提示（翻译键）- use getAllByText since there may be multiple
+      // the unsupported hint (translation key) must be shown - use getAllByText since there may be multiple
       const elements = screen.getAllByText("models.localRuntimeUnsupported");
       expect(elements.length).toBeGreaterThan(0);
     });
@@ -698,7 +698,7 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 应该显示当前运行模型标签（翻译键）
+      // the currently running model label (translation key) must be shown
       expect(
         screen.getByText("models.localEngineCurrentModelLabel"),
       ).toBeInTheDocument();
@@ -717,7 +717,7 @@ describe("LocalModelManageModal", () => {
         expect(api.listRecommendedLocalModels).toHaveBeenCalled();
       });
 
-      // 应该显示无模型提示而不是崩溃
+      // the no-model hint must be shown instead of crashing
       expect(
         screen.getByText("models.localNoRecommendedModels"),
       ).toBeInTheDocument();
@@ -735,11 +735,11 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalModelConfig).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 应该显示默认值
+      // the default values must be shown
       expect(screen.getByDisplayValue("65536")).toBeInTheDocument();
     });
 
@@ -755,22 +755,22 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalModelConfig).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 修改值
+      // change the value
       const contextInput = screen.getByDisplayValue("65536");
       await user.clear(contextInput);
       await user.type(contextInput, "131072");
 
-      // 点击保存
+      // click save
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
       await user.click(saveButtons[0]);
 
-      // 应该调用 API（错误会被内部处理）
+      // the API must be called (the error is handled internally)
       await waitFor(() => {
         expect(api.configureLocalModelSettings).toHaveBeenCalled();
       });
@@ -792,12 +792,12 @@ describe("LocalModelManageModal", () => {
 
       renderModal();
 
-      // 等待初始加载
+      // wait for the initial load
       await waitFor(() => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 等待轮询（3秒间隔）
+      // wait for polling (3-second interval)
       await waitFor(
         () => {
           expect(api.getLocalServerStatus).toHaveBeenCalledTimes(2);
@@ -817,11 +817,11 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 应该显示 generate config 标签（翻译键）
+      // the generate config label (translation key) must be shown
       expect(
         screen.getByText("models.modelGenerateConfig"),
       ).toBeInTheDocument();
@@ -840,15 +840,15 @@ describe("LocalModelManageModal", () => {
         expect(api.getLocalServerStatus).toHaveBeenCalled();
       });
 
-      // 展开高级配置
+      // expand the advanced settings
       const toggle = screen.getByText("models.localAdvancedConfigTitle");
       await user.click(toggle);
 
-      // 应该显示 generate config 字段（检查字段标签存在）
+      // the generate config fields must be shown (check the field labels exist)
       const generateConfigLabel = screen.queryByText(
         "models.modelGenerateConfig",
       );
-      // 如果标签存在，说明高级配置已展开，generate_kwargs 应该被处理
+      // if the labels exist, the advanced settings are expanded and generate_kwargs is handled
       expect(generateConfigLabel).toBeInTheDocument();
     });
   });

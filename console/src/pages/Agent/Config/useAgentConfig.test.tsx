@@ -438,7 +438,7 @@ describe("useAgentConfig", () => {
   });
 
   // -------------------------------------------------------------------------
-  // #5137 — Collapse 未渲染配置丢失
+  // #5137 — config lost when Collapse is not rendered
   // When a Collapse panel is collapsed (unrendered), form.getFieldsValue()
   // only returns currently registered fields. The deep-merge logic in
   // handleSave must preserve the original nested values from collapsed panels

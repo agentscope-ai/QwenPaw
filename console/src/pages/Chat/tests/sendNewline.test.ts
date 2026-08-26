@@ -1,5 +1,5 @@
 /**
- * sendNewline.test.ts — regression for #4216 (发送换行丢失)
+ * sendNewline.test.ts — regression for #4216 (newline lost on send)
  *
  * When the user types a message containing newlines (\n) and sends it,
  * the content must preserve the newline characters in the request body.

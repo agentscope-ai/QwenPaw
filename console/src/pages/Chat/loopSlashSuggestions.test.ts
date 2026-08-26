@@ -40,9 +40,9 @@ describe("buildLoopSlashSuggestions (#5031)", () => {
 
     const goalSuggestion = suggestions.find((s) => s.value === "goal");
     expect(goalSuggestion).toBeDefined();
-    // 关键断言：command 是 /goal，不是 SKILL.md 展开后的多行内容
+    // Key assertion: command is /goal, not the expanded SKILL.md body
     expect(goalSuggestion!.command).toBe("/goal");
-    // description 只取第一行摘要，不包含 Usage 等多行展开
+    // description keeps only the first-line summary, no Usage expansion
     expect(goalSuggestion!.description).not.toContain("\n");
     expect(goalSuggestion!.description).toBe("设定目标并持续推进直到完成。");
   });
@@ -51,7 +51,7 @@ describe("buildLoopSlashSuggestions (#5031)", () => {
     const reserved = new Set<string>();
     const suggestions = buildLoopSlashSuggestions(modes, reserved, t, "en");
 
-    // no-slash 没有 slash_command，应被过滤
+    // no-slash mode has no slash_command and must be filtered out
     expect(suggestions).toHaveLength(2);
     expect(suggestions.every((s) => s.command.startsWith("/"))).toBe(true);
   });
@@ -71,7 +71,7 @@ describe("buildLoopSlashSuggestions (#5031)", () => {
 
     const ompSuggestion = suggestions.find((s) => s.value === "omp");
     expect(ompSuggestion).toBeDefined();
-    // omp 的 description 有多行（含 Usage:），但建议只取首行
+    // omp description is multi-line (includes Usage:) but only the first line is used
     expect(ompSuggestion!.description).not.toContain("Usage:");
     expect(ompSuggestion!.description).not.toContain("\n");
   });

@@ -21,7 +21,7 @@ describe("loadModelSelectorData", () => {
     });
   });
 
-  // A#85049052: 模型配置缺失时不应静默失败
+  // A#85049052: missing model config must not fail silently
   it("active models 请求失败时标记 loadError 而非静默忽略", async () => {
     const providers = [
       {
@@ -40,7 +40,7 @@ describe("loadModelSelectorData", () => {
 
     const result = await loadModelSelectorData("default", dataSource);
 
-    // 关键断言：即使 providers 成功返回，active models 失败也应标记 loadError
+    // Key assertion: an active-models failure must set loadError even when providers succeed
     expect(result.loadError).toBe(true);
     expect(result.providers).toEqual(providers);
     expect(result.activeModels).toBeNull();

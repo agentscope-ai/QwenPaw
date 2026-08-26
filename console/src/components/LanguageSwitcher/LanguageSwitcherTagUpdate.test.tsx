@@ -5,7 +5,7 @@ import { renderWithProviders } from "@/test/common_setup";
 import { createElement } from "react";
 
 // ---------------------------------------------------------------------------
-// A#85241570 — 切换语言后标签滞留
+// A#85241570 — tags persist after switching the language
 // When the language is switched, ALL translated labels/tags must update to
 // the new language. Stale labels from the previous language must not remain.
 //

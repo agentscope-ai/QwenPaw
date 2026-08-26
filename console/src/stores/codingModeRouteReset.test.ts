@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
- * codingModeRouteReset.test.ts — regression for A#82590506 (coding 切 chat 模式)
+ * codingModeRouteReset.test.ts — regression for A#82590506 (coding -> chat mode switch)
  *
  * When the user navigates from Coding mode to Chat mode (route change),
  * the coding mode state must be properly managed. The useSyncCodingMode

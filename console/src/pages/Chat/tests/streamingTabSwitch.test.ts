@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
- * streamingTabSwitch.test.ts — regression for #2107 (切 tab 流式不显示)
+ * streamingTabSwitch.test.ts — regression for #2107 (streaming hidden after tab switch)
  *
  * When a session is actively streaming (generating=true) and the user
  * switches to another tab then back, the streaming messages must still
@@ -197,8 +197,8 @@ describe("Streaming tab switch (#2107)", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // A#80568123 — 切换回 chat 后 markdown 内容正确格式化渲染
-  // 验证 convertMessages 保留原始 markdown 内容，使渲染层能正确格式化
+  // A#80568123 — markdown renders correctly after switching back to chat
+  // convertMessages keeps the raw markdown so the render layer can format it
   // ---------------------------------------------------------------------------
   describe("markdown content preserved through conversion (#80568123)", () => {
     it("assistant message with markdown code blocks preserves content", async () => {

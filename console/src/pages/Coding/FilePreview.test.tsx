@@ -88,7 +88,7 @@ describe("isPreviewable (#5863)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Image preview rendering — regression for A#82584296 (图片预览不生效)
+// Image preview rendering — regression for A#82584296 (image preview not working)
 // When a file has an image extension, FilePreview must render an <img>
 // element (after blob loading) rather than falling through to null.
 // ---------------------------------------------------------------------------

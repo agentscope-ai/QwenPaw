@@ -58,7 +58,7 @@ describe("codingModeStore", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // A#82590506 — coding 到 chat 路由切换时 codingMode 正确重置为 false
+  // A#82590506 — codingMode resets to false when routing from coding to chat
   // ---------------------------------------------------------------------------
   describe("coding → chat route reset (#82590506)", () => {
     it("setCodingMode(agent, false) resets codingMode from true to false", () => {

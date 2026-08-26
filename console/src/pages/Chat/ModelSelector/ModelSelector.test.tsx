@@ -1765,7 +1765,7 @@ describe("ModelSelector", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // A#82265510 — 连续点击防抖
+  // A#82265510 — debounce rapid successive clicks
   // Rapid consecutive clicks on a model must NOT trigger multiple API calls.
   // The savingRef guard in activateModel prevents concurrent save attempts.
   // ---------------------------------------------------------------------------

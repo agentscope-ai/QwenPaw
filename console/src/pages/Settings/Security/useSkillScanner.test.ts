@@ -9,8 +9,8 @@ import type {
 
 // ---------------------------------------------------------------------------
 // Skill scanner warning display — regression for A#80732993
-// (技能扫描器告警显示逻辑：blocked vs warned 状态的区分、白名单管理、
-//  历史记录清除。只测逻辑分支，不测 CSS 溢出。)
+// (Skill scanner alert logic: blocked vs warned states, allowlist management,
+//  and history clearing. Only logic branches are tested, not CSS overflow.)
 // ---------------------------------------------------------------------------
 
 const {
