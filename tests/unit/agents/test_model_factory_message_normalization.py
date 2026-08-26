@@ -297,6 +297,39 @@ async def test_request_time_image_resize_preserves_original(
 
 
 @pytest.mark.asyncio
+async def test_resize_failure_preserves_media_dedup_context(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_MAX_IMAGE_PIXELS", "invalid")
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class()
+    previous_context = {"existing-media"}
+    outer_token = model_factory._FORMATTER_SEEN_MEDIA_KEYS.set(
+        previous_context,
+    )
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(text="hello")],
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="QWENPAW_MAX_IMAGE_PIXELS must be zero or a positive",
+        ):
+            await formatter.format([msg])
+
+        assert model_factory._FORMATTER_SEEN_MEDIA_KEYS.get() is (
+            previous_context
+        )
+    finally:
+        model_factory._FORMATTER_SEEN_MEDIA_KEYS.reset(outer_token)
+
+
+@pytest.mark.asyncio
 async def test_formatter_resets_wire_media_count_before_failure(
     monkeypatch,
 ) -> None:

@@ -1531,11 +1531,6 @@ def _create_file_block_support_formatter(
             self._qwenpaw_last_wire_media_count = 0
             self._qwenpaw_last_wire_audio_count = 0
 
-            # Per-wire-request dedup scope — second occurrence of the
-            # same media source becomes a text placeholder.  Reset on
-            # every call so state never leaks across requests.
-            seen_media_token = _FORMATTER_SEEN_MEDIA_KEYS.set(set())
-
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
                 if isinstance(block, dict):
@@ -1612,6 +1607,11 @@ def _create_file_block_support_formatter(
             )
             await _resize_request_images(normalized_msgs)
 
+            # Per-wire-request dedup scope — second occurrence of the
+            # same media source becomes a text placeholder. Set this only
+            # after request preparation succeeds so preparation failures
+            # cannot leak context state.
+            seen_media_token = _FORMATTER_SEEN_MEDIA_KEYS.set(set())
             try:
                 # OpenAI-family formatters reject video blocks; substitute
                 # them with text placeholders before formatting and restore

@@ -71,10 +71,9 @@ def _resized_dimensions(
 def _image_save_options(image: Image.Image) -> dict[str, object]:
     """Return safe metadata to retain in a request-local resized image."""
     options: dict[str, object] = {}
-    for key in ("exif", "icc_profile"):
-        value = image.info.get(key)
-        if value:
-            options[key] = value
+    icc_profile = image.info.get("icc_profile")
+    if icc_profile:
+        options["icc_profile"] = icc_profile
     return options
 
 
