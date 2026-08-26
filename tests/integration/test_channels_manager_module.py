@@ -35,9 +35,7 @@ def test_channel_manager_get_channel_missing() -> None:
     from qwenpaw.app.channels.manager import ChannelManager
 
     manager = ChannelManager(channels=[])
-    result = asyncio.get_event_loop().run_until_complete(
-        manager.get_channel("integ-unknown"),
-    )
+    result = asyncio.run(manager.get_channel("integ-unknown"))
     assert result is None
 
 

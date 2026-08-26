@@ -47,7 +47,7 @@ def test_detect_sensitive_paths_no_match() -> None:
         tool_type="shell",
         sensitive_paths=["/etc/"],
     )
-    assert findings == []
+    assert not findings
 
 
 @pytest.mark.integration
@@ -56,15 +56,13 @@ def test_detect_sensitive_paths_empty_config() -> None:
     """detect_sensitive_paths returns empty when no paths configured."""
     from qwenpaw.governance.detectors import detect_sensitive_paths
 
-    assert (
-        detect_sensitive_paths(
-            tool_name="shell",
-            target="/etc/passwd",
-            tool_type="shell",
-            sensitive_paths=[],
-        )
-        == []
+    findings = detect_sensitive_paths(
+        tool_name="shell",
+        target="/etc/passwd",
+        tool_type="shell",
+        sensitive_paths=[],
     )
+    assert not findings
 
 
 @pytest.mark.integration
@@ -98,7 +96,7 @@ def test_detect_dangerous_patterns_no_rules() -> None:
         target="echo hello",
         detection_rules=[],
     )
-    assert findings == []
+    assert not findings
 
 
 # ------------------------------------------------------------------ #

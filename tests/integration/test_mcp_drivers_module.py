@@ -65,9 +65,7 @@ def test_none_provider_resolves_empty() -> None:
     from qwenpaw.drivers.credentials.providers import NoneProvider
 
     provider = NoneProvider()
-    cred = asyncio.get_event_loop().run_until_complete(
-        provider.resolve(),
-    )
+    cred = asyncio.run(provider.resolve())
     assert cred.kind == "none"
     assert cred.secrets == {}
 
@@ -124,4 +122,4 @@ def test_driver_card_construct() -> None:
     )
     assert card.name == "integ-driver"
     assert card.enabled is True
-    assert card.credentials == {}
+    assert not card.credentials
