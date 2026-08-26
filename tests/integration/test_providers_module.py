@@ -79,7 +79,8 @@ def test_walk_schema_list() -> None:
     from qwenpaw.providers.openai_chat_model_compat import _walk_schema
 
     result = _walk_schema(
-        {"items": [{"type": "boolean"}]}, lambda s: s
+        {"items": [{"type": "boolean"}]},
+        lambda s: s,
     )
     assert isinstance(result, dict)
     assert isinstance(result["items"], list)

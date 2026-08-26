@@ -140,7 +140,7 @@ def test_decode_text_bytes_fallback() -> None:
     )
 
     text = decode_text_bytes_with_encoding_fallback(
-        "hello".encode("utf-8")
+        "hello".encode("utf-8"),
     )
     assert text == "hello"
 

@@ -97,11 +97,9 @@ def test_validate_agent_id_invalid() -> None:
     """validate_agent_id rejects malformed ids."""
     from qwenpaw.config.config import validate_agent_id
 
-    import pytest as _pytest
-
-    with _pytest.raises(ValueError):
+    with pytest.raises(ValueError):
         validate_agent_id("", set())
-    with _pytest.raises(ValueError):
+    with pytest.raises(ValueError):
         validate_agent_id("bad id!", set())
 
 

@@ -57,7 +57,8 @@ def test_resolve_step_refs_nested() -> None:
 
     results = [{"step": 0, "value": "x"}]
     resolved = resolve_step_refs(
-        {"a": ["${steps.0.value}", 1]}, results
+        {"a": ["${steps.0.value}", 1]},
+        results,
     )
     assert resolved == {"a": ["x", 1]}
 
@@ -159,7 +160,7 @@ def test_load_batch_file(tmp_path) -> None:
 
     batch = tmp_path / "batch.json"
     batch.write_text(
-        json.dumps({"actions": [{"tool_name": "x", "arguments": {}}]})
+        json.dumps({"actions": [{"tool_name": "x", "arguments": {}}]}),
     )
     actions = _load_batch_file(str(batch))
     assert isinstance(actions, list)
@@ -191,6 +192,7 @@ def test_resolve_args_placeholder() -> None:
     from qwenpaw.agents.tools.run_tool_batch import _resolve_args
 
     resolved = _resolve_args(
-        "run ${args.folder}", {"folder": "/data"}
+        "run ${args.folder}",
+        {"folder": "/data"},
     )
     assert resolved == "run /data"

@@ -54,6 +54,7 @@ def _run_cli(*args, timeout=60):
         capture_output=True,
         text=True,
         timeout=timeout,
+        check=False,
     )
 
 
@@ -95,7 +96,10 @@ def test_cli_subcommand_help(sub) -> None:
 def test_cli_agents_list(app_server) -> None:
     """qwenpaw agents list reads the agent list over HTTP."""
     proc = _run_cli(
-        "agents", "list", "--base-url", app_server.base_url
+        "agents",
+        "list",
+        "--base-url",
+        app_server.base_url,
     )
     assert proc.returncode == 0, proc.stderr
     assert "default" in proc.stdout
@@ -151,7 +155,9 @@ def test_cli_env_list() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_cli_doctor_runs(app_server) -> None:
+def test_cli_doctor_runs(
+    app_server,  # pylint: disable=unused-argument
+) -> None:
     """qwenpaw doctor performs read-only diagnostics."""
     proc = _run_cli("doctor", "--timeout", "2", timeout=120)
     # doctor may report warnings but must not crash

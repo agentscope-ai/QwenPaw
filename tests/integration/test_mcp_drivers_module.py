@@ -37,7 +37,8 @@ def test_acp_resolve_process_command_missing() -> None:
     from qwenpaw.agents.acp.service import _resolve_process_command
 
     resolved = _resolve_process_command(
-        "integ-nonexistent-binary", {"PATH": "/nonexistent"}
+        "integ-nonexistent-binary",
+        {"PATH": "/nonexistent"},
     )
     assert resolved == "integ-nonexistent-binary"
 
@@ -65,7 +66,7 @@ def test_none_provider_resolves_empty() -> None:
 
     provider = NoneProvider()
     cred = asyncio.get_event_loop().run_until_complete(
-        provider.resolve()
+        provider.resolve(),
     )
     assert cred.kind == "none"
     assert cred.secrets == {}

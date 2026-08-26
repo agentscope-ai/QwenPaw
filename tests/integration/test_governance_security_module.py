@@ -56,12 +56,15 @@ def test_detect_sensitive_paths_empty_config() -> None:
     """detect_sensitive_paths returns empty when no paths configured."""
     from qwenpaw.governance.detectors import detect_sensitive_paths
 
-    assert detect_sensitive_paths(
-        tool_name="shell",
-        target="/etc/passwd",
-        tool_type="shell",
-        sensitive_paths=[],
-    ) == []
+    assert (
+        detect_sensitive_paths(
+            tool_name="shell",
+            target="/etc/passwd",
+            tool_type="shell",
+            sensitive_paths=[],
+        )
+        == []
+    )
 
 
 @pytest.mark.integration
@@ -232,7 +235,7 @@ def test_guard_rule_from_dict() -> None:
             "category": "command_injection",
             "severity": "HIGH",
             "patterns": ["rm\\s+-rf"],
-        }
+        },
     )
     assert rule.id == "integ-rule"
 
@@ -250,7 +253,7 @@ def test_load_rules_from_yaml(tmp_path) -> None:
         "- id: integ-rule\n"
         "  category: command_injection\n"
         "  severity: MEDIUM\n"
-        "  patterns: ['dangerous']\n"
+        "  patterns: ['dangerous']\n",
     )
     rules = load_rules_from_yaml(yaml_file)
     assert isinstance(rules, list)

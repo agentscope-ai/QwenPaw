@@ -1,0 +1,5 @@
+[MESSAGES CONTROL]
+# Integration tests use relative imports (from .conftest import ...) which is valid
+# in the test context but pylint reports E0402 as a false positive.
+# Upstream CI doesn't run pylint on integration tests, so we disable this check here.
+disable = relative-beyond-top-level

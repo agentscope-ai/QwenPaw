@@ -63,7 +63,7 @@ def test_extract_fact_entries_urls() -> None:
     )
 
     entries = extract_fact_entries(
-        "see https://example.com/a for details"
+        "see https://example.com/a for details",
     )
     assert isinstance(entries, list)
     assert len(entries) >= 1

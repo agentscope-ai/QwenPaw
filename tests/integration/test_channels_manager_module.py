@@ -36,7 +36,7 @@ def test_channel_manager_get_channel_missing() -> None:
 
     manager = ChannelManager(channels=[])
     result = asyncio.get_event_loop().run_until_complete(
-        manager.get_channel("integ-unknown")
+        manager.get_channel("integ-unknown"),
     )
     assert result is None
 
@@ -104,7 +104,8 @@ def test_normalize_msg_timestamp() -> None:
     from qwenpaw.app.chats.utils import _normalize_msg_timestamp
 
     normalized = _normalize_msg_timestamp(
-        "2026-08-26T00:00:00Z", ZoneInfo("Asia/Shanghai")
+        "2026-08-26T00:00:00Z",
+        ZoneInfo("Asia/Shanghai"),
     )
     assert isinstance(normalized, str)
     assert "+08:00" in normalized or "08:00" in normalized
