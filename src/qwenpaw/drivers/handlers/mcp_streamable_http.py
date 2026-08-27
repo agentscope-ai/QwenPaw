@@ -187,6 +187,12 @@ def _is_legacy_protocol_evidence(
     return status_code in {400, 404, 405}
 
 
+class _ModernCallToolResult(mcp_types.CallToolResult):
+    """Accept any JSON structuredContent per MCP 2026-07-28."""
+
+    structuredContent: Any = None
+
+
 def _normalize_call_tool_result(result: Any) -> Any:
     """Normalize snake_case CallToolResult aliases for the installed SDK."""
     if not isinstance(result, dict):
@@ -456,6 +462,28 @@ class _HttpClientBase:
         self.is_connected = False
 
 
+class _AsyncClient(httpx.AsyncClient):
+    """Like HTTPX, but drop MCP/auth headers on true cross-origin hops."""
+
+    def _redirect_headers(self, request, url, method):
+        headers = super()._redirect_headers(request, url, method)
+        src = request.url
+        if src.host == url.host and (
+            src.scheme == url.scheme
+            or (src.scheme == "http" and url.scheme == "https")
+        ):
+            return headers
+        for key in list(headers):
+            name = key.lower()
+            if name.startswith("mcp-") or name in {
+                "authorization",
+                "proxy-authorization",
+                "x-api-key",
+            }:
+                headers.pop(key, None)
+        return headers
+
+
 class HttpStatelessClient(_HttpClientBase):
     """Stateless Streamable-HTTP client for MCP 2026-07-28."""
 
@@ -477,9 +505,10 @@ class HttpStatelessClient(_HttpClientBase):
         r = _timeout_seconds(self.sse_read_timeout)
         # Drop leftover session ids without mutating caller-owned headers.
         headers = _headers_without_session_id(self.headers)
-        self._http = httpx.AsyncClient(
+        self._http = _AsyncClient(
             headers=headers,
             timeout=httpx.Timeout(connect=t, read=r, write=t, pool=t),
+            follow_redirects=True,
             **self.client_kwargs,
         )
         try:
@@ -613,15 +642,19 @@ class HttpStatelessClient(_HttpClientBase):
             await self.list_tools()
             result = await _call()
         normalized = _normalize_call_tool_result(result)
-        if (
-            isinstance(normalized, dict)
-            and normalized.get("resultType") == "input_required"
-        ):
-            raise RuntimeError(
-                "MCP tool requires additional input (MRTR), "
-                "which is not supported",
-            )
-        return mcp_types.CallToolResult.model_validate(normalized)
+        if isinstance(normalized, dict):
+            result_type = normalized.get("resultType")
+            if result_type == "input_required":
+                raise RuntimeError(
+                    "MCP tool requires additional input (MRTR), "
+                    "which is not supported",
+                )
+            if result_type is not None and result_type != "complete":
+                raise RuntimeError(
+                    f"MCP tool returned unsupported resultType="
+                    f"{result_type!r}",
+                )
+        return _ModernCallToolResult.model_validate(normalized)
 
     async def _negotiate(self) -> None:
         """Probe ``server/discover``; confirm the peer supports 2026-07-28."""
@@ -886,8 +919,10 @@ class HttpAutoClient(_HttpClientBase):
                 return
             try:
                 await impl.close(ignore_errors=ignore_errors)
-            finally:
-                self._impl = None
+            except Exception:
+                if not ignore_errors:
+                    raise
+            self._impl = None
 
     async def list_tools(self):
         async with self._lifecycle_lock:

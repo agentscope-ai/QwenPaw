@@ -685,3 +685,149 @@ async def test_driver_routes_streamable_http_to_auto_and_sse_to_stateful(
         await handler._setup()
         await handler._teardown()
     assert built == ["auto", "stateful"]
+
+
+def _modern_rpc(call_result: Any):
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        method, rid = body["method"], body["id"]
+        if method == "server/discover":
+            return _disc(rid)
+        if method == "tools/list":
+            return _ok(
+                rid,
+                {"tools": [{"name": "echo", "inputSchema": {}}]},
+            )
+        if method == "tools/call":
+            return _ok(rid, call_result)
+        return _err(rid, -32601, method)
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    "structured",
+    (
+        {"id": "1"},
+        [{"id": "1", "name": "Alice"}],
+        "alice",
+        42,
+        True,
+        None,
+    ),
+)
+async def test_call_tool_structured_content_any_json_type(structured):
+    payload = {
+        "resultType": "complete",
+        "content": [],
+        "structuredContent": structured,
+    }
+    c = _cli(HttpStatelessClient, "modern", _modern_rpc(payload))
+    await c.connect()
+    try:
+        result = await c.call_tool("echo", {})
+        assert result.structuredContent == structured
+    finally:
+        await c.close()
+
+
+async def test_call_tool_rejects_unknown_result_type():
+    c = _cli(
+        HttpStatelessClient,
+        "modern",
+        _modern_rpc({"resultType": "streaming", "content": []}),
+    )
+    await c.connect()
+    try:
+        with pytest.raises(RuntimeError, match="unsupported resultType"):
+            await c.call_tool("echo", {})
+    finally:
+        await c.close()
+
+
+async def test_connect_follows_redirect():
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url))
+        if req.url.path == "/mcp":
+            return httpx.Response(
+                307,
+                headers={"location": "http://mcp.test/mcp/"},
+            )
+        return _disc(_rid(req))
+
+    c = _cli(HttpStatelessClient, "modern", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert "http://mcp.test/mcp/" in seen
+    finally:
+        await c.close()
+
+
+async def test_connect_strips_sensitive_headers_on_cross_origin_redirect():
+    seen: list[dict[str, str]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append({k.lower(): v for k, v in req.headers.items()})
+        if req.url.host == "mcp.test":
+            return httpx.Response(
+                307,
+                headers={"location": "http://other.test/mcp/"},
+            )
+        return _disc(_rid(req))
+
+    c = _cli(
+        HttpStatelessClient,
+        "modern",
+        handler,
+        headers={"Authorization": "Bearer secret", "X-Api-Key": "k"},
+    )
+    await c.connect()
+    try:
+        assert c.is_connected and len(seen) >= 2
+        first, hop = seen[0], seen[-1]
+        assert first.get("authorization") == "Bearer secret"
+        assert first.get("x-api-key") == "k"
+        assert first.get("mcp-protocol-version") == _MODERN_PROTOCOL_VERSION
+        assert "authorization" not in hop
+        assert "x-api-key" not in hop
+        assert "mcp-protocol-version" not in hop
+        assert "mcp-method" not in hop
+    finally:
+        await c.close()
+
+
+async def test_auto_client_strict_close_retains_impl_on_failure():
+    fails = [True]
+
+    class Impl:
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+            if fails[0]:
+                fails[0] = False
+                raise RuntimeError("close failed")
+
+    c = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
+    c._impl = Impl()
+    c.is_connected = True
+    with pytest.raises(RuntimeError, match="close failed"):
+        await c.close(ignore_errors=False)
+    assert c._impl is not None
+    await c.close(ignore_errors=False)
+    assert c._impl is None
+
+
+async def test_auto_client_close_propagates_cancellation():
+    class Impl:
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+            raise asyncio.CancelledError
+
+    c = HttpAutoClient("auto", "streamable_http", "http://mcp.test/mcp")
+    c._impl = Impl()
+    c.is_connected = True
+    with pytest.raises(asyncio.CancelledError):
+        await c.close(ignore_errors=True)
+    assert c._impl is not None
