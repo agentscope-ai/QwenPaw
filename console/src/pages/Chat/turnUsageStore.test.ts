@@ -26,6 +26,28 @@ describe("turnUsageStore (#5300 上下文取 max_input_length)", () => {
   });
 
   describe("handleNewCommand 上下文重置应使用当前模型的 max_input_length", () => {
+    it("新一轮流式回答期间保留当前会话累计缓存命中率", () => {
+      useTurnUsageStore.getState().setSnapshot({
+        usage: {
+          session_cache_read_tokens: 940,
+          session_cache_eligible_input_tokens: 1000,
+          session_cache_observed: true,
+          session_cache_hit_rate: 94,
+        },
+        context_usage: {
+          estimated_tokens: 24000,
+          max_input_length: 100000,
+          context_usage_ratio: 24,
+        },
+      });
+
+      useTurnUsageStore.getState().beginTurn("default", "session-a");
+
+      expect(
+        useTurnUsageStore.getState().snapshot?.usage?.session_cache_hit_rate,
+      ).toBe(94);
+    });
+
     it("切换会话时清除上一会话的累计缓存命中率", () => {
       useTurnUsageStore.getState().setSnapshot({
         usage: {
