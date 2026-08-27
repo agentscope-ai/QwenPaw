@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatHeaderTitle from "./index";
+import styles from "./index.module.less";
 
 const { mockUseChatAnywhereSessionsState } = vi.hoisted(() => ({
   mockUseChatAnywhereSessionsState: vi.fn(),
@@ -50,5 +52,28 @@ describe("ChatHeaderTitle", () => {
     renderWithProviders(<ChatHeaderTitle />);
     expect(screen.getAllByText("Chat B")[0]).toBeInTheDocument();
     expect(screen.queryByText("Chat A")).not.toBeInTheDocument();
+  });
+
+  it("keeps a long session list inside the bounded dropdown", async () => {
+    const user = userEvent.setup();
+    mockUseChatAnywhereSessionsState.mockReturnValue({
+      sessions: Array.from({ length: 30 }, (_, index) => ({
+        id: `sess-${index}`,
+        name: `Chat ${index}`,
+      })),
+      currentSessionId: "sess-0",
+      setCurrentSessionId: vi.fn(),
+    });
+
+    renderWithProviders(<ChatHeaderTitle />);
+    const trigger = screen.getByRole("button", { name: "Chat 0" });
+    await user.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(
+      (await screen.findByRole("menu")).closest(
+        ".qwenpaw-dropdown, .ant-dropdown",
+      ),
+    ).toHaveClass(styles.sessionDropdown);
   });
 });

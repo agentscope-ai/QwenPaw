@@ -1,6 +1,16 @@
 // ─── MainLayout ───────────────────────────────────────────────────────────────
 .mainLayout {
   height: 100vh;
+  min-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 768px) {
+    .mainLayout {
+      height: 100dvh;
+      min-height: 100dvh;
+    }
+  }
 }
 
 // ─── Header ───────────────────────────────────────────────────────────────────
@@ -946,6 +956,14 @@
     margin: 0 -8px;
     padding: 8px 0;
     justify-content: center;
+  }
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 768px) {
+    .sider {
+      height: calc(100dvh - 56px) !important;
+    }
   }
 }
 

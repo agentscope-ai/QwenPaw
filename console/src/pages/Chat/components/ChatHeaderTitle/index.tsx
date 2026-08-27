@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Dropdown } from "antd";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
+import { Check } from "lucide-react";
+import { useIsMobile } from "../../../../hooks/useIsMobile";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import styles from "./index.module.less";
 
@@ -10,6 +12,7 @@ const ChatHeaderTitle: React.FC = () => {
   const { sessions, currentSessionId, setCurrentSessionId } =
     useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
+  const isMobile = useIsMobile();
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const chatName = currentSession?.name || "New Chat";
 
@@ -55,7 +58,7 @@ const ChatHeaderTitle: React.FC = () => {
           {session.name || "New Chat"}
         </span>
         {session.id === currentSessionId && (
-          <span className={styles.menuItemActive}>✓</span>
+          <Check className={styles.menuItemActive} size={16} aria-hidden />
         )}
       </div>
     ),
@@ -110,11 +113,19 @@ const ChatHeaderTitle: React.FC = () => {
       onOpenChange={setOpen}
       trigger={["click"]}
       placement="bottomLeft"
+      overlayClassName={`${styles.sessionDropdown} ${
+        isMobile ? styles.sessionDropdownCompact : ""
+      }`}
     >
-      <span className={styles.trigger}>
+      <button
+        type="button"
+        className={styles.trigger}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
         {titleContent}
         {measureSpan}
-      </span>
+      </button>
     </Dropdown>
   );
 };

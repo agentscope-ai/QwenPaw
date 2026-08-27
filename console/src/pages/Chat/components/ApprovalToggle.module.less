@@ -1,0 +1,135 @@
+.sheet {
+  width: 100%;
+  height: auto;
+  max-height: min(52dvh, 430px);
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ant-color-bg-elevated);
+}
+
+.sheetHeader {
+  min-height: 48px;
+  padding: 0 0 6px 8px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  strong {
+    color: var(--ant-color-text);
+    font-size: 14px;
+    font-weight: 650;
+  }
+}
+
+.closeButton {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  color: var(--ant-color-text-secondary);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover,
+  &:active {
+    color: var(--ant-color-text);
+    background: var(--ant-color-fill-tertiary);
+  }
+}
+
+.optionList {
+  min-height: 0;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.option {
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  color: var(--ant-color-text-tertiary);
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+
+  &:hover,
+  &:active {
+    background: var(--ant-color-fill-quaternary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ant-color-primary-border);
+    outline-offset: -2px;
+  }
+}
+
+.optionSelected {
+  color: var(--ant-color-primary);
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+.optionIcon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ant-color-text-secondary);
+  border-radius: 9px;
+  background: var(--ant-color-fill-tertiary);
+}
+
+.optionCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+
+  strong,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  strong {
+    color: var(--ant-color-text);
+    font-size: 13px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  small {
+    color: var(--ant-color-text-tertiary);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+}
+.trigger {
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid;
+  border-radius: 6px;
+  background: var(--ant-color-bg-container);
+  font: inherit;
+}
