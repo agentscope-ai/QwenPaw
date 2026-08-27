@@ -695,6 +695,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   getHistoryPage(sessionId?: string | null): HistoryPageState {
+    // Must be referentially stable: LoadEarlierMessages reads this via
+    // useSyncExternalStore and will loop if a new object is returned.
     if (!sessionId) return EMPTY_HISTORY_PAGE;
     return this.historyPages.get(sessionId) ?? EMPTY_HISTORY_PAGE;
   }

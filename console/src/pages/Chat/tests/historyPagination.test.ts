@@ -180,4 +180,18 @@ describe("SessionApi history pagination", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(sessionApi.getHistoryPage("chat-owner").hasMore).toBe(false);
   });
+
+  it("getHistoryPage returns the same object until the page is updated", async () => {
+    seedSession("chat-stable");
+    vi.spyOn(api, "getChat").mockResolvedValue(
+      history([msg("m1", "a")], { has_more: true, total: 2 }),
+    );
+    await sessionApi.getSession("chat-stable");
+    const first = sessionApi.getHistoryPage("chat-stable");
+    const second = sessionApi.getHistoryPage("chat-stable");
+    expect(first).toBe(second);
+    expect(sessionApi.getHistoryPage(null)).toBe(
+      sessionApi.getHistoryPage(undefined),
+    );
+  });
 });
