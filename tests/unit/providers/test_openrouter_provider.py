@@ -50,7 +50,7 @@ async def test_fetch_models_closes_client_on_api_error(monkeypatch) -> None:
     close.assert_awaited_once()
 
 
-async def test_empty_discovery_closes_fetch_and_probe_clients(
+async def test_empty_discovery_succeeds_and_closes_clients(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -83,7 +83,9 @@ async def test_empty_discovery_closes_fetch_and_probe_clients(
 
     result = await manager.discover_provider_models("openrouter")
 
-    assert result.success is False
-    assert result.error == "Provider returned no models"
+    assert result.success is True
+    assert result.models == []
+    assert result.discovered_count == 0
+    assert result.error is None
     fetch_close.assert_awaited_once()
     probe_close.assert_awaited_once()

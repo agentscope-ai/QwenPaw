@@ -49,10 +49,15 @@ export async function loadActiveModels(
   });
 }
 
+export async function loadProviders(): Promise<ProviderInfo[]> {
+  return providerApi.listProviders();
+}
+
 export const modelSelectorApi = {
   addModel: providerApi.addModel,
   loadActiveModels,
   loadModelSelectorData,
+  loadProviders,
   setActiveLlm: providerApi.setActiveLlm,
   setModelVisibility: providerApi.setModelVisibility,
 };

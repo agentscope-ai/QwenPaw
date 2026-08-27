@@ -155,12 +155,12 @@ export default function ModelSelector({
   }, []);
   const {
     activeModels,
+    commitActiveModels,
     fetchData,
     loading,
     loadError,
     providers,
     refreshActiveModels,
-    setActiveModels,
     setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
@@ -400,7 +400,7 @@ export default function ModelSelector({
       ) {
         return;
       }
-      setActiveModels(
+      commitActiveModels(
         updated?.active_llm
           ? updated
           : {
