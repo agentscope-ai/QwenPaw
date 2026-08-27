@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from qwenpaw.app.chats.history_window import (
     apply_history_window,
+    history_cursor_id,
     message_original_id,
 )
 
@@ -29,6 +30,26 @@ def make_history(count: int, prefix: str = "msg") -> List[SimpleNamespace]:
 
 def ids(messages: List[SimpleNamespace]) -> List[Optional[str]]:
     return [message_original_id(m) for m in messages]
+
+
+def make_msg(msg_id: str) -> SimpleNamespace:
+    """AgentScope-shaped stub: cursor lives on ``id``, not original_id."""
+    return SimpleNamespace(id=msg_id, metadata={"role": "assistant"})
+
+
+class TestHistoryCursorId:
+    def test_prefers_original_id_over_regenerated_message_id(self):
+        message = SimpleNamespace(
+            id="fresh-uuid",
+            metadata={"original_id": "scoped-msg-3"},
+        )
+        assert history_cursor_id(message) == "scoped-msg-3"
+
+    def test_falls_back_to_agentscope_msg_id(self):
+        assert history_cursor_id(make_msg("scoped-msg-3")) == "scoped-msg-3"
+
+    def test_missing_both_returns_none(self):
+        assert history_cursor_id(SimpleNamespace()) is None
 
 
 class TestMessageOriginalId:
@@ -141,3 +162,33 @@ class TestApplyHistoryWindow:
         assert len(window) == 2
         assert total == 3
         assert has_more is True
+
+    def test_windows_agentscope_msg_id_before_conversion(self):
+        history = [make_msg(f"msg-{i}") for i in range(5)]
+        window, total, has_more = apply_history_window(history, limit=2)
+        assert [item.id for item in window] == ["msg-3", "msg-4"]
+        assert total == 5
+        assert has_more is True
+
+    def test_before_cursor_on_msg_id(self):
+        history = [make_msg(f"msg-{i}") for i in range(5)]
+        window, total, has_more = apply_history_window(
+            history,
+            limit=2,
+            before="msg-3",
+        )
+        assert [item.id for item in window] == ["msg-1", "msg-2"]
+        assert total == 5
+        assert has_more is True
+
+    def test_does_not_split_a_source_msg_group(self):
+        # Windowing at the Msg layer never splits a source message: the
+        # cut is by Msg.id, so conversion can still expand that Msg into
+        # several Message objects that share original_id.
+        history = [make_msg(f"msg-{i}") for i in range(3)]
+        window, _total, has_more = apply_history_window(
+            history,
+            before="msg-1",
+        )
+        assert [item.id for item in window] == ["msg-0"]
+        assert has_more is False

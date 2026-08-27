@@ -3,17 +3,18 @@
 
 Exercises the real endpoint (dependency overrides for the workspace
 only) with a session state built from genuine AgentScope messages, so
-the full path — state → ``agentscope_msg_to_message`` →
-``apply_history_window`` → ``ChatHistory`` — is covered.
+the full path — state → ``apply_history_window`` (Msg layer) →
+``agentscope_msg_to_message`` (window only) → ``ChatHistory`` — is
+covered.
 """
 
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Msg, TextBlock, ThinkingBlock
 from agentscope.state import AgentState
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -180,3 +181,84 @@ def test_stale_cursor_falls_back_to_limit_window(client):
 def test_invalid_limit_is_rejected(client):
     resp = client.get(f"/api/chats/{CHAT_ID}?limit=-1")
     assert resp.status_code == 422
+
+
+def test_converts_only_the_windowed_msgs(client):
+    original = chats_api.agentscope_msg_to_message
+    seen: list[int] = []
+
+    def _spy(memories):
+        seen.append(len(memories) if isinstance(memories, list) else 1)
+        return original(memories)
+
+    with patch.object(
+        chats_api,
+        "agentscope_msg_to_message",
+        side_effect=_spy,
+    ):
+        resp = client.get(f"/api/chats/{CHAT_ID}?limit=2")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert seen == [2]
+    assert [text_of(m) for m in body["messages"]] == [
+        "message-4",
+        "message-5",
+    ]
+    assert body["total"] == 6
+    assert body["has_more"] is True
+
+
+def test_expanded_source_msg_stays_in_one_window(client, chat_workspace):
+    """A Msg that converts into several Message objects is never split."""
+    expanded = Msg(
+        name="agent",
+        content=[
+            ThinkingBlock(thinking="planning"),
+            TextBlock(type="text", text="answer"),
+        ],
+        role="assistant",
+        id="expanded-msg",
+    )
+    older = Msg(
+        name=USER_ID,
+        content=[TextBlock(type="text", text="question")],
+        role="user",
+        id="older-msg",
+    )
+    chat_workspace.session.get_session_state_dict = AsyncMock(
+        return_value={
+            "agent": {
+                "state": AgentState(context=[older, expanded]).model_dump(),
+            },
+        },
+    )
+
+    original = chats_api.agentscope_msg_to_message
+    seen: list[list[str]] = []
+
+    def _spy(memories):
+        ids = [
+            getattr(item, "id", None)
+            for item in (
+                memories if isinstance(memories, list) else [memories]
+            )
+        ]
+        seen.append(ids)
+        return original(memories)
+
+    with patch.object(
+        chats_api,
+        "agentscope_msg_to_message",
+        side_effect=_spy,
+    ):
+        resp = client.get(f"/api/chats/{CHAT_ID}?limit=1")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert seen == [["expanded-msg"]]
+    originals = [m["metadata"]["original_id"] for m in body["messages"]]
+    assert originals == ["expanded-msg", "expanded-msg"]
+    assert body["total"] == 2
+    assert body["has_more"] is True
+    assert len(body["messages"]) == 2

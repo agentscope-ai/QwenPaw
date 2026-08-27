@@ -228,8 +228,8 @@ class ChatHistory(BaseModel):
     total: int = Field(
         default=0,
         description=(
-            "Total number of messages in the chat before pagination "
-            "windowing was applied."
+            "Total number of source messages (AgentScope Msg objects) "
+            "in the chat before pagination windowing was applied."
         ),
     )
     has_more: bool = Field(

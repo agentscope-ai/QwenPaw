@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import LoadEarlierMessages, {
@@ -15,17 +15,31 @@ const {
   mockUseSessions,
   mockSubscribeReplaced,
   mockReloadAfterPageSizeChange,
-} = vi.hoisted(() => ({
-  mockSubscribe: vi.fn((cb: () => void) => {
-    void cb;
-    return () => undefined;
-  }),
-  mockGetHistoryPage: vi.fn(),
-  mockLoadEarlier: vi.fn(),
-  mockUseSessions: vi.fn(),
-  mockSubscribeReplaced: vi.fn(() => () => undefined),
-  mockReloadAfterPageSizeChange: vi.fn(),
-}));
+  mockSubscribeLoadEarlier,
+  mockRequestLoadEarlier,
+} = vi.hoisted(() => {
+  let loadEarlierListener: (() => void) | null = null;
+  return {
+    mockSubscribe: vi.fn((cb: () => void) => {
+      void cb;
+      return () => undefined;
+    }),
+    mockGetHistoryPage: vi.fn(),
+    mockLoadEarlier: vi.fn(),
+    mockUseSessions: vi.fn(),
+    mockSubscribeReplaced: vi.fn(() => () => undefined),
+    mockReloadAfterPageSizeChange: vi.fn(),
+    mockSubscribeLoadEarlier: vi.fn((cb: () => void) => {
+      loadEarlierListener = cb;
+      return () => {
+        loadEarlierListener = null;
+      };
+    }),
+    mockRequestLoadEarlier: vi.fn(() => {
+      loadEarlierListener?.();
+    }),
+  };
+});
 
 vi.mock("@agentscope-ai/chat", () => ({
   useChatAnywhereSessionsState: mockUseSessions,
@@ -38,6 +52,8 @@ vi.mock("../../sessionApi", () => ({
     loadEarlierMessages: mockLoadEarlier,
     subscribeHistoryReplaced: mockSubscribeReplaced,
     reloadAfterPageSizeChange: mockReloadAfterPageSizeChange,
+    subscribeLoadEarlierRequest: mockSubscribeLoadEarlier,
+    requestLoadEarlier: mockRequestLoadEarlier,
   },
 }));
 
@@ -153,7 +169,7 @@ describe("LoadEarlierMessages", () => {
               getMessages: () => [{ id: "latest" }],
               setMessages,
             },
-          },
+          } as never,
         }}
         rootRef={{ current: null }}
       />,
@@ -183,5 +199,42 @@ describe("LoadEarlierMessages", () => {
     await waitFor(() =>
       expect(mockReloadAfterPageSizeChange).toHaveBeenCalledWith("chat-1"),
     );
+  });
+
+  it("loads earlier messages when the transcript is scrolled to the top", async () => {
+    const root = document.createElement("div");
+    const scroller = document.createElement("div");
+    scroller.className =
+      "qwenpaw-chat-anywhere-message-list-bubble-scroll " +
+      "qwenpaw-bubble-list-order-desc";
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 400 },
+    });
+    root.append(scroller);
+    document.body.append(root);
+
+    mockLoadEarlier.mockResolvedValue({ prepended: [{ id: "older" }] });
+    const setMessages = vi.fn();
+    renderWithProviders(
+      <LoadEarlierMessages
+        chatRef={{
+          current: {
+            messages: {
+              getMessages: () => [{ id: "latest" }],
+              setMessages,
+            },
+          } as never,
+        }}
+        rootRef={{ current: root }}
+      />,
+    );
+
+    await screen.findByTestId("load-earlier-messages");
+    scroller.scrollTop = -1580;
+    fireEvent.scroll(scroller);
+    await waitFor(() => expect(mockLoadEarlier).toHaveBeenCalledWith("chat-1"));
+
+    root.remove();
   });
 });

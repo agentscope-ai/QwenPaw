@@ -1,5 +1,10 @@
 import { Button } from "antd";
-import React, { useCallback, useEffect, useSyncExternalStore } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useSyncExternalStore,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import type { IAgentScopeRuntimeWebUIRef } from "@agentscope-ai/chat";
@@ -9,6 +14,7 @@ import {
   EMPTY_HISTORY_PAGE,
   restoreScrollAfterPrepend,
 } from "../../sessionApi/historyWindow";
+import { isNearOldestEdge } from "../../virtualMessageList/range";
 import HistoryPageSizeInput from "../HistoryPageSizeInput";
 import styles from "./index.module.less";
 
@@ -118,6 +124,52 @@ const LoadEarlierMessages: React.FC<LoadEarlierMessagesProps> = ({
     rootRef,
     t,
   ]);
+
+  const handleLoadRef = useRef(handleLoad);
+  handleLoadRef.current = handleLoad;
+
+  useEffect(() => {
+    return sessionApi.subscribeLoadEarlierRequest(() => {
+      void handleLoadRef.current();
+    });
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    let scroller: HTMLElement | null = null;
+
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target !== scroller) return;
+      if (
+        !isNearOldestEdge(
+          target.scrollTop,
+          target.scrollHeight,
+          target.clientHeight,
+        )
+      ) {
+        return;
+      }
+      sessionApi.requestLoadEarlier();
+    };
+
+    const attach = () => {
+      const next = findHistoryScroller(root);
+      if (next === scroller) return;
+      scroller?.removeEventListener("scroll", onScroll);
+      scroller = next;
+      scroller?.addEventListener("scroll", onScroll, { passive: true });
+    };
+
+    attach();
+    const observer = new MutationObserver(attach);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      scroller?.removeEventListener("scroll", onScroll);
+    };
+  }, [currentSessionId, rootRef]);
 
   const handlePageSizeCommitted = useCallback(async () => {
     try {

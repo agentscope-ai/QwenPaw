@@ -155,6 +155,8 @@ vi.mock("./sessionApi", () => {
       getHistoryPage: vi.fn(() => emptyHistoryPage),
       loadEarlierMessages: vi.fn(),
       subscribeHistoryReplaced: vi.fn(() => () => undefined),
+      subscribeLoadEarlierRequest: vi.fn(() => () => undefined),
+      requestLoadEarlier: vi.fn(),
       reloadAfterPageSizeChange: vi.fn(),
       getRealIdForSession: vi.fn(() => null),
       getBackendSessionId: vi.fn(() => "backend-session-1"),

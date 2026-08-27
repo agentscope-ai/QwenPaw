@@ -11,6 +11,27 @@ import path from "path";
 // monaco-editor's stylesheet, which makes the hidden `.monaco-editor
 // .inputarea` textarea render with browser default styles (a big white box
 // over the code) and breaks cursor positioning in Coding Mode (issue #6547).
+function qwenpawVirtualMessageList(): Plugin {
+  const hostMessageList = path.resolve(
+    __dirname,
+    "src/pages/Chat/virtualMessageList/MessageList.tsx",
+  );
+  return {
+    name: "qwenpaw-virtual-message-list",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (!importer) return;
+      const from = importer.replace(/\\/g, "/");
+      if (!from.includes("AgentScopeRuntimeWebUI/core/Chat/index")) {
+        return;
+      }
+      if (source === "./MessageList" || source.startsWith("./MessageList/")) {
+        return hostMessageList;
+      }
+    },
+  };
+}
+
 const cssStubPlugin: Plugin = {
   name: "css-stub",
   transform(_code: string, id: string) {
@@ -35,7 +56,11 @@ export default defineConfig(({ command, mode }) => {
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
-    plugins: [react(), ...(isVitest ? [cssStubPlugin] : [])],
+    plugins: [
+      qwenpawVirtualMessageList(),
+      react(),
+      ...(isVitest ? [cssStubPlugin] : []),
+    ],
     css: {
       modules: {
         localsConvention: "camelCase",

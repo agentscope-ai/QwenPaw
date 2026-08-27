@@ -692,6 +692,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private historyReplacedListeners = new Set<
     (messages: IAgentScopeRuntimeWebUIMessage[]) => void
   >();
+  private loadEarlierRequestListeners = new Set<() => void>();
   private historyPages = new Map<string, HistoryPageState>();
   private historyReloadGeneration = 0;
 
@@ -726,6 +727,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     messages: IAgentScopeRuntimeWebUIMessage[],
   ): void {
     this.historyReplacedListeners.forEach((listener) => listener(messages));
+  }
+
+  subscribeLoadEarlierRequest(listener: () => void): () => void {
+    this.loadEarlierRequestListeners.add(listener);
+    return () => {
+      this.loadEarlierRequestListeners.delete(listener);
+    };
+  }
+
+  requestLoadEarlier(): void {
+    this.loadEarlierRequestListeners.forEach((listener) => listener());
   }
 
   /**
@@ -1039,6 +1051,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.convertedSessionCache.clear();
     this.historyPages.clear();
     this.historyReplacedListeners.clear();
+    this.loadEarlierRequestListeners.clear();
     this.historyReloadGeneration = 0;
     resetHistoryPageSizeForTests();
     this.sessionList = [];
