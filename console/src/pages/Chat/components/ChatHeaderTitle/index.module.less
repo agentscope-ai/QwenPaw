@@ -116,14 +116,14 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-}
 
-.sessionDropdownCompact {
-  width: min(280px, calc(100vw - 96px));
+  @media (max-width: 768px) {
+    width: min(280px, calc(100vw - 96px));
 
-  :global(.qwenpaw-dropdown-menu),
-  :global(.ant-dropdown-menu) {
-    max-height: min(360px, calc(100dvh - 160px));
+    :global(.qwenpaw-dropdown-menu),
+    :global(.ant-dropdown-menu) {
+      max-height: min(360px, calc(100dvh - 160px));
+    }
   }
 }
 
