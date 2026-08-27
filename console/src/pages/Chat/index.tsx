@@ -66,6 +66,7 @@ import {
   wrapChatResponseUsageStream,
 } from "./turnUsage";
 import { wrapReplayFastForward } from "./replayFastForward";
+import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
@@ -2521,6 +2522,10 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      // A turn is starting: any earlier stop no longer describes this session.
+      // Every turn goes through this fetch, including the SDK's own regenerate,
+      // which never reaches the page's submit handlers.
+      clearTurnStopped();
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
       const headers: Record<string, string> = {
@@ -3386,6 +3391,10 @@ export default function ChatPage() {
         },
         onFileCardClick,
         cancel(data: { session_id: string }) {
+          // The SDK only writes a canceled status when its stream is still
+          // alive to observe the abort; record the stop itself so tool cards
+          // can close even when the stream died first.
+          markTurnStopped();
           const resolvedChatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
           if (resolvedChatId) {
@@ -3395,6 +3404,8 @@ export default function ChatPage() {
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
+          // Attaching to a live turn: the session has a running turn again.
+          clearTurnStopped();
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),

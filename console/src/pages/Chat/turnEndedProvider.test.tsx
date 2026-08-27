@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IAgentScopeRuntimeResponse } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+
+vi.mock("../../utils/resolveBackendSessionId", () => ({
+  resolveBackendSessionId: () => "session-active",
+}));
+
 import { ToolCallTurnBoundary } from "./turnEndedProvider";
+import {
+  clearTurnStopped,
+  markTurnStopped,
+  useStoppedTurnsStore,
+} from "./stoppedTurns";
 import { useToolCallTurnEnded } from "../../components/Chat/ToolCards/shared/ToolCallTurnContext";
 
 const Probe = () => (
@@ -19,6 +29,10 @@ const renderBoundary = (status: string) =>
   );
 
 const turnEnded = () => screen.getByTestId("turn-ended");
+
+beforeEach(() => {
+  useStoppedTurnsStore.setState({ stoppedSessionId: null });
+});
 
 describe("ToolCallTurnBoundary", () => {
   // A turn keeps streaming tool calls, results and further messages while it
@@ -53,5 +67,57 @@ describe("ToolCallTurnBoundary", () => {
     renderBoundary("completed");
 
     expect(turnEnded()).toHaveTextContent("true");
+  });
+
+  it("reports a stopped turn as ended although its status never changed", () => {
+    // Stop issued after the stream died: the SDK never observes the abort, so
+    // the response stays in progress and only the stop itself is left.
+    markTurnStopped();
+
+    renderBoundary("in_progress");
+
+    expect(turnEnded()).toHaveTextContent("true");
+  });
+
+  it("ignores a stop recorded for another session", () => {
+    useStoppedTurnsStore.setState({ stoppedSessionId: "session-other" });
+
+    renderBoundary("in_progress");
+
+    expect(turnEnded()).toHaveTextContent("false");
+  });
+
+  it("reports the next turn as running once the stop signal is cleared", () => {
+    markTurnStopped();
+    // Every new stream request clears the signal (customFetch / reconnect).
+    clearTurnStopped();
+
+    renderBoundary("in_progress");
+
+    expect(turnEnded()).toHaveTextContent("false");
+  });
+});
+
+describe("stoppedTurns", () => {
+  it("records the active session on stop", () => {
+    markTurnStopped();
+
+    expect(useStoppedTurnsStore.getState().stoppedSessionId).toBe(
+      "session-active",
+    );
+  });
+
+  it("clears the signal", () => {
+    markTurnStopped();
+    clearTurnStopped();
+
+    expect(useStoppedTurnsStore.getState().stoppedSessionId).toBeNull();
+  });
+
+  it("keeps the same state object when clearing an empty signal", () => {
+    const before = useStoppedTurnsStore.getState();
+    clearTurnStopped();
+
+    expect(useStoppedTurnsStore.getState()).toBe(before);
   });
 });
