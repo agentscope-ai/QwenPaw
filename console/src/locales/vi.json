@@ -1439,6 +1439,7 @@
     "currentAgentLlmCalls": "Lượt đã ghi nhận",
     "currentAgentTokenTrendTooltip": "Token đầu vào/đầu ra từ metadata theo lượt trong phiên của agent hiện tại",
     "currentAgentPromptTokensTooltip": "Tổng token đầu vào của agent hiện tại trên các phiên trong khoảng thời gian đã chọn (cần metadata sử dụng theo lượt; phiên cũ có thể hiển thị 0)",
+    "currentAgentCacheHitRateTooltip": "Tỷ lệ trúng cache có trọng số theo token cho các lượt cache quan sát được của agent hiện tại trong khoảng thời gian đã chọn (token đọc cache / token đầu vào đủ điều kiện; — khi không có dữ liệu)",
     "currentAgentCompletionTokensTooltip": "Tổng token đầu ra của agent hiện tại trên các phiên trong khoảng thời gian đã chọn (cần metadata sử dụng theo lượt; phiên cũ có thể hiển thị 0)",
     "currentAgentLlmCallsTooltip": "Số lượt trợ lý có metadata sử dụng đã ghi nhận của agent hiện tại (không phải số lời gọi API thô; phiên cũ có thể hiển thị 0)"
   },

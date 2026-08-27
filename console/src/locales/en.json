@@ -2055,6 +2055,7 @@
     "currentAgentLlmCalls": "Recorded Turns",
     "currentAgentTokenTrendTooltip": "Prompt and completion tokens from the current agent's per-turn session metadata",
     "currentAgentPromptTokensTooltip": "Prompt tokens from the current agent's sessions in the selected period (requires per-turn usage metadata; older sessions may show 0)",
+    "currentAgentCacheHitRateTooltip": "Token-weighted cache hit rate for observed cache calls by the current agent in the selected period (cache-read tokens / cache-eligible input tokens; — when unavailable)",
     "currentAgentCompletionTokensTooltip": "Completion tokens from the current agent's sessions in the selected period (requires per-turn usage metadata; older sessions may show 0)",
     "currentAgentLlmCallsTooltip": "Number of assistant turns with recorded usage metadata for the current agent (not raw API call count; older sessions may show 0)",
     "loadFailed": "Failed to load statistics",

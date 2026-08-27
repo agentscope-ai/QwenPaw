@@ -11,6 +11,7 @@ import type { AgentStatsSummary } from "../../../api/types/agentStats";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
+import { formatPercent } from "../../../utils/cacheUsage";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
@@ -340,6 +341,12 @@ function AgentStatsPage() {
                     value={data.agent_prompt_tokens ?? 0}
                     label={t("agentStats.promptTokens")}
                     tooltip={t("agentStats.currentAgentPromptTokensTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.agent_cache_hit_rate}
+                    label={t("tokenUsage.cacheHitRate")}
+                    tooltip={t("agentStats.currentAgentCacheHitRateTooltip")}
+                    formatValue={(value) => formatPercent(value ?? null)}
                   />
                   <SummaryCard
                     value={data.agent_completion_tokens ?? 0}

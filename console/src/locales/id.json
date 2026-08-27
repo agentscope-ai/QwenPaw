@@ -2210,6 +2210,7 @@
     "currentAgentLlmCalls": "Giliran Tercatat",
     "currentAgentTokenTrendTooltip": "Token prompt dan completion dari metadata per giliran sesi agen saat ini",
     "currentAgentPromptTokensTooltip": "Token prompt agen saat ini di seluruh sesinya pada periode yang dipilih (memerlukan metadata penggunaan per giliran; sesi lama mungkin menampilkan 0)",
+    "currentAgentCacheHitRateTooltip": "Tingkat hit cache berbobot token untuk panggilan cache agen saat ini yang teramati pada periode terpilih (token baca cache / token input yang memenuhi syarat; — jika tidak tersedia)",
     "currentAgentCompletionTokensTooltip": "Token completion agen saat ini di seluruh sesinya pada periode yang dipilih (memerlukan metadata penggunaan per giliran; sesi lama mungkin menampilkan 0)",
     "currentAgentLlmCallsTooltip": "Jumlah giliran asisten dengan metadata penggunaan tercatat untuk agen saat ini (bukan jumlah panggilan API mentah; sesi lama mungkin menampilkan 0)",
     "loadFailed": "Gagal memuat statistik",

@@ -40,4 +40,7 @@ export interface AgentStatsSummary {
   agent_prompt_tokens?: number;
   agent_completion_tokens?: number;
   agent_llm_calls?: number;
+  agent_cache_read_tokens: number;
+  agent_cache_eligible_input_tokens: number;
+  agent_cache_hit_rate: number | null;
 }

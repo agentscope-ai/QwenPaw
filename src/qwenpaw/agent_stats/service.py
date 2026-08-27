@@ -132,6 +132,29 @@ def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
     return pt, ct
 
 
+def _extract_turn_cache_tokens(msg_data: dict) -> tuple[int, int] | None:
+    """Return observed (cache read, eligible input) tokens for one turn."""
+    meta = msg_data.get("metadata")
+    if not isinstance(meta, dict):
+        return None
+    turn_meta = meta.get(TURN_USAGE_META_KEY)
+    if not isinstance(turn_meta, dict):
+        return None
+    usage = turn_meta.get("usage")
+    if not isinstance(usage, dict) or not usage.get("cache_observed", False):
+        return None
+    try:
+        cache_read = int(usage.get("cache_read_tokens", 0) or 0)
+        cache_eligible = int(
+            usage.get("cache_eligible_input_tokens", 0) or 0,
+        )
+    except (TypeError, ValueError):
+        return None
+    if cache_read < 0 or cache_eligible <= 0:
+        return None
+    return cache_read, cache_eligible
+
+
 # pylint:disable=too-many-statements,too-many-branches
 def _process_session_file(
     session_data: dict,
@@ -211,6 +234,14 @@ def _process_session_file(
                     ds["agent_prompt_tokens"] += pt
                     ds["agent_completion_tokens"] += ct
                     ds["agent_llm_calls"] += 1
+
+                cache_tokens = _extract_turn_cache_tokens(msg_data)
+                if cache_tokens is not None:
+                    cache_read, cache_eligible = cache_tokens
+                    ds.setdefault("agent_cache_read_tokens", 0)
+                    ds.setdefault("agent_cache_eligible_input_tokens", 0)
+                    ds["agent_cache_read_tokens"] += cache_read
+                    ds["agent_cache_eligible_input_tokens"] += cache_eligible
 
             if isinstance(content, list):
                 for block in content:
@@ -431,6 +462,13 @@ class AgentStatsService:
             ds["assistant_messages"] for ds in by_date
         )
         total_messages = total_user_messages + total_assistant_messages
+        agent_cache_read_tokens = sum(
+            int(ds.get("agent_cache_read_tokens", 0) or 0) for ds in by_date
+        )
+        agent_cache_eligible_input_tokens = sum(
+            int(ds.get("agent_cache_eligible_input_tokens", 0) or 0)
+            for ds in by_date
+        )
 
         return AgentStatsSummary(
             total_active_sessions=total_active_sessions,
@@ -457,6 +495,17 @@ class AgentStatsService:
             agent_prompt_tokens=agent_prompt_tokens,
             agent_completion_tokens=agent_completion_tokens,
             agent_llm_calls=agent_llm_calls,
+            agent_cache_read_tokens=agent_cache_read_tokens,
+            agent_cache_eligible_input_tokens=(
+                agent_cache_eligible_input_tokens
+            ),
+            agent_cache_hit_rate=(
+                agent_cache_read_tokens
+                / agent_cache_eligible_input_tokens
+                * 100
+                if agent_cache_eligible_input_tokens > 0
+                else None
+            ),
         )
 
     async def get_global_llm_tool_by_date(
