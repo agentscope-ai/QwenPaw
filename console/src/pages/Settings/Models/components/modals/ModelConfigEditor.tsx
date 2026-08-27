@@ -52,7 +52,6 @@ export function ModelConfigEditor({
   const [maxTokens, setMaxTokens] = useState<number | null>(
     configuredMaxTokens,
   );
-  const [maxTokensDirty, setMaxTokensDirty] = useState(false);
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
   );
@@ -83,7 +82,6 @@ export function ModelConfigEditor({
   useEffect(() => {
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
-    setMaxTokensDirty(false);
     setMaxInputLength(model.max_input_length ?? 131072);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
@@ -110,7 +108,6 @@ export function ModelConfigEditor({
 
   const handleMaxTokensChange = useCallback((val: number | null) => {
     setMaxTokens(val);
-    setMaxTokensDirty(true);
     setDirty(true);
   }, []);
 
@@ -137,11 +134,13 @@ export function ModelConfigEditor({
         return;
       }
     }
+    if (maxTokens !== null) {
+      parsed.max_tokens = maxTokens;
+    }
 
     setSaving(true);
     try {
       const updated = await api.configureModel(providerId, model.id, {
-        ...(maxTokensDirty ? { max_tokens: maxTokens } : {}),
         ...(maxInputLengthDirty
           ? { max_input_length: effectiveMaxInputLength }
           : {}),
@@ -153,7 +152,6 @@ export function ModelConfigEditor({
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
-      setMaxTokensDirty(false);
       setMaxInputLengthDirty(false);
       onProviderUpdated?.(updated);
       await onSaved();

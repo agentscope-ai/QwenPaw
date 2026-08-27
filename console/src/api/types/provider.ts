@@ -159,7 +159,6 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
-  max_tokens?: number | null;
   max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
   relay_reasoning?: boolean;

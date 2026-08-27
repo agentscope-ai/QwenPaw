@@ -961,28 +961,12 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         for model in Provider.all_models(self):
             if model.id == model_id:
                 changed_fields: list[str] = []
-                existing_max_tokens = model.generate_kwargs.get("max_tokens")
                 if (
                     "generate_kwargs" in config
                     and config["generate_kwargs"] is not None
                     and isinstance(config["generate_kwargs"], dict)
                 ):
                     generate_kwargs = dict(config["generate_kwargs"])
-                    if (
-                        "max_tokens" not in config
-                        and existing_max_tokens is not None
-                    ):
-                        generate_kwargs["max_tokens"] = existing_max_tokens
-                    if model.generate_kwargs != generate_kwargs:
-                        model.generate_kwargs = generate_kwargs
-                        changed_fields.append("generate_kwargs")
-                if "max_tokens" in config:
-                    generate_kwargs = dict(model.generate_kwargs)
-                    value = config["max_tokens"]
-                    if value is None:
-                        generate_kwargs.pop("max_tokens", None)
-                    else:
-                        generate_kwargs["max_tokens"] = int(value)
                     if model.generate_kwargs != generate_kwargs:
                         model.generate_kwargs = generate_kwargs
                         changed_fields.append("generate_kwargs")

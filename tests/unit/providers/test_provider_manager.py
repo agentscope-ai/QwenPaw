@@ -1175,6 +1175,8 @@ async def test_update_model_write_failure_preserves_provider_state(
     revision = manager._provider_revision("openai")
     max_tokens_before = model.generate_kwargs.get("max_tokens")
     new_max_tokens = 1 if max_tokens_before is None else max_tokens_before + 1
+    new_generate_kwargs = dict(model.generate_kwargs)
+    new_generate_kwargs["max_tokens"] = new_max_tokens
 
     def fail_save(*_args, **_kwargs):
         raise OSError("write failed")
@@ -1185,7 +1187,7 @@ async def test_update_model_write_failure_preserves_provider_state(
         await manager.update_model_config(
             "openai",
             model.id,
-            {"max_tokens": new_max_tokens},
+            {"generate_kwargs": new_generate_kwargs},
         )
 
     assert model.generate_kwargs.get("max_tokens") == max_tokens_before
@@ -2609,7 +2611,6 @@ def test_unchanged_model_config_does_not_create_overrides(
         model.id,
         {
             "generate_kwargs": dict(model.generate_kwargs),
-            "max_tokens": model.generate_kwargs.get("max_tokens"),
             "relay_reasoning": model.relay_reasoning,
             "thinking_enabled": model.thinking_enabled,
             "thinking_budget": model.thinking_budget,
@@ -2620,7 +2621,7 @@ def test_unchanged_model_config_does_not_create_overrides(
     assert model.config_overrides == []
 
 
-def test_explicit_null_clears_model_request_limit(
+def test_replacing_generate_kwargs_clears_model_request_limit(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
@@ -2632,7 +2633,10 @@ def test_explicit_null_clears_model_request_limit(
         "temperature": 0.2,
     }
 
-    assert provider.update_model_config(model.id, {"max_tokens": None})
+    assert provider.update_model_config(
+        model.id,
+        {"generate_kwargs": {"temperature": 0.2}},
+    )
 
     assert model.generate_kwargs == {"temperature": 0.2}
     assert "max_tokens" not in provider.get_effective_generate_kwargs(

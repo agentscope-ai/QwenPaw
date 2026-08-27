@@ -84,7 +84,28 @@ describe("ModelConfigEditor output limits", () => {
 
     await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
     const payload = vi.mocked(api.configureModel).mock.calls[0][2];
-    expect(payload).not.toHaveProperty("max_tokens");
+    expect(payload.generate_kwargs).not.toHaveProperty("max_tokens");
+  });
+
+  it("keeps a configured request limit when editing another setting", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        generate_kwargs: { max_tokens: 4096, temperature: 0.2 },
+      }),
+      "budget",
+    );
+
+    await user.click(screen.getAllByRole("switch")[0]);
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    const payload = vi.mocked(api.configureModel).mock.calls[0][2];
+    expect(payload.generate_kwargs).toEqual({
+      max_tokens: 4096,
+      temperature: 0.2,
+    });
   });
 
   it("can clear a configured request limit back to auto", async () => {
@@ -104,7 +125,6 @@ describe("ModelConfigEditor output limits", () => {
       "openai",
       "test-model",
       expect.objectContaining({
-        max_tokens: null,
         generate_kwargs: { temperature: 0.2 },
       }),
     );
