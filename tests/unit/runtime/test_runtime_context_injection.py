@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Regression tests for request-local runtime context persistence."""
 
 from __future__ import annotations
@@ -45,7 +46,9 @@ def test_context_is_visible_to_current_call_then_removed_from_agent_state():
     Runtime._apply_context_injections(ctx)
 
     injected = ctx.input_msgs[0]
-    assert injected.metadata[QWENPAW_MESSAGE_TAG_KEY] == (RUNTIME_CONTEXT_MESSAGE_TAG)
+    assert injected.metadata[QWENPAW_MESSAGE_TAG_KEY] == (
+        RUNTIME_CONTEXT_MESSAGE_TAG
+    )
     assert ctx.input_msgs == [injected, real_message]
 
     # AgentScope saves reply_stream inputs into the in-memory context.

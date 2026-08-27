@@ -520,7 +520,7 @@ class Runtime:
         """Merge context_injections into input_msgs as a system hint.
 
         Sorts injections by priority (ascending) and prepends a
-        single system-role message so the agent sees the dynamic
+        single tagged user-role message so the agent sees the dynamic
         context in its current turn.
         """
         injections = ctx.context_injections
@@ -569,7 +569,9 @@ class Runtime:
 
         agent = getattr(ctx, "agent", None)
         state = getattr(agent, "state", None) if agent is not None else None
-        context = getattr(state, "context", None) if state is not None else None
+        context = (
+            getattr(state, "context", None) if state is not None else None
+        )
         if not isinstance(context, list):
             return False
 

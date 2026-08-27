@@ -37,13 +37,14 @@ def is_runtime_context_message(
     metadata = _field(message, "metadata")
     if (
         isinstance(metadata, dict)
-        and metadata.get(QWENPAW_MESSAGE_TAG_KEY) == RUNTIME_CONTEXT_MESSAGE_TAG
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        == RUNTIME_CONTEXT_MESSAGE_TAG
     ):
         return True
     return bool(
         include_legacy
         and _field(message, "name") == "system"
-        and _field(message, "role") == "user"
+        and _field(message, "role") == "user",
     )
 
 
