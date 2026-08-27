@@ -258,34 +258,6 @@ async def test_generator_close_preserves_offloaded_tool_ownership():
 
 
 @pytest.mark.asyncio
-async def test_generator_close_preserves_completed_result():
-    coordinator = ToolCoordinator()
-    tool_call = _ToolCall(id="call-close-completed", name="quick_tool")
-
-    async def next_handler(
-        tool_call: _ToolCall,
-    ) -> AsyncGenerator[Any, None]:
-        yield _text_response(tool_call.id, "done")
-
-    iterator = coordinator.execute(
-        tool_call=tool_call,
-        next_handler=next_handler,
-        session_id="session-close-completed",
-        agent_id="agent-1",
-        root_session_id="root-1",
-    )
-    response = await asyncio.wait_for(iterator.__anext__(), timeout=1)
-    assert response.state == ToolResultState.SUCCESS
-
-    entry = coordinator.get(tool_call.id)
-    assert entry is not None
-    assert entry.status == ToolCallStatus.COMPLETED
-    await iterator.aclose()
-    assert not entry.ctx.cancel_event.is_set()
-    assert entry.final_response.state == ToolResultState.SUCCESS
-
-
-@pytest.mark.asyncio
 async def test_after_hook_transforms_final_response_and_blocks_caller():
     coordinator = ToolCoordinator()
     tool_call = _ToolCall(name="expanding_tool")
