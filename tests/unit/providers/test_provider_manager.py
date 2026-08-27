@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
@@ -37,6 +38,22 @@ from qwenpaw.providers.provider import (
     ProviderInfo,
 )
 from qwenpaw.providers.provider_manager import ProviderManager
+
+
+def _install_v210_provider_fixture(
+    filename: str,
+    destination: Path,
+) -> None:
+    fixture = (
+        Path(__file__).parents[2]
+        / "fixtures"
+        / "providers"
+        / "v2_1_0"
+        / filename
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(fixture.read_bytes())
+
 
 LEGACY_PROVIDER = {
     "providers": {
@@ -1176,43 +1193,122 @@ async def test_update_model_write_failure_preserves_provider_state(
     assert provider_path.read_bytes() == disk_before
 
 
-def test_load_provider_migrates_legacy_output_limits_once(
+def test_load_provider_migrates_v210_builtin_snapshot(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
-    provider = manager.get_provider("openai")
-    assert provider is not None
-    placeholder = provider.models[0]
-    configured = provider.models[1]
-    payload = provider.model_dump(exclude={"models_syncing"})
-
-    for model in payload["models"]:
-        if model["id"] not in {placeholder.id, configured.id}:
-            continue
-        model.pop("max_output_length", None)
-        model.pop("max_output_length_source", None)
-        model.pop("max_output_length_updated_at", None)
-        model["max_tokens"] = 8192
-        if model["id"] == configured.id:
-            model["config_overrides"] = ["max_tokens"]
-
     provider_path = manager._provider_config_path("openai")
-    provider_path.write_text(json.dumps(payload), encoding="utf-8")
+    _install_v210_provider_fixture("builtin_provider.json", provider_path)
 
-    reloaded = ProviderManager()
-    migrated = reloaded.get_provider("openai")
+    migrated = manager.load_provider(
+        "openai",
+        is_builtin=True,
+        provider_path=provider_path,
+    )
     assert migrated is not None
-    assert "max_tokens" not in migrated.get_effective_generate_kwargs(
-        placeholder.id,
+    default_model = migrated.get_chat_model_instance("legacy-default")
+    configured_model = migrated.get_chat_model_instance("legacy-configured")
+    explicit_model = migrated.get_chat_model_instance(
+        "legacy-explicit-kwargs",
     )
-    assert (
-        migrated.get_effective_generate_kwargs(configured.id)["max_tokens"]
-        == 8192
-    )
+
+    assert default_model.parameters.max_tokens is None
+    assert default_model.parameters.temperature == 0.1
+    assert default_model.parameters.top_p == 0.9
+    assert configured_model.parameters.max_tokens == 4096
+    assert configured_model.parameters.temperature == 0.2
+    assert explicit_model.parameters.max_tokens == 2048
+    assert explicit_model.parameters.temperature == 0.3
+    assert migrated.custom_headers == {"X-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
     assert persisted["snapshot_schema_version"] == 2
     assert all("max_tokens" not in model for model in persisted["models"])
+    configured = next(
+        model
+        for model in persisted["models"]
+        if model["id"] == "legacy-configured"
+    )
+    explicit = next(
+        model
+        for model in persisted["models"]
+        if model["id"] == "legacy-explicit-kwargs"
+    )
+    assert configured["generate_kwargs"]["max_tokens"] == 4096
+    assert explicit["generate_kwargs"]["max_tokens"] == 2048
+
+    rewritten = provider_path.read_bytes()
+    loaded_again = manager.load_provider(
+        "openai",
+        is_builtin=True,
+        provider_path=provider_path,
+    )
+    assert loaded_again is not None
+    assert provider_path.read_bytes() == rewritten
+
+
+def test_load_provider_migrates_v210_custom_snapshot(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider_path = manager.custom_path / "legacy-custom.json"
+    _install_v210_provider_fixture("custom_provider.json", provider_path)
+
+    reloaded = ProviderManager()
+    migrated = reloaded.get_provider("legacy-custom")
+    assert migrated is not None
+    default_model = migrated.get_chat_model_instance("custom-default")
+    configured_model = migrated.get_chat_model_instance(
+        "custom-configured",
+    )
+
+    assert default_model.parameters.max_tokens is None
+    assert configured_model.parameters.max_tokens == 4096
+    assert configured_model.parameters.temperature == 0.4
+    assert configured_model.parameters.top_p == 0.8
+    assert migrated.custom_headers == {"X-Custom-Legacy": "kept"}
+
+    persisted = json.loads(provider_path.read_text(encoding="utf-8"))
+    assert persisted["snapshot_schema_version"] == 2
+    assert all(
+        "max_tokens" not in model for model in persisted["extra_models"]
+    )
+    configured = next(
+        model
+        for model in persisted["extra_models"]
+        if model["id"] == "custom-configured"
+    )
+    assert configured["generate_kwargs"]["max_tokens"] == 4096
+
+
+def test_prepare_plugin_registration_migrates_v210_snapshot(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider_path = manager.plugin_path / "legacy-plugin.json"
+    _install_v210_provider_fixture("plugin_provider.json", provider_path)
+
+    registration = manager._prepare_plugin_registration(
+        "legacy-plugin",
+        OpenAIProvider,
+        "Legacy Plugin",
+        "https://plugin.example/v1",
+        metadata={"chat_model": "OpenAIChatModel"},
+        saved_config_path=provider_path,
+    )
+    provider = registration["class"](**registration["info"].model_dump())
+
+    model = provider.get_chat_model_instance("plugin-configured")
+    assert model.parameters.max_tokens == 4096
+    assert model.parameters.temperature == 0.5
+    assert model.parameters.top_p == 0.7
+    assert provider.custom_headers == {"X-Plugin-Legacy": "kept"}
+
+    persisted = json.loads(provider_path.read_text(encoding="utf-8"))
+    assert persisted["snapshot_schema_version"] == 2
+    configured = persisted["extra_models"][0]
+    assert "max_tokens" not in configured
+    assert configured["generate_kwargs"]["max_tokens"] == 4096
 
 
 async def test_delete_model_write_failure_preserves_provider_state(

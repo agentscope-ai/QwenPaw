@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for provider model-state persistence and migrations."""
 
+from copy import deepcopy
 from typing import Any
 
 from qwenpaw.providers.provider_model_state import (
@@ -31,15 +32,16 @@ def test_migration_drops_legacy_placeholder_output_limit() -> None:
     assert migrate_provider_snapshot(snapshot) is False
 
 
-def test_migration_preserves_user_request_limit_of_8192() -> None:
-    snapshot = {
+def test_migration_preserves_non_placeholder_request_limit() -> None:
+    snapshot: dict[str, Any] = {
+        "custom_headers": {"X-Legacy": "kept"},
         "models": [
             {
                 "id": "configured-limit",
                 "name": "Configured Limit",
-                "max_tokens": 8192,
+                "max_tokens": 4096,
                 "generate_kwargs": {"temperature": 0.2},
-                "config_overrides": ["max_tokens"],
+                "supports_image": True,
             },
         ],
     }
@@ -49,10 +51,11 @@ def test_migration_preserves_user_request_limit_of_8192() -> None:
     model = snapshot["models"][0]
     assert model["generate_kwargs"] == {
         "temperature": 0.2,
-        "max_tokens": 8192,
+        "max_tokens": 4096,
     }
-    assert model["config_overrides"] == ["generate_kwargs"]
     assert "max_output_length" not in model
+    assert model["supports_image"] is True
+    assert snapshot["custom_headers"] == {"X-Legacy": "kept"}
 
 
 def test_migration_preserves_existing_generate_kwargs_limit() -> None:
@@ -63,7 +66,6 @@ def test_migration_preserves_existing_generate_kwargs_limit() -> None:
                 "name": "Configured Limit",
                 "max_tokens": 4096,
                 "generate_kwargs": {"max_tokens": 2048},
-                "config_overrides": ["max_tokens"],
             },
         ],
     }
@@ -72,25 +74,23 @@ def test_migration_preserves_existing_generate_kwargs_limit() -> None:
 
     model = snapshot["models"][0]
     assert model["generate_kwargs"]["max_tokens"] == 2048
-    assert model["config_overrides"] == ["generate_kwargs"]
 
 
-def test_migration_preserves_api_capability_of_8192() -> None:
+def test_migration_applies_to_extra_models_and_is_idempotent() -> None:
     snapshot: dict[str, Any] = {
-        "models_last_synced_at": "2026-08-27T00:00:00Z",
-        "discovered_models": [
+        "extra_models": [
             {
-                "id": "api-limit",
-                "name": "API Limit",
-                "max_tokens": 8192,
+                "id": "custom-limit",
+                "name": "Custom Limit",
+                "max_tokens": 4096,
             },
         ],
     }
 
-    migrate_provider_snapshot(snapshot)
+    assert migrate_provider_snapshot(snapshot) is True
 
-    model = snapshot["discovered_models"][0]
-    assert model["max_output_length"] == 8192
-    assert model["max_output_length_source"] == "api"
-    assert model["max_output_length_updated_at"] == ("2026-08-27T00:00:00Z")
-    assert "max_tokens" not in model.get("generate_kwargs", {})
+    model = snapshot["extra_models"][0]
+    assert model["generate_kwargs"]["max_tokens"] == 4096
+    migrated = deepcopy(snapshot)
+    assert migrate_provider_snapshot(snapshot) is False
+    assert snapshot == migrated

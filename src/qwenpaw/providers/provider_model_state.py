@@ -37,39 +37,15 @@ PERSISTED_MODEL_STATE_FIELDS = (
 
 def _migrate_legacy_model_output_limit(
     model: dict[str, Any],
-    *,
-    api_discovered: bool,
-    discovered_at: str | None,
 ) -> None:
-    """Move a v1 output limit to capability or request configuration."""
+    """Migrate a stable v2.1.0 per-model request limit."""
     legacy_limit = model.pop("max_tokens", None)
-    overrides = list(model.get("config_overrides") or [])
-    user_override = "max_tokens" in overrides
-
-    if user_override:
-        overrides = [field for field in overrides if field != "max_tokens"]
-        if "generate_kwargs" not in overrides:
-            overrides.append("generate_kwargs")
-        model["config_overrides"] = overrides
-        if legacy_limit is not None:
-            generate_kwargs = dict(model.get("generate_kwargs") or {})
-            generate_kwargs.setdefault("max_tokens", legacy_limit)
-            model["generate_kwargs"] = generate_kwargs
+    if legacy_limit is None or legacy_limit == 8192:
         return
 
-    if legacy_limit is None or "max_output_length" in model:
-        return
-    if api_discovered:
-        model["max_output_length"] = legacy_limit
-        model["max_output_length_source"] = "api"
-        model["max_output_length_updated_at"] = discovered_at
-        return
-
-    # In schema v1, 8192 was injected as an unverified global placeholder.
-    # This numeric check is intentionally confined to the one-time migration.
-    if legacy_limit != 8192:
-        model["max_output_length"] = legacy_limit
-        model["max_output_length_source"] = "catalog"
+    generate_kwargs = dict(model.get("generate_kwargs") or {})
+    generate_kwargs.setdefault("max_tokens", legacy_limit)
+    model["generate_kwargs"] = generate_kwargs
 
 
 def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
@@ -81,24 +57,14 @@ def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
     ):
         return False
 
-    discovered_at = data.get("models_last_synced_at")
-    for collection_name in ("models", "extra_models", "discovered_models"):
+    for collection_name in ("models", "extra_models"):
         models = data.get(collection_name)
         if not isinstance(models, list):
             continue
         for model in models:
             if not isinstance(model, dict):
                 continue
-            discovery_origin = model.get("discovery_origin")
-            api_discovered = (
-                collection_name == "discovered_models"
-                or discovery_origin in {"api", "both"}
-            )
-            _migrate_legacy_model_output_limit(
-                model,
-                api_discovered=api_discovered,
-                discovered_at=model.get("discovered_at") or discovered_at,
-            )
+            _migrate_legacy_model_output_limit(model)
 
     data["snapshot_schema_version"] = PROVIDER_SNAPSHOT_SCHEMA_VERSION
     return True

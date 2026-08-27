@@ -147,14 +147,6 @@ class ModelInfo(BaseModel):
         default_factory=list,
         description="Model fields explicitly changed by the user.",
     )
-    max_tokens: int | None = Field(
-        default=None,
-        ge=1,
-        exclude=True,
-        description=(
-            "Legacy output limit retained only for snapshot migration."
-        ),
-    )
     max_output_length: int | None = Field(
         default=None,
         ge=1,
@@ -210,6 +202,12 @@ class ModelInfo(BaseModel):
         """Normalize legacy model fields and obsolete probe results."""
         if not isinstance(data, dict):
             return data
+        if "max_tokens" in data:
+            raise ValueError(
+                "ModelInfo.max_tokens is no longer supported; use "
+                "max_output_length for capability metadata or "
+                "generate_kwargs.max_tokens for a request limit",
+            )
         if "preserve_thinking" in data:
             data.setdefault("relay_reasoning", data.pop("preserve_thinking"))
 
@@ -231,15 +229,6 @@ class ModelInfo(BaseModel):
             data["availability_checked_at"] = None
             data["availability_verification"] = "unverified"
         return data
-
-    @model_validator(mode="after")
-    def _compat_legacy_max_tokens(self) -> "ModelInfo":
-        """Preserve the request behavior of the legacy output field."""
-        if self.max_tokens is not None:
-            generate_kwargs = dict(self.generate_kwargs)
-            generate_kwargs.setdefault("max_tokens", self.max_tokens)
-            self.generate_kwargs = generate_kwargs
-        return self
 
     thinking_enabled: bool | None = Field(
         default=None,
