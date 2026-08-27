@@ -218,17 +218,17 @@ function AgentStatsPage() {
       return [
         {
           date: day.date,
-          value: Math.max(day.agentPromptTokens - cacheHit, 0),
-          displayValue: day.agentPromptTokens,
-          barType: inputLabel,
-          segment: inputLabel,
-        },
-        {
-          date: day.date,
           value: cacheHit,
           displayValue: cacheHit,
           barType: inputLabel,
           segment: cacheHitLabel,
+        },
+        {
+          date: day.date,
+          value: Math.max(day.agentPromptTokens - cacheHit, 0),
+          displayValue: day.agentPromptTokens,
+          barType: inputLabel,
+          segment: inputLabel,
         },
         {
           date: day.date,
@@ -256,6 +256,7 @@ function AgentStatsPage() {
       legend: { position: "bottom" as const },
       scale: {
         color: {
+          domain: [inputLabel, cacheHitLabel, outputLabel],
           range: ["#b8b2c2", "#0f9f8f", "#64748b"],
         },
       },
