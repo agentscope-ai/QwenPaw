@@ -258,15 +258,12 @@ class _MCPClientMixin:
                         cancelled = True
                     finally:
                         self._begin_session_teardown()
-                        if (
-                            self._reload_event.is_set()
-                            and not self._stop_event.is_set()
-                        ):
-                            logger.info(f"Reloading MCP client: {self.name}")
-                            self._reload_event.clear()
-                        else:
+                        if self._stop_event.is_set():
                             logger.info(f"Stopping MCP client: {self.name}")
                             self._cached_tools = None
+                        else:
+                            logger.info(f"Reloading MCP client: {self.name}")
+                            self._reload_event.clear()
                         drain = asyncio.create_task(self._drain_session_rpcs())
                         n = await _wait_task_uncancelled(drain, self.name)
                 # Restore only after aexit so CancelScope exits this task.
@@ -309,7 +306,6 @@ class _MCPClientMixin:
                     exc_info=True,
                 )
                 self._begin_session_teardown()
-                self._cached_tools = None
                 self._reload_event.clear()
                 self._abandon_session_rpcs()
 

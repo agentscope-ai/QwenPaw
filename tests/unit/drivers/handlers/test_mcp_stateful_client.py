@@ -778,3 +778,61 @@ async def test_lifecycle_reconnects_after_anyio_taskgroup_failure(
             timeout=2,
         )
     assert setups[0] >= 2
+
+
+async def test_list_tools_cache_survives_anyio_taskgroup_reconnect(
+    monkeypatch,
+):
+    """TaskGroup teardown must keep cache and return it immediately."""
+    import anyio
+    from contextlib import asynccontextmanager
+
+    c, n, fail, hold = _client(), [0], asyncio.Event(), asyncio.Event()
+    c._cached_tools = ["cached"]  # type: ignore[list-item]
+
+    class S:
+        async def initialize(self):
+            return self
+
+        __aenter__ = initialize
+
+        async def __aexit__(self, *_a):
+            return None
+
+    @asynccontextmanager
+    async def boom_transport():
+        async def child():
+            await fail.wait()
+            raise ConnectionResetError("reset")
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(child)
+            yield object(), object()
+
+    async def setup(stack):
+        n[0] += 1
+        if n[0] == 1:
+            return await stack.enter_async_context(boom_transport())
+        await hold.wait()
+        return object(), object()
+
+    monkeypatch.setattr(mod, "ClientSession", lambda *_a, **_k: S())
+    monkeypatch.setattr(c, "_setup_transport", setup)
+    task = asyncio.create_task(c._run_lifecycle())
+    c._lifecycle_task = task
+    try:
+        await asyncio.wait_for(c._ready_event.wait(), timeout=2)
+        c._reconnect_delay = 0.0
+        fail.set()
+        while c.is_connected:
+            await asyncio.sleep(0)
+        got = await asyncio.wait_for(c.list_tools(), timeout=0.2)
+        assert got == ["cached"]
+    finally:
+        c._stop_event.set()
+        hold.set()
+        task.cancel()
+        await asyncio.wait_for(
+            asyncio.gather(task, return_exceptions=True),
+            timeout=2,
+        )
