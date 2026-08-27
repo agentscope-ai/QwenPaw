@@ -168,6 +168,8 @@ vi.mock("./sessionApi", () => {
       subscribeHistoryPage: vi.fn(() => () => undefined),
       getHistoryPage: vi.fn(() => emptyHistoryPage),
       loadEarlierMessages: vi.fn(),
+      subscribeHistoryReplaced: vi.fn(() => () => undefined),
+      reloadAfterPageSizeChange: vi.fn(),
       getRealIdForSession: vi.fn(() => null),
       setLastUserMessage: vi.fn(),
     },

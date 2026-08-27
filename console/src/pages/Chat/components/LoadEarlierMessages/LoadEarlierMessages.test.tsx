@@ -1,19 +1,31 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
-import LoadEarlierMessages, { applyPrependedMessages } from "./index";
+import LoadEarlierMessages, {
+  applyPrependedMessages,
+  applyReplacedMessages,
+} from "./index";
+import { resetHistoryPageSizeForTests } from "../../sessionApi/historyPageSize";
 
-const { mockSubscribe, mockGetHistoryPage, mockLoadEarlier, mockUseSessions } =
-  vi.hoisted(() => ({
-    mockSubscribe: vi.fn((cb: () => void) => {
-      void cb;
-      return () => undefined;
-    }),
-    mockGetHistoryPage: vi.fn(),
-    mockLoadEarlier: vi.fn(),
-    mockUseSessions: vi.fn(),
-  }));
+const {
+  mockSubscribe,
+  mockGetHistoryPage,
+  mockLoadEarlier,
+  mockUseSessions,
+  mockSubscribeReplaced,
+  mockReloadAfterPageSizeChange,
+} = vi.hoisted(() => ({
+  mockSubscribe: vi.fn((cb: () => void) => {
+    void cb;
+    return () => undefined;
+  }),
+  mockGetHistoryPage: vi.fn(),
+  mockLoadEarlier: vi.fn(),
+  mockUseSessions: vi.fn(),
+  mockSubscribeReplaced: vi.fn(() => () => undefined),
+  mockReloadAfterPageSizeChange: vi.fn(),
+}));
 
 vi.mock("@agentscope-ai/chat", () => ({
   useChatAnywhereSessionsState: mockUseSessions,
@@ -24,6 +36,8 @@ vi.mock("../../sessionApi", () => ({
     subscribeHistoryPage: mockSubscribe,
     getHistoryPage: mockGetHistoryPage,
     loadEarlierMessages: mockLoadEarlier,
+    subscribeHistoryReplaced: mockSubscribeReplaced,
+    reloadAfterPageSizeChange: mockReloadAfterPageSizeChange,
   },
 }));
 
@@ -63,6 +77,16 @@ describe("applyPrependedMessages", () => {
   });
 });
 
+describe("applyReplacedMessages", () => {
+  it("replaces via setMessages", () => {
+    const setMessages = vi.fn();
+    applyReplacedMessages({ getMessages: () => [{ id: "old" }], setMessages }, [
+      { id: "new" },
+    ]);
+    expect(setMessages).toHaveBeenCalledWith([{ id: "new" }]);
+  });
+});
+
 describe("LoadEarlierMessages", () => {
   beforeEach(() => {
     mockUseSessions.mockReturnValue({ currentSessionId: "chat-1" });
@@ -78,9 +102,29 @@ describe("LoadEarlierMessages", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    resetHistoryPageSizeForTests();
   });
 
-  it("is hidden when there is no earlier history", () => {
+  it("is hidden when there is no current session", () => {
+    mockUseSessions.mockReturnValue({ currentSessionId: null });
+    mockGetHistoryPage.mockReturnValue({
+      hasMore: true,
+      loading: false,
+      total: 80,
+      oldestOriginalId: "msg-30",
+      loadedOriginalIds: ["msg-30"],
+    });
+    renderWithProviders(
+      <LoadEarlierMessages
+        chatRef={{ current: null }}
+        rootRef={{ current: null }}
+      />,
+    );
+    expect(screen.queryByTestId("load-earlier-messages")).toBeNull();
+    expect(screen.queryByTestId("history-page-size")).toBeNull();
+  });
+
+  it("hides Load earlier when there is no earlier history but keeps the page size input", () => {
     mockGetHistoryPage.mockReturnValue({
       hasMore: false,
       loading: false,
@@ -95,6 +139,7 @@ describe("LoadEarlierMessages", () => {
       />,
     );
     expect(screen.queryByTestId("load-earlier-messages")).toBeNull();
+    expect(screen.getByTestId("history-page-size")).toBeTruthy();
   });
 
   it("loads earlier messages and prepends them", async () => {
@@ -120,5 +165,23 @@ describe("LoadEarlierMessages", () => {
       { id: "older" },
       { id: "latest" },
     ]);
+  });
+
+  it("changing the compact page size reloads the latest window", async () => {
+    const user = userEvent.setup();
+    mockReloadAfterPageSizeChange.mockResolvedValue({ messages: [] });
+    renderWithProviders(
+      <LoadEarlierMessages
+        chatRef={{ current: null }}
+        rootRef={{ current: null }}
+      />,
+    );
+    const input = screen.getByRole("spinbutton");
+    await user.clear(input!);
+    await user.type(input!, "120");
+    input!.blur();
+    await waitFor(() =>
+      expect(mockReloadAfterPageSizeChange).toHaveBeenCalledWith("chat-1"),
+    );
   });
 });

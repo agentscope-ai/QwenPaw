@@ -25,6 +25,10 @@ import {
   takeUniqueOlderMessages,
   type HistoryPageState,
 } from "./historyWindow";
+import {
+  getHistoryPageSize,
+  resetHistoryPageSizeForTests,
+} from "./historyPageSize";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -685,7 +689,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   // ---------------------------------------------------------------------------
 
   private historyPageListeners = new Set<() => void>();
+  private historyReplacedListeners = new Set<
+    (messages: IAgentScopeRuntimeWebUIMessage[]) => void
+  >();
   private historyPages = new Map<string, HistoryPageState>();
+  private historyReloadGeneration = 0;
 
   subscribeHistoryPage(listener: () => void): () => void {
     this.historyPageListeners.add(listener);
@@ -703,6 +711,139 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   private emitHistoryPage(): void {
     this.historyPageListeners.forEach((listener) => listener());
+  }
+
+  subscribeHistoryReplaced(
+    listener: (messages: IAgentScopeRuntimeWebUIMessage[]) => void,
+  ): () => void {
+    this.historyReplacedListeners.add(listener);
+    return () => {
+      this.historyReplacedListeners.delete(listener);
+    };
+  }
+
+  private emitHistoryReplaced(
+    messages: IAgentScopeRuntimeWebUIMessage[],
+  ): void {
+    this.historyReplacedListeners.forEach((listener) => listener(messages));
+  }
+
+  /**
+   * Re-fetch the newest N messages after the user changes page size.
+   * Drops cached windows so the next open also uses the new limit.
+   */
+  async reloadAfterPageSizeChange(
+    sessionId?: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ messages: IAgentScopeRuntimeWebUIMessage[] }> {
+    this.historyReloadGeneration += 1;
+    this.sessionResultCache.clear();
+    this.convertedSessionCache.clear();
+    const id = sessionId || this.lastActiveChatId;
+    if (!id) return { messages: [] };
+    return this.reloadLatestWindow(id, signal);
+  }
+
+  /**
+   * Replace the loaded window with the latest `limit=N` slice. Used when
+   * the user changes page size while a chat is open so a stale 50-message
+   * window is not left on screen after they typed 200.
+   */
+  async reloadLatestWindow(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<{ messages: IAgentScopeRuntimeWebUIMessage[] }> {
+    const owner = this.getActiveOwner();
+    const generation = ++this.historyReloadGeneration;
+    const listEntry = this.findSession(sessionId) as
+      | ExtendedSession
+      | undefined;
+    const backendId = listEntry?.realId || sessionId;
+    const chatHistory = await api.getChat(backendId, {
+      signal,
+      include_app_owned: false,
+      limit: getHistoryPageSize(),
+    });
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (generation !== this.historyReloadGeneration) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    if (!this.isActiveOwner(owner)) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    const generating = isGenerating(chatHistory);
+    const sourceMessages = chatHistory.messages || [];
+    const messages = convertMessages(sourceMessages);
+    this.patchLastUserMessage(messages, generating, backendId);
+    const historyPage = historyPageFromMessages(
+      sourceMessages,
+      !!chatHistory.has_more,
+      chatHistory.total ?? sourceMessages.length,
+    );
+    this.rememberHistoryPage(
+      [sessionId, backendId, listEntry?.realId],
+      historyPage,
+    );
+
+    const replace = (session?: ExtendedSession) => {
+      if (!session) return;
+      session.messages = messages;
+      session.generating = generating;
+      this.applyHistoryPageToSession(session, historyPage);
+    };
+    replace(
+      this.sessionResultCache.get(sessionId)?.session as
+        | ExtendedSession
+        | undefined,
+    );
+    replace(
+      this.sessionResultCache.get(backendId)?.session as
+        | ExtendedSession
+        | undefined,
+    );
+    if (listEntry?.realId) {
+      replace(
+        this.sessionResultCache.get(listEntry.realId)?.session as
+          | ExtendedSession
+          | undefined,
+      );
+    }
+    replace(this.convertedSessionCache.get(backendId)?.session);
+    if (listEntry) {
+      listEntry.messages = messages;
+      listEntry.generating = generating;
+      this.applyHistoryPageToSession(listEntry, historyPage);
+    }
+
+    if (this.isActiveOwner(owner)) {
+      this.setCachedConvertedSession(
+        backendId,
+        {
+          ...(listEntry || {
+            id: sessionId,
+            name: DEFAULT_SESSION_NAME,
+            sessionId,
+            userId: DEFAULT_USER_ID,
+            channel: DEFAULT_CHANNEL,
+            meta: {},
+          }),
+          messages,
+          generating,
+        } as ExtendedSession,
+        listEntry?.updatedAt ?? null,
+      );
+      this.applySessionView(
+        {
+          id: sessionId,
+          messages,
+        } as ExtendedSession,
+        owner,
+      );
+    }
+
+    this.emitHistoryReplaced(messages);
+    return { messages };
   }
 
   private rememberHistoryPage(
@@ -897,6 +1038,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
     this.historyPages.clear();
+    this.historyReplacedListeners.clear();
+    this.historyReloadGeneration = 0;
+    resetHistoryPageSizeForTests();
     this.sessionList = [];
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
@@ -1508,7 +1652,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const chatHistory = await api.getChat(backendId, {
       signal,
       include_app_owned: false,
-      limit: DEFAULT_HISTORY_PAGE_SIZE,
+      limit: getHistoryPageSize(),
     });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
@@ -1573,6 +1717,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     signal?: AbortSignal,
   ): Promise<{ prepended: IAgentScopeRuntimeWebUIMessage[] }> {
     const owner = this.getActiveOwner();
+    const generation = this.historyReloadGeneration;
     const listEntry = this.findSession(sessionId) as
       | ExtendedSession
       | undefined;
@@ -1595,10 +1740,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const chatHistory = await api.getChat(backendId, {
         signal,
         include_app_owned: false,
-        limit: DEFAULT_HISTORY_PAGE_SIZE,
+        limit: getHistoryPageSize(),
         before: page.oldestOriginalId,
       });
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (generation !== this.historyReloadGeneration) {
+        throw new DOMException("Aborted", "AbortError");
+      }
       if (!this.isActiveOwner(owner)) {
         throw new DOMException("Aborted", "AbortError");
       }

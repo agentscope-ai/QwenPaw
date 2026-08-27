@@ -136,6 +136,7 @@
     "acp": "ACP",
     "agentConfig": "Konfigurasi",
     "agents": "Manajemen Agen",
+    "console": "Konsol",
     "settings": "Pengaturan",
     "models": "Model",
     "environments": "Environment",
@@ -232,6 +233,11 @@
     "dark": "Gelap",
     "light": "Terang",
     "system": "Sistem"
+  },
+  "consoleSettings": {
+    "chatSection": "Chat",
+    "historyPageSize": "Pesan yang dimuat saat membuka chat",
+    "historyPageSizeHint": "Berapa banyak pesan terbaru yang diambil saat membuka chat atau memuat pesan sebelumnya. Rentang 1–10000."
   },
   "sidebar": {
     "newVersion": "Versi baru tersedia: v{{version}}, klik untuk meningkatkan",
@@ -647,6 +653,7 @@
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
     "loadEarlierMessages": "Muat pesan sebelumnya",
     "loadEarlierFailed": "Gagal memuat pesan sebelumnya",
+    "historyPageSizeAria": "Pesan yang dimuat saat membuka chat",
     "commands": {
       "clear": {
         "description": "Bersihkan konteks percakapan"

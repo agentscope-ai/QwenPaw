@@ -7,9 +7,15 @@
   display: flex;
   justify-content: center;
   pointer-events: none;
+}
 
-  :global(.ant-btn) {
-    pointer-events: auto;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  }
+.cluster {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--color-bg-container, #fff);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }

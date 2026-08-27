@@ -1,5 +1,5 @@
 import { Button } from "antd";
-import React, { useCallback, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import type { IAgentScopeRuntimeWebUIRef } from "@agentscope-ai/chat";
@@ -9,6 +9,7 @@ import {
   EMPTY_HISTORY_PAGE,
   restoreScrollAfterPrepend,
 } from "../../sessionApi/historyWindow";
+import HistoryPageSizeInput from "../HistoryPageSizeInput";
 import styles from "./index.module.less";
 
 const REVERSE_MESSAGE_SCROLL_SELECTOR =
@@ -29,8 +30,16 @@ function applyPrependedMessages(
   if (!messagesApi || prepended.length === 0) return;
   const current = messagesApi.getMessages?.() ?? [];
   const combined = [...prepended, ...current];
+  applyReplacedMessages(messagesApi, combined);
+}
+
+function applyReplacedMessages(
+  messagesApi: SdkMessagesApi | undefined,
+  messages: unknown[],
+): void {
+  if (!messagesApi) return;
   if (typeof messagesApi.setMessages === "function") {
-    messagesApi.setMessages(combined);
+    messagesApi.setMessages(messages);
     return;
   }
   if (
@@ -38,7 +47,7 @@ function applyPrependedMessages(
     typeof messagesApi.addMessage === "function"
   ) {
     messagesApi.removeAllMessages();
-    for (const message of combined) {
+    for (const message of messages) {
       messagesApi.addMessage(message);
     }
   }
@@ -66,6 +75,15 @@ const LoadEarlierMessages: React.FC<LoadEarlierMessagesProps> = ({
     () => sessionApi.getHistoryPage(currentSessionId),
     () => EMPTY_HISTORY_PAGE,
   );
+
+  useEffect(() => {
+    return sessionApi.subscribeHistoryReplaced((messages) => {
+      applyReplacedMessages(
+        chatRef.current?.messages as SdkMessagesApi | undefined,
+        messages,
+      );
+    });
+  }, [chatRef]);
 
   const handleLoad = useCallback(async () => {
     if (!currentSessionId || page.loading || !page.hasMore) return;
@@ -101,23 +119,43 @@ const LoadEarlierMessages: React.FC<LoadEarlierMessagesProps> = ({
     t,
   ]);
 
-  if (!page.hasMore) return null;
+  const handlePageSizeCommitted = useCallback(async () => {
+    try {
+      await sessionApi.reloadAfterPageSizeChange(currentSessionId);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      message.error(t("chat.loadEarlierFailed"));
+    }
+  }, [currentSessionId, message, t]);
+
+  if (!currentSessionId) return null;
 
   return (
     <div className={styles.bar}>
-      <Button
-        data-testid="load-earlier-messages"
-        size="small"
-        loading={page.loading}
-        onClick={() => {
-          void handleLoad();
-        }}
-      >
-        {t("chat.loadEarlierMessages")}
-      </Button>
+      <div className={styles.cluster}>
+        <HistoryPageSizeInput
+          compact
+          disabled={page.loading}
+          onCommitted={() => {
+            void handlePageSizeCommitted();
+          }}
+        />
+        {page.hasMore ? (
+          <Button
+            data-testid="load-earlier-messages"
+            size="small"
+            loading={page.loading}
+            onClick={() => {
+              void handleLoad();
+            }}
+          >
+            {t("chat.loadEarlierMessages")}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 };
 
-export { applyPrependedMessages, findHistoryScroller };
+export { applyPrependedMessages, applyReplacedMessages, findHistoryScroller };
 export default LoadEarlierMessages;

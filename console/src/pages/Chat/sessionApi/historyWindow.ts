@@ -9,9 +9,9 @@
  */
 
 import type { Message } from "../../../api";
+import { DEFAULT_HISTORY_PAGE_SIZE } from "./historyPageSize";
 
-/** Default window size when opening or paging a chat. */
-export const DEFAULT_HISTORY_PAGE_SIZE = 50;
+export { DEFAULT_HISTORY_PAGE_SIZE };
 
 export interface HistoryPageState {
   hasMore: boolean;

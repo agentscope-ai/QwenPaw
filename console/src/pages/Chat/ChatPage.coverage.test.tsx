@@ -154,6 +154,8 @@ vi.mock("./sessionApi", () => {
       // Same object every call — useSyncExternalStore re-renders forever otherwise.
       getHistoryPage: vi.fn(() => emptyHistoryPage),
       loadEarlierMessages: vi.fn(),
+      subscribeHistoryReplaced: vi.fn(() => () => undefined),
+      reloadAfterPageSizeChange: vi.fn(),
       getRealIdForSession: vi.fn(() => null),
       getBackendSessionId: vi.fn(() => "backend-session-1"),
       setLastUserMessage: vi.fn(),

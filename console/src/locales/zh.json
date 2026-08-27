@@ -139,6 +139,7 @@
     "acp": "ACP",
     "agentConfig": "运行配置",
     "agents": "智能体管理",
+    "console": "控制台",
     "settings": "设置",
     "models": "模型",
     "environments": "环境变量",
@@ -3047,6 +3048,11 @@
     "light": "浅色",
     "system": "跟随系统"
   },
+  "consoleSettings": {
+    "chatSection": "聊天",
+    "historyPageSize": "打开对话时加载的消息数",
+    "historyPageSizeHint": "打开对话或加载更早消息时获取最近多少条。范围 1–10000。"
+  },
   "chat": {
     "fileReference": {
       "codeSnippet": "代码片段 · {{count}} 行"
@@ -3074,6 +3080,7 @@
     "emptyOutputError": "助手返回了空响应。",
     "loadEarlierMessages": "加载更早的消息",
     "loadEarlierFailed": "加载更早的消息失败",
+    "historyPageSizeAria": "打开对话时加载的消息数",
     "commands": {
       "clear": {
         "description": "清空对话上下文"

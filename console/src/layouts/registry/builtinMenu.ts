@@ -44,9 +44,8 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Files, MessageSquare } from "lucide-react";
 import i18next from "i18next";
-import { Files } from "lucide-react";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
 
@@ -216,6 +215,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkAgentLine,
     route: "core.agents",
     order: 10,
+  },
+  {
+    id: "core.console",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.console", "Console"),
+    icon: MessageSquare,
+    route: "core.console",
+    order: 15,
   },
   {
     id: "core.models",

@@ -8,6 +8,7 @@ import type { ChatHistory, Message } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../sessionApi/historyWindow";
+import { setHistoryPageSize } from "../sessionApi/historyPageSize";
 
 interface SessionApiTestAccess {
   sessionList: Array<Record<string, unknown>>;
@@ -193,5 +194,66 @@ describe("SessionApi history pagination", () => {
     expect(sessionApi.getHistoryPage(null)).toBe(
       sessionApi.getHistoryPage(undefined),
     );
+  });
+
+  it("opens a chat with the stored page size, not a hardcoded 50", async () => {
+    seedSession("chat-n");
+    setHistoryPageSize(20);
+    const getChat = vi
+      .spyOn(api, "getChat")
+      .mockResolvedValue(
+        history([msg("m1", "a")], { has_more: true, total: 40 }),
+      );
+    await sessionApi.getSession("chat-n");
+    expect(getChat).toHaveBeenCalledWith("chat-n", {
+      signal: undefined,
+      include_app_owned: false,
+      limit: 20,
+    });
+  });
+
+  it("load earlier uses the stored page size", async () => {
+    seedSession("chat-n");
+    setHistoryPageSize(20);
+    vi.spyOn(api, "getChat")
+      .mockResolvedValueOnce(
+        history([msg("m2", "a")], { has_more: true, total: 4 }),
+      )
+      .mockResolvedValueOnce(
+        history([msg("m1", "older")], { has_more: false, total: 4 }),
+      );
+    await sessionApi.getSession("chat-n");
+    await sessionApi.loadEarlierMessages("chat-n");
+    expect(api.getChat).toHaveBeenLastCalledWith("chat-n", {
+      signal: undefined,
+      include_app_owned: false,
+      limit: 20,
+      before: "m2",
+    });
+  });
+
+  it("changing N refetches the latest window with the new limit", async () => {
+    seedSession("chat-n");
+    vi.spyOn(api, "getChat")
+      .mockResolvedValueOnce(
+        history([msg("m50", "tail")], { has_more: true, total: 80 }),
+      )
+      .mockResolvedValueOnce(
+        history([msg("m1", "older"), msg("m50", "tail")], {
+          has_more: false,
+          total: 80,
+        }),
+      );
+    await sessionApi.getSession("chat-n");
+    expect(sessionApi.getHistoryPage("chat-n").hasMore).toBe(true);
+
+    setHistoryPageSize(200);
+    await sessionApi.reloadAfterPageSizeChange("chat-n");
+    expect(api.getChat).toHaveBeenLastCalledWith("chat-n", {
+      signal: undefined,
+      include_app_owned: false,
+      limit: 200,
+    });
+    expect(sessionApi.getHistoryPage("chat-n").hasMore).toBe(false);
   });
 });

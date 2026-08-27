@@ -10,6 +10,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Spin } from "antd";
 import {
+  MessageSquare,
   Bot,
   Cpu,
   Sparkles,
@@ -43,6 +44,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     labelKey: "nav.agents",
     fallback: "Agents",
     Icon: Bot,
+  },
+  {
+    routeId: "core.console",
+    labelKey: "nav.console",
+    fallback: "Console",
+    Icon: MessageSquare,
   },
   {
     routeId: "core.models",

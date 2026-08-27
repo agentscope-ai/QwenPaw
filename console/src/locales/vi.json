@@ -138,6 +138,7 @@
     "acp": "ACP",
     "agentConfig": "Cấu hình",
     "agents": "Agent",
+    "console": "Console",
     "settings": "Cài đặt",
     "models": "Mô hình",
     "environments": "Biến môi trường",
@@ -251,6 +252,11 @@
     "dark": "Tối",
     "light": "Sáng",
     "system": "Theo hệ thống"
+  },
+  "consoleSettings": {
+    "chatSection": "Trò chuyện",
+    "historyPageSize": "Số tin nhắn tải khi mở cuộc trò chuyện",
+    "historyPageSizeHint": "Số tin nhắn gần nhất cần lấy khi mở cuộc trò chuyện hoặc khi tải tin nhắn cũ hơn. Phạm vi 1–10000."
   },
   "startup": {
     "starting": "Đang khởi động backend...",
@@ -661,6 +667,7 @@
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "loadEarlierMessages": "Tải tin nhắn cũ hơn",
     "loadEarlierFailed": "Không tải được tin nhắn cũ hơn",
+    "historyPageSizeAria": "Số tin nhắn tải khi mở cuộc trò chuyện",
     "commands": {
       "clear": {
         "description": "Xóa ngữ cảnh cuộc trò chuyện"
