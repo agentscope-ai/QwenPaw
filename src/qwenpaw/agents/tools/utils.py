@@ -325,12 +325,15 @@ def _truncate_fresh(
     newline_count = result.count("\n")
 
     # Compute the first line number not yet fully included in this chunk.
-    # max(1, ...) prevents next_line from equaling start_line when a single line
-    # exceeds max_bytes (newline_count == 0), which would make the caller retry
-    # the same range indefinitely.
     next_line = start_line + max(1, newline_count)
 
-    if next_line <= total_lines:
+    if newline_count == 0:
+        # The preview contains no complete line, even when later lines exist
+        # in the source. Advancing to start_line + 1 would silently skip the
+        # unshown remainder of the current oversized line, while repeating
+        # start_line cannot make progress. Recover from the artifact instead.
+        read_from = None
+    elif next_line <= total_lines:
         # Truncation fell before the last line — continue reading from next_line.
         read_from = next_line
     elif start_line < total_lines:
@@ -338,11 +341,8 @@ def _truncate_fresh(
         # Re-read from the start of the last line so the caller gets it in full.
         read_from = total_lines
     else:
-        # The selected range is one oversized final line. Returning a markerless
-        # slice here makes ToolResultPruner reject the candidate and restore the
-        # complete result, defeating the admission cap. Keep the bounded preview
-        # and direct recovery to the saved artifact instead; line pagination
-        # cannot advance within a single line.
+        # Keep the bounded preview and direct recovery to the saved artifact;
+        # line pagination cannot advance safely from this range.
         read_from = None
 
     metadata = build_truncation_metadata(

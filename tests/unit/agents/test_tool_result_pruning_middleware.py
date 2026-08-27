@@ -211,6 +211,31 @@ def test_single_line_tool_result_retruncate_stays_artifact_backed(tmp_path):
     assert Path(info["file_path"]).read_text(encoding="utf-8") == text
 
 
+def test_oversized_non_final_line_stays_artifact_backed(tmp_path):
+    """Line continuation must not skip an unseen oversized-line suffix."""
+    pruner = ToolResultPruner(tmp_path)
+    text = ("x" * 1000) + "\ntail"
+
+    first, metadata = pruner.prune_text(text, max_bytes=128)
+    first_info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert first.split(TRUNCATION_NOTICE_MARKER, 1)[0] == "x" * 128
+    assert first_info["total_lines"] == 2
+    assert first_info["continuation_mode"] == "artifact"
+    assert first_info["read_from"] is None
+
+    second, updated = pruner.prune_text(
+        first,
+        max_bytes=64,
+        metadata=metadata,
+    )
+
+    info = updated[TRUNCATION_METADATA_KEY]["0"]
+    assert second.split(TRUNCATION_NOTICE_MARKER, 1)[0] == "x" * 64
+    assert info["continuation_mode"] == "artifact"
+    assert info["read_from"] is None
+    assert Path(info["file_path"]).read_text(encoding="utf-8") == text
+
+
 @pytest.mark.asyncio
 async def test_tool_response_write_failure_fails_open(
     tmp_path,
