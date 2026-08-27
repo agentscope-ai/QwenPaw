@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 import time
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..constant import EnvVarLoader, WORKING_DIR
@@ -24,6 +27,8 @@ OTA_CATALOG_PATH = CATALOG_CACHE_DIR / "model_catalog.json"
 LOCAL_CATALOG_PATH = CATALOG_CACHE_DIR / "model_catalog.local.json"
 CATALOG_URL_ENV = "QWENPAW_MODEL_CATALOG_URL"
 CATALOG_SHA256_ENV = "QWENPAW_MODEL_CATALOG_SHA256"
+
+logger = logging.getLogger(__name__)
 
 
 class CatalogDocument(BaseModel):
@@ -79,23 +84,46 @@ def _read_document(path: Path) -> CatalogDocument:
     return document
 
 
-def _catalog_version_key(value: str) -> tuple[int, ...] | None:
-    """Return a comparable key for dotted numeric catalog versions."""
-    parts = value.split(".")
-    if not parts or any(not part.isdigit() for part in parts):
+def _catalog_version_key(value: str) -> Version | None:
+    """Return a PEP 440 key when the catalog version is comparable."""
+    try:
+        return Version(value)
+    except InvalidVersion:
         return None
-    return tuple(int(part) for part in parts)
 
 
-def _is_current_catalog(candidate: str, baseline: str) -> bool:
-    """Return whether a cache version can overlay the packaged catalog."""
-    candidate_key = _catalog_version_key(candidate)
-    baseline_key = _catalog_version_key(baseline)
-    return (
-        candidate_key is not None
-        and baseline_key is not None
-        and candidate_key >= baseline_key
-    )
+def _published_at_key(value: str | None) -> datetime | None:
+    """Return a normalized timestamp for catalog freshness comparison."""
+    if value is None:
+        return None
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _catalog_freshness(
+    candidate: CatalogDocument,
+    baseline: CatalogDocument,
+) -> Literal["current", "stale", "incomparable"]:
+    """Compare catalog versions without treating opaque values as stale."""
+    if candidate.catalog_version == baseline.catalog_version:
+        return "current"
+
+    candidate_key = _catalog_version_key(candidate.catalog_version)
+    baseline_key = _catalog_version_key(baseline.catalog_version)
+    if candidate_key is not None and baseline_key is not None:
+        return "current" if candidate_key >= baseline_key else "stale"
+
+    candidate_time = _published_at_key(candidate.published_at)
+    baseline_time = _published_at_key(baseline.published_at)
+    if candidate_time is not None and baseline_time is not None:
+        return "current" if candidate_time >= baseline_time else "stale"
+    return "incomparable"
 
 
 def _with_output_source(
@@ -151,14 +179,20 @@ def load_model_catalog(
             overlay = _read_document(ota_path)
         except (OSError, ValueError, json.JSONDecodeError):
             overlay = None
-        if overlay is not None and _is_current_catalog(
-            overlay.catalog_version,
-            packaged.catalog_version,
-        ):
-            catalog = _merge_models(
-                catalog,
-                _with_output_source(overlay, "catalog"),
-            )
+        if overlay is not None:
+            freshness = _catalog_freshness(overlay, packaged)
+            if freshness == "current":
+                catalog = _merge_models(
+                    catalog,
+                    _with_output_source(overlay, "catalog"),
+                )
+            elif freshness == "incomparable":
+                logger.warning(
+                    "Ignoring OTA model catalog because versions %r and "
+                    "%r cannot be compared",
+                    overlay.catalog_version,
+                    packaged.catalog_version,
+                )
     if local_path.is_file():
         try:
             local = _read_document(local_path)
@@ -275,12 +309,16 @@ def update_model_catalog(
             f"Unsupported model catalog schema: {document.schema_version}",
         )
     packaged = _read_document(packaged_path)
-    if not _is_current_catalog(
-        document.catalog_version,
-        packaged.catalog_version,
-    ):
+    freshness = _catalog_freshness(document, packaged)
+    if freshness == "stale":
         raise ValueError(
             "Model catalog version is older than the packaged catalog",
+        )
+    if freshness == "incomparable":
+        raise ValueError(
+            "Model catalog versions cannot be compared: "
+            f"{document.catalog_version!r} and "
+            f"{packaged.catalog_version!r}",
         )
 
     install_catalog_payload(

@@ -232,6 +232,15 @@ class ModelInfo(BaseModel):
             data["availability_verification"] = "unverified"
         return data
 
+    @model_validator(mode="after")
+    def _compat_legacy_max_tokens(self) -> "ModelInfo":
+        """Preserve the request behavior of the legacy output field."""
+        if self.max_tokens is not None:
+            generate_kwargs = dict(self.generate_kwargs)
+            generate_kwargs.setdefault("max_tokens", self.max_tokens)
+            self.generate_kwargs = generate_kwargs
+        return self
+
     thinking_enabled: bool | None = Field(
         default=None,
         description="Tri-state thinking toggle: None=auto (don't send, "

@@ -55,6 +55,26 @@ def test_migration_preserves_user_request_limit_of_8192() -> None:
     assert "max_output_length" not in model
 
 
+def test_migration_preserves_existing_generate_kwargs_limit() -> None:
+    snapshot: dict[str, Any] = {
+        "models": [
+            {
+                "id": "configured-limit",
+                "name": "Configured Limit",
+                "max_tokens": 4096,
+                "generate_kwargs": {"max_tokens": 2048},
+                "config_overrides": ["max_tokens"],
+            },
+        ],
+    }
+
+    migrate_provider_snapshot(snapshot)
+
+    model = snapshot["models"][0]
+    assert model["generate_kwargs"]["max_tokens"] == 2048
+    assert model["config_overrides"] == ["generate_kwargs"]
+
+
 def test_migration_preserves_api_capability_of_8192() -> None:
     snapshot: dict[str, Any] = {
         "models_last_synced_at": "2026-08-27T00:00:00Z",

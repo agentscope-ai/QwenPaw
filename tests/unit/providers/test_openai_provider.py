@@ -486,6 +486,37 @@ def test_get_model_omits_unknown_max_tokens() -> None:
     assert model.parameters.max_tokens is None
 
 
+def test_legacy_model_max_tokens_becomes_request_limit() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="legacy-limit",
+            name="Legacy Limit",
+            max_tokens=1234,
+        ),
+    ]
+
+    kwargs = provider.get_effective_generate_kwargs("legacy-limit")
+
+    assert kwargs["max_tokens"] == 1234
+
+
+def test_legacy_model_max_tokens_preserves_generate_kwargs_limit() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="legacy-limit",
+            name="Legacy Limit",
+            max_tokens=1234,
+            generate_kwargs={"max_tokens": 2048},
+        ),
+    ]
+
+    kwargs = provider.get_effective_generate_kwargs("legacy-limit")
+
+    assert kwargs["max_tokens"] == 2048
+
+
 def test_get_model_does_not_send_discovered_output_capability() -> None:
     provider = _make_provider()
     provider.models = [

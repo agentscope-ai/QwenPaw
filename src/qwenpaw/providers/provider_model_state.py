@@ -53,7 +53,7 @@ def _migrate_legacy_model_output_limit(
         model["config_overrides"] = overrides
         if legacy_limit is not None:
             generate_kwargs = dict(model.get("generate_kwargs") or {})
-            generate_kwargs["max_tokens"] = legacy_limit
+            generate_kwargs.setdefault("max_tokens", legacy_limit)
             model["generate_kwargs"] = generate_kwargs
         return
 
