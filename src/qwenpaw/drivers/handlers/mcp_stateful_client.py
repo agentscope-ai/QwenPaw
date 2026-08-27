@@ -131,7 +131,8 @@ async def _wait_task_uncancelled(task: Any, name: str) -> int:
         if task.done():
             break
         try:
-            await task
+            # shield: parent cancel must not cancel the drain/gather child.
+            await asyncio.shield(task)
             break
         except asyncio.CancelledError:
             continue
@@ -274,15 +275,9 @@ class _MCPClientMixin:
                     raise asyncio.CancelledError
 
             except Exception as e:
-                if cancelled or n:
-                    logger.error(
-                        "MCP client '%s' cancelled during cleanup: %s",
-                        self.name,
-                        e,
-                        exc_info=True,
-                    )
-                    _restore_cancel(current, n)
-                    raise asyncio.CancelledError from e
+                # AnyIO TaskGroup failures cancel this task before aexit
+                # raises the real transport error. Do not treat that as
+                # an external shutdown; follow the reconnect path.
                 if self._stop_event.is_set():
                     logger.error(
                         "MCP client '%s' failed during stop: %s",
@@ -472,7 +467,8 @@ class _MCPClientMixin:
         runtime exposure layer, not the transport client.
 
         If the client is in a transient reconnect window (``is_connected``
-        is False but the lifecycle task is still alive), wait briefly for
+        is False but the lifecycle task is still alive), return cached
+        schemas immediately when available.  Otherwise wait briefly for
         the reconnect to finish before raising.  This keeps a single
         flaky MCP client from killing the user's turn — agentscope's
         ``Toolkit.get_tool_schemas`` has no per-client error handling
@@ -496,6 +492,14 @@ class _MCPClientMixin:
                 self._lifecycle_task.done()
             )
             if has_task and not self._stop_event.is_set():
+                cached = self._cached_tools_if_disconnected()
+                if cached is not None:
+                    logger.warning(
+                        "MCP client '%s' not connected; serving cached "
+                        "schemas while reconnecting.",
+                        self.name,
+                    )
+                    return cached
                 logger.info(
                     "MCP client '%s' not connected; waiting up to %.1fs "
                     "for reconnect before list_tools.",

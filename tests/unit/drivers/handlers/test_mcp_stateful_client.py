@@ -438,6 +438,18 @@ async def test_list_tools_serves_cache_when_disconnected():
     assert result == ["cached-tool"]
 
 
+async def test_list_tools_serves_cache_immediately_while_reconnecting():
+    c = _client()
+    c._cached_tools = ["cached"]  # type: ignore[list-item]
+    c._lifecycle_task = asyncio.create_task(asyncio.Event().wait())
+    try:
+        got = await asyncio.wait_for(c.list_tools(), timeout=0.2)
+        assert got == ["cached"]
+    finally:
+        c._lifecycle_task.cancel()
+        await asyncio.gather(c._lifecycle_task, return_exceptions=True)
+
+
 async def test_list_tools_returns_cache_immediately_on_failure():
     class S:
         async def list_tools(self):
@@ -685,7 +697,10 @@ async def test_lifecycle_cleanup_paths(monkeypatch):
             raise ConnectionError("boom")
         return object(), object()
 
+    drain = [None]
+
     async def slow_drain():
+        drain[0] = asyncio.current_task()
         started.set()
         await allow.wait()
 
@@ -699,8 +714,67 @@ async def test_lifecycle_cleanup_paths(monkeypatch):
     await asyncio.wait_for(started.wait(), timeout=1)
     task.cancel()
     await asyncio.sleep(0)
+    assert drain[0] is not None
+    assert not drain[0].done() and not drain[0].cancelled()
     assert not aexit.is_set()
     allow.set()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=2)
     assert aexit.is_set() and task.cancelled()
+
+
+async def test_lifecycle_reconnects_after_anyio_taskgroup_failure(
+    monkeypatch,
+):
+    """TaskGroup child ConnectionResetError must reconnect, not exit."""
+    import anyio
+    from contextlib import asynccontextmanager
+
+    c, setups, fail = _client(), [0], asyncio.Event()
+
+    class S:
+        async def initialize(self):
+            return self
+
+        __aenter__ = initialize
+
+        async def __aexit__(self, *_a):
+            return None
+
+    @asynccontextmanager
+    async def boom_transport():
+        async def child():
+            await fail.wait()
+            raise ConnectionResetError("reset")
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(child)
+            yield object(), object()
+
+    async def setup(stack):
+        setups[0] += 1
+        if setups[0] == 1:
+            return await stack.enter_async_context(boom_transport())
+        return object(), object()
+
+    monkeypatch.setattr(mod, "ClientSession", lambda *_a, **_k: S())
+    monkeypatch.setattr(c, "_setup_transport", setup)
+    task = asyncio.create_task(c._run_lifecycle())
+    try:
+        await asyncio.wait_for(c._ready_event.wait(), timeout=2)
+        assert setups[0] == 1 and c.is_connected
+        c._reconnect_delay = 0.0
+        fail.set()
+
+        async def reconnected():
+            while not (setups[0] >= 2 and c.is_connected):
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(reconnected(), timeout=2)
+    finally:
+        c._stop_event.set()
+        await asyncio.wait_for(
+            asyncio.gather(task, return_exceptions=True),
+            timeout=2,
+        )
+    assert setups[0] >= 2
