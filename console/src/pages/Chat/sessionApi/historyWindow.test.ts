@@ -94,11 +94,7 @@ describe("restoreScrollAfterPrepend", () => {
 
   it("shifts a top-origin list by the height delta", () => {
     expect(
-      restoreScrollAfterPrepend(
-        { scrollTop: 80, scrollHeight: 1600 },
-        80,
-        800,
-      ),
+      restoreScrollAfterPrepend({ scrollTop: 80, scrollHeight: 1600 }, 80, 800),
     ).toBe(880);
   });
 });

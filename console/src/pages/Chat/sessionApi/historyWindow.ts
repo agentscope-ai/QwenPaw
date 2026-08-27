@@ -38,9 +38,7 @@ export function messageOriginalId(message: Message): string | null {
 }
 
 /** Oldest source-message id in an oldest-first window. */
-export function oldestSourceOriginalId(
-  messages: Message[],
-): string | null {
+export function oldestSourceOriginalId(messages: Message[]): string | null {
   for (const message of messages) {
     const originalId = messageOriginalId(message);
     if (originalId) return originalId;

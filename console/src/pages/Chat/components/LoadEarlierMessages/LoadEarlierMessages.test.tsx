@@ -2,24 +2,18 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
-import LoadEarlierMessages, {
-  applyPrependedMessages,
-} from "./index";
+import LoadEarlierMessages, { applyPrependedMessages } from "./index";
 
-const {
-  mockSubscribe,
-  mockGetHistoryPage,
-  mockLoadEarlier,
-  mockUseSessions,
-} = vi.hoisted(() => ({
-  mockSubscribe: vi.fn((cb: () => void) => {
-    void cb;
-    return () => undefined;
-  }),
-  mockGetHistoryPage: vi.fn(),
-  mockLoadEarlier: vi.fn(),
-  mockUseSessions: vi.fn(),
-}));
+const { mockSubscribe, mockGetHistoryPage, mockLoadEarlier, mockUseSessions } =
+  vi.hoisted(() => ({
+    mockSubscribe: vi.fn((cb: () => void) => {
+      void cb;
+      return () => undefined;
+    }),
+    mockGetHistoryPage: vi.fn(),
+    mockLoadEarlier: vi.fn(),
+    mockUseSessions: vi.fn(),
+  }));
 
 vi.mock("@agentscope-ai/chat", () => ({
   useChatAnywhereSessionsState: mockUseSessions,

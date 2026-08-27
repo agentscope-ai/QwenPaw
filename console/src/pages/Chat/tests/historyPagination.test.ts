@@ -90,25 +90,20 @@ describe("SessionApi history pagination", () => {
     vi.spyOn(api, "getChat")
       .mockResolvedValueOnce(
         history(
-          [
-            msg("m40", "recent-user"),
-            msg("m41", "recent-asst", "assistant"),
-          ],
+          [msg("m40", "recent-user"), msg("m41", "recent-asst", "assistant")],
           { has_more: true, total: 4 },
         ),
       )
       .mockResolvedValueOnce(
         history(
-          [
-            msg("m38", "older-user"),
-            msg("m39", "older-asst", "assistant"),
-          ],
+          [msg("m38", "older-user"), msg("m39", "older-asst", "assistant")],
           { has_more: false, total: 4 },
         ),
       );
 
     const first = await sessionApi.getSession("chat-page");
-    expect((first.messages || []).length).toBeGreaterThan(0);
+    const initialCount = (first.messages || []).length;
+    expect(initialCount).toBeGreaterThan(0);
 
     const { prepended } = await sessionApi.loadEarlierMessages("chat-page");
     expect(api.getChat).toHaveBeenLastCalledWith("chat-page", {
@@ -121,9 +116,7 @@ describe("SessionApi history pagination", () => {
     expect(sessionApi.getHistoryPage("chat-page").hasMore).toBe(false);
 
     const cached = await sessionApi.getSession("chat-page");
-    expect((cached.messages || []).length).toBeGreaterThan(
-      (first.messages || []).length,
-    );
+    expect((cached.messages || []).length).toBeGreaterThan(initialCount);
   });
 
   it("does not treat a partial window as full canonical history in the LRU cache", async () => {

@@ -24,10 +24,7 @@ const FILES_PREVIEW = "/files/preview";
 function chatHistoryQuery(options?: GetChatOptions): string {
   const searchParams = new URLSearchParams();
   if (options?.include_app_owned !== undefined)
-    searchParams.append(
-      "include_app_owned",
-      String(options.include_app_owned),
-    );
+    searchParams.append("include_app_owned", String(options.include_app_owned));
   if (options?.limit !== undefined)
     searchParams.append("limit", String(options.limit));
   if (options?.before) searchParams.append("before", options.before);
