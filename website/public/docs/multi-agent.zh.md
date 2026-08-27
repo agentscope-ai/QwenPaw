@@ -716,6 +716,17 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 - **同一 Agent**：子 Agent 使用相同的 Agent 配置（persona、tools），只是在独立 session 中运行。
 - **无需额外配置**：`fork=True` 始终可用，无论是否开启 Coding Mode。
 
+### 会话列表中的子 Agent 会话
+
+每个子 Agent 都会以独立的 console chat（`sub-*` session id）运行，因此会出现在会话列表、`GET /agents/{agentId}/chats` 以及内置的「Subagents」分组中。每个 spawn 会话都会记录其血缘关系：
+
+- `source = "subagent"` —— 会话的 `SessionSource` 来源标记（用于筛选所有子 Agent 会话）
+- `parent_session_id` —— **直接父**会话的 session id（发起本次派发的会话）
+- `root_session_id` —— **根**会话的 session id（嵌套 spawn 仍指向最初的根会话）
+- `meta.subagent_allowed_tools` / `meta.subagent_skills` —— 派发时指定的工具/技能白名单（设置过才会记录在 `meta` 中）
+
+下游工具可以按 `root_session_id` 分组、按 `parent_session_id` 链接父子来精确重建 spawn 树，并通过 `meta` 中的白名单查看每个子 Agent 被允许使用的工具/技能。
+
 ### fork=True 在不同环境下的行为
 
 | 环境                                       | 行为                                                                                                |

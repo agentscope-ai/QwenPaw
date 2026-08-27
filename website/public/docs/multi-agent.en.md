@@ -717,6 +717,24 @@ QwenPaw also supports spawning ephemeral sub-tasks **within the current project*
 - **Same Agent**: The subagent runs as the same agent (same config, persona, tools), just in a separate session.
 - **Always available**: `fork=True` works regardless of whether Coding Mode is enabled.
 
+### Spawn Sessions in the Chat List
+
+Every subagent runs as its own console chat with a `sub-*` session id, so it
+shows up in the chat list, in `GET /agents/{agentId}/chats`, and in the
+built-in "Subagents" group. Each spawn chat records its lineage:
+
+- `source = "subagent"` — the chat's `SessionSource` (filters spawn chats)
+- `parent_session_id` — the session id of the **direct parent**
+  (the session that issued this spawn)
+- `root_session_id` — the session id of the **root** conversation
+  (nested spawns still point at the original root)
+- `meta.subagent_allowed_tools` / `meta.subagent_skills` — the tool/skill
+  whitelist passed to the spawn, recorded in `meta` when one was set
+
+This lets downstream tools rebuild the spawn tree by grouping chats on
+`root_session_id` and linking children to `parent_session_id`, and inspect
+the whitelists in `meta` to see what each subagent was allowed to use.
+
 ### fork=True Behavior by Environment
 
 | Environment                              | Behavior                                                                                                         |
