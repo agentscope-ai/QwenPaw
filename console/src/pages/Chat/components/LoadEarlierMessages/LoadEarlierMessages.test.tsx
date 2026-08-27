@@ -237,4 +237,65 @@ describe("LoadEarlierMessages", () => {
 
     root.remove();
   });
+
+  it("does not keep a load-earlier listener after unmount", async () => {
+    const { unmount } = renderWithProviders(
+      <LoadEarlierMessages
+        chatRef={{ current: null }}
+        rootRef={{ current: null }}
+      />,
+    );
+    await screen.findByTestId("history-page-size");
+    unmount();
+    mockRequestLoadEarlier();
+    expect(mockLoadEarlier).not.toHaveBeenCalled();
+  });
+
+  it("does not keep the previous session scroller listener after a session switch", async () => {
+    const root = document.createElement("div");
+    const className =
+      "qwenpaw-chat-anywhere-message-list-bubble-scroll " +
+      "qwenpaw-bubble-list-order-desc";
+    const makeScroller = () => {
+      const next = document.createElement("div");
+      next.className = className;
+      Object.defineProperties(next, {
+        scrollHeight: { configurable: true, value: 2000 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      return next;
+    };
+    const scroller1 = makeScroller();
+    root.append(scroller1);
+    document.body.append(root);
+
+    const { rerender } = renderWithProviders(
+      <LoadEarlierMessages
+        chatRef={{ current: null }}
+        rootRef={{ current: root }}
+      />,
+    );
+    await screen.findByTestId("load-earlier-messages");
+
+    scroller1.remove();
+    const scroller2 = makeScroller();
+    root.append(scroller2);
+    mockUseSessions.mockReturnValue({ currentSessionId: "chat-2" });
+    rerender(
+      <LoadEarlierMessages
+        chatRef={{ current: null }}
+        rootRef={{ current: root }}
+      />,
+    );
+
+    scroller1.scrollTop = -1580;
+    fireEvent.scroll(scroller1);
+    expect(mockLoadEarlier).not.toHaveBeenCalled();
+
+    scroller2.scrollTop = -1580;
+    fireEvent.scroll(scroller2);
+    await waitFor(() => expect(mockLoadEarlier).toHaveBeenCalledWith("chat-2"));
+
+    root.remove();
+  });
 });

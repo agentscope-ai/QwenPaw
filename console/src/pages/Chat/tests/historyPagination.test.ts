@@ -256,4 +256,20 @@ describe("SessionApi history pagination", () => {
     });
     expect(sessionApi.getHistoryPage("chat-n").hasMore).toBe(false);
   });
+
+  it("drops load-earlier request listeners on unsubscribe and reset", () => {
+    const listener = vi.fn();
+    const stop = sessionApi.subscribeLoadEarlierRequest(listener);
+    sessionApi.requestLoadEarlier();
+    expect(listener).toHaveBeenCalledTimes(1);
+    stop();
+    sessionApi.requestLoadEarlier();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    const again = vi.fn();
+    sessionApi.subscribeLoadEarlierRequest(again);
+    sessionApi.resetForTests();
+    sessionApi.requestLoadEarlier();
+    expect(again).not.toHaveBeenCalled();
+  });
 });

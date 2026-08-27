@@ -10,17 +10,21 @@ import React, {
 import {
   AT_NEWEST_PX,
   DEFAULT_ESTIMATED_ROW_HEIGHT,
+  DEFAULT_OVERSCAN_COUNT,
   DEFAULT_OVERSCAN_PX,
   DEFAULT_ROW_GAP,
   NEAR_OLDEST_PX,
   accumulateOffsets,
   computeSpacers,
+  expandIndexRange,
   getVisibleIndexRange,
   isAtNewestEdge,
   isNearOldestEdge,
   itemKey,
+  reverseAnchorAt,
   reverseViewWindow,
   scrollTopForIndex,
+  scrollTopForReverseAnchor,
 } from "./range";
 import styles from "./index.module.less";
 
@@ -46,6 +50,7 @@ export interface VirtualizedBubbleListProps<T extends VirtualizedItem> {
   estimatedRowHeight?: number;
   gap?: number;
   overscanPx?: number;
+  overscanCount?: number;
   onStartReached?: () => void;
   renderItem: (item: T, index: number, isLast: boolean) => React.ReactNode;
   renderScrollToBottom?: (
@@ -57,14 +62,12 @@ export interface VirtualizedBubbleListProps<T extends VirtualizedItem> {
 interface MeasuredRowProps {
   id: string;
   onHeight: (id: string, height: number) => void;
-  gapBefore?: number;
   children: React.ReactNode;
 }
 
 const MeasuredRow: React.FC<MeasuredRowProps> = ({
   id,
   onHeight,
-  gapBefore = 0,
   children,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -73,7 +76,7 @@ const MeasuredRow: React.FC<MeasuredRowProps> = ({
     const element = ref.current;
     if (!element) return undefined;
     const report = () => {
-      const height = element.getBoundingClientRect().height;
+      const height = Math.round(element.getBoundingClientRect().height);
       if (height > 0) onHeight(id, height);
     };
     report();
@@ -89,7 +92,6 @@ const MeasuredRow: React.FC<MeasuredRowProps> = ({
       className={styles.row}
       data-testid="virtual-message-row"
       data-message-id={id}
-      style={gapBefore > 0 ? { marginTop: gapBefore } : undefined}
     >
       {children}
     </div>
@@ -107,6 +109,7 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
     estimatedRowHeight = DEFAULT_ESTIMATED_ROW_HEIGHT,
     gap = DEFAULT_ROW_GAP,
     overscanPx = DEFAULT_OVERSCAN_PX,
+    overscanCount = DEFAULT_OVERSCAN_COUNT,
     onStartReached,
     renderItem,
     renderScrollToBottom,
@@ -125,9 +128,13 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
     () => items.map((item, index) => itemKey(item, index)),
     [items],
   );
-  const newestKey = keys[0] ?? null;
   const oldestKey = keys.length > 0 ? keys[keys.length - 1] : null;
-  const prevNewestKeyRef = useRef<string | null>(newestKey);
+  const snapshotRef = useRef<{
+    keys: readonly string[];
+    offsets: readonly number[];
+    sizes: readonly number[];
+    scrollTop: number;
+  }>({ keys: [], offsets: [], sizes: [], scrollTop: 0 });
 
   const { offsets, sizes, total } = useMemo(
     () => accumulateOffsets(keys, heightsRef.current, estimatedRowHeight, gap),
@@ -141,6 +148,13 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
     heightsRef.current.set(id, height);
     setHeightVersion((value) => value + 1);
   }, []);
+
+  useLayoutEffect(() => {
+    const live = new Set(keys);
+    for (const key of [...heightsRef.current.keys()]) {
+      if (!live.has(key)) heightsRef.current.delete(key);
+    }
+  }, [keys]);
 
   const scrollToBottom = useCallback(() => {
     const scroller = scrollRef.current;
@@ -179,37 +193,66 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
   );
 
   useLayoutEffect(() => {
-    if (!isDesc) return;
-    if (newestKey !== prevNewestKeyRef.current) {
-      if (atNewestRef.current) scrollToBottom();
-      prevNewestKeyRef.current = newestKey;
+    const scroller = scrollRef.current;
+    const snapshot = snapshotRef.current;
+
+    if (scroller && isDesc) {
+      if (atNewestRef.current) {
+        if (scroller.scrollTop !== 0) {
+          scroller.scrollTop = 0;
+          setScrollVersion((value) => value + 1);
+        }
+      } else if (snapshot.keys.length > 0) {
+        const viewStart = Math.max(0, -snapshot.scrollTop);
+        const anchor = reverseAnchorAt(
+          viewStart,
+          snapshot.keys,
+          snapshot.offsets,
+          snapshot.sizes,
+        );
+        const nextTop =
+          anchor === null
+            ? null
+            : scrollTopForReverseAnchor(anchor, keys, offsets);
+        if (nextTop !== null && scroller.scrollTop !== nextTop) {
+          scroller.scrollTop = nextTop;
+          setScrollVersion((value) => value + 1);
+        }
+      }
     }
-  }, [isDesc, newestKey, scrollToBottom]);
+
+    snapshotRef.current = {
+      keys,
+      offsets,
+      sizes,
+      scrollTop: scroller?.scrollTop ?? 0,
+    };
+  }, [isDesc, keys, offsets, sizes]);
 
   useEffect(() => {
     startReachedLockRef.current = false;
   }, [oldestKey]);
 
-  const readScroller = () => {
-    const scroller = scrollRef.current;
-    return {
-      scrollTop: scroller?.scrollTop ?? 0,
-      clientHeight: scroller?.clientHeight ?? 0,
-      scrollHeight: scroller?.scrollHeight ?? 0,
-    };
-  };
-
+  const scrollerMetrics = scrollRef.current;
   const { viewStart, viewEnd } = reverseViewWindow(
-    isDesc ? readScroller().scrollTop : -readScroller().scrollTop,
-    readScroller().clientHeight,
+    isDesc
+      ? (scrollerMetrics?.scrollTop ?? 0)
+      : -(scrollerMetrics?.scrollTop ?? 0),
+    scrollerMetrics?.clientHeight ?? 0,
     overscanPx,
   );
 
-  const { start, end } = getVisibleIndexRange(
+  const { start: rawStart, end: rawEnd } = getVisibleIndexRange(
     offsets,
     sizes,
     viewStart,
     viewEnd,
+  );
+  const { start, end } = expandIndexRange(
+    rawStart,
+    rawEnd,
+    keys.length,
+    overscanCount,
   );
   const { startSpacer, endSpacer } = computeSpacers(
     start,
@@ -232,10 +275,16 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
   }, [isDesc]);
 
   const handleScroll = useCallback(() => {
+    const scroller = scrollRef.current;
+    if (scroller) {
+      snapshotRef.current = {
+        ...snapshotRef.current,
+        scrollTop: scroller.scrollTop,
+      };
+    }
     updateScrollFlags();
     setScrollVersion((value) => value + 1);
-    const scroller = scrollRef.current;
-    if (!scroller || !onStartReached || startReachedLockRef.current) return;
+    if (!scroller || !onStartReached) return;
     const nearOldest = isDesc
       ? isNearOldestEdge(
           scroller.scrollTop,
@@ -243,7 +292,11 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
           scroller.clientHeight,
         )
       : scroller.scrollTop <= NEAR_OLDEST_PX;
-    if (!nearOldest) return;
+    if (!nearOldest) {
+      startReachedLockRef.current = false;
+      return;
+    }
+    if (startReachedLockRef.current) return;
     startReachedLockRef.current = true;
     onStartReached();
   }, [isDesc, onStartReached, updateScrollFlags]);
@@ -265,14 +318,10 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
   const visibleItems = [];
   if (end >= start) {
     for (let index = start; index <= end; index += 1) {
+      const isLast = isDesc ? index === 0 : index === items.length - 1;
       visibleItems.push(
-        <MeasuredRow
-          key={keys[index]}
-          id={keys[index]}
-          onHeight={handleHeight}
-          gapBefore={index > start ? gap : 0}
-        >
-          {renderItem(items[index], index, index === items.length - 1)}
+        <MeasuredRow key={keys[index]} id={keys[index]} onHeight={handleHeight}>
+          {renderItem(items[index], index, isLast)}
         </MeasuredRow>,
       );
     }
@@ -310,7 +359,11 @@ function VirtualizedBubbleListInner<T extends VirtualizedItem>(
             style={{ height: startSpacer }}
           />
         ) : null}
-        {visibleItems}
+        {visibleItems.length > 0 ? (
+          <div className={styles.rows} style={{ gap }}>
+            {visibleItems}
+          </div>
+        ) : null}
         {endSpacer > 0 ? (
           <div
             className={styles.spacer}

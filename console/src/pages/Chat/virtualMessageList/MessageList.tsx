@@ -71,8 +71,9 @@ export default function MessageList(props: {
   }, []);
 
   const renderItem = useCallback(
-    (item: IAgentScopeRuntimeWebUIMessage, index: number, isLast: boolean) => {
-      void index;
+    (item: IAgentScopeRuntimeWebUIMessage, _index: number, isLast: boolean) => {
+      // Newest-first desc list: regenerate / trailing actions belong on
+      // the live edge (index 0), not the oldest row in the array.
       return <Bubble {...item} isLast={isLast} />;
     },
     [],

@@ -10,6 +10,7 @@
 export const DEFAULT_ESTIMATED_ROW_HEIGHT = 96;
 export const DEFAULT_ROW_GAP = 24;
 export const DEFAULT_OVERSCAN_PX = 800;
+export const DEFAULT_OVERSCAN_COUNT = 3;
 export const NEAR_OLDEST_PX = 80;
 export const AT_NEWEST_PX = 2;
 
@@ -75,6 +76,19 @@ export function getVisibleIndexRange(
   return { start, end };
 }
 
+export function expandIndexRange(
+  start: number,
+  end: number,
+  length: number,
+  extra: number,
+): { start: number; end: number } {
+  if (length === 0 || end < start) return { start: 0, end: -1 };
+  return {
+    start: Math.max(0, start - extra),
+    end: Math.min(length - 1, end + extra),
+  };
+}
+
 export function computeSpacers(
   start: number,
   end: number,
@@ -126,4 +140,70 @@ export function scrollTopForIndex(
     offsets[index] + sizes[index] - Math.max(clientHeight, 0),
   );
   return -viewStart;
+}
+
+/**
+ * How far the newest edge grew: new rows inserted before the previous
+ * newest id, or that live row getting taller (streaming / cards).
+ */
+export function newestEdgeGrowthPx(
+  previousNewestKey: string | null,
+  keys: readonly string[],
+  offsets: readonly number[],
+  previousNewestSize: number,
+  nextNewestSize: number,
+): number {
+  if (!previousNewestKey || keys.length === 0) return 0;
+  const index = keys.indexOf(previousNewestKey);
+  if (index > 0) return Math.max(0, offsets[index] ?? 0);
+  if (index === 0) return nextNewestSize - previousNewestSize;
+  return 0;
+}
+
+/**
+ * Reverse lists pin scrollTop === 0 at the newest edge. If the user has
+ * scrolled toward older messages, growing that newest edge must move
+ * scrollTop by the same amount so the anchor does not jump.
+ */
+export function preserveReverseAnchorScrollTop(
+  scrollTop: number,
+  atNewest: boolean,
+  growthPx: number,
+): number {
+  if (atNewest) return 0;
+  return scrollTop - growthPx;
+}
+
+export interface ReverseScrollAnchor {
+  key: string;
+  offsetInItem: number;
+}
+
+/** Row that sits at `viewStart` pixels from the newest edge. */
+export function reverseAnchorAt(
+  viewStart: number,
+  keys: readonly string[],
+  offsets: readonly number[],
+  sizes: readonly number[],
+): ReverseScrollAnchor | null {
+  if (keys.length === 0 || offsets.length === 0) return null;
+  let index = 0;
+  while (index < keys.length && offsets[index] + sizes[index] <= viewStart) {
+    index += 1;
+  }
+  if (index >= keys.length) index = keys.length - 1;
+  return {
+    key: keys[index],
+    offsetInItem: viewStart - (offsets[index] ?? 0),
+  };
+}
+
+export function scrollTopForReverseAnchor(
+  anchor: ReverseScrollAnchor,
+  keys: readonly string[],
+  offsets: readonly number[],
+): number | null {
+  const index = keys.indexOf(anchor.key);
+  if (index < 0) return null;
+  return -((offsets[index] ?? 0) + anchor.offsetInItem);
 }
