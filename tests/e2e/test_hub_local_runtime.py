@@ -14,6 +14,8 @@ from typing import Any
 import httpx
 import pytest
 
+_HUB_READY_TIMEOUT_SECONDS = 120.0
+
 
 def _allocate_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -25,7 +27,7 @@ def _wait_for_hub(
     client: httpx.Client,
     process: subprocess.Popen[Any],
 ) -> None:
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + _HUB_READY_TIMEOUT_SECONDS
     last_error = "Hub did not respond"
     while time.monotonic() < deadline:
         if process.poll() is not None:

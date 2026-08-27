@@ -233,9 +233,9 @@ jobs:
           python-version: "3.11"
 
       - name: Pack plugins and build index
-        # qwenpaw-creator and datapaw are released through their own
+        # qwenpaw-creator and qwenpaw-data are released through their own
         # version-driven pipelines (creator-release.yml,
-        # datapaw-release.yml pending); datapaw additionally needs its
+        # qwenpaw-data-release.yml pending); qwenpaw-data additionally needs its
         # vendored context console staged before packing, so packing it
         # here fails pack_requires validation by design.
         run: |
@@ -245,7 +245,7 @@ jobs:
             --metadata-out dist/plugins/index.json \
             --cdn-prefix /files/plugins \
             --exclude qwenpaw-creator \
-            --exclude datapaw
+            --exclude qwenpaw-data
 
       - name: Upload plugins dist
         uses: actions/upload-artifact@v4
@@ -266,6 +266,10 @@ jobs:
           ref: ${{ needs.resolve.outputs.sha }}
           submodules: recursive
 
+      - name: Get QwenPaw version
+        id: version
+        uses: ./.github/actions/get-version
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -285,6 +289,7 @@ jobs:
           DOCKER_NODE_IMAGE: ${{ inputs.dry_run && 'node:20-slim' || '' }}
           DOCKER_UV_IMAGE: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
           QWENPAW_DISABLED_CHANNELS: "imessage"
+          QWENPAW_VERSION: ${{ steps.version.outputs.version }}
         run: |
           BUILD_ARGS=()
           if [ -n "${DOCKER_NODE_IMAGE}" ]; then
@@ -296,6 +301,8 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
+            --build-arg \
+            QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="${QWENPAW_VERSION}" \
             --output "type=oci,dest=${RUNNER_TEMP}/qwenpaw-image.tar" \
             "${BUILD_ARGS[@]}" .
 

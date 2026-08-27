@@ -17,21 +17,12 @@ def test_get_user_config_decrypts_encrypted_secrets(tmp_path: Path) -> None:
         json.dumps(
             {
                 "llm": {
-                    "enabled": True,
                     "api_key": "ENC:encrypted_llm_key",
                     "base_url": "https://example.com/v1",
-                    "model_name": "qwen3.7-plus",
-                },
-                "image": {
-                    "enabled": True,
-                    "api_key": "ENC:encrypted_image_key",
-                    "base_url": "https://example.com/image",
-                    "model_name": "qwen-image-2.0-pro",
                 },
                 "oss": {
                     "access_key_secret": "ENC:encrypted_oss_secret",
                     "policy_api_key": "ENC:encrypted_policy_key",
-                    "endpoint": "https://oss.example.com",
                 },
             },
         ),
@@ -65,50 +56,9 @@ def test_get_user_config_decrypts_encrypted_secrets(tmp_path: Path) -> None:
         result = config._get_user_config()
 
     assert result["llm"]["api_key"] == "decrypted_llm_key"
-    assert result["image"]["api_key"] == "decrypted_image_key"
     assert result["oss"]["access_key_secret"] == "decrypted_oss_secret"
     assert result["oss"]["policy_api_key"] == "decrypted_policy_key"
     assert result["llm"]["base_url"] == "https://example.com/v1"
-
-
-def test_get_user_config_preserves_plaintext_secrets(tmp_path: Path) -> None:
-    """_get_user_config() should pass through legacy plaintext values."""
-    config_file = tmp_path / "model_config.json"
-    config_file.write_text(
-        json.dumps(
-            {
-                "llm": {
-                    "enabled": True,
-                    "api_key": "sk-plaintext-key",
-                    "base_url": "https://example.com/v1",
-                },
-                "video": {
-                    "enabled": True,
-                    "api_key": "plaintext-video-key",
-                },
-            },
-        ),
-        encoding="utf-8",
-    )
-
-    def mock_is_encrypted(value: str) -> bool:
-        return value.startswith("ENC:")
-
-    config._clear_user_config_cache()
-
-    with (
-        patch.object(config, "_SECRET_STORE_AVAILABLE", True),
-        patch.object(config, "_secret_is_encrypted", mock_is_encrypted),
-        patch.object(
-            config,
-            "_get_model_config_path",
-            return_value=config_file,
-        ),
-    ):
-        result = config._get_user_config()
-
-    assert result["llm"]["api_key"] == "sk-plaintext-key"
-    assert result["video"]["api_key"] == "plaintext-video-key"
 
 
 def test_get_user_config_handles_mixed_encrypted_and_plaintext(

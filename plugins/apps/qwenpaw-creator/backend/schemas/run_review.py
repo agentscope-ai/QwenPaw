@@ -38,6 +38,10 @@ class SyncReviewAdvisory(RunReviewModel):
     round: int = Field(ge=1)
     scores: list[RubricScore] = Field(default_factory=list)
     summary: str = ""
+    # Script-to-shots reasoning check (tier-1, shots commits only):
+    # coverage_missing / hallucinated / unshootable evidence lists —
+    # reasoning content, never a score (Creator review doctrine).
+    script_check: dict[str, Any] | None = None
     created_at: datetime | None = None
 
     def weak_scores(self) -> list[RubricScore]:
@@ -54,6 +58,26 @@ class MediaReviewFinding(RunReviewModel):
     suggestion: str = ""
 
 
+class ProbeFinding(RunReviewModel):
+    """One ET/CT/NA probe verdict (defect bank / faithfulness checklist).
+
+    Near-miss polarity: ``ET`` confirms the ABSENCE of the hypothesized
+    defect / confirms plan conformance; ``CT`` confirms the defect (and
+    must carry frame evidence); ``NA`` marks the probe as not applicable
+    (and must carry a reason). ``needs_review`` flags verdicts that
+    failed the anti-hallucination checks — they are reported but never
+    counted toward the verdict.
+    """
+
+    probe_id: str
+    verdict: Literal["ET", "CT", "NA"]
+    severity: Literal["minor", "major"] = "major"
+    evidence_timestamp_ms: int | None = Field(default=None, ge=0)
+    reason: str = ""
+    suggestion: str = ""
+    needs_review: bool = False
+
+
 class MediaReviewReport(RunReviewModel):
     """Async bypass review report for one artifact version."""
 
@@ -63,16 +87,29 @@ class MediaReviewReport(RunReviewModel):
     gate_block: dict[str, Any] | None = None
     stats: dict[str, Any] | None = None
     findings: list[MediaReviewFinding] = Field(default_factory=list)
+    # Universal defect-bank verdicts (element videos only).
+    defect_findings: list[ProbeFinding] = Field(default_factory=list)
+    # Plan-faithfulness five-element verdicts (element videos only).
+    faithfulness_findings: list[ProbeFinding] = Field(default_factory=list)
     verdict: Literal["pass", "revise"]
     created_at: datetime | None = None
 
     def failed_findings(self) -> list[MediaReviewFinding]:
         return [item for item in self.findings if not item.passed]
 
+    def confirmed_probes(self) -> list[ProbeFinding]:
+        """CT probes that passed the anti-hallucination checks."""
+        return [
+            item
+            for item in (*self.defect_findings, *self.faithfulness_findings)
+            if item.verdict == "CT" and not item.needs_review
+        ]
+
 
 __all__ = [
     "MediaReviewFinding",
     "MediaReviewReport",
+    "ProbeFinding",
     "RubricScore",
     "RunReviewModel",
     "SyncReviewAdvisory",

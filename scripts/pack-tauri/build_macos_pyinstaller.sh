@@ -174,16 +174,25 @@ fi
 echo ""
 
 UPDATER_NAME="${DIST_ROOT}/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz"
-case "$(uname -m)" in
-    arm64 | aarch64) UPDATER_TARGET="darwin-aarch64" ;;
-    *) UPDATER_TARGET="darwin-x86_64" ;;
-esac
-python "${REPO_ROOT}/scripts/pack-tauri/generate_update_manifest.py" stage \
-    --bundle-dir "${BUNDLE_DIR}/macos" \
-    --pattern '*.app.tar.gz' \
-    --target "${UPDATER_TARGET}" \
-    --output "${UPDATER_NAME}" \
-    --pubkey-config "${REPO_ROOT}/console/src-tauri/tauri.version.conf.json"
+if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+    case "$(uname -m)" in
+        arm64 | aarch64) UPDATER_TARGET="darwin-aarch64" ;;
+        *) UPDATER_TARGET="darwin-x86_64" ;;
+    esac
+    python \
+        "${REPO_ROOT}/scripts/pack-tauri/generate_update_manifest.py" \
+        stage \
+        --bundle-dir "${BUNDLE_DIR}/macos" \
+        --pattern '*.app.tar.gz' \
+        --target "${UPDATER_TARGET}" \
+        --output "${UPDATER_NAME}" \
+        --pubkey-config \
+        "${REPO_ROOT}/console/src-tauri/tauri.version.conf.json"
+    UPDATER_RESULT="${UPDATER_NAME}"
+else
+    UPDATER_RESULT="not generated (updater signing key is not set)"
+    echo "Skipping Tauri updater artifact staging: ${UPDATER_RESULT}"
+fi
 
 echo ""
 echo "========================================="
@@ -192,7 +201,7 @@ echo "========================================="
 echo "App:          ${APP_PATH}"
 echo "Distribution: ${DIST_DIR}"
 echo "Archive:      ${ZIP_NAME}"
-echo "Updater:      ${UPDATER_NAME}"
+echo "Updater:      ${UPDATER_RESULT}"
 echo ""
 echo "Test: open \"${STAGED_APP_PATH}\""
 echo ""

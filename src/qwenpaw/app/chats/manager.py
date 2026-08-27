@@ -401,6 +401,30 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         """Refresh updated_at without rewriting other chat fields."""
         return await self.patch_chat(chat_id, ChatUpdate())
 
+    async def mark_chat_finished(
+        self,
+        chat_id: str,
+        finished_at: datetime,
+    ) -> Optional[ChatSpec]:
+        """Persist the newest task completion marker for one chat."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if (
+                existing.last_finished_at is not None
+                and existing.last_finished_at >= finished_at
+            ):
+                return existing
+            updated = existing.model_copy(
+                update={
+                    "last_finished_at": finished_at,
+                    "updated_at": max(existing.updated_at, finished_at),
+                },
+            )
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def set_project_dir(
         self,
         chat_id: str,

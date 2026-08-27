@@ -50,7 +50,7 @@ def navigate_to_security(page: Page):
 
 def navigate_to_files(page: Page):
     """Navigate to the files management page."""
-    page.goto(f"{BASE_URL}/workspace")
+    page.goto(f"{BASE_URL}/files")
     page.wait_for_load_state("commit")
     page.wait_for_timeout(2000)
 

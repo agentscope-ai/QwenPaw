@@ -401,8 +401,8 @@ def move_message(
             operation="move_message",
             provider_name=provider_name,
             alternatives=[
-                "使用 mark_messages 标记邮件",
-                "在网页版邮箱手动移动",
+                "Use `mark_messages` to mark the message",
+                "Move the message manually in webmail",
             ],
         )
     raw = _fetch_raw(conn, uid)
@@ -434,8 +434,8 @@ def move_message(
                 operation="move_message",
                 provider_name=provider_name,
                 alternatives=[
-                    "使用 mark_messages 标记邮件",
-                    "在网页版邮箱手动移动",
+                    "Use `mark_messages` to mark the message",
+                    "Move the message manually in webmail",
                 ],
             )
 

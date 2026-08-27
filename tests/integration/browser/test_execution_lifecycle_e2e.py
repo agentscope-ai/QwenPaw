@@ -9,6 +9,7 @@ import asyncio
 import os
 import time
 
+import pytest
 from fastapi import FastAPI
 
 from qwenpaw.app._app import _start_browser_runtime, _stop_browser_runtime
@@ -30,6 +31,7 @@ def _request(
     )
 
 
+@pytest.mark.p1
 async def test_worker_is_reused_then_reclaimed() -> None:
     plane = SubprocessPlane()
     request = _request("reuse", "session", "import os\nreturn os.getpid()")
@@ -46,6 +48,7 @@ async def test_worker_is_reused_then_reclaimed() -> None:
         await plane.discard_all_workers()
 
 
+@pytest.mark.p1
 async def test_sibling_sessions_run_without_serializing() -> None:
     """Sibling sessions must run in parallel, not queue behind one lock.
 
@@ -103,6 +106,7 @@ async def test_sibling_sessions_run_without_serializing() -> None:
         await plane.discard_all_workers()
 
 
+@pytest.mark.p1
 async def test_timeout_reclaims_only_the_affected_worker() -> None:
     plane = SubprocessPlane(exec_timeout_seconds=5.0)
     runtime = KernelRuntime(plane=plane)
@@ -128,6 +132,7 @@ async def test_timeout_reclaims_only_the_affected_worker() -> None:
         await plane.discard_all_workers()
 
 
+@pytest.mark.p1
 async def test_runtime_shutdown_reclaims_real_workers() -> None:
     plane = SubprocessPlane()
     runtime = KernelRuntime(plane=plane)

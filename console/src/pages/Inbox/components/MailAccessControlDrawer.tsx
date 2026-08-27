@@ -704,7 +704,7 @@ export function MailAccessControlDrawer({
               <Text type="danger">{t("inbox.required")}</Text>
             </Text>
             <Input
-              placeholder="user@domain.com 或 *@domain.com"
+              placeholder="user@domain.com / *@domain.com"
               value={newAddress}
               onChange={(e) => setNewAddress(e.target.value)}
             />

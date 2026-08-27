@@ -10,9 +10,7 @@ import {
   Popover,
   Popconfirm,
   Divider,
-  Tour,
 } from "antd";
-import type { TourProps } from "antd";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -61,10 +59,6 @@ import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 import { hubApi } from "../api/modules/hub";
-import {
-  dismissDesktopModeHint,
-  shouldShowDesktopModeHint,
-} from "../utils/desktopModeHint";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -146,8 +140,6 @@ export default function Sidebar({
   // the main content on narrow viewports.
   const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
-  const [desktopModeHintOpen, setDesktopModeHintOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const [simpleAgentFunctionsExpanded, setSimpleAgentFunctionsExpanded] =
     useState(false);
@@ -230,35 +222,6 @@ export default function Sidebar({
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!isMobile && shouldShowDesktopModeHint(window.localStorage)) {
-      setDesktopModeHintOpen(true);
-    }
-  }, [isMobile]);
-
-  const dismissDesktopHint = useCallback(() => {
-    dismissDesktopModeHint(window.localStorage);
-    setDesktopModeHintOpen(false);
-  }, []);
-
-  const desktopModeHintSteps = useMemo<TourProps["steps"]>(
-    () => [
-      {
-        title: t("sidebar.desktopModeHint.title", "Try Desktop Mode"),
-        description: t(
-          "sidebar.desktopModeHint.description",
-          "Open quick settings here, then choose Desktop Mode for a window-based workspace.",
-        ),
-        target: () => settingsButtonRef.current as HTMLButtonElement,
-        placement: "rightBottom",
-        nextButtonProps: {
-          children: t("sidebar.desktopModeHint.gotIt", "Got it"),
-        },
-      },
-    ],
-    [t],
-  );
 
   useEffect(() => {
     if (
@@ -584,6 +547,53 @@ export default function Sidebar({
   // ── Render ────────────────────────────────────────────────────────────────
 
   const isChatActive = selectedKey === "core.chat";
+  const collapsedChatItem = collapsedNavItems.find(
+    (item) => item.key === "core.chat",
+  );
+  const collapsedScrollableItems = collapsedNavItems.filter(
+    (item) => item.key !== "core.chat",
+  );
+
+  const renderCollapsedNavItem = (item: FlatMenuEntry) => {
+    const isActive =
+      item.key === "core.chat" ? isChatActive : selectedKey === item.key;
+    return (
+      <Tooltip
+        key={item.key}
+        title={item.label}
+        placement="right"
+        overlayInnerStyle={{
+          background: "rgba(0,0,0,0.75)",
+          color: "#fff",
+        }}
+      >
+        <button
+          type="button"
+          aria-label={typeof item.label === "string" ? item.label : undefined}
+          className={`${styles.collapsedNavItem} ${
+            isActive ? styles.collapsedNavItemActive : ""
+          }${
+            item.key === "core.inbox" && effectiveShake
+              ? ` ${styles.inboxShake}`
+              : ""
+          }`}
+          onClick={() => {
+            if (item.href) {
+              window.open(item.href, "_blank", "noopener,noreferrer");
+            } else {
+              navigate(item.path);
+            }
+          }}
+          onMouseEnter={
+            item.key === "core.inbox" ? handleInboxHover : undefined
+          }
+        >
+          {item.icon}
+        </button>
+      </Tooltip>
+    );
+  };
+
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
@@ -609,45 +619,14 @@ export default function Sidebar({
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>
-          {collapsedNavItems.map((item) => {
-            const isActive =
-              item.key === "core.chat"
-                ? isChatActive
-                : selectedKey === item.key;
-            return (
-              <Tooltip
-                key={item.key}
-                title={item.label}
-                placement="right"
-                overlayInnerStyle={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                }}
-              >
-                <button
-                  className={`${styles.collapsedNavItem} ${
-                    isActive ? styles.collapsedNavItemActive : ""
-                  }${
-                    item.key === "core.inbox" && effectiveShake
-                      ? ` ${styles.inboxShake}`
-                      : ""
-                  }`}
-                  onClick={() => {
-                    if (item.href) {
-                      window.open(item.href, "_blank", "noopener,noreferrer");
-                    } else {
-                      navigate(item.path);
-                    }
-                  }}
-                  onMouseEnter={
-                    item.key === "core.inbox" ? handleInboxHover : undefined
-                  }
-                >
-                  {item.icon}
-                </button>
-              </Tooltip>
-            );
-          })}
+          {collapsedChatItem && (
+            <div className={styles.collapsedNavPinned}>
+              {renderCollapsedNavItem(collapsedChatItem)}
+            </div>
+          )}
+          <div className={styles.collapsedNavScroll}>
+            {collapsedScrollableItems.map(renderCollapsedNavItem)}
+          </div>
         </nav>
       ) : isSimpleExpanded ? (
         <>
@@ -886,7 +865,6 @@ export default function Sidebar({
           }
         >
           <Button
-            ref={settingsButtonRef}
             type="text"
             icon={<SparkSettingLine size={18} />}
             className={styles.collapseToggle}
@@ -905,14 +883,6 @@ export default function Sidebar({
           className={styles.collapseToggle}
         />
       </div>
-
-      <Tour
-        open={desktopModeHintOpen}
-        steps={desktopModeHintSteps}
-        onClose={dismissDesktopHint}
-        onFinish={dismissDesktopHint}
-        mask={{ color: "rgba(9, 9, 11, 0.2)" }}
-      />
 
       <Modal
         open={accountModalOpen}

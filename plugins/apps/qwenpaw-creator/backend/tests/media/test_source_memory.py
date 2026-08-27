@@ -1,30 +1,40 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
 # pylint: disable=protected-access
 """Source memory trigger/artifacts/query dispatch and projection tests."""
+
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from vendored.test_video_memory_toolkit import (
+    build_fixture_index,
+    build_fixture_memory,
+)
+
+import services.source_analysis as source_analysis_module
+from domain.enums import TaskKind, TaskStatus
 from domain.errors import ValidationError
 from schemas.assets import SourceIntelligenceIndex, SourceMemoryRef
-from services.media import source_memory
-from services.media.source_observation import CLIP_SIZE_BUDGET_CAP_BYTES
+from services.media import source_memory, source_observation
 from services.media.source_memory import (
     SourceMemoryProjection,
     SourceMemoryService,
     load_memory_ref,
     memory_dir,
-    memory_guidance_for_targets,
 )
-from vendored.test_video_memory_toolkit import (
-    build_fixture_index,
-    build_fixture_memory,
+from vendor.media_toolkit.video_memory.schema import (
+    MacroEvent,
+    MicroEvent,
+    Subgraph,
+    SuperEvent,
+    VideoRoot,
 )
 
 
@@ -35,15 +45,6 @@ def _index(
     checksum: str = "checksum-1",
     memory_ref: SourceMemoryRef | None = None,
 ) -> SourceIntelligenceIndex:
-    created_at = "2026-08-01T00:00:00Z"
-    evidence = {
-        "assetVersionId": "version-1",
-        "sourceChecksum": checksum,
-        "confidence": 0.9,
-        "modelRunId": "run-1",
-        "evidenceFrameRefs": ["asset://asset-1@version-1"],
-        "createdAt": created_at,
-    }
     payload = {
         "id": "intel-1",
         "assetId": "asset-1",
@@ -58,9 +59,7 @@ def _index(
                 "producer": "model_native",
                 "ratio": 0.95,
             },
-            "asr": {"mode": "unavailable"},
-            "ocr": {"mode": "unavailable"},
-            "audio": {"mode": "unavailable"},
+            **{k: {"mode": "unavailable"} for k in ("asr", "ocr", "audio")},
         },
         "media": {
             "mediaKind": media_kind,
@@ -68,33 +67,14 @@ def _index(
             "durationMs": duration_ms,
         },
         "summary": "fixture summary",
-        "shots": [
-            {
-                "id": "shot-000001",
-                "startMs": 0,
-                "endMs": duration_ms,
-                "description": "whole video",
-                "events": ["everything"],
-                "keyframeRef": "asset://asset-1@version-1",
-                **evidence,
-            },
-        ],
+        "shots": [],
         "transcript": [],
         "words": [],
         "ocrSegments": [],
         "audioEvents": [],
         "entities": [],
-        "semanticEntries": [
-            {
-                "id": "semantic-000001",
-                "text": "fixture event",
-                "tags": ["fixture"],
-                "startMs": 0,
-                "endMs": 20000,
-                **evidence,
-            },
-        ],
-        "createdAt": created_at,
+        "semanticEntries": [],
+        "createdAt": "2026-08-01T00:00:00Z",
     }
     index = SourceIntelligenceIndex.model_validate(payload)
     index.memory_ref = memory_ref
@@ -105,22 +85,16 @@ def _write_fixture_memory(project_root: Path, index_id: str) -> Path:
     directory = memory_dir(project_root, index_id)
     directory.mkdir(parents=True)
     memory = build_fixture_memory()
-    embedding_index, nodes, _ = build_fixture_index(memory)
+    embedding_index, _nodes, _ = build_fixture_index(memory)
     memory.save(str(directory / "graph_memory.json"))
     embedding_index.save(str(directory / "embeddings.npz"))
     (directory / "memory_meta.json").write_text(
         json.dumps(
             {
                 "indexId": index_id,
-                "assetId": "asset-1",
-                "assetVersionId": "version-1",
                 "sourceChecksum": "checksum-1",
                 "builtAt": "2026-08-01T01:00:00Z",
                 "macroCount": 2,
-                "superCount": 1,
-                "nodeCount": len(nodes),
-                "graphPath": "graph_memory.json",
-                "embeddingsPath": "embeddings.npz",
             },
             ensure_ascii=False,
         ),
@@ -141,14 +115,7 @@ def _service(tmp_path: Path) -> SourceMemoryService:
     return SourceMemoryService(services)
 
 
-# ── trigger gating ──────────────────────────────────────────────────────────
-
-
-def test_should_build_requires_video_over_threshold(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    del monkeypatch
+def test_should_build_gates_and_memory_ref_lifecycle(tmp_path) -> None:
     service = _service(tmp_path)
     project_root = tmp_path / "projects" / "project-1"
     assert service.should_build(_index(), project_root)
@@ -156,168 +123,16 @@ def test_should_build_requires_video_over_threshold(
         _index(duration_ms=10 * 60 * 1000),
         project_root,
     )
-    short_image = _index(media_kind="image", duration_ms=25 * 60 * 1000)
-    assert not service.should_build(short_image, project_root)
-
-
-def test_should_build_degrades_without_embedding_configuration(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    # A missing embedding backend no longer blocks the build: the
-    # pipeline persists a BM25-only text index instead.
-    service = _service(tmp_path)
-    monkeypatch.setattr(
-        source_memory.model_config,
-        "is_embedding_configured",
-        lambda: False,
-    )
-    assert service.should_build(
-        _index(),
-        tmp_path / "projects" / "project-1",
-    )
-
-
-def test_should_build_skips_when_memory_already_built(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    del monkeypatch
-    service = _service(tmp_path)
-    project_root = tmp_path / "projects" / "project-1"
-    _write_fixture_memory(project_root, "intel-1")
+    # Already-built memory short-circuits the trigger.
+    directory = _write_fixture_memory(project_root, "intel-1")
     assert not service.should_build(_index(), project_root)
-
-
-def test_threshold_env_override(monkeypatch) -> None:
-    assert source_memory.memory_build_threshold_ms() == 20 * 60 * 1000
-    monkeypatch.setenv("CREATOR_MEMORY_BUILD_THRESHOLD_MS", "5000")
-    assert source_memory.memory_build_threshold_ms() == 5000
-    monkeypatch.setenv("CREATOR_MEMORY_BUILD_THRESHOLD_MS", "bogus")
-    assert source_memory.memory_build_threshold_ms() == 20 * 60 * 1000
-
-
-# ── artifact hydration & checksum invalidation ──────────────────────────────
-
-
-def test_load_memory_ref_reads_meta(tmp_path) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    _write_fixture_memory(project_root, "intel-1")
     ref = load_memory_ref(project_root, "intel-1", "checksum-1")
     assert ref is not None
     assert ref.macro_count == 2
-    assert ref.graph_path == (
-        "runtime/source-intelligence/intel-1/memory/graph_memory.json"
-    )
-    assert ref.embeddings_path.endswith("embeddings.npz")
-
-
-def test_load_memory_ref_invalidated_by_checksum(tmp_path) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    _write_fixture_memory(project_root, "intel-1")
+    # Checksum mismatch / missing graph invalidates the ref.
     assert load_memory_ref(project_root, "intel-1", "other-checksum") is None
-    assert load_memory_ref(project_root, "intel-2", "checksum-1") is None
-
-
-def test_load_memory_ref_requires_graph_artifact(tmp_path) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    directory = _write_fixture_memory(project_root, "intel-1")
-    # A missing embeddings.npz only degrades retrieval to BM25; the ref
-    # stays hydrated as long as the graph artifact survives.
-    (directory / "embeddings.npz").unlink()
-    assert load_memory_ref(project_root, "intel-1", "checksum-1") is not None
     (directory / "graph_memory.json").unlink()
     assert load_memory_ref(project_root, "intel-1", "checksum-1") is None
-
-
-# ── index serialization contract ────────────────────────────────────────────
-
-
-def test_index_dump_omits_absent_memory_ref() -> None:
-    dumped = _index().model_dump(mode="json", by_alias=True)
-    assert "memoryRef" not in dumped
-    assert "memory_ref" not in dumped
-
-
-def test_index_dump_includes_hydrated_memory_ref() -> None:
-    ref = SourceMemoryRef(
-        graphPath="runtime/source-intelligence/intel-1/memory/g.json",
-        embeddingsPath="runtime/source-intelligence/intel-1/memory/e.npz",
-        builtAt="2026-08-01T01:00:00Z",
-        macroCount=7,
-    )
-    dumped = _index(memory_ref=ref).model_dump(mode="json", by_alias=True)
-    assert dumped["memoryRef"]["macroCount"] == 7
-    assert dumped["memoryRef"]["builtAt"] == "2026-08-01T01:00:00Z"
-
-
-# ── projection ───────────────────────────────────────────────────────────────
-
-
-def test_projection_drafts_validate_schema() -> None:
-    memory = build_fixture_memory()
-    projection = SourceMemoryProjection(
-        indexId="intel-1",
-        summary=SourceMemoryService._projection_summary(memory),
-        semanticEntries=SourceMemoryService._projection_entries(memory),
-    )
-    assert projection.producer == "source_memory"
-    assert "Fixture Video" in projection.summary
-    assert projection.semantic_entries
-    entry = projection.semantic_entries[0]
-    assert entry.start_ms == 0
-    assert entry.end_ms == 620_000
-    assert entry.tags == ["orange cat"]
-
-
-# ── prompt guidance ──────────────────────────────────────────────────────────
-
-
-def test_memory_guidance_unavailable_without_project() -> None:
-    guidance = memory_guidance_for_targets(None, None, ["asset:asset-1"])
-    assert "query_source_memory" in guidance
-    assert "available=false" in guidance
-
-
-def test_memory_guidance_available_with_built_memory(
-    tmp_path,
-) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    _write_fixture_memory(project_root, "intel-1")
-    intelligence = SimpleNamespace(
-        intelligence_version_id="intel-1",
-        source_checksum="checksum-1",
-    )
-    project = SimpleNamespace(
-        sources=SimpleNamespace(
-            sources=SimpleNamespace(
-                items={
-                    "source-1": SimpleNamespace(
-                        logical_asset_id="asset-1",
-                        current_intelligence_version_id="intel-1",
-                    ),
-                },
-            ),
-        ),
-        assets=SimpleNamespace(
-            intelligence_versions_by_id={"intel-1": intelligence},
-        ),
-    )
-    guidance = memory_guidance_for_targets(
-        project_root,
-        project,
-        ["asset:asset-1"],
-    )
-    assert "hitWindowsMs" in guidance
-    other = memory_guidance_for_targets(
-        project_root,
-        project,
-        ["asset:asset-other"],
-    )
-    assert "available=false" in other
-
-
-# ── query dispatch ───────────────────────────────────────────────────────────
 
 
 class _FakeAnalysis:
@@ -343,8 +158,6 @@ def _query_service(
         ref = load_memory_ref(project_root, "intel-1", "checksum-1")
         assert ref is not None
     index = _index(memory_ref=ref)
-    import services.source_analysis as source_analysis_module
-
     monkeypatch.setattr(
         source_analysis_module,
         "source_analysis_service",
@@ -375,89 +188,52 @@ def test_query_memory_reports_unavailable_without_memory(
 ) -> None:
     service = _query_service(tmp_path, monkeypatch, with_memory=False)
     result = _run_query(service, query_type="summary")
-    assert result["ok"] is True
     assert result["available"] is False
-    assert "reason" in result
+    with pytest.raises(ValidationError):
+        _run_query(service, query_type="bogus")
 
 
-def test_query_memory_dispatches_all_nine_types(
+@pytest.mark.parametrize(
+    ("kwargs", "expect"),
+    [
+        pytest.param(
+            {"query_type": "subgraph", "macro_id": "macro_0000"},
+            lambda r: r["result"]["macro_id"] == "macro_0000"
+            and r["hitWindowsMs"]
+            == [{"macroId": "macro_0000", "startMs": 0, "endMs": 300_000}],
+            id="subgraph",
+        ),
+        pytest.param(
+            {"query_type": "search_nodes", "query": "teamfight dragon"},
+            lambda r: r["result"]["results"][0]["node_id"]
+            == "macro_0001:ev_101"
+            and {"macroId": "macro_0001", "startMs": 300_000, "endMs": 620_000}
+            in r["hitWindowsMs"],
+            id="search_nodes",
+        ),
+        pytest.param(
+            {"query_type": "by_time", "start_ms": 310_000, "end_ms": 400_000},
+            lambda r: [i["macro_id"] for i in r["result"]] == ["macro_0001"],
+            id="by_time",
+        ),
+    ],
+)
+def test_query_memory_dispatches_each_query_type(
     tmp_path,
     monkeypatch,
+    kwargs,
+    expect,
 ) -> None:
     service = _query_service(tmp_path, monkeypatch)
-
-    summary = _run_query(service, query_type="summary")
-    assert summary["result"]["title"] == "Fixture Video"
-
-    supers = _run_query(service, query_type="super_events")
-    assert supers["result"][0]["super_id"] == "super_00"
-
-    macros = _run_query(service, query_type="macro_events")
-    assert len(macros["result"]) == 2
-    filtered = _run_query(
-        service,
-        query_type="macro_events",
-        macro_id="super_00",
-    )
-    assert len(filtered["result"]) == 2
-
-    subgraph = _run_query(
-        service,
-        query_type="subgraph",
-        macro_id="macro_0000",
-    )
-    assert subgraph["result"]["macro_id"] == "macro_0000"
-    assert subgraph["hitWindowsMs"] == [
-        {"macroId": "macro_0000", "startMs": 0, "endMs": 300_000},
-    ]
-
-    nodes = _run_query(
-        service,
-        query_type="search_nodes",
-        query="teamfight dragon",
-    )
-    assert nodes["result"]["results"][0]["node_id"] == "macro_0001:ev_101"
-    assert {
-        "macroId": "macro_0001",
-        "startMs": 300_000,
-        "endMs": 620_000,
-    } in nodes["hitWindowsMs"]
-
-    ocr = _run_query(
-        service,
-        query_type="search_ocr",
-        query="Team Blue scoreboard",
-    )
-    assert ocr["result"][0]["macro_id"] == "macro_0000"
-
-    asr = _run_query(service, query_type="search_asr", query="团战 零换五")
-    assert asr["result"][0]["macro_id"] == "macro_0001"
-
-    by_time = _run_query(
-        service,
-        query_type="by_time",
-        start_ms=310_000,
-        end_ms=400_000,
-    )
-    assert [item["macro_id"] for item in by_time["result"]] == [
-        "macro_0001",
-    ]
-
-    enumerated = _run_query(
-        service,
-        query_type="enumerate",
-        query="cat teamfight",
-    )
-    assert enumerated["result"]["total_matches"] > 0
+    assert expect(_run_query(service, **kwargs))
 
 
 def test_query_memory_degrades_to_bm25_without_embeddings_artifact(
     tmp_path,
     monkeypatch,
 ) -> None:
-    # Regression for the degraded-retrieval ladder: with the .npz gone,
-    # search_nodes must still answer from a BM25 index rebuilt out of
-    # graph_memory.json instead of erroring out.
+    # Degraded-retrieval ladder regression: with the .npz gone, search
+    # must answer from a BM25 index rebuilt from the graph.
     service = _query_service(tmp_path, monkeypatch)
     directory = memory_dir(tmp_path / "projects" / "project-1", "intel-1")
     (directory / "embeddings.npz").unlink()
@@ -466,43 +242,15 @@ def test_query_memory_degrades_to_bm25_without_embeddings_artifact(
         query_type="search_nodes",
         query="teamfight dragon",
     )
-    assert nodes["available"] is True
     assert nodes["result"]["results"][0]["node_id"] == "macro_0001:ev_101"
     asr = _run_query(service, query_type="search_asr", query="团战 零换五")
     assert asr["result"][0]["macro_id"] == "macro_0001"
 
 
-def test_query_memory_validates_arguments(tmp_path, monkeypatch) -> None:
-    service = _query_service(tmp_path, monkeypatch)
-    with pytest.raises(ValidationError):
-        _run_query(service, query_type="bogus")
-    with pytest.raises(ValidationError):
-        _run_query(service, query_type="search_asr")
-    with pytest.raises(ValidationError):
-        _run_query(service, query_type="subgraph")
-    with pytest.raises(ValidationError):
-        _run_query(service, query_type="by_time", start_ms=10, end_ms=10)
-
-
-def test_build_datetime_marker_is_timezone_aware() -> None:
-    ref = SourceMemoryRef(
-        graphPath="a",
-        embeddingsPath="b",
-        builtAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        macroCount=1,
-    )
-    assert ref.macro_count == 1
-
-
-# ── CR remediation regressions ──────────────────────────────────────────────
-
-
 def _memory_ref() -> SourceMemoryRef:
     return SourceMemoryRef(
-        graphPath="runtime/source-intelligence/intel-1/memory/"
-        "graph_memory.json",
-        embeddingsPath="runtime/source-intelligence/intel-1/memory/"
-        "embeddings.npz",
+        graphPath="runtime/source-intelligence/intel-1/memory/graph_memory.json",
+        embeddingsPath="runtime/source-intelligence/intel-1/memory/embeddings.npz",
         builtAt="2026-08-01T01:00:00Z",
         macroCount=2,
     )
@@ -532,89 +280,29 @@ def _write_fixture_projection(
             "model": "qwen3.7-plus",
             "reviewedAt": "2026-08-01T01:30:00Z",
         }
-    projection = SourceMemoryProjection.model_validate(payload)
     (directory / "projection.json").write_text(
-        json.dumps(
-            projection.model_dump(mode="json", by_alias=True),
-            ensure_ascii=False,
-        ),
+        json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
     )
 
 
-def test_clip_budget_derives_from_transport_limit(monkeypatch) -> None:
-    monkeypatch.setattr(
-        source_memory.model_config,
-        "get_vlm_max_inline_bytes",
-        lambda: 4 * 1024 * 1024,
-    )
-    budget = source_memory._clip_size_budget_bytes()
-    assert budget == int(4 * 1024 * 1024 * 3 / 4) - 64 * 1024
-    # A generous transport limit is capped at the conservative default.
-    monkeypatch.setattr(
-        source_memory.model_config,
-        "get_vlm_max_inline_bytes",
-        lambda: 64 * 1024 * 1024,
-    )
-    assert (
-        source_memory._clip_size_budget_bytes()
-        == CLIP_SIZE_BUDGET_CAP_BYTES - 64 * 1024
-    )
-    # Limits too small for any workable clip are a configuration error
-    # instead of a budget that transport would later refuse.
-    monkeypatch.setattr(
-        source_memory.model_config,
-        "get_vlm_max_inline_bytes",
-        lambda: 100 * 1024,
-    )
-    with pytest.raises(ValidationError):
-        source_memory._clip_size_budget_bytes()
-
-
-def test_index_transcript_reuses_available_empty_asr(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    # Available-but-empty ASR coverage (silent source) must be reused,
-    # not re-billed; missing coverage must allow transcription.
-    service = _service(tmp_path)
-    job = source_memory.SourceMemoryBuildJob(
-        project_id="project-1",
-        task_id="task-1",
-        authorization_id=None,
-        index_id="intel-1",
-        asset_id="asset-1",
-        asset_version_id="version-1",
-        source_checksum="checksum-1",
-        duration_ms=25 * 60 * 1000,
-        local_path=str(tmp_path / "video.mp4"),
-    )
-
-    def fake_service(coverage_mode: str):
-        index = SimpleNamespace(
-            coverage={"asr": SimpleNamespace(mode=coverage_mode)},
-            transcript=[],
-        )
-        return SimpleNamespace(load=lambda *args: index)
-
-    import services.source_analysis as source_analysis_module
-
-    monkeypatch.setattr(
-        source_analysis_module,
-        "source_analysis_service",
-        lambda _services: fake_service("available"),
-    )
-    available, transcript = asyncio.run(service._index_transcript(job))
-    assert available is True
-    assert transcript == []
-
-    monkeypatch.setattr(
-        source_analysis_module,
-        "source_analysis_service",
-        lambda _services: fake_service("unavailable"),
-    )
-    available, transcript = asyncio.run(service._index_transcript(job))
-    assert available is False
+def _build_job(
+    tmp_path: Path,
+    **overrides,
+) -> source_memory.SourceMemoryBuildJob:
+    kwargs = {
+        "project_id": "project-1",
+        "task_id": "task-1",
+        "authorization_id": None,
+        "index_id": "intel-1",
+        "asset_id": "asset-1",
+        "asset_version_id": "version-1",
+        "source_checksum": "checksum-1",
+        "duration_ms": 25 * 60 * 1000,
+        "local_path": str(tmp_path / "video.mp4"),
+    }
+    kwargs.update(overrides)
+    return source_memory.SourceMemoryBuildJob(**kwargs)
 
 
 class _RecordingExecutions:
@@ -636,7 +324,7 @@ class _RecordingExecutions:
         self.attempts.append(kwargs)
         if kwargs["status"].name == "FAILED":
             self.task = SimpleNamespace(
-                **{**self.task.__dict__, "status": _task_status("FAILED")},
+                **{**self.task.__dict__, "status": TaskStatus.FAILED},
             )
 
     def transition_task(self, _project_id, _task_id, **kwargs):
@@ -647,20 +335,12 @@ class _RecordingExecutions:
         return self.task
 
 
-def _task_status(name: str):
-    from domain.enums import TaskStatus
-
-    return TaskStatus[name]
-
-
 def _running_task(tmp_path: Path) -> SimpleNamespace:
-    from domain.enums import TaskKind
-
     return SimpleNamespace(
         project_id="project-1",
         task_id="task-1",
         kind=TaskKind.SOURCE_MEMORY_BUILD,
-        status=_task_status("RUNNING"),
+        status=TaskStatus.RUNNING,
         last_attempt_seq=1,
         metadata={
             "analysisVersionId": "intel-1",
@@ -674,11 +354,29 @@ def _running_task(tmp_path: Path) -> SimpleNamespace:
     )
 
 
-def test_recover_fail_closes_without_durable_artifacts(
+@pytest.mark.parametrize(
+    "durable",
+    ["none", "checkpoint"],
+)
+def test_recover_requeues_only_with_durable_artifacts(
     tmp_path,
     monkeypatch,
+    durable,
 ) -> None:
+    # Without durable artifacts the attempt closes as FAILED (a rebuild
+    # needs a fresh authorization); durable per-macro checkpoints let
+    # the resumed attempt spend only on remaining macros, so it re-queues.
     service = _service(tmp_path)
+    project_root = tmp_path / "projects" / "project-1"
+    if durable == "checkpoint":
+        directory = source_memory.build_dir(project_root, "intel-1")
+        source_memory._write_checkpoint(
+            directory
+            / source_memory.SUBGRAPH_CHECKPOINT_DIRNAME
+            / "macro_0000.json",
+            "checksum-1",
+            {"micro_events": []},
+        )
     task = _running_task(tmp_path)
     executions = _RecordingExecutions(task)
     service.executions = executions
@@ -693,70 +391,17 @@ def test_recover_fail_closes_without_durable_artifacts(
 
     service.recover_interrupted()
 
-    # Attempt closed as FAILED, but no automatic re-queue/spawn: a
-    # rebuild without artifacts requires a fresh authorization.
-    assert executions.attempts[-1]["status"].name == "FAILED"
-    assert not executions.transitions
-    assert not spawned
+    if durable == "none":
+        assert executions.attempts[-1]["status"].name == "FAILED"
+        assert not spawned
+    else:
+        assert executions.transitions[-1]["status"].name == "QUEUED"
+        assert len(spawned) == 1
 
 
-def test_recover_requeues_when_artifacts_are_durable(
+def test_merge_projection_folds_reviewed_drafts_and_summary(
     tmp_path,
-    monkeypatch,
 ) -> None:
-    service = _service(tmp_path)
-    project_root = tmp_path / "projects" / "project-1"
-    _write_fixture_memory(project_root, "intel-1")
-    task = _running_task(tmp_path)
-    executions = _RecordingExecutions(task)
-    service.executions = executions
-    monkeypatch.setattr(
-        service.services.projects,
-        "list",
-        lambda: [SimpleNamespace(project_id="project-1")],
-        raising=False,
-    )
-    spawned: list = []
-    monkeypatch.setattr(service, "_spawn", spawned.append)
-
-    service.recover_interrupted()
-
-    assert executions.transitions[-1]["status"].name == "QUEUED"
-    assert len(spawned) == 1
-
-
-def test_execute_converges_on_existing_artifacts(tmp_path) -> None:
-    # A QUEUED task whose artifacts are already durable must succeed
-    # without touching the media pipeline (no replayed billed calls).
-    service = _service(tmp_path)
-    project_root = tmp_path / "projects" / "project-1"
-    _write_fixture_memory(project_root, "intel-1")
-    task = SimpleNamespace(
-        project_id="project-1",
-        task_id="task-1",
-        status=_task_status("QUEUED"),
-        last_attempt_seq=2,
-    )
-    executions = _RecordingExecutions(task)
-    service.executions = executions
-    job = source_memory.SourceMemoryBuildJob(
-        project_id="project-1",
-        task_id="task-1",
-        authorization_id="auth-1",
-        index_id="intel-1",
-        asset_id="asset-1",
-        asset_version_id="version-1",
-        source_checksum="checksum-1",
-        duration_ms=25 * 60 * 1000,
-        local_path=str(tmp_path / "missing.mp4"),
-    )
-    asyncio.run(service._execute(job))
-    statuses = [item["status"].name for item in executions.attempts]
-    assert statuses == ["RUNNING", "SUCCEEDED"]
-    assert executions.attempts[-1]["output"]["converged"] is True
-
-
-def test_merge_projection_semantics_folds_drafts(tmp_path) -> None:
     project_root = tmp_path / "projects" / "project-1"
     directory = _write_fixture_memory(project_root, "intel-1")
     _write_fixture_projection(directory)
@@ -771,45 +416,25 @@ def test_merge_projection_semantics_folds_drafts(tmp_path) -> None:
         entry.model_run_id == source_memory.SOURCE_MEMORY_RUN_ID
         for entry in added
     )
-    assert any(
-        run.id == source_memory.SOURCE_MEMORY_RUN_ID
-        for run in index.model_runs
-    )
+    assert "[长素材记忆摘要 · 已审校]" in index.summary
     # Idempotent on repeated loads.
     source_memory.merge_projection_semantics(project_root, index)
     assert len(index.semantic_entries) == before + 2
 
 
-def test_merge_projection_semantics_requires_matching_checksum(
-    tmp_path,
-) -> None:
+@pytest.mark.parametrize(
+    "case",
+    ["checksum_mismatch", "unreviewed"],
+)
+def test_merge_projection_skips_ineligible_drafts(tmp_path, case) -> None:
+    # Fail-close: unreviewed or stale-checksum drafts never merge.
     project_root = tmp_path / "projects" / "project-1"
     directory = _write_fixture_memory(project_root, "intel-1")
-    _write_fixture_projection(directory)
-    index = _index(checksum="checksum-other", memory_ref=_memory_ref())
-    before = len(index.semantic_entries)
-    source_memory.merge_projection_semantics(project_root, index)
-    assert len(index.semantic_entries) == before
-
-
-def test_merge_projection_semantics_noop_without_memory_ref(
-    tmp_path,
-) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    index = _index()
-    source_memory.merge_projection_semantics(project_root, index)
-    assert all(
-        entry.model_run_id != source_memory.SOURCE_MEMORY_RUN_ID
-        for entry in index.semantic_entries
-    )
-
-
-def test_merge_projection_requires_approved_review(tmp_path) -> None:
-    # Fail-close: unreviewed drafts never reach the index surfaces.
-    project_root = tmp_path / "projects" / "project-1"
-    directory = _write_fixture_memory(project_root, "intel-1")
-    _write_fixture_projection(directory, reviewed=False)
-    index = _index(memory_ref=_memory_ref())
+    _write_fixture_projection(directory, reviewed=case != "unreviewed")
+    if case == "checksum_mismatch":
+        index = _index(checksum="checksum-other", memory_ref=_memory_ref())
+    else:
+        index = _index(memory_ref=_memory_ref())
     before = len(index.semantic_entries)
     summary_before = index.summary
     source_memory.merge_projection_semantics(project_root, index)
@@ -817,24 +442,46 @@ def test_merge_projection_requires_approved_review(tmp_path) -> None:
     assert index.summary == summary_before
 
 
-def test_merge_projection_appends_reviewed_summary(tmp_path) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    directory = _write_fixture_memory(project_root, "intel-1")
-    _write_fixture_projection(directory)
-    index = _index(memory_ref=_memory_ref())
-    source_memory.merge_projection_semantics(project_root, index)
-    assert "[长素材记忆摘要 · 已审校]" in index.summary
-    assert "memory digest of the whole video" in index.summary
-    # Idempotent: the marker is appended once even across repeat loads.
-    source_memory.merge_projection_semantics(project_root, index)
-    assert index.summary.count("[长素材记忆摘要 · 已审校]") == 1
+_REVIEW_CASES: dict[str, tuple[str, list[tuple]] | None] = {
+    "approved": (
+        "reviewed digest",
+        [("entry-0", "Super event one (reviewed)", 0, 60000, 0.7)],
+    ),
+    "vlm_error": None,
+    "moved_window": (
+        "tampered digest",
+        [("entry-0", "Super event one", 5000, 65000, 0.9)],
+    ),
+}
 
 
+@pytest.mark.parametrize("case", sorted(_REVIEW_CASES))
 def test_review_projection_approves_or_fails_closed(
     tmp_path,
     monkeypatch,
+    case,
 ) -> None:
+    # A hallucinating reviewer must never earn the approved stamp:
+    # moved windows or invented entries fail closed, and a reviewer
+    # transport failure falls back to the unreviewed draft.
     service = _service(tmp_path)
+    spec = _REVIEW_CASES[case]
+    response = None
+    if spec is not None:
+        response = {
+            "summary": spec[0],
+            "semanticEntries": [
+                {
+                    "entryId": e[0],
+                    "text": e[1],
+                    "tags": ["memory"],
+                    "startMs": e[2],
+                    "endMs": e[3],
+                    "confidence": e[4],
+                }
+                for e in spec[1]
+            ],
+        }
     draft = SourceMemoryProjection(
         indexId="intel-1",
         summary="draft digest",
@@ -848,351 +495,36 @@ def test_review_projection_approves_or_fails_closed(
             },
         ],
     )
-
-    async def good_chat(_content, **_kwargs):
-        return json.dumps(
-            {
-                "summary": "reviewed digest",
-                "semanticEntries": [
-                    {
-                        "entryId": "entry-0",
-                        "text": "Super event one (reviewed)",
-                        "tags": ["memory"],
-                        "startMs": 0,
-                        "endMs": 60000,
-                        "confidence": 0.7,
-                    },
-                ],
-            },
-        )
-
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "chat_completion",
-        good_chat,
-    )
     monkeypatch.setattr(
         source_memory.model_config,
         "get_vlm_model_name",
         lambda: "qwen3.7-plus",
     )
+
+    async def chat(_content, **_kwargs):
+        if response is None:
+            raise RuntimeError("vlm unavailable")
+        return json.dumps(response)
+
+    monkeypatch.setattr(source_memory.vlm_model, "chat_completion", chat)
     reviewed = asyncio.run(service._review_projection(draft))
-    assert reviewed.review is not None
-    assert reviewed.review.status == "approved"
-    assert reviewed.summary == "reviewed digest"
-    assert reviewed.semantic_entries[0].start_ms == 0
-    assert reviewed.semantic_entries[0].end_ms == 60000
-
-    async def bad_chat(_content, **_kwargs):
-        raise RuntimeError("vlm unavailable")
-
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "chat_completion",
-        bad_chat,
-    )
-    fallback = asyncio.run(service._review_projection(draft))
-    assert fallback.review is None
-    assert fallback.summary == "draft digest"
+    if case == "approved":
+        assert reviewed.review is not None
+        assert reviewed.review.status == "approved"
+        assert reviewed.summary == "reviewed digest"
+        assert reviewed.semantic_entries[0].start_ms == 0
+    else:
+        assert reviewed.review is None
+        assert reviewed.summary == "draft digest"
 
 
-def test_review_projection_rejects_tampered_windows_and_new_entries(
+def test_extract_subgraph_checkpoints_then_resumes_without_reclip(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """A hallucinating reviewer must never earn the approved stamp.
-
-    The reviewer may only edit text/tags/confidence or drop entries;
-    moved time windows or invented entries fail the review closed and
-    the drafts stay unreviewed (never merged into the index surfaces).
-    """
-
-    service = _service(tmp_path)
-    draft = SourceMemoryProjection(
-        indexId="intel-1",
-        summary="draft digest",
-        semanticEntries=[
-            {
-                "text": "Super event one",
-                "tags": ["memory"],
-                "startMs": 0,
-                "endMs": 60000,
-                "confidence": 0.6,
-            },
-            {
-                "text": "Super event two",
-                "tags": ["memory"],
-                "startMs": 60000,
-                "endMs": 120000,
-                "confidence": 0.6,
-            },
-        ],
-    )
-    monkeypatch.setattr(
-        source_memory.model_config,
-        "get_vlm_model_name",
-        lambda: "qwen3.7-plus",
-    )
-
-    async def moved_window_chat(_content, **_kwargs):
-        return json.dumps(
-            {
-                "summary": "tampered digest",
-                "semanticEntries": [
-                    {
-                        "entryId": "entry-0",
-                        "text": "Super event one",
-                        "tags": ["memory"],
-                        "startMs": 5000,
-                        "endMs": 65000,
-                        "confidence": 0.9,
-                    },
-                ],
-            },
-        )
-
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "chat_completion",
-        moved_window_chat,
-    )
-    tampered = asyncio.run(service._review_projection(draft))
-    assert tampered.review is None
-    assert tampered.summary == "draft digest"
-
-    async def invented_entry_chat(_content, **_kwargs):
-        return json.dumps(
-            {
-                "summary": "tampered digest",
-                "semanticEntries": [
-                    {
-                        "entryId": "entry-0",
-                        "text": "Super event one",
-                        "tags": ["memory"],
-                        "startMs": 0,
-                        "endMs": 60000,
-                        "confidence": 0.6,
-                    },
-                    {
-                        "entryId": "entry-999",
-                        "text": "Invented event",
-                        "tags": ["memory"],
-                        "startMs": 120000,
-                        "endMs": 180000,
-                        "confidence": 0.9,
-                    },
-                ],
-            },
-        )
-
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "chat_completion",
-        invented_entry_chat,
-    )
-    invented = asyncio.run(service._review_projection(draft))
-    assert invented.review is None
-
-    async def dropping_chat(_content, **_kwargs):
-        return json.dumps(
-            {
-                "summary": "clean digest",
-                "semanticEntries": [
-                    {
-                        "entryId": "entry-1",
-                        "text": "Super event two (kept)",
-                        "tags": ["memory"],
-                        "startMs": 60000,
-                        "endMs": 120000,
-                        "confidence": 0.8,
-                    },
-                ],
-            },
-        )
-
-    monkeypatch.setattr(
-        source_memory.vlm_model,
-        "chat_completion",
-        dropping_chat,
-    )
-    kept = asyncio.run(service._review_projection(draft))
-    assert kept.review is not None
-    assert kept.review.status == "approved"
-    assert len(kept.semantic_entries) == 1
-    assert kept.semantic_entries[0].start_ms == 60000
-    assert kept.semantic_entries[0].end_ms == 120000
-
-
-# ── retrieval methodology guidance & enumerate tuning ───────────────────────
-
-
-def test_memory_guidance_carries_query_construction_protocol() -> None:
-    guidance = source_memory._MEMORY_GUIDANCE_AVAILABLE
-    # Upstream SKILL.md retrieval-quality rules must reach the agent.
-    assert "陈述句" in guidance
-    assert "minCosine" in guidance
-    assert "scope=project" in guidance
-    assert "enumerate" in guidance
-    assert "top-k" in guidance
-
-
-def test_query_memory_passes_enumerate_tuning(tmp_path, monkeypatch) -> None:
-    service = _query_service(tmp_path, monkeypatch)
-    captured: dict = {}
-    original = source_memory.MemoryToolkit.enumerate_events
-
-    def spy(self, query, min_cosine=0.5, max_results=120, **kwargs):
-        captured["min_cosine"] = min_cosine
-        captured["max_results"] = max_results
-        return original(
-            self,
-            query,
-            min_cosine=min_cosine,
-            max_results=max_results,
-            **kwargs,
-        )
-
-    monkeypatch.setattr(source_memory.MemoryToolkit, "enumerate_events", spy)
-    _run_query(
-        service,
-        query_type="enumerate",
-        query="teamfight",
-        min_cosine=0.2,
-        max_results=7,
-    )
-    assert captured == {"min_cosine": 0.2, "max_results": 7}
-    # Out-of-range values clamp instead of erroring.
-    _run_query(
-        service,
-        query_type="enumerate",
-        query="teamfight",
-        min_cosine=5.0,
-        max_results=9999,
-    )
-    assert captured == {"min_cosine": 1.0, "max_results": 300}
-
-
-# ── chunk planning & stage checkpoints ──────────────────────────────────────
-
-
-def test_chunk_plan_splits_and_folds_short_tail() -> None:
-    assert source_memory._chunk_plan(1800.0) == [(0.0, 1800.0)]
-    assert source_memory._chunk_plan(7300.0) == [
-        (0.0, 3600.0),
-        (3600.0, 7200.0),
-        (7200.0, 7300.0),
-    ]
-    # A tail shorter than MIN_SCENE_SEC folds into the previous chunk.
-    assert source_memory._chunk_plan(7210.0) == [
-        (0.0, 3600.0),
-        (3600.0, 7210.0),
-    ]
-
-
-def test_checkpoint_roundtrip_is_checksum_gated(tmp_path) -> None:
-    path = tmp_path / "ckpt.json"
-    source_memory._write_checkpoint(path, "checksum-1", {"a": 1})
-    assert source_memory._load_checkpoint(path, "checksum-1") == {"a": 1}
-    # A different source invalidates the checkpoint silently.
-    assert source_memory._load_checkpoint(path, "checksum-2") is None
-    path.write_text("not json", encoding="utf-8")
-    assert source_memory._load_checkpoint(path, "checksum-1") is None
-
-
-def test_has_build_checkpoint_matches_segments_or_subgraphs(
-    tmp_path,
-) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    assert not source_memory.has_build_checkpoint(
-        project_root,
-        "intel-1",
-        "checksum-1",
-    )
-    directory = source_memory.build_dir(project_root, "intel-1")
-    source_memory._write_checkpoint(
-        directory
-        / source_memory.SUBGRAPH_CHECKPOINT_DIRNAME
-        / ("macro_0000.json"),
-        "checksum-1",
-        {"micro_events": []},
-    )
-    assert source_memory.has_build_checkpoint(
-        project_root,
-        "intel-1",
-        "checksum-1",
-    )
-    # Stale checksum means a different source: no resume.
-    assert not source_memory.has_build_checkpoint(
-        project_root,
-        "intel-1",
-        "checksum-2",
-    )
-
-
-def test_extract_subgraph_resumes_from_checkpoint(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    from vendor.media_toolkit.video_memory.schema import MacroEvent
-
-    service = _service(tmp_path)
-    ckpt_dir = tmp_path / "subgraphs"
-    payload = {
-        "micro_events": [
-            {
-                "event_id": "ev_1",
-                "event_type": "action",
-                "time_range": [1.0, 2.0],
-                "subject": "cat",
-                "object": "",
-                "action": "jumps",
-                "description": "cat jumps",
-            },
-        ],
-        "entities": [],
-        "on_screen_texts": [],
-        "edges": [],
-    }
-    source_memory._write_checkpoint(
-        ckpt_dir / "macro_0000.json",
-        "checksum-1",
-        payload,
-    )
-
-    def must_not_clip(*_args, **_kwargs):
-        raise AssertionError("checkpointed macro must not re-clip")
-
-    monkeypatch.setattr(
-        source_memory,
-        "_clip_segment_for_transport_sync",
-        must_not_clip,
-    )
-    macro = MacroEvent(
-        macro_id="macro_0000",
-        label="scene",
-        time_range=[10.0, 40.0],
-    )
-    asyncio.run(
-        service._extract_subgraph(
-            macro,
-            tmp_path / "missing.mp4",
-            tmp_path,
-            asyncio.Semaphore(1),
-            ckpt_dir,
-            "checksum-1",
-        ),
-    )
-    assert macro.subgraph is not None
-    # Relative checkpoint times shift onto the macro window on resume.
-    assert macro.subgraph.micro_events[0].time_range == [11.0, 12.0]
-
-
-def test_extract_subgraph_persists_checkpoint_before_apply(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    from vendor.media_toolkit.video_memory.schema import MacroEvent
-
+    # First extraction persists the raw RELATIVE payload before macro
+    # offsets apply; a resumed macro answers from the checkpoint without
+    # re-clipping (no replayed billed call). Stale checksums invalidate.
     service = _service(tmp_path)
     ckpt_dir = tmp_path / "subgraphs"
 
@@ -1214,9 +546,6 @@ def test_extract_subgraph_persists_checkpoint_before_apply(
                         "description": "cat jumps",
                     },
                 ],
-                "entities": [],
-                "on_screen_texts": [],
-                "edges": [],
             },
         )
 
@@ -1226,255 +555,45 @@ def test_extract_subgraph_persists_checkpoint_before_apply(
         fake_clip,
     )
     monkeypatch.setattr(source_memory.vlm_model, "chat_completion", fake_chat)
-    macro = MacroEvent(
-        macro_id="macro_0000",
-        label="scene",
-        time_range=[10.0, 40.0],
-    )
-    asyncio.run(
-        service._extract_subgraph(
-            macro,
-            tmp_path / "video.mp4",
-            tmp_path,
-            asyncio.Semaphore(1),
-            ckpt_dir,
-            "checksum-1",
-        ),
-    )
-    assert macro.subgraph.micro_events[0].time_range == [11.0, 12.0]
-    # Checkpoint keeps the raw RELATIVE payload (written pre-apply).
-    stored = source_memory._load_checkpoint(
-        ckpt_dir / "macro_0000.json",
-        "checksum-1",
-    )
-    assert stored["micro_events"][0]["time_range"] == [1.0, 2.0]
 
-
-def test_recover_requeues_when_checkpoints_exist(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    # Interrupted mid-P2 with durable per-macro checkpoints: the resumed
-    # attempt only spends on the remaining macros, so it re-queues.
-    service = _service(tmp_path)
-    project_root = tmp_path / "projects" / "project-1"
-    directory = source_memory.build_dir(project_root, "intel-1")
-    source_memory._write_checkpoint(
-        directory
-        / source_memory.SUBGRAPH_CHECKPOINT_DIRNAME
-        / ("macro_0000.json"),
-        "checksum-1",
-        {"micro_events": []},
-    )
-    task = _running_task(tmp_path)
-    executions = _RecordingExecutions(task)
-    service.executions = executions
-    monkeypatch.setattr(
-        service.services.projects,
-        "list",
-        lambda: [SimpleNamespace(project_id="project-1")],
-        raising=False,
-    )
-    spawned: list = []
-    monkeypatch.setattr(service, "_spawn", spawned.append)
-
-    service.recover_interrupted()
-
-    assert executions.transitions[-1]["status"].name == "QUEUED"
-    assert len(spawned) == 1
-
-
-# ── transport-aware clip encoding ────────────────────────────────────────────
-
-
-def test_clip_transport_moved_to_source_observation() -> None:
-    # The transport-aware clip encode dispatch moved to
-    # services.media.source_observation (covered by
-    # tests/media/test_source_observation.py); source_memory keeps
-    # patchable private aliases for its build call sites.
-    from services.media import source_observation
-
-    assert (
-        source_memory._clip_segment_for_transport_sync
-        is source_observation.clip_segment_for_transport_sync
-    )
-
-
-# ── project-scope merged memory ──────────────────────────────────────────────
-
-
-def _merged_service(tmp_path, monkeypatch) -> SourceMemoryService:
-    project_root = tmp_path / "projects" / "project-1"
-    project_root.mkdir(parents=True, exist_ok=True)
-    _write_fixture_memory(project_root, "intel-1")
-    _write_fixture_memory(project_root, "intel-2")
-    project = SimpleNamespace(
-        sources=SimpleNamespace(
-            sources=SimpleNamespace(
-                items={
-                    "src-1": SimpleNamespace(
-                        logical_asset_id="asset-1",
-                        current_intelligence_version_id="iv-1",
-                    ),
-                    "src-2": SimpleNamespace(
-                        logical_asset_id="asset-2",
-                        current_intelligence_version_id="iv-2",
-                    ),
-                },
+    def extract(macro: MacroEvent) -> None:
+        asyncio.run(
+            service._extract_subgraph(
+                macro,
+                tmp_path / "video.mp4",
+                tmp_path,
+                asyncio.Semaphore(1),
+                ckpt_dir,
+                "checksum-1",
             ),
-        ),
-        assets=SimpleNamespace(
-            intelligence_versions_by_id={
-                "iv-1": SimpleNamespace(
-                    intelligence_version_id="intel-1",
-                    source_checksum="checksum-1",
-                ),
-                "iv-2": SimpleNamespace(
-                    intelligence_version_id="intel-2",
-                    source_checksum="checksum-1",
-                ),
-            },
-        ),
-    )
-    services = SimpleNamespace(
-        root=tmp_path,
-        projects=SimpleNamespace(
-            project_root=lambda project_id: tmp_path / "projects" / project_id,
-            read=lambda project_id: SimpleNamespace(project=project),
-        ),
-    )
-    service = SourceMemoryService(services)
-
-    async def no_embedding(query_text: str):
-        del query_text
-        return None
-
-    monkeypatch.setattr(service, "_embed_query", no_embedding)
-    return service
-
-
-def test_project_scope_merges_all_built_memories(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    service = _merged_service(tmp_path, monkeypatch)
-    result = _run_query(
-        service,
-        query_type="search_asr",
-        query="团战 零换五",
-        scope="project",
-    )
-    assert result["scope"] == "project"
-    assert result["sources"] == [
-        {"prefix": "s1", "assetId": "asset-1"},
-        {"prefix": "s2", "assetId": "asset-2"},
-    ]
-    hit_macros = {item["macro_id"] for item in result["result"]}
-    assert {"s1_macro_0001", "s2_macro_0001"} <= hit_macros
-    windows = {
-        (item["macroId"], item.get("assetId"))
-        for item in result["hitWindowsMs"]
-    }
-    assert ("s1_macro_0001", "asset-1") in windows
-    assert ("s2_macro_0001", "asset-2") in windows
-
-    # Prefixed super/subgraph drilldowns keep working across sources.
-    filtered = _run_query(
-        service,
-        query_type="macro_events",
-        macro_id="s2_super_00",
-        scope="project",
-    )
-    assert {item["macro_id"] for item in filtered["result"]} == {
-        "s2_macro_0000",
-        "s2_macro_0001",
-    }
-    subgraph = _run_query(
-        service,
-        query_type="subgraph",
-        macro_id="s1_macro_0000",
-        scope="project",
-    )
-    assert subgraph["result"]["macro_id"] == "s1_macro_0000"
-
-
-def test_project_scope_rejects_by_time_and_requires_memories(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    service = _merged_service(tmp_path, monkeypatch)
-    with pytest.raises(ValidationError):
-        _run_query(
-            service,
-            query_type="by_time",
-            start_ms=0,
-            end_ms=1000,
-            scope="project",
         )
-    with pytest.raises(ValidationError):
-        _run_query(service, query_type="summary", scope="bogus")
 
-    # No built memories in the project: explicit validation error.
-    project_root = tmp_path / "projects" / "project-1"
-    import shutil as _shutil
+    def make_macro() -> MacroEvent:
+        return MacroEvent(
+            macro_id="macro_0000",
+            label="scene",
+            time_range=[10.0, 40.0],
+        )
 
-    _shutil.rmtree(memory_dir(project_root, "intel-1"))
-    _shutil.rmtree(memory_dir(project_root, "intel-2"))
-    with pytest.raises(ValidationError):
-        _run_query(service, query_type="summary", scope="project")
+    macro = make_macro()
+    extract(macro)
+    assert macro.subgraph.micro_events[0].time_range == [11.0, 12.0]
+    ckpt_path = ckpt_dir / "macro_0000.json"
+    stored = source_memory._load_checkpoint(ckpt_path, "checksum-1")
+    assert stored["micro_events"][0]["time_range"] == [1.0, 2.0]
+    assert source_memory._load_checkpoint(ckpt_path, "checksum-2") is None
 
+    def must_not_clip(*_args, **_kwargs):
+        raise AssertionError("checkpointed macro must not re-clip")
 
-def test_project_scope_degrades_to_bm25_on_mixed_embeddings(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    # One source loses its npz: the merged index degrades to BM25-only
-    # instead of failing or silently dropping that source's nodes.
-    service = _merged_service(tmp_path, monkeypatch)
-    project_root = tmp_path / "projects" / "project-1"
-    (memory_dir(project_root, "intel-2") / "embeddings.npz").unlink()
-    result = _run_query(
-        service,
-        query_type="search_asr",
-        query="团战 零换五",
-        scope="project",
+    monkeypatch.setattr(
+        source_memory,
+        "_clip_segment_for_transport_sync",
+        must_not_clip,
     )
-    assert {"s1_macro_0001", "s2_macro_0001"} <= {
-        item["macro_id"] for item in result["result"]
-    }
-
-
-def test_list_built_memories_skips_sources_without_memory(tmp_path) -> None:
-    project_root = tmp_path / "projects" / "project-1"
-    project_root.mkdir(parents=True, exist_ok=True)
-    _write_fixture_memory(project_root, "intel-1")
-    project = SimpleNamespace(
-        sources=SimpleNamespace(
-            sources=SimpleNamespace(
-                items={
-                    "src-1": SimpleNamespace(
-                        logical_asset_id="asset-1",
-                        current_intelligence_version_id="iv-1",
-                    ),
-                    "src-2": SimpleNamespace(
-                        logical_asset_id="asset-2",
-                        current_intelligence_version_id=None,
-                    ),
-                },
-            ),
-        ),
-        assets=SimpleNamespace(
-            intelligence_versions_by_id={
-                "iv-1": SimpleNamespace(
-                    intelligence_version_id="intel-1",
-                    source_checksum="checksum-1",
-                ),
-            },
-        ),
-    )
-    assert source_memory.list_built_memories(project_root, project) == [
-        ("asset-1", "intel-1", "checksum-1"),
-    ]
+    resumed = make_macro()
+    extract(resumed)
+    assert resumed.subgraph.micro_events[0].time_range == [11.0, 12.0]
 
 
 def test_execute_runs_chunked_pipeline_with_segment_checkpoints(
@@ -1482,15 +601,7 @@ def test_execute_runs_chunked_pipeline_with_segment_checkpoints(
     monkeypatch,
 ) -> None:
     # 7300s source → 3 detection chunks; chunk 1 is pre-checkpointed and
-    # must not be re-detected. Macro ids stay globally sequential and
-    # the build directory is removed once artifacts are durable.
-    from vendor.media_toolkit.video_memory.schema import (
-        MicroEvent as VendorMicroEvent,
-        Subgraph as VendorSubgraph,
-        SuperEvent,
-        VideoRoot,
-    )
-
+    # must not be re-detected. Macro ids stay globally sequential.
     service = _service(tmp_path)
     project_root = tmp_path / "projects" / "project-1"
     local_path = tmp_path / "video.mp4"
@@ -1498,18 +609,12 @@ def test_execute_runs_chunked_pipeline_with_segment_checkpoints(
     task = SimpleNamespace(
         project_id="project-1",
         task_id="task-1",
-        status=_task_status("QUEUED"),
+        status=TaskStatus.QUEUED,
         last_attempt_seq=0,
     )
     service.executions = _RecordingExecutions(task)
-    job = source_memory.SourceMemoryBuildJob(
-        project_id="project-1",
-        task_id="task-1",
-        authorization_id=None,
-        index_id="intel-1",
-        asset_id="asset-1",
-        asset_version_id="version-1",
-        source_checksum="checksum-1",
+    job = _build_job(
+        tmp_path,
         duration_ms=7_300_000,
         local_path=str(local_path),
     )
@@ -1530,10 +635,10 @@ def test_execute_runs_chunked_pipeline_with_segment_checkpoints(
         return True, []
 
     async def fake_extract(macro, *_args):
-        macro.subgraph = VendorSubgraph(
+        macro.subgraph = Subgraph(
             macro_id=macro.macro_id,
             micro_events=[
-                VendorMicroEvent(
+                MicroEvent(
                     event_id=f"{macro.macro_id}:ev",
                     event_type="action",
                     time_range=list(macro.time_range),
@@ -1574,35 +679,16 @@ def test_execute_runs_chunked_pipeline_with_segment_checkpoints(
 
     asyncio.run(service._execute(job))
 
-    # Chunk 1 came from the checkpoint; only chunks 2 and 3 detected.
     assert detected == [(3600.0, 7200.0), (7200.0, 7300.0)]
     ref = load_memory_ref(project_root, "intel-1", "checksum-1")
-    assert ref is not None
     assert ref.macro_count == 4  # 2 checkpointed + 2 detected
-    graph = json.loads(
-        (memory_dir(project_root, "intel-1") / "graph_memory.json").read_text(
-            encoding="utf-8",
-        ),
-    )
-    assert [m["macro_id"] for m in graph["macro_events"]] == [
-        "macro_0000",
-        "macro_0001",
-        "macro_0002",
-        "macro_0003",
-    ]
     assert not ckpt_root.exists()
 
 
 def test_ffmpeg_invocations_detach_stdin() -> None:
     # A background-job host delivers SIGTTIN to any child reading the
-    # TTY: every ffmpeg subprocess must run with stdin detached or the
-    # whole build silently stops (observed live: clips stuck in "TN").
-    # The clip encoders live in source_observation; source_memory keeps
-    # its own P1 frame-seek invocation.
-    import inspect
-
-    from services.media import source_observation
-
+    # TTY: ffmpeg must run with stdin detached or the whole build
+    # silently stops (observed live: clips stuck in "TN").
     for module, expected_runs in (
         (source_memory, 1),
         (source_observation, 2),

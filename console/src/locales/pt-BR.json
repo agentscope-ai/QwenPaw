@@ -1785,6 +1785,11 @@
     "description": "View LLM token consumption over time, by date and model.",
     "totalTokens": "Total Tokens",
     "totalCalls": "Chamadas LLM",
+    "toolCalls": "Tool Calls",
+    "llmAndToolTrend": "Tendência de LLM & Tool Calls",
+    "llmAndToolTrendTooltip": "Turnos do assistente com metadados de uso mais intents de ferramenta em todos os agentes. Não é Total Calls (contagem bruta de API); sessões antigas podem ter 0 turnos registrados.",
+    "llmAndToolTrendLoadFailed": "Falha ao carregar tendência de LLM e ferramentas",
+    "recordedTurnsAllAgents": "Chamadas LLM",
     "byAgent": "Por agente",
     "agent": "Agente",
     "unattributed": "Não atribuído",
@@ -2830,11 +2835,6 @@
       "theme": "Tema",
       "mode": "Modo",
       "desktopMode": "Modo Desktop"
-    },
-    "desktopModeHint": {
-      "title": "Experimente o Modo Desktop",
-      "description": "Abra as configurações rápidas aqui e escolha o Modo Desktop para usar um espaço de trabalho com janelas.",
-      "gotIt": "Entendi"
     },
     "simpleMode": "Modo simples",
     "fullMode": "Modo completo",

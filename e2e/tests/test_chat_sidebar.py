@@ -47,6 +47,17 @@ class TestSidebarDateGroups:
         page,
         request: pytest.FixtureRequest,
     ) -> None:
+        """Upstream re-architected the sidebar into user groups that each
+        contain date buckets (pinned / today / week / month / older).
+        Date headers are non-collapsible; the user-group header toggles
+        the whole bucket. This case verifies:
+
+        1. The default group header renders
+        2. Date headers for the crafted sessions render (pinned/today/week)
+        3. Expanded group shows its sessions
+        4. Collapsing the group hides its sessions
+        5. Expanding again restores them
+        """
         test_name = request.node.name
 
         log_test_step("1. Mock the sidebar list with 5 crafted-timestamp sessions")
@@ -61,13 +72,13 @@ class TestSidebarDateGroups:
         chat = ChatPage(page)
         chat.open()
 
-        log_test_step("2. All five group headers render")
-        for group in ("pinned", "today", "week", "month", "older"):
+        log_test_step("2. Date headers render for the crafted buckets")
+        for group in ("pinned", "today", "week"):
             expect(chat.get_sidebar_group_header(group)).to_be_visible(
                 timeout=chat.timeout
             )
 
-        log_test_step("3. Expanded groups show their sessions")
+        log_test_step("3. Expanded group shows its sessions")
         expect(
             chat.get_sidebar_session_by_name(sidebar_sessions.PINNED_NAME)
         ).to_be_visible(timeout=chat.timeout)
@@ -78,25 +89,17 @@ class TestSidebarDateGroups:
             chat.get_sidebar_session_by_name(sidebar_sessions.WEEK_NAME)
         ).to_be_visible(timeout=chat.timeout)
 
-        log_test_step("4. 'Within 30 days' and 'Earlier' start collapsed")
+        log_test_step("4. Collapsing the user group hides its sessions")
+        chat.toggle_sidebar_user_group()
         expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.MONTH_NAME)
-        ).not_to_be_visible(timeout=5000)
-        expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.OLDER_NAME)
+            chat.get_sidebar_session_by_name(sidebar_sessions.TODAY_NAME)
         ).not_to_be_visible(timeout=5000)
 
-        log_test_step("5. Clicking 'Earlier' header expands its sessions")
-        chat.toggle_sidebar_group("older")
+        log_test_step("5. Expanding again restores them")
+        chat.toggle_sidebar_user_group()
         expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.OLDER_NAME)
+            chat.get_sidebar_session_by_name(sidebar_sessions.TODAY_NAME)
         ).to_be_visible(timeout=chat.timeout)
-
-        log_test_step("6. Clicking again collapses it back")
-        chat.toggle_sidebar_group("older")
-        expect(
-            chat.get_sidebar_session_by_name(sidebar_sessions.OLDER_NAME)
-        ).not_to_be_visible(timeout=5000)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

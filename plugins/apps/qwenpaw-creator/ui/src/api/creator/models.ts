@@ -8,6 +8,7 @@ import { creatorRequest, hostToken, jsonBody, newClientId } from "./client";
 export interface HostModelInfo {
   id: string;
   name: string;
+  is_free?: boolean;
 }
 
 export interface HostProviderInfo {
@@ -17,6 +18,9 @@ export interface HostProviderInfo {
   freeze_url: boolean;
   models: HostModelInfo[];
   extra_models: HostModelInfo[];
+  api_key?: string;
+  require_api_key?: boolean;
+  is_free_tier?: boolean;
   meta?: {
     base_url_options?: { label: string; value: string }[];
   };
@@ -50,6 +54,8 @@ export interface ResolvedModels {
   video: {
     provider: string;
     model: string;
+    known?: boolean;
+    supportedModes?: string[];
     /** Per-mode derived names — what a t2v/i2v element actually bills. */
     byMode?: Record<string, string>;
   };
@@ -63,6 +69,25 @@ export interface ResolvedModels {
  */
 export function getResolvedModels(): Promise<ResolvedModels> {
   return creatorRequest("/models/resolved");
+}
+
+export interface VideoModelCapabilities {
+  provider: string;
+  model: string;
+  known: boolean;
+  supportedModes: string[];
+  effectiveModels: Record<string, string>;
+  derivesModeModel: boolean;
+  documentationUrl: string;
+}
+
+/** Backend-owned exact capability lookup; performs no provider request. */
+export function getVideoCapabilities(
+  modelName: string,
+  protocol: string,
+): Promise<VideoModelCapabilities> {
+  const query = new URLSearchParams({ modelName, protocol });
+  return creatorRequest(`/models/video-capabilities?${query.toString()}`);
 }
 
 export interface TtsModelCapability {
@@ -176,6 +201,9 @@ export function patchSelfReview(
     sync_enabled: boolean;
     media_enabled: boolean;
     render_enabled: boolean;
+    // Explicit boolean persists a user choice; null restores auto
+    // (能开尽开) for that operator.
+    operators: Record<string, boolean | null>;
   }>,
 ): Promise<{ ok: boolean }> {
   const id = newClientId("self-review");

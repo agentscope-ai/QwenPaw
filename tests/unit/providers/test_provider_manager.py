@@ -2945,13 +2945,15 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
     monkeypatch.setattr(
         provider_manager_module.EnvVarLoader,
         "get_str",
-        lambda name: "https://example.invalid/catalog.json"
-        if name
-        in {
-            provider_manager_module.model_catalog.CATALOG_URL_ENV,
-            capability_baseline_module.CAPABILITY_URL_ENV,
-        }
-        else "",
+        lambda name: (
+            "https://example.invalid/catalog.json"
+            if name
+            in {
+                provider_manager_module.model_catalog.CATALOG_URL_ENV,
+                capability_baseline_module.CAPABILITY_URL_ENV,
+            }
+            else ""
+        ),
     )
 
     def update_model() -> None:
@@ -3132,9 +3134,11 @@ async def test_remote_capability_sync_updates_documentation_annotations(
     monkeypatch.setattr(
         provider_manager_module.EnvVarLoader,
         "get_str",
-        lambda name: "https://example.invalid/capabilities.json"
-        if name == capability_baseline_module.CAPABILITY_URL_ENV
-        else "",
+        lambda name: (
+            "https://example.invalid/capabilities.json"
+            if name == capability_baseline_module.CAPABILITY_URL_ENV
+            else ""
+        ),
     )
 
     def update_capability() -> None:
@@ -3480,18 +3484,20 @@ async def test_kimi_discovery_merges_api_and_catalog(
     async def fetch_models(_self, timeout=5):
         _ = timeout
         return [
-            ModelInfo(id="kimi-k2.6", name="Kimi K2.6"),
+            ModelInfo(id="kimi-k3", name="Kimi K3"),
             ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
+            ModelInfo(id="kimi-api-only", name="Kimi API Only"),
         ]
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     result = await manager.discover_provider_models("kimi-cn", save=False)
 
     by_id = {model.id: model for model in result.models}
-    assert by_id["kimi-k2.6"].discovery_origin == "api"
+    assert by_id["kimi-k3"].discovery_origin == "both"
     assert by_id["kimi-k2.5"].discovery_origin == "both"
-    assert by_id["kimi-k2-thinking"].discovery_origin == "catalog"
-    assert result.discovered_count == 2
+    assert by_id["kimi-api-only"].discovery_origin == "api"
+    assert by_id["kimi-k2.6"].discovery_origin == "catalog"
+    assert result.discovered_count == 3
 
 
 async def test_rejects_unavailable_discovered_model(
@@ -3675,11 +3681,21 @@ def test_provider_group_metadata(isolated_secret_dir) -> None:
         assert p is not None, f"{pid} not found"
         assert p.provider_group == "kimi"
 
-    volcengine_ids = ["volcengine-cn", "volcengine-cn-codingplan"]
+    volcengine_ids = [
+        "volcengine-cn",
+        "volcengine-cn-codingplan",
+        "volcengine-cn-agentplan",
+    ]
     for pid in volcengine_ids:
         p = manager.get_provider(pid)
         assert p is not None, f"{pid} not found"
         assert p.provider_group == "volcengine"
+
+    mimo_ids = ["mimo-tokenplan", "mimo"]
+    for pid in mimo_ids:
+        p = manager.get_provider(pid)
+        assert p is not None, f"{pid} not found"
+        assert p.provider_group == "mimo"
 
 
 async def test_provider_group_in_get_info(isolated_secret_dir) -> None:

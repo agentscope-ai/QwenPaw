@@ -5,7 +5,7 @@ description = "QwenPaw is a **personal assistant** that runs in your own environ
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "agentscope[model-ollama]==2.0.6",
+    "agentscope[model-ollama]==2.0.7",
     "httpx>=0.27.0",
     "websockets>=15.0.1,<16",
     "packaging>=24.0",
@@ -153,8 +153,14 @@ codex = [
 qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
+qwenpaw-data = [
+    "qwenpaw-data-context>=0.1,<0.2",
+    "qwenpaw-data-host-core>=0.1,<0.2",
+    "qwenpaw-data-cli>=0.1,<0.2",
+    "qwenpaw-data-skills>=0.1,<0.2",
+]
 full = [
-    "qwenpaw[hub,local,whisper,codex,qoder]",
+    "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

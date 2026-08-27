@@ -4,9 +4,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from domain.errors import ValidationError
-from services.project_files.models import Project, R2VCreation, VisualEntity
+from services.project_files.models import (
+    Project,
+    R2VCreation,
+    VisualEntity,
+)
 
 
 def _owner_entity_id(owner_ref: str | None) -> str | None:
@@ -124,7 +129,12 @@ def resolve_r2v_visual_reference_version_ids(
 ) -> tuple[str, ...]:
     """Return exact references with bound Variant selections first.
 
-    Cast-lineup group anchors lead the chain, then per-entity identity
+    Agent-specified references are authoritative: a non-empty explicit
+    list is used exactly as written (deduplicated, order preserved) so
+    the planning agent — not a default chain — decides which images
+    constrain generation and owns the provider's reference budget. Only
+    an element with no explicit references falls back to the automatic
+    chain: cast-lineup group anchors lead, then per-entity identity
     anchors. A bound entity never consumes an ArtifactVersion owned by
     another Variant. Ambiguous legacy Elements are left unchanged rather
     than guessed; the Plan coverage checkpoint exposes those missing
@@ -132,7 +142,30 @@ def resolve_r2v_visual_reference_version_ids(
     """
 
     explicit = list(dict.fromkeys(explicit_version_ids))
-    entities: list[tuple[VisualEntity, str | None]] = []
+    if explicit:
+        for version_id in explicit:
+            for entity_id in _entity_ids(creation):
+                entity = project.visual.entities.items.get(entity_id)
+                if entity is None:
+                    raise ValidationError(
+                        f"R2V 视觉引用实体不存在: {entity_id}",
+                    )
+                bound = creation.visual_variant_refs.get(entity_id)
+                if bound is None:
+                    continue
+                owned_variant = _artifact_variant_id(
+                    project,
+                    entity,
+                    version_id,
+                )
+                if owned_variant is not None and owned_variant != bound:
+                    raise ValidationError(
+                        f"显式参考 {version_id} 属于实体 {entity_id} 的 "
+                        f"Variant {owned_variant}，与该 Element 绑定的 "
+                        f"Variant {bound} 冲突；请改用绑定 Variant 的版本"
+                        "或调整 visual_variant_refs",
+                    )
+        return tuple(explicit)
     selected: list[str] = []
     for entity_id in _entity_ids(creation):
         entity = project.visual.entities.items.get(entity_id)
@@ -147,9 +180,8 @@ def resolve_r2v_visual_reference_version_ids(
             project,
             creation,
             entity,
-            explicit,
+            (),
         )
-        entities.append((entity, variant_id))
         if variant_id is not None:
             version_id = entity.variants.items[
                 variant_id
@@ -163,26 +195,85 @@ def resolve_r2v_visual_reference_version_ids(
         if version_id is not None:
             selected.append(version_id)
 
-    compatible_explicit: list[str] = []
-    for version_id in explicit:
-        keep = True
-        for entity, variant_id in entities:
-            if variant_id is None:
-                continue
-            owned_variant = _artifact_variant_id(
-                project,
-                entity,
-                version_id,
-            )
-            if owned_variant is not None and owned_variant != variant_id:
-                keep = False
-                break
-        if keep:
-            compatible_explicit.append(version_id)
     lineup_anchors = _lineup_anchor_version_ids(project, creation)
-    return tuple(
-        dict.fromkeys([*lineup_anchors, *selected, *compatible_explicit]),
+    return tuple(dict.fromkeys([*lineup_anchors, *selected]))
+
+
+def preview_r2v_reference_order(
+    project: Project,
+    element_id: str,
+) -> dict[str, Any]:
+    """Authoritative ``[Image N]`` order preview for one r2v Element.
+
+    Mirrors the submit path exactly (storyboard first, then the resolved
+    visual reference chain, deduplicated in order) so the frontend can label
+    each reference with the index the video prompt will cite.  Entity
+    binding and deduplication reorder references, which makes the order
+    impossible to reconstruct client-side from the raw creation fields.
+    """
+
+    from services.media_files.element_adapter import (
+        find_timeline_element,
+        selected_element_output,
     )
 
+    _, element = find_timeline_element(project, element_id)
+    creation = element.creation
+    if not isinstance(creation, R2VCreation):
+        raise ValidationError(
+            f"Element creation.type={creation.type} 不使用 [Image N] 参考序列",
+        )
+    selected_storyboard = selected_element_output(
+        project,
+        element,
+        "storyboard",
+    )
+    storyboard_id = (
+        selected_storyboard[1] if selected_storyboard is not None else None
+    )
+    version_ids = list(
+        dict.fromkeys(
+            [
+                *([storyboard_id] if storyboard_id else []),
+                *resolve_r2v_visual_reference_version_ids(
+                    project,
+                    creation,
+                    creation.video_reference_version_ids,
+                ),
+            ],
+        ),
+    )
+    references: list[dict[str, Any]] = []
+    for index, version_id in enumerate(version_ids, start=1):
+        source = project.assets.source_versions_by_id.get(version_id)
+        artifact = project.assets.artifact_versions_by_id.get(version_id)
+        version = source if source is not None else artifact
+        if version_id == storyboard_id:
+            kind = "storyboard"
+        elif source is not None:
+            kind = "source"
+        else:
+            kind = "artifact"
+        references.append(
+            {
+                "index": index,
+                "versionId": version_id,
+                "kind": kind,
+                "name": (
+                    version.name
+                    if version is not None and version.name
+                    else version_id
+                ),
+            },
+        )
+    return {
+        "elementId": element_id,
+        "storyboardSelected": storyboard_id is not None,
+        "references": references,
+    }
 
-__all__ = ["resolve_r2v_visual_reference_version_ids"]
+
+__all__ = [
+    "preview_r2v_reference_order",
+    "resolve_r2v_visual_reference_version_ids",
+]

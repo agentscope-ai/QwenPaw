@@ -59,13 +59,37 @@ class CorruptRecordError(RuntimeFileError):
 
 
 class LockTimeoutError(RuntimeFileError, TimeoutError):
-    def __init__(self, path: Path, timeout_seconds: float | None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        timeout_seconds: float | None,
+        *,
+        phase: str = "lock",
+        waiter: dict[str, Any] | None = None,
+        holder: dict[str, Any] | None = None,
+    ) -> None:
         self.path = Path(path)
         self.timeout_seconds = timeout_seconds
+        self.phase = phase
+        self.waiter = dict(waiter or {})
+        self.holder = dict(holder or {})
         super().__init__(
             f"Timed out acquiring Runtime file lock {self.path} "
-            f"after {timeout_seconds!r} seconds",
+            f"during {phase} after {timeout_seconds!r} seconds; "
+            f"waiter={self.waiter!r} holder={self.holder!r}",
         )
+
+    @property
+    def details(self) -> dict[str, Any]:
+        """Machine-readable diagnostics safe for API/trace correlation."""
+
+        return {
+            "lockPath": str(self.path),
+            "timeoutSeconds": self.timeout_seconds,
+            "phase": self.phase,
+            "waiter": self.waiter,
+            "holder": self.holder,
+        }
 
 
 class JsonlCorruptionError(CorruptRecordError):

@@ -261,11 +261,6 @@
       "mode": "模式",
       "desktopMode": "桌面模式"
     },
-    "desktopModeHint": {
-      "title": "试试桌面模式",
-      "description": "点击这里打开快捷设置，然后选择“进入桌面模式”，体验多窗口工作区。",
-      "gotIt": "我知道了"
-    },
     "simpleMode": "精简模式",
     "fullMode": "完整模式",
     "toggleAgentNavigation": "展开或收起智能体导航"
@@ -302,6 +297,10 @@
     "summaryPushUnread": "未读推送",
     "summaryHarvests": "收获任务",
     "from": "来自：",
+    "heartbeatSuccess": "Heartbeat 执行成功",
+    "heartbeatTimeout": "Heartbeat 执行超时",
+    "heartbeatCancelled": "Heartbeat 已取消",
+    "heartbeatFailed": "Heartbeat 执行失败",
     "skillAutoSyncTitle": "技能自动同步",
     "skillBuiltinAutoUpdateTitle": "内置技能自动更新",
     "skillPoolSender": "技能池",
@@ -1793,6 +1792,11 @@
     "title": "Token 消耗",
     "totalTokens": "总 Token",
     "totalCalls": "LLM 调用",
+    "toolCalls": "工具调用",
+    "llmAndToolTrend": "LLM 与工具调用趋势",
+    "llmAndToolTrendTooltip": "所有智能体：已记录用量元数据的助手轮次，以及工具调用意图次数（不依赖用量元数据）。不是上方 Total Calls（原始 API 次数）；升级前会话的轮次可能为 0。",
+    "llmAndToolTrendLoadFailed": "LLM 与工具调用趋势加载失败",
+    "recordedTurnsAllAgents": "LLM 调用",
     "byAgent": "按智能体",
     "agent": "智能体",
     "unattributed": "未归属",
@@ -3055,6 +3059,7 @@
     "unpinDrawer": "取消固定",
     "statusIdle": "空闲",
     "statusInProgress": "进行中",
+    "statusUnseenResult": "有新结果",
     "disclaimer": "懂你所需，伴你左右",
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",

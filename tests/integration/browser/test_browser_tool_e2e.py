@@ -3,6 +3,7 @@
 
 from collections.abc import AsyncGenerator
 
+import pytest
 import pytest_asyncio
 from agentscope.message import ToolResultState
 
@@ -26,6 +27,7 @@ async def reset_kernel() -> AsyncGenerator[None, None]:
     kernel._MANAGER = None  # pylint: disable=protected-access
 
 
+@pytest.mark.p1
 async def test_browser_tool_drives_a_real_page(fixture_url: str) -> None:
     code = (
         "browser = await Browser.connect(identity='guest')\n"
