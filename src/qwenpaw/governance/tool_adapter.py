@@ -204,7 +204,8 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
 def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
 
-    ``approval_level=OFF`` skips deep scanning and ordinary approval thresholds,
+    ``approval_level=OFF`` skips deep scanning and ordinary approval
+    thresholds,
     but builtin sensitive-resource rules are still evaluated and may return
     ASK. Sandbox provisioning and user approval are independent concerns: an
     approved fail-closed tool must retain the same isolation guarantees.
