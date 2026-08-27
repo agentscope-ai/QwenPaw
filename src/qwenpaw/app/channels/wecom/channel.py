@@ -87,9 +87,7 @@ _UPLOAD_CMD_FINISH = "aibot_upload_media_finish"
 _UPLOAD_CMDS = (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH)
 _UPLOAD_ACK_TIMEOUT = 30.0  # seconds to wait for each upload ack
 
-# Keepalive for "🤔 Thinking..." stream: refresh to avoid WeCom
-# server-side timeout; force-finish before the limit so later replies
-# can start a fresh stream_id (issue #3947).
+# Keepalive for "🤔 Thinking..." stream.
 _PROCESSING_REFRESH_INTERVAL = 20.0
 _PROCESSING_MAX_DURATION = 180.0
 _PROCESSING_TEXT = "🤔 Thinking..."
@@ -924,13 +922,11 @@ class WecomChannel(BaseChannel):
                     media_type,
                 )
                 return media_id
-            except Exception as e:
+            except Exception:
                 logger.exception(
-                    "wecom _upload_media failed path=%s error=%s",
+                    "wecom _upload_media failed path=%s",
                     local[:60],
-                    str(e)[:100],
                 )
-
                 return None
 
     async def _send_media_part(
@@ -1661,27 +1657,88 @@ class WecomChannel(BaseChannel):
             (self.bot_id or "")[:12],
         )
 
+    async def _graceful_shutdown(self) -> None:
+        """Close the WebSocket connection and release all resources safely.
+
+        This coroutine **must** run in the WS thread's event loop.
+        """
+        # 1. Cancel keepalive tasks to stop background refreshes.
+        for task in list(self._keepalive_tasks.values()):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        self._keepalive_tasks.clear()
+
+        # 2. Fail all pending upload futures so no sender hangs forever.
+        for future in list(self._upload_ack_futures.values()):
+            if not future.done():
+                future.set_exception(
+                    RuntimeError("WeCom adapter shutting down"),
+                )
+        self._upload_ack_futures.clear()
+
+        # 3. Disconnect via the SDK public API.  disconnect() is
+        #    synchronous but schedules _async_disconnect() on the
+        #    current loop (which is the WS loop here).  We then
+        #    await _cleanup_ws() to ensure the socket and receive
+        #    task are fully torn down before returning.
+        if self._client:
+            self._client.disconnect()
+            ws_manager = getattr(self._client, "_ws_manager", None)
+            if ws_manager and hasattr(ws_manager, "_cleanup_ws"):
+                await ws_manager._cleanup_ws()
+
     async def stop(self) -> None:
+        """Stop the WeCom channel gracefully."""
         if not self.enabled:
             return
-        # disconnect() uses asyncio.ensure_future() internally which
-        # binds to the current loop; schedule it on _ws_loop so the
-        # ws is operated on its own loop (issue #2757).
-        if (
-            self._client
-            and self._ws_loop is not None
-            and self._ws_loop.is_running()
-        ):
+
+        # Schedule the shutdown coroutine in the WS event loop and wait
+        # for it to complete without blocking the caller's event loop.
+        if self._ws_loop is not None and self._ws_loop.is_running():
             try:
-                self._ws_loop.call_soon_threadsafe(self._client.disconnect)
-            except Exception:
-                pass
-        if self._ws_loop is not None:
+                shutdown_future = asyncio.run_coroutine_threadsafe(
+                    self._graceful_shutdown(),
+                    self._ws_loop,
+                )
+                await asyncio.wait_for(
+                    asyncio.wrap_future(shutdown_future),
+                    timeout=15,
+                )
+            except Exception as exc:
+                logger.warning("wecom shutdown error: %s", exc)
+        else:
+            # Fallback: the WS loop already stopped so
+            # asyncio.ensure_future inside disconnect() would not
+            # work.  Clean up synchronous state only.
+            try:
+                if self._client:
+                    ws_manager = getattr(
+                        self._client,
+                        "_ws_manager",
+                        None,
+                    )
+                    if ws_manager:
+                        ws_manager._is_manual_close = True
+                        ws_manager._stop_heartbeat()
+                        ws_manager._clear_pending_messages(
+                            "WeCom adapter shutting down",
+                        )
+            except Exception as exc:
+                logger.warning("wecom shutdown error (fallback): %s", exc)
+
+        # Stop the WS event loop if it is still running.
+        if self._ws_loop is not None and self._ws_loop.is_running():
             try:
                 self._ws_loop.call_soon_threadsafe(self._ws_loop.stop)
             except Exception:
                 pass
+
+        # Wait for the background thread to finish.
         if self._ws_thread:
-            self._ws_thread.join(timeout=5)
+            self._ws_thread.join(timeout=10)
         self._client = None
         logger.info("wecom channel stopped")
