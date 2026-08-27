@@ -42,10 +42,12 @@ class ToolExecutionLevel(str, Enum):
     """
 
     OFF = "off"
-    """Tool guard completely disabled (no protection).
+    """Disable ordinary tool-guard checks (development mode).
 
     Use case: Development/testing, fully trusted environments.
-    Behavior: All tools execute immediately without any checks.
+    Behavior: Legacy tool-guard checks are bypassed. The governance adapter
+    still evaluates builtin sensitive-resource rules (for example ``.ssh``)
+    so those protections cannot be disabled by a project/session override.
     """
 
     @classmethod

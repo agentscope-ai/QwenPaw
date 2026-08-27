@@ -725,7 +725,9 @@ class GovernancePolicy:
                 reason="internal",
             )
 
-        # execution_level == OFF → skip Phase 1, go to Phase 2
+        # OFF only skips Phase 1 deep scanning. All four execution levels,
+        # including OFF, continue to Phase 2 so builtin protections remain
+        # authoritative and are evaluated before user rules.
         skip_deep_scan = self.execution_level.lower() == "off"
 
         # ── Phase 1: Deep security scan ──

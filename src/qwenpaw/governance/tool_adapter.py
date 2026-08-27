@@ -204,17 +204,15 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
 def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
 
-    ``approval_level=OFF`` short-circuits the policy pipeline to ALLOW-all,
-    which normally also skips the ``SANDBOX_FALLBACK`` branch that compiles a
-    ``sandbox_config`` (see :func:`_policy_tool_check_permissions`). Sandbox
-    provisioning and user approval are independent concerns: skipping "ask the
-    user" must not skip "run it in a sandbox".
+    ``approval_level=OFF`` skips deep scanning and ordinary approval thresholds,
+    but builtin sensitive-resource rules are still evaluated and may return
+    ASK. Sandbox provisioning and user approval are independent concerns: an
+    approved fail-closed tool must retain the same isolation guarantees.
 
     Only tools flagged ``requires_sandbox`` in the registry are handled — i.e.
     the REPL, which returns ``DENIED`` without a config. Fail-open shell tools
-    like ``Bash`` are deliberately left untouched: in OFF mode they run
-    unsandboxed by design, and forcing a sandbox on them would silently narrow
-    their filesystem access.
+    like ``Bash`` are deliberately left untouched: forcing a sandbox on them
+    here would silently narrow their filesystem access.
 
     A no-op (leaving ``sandbox_config=None``) when the sandbox is not usable
     -- either the platform has no sandbox, or the operator turned the global
@@ -302,20 +300,6 @@ async def _policy_tool_check_permissions(
     if f1_active:
         effective_level = ToolExecutionLevel.STRICT
 
-    if effective_level is not None and effective_level.is_disabled():
-        # OFF means "never ask the user" — it does NOT mean "skip the
-        # sandbox". Sandbox isolation is an execution mechanism, not an
-        # approval gate. Fail-closed tools (the REPL) return DENIED without
-        # a sandbox_config, which the guard layer then misreads as a sandbox
-        # violation and escalates to a recurring approval prompt OFF can
-        # never resolve. So we still compile+attach the sandbox here; only
-        # the "ask the user" step is skipped.
-        _prepare_off_mode_sandbox(self, governor)
-        return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="governance: approval_level=off, all tools allowed.",
-        )
-
     # Sync effective approval_level to the governor's policy
     # so the three-phase evaluation uses the correct threshold.
     # Skipped while F1 is active: F1's STRICT is applied per-evaluation
@@ -347,6 +331,9 @@ async def _policy_tool_check_permissions(
             ),
         )
 
+    # Keep OFF inside the governance pipeline. GovernancePolicy intentionally
+    # skips only deep scanning in OFF; builtin sensitive-resource rules are
+    # still authoritative and must be able to return ASK or DENY.
     tc_spec = self._build_tc_spec()
 
     if f1_active:
@@ -389,6 +376,14 @@ async def _policy_tool_check_permissions(
     elif decision.action is GovernanceAction.ASK:
         # Requires user confirmation
         self._qp_policy_decision = decision
+
+        # OFF suppresses approval for ordinary calls, but it must not bypass
+        # builtin sensitive-resource rules. If an OFF call reaches ASK (for
+        # example, a read under .ssh), provision the sandbox for fail-closed
+        # tools before handing the decision to the approval service. This
+        # keeps an approved REPL call isolated just like the old OFF path.
+        if effective_level is not None and effective_level.is_disabled():
+            _prepare_off_mode_sandbox(self, governor)
 
         return await _ask_user_approval(
             governor=governor,
