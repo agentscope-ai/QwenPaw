@@ -14,7 +14,9 @@
  */
 
 import React from "react";
+import { useTranslation } from "react-i18next";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
+import { useToolCallTurnEnded } from "../shared/ToolCallTurnContext";
 import type { BuiltinCardComponent } from "../cards";
 import GenericToolCard from "../cards/GenericToolCard";
 
@@ -32,12 +34,20 @@ const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
  * Checks the tool-execution-layer `state` (nested inside resultItem.data)
  * first — it reflects the real outcome of the tool call. Falls back to
  * message-level `status` for delivery state.
+ *
+ * *turnEnded* closes dangling calls: a call with no terminal marker (no
+ * result block, or output that stopped mid-stream) is only running while its
+ * turn streams. Once the turn reaches a terminal status (stop / error /
+ * restored history) nothing more can arrive, so the call is reported as
+ * interrupted instead of spinning forever.
  */
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
+  turnEnded: boolean,
 ): ToolCallStatus {
-  if (!resultItem) return "calling";
+  const unfinished: ToolCallStatus = turnEnded ? "error" : "calling";
+  if (!resultItem) return unfinished;
 
   const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
   const toolState = resultData.state as string;
@@ -49,7 +59,7 @@ function deriveToolStatus(
     (data.status as string) || (resultItem.status as string) || "";
   if (rawStatus === "completed") return "done";
   if (ERROR_STATUSES.has(rawStatus)) return "error";
-  return "calling";
+  return unfinished;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +83,10 @@ function deriveToolStatus(
  *     status: "in_progress" | "completed" | "failed" | ...
  *   }
  */
-function parseV1Props(v1Props: Record<string, unknown>): {
+function parseV1Props(
+  v1Props: Record<string, unknown>,
+  opts: { turnEnded: boolean; interruptedText: string },
+): {
   content: ToolCallContent;
   isStreaming: boolean;
 } {
@@ -118,9 +131,14 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   // Extract result from content[1].data.output
   const result = resultData.output;
 
-  // No output content → tool hasn't executed yet → always "calling".
-  // Message-level status on *_call messages reflects delivery, not execution.
-  const status = deriveToolStatus(resultItem, data);
+  // Message-level status on *_call messages reflects delivery, not execution,
+  // so the presence of an output block decides between running and finished.
+  const status = deriveToolStatus(resultItem, data, opts.turnEnded);
+  // An interrupted call carries no output at all; surface the reason instead
+  // of an empty error block.
+  const displayResult =
+    result ??
+    (!resultItem && status === "error" ? opts.interruptedText : undefined);
 
   // Extract id — prefer call_id which carries the ToolCallBlock.id
   // (e.g. "toolu_…" / "call_…") from the AgentScope SSE stream.
@@ -139,7 +157,7 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     serverLabel: (callData.server_label as string) || undefined,
     params,
     inputProgress,
-    result: result ?? undefined,
+    result: displayResult,
     status,
   };
 
@@ -164,7 +182,12 @@ export function adaptCardForV1(
   CardComponent: BuiltinCardComponent,
 ): React.FC<any> {
   const V1WrappedCard: React.FC<any> = (v1Props) => {
-    const { content, isStreaming } = parseV1Props(v1Props);
+    const { t } = useTranslation();
+    const turnEnded = useToolCallTurnEnded();
+    const { content, isStreaming } = parseV1Props(v1Props, {
+      turnEnded,
+      interruptedText: t("tool.interrupted"),
+    });
     return <CardComponent content={content} isStreaming={isStreaming} />;
   };
 

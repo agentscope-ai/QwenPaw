@@ -49,6 +49,7 @@ import type {
   ChatResponseData,
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
+import { ToolCallTurnEndedContext } from "../../components/Chat/ToolCards/shared/ToolCallTurnContext";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
@@ -351,22 +352,34 @@ function HostResponseCardContent(props: {
     />
   );
 
-  if (renderFn) {
-    return (
-      <PluginSlotBoundary
-        slot={ChatScalar.responseRender}
-        pluginId={renderEntry!.pluginId}
-        fallback={fallback()}
-      >
-        {renderFn({
-          data: props.data,
-          isLast: props.isLast,
-          fallback,
-        })}
-      </PluginSlotBoundary>
-    );
-  }
-  return fallback();
+  // Tool cards cannot tell a running call from one the turn never finished
+  // (stop / error) because both lack a result message. Publish the turn's
+  // terminal state so they can close those dangling calls.
+  const turnEnded = AgentScopeRuntimeResponseBuilder.maybeDone(
+    props.data as unknown as IAgentScopeRuntimeResponse,
+  );
+
+  const body = renderFn ? (
+    <PluginSlotBoundary
+      slot={ChatScalar.responseRender}
+      pluginId={renderEntry!.pluginId}
+      fallback={fallback()}
+    >
+      {renderFn({
+        data: props.data,
+        isLast: props.isLast,
+        fallback,
+      })}
+    </PluginSlotBoundary>
+  ) : (
+    fallback()
+  );
+
+  return (
+    <ToolCallTurnEndedContext.Provider value={turnEnded}>
+      {body}
+    </ToolCallTurnEndedContext.Provider>
+  );
 }
 
 const MemoizedHostResponseCard = React.memo(HostResponseCardContent);
