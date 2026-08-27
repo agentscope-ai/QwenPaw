@@ -94,6 +94,7 @@ class ToolCoordinator:
     # ================================================================
     # PRIMARY ENTRY
     # ================================================================
+    # pylint: disable-next=too-many-statements
     async def execute(  # pylint: disable=too-many-locals,too-many-branches
         self,
         tool_call: Any,
@@ -113,10 +114,16 @@ class ToolCoordinator:
             deadline_override,
         )
         ctx = entry.ctx
-        chunk_queue = await self._start_entry(
-            entry,
-            next_handler,
-            tool_call,
+
+        async with self._entries_lock:
+            self._entries[ctx.tool_call_id] = entry
+
+        chunk_queue: asyncio.Queue[Any] = asyncio.Queue()
+        entry.stream.add_subscriber(chunk_queue)
+
+        entry.background_task = asyncio.create_task(
+            self._run_tool_with_hooks(next_handler, tool_call, entry),
+            name=f"toolcall-{ctx.tool_call_id}",
         )
 
         terminal = "completed"
@@ -198,24 +205,6 @@ class ToolCoordinator:
                 return_exceptions=True,
             )
         await self._finalize_completed(entry)
-
-    async def _start_entry(
-        self,
-        entry: ToolCallEntry,
-        next_handler: Callable[..., AsyncGenerator[Any, None]],
-        tool_call: Any,
-    ) -> asyncio.Queue[Any]:
-        """Register an entry, subscribe its caller, and start execution."""
-        async with self._entries_lock:
-            self._entries[entry.ctx.tool_call_id] = entry
-
-        chunk_queue: asyncio.Queue[Any] = asyncio.Queue()
-        entry.stream.add_subscriber(chunk_queue)
-        entry.background_task = asyncio.create_task(
-            self._run_tool_with_hooks(next_handler, tool_call, entry),
-            name=f"toolcall-{entry.ctx.tool_call_id}",
-        )
-        return chunk_queue
 
     def _create_entry(
         self,
