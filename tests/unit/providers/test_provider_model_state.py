@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for provider model-state persistence and migrations."""
 
+from typing import Any
+
 from qwenpaw.providers.provider_model_state import (
     PROVIDER_SNAPSHOT_SCHEMA_VERSION,
     migrate_provider_snapshot,
@@ -54,7 +56,7 @@ def test_migration_preserves_user_request_limit_of_8192() -> None:
 
 
 def test_migration_preserves_api_capability_of_8192() -> None:
-    snapshot = {
+    snapshot: dict[str, Any] = {
         "models_last_synced_at": "2026-08-27T00:00:00Z",
         "discovered_models": [
             {

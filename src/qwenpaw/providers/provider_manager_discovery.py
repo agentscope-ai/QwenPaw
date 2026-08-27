@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal
+from typing import Any, Callable, Dict, List, Literal
 
 from ..constant import EnvVarLoader
 from ..exceptions import ProviderError
@@ -556,7 +556,7 @@ class ProviderManagerDiscoveryMixin(
 
     async def sync_remote_catalogs(self) -> None:
         """Update configured OTA catalogs without blocking startup."""
-        updates = []
+        updates: list[tuple[str, Callable[[], Any]]] = []
         if EnvVarLoader.get_str(model_catalog.CATALOG_URL_ENV):
             updates.append(
                 ("model", model_catalog.update_model_catalog),
