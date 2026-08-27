@@ -206,31 +206,74 @@ function AgentStatsPage() {
     [chartData, t, isDarkMode, crossesYear],
   );
 
-  const agentTokenColumnConfig = useMemo(
-    () =>
-      getColumnConfig(
-        chartData,
-        [
-          { key: "agentPromptTokens", label: t("agentStats.promptTokens") },
-          {
-            key: "agentCompletionTokens",
-            label: t("agentStats.completionTokens"),
-          },
-          {
-            key: "agentCacheReadTokens",
-            label: t("tokenUsage.cacheRead"),
-          },
-        ],
-        ["#8b5cf6", "#10b981", "#0ea5a4"],
-        isDarkMode,
-        crossesYear,
+  const agentTokenColumnConfig = useMemo(() => {
+    const inputLabel = t("agentStats.promptTokens");
+    const outputLabel = t("agentStats.completionTokens");
+    const cacheHitLabel = t("tokenUsage.cacheRead");
+    const uncachedLabel = t("agentStats.uncachedInputTokens");
+    const tokenData = chartData.flatMap((day) => {
+      const cacheHit = Math.min(
+        Math.max(day.agentCacheReadTokens, 0),
+        day.agentPromptTokens,
+      );
+      return [
         {
-          yAxisFormatter: formatCompact,
-          tooltipFormatter: formatCompact,
+          date: day.date,
+          value: Math.max(day.agentPromptTokens - cacheHit, 0),
+          barType: inputLabel,
+          segment: uncachedLabel,
         },
-      ),
-    [chartData, t, isDarkMode, crossesYear],
-  );
+        {
+          date: day.date,
+          value: cacheHit,
+          barType: inputLabel,
+          segment: cacheHitLabel,
+        },
+        {
+          date: day.date,
+          value: day.agentCompletionTokens,
+          barType: outputLabel,
+          segment: outputLabel,
+        },
+      ];
+    });
+
+    return {
+      data: tokenData,
+      xField: "date",
+      yField: "value",
+      seriesField: "barType",
+      colorField: "segment",
+      stack: {
+        groupBy: ["x", "series"],
+        series: false,
+      },
+      height: 150,
+      autoFit: true,
+      theme: isDarkMode ? "dark" : "light",
+      legend: { position: "bottom" as const },
+      scale: {
+        color: {
+          range: ["#a59bb5", "#0f9f8f", "#64748b"],
+        },
+      },
+      axis: {
+        x: {
+          labelFormatter: (date: string) => formatDateLabel(date, crossesYear),
+        },
+        y: { labelFormatter: formatCompact },
+      },
+      tooltip: {
+        title: "date",
+        items: [
+          (datum: { value: number; segment: string }) => ({
+            name: datum.segment,
+            value: formatCompact(datum.value),
+          }),
+        ],
+      },
+    };
+  }, [chartData, t, isDarkMode, crossesYear]);
 
   const llmToolColumnConfig = useMemo(
     () =>
