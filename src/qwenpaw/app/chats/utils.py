@@ -175,8 +175,9 @@ def build_env_context(
         Formatted environment context string
     """
     parts = []
+    dynamic_parts = []  # Collected separately to preserve prefix cache
 
-    # Runtime identity
+    # Runtime identity (STATIC — stable across sessions for prefix cache)
     powered = f", powered by {active_model_name}" if active_model_name else ""
     parts.append(
         f"- About: You are a personal AI assistant{powered}. "
@@ -188,47 +189,6 @@ def build_env_context(
     )
     parts.append(
         "- Docs: https://qwenpaw.agentscope.io/",
-    )
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
-    if session_id is not None:
-        parts.append(f"- Session ID: {session_id}")
-    if user_id is not None:
-        parts.append(f"- User ID: {user_id}")
-    if user_name:
-        parts.append(f"- User Name: {user_name}")
-    if channel is not None:
-        parts.append(f"- Channel: {channel}")
-
-    parts.append(
-        f"- OS: {platform.system()} {platform.release()} "
-        f"({platform.machine()})",
-    )
-
-    if default_shell:
-        parts.append(f"- Default Shell: {default_shell}")
-
-    if project_dir:
-        parts.append(
-            f"- Project directory (relative files and commands resolve "
-            f"here): {project_dir}",
-        )
-        if working_dir is not None and str(working_dir) != str(project_dir):
-            parts.append(
-                f"- Agent workspace (internal — do NOT touch unless "
-                f"the user explicitly asks): {working_dir}",
-            )
-    elif working_dir is not None:
-        parts.append(f"- Working directory: {working_dir}")
-    parts.append(
-        f"- Current date: {now.strftime('%Y-%m-%d')} "
-        f"{user_tz} ({now.strftime('%A')})",
     )
 
     if add_hint:
@@ -245,6 +205,51 @@ def build_env_context(
             "you must generate a tool call or provide useful feedback if "
             "you are blocked.\n",
         )
+
+    # Dynamic content (APPENDED LAST — changes per session, placed at end
+    # to preserve the stable prefix for KV cache hits)
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+
+    dynamic_parts.append(
+        f"- OS: {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
+    )
+    dynamic_parts.append(
+        f"- Current date: {now.strftime('%Y-%m-%d')} "
+        f"{user_tz} ({now.strftime('%A')})",
+    )
+    if session_id is not None:
+        dynamic_parts.append(f"- Session ID: {session_id}")
+    if user_id is not None:
+        dynamic_parts.append(f"- User ID: {user_id}")
+    if user_name:
+        dynamic_parts.append(f"- User Name: {user_name}")
+    if channel is not None:
+        dynamic_parts.append(f"- Channel: {channel}")
+
+    if default_shell:
+        dynamic_parts.append(f"- Default Shell: {default_shell}")
+
+    if project_dir:
+        dynamic_parts.append(
+            f"- Project directory (relative files and commands resolve "
+            f"here): {project_dir}",
+        )
+        if working_dir is not None and str(working_dir) != str(project_dir):
+            dynamic_parts.append(
+                f"- Agent workspace (internal — do NOT touch unless "
+                f"the user explicitly asks): {working_dir}",
+            )
+    elif working_dir is not None:
+        dynamic_parts.append(f"- Working directory: {working_dir}")
+
+    parts.extend(dynamic_parts)
 
     return (
         "====================\n" + "\n".join(parts) + "\n===================="
