@@ -105,7 +105,7 @@ describe("RemoteModelManageModal", () => {
       expect(api.discoverModels).toHaveBeenCalledWith(
         "siliconflow",
         undefined,
-        false,
+        true,
       ),
     );
     expect(

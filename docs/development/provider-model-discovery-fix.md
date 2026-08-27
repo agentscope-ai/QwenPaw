@@ -14,8 +14,8 @@ and the console model picker.
    the console cannot miss the background task state.
 3. Persist successful discovery results atomically and preserve the previous
    cache when discovery fails.
-4. Keep preview discovery non-persistent while making its result immediately
-   available to the Model ID autocomplete.
+4. Persist add-model preview discovery so the backend can merge canonical
+   model metadata when the user adds a discovered model.
 5. Represent pending, failed, empty, and successful discovery states with
    distinct UI text and expose a Refresh models action.
 
@@ -28,7 +28,8 @@ and the console model picker.
 - [x] Successful `/models` responses persist model candidates and sync time.
 - [x] Failed discovery preserves the last successful cache and stores a
       sanitized error.
-- [x] Preview discovery populates the Model ID selector without persisting.
+- [x] Preview discovery populates the Model ID selector and persists canonical
+      metadata for the add-model flow.
 - [x] Refresh models reports success, empty, and failure states accurately.
 - [x] Settings and chat selectors refresh while discovery is running.
 - [x] Backend unit, frontend unit, and end-to-end provider discovery tests pass.

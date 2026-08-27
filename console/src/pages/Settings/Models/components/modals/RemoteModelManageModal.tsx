@@ -441,7 +441,7 @@ export function RemoteModelManageModal({
     setPreviewState("loading");
     setPreviewError(null);
     api
-      .discoverModels(provider.id, undefined, false)
+      .discoverModels(provider.id, undefined, true)
       .then((result) => {
         setDiscoveredModels((result.models || []) as ExtendedModelInfo[]);
         if (result.success) {

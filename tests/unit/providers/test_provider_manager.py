@@ -3517,31 +3517,54 @@ async def test_add_model_to_provider_duplicate_id_raises(
     ) == 1
 
 
-async def test_add_discovered_model_copies_catalog_metadata(
+async def test_discovery_add_persists_catalog_metadata(
     isolated_secret_dir,
+    monkeypatch,
 ) -> None:
     manager = ProviderManager()
-    original = manager.get_provider("openai")
-    assert original is not None
-    original.discovered_models = [
-        ModelInfo(
-            id="remote-candidate",
-            name="Remote Candidate",
-            source="discovered",
-            max_input_length_auto_detected=256_000,
-            max_output_length=16_384,
-            max_output_length_source="api",
-            is_free=True,
-        ),
-    ]
+    provider = manager.get_provider("openai")
+    assert provider is not None
 
-    info = await manager.add_model_to_provider(
+    async def fetch_models(_self, timeout=5):
+        _ = timeout
+        return [
+            ModelInfo(
+                id="remote-candidate",
+                name="Remote Candidate",
+                max_input_length_auto_detected=256_000,
+                max_output_length=16_384,
+                is_free=True,
+            ),
+        ]
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
+
+    discovery = await manager.discover_provider_models("openai", save=True)
+    assert discovery.success is True
+    discovered = next(
+        model
+        for model in provider.discovered_models
+        if model.id == "remote-candidate"
+    )
+    assert discovered.max_output_length == 16_384
+    assert discovered.max_output_length_source == "api"
+
+    await manager.add_model_to_provider(
         "openai",
         ModelInfo(id="remote-candidate", name="Remote Candidate"),
     )
 
-    assert all(model.id != "remote-candidate" for model in info.models)
-    added = next(m for m in info.extra_models if m.id == "remote-candidate")
+    reloaded = ProviderManager()
+    reloaded_provider = reloaded.get_provider("openai")
+    assert reloaded_provider is not None
+    assert all(
+        model.id != "remote-candidate" for model in reloaded_provider.models
+    )
+    added = next(
+        model
+        for model in reloaded_provider.extra_models
+        if model.id == "remote-candidate"
+    )
     assert added.source == "user"
     assert added.max_input_length_auto_detected == 256_000
     assert added.max_output_length == 16_384
