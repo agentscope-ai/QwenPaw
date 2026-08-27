@@ -136,32 +136,49 @@ vi.mock("@/contexts/ThemeContext", () => ({
   useTheme: vi.fn(() => ({ isDark: false })),
 }));
 
-vi.mock("./sessionApi", () => ({
-  default: {
-    onSessionIdResolved: null,
-    onSessionRemoved: null,
-    onSessionSelected: null,
-    onSessionCreated: null,
-    getRealIdForSession: vi.fn(() => null),
-    getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
-    lastActiveChatId: "last-chat-1",
-    patchLastUserMessage: vi.fn(),
-    getSessionIdentity: vi.fn(() => ({
-      sessionId: "test-session",
-      userId: "test-user",
-      channel: "console",
-    })),
-    triggerResolve: vi.fn(),
-    resetWindowIdentity: vi.fn(),
-    isSessionSwitching: false,
-    isUnresolvedLocalSession: vi.fn(() => false),
-    getEffectiveSessionId: vi.fn((id: string) => id),
-    trackNavigatedSession: vi.fn(),
-    preferredChatId: null,
-  },
-}));
+vi.mock("./sessionApi", () => {
+  const emptyHistoryPage = {
+    hasMore: false,
+    loading: false,
+    total: 0,
+    oldestOriginalId: null as string | null,
+    loadedOriginalIds: [] as string[],
+  };
+  return {
+    default: {
+      onSessionIdResolved: null,
+      onSessionRemoved: null,
+      onSessionSelected: null,
+      onSessionCreated: null,
+      subscribeHistoryPage: vi.fn(() => () => undefined),
+      // Same object every call — useSyncExternalStore re-renders forever otherwise.
+      getHistoryPage: vi.fn(() => emptyHistoryPage),
+      loadEarlierMessages: vi.fn(),
+      subscribeHistoryReplaced: vi.fn(() => () => undefined),
+      subscribeLoadEarlierRequest: vi.fn(() => () => undefined),
+      requestLoadEarlier: vi.fn(),
+      reloadAfterPageSizeChange: vi.fn(),
+      getRealIdForSession: vi.fn(() => null),
+      getBackendSessionId: vi.fn(() => "backend-session-1"),
+      setLastUserMessage: vi.fn(),
+      discardLastUserMessage: vi.fn(),
+      lastActiveChatId: "last-chat-1",
+      patchLastUserMessage: vi.fn(),
+      getSessionIdentity: vi.fn(() => ({
+        sessionId: "test-session",
+        userId: "test-user",
+        channel: "console",
+      })),
+      triggerResolve: vi.fn(),
+      resetWindowIdentity: vi.fn(),
+      isSessionSwitching: false,
+      isUnresolvedLocalSession: vi.fn(() => false),
+      getEffectiveSessionId: vi.fn((id: string) => id),
+      trackNavigatedSession: vi.fn(),
+      preferredChatId: null,
+    },
+  };
+});
 
 vi.mock("./OptionsPanel/defaultConfig", () => ({
   default: {

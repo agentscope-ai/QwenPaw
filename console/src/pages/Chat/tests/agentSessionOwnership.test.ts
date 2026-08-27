@@ -86,6 +86,7 @@ describe("agent session ownership epochs", () => {
     expect(getSpy).toHaveBeenCalledWith(A_CHAT, {
       signal: undefined,
       include_app_owned: false,
+      limit: 50,
     });
   });
 
