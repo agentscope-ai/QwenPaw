@@ -1581,7 +1581,7 @@
     "sessionsByChannelTooltip": "メッセージチャンネル別のセッション分布。チャンネルに属さないセッションはデフォルトで Console にグループ化されます",
     "messagesByChannelTooltip": "メッセージチャンネル別のメッセージ総数分布",
     "currentAgentLlmCalls": "記録済みターン",
-    "currentAgentTokenTrendTooltip": "現在のエージェントのターン単位メタデータに基づく入出力 Token 推移",
+    "currentAgentTokenTrendTooltip": "現在のエージェントのターン単位メタデータに基づく入力、出力、キャッシュ読み取り Token の推移。キャッシュ読み取り Token は入力 Token の一部です",
     "currentAgentPromptTokensTooltip": "選択期間における現在のエージェントの各セッション合計プロンプト Token（ターン用量メタデータが必要。アップグレード前のセッションは 0 になる場合があります）",
     "currentAgentCacheHitRateTooltip": "選択期間に現在のエージェントで観測されたキャッシュ呼び出しの Token 加重ヒット率（キャッシュ読み取り Token / キャッシュ対象入力 Token。データがない場合は —）",
     "currentAgentCompletionTokensTooltip": "選択期間における現在のエージェントの各セッション合計完了 Token（ターン用量メタデータが必要。アップグレード前のセッションは 0 になる場合があります）",

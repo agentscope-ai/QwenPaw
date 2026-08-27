@@ -1844,7 +1844,7 @@
     "sessionsByChannelTooltip": "按消息渠道分布的会话数量占比，未关联渠道的会话默认归为 Console",
     "messagesByChannelTooltip": "按消息渠道分布的消息总数占比",
     "currentAgentLlmCalls": "已记录轮次",
-    "currentAgentTokenTrendTooltip": "当前智能体会话中按轮次元数据累计的输入/输出 Token 趋势",
+    "currentAgentTokenTrendTooltip": "当前智能体会话中按轮次元数据累计的输入、输出与缓存读取 Token 趋势；缓存读取 Token 是输入 Token 的子集",
     "currentAgentPromptTokensTooltip": "所选时间段内，当前智能体各会话累计的输入 Token（依赖轮次用量元数据，升级前会话可能为 0）",
     "currentAgentCacheHitRateTooltip": "所选时间段内，当前智能体已观测缓存调用的 Token 加权命中率（缓存读取 Token / 可缓存输入 Token；无可观测数据时显示 —）",
     "currentAgentCompletionTokensTooltip": "所选时间段内，当前智能体各会话累计的输出 Token（依赖轮次用量元数据，升级前会话可能为 0）",

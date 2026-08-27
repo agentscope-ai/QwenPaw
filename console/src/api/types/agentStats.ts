@@ -21,6 +21,7 @@ export interface DailyStats {
   agent_prompt_tokens?: number;
   agent_completion_tokens?: number;
   agent_llm_calls?: number;
+  agent_cache_read_tokens: number;
 }
 
 export interface AgentStatsSummary {

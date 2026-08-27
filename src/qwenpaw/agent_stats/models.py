@@ -29,6 +29,7 @@ class DailyStats(BaseModel):
     agent_prompt_tokens: int = 0
     agent_completion_tokens: int = 0
     agent_llm_calls: int = 0
+    agent_cache_read_tokens: int = 0
 
 
 class AgentStatsSummary(BaseModel):

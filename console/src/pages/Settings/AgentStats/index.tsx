@@ -27,6 +27,7 @@ type ChartDataItem = {
   toolCalls: number;
   agentPromptTokens: number;
   agentCompletionTokens: number;
+  agentCacheReadTokens: number;
   agentLlmCalls: number;
 };
 
@@ -160,6 +161,7 @@ function AgentStatsPage() {
       toolCalls: d.tool_calls,
       agentPromptTokens: d.agent_prompt_tokens ?? 0,
       agentCompletionTokens: d.agent_completion_tokens ?? 0,
+      agentCacheReadTokens: d.agent_cache_read_tokens,
       agentLlmCalls: d.agent_llm_calls ?? 0,
     }));
   }, [data?.by_date]);
@@ -214,8 +216,12 @@ function AgentStatsPage() {
             key: "agentCompletionTokens",
             label: t("agentStats.completionTokens"),
           },
+          {
+            key: "agentCacheReadTokens",
+            label: t("tokenUsage.cacheRead"),
+          },
         ],
-        ["#8b5cf6", "#10b981"],
+        ["#8b5cf6", "#10b981", "#0ea5a4"],
         isDarkMode,
         crossesYear,
         {
