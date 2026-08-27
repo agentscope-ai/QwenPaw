@@ -113,16 +113,10 @@ class ToolCoordinator:
             deadline_override,
         )
         ctx = entry.ctx
-
-        async with self._entries_lock:
-            self._entries[ctx.tool_call_id] = entry
-
-        chunk_queue: asyncio.Queue[Any] = asyncio.Queue()
-        entry.stream.add_subscriber(chunk_queue)
-
-        entry.background_task = asyncio.create_task(
-            self._run_tool_with_hooks(next_handler, tool_call, entry),
-            name=f"toolcall-{ctx.tool_call_id}",
+        chunk_queue = await self._start_entry(
+            entry,
+            next_handler,
+            tool_call,
         )
 
         terminal = "completed"
@@ -173,6 +167,9 @@ class ToolCoordinator:
                     await self._await_grace_or_force_cancel(entry)
                     terminal = "completed"
                     break
+        except asyncio.CancelledError:
+            await self._handle_parent_cancel(entry)
+            raise
         finally:
             entry.stream.remove_subscriber(chunk_queue)
 
@@ -187,6 +184,38 @@ class ToolCoordinator:
     def _handle_deadline_reached(ctx: ToolCallContext) -> None:
         if ctx.offload_reason is None:
             ctx.offload_reason = OffloadReason.TIMEOUT
+
+    async def _handle_parent_cancel(self, entry: ToolCallEntry) -> None:
+        """Stop and reap a tool when its parent execution is cancelled."""
+        ctx = entry.ctx
+        if ctx.cancel_reason is None:
+            ctx.cancel_reason = CancelReason.USER
+        ctx.cancel_event.set()
+        await self._await_grace_or_force_cancel(entry)
+        if entry.background_task is not None:
+            await asyncio.gather(
+                entry.background_task,
+                return_exceptions=True,
+            )
+        await self._finalize_completed(entry)
+
+    async def _start_entry(
+        self,
+        entry: ToolCallEntry,
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+        tool_call: Any,
+    ) -> asyncio.Queue[Any]:
+        """Register an entry, subscribe its caller, and start execution."""
+        async with self._entries_lock:
+            self._entries[entry.ctx.tool_call_id] = entry
+
+        chunk_queue: asyncio.Queue[Any] = asyncio.Queue()
+        entry.stream.add_subscriber(chunk_queue)
+        entry.background_task = asyncio.create_task(
+            self._run_tool_with_hooks(next_handler, tool_call, entry),
+            name=f"toolcall-{entry.ctx.tool_call_id}",
+        )
+        return chunk_queue
 
     def _create_entry(
         self,

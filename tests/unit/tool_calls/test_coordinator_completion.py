@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
 import pytest
-from agentscope.message import TextBlock, ToolResultBlock
+from agentscope.message import TextBlock, ToolResultBlock, ToolResultState
 from agentscope.tool import ToolResponse
 
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
@@ -67,6 +67,58 @@ async def _wait_for_hint(
         if hints:
             return hints[0]
         await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_parent_cancel_cooperatively_stops_background_tool():
+    coordinator = ToolCoordinator(cancel_grace_period_secs=0.2)
+    tool_call = _ToolCall(id="call-parent-stop", name="chat_with_agent")
+    started = asyncio.Event()
+    cleanup_called = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        from qwenpaw.tool_calls import cancellable_wait
+
+        async def wait_for_peer() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        try:
+            await cancellable_wait(wait_for_peer())
+        except asyncio.CancelledError:
+            cleanup_called.set()
+            raise
+        yield _text_response(tool_call.id, "should not reach")
+
+    execute_task = asyncio.create_task(
+        _collect(
+            coordinator.execute(
+                tool_call=tool_call,
+                next_handler=next_handler,
+                session_id="session-parent-stop",
+                agent_id="agent-1",
+                root_session_id="root-1",
+            ),
+        ),
+    )
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    execute_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await execute_task
+
+    entry = coordinator.get(tool_call.id)
+    assert entry is not None
+    assert cleanup_called.is_set()
+    assert entry.ctx.cancel_event.is_set()
+    assert entry.ctx.cancel_reason == CancelReason.USER
+    assert entry.background_task is not None
+    assert entry.background_task.done()
+    assert entry.status.value == "completed"
+    assert entry.end_state == "interrupted"
+    assert entry.final_response.state == ToolResultState.INTERRUPTED
 
 
 @pytest.mark.asyncio
