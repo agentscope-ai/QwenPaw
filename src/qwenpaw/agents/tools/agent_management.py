@@ -655,40 +655,13 @@ async def chat_with_agent(
         root_session_id=final_root_session,
     )
 
-    # Register LLM/tool timeout as kill_deadline so keep_foreground clearing
-    # the shorter hook offload window does not force-cancel early (#6245).
-    from ...tool_calls import (
-        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
-        cancellable_wait,
-        get_call_context,
+    response_data = await _collect_foreground_agent_chat(
+        request_payload,
+        normalized_to_agent,
+        final_session_id,
+        timeout,
+        tool_name="chat_with_agent",
     )
-
-    # Under ToolCallContext use a large but finite HTTP ceiling so extend
-    # works, while AsyncClient cancel still closes the stream (no zombie
-    # sync thread with timeout=None).
-    http_timeout = (
-        float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
-        if get_call_context() is not None
-        else float(timeout)
-    )
-
-    try:
-        response_data = await cancellable_wait(
-            collect_final_agent_chat_response_async(
-                None,
-                request_payload,
-                normalized_to_agent,
-                http_timeout,
-            ),
-            fallback_secs=float(timeout),
-            as_kill_deadline=True,
-        )
-    except asyncio.CancelledError:
-        await _stop_cancelled_agent_chat(
-            final_session_id,
-            normalized_to_agent,
-        )
-        raise
     if not response_data:
         return _tool_text_response("(No response received)")
 
@@ -1061,6 +1034,37 @@ def _foreground_http_timeout(wait_seconds: int) -> float:
     return float(wait_seconds)
 
 
+async def _collect_foreground_agent_chat(
+    request_payload: Dict[str, Any],
+    to_agent: str,
+    session_id: str,
+    wait_seconds: int,
+    *,
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Collect a foreground agent chat with a shared cancel contract."""
+    from ...tool_calls import cancellable_wait
+
+    try:
+        return await cancellable_wait(
+            collect_final_agent_chat_response_async(
+                None,
+                request_payload,
+                to_agent,
+                _foreground_http_timeout(wait_seconds),
+            ),
+            fallback_secs=float(wait_seconds),
+            as_kill_deadline=True,
+        )
+    except asyncio.CancelledError:
+        await _stop_cancelled_agent_chat(
+            session_id,
+            to_agent,
+            tool_name=tool_name,
+        )
+        raise
+
+
 def _watchdog_timeout_from_submit_result(task_result: Any) -> int:
     """Prefer the ``/chat/task`` echo; never invent a third default.
 
@@ -1318,27 +1322,13 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
             ),
         )
 
-    wait_seconds = _foreground_wait_seconds(parsed_timeout)
-    from ...tool_calls import cancellable_wait
-
-    try:
-        response_data = await cancellable_wait(
-            collect_final_agent_chat_response_async(
-                None,
-                request_payload,
-                current_agent_id,
-                _foreground_http_timeout(wait_seconds),
-            ),
-            fallback_secs=float(wait_seconds),
-            as_kill_deadline=True,
-        )
-    except asyncio.CancelledError:
-        await _stop_cancelled_agent_chat(
-            subagent_session_id,
-            current_agent_id,
-            tool_name="spawn_subagent",
-        )
-        raise
+    response_data = await _collect_foreground_agent_chat(
+        request_payload,
+        current_agent_id,
+        subagent_session_id,
+        _foreground_wait_seconds(parsed_timeout),
+        tool_name="spawn_subagent",
+    )
     if not response_data:
         return _tool_text_response(
             "(No response received from subagent)",
@@ -1670,25 +1660,16 @@ async def _spawn_forked_subagent(
         return _tool_text_response(submission_text)
 
     wait_seconds = _foreground_wait_seconds(timeout)
-    from ...tool_calls import cancellable_wait
 
     try:
-        response_data = await cancellable_wait(
-            collect_final_agent_chat_response_async(
-                None,
-                request_payload,
-                current_agent_id,
-                _foreground_http_timeout(wait_seconds),
-            ),
-            fallback_secs=float(wait_seconds),
-            as_kill_deadline=True,
-        )
-    except asyncio.CancelledError:
-        await _stop_cancelled_agent_chat(
-            fork_session_id,
+        response_data = await _collect_foreground_agent_chat(
+            request_payload,
             current_agent_id,
+            fork_session_id,
+            wait_seconds,
             tool_name="spawn_subagent",
         )
+    except asyncio.CancelledError:
         if worktree_path:
             try:
                 await asyncio.to_thread(

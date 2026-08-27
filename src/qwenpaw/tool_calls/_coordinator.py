@@ -174,18 +174,22 @@ class ToolCoordinator:
                     await self._await_grace_or_force_cancel(entry)
                     terminal = "completed"
                     break
-        except asyncio.CancelledError:
-            await self._handle_parent_cancel(entry)
+
+            if terminal == "completed":
+                await self._await_background_task(entry)
+                yield await self._finalize_completed(entry)
+                return
+
+            yield await self._begin_offload(
+                entry,
+                background_result_processor,
+            )
+        except (asyncio.CancelledError, GeneratorExit):
+            if entry.status == ToolCallStatus.RUNNING:
+                await self._handle_parent_cancel(entry)
             raise
         finally:
             entry.stream.remove_subscriber(chunk_queue)
-
-        if terminal == "completed":
-            await self._await_background_task(entry)
-            yield await self._finalize_completed(entry)
-            return
-
-        yield await self._begin_offload(entry, background_result_processor)
 
     @staticmethod
     def _handle_deadline_reached(ctx: ToolCallContext) -> None:
@@ -194,6 +198,8 @@ class ToolCoordinator:
 
     async def _handle_parent_cancel(self, entry: ToolCallEntry) -> None:
         """Stop and reap a tool when its parent execution is cancelled."""
+        if entry.status != ToolCallStatus.RUNNING:
+            return
         ctx = entry.ctx
         if ctx.cancel_reason is None:
             ctx.cancel_reason = CancelReason.USER
@@ -204,6 +210,17 @@ class ToolCoordinator:
                 entry.background_task,
                 return_exceptions=True,
             )
+        entry.final_response = ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=self._cancel_message_for_llm(ctx),
+                ),
+            ],
+            id=ctx.tool_call_id,
+            state=ToolResultState.INTERRUPTED,
+        )
+        entry.end_state = "interrupted"
         await self._finalize_completed(entry)
 
     def _create_entry(
