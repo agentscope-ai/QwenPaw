@@ -90,7 +90,9 @@ class TestApplyHistoryWindow:
     def test_before_with_limit_pages_older_history(self):
         history = make_history(5)
         window, total, has_more = apply_history_window(
-            history, limit=1, before="msg-2"
+            history,
+            limit=1,
+            before="msg-2",
         )
         assert ids(window) == ["msg-1"]
         assert total == 5
@@ -106,7 +108,9 @@ class TestApplyHistoryWindow:
     def test_unknown_cursor_is_ignored(self):
         history = make_history(5)
         window, total, has_more = apply_history_window(
-            history, limit=3, before="no-such-cursor"
+            history,
+            limit=3,
+            before="no-such-cursor",
         )
         assert ids(window) == ["msg-2", "msg-3", "msg-4"]
         assert total == 5

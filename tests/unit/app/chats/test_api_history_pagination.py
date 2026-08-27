@@ -63,8 +63,8 @@ def chat_workspace():
     session.get_session_state_dict = AsyncMock(
         return_value={
             "agent": {
-                "state": AgentState(context=build_messages(6)).model_dump()
-            }
+                "state": AgentState(context=build_messages(6)).model_dump(),
+            },
         },
     )
     workspace.session = session
@@ -89,12 +89,12 @@ def client(chat_workspace) -> TestClient:
     # All three must be overridden: get_chat_manager / get_session call
     # the module-level get_workspace directly, so the FastAPI override
     # on get_workspace alone does not reach them.
-    application.dependency_overrides[chats_api.get_workspace] = (
-        _override_workspace
-    )
-    application.dependency_overrides[chats_api.get_chat_manager] = (
-        _override_manager
-    )
+    application.dependency_overrides[
+        chats_api.get_workspace
+    ] = _override_workspace
+    application.dependency_overrides[
+        chats_api.get_chat_manager
+    ] = _override_manager
     application.dependency_overrides[chats_api.get_session] = _override_session
     return TestClient(application)
 
