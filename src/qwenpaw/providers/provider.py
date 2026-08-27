@@ -147,11 +147,11 @@ class ModelInfo(BaseModel):
         default_factory=list,
         description="Model fields explicitly changed by the user.",
     )
-    max_tokens: int = Field(
-        default=8192,
+    max_tokens: int | None = Field(
+        default=None,
         ge=1,
         description="Maximum number of tokens the model can generate per "
-        "response. Merged into generate_kwargs unless explicitly overridden.",
+        "response. None means the provider default is used.",
     )
     max_input_length: int = Field(
         default=DEFAULT_CONTEXT_WINDOW,
@@ -770,8 +770,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def get_effective_generate_kwargs(self, model_id: str) -> Dict[str, Any]:
         """Return merged generate_kwargs: provider-level as base, model-level
-        overrides on top (deep merge for nested dicts).  The model's
-        ``max_tokens`` is injected unless already present in kwargs.
+        overrides on top (deep merge for nested dicts). A known model
+        ``max_tokens`` limit is injected unless already present in kwargs.
 
         Always returns a new dict so callers never mutate provider state.
         """
@@ -785,7 +785,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs
                     else dict(self.generate_kwargs)
                 )
-                if "max_tokens" not in result:
+                if "max_tokens" not in result and model.max_tokens is not None:
                     result["max_tokens"] = model.max_tokens
                 self._apply_agent_thinking_level(result, model_id)
                 return result

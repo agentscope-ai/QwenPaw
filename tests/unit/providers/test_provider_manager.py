@@ -1157,6 +1157,7 @@ async def test_update_model_write_failure_preserves_provider_state(
     disk_before = provider_path.read_bytes()
     revision = manager._provider_revision("openai")
     max_tokens_before = model.max_tokens
+    new_max_tokens = 1 if max_tokens_before is None else max_tokens_before + 1
 
     def fail_save(*_args, **_kwargs):
         raise OSError("write failed")
@@ -1167,7 +1168,7 @@ async def test_update_model_write_failure_preserves_provider_state(
         await manager.update_model_config(
             "openai",
             model.id,
-            {"max_tokens": max_tokens_before + 1},
+            {"max_tokens": new_max_tokens},
         )
 
     assert model.max_tokens == max_tokens_before

@@ -178,6 +178,17 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].max_tokens == 200
     assert models[0].supports_image is True
     assert models[0].is_free is False
+    assert models[1].max_tokens is None
+
+
+def test_packaged_catalog_does_not_use_placeholder_output_limits() -> None:
+    catalog = model_catalog.load_model_catalog()
+
+    assert all(
+        model.max_tokens != 8192
+        for models in catalog.values()
+        for model in models
+    )
 
 
 @pytest.mark.parametrize(

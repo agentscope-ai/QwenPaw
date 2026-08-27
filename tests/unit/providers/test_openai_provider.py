@@ -14,6 +14,7 @@ from qwenpaw.providers.openai_provider import (
     OpenCodeProvider,
     OpenAIProvider,
 )
+from qwenpaw.providers.provider import ModelInfo
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -474,6 +475,30 @@ def test_get_gpt5_model_maps_configured_max_tokens() -> None:
     assert model._extra_generate_kwargs == {
         "max_completion_tokens": 4096,
     }
+
+
+def test_get_model_omits_unknown_max_tokens() -> None:
+    provider = _make_provider()
+    provider.models = [ModelInfo(id="unknown-limit", name="Unknown Limit")]
+
+    model = provider.get_chat_model_instance("unknown-limit")
+
+    assert model.parameters.max_tokens is None
+
+
+def test_get_model_uses_catalog_max_tokens() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="known-limit",
+            name="Known Limit",
+            max_tokens=16_384,
+        ),
+    ]
+
+    model = provider.get_chat_model_instance("known-limit")
+
+    assert model.parameters.max_tokens == 16_384
 
 
 def test_get_o_series_model_maps_configured_max_tokens() -> None:
