@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from packaging.version import InvalidVersion, Version
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..constant import EnvVarLoader, WORKING_DIR
 from .provider import ModelInfo
@@ -40,38 +40,6 @@ class CatalogDocument(BaseModel):
     catalog_version: str
     published_at: str | None = None
     providers: dict[str, list[ModelInfo]] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_legacy_output_limits(cls, data: Any) -> Any:
-        """Read legacy catalog limits as display-only capabilities."""
-        if not isinstance(data, dict):
-            return data
-        migrated = dict(data)
-        providers = migrated.get("providers")
-        if not isinstance(providers, dict):
-            return migrated
-        migrated_providers: dict[str, Any] = {}
-        for provider_id, models in providers.items():
-            if not isinstance(models, list):
-                migrated_providers[provider_id] = models
-                continue
-            migrated_models = []
-            for model in models:
-                if not isinstance(model, dict):
-                    migrated_models.append(model)
-                    continue
-                payload = dict(model)
-                legacy_limit = payload.pop("max_tokens", None)
-                if (
-                    legacy_limit is not None
-                    and "max_output_length" not in payload
-                ):
-                    payload["max_output_length"] = legacy_limit
-                migrated_models.append(payload)
-            migrated_providers[provider_id] = migrated_models
-        migrated["providers"] = migrated_providers
-        return migrated
 
 
 def _read_document(path: Path) -> CatalogDocument:

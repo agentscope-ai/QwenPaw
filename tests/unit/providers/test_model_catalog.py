@@ -140,7 +140,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                 {
                     "id": "model-a",
                     "name": "Packaged",
-                    "max_tokens": 100,
+                    "max_output_length": 100,
                     "supports_image": False,
                     "is_free": True,
                 },
@@ -154,7 +154,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                 {
                     "id": "model-a",
                     "name": "OTA",
-                    "max_tokens": 200,
+                    "max_output_length": 200,
                 },
                 {"id": "model-b", "name": "Remote"},
             ],
@@ -184,6 +184,24 @@ def test_catalog_overlays_merge_fields_in_priority_order(
     assert models[0].supports_image is True
     assert models[0].is_free is False
     assert models[1].max_output_length is None
+
+
+def test_catalog_rejects_legacy_output_limit() -> None:
+    with pytest.raises(ValueError, match="ModelInfo.max_tokens"):
+        model_catalog.CatalogDocument.model_validate(
+            {
+                "catalog_version": "2026.08.27",
+                "providers": {
+                    "MODELS": [
+                        {
+                            "id": "legacy-model",
+                            "name": "Legacy Model",
+                            "max_tokens": 8192,
+                        },
+                    ],
+                },
+            },
+        )
 
 
 def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
