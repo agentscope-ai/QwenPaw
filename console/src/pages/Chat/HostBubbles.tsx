@@ -376,14 +376,13 @@ export function HostResponseCard(props: {
   data: ChatResponseData;
   isLast?: boolean;
 }) {
-  // Tool cards cannot tell a running call from one whose turn never finished
-  // (stop / dropped stream) because both lack a result message. Wrapping the
-  // whole card publishes the turn state without re-rendering its body: the
-  // memoized content bails out on unchanged props.
+  // Tool cards cannot tell a running call from one whose turn was interrupted
+  // because both lack a result message. Wrapping the whole card publishes the
+  // turn state without re-rendering its body: the memoized content bails out
+  // on unchanged props.
   return (
     <ToolCallTurnBoundary
       data={props.data as unknown as IAgentScopeRuntimeResponse}
-      isLast={props.isLast}
     >
       <MemoizedHostResponseCard {...props} />
     </ToolCallTurnBoundary>
