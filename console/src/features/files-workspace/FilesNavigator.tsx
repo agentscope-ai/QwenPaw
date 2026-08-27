@@ -50,11 +50,6 @@ import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
 } from "./filesWorkspaceScope";
-import {
-  buildDailyMemoryTree,
-  buildMemoryTree,
-  type MemoryTreeEntry,
-} from "./memoryTree";
 import { selectProfileFiles } from "./profileFileSelection";
 import type {
   DirectoryEntry,
@@ -72,6 +67,10 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  agentSource?: boolean;
+  memoryGraphSource?: "daily" | "digest";
+  activeMemoryGraphRoot?: MemoryGraphRoot | null;
+  onShowMemoryGraph?: (root: MemoryGraphRoot) => void;
 }
 
 interface ProfileFileRowProps {
@@ -83,6 +82,33 @@ interface ProfileFileRowProps {
 }
 
 type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
+
+function isMarkdownFile(entry: DirectoryEntry): boolean {
+  return entry.kind === "file" && entry.name.endsWith(".md");
+}
+
+const PROJECT_SOURCE_DIRS = {
+  profile: "profile",
+  daily: "memory",
+  digest: "digest",
+} as const;
+const PROJECT_SOURCE_FOLDER_NAMES: ReadonlySet<string> = new Set(
+  Object.values(PROJECT_SOURCE_DIRS),
+);
+
+function filterProjectRootEntries(
+  entries: DirectoryEntry[],
+  hideProjectSources: boolean,
+): DirectoryEntry[] {
+  if (!hideProjectSources) return entries;
+  return entries.filter(
+    (entry) =>
+      !(
+        entry.kind === "directory" &&
+        PROJECT_SOURCE_FOLDER_NAMES.has(entry.name)
+      ),
+  );
+}
 
 /** Switcher entry that opens the binding panel instead of changing the root. */
 const MANAGE_DIRS_KEY = "__manage_project_dirs__";
@@ -159,6 +185,10 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  agentSource = false,
+  memoryGraphSource,
+  activeMemoryGraphRoot,
+  onShowMemoryGraph,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -195,21 +225,48 @@ function DirectoryNode({
     setExpanded((current) => !current);
     if (!expanded && children.length === 0) void load();
   };
+  const graphRoot =
+    memoryGraphSource === "digest" &&
+    depth === 0 &&
+    (["wiki", "procedure", "personal"] as string[]).includes(entry.name)
+      ? (entry.name as MemoryGraphRoot)
+      : null;
 
   return (
     <>
-      <button
-        type="button"
-        className={styles.treeRow}
-        style={{ paddingInlineStart: 12 + depth * 16 }}
-        onClick={toggle}
-        aria-expanded={expanded}
+      <div
+        className={`${graphRoot ? styles.memoryDirectoryRow : ""} ${
+          graphRoot && graphRoot === activeMemoryGraphRoot
+            ? styles.memoryDirectoryGraphActive
+            : ""
+        }`}
       >
-        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
-        <span>{entry.name}</span>
-        {loading && <LoaderCircle className={styles.spin} size={13} />}
-      </button>
+        <button
+          type="button"
+          className={styles.treeRow}
+          style={{ paddingInlineStart: 12 + depth * 16 }}
+          onClick={toggle}
+          aria-expanded={expanded}
+        >
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
+          <span>{entry.name}</span>
+          {loading && <LoaderCircle className={styles.spin} size={13} />}
+        </button>
+        {graphRoot && onShowMemoryGraph && (
+          <button
+            type="button"
+            className={styles.memoryDirectoryGraphButton}
+            onClick={() => onShowMemoryGraph(graphRoot)}
+            aria-label={`${t("files.memoryGraph")} · ${entry.name}`}
+            title={`${t("files.memoryGraph")} · ${entry.name}`}
+            aria-pressed={graphRoot === activeMemoryGraphRoot}
+          >
+            <Network size={14} />
+            <span>{t("files.memoryGraphShort")}</span>
+          </button>
+        )}
+      </div>
       {expanded &&
         children.map((child) =>
           child.kind === "directory" ? (
@@ -222,6 +279,7 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              agentSource={agentSource}
             />
           ) : (
             <button
@@ -229,8 +287,17 @@ function DirectoryNode({
               key={child.path}
               className={`${styles.treeRow} ${
                 child.path === selectedPath ? styles.treeRowSelected : ""
+              } ${
+                agentSource && !isMarkdownFile(child)
+                  ? styles.agentUnsupportedFile
+                  : ""
               }`}
               style={{ paddingInlineStart: 29 + (depth + 1) * 16 }}
+              title={
+                agentSource && !isMarkdownFile(child)
+                  ? t("files.agentUnsupportedFile")
+                  : undefined
+              }
               onClick={() =>
                 onSelect({ source: "workspace", path: child.path, root })
               }
@@ -250,103 +317,6 @@ function DirectoryNode({
           {t("files.loadMore")}
         </button>
       )}
-    </>
-  );
-}
-
-function MemoryDirectoryNode({
-  entry,
-  selectedPath,
-  onSelect,
-  depth,
-  source,
-  activeGraphRoot,
-  onShowGraph,
-}: {
-  entry: MemoryTreeEntry;
-  selectedPath: string;
-  onSelect: (target: FileTarget) => void;
-  depth: number;
-  source: "daily" | "digest";
-  activeGraphRoot: MemoryGraphRoot | null;
-  onShowGraph: (root: MemoryGraphRoot) => void;
-}) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const graphRoot =
-    source === "digest" &&
-    depth === 0 &&
-    (["wiki", "procedure", "personal"] as string[]).includes(entry.name)
-      ? (entry.name as MemoryGraphRoot)
-      : null;
-
-  return (
-    <>
-      <div
-        className={`${styles.memoryDirectoryRow} ${
-          graphRoot && graphRoot === activeGraphRoot
-            ? styles.memoryDirectoryGraphActive
-            : ""
-        }`}
-      >
-        <button
-          type="button"
-          className={styles.treeRow}
-          style={{ paddingInlineStart: 12 + depth * 16 }}
-          onClick={() => setExpanded((current) => !current)}
-          aria-expanded={expanded}
-        >
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
-          <span>{entry.name}</span>
-        </button>
-        {graphRoot && (
-          <button
-            type="button"
-            className={styles.memoryDirectoryGraphButton}
-            onClick={() => onShowGraph(graphRoot)}
-            aria-label={`${t("files.memoryGraph")} · ${entry.name}`}
-            title={`${t("files.memoryGraph")} · ${entry.name}`}
-            aria-pressed={graphRoot === activeGraphRoot}
-          >
-            <Network size={14} />
-            <span>{t("files.memoryGraphShort")}</span>
-          </button>
-        )}
-      </div>
-      {expanded &&
-        entry.children?.map((child) =>
-          child.kind === "directory" ? (
-            <MemoryDirectoryNode
-              key={child.path}
-              entry={child}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-              depth={depth + 1}
-              source={source}
-              activeGraphRoot={activeGraphRoot}
-              onShowGraph={onShowGraph}
-            />
-          ) : (
-            <button
-              type="button"
-              key={child.path}
-              className={`${styles.treeRow} ${
-                child.path === selectedPath ? styles.treeRowSelected : ""
-              }`}
-              style={{ paddingInlineStart: 29 + (depth + 1) * 16 }}
-              onClick={() =>
-                onSelect({
-                  source,
-                  path: child.path,
-                })
-              }
-            >
-              <FileGlyph name={child.name} />
-              <span>{child.name}</span>
-            </button>
-          ),
-        )}
     </>
   );
 }
@@ -388,8 +358,12 @@ export default function FilesNavigator({
   const scopeKey = filesWorkspaceScopeKey(scope);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [allProfileFiles, setAllProfileFiles] = useState<DirectoryEntry[]>([]);
-  const [dailyFiles, setDailyFiles] = useState<MemoryTreeEntry[]>([]);
-  const [digestFiles, setDigestFiles] = useState<MemoryTreeEntry[]>([]);
+  const [agentSourceFiles, setAgentSourceFiles] = useState<DirectoryEntry[]>(
+    [],
+  );
+  const [projectSourceFiles, setProjectSourceFiles] = useState<
+    DirectoryEntry[]
+  >([]);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -401,6 +375,7 @@ export default function FilesNavigator({
   const [profileSearch, setProfileSearch] = useState("");
   const [source, setSource] = useState<NavigatorSource>("workspace");
   const [projectDirectory, setProjectDirectory] = useState("");
+  const [agentDefaultDirectory, setAgentDefaultDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   // Every directory bound to this session, primary first. Only session scope
@@ -501,7 +476,6 @@ export default function FilesNavigator({
   );
   /** Coarse flavour for styling; the precise root lives in `workspaceRoot`. */
   const rootFlavour = isProjectRoot(workspaceRoot) ? "project" : "workspace";
-
   /** Name, path and status to render for one root in the switcher. */
   const describeRoot = useCallback(
     (root: WorkspaceRoot) => {
@@ -539,6 +513,14 @@ export default function FilesNavigator({
   );
 
   const activeRoot = describeRoot(workspaceRoot);
+  // Compare the selected root's actual path with the Agent default. Root
+  // tokens are stable addresses, not proof that a directory is the default:
+  // a session can rebind its primary `project` root to another path.
+  const isAgentDirectory =
+    workspaceRoot === "workspace" ||
+    (agentDefaultDirectory
+      ? activeRoot.path === agentDefaultDirectory
+      : workspaceRoot === "project");
 
   const rootMenuItems = useMemo<MenuProps["items"]>(() => {
     const items: NonNullable<MenuProps["items"]> = [];
@@ -615,6 +597,7 @@ export default function FilesNavigator({
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
+    setAgentDefaultDirectory(agentInfo.path);
     const effectiveProject = projectDirOverride
       ? projectDirOverride
       : chatId
@@ -648,20 +631,52 @@ export default function FilesNavigator({
         workspaceRoot,
         projectDirOverride,
       );
-      setEntries(page.entries);
+      const visibleEntries = filterProjectRootEntries(
+        page.entries,
+        !isAgentDirectory,
+      );
+      setEntries(visibleEntries);
       setCursor(page.next_cursor);
       setHasMore(page.has_more);
     } finally {
       setLoading(false);
     }
-  }, [chatId, projectDirOverride, workspaceRoot]);
+  }, [chatId, isAgentDirectory, projectDirOverride, workspaceRoot]);
+
+  const loadProjectSource = useCallback(
+    async (section: "profile" | "daily" | "digest") => {
+      setLoading(true);
+      try {
+        const page = await workspaceApi.listDirectory(
+          PROJECT_SOURCE_DIRS[section],
+          undefined,
+          200,
+          chatId,
+          workspaceRoot,
+          projectDirOverride,
+        );
+        setProjectSourceFiles(page.entries);
+      } catch {
+        // A project source folder is created on first upload, not on read.
+        setProjectSourceFiles([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [chatId, projectDirOverride, workspaceRoot],
+  );
 
   const loadProfile = useCallback(async () => {
+    if (!isAgentDirectory) {
+      await loadProjectSource("profile");
+      return;
+    }
     setLoading(true);
     try {
-      const [files, enabled] = await Promise.all([
+      const [files, enabled, page] = await Promise.all([
         workspaceApi.listFiles(),
         workspaceApi.getSystemPromptFiles(),
+        workspaceApi.listDirectory("", undefined, 200, chatId, "workspace"),
       ]);
       const order = Array.isArray(enabled) ? enabled : [];
       const mappedFiles = files.map((file) => ({
@@ -674,33 +689,42 @@ export default function FilesNavigator({
       }));
       setEnabledFiles(order);
       setAllProfileFiles(mappedFiles);
+      // Profile is a flat source: keep files from the configuration root, but
+      // leave subdirectories to their dedicated Daily/Knowledge Base sources.
+      setAgentSourceFiles(
+        page.entries.filter((entry) => entry.kind === "file"),
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [chatId, isAgentDirectory, loadProjectSource]);
 
-  const loadMemory = useCallback(async (section: "daily" | "digest") => {
-    setLoading(true);
-    try {
-      const files = await workspaceApi.listMemoryFiles(section);
-      const entries = files.map((file) => ({
-        name: file.filename.split("/").pop() ?? file.filename,
-        path: file.filename,
-        kind: "file" as const,
-        size: file.size,
-        modified_at: file.modified_time,
-        preview_kind: "text" as const,
-      }));
-      const tree =
-        section === "daily"
-          ? buildDailyMemoryTree(entries)
-          : buildMemoryTree(entries);
-      if (section === "daily") setDailyFiles(tree);
-      else setDigestFiles(tree);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadMemory = useCallback(
+    async (section: "daily" | "digest") => {
+      if (!isAgentDirectory) {
+        await loadProjectSource(section);
+        return;
+      }
+      setLoading(true);
+      try {
+        setAgentSourceFiles([]);
+        const page = await workspaceApi.listDirectory(
+          PROJECT_SOURCE_DIRS[section],
+          undefined,
+          200,
+          chatId,
+          "workspace",
+        );
+        setAgentSourceFiles(page.entries);
+      } catch {
+        // The directory is created on first upload, so a new source is empty.
+        setAgentSourceFiles([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [chatId, isAgentDirectory, loadProjectSource],
+  );
 
   useEffect(() => {
     void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
@@ -722,7 +746,7 @@ export default function FilesNavigator({
   useEffect(() => {
     if (source === "profile") void loadProfile();
     if (source === "daily" || source === "digest") void loadMemory(source);
-  }, [loadMemory, loadProfile, source]);
+  }, [isAgentDirectory, loadMemory, loadProfile, source, workspaceRoot]);
 
   const refreshCurrent = async () => {
     if (source === "daily" || source === "digest") {
@@ -742,17 +766,34 @@ export default function FilesNavigator({
   ) => {
     setUploading(true);
     try {
+      let uploadPath = "";
+      let uploadRoot = workspaceRoot;
+      let createDirectory = false;
+      if (source !== "workspace") {
+        if (isAgentDirectory) {
+          // Built-in Agent sources always live in the configuration workspace,
+          // even while the primary project root is selected in the tree.
+          uploadRoot = "workspace";
+          uploadPath = source === "profile" ? "" : PROJECT_SOURCE_DIRS[source];
+        } else {
+          uploadPath = PROJECT_SOURCE_DIRS[source];
+        }
+        createDirectory = Boolean(uploadPath);
+      }
       await workspaceApi.uploadFiles(
         files,
-        "",
+        uploadPath,
         conflict,
         chatId,
-        workspaceRoot,
+        uploadRoot,
         projectDirOverride,
+        createDirectory,
       );
       setPendingUploads(null);
       setConflictingNames([]);
-      await Promise.all([loadRoot(), loadProfile()]);
+      await loadRoot();
+      if (source === "profile") await loadProfile();
+      if (source === "daily" || source === "digest") await loadMemory(source);
     } catch (error) {
       if (error instanceof UploadConflictError) {
         setPendingUploads(files);
@@ -793,12 +834,27 @@ export default function FilesNavigator({
   };
 
   const displayEntries = useMemo(() => {
-    if (source === "daily") return dailyFiles;
-    if (source === "digest") return digestFiles;
-    if (source === "profile") return profileFiles;
+    if (source === "profile")
+      return isAgentDirectory
+        ? [
+            ...profileFiles,
+            ...agentSourceFiles.filter(
+              (entry) => !profileFiles.some((file) => file.path === entry.path),
+            ),
+          ]
+        : projectSourceFiles;
+    if (source === "daily" || source === "digest")
+      return isAgentDirectory ? agentSourceFiles : projectSourceFiles;
     if (source === "workspace") return entries;
     return [];
-  }, [dailyFiles, digestFiles, entries, profileFiles, source]);
+  }, [
+    agentSourceFiles,
+    entries,
+    isAgentDirectory,
+    profileFiles,
+    projectSourceFiles,
+    source,
+  ]);
 
   return (
     <aside
@@ -952,7 +1008,17 @@ export default function FilesNavigator({
           strategy={verticalListSortingStrategy}
         >
           <div className={styles.tree} role="tree" aria-busy={loading}>
-            {source === "profile" && (
+            {!isAgentDirectory && source !== "workspace" && (
+              <div className={styles.projectSourceNotice}>
+                {t("files.projectSourceNotice")}
+              </div>
+            )}
+            {isAgentDirectory && source !== "workspace" && (
+              <div className={styles.agentSourceNotice}>
+                {t("files.agentSourceNotice")}
+              </div>
+            )}
+            {isAgentDirectory && source === "profile" && (
               <button
                 type="button"
                 className={styles.profileAddButton}
@@ -970,20 +1036,6 @@ export default function FilesNavigator({
             ) : (
               displayEntries.map((entry) => {
                 if (entry.kind === "directory") {
-                  if (source === "daily" || source === "digest") {
-                    return (
-                      <MemoryDirectoryNode
-                        key={entry.path}
-                        entry={entry}
-                        selectedPath={selectedPath}
-                        onSelect={onSelect}
-                        depth={0}
-                        source={source}
-                        activeGraphRoot={activeMemoryGraphRoot}
-                        onShowGraph={onShowMemoryGraph}
-                      />
-                    );
-                  }
                   return (
                     <DirectoryNode
                       key={entry.path}
@@ -993,12 +1045,27 @@ export default function FilesNavigator({
                       depth={0}
                       selectedPath={selectedPath}
                       onSelect={onSelect}
-                      root={workspaceRoot}
+                      root={
+                        isAgentDirectory && source !== "workspace"
+                          ? "workspace"
+                          : workspaceRoot
+                      }
+                      agentSource={isAgentDirectory && source !== "workspace"}
+                      memoryGraphSource={
+                        isAgentDirectory &&
+                        (source === "daily" || source === "digest")
+                          ? source
+                          : undefined
+                      }
+                      activeMemoryGraphRoot={activeMemoryGraphRoot}
+                      onShowMemoryGraph={onShowMemoryGraph}
                     />
                   );
                 }
                 const isProfileFile =
-                  source === "profile" && managedProfileNames.has(entry.path);
+                  isAgentDirectory &&
+                  source === "profile" &&
+                  managedProfileNames.has(entry.path);
                 if (isProfileFile) {
                   return (
                     <ProfileFileRow
@@ -1014,18 +1081,37 @@ export default function FilesNavigator({
                   );
                 }
                 return (
+                  // Agent-source files use the generic file API so they can be
+                  // previewed even when the Agent itself does not read them.
                   <button
                     type="button"
                     key={entry.path}
                     className={`${styles.treeRow} ${
                       entry.path === selectedPath ? styles.treeRowSelected : ""
+                    } ${
+                      isAgentDirectory &&
+                      source !== "workspace" &&
+                      !isMarkdownFile(entry)
+                        ? styles.agentUnsupportedFile
+                        : ""
                     }`}
+                    title={
+                      isAgentDirectory &&
+                      source !== "workspace" &&
+                      !isMarkdownFile(entry)
+                        ? t("files.agentUnsupportedFile")
+                        : undefined
+                    }
                     onClick={() =>
                       onSelect({
-                        source,
+                        source: source !== "workspace" ? "workspace" : source,
                         path: entry.path,
                         root:
-                          source === "workspace" ? workspaceRoot : undefined,
+                          source === "workspace"
+                            ? workspaceRoot
+                            : isAgentDirectory
+                            ? "workspace"
+                            : workspaceRoot,
                       })
                     }
                   >
@@ -1051,7 +1137,13 @@ export default function FilesNavigator({
                     workspaceRoot,
                     projectDirOverride,
                   );
-                  setEntries((current) => [...current, ...page.entries]);
+                  setEntries((current) => [
+                    ...current,
+                    ...filterProjectRootEntries(
+                      page.entries,
+                      !isAgentDirectory,
+                    ),
+                  ]);
                   setCursor(page.next_cursor);
                   setHasMore(page.has_more);
                 }}

@@ -911,6 +911,32 @@
   font-size: 12px;
 }
 
+.projectSourceNotice {
+  padding: 8px 12px;
+  color: var(--files-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  border-bottom: 1px solid var(--files-line);
+  background: var(--files-panel);
+}
+
+.agentSourceNotice {
+  padding: 8px 12px;
+  color: var(--files-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  border-bottom: 1px solid var(--files-line);
+  background: var(--files-panel);
+}
+
+.agentUnsupportedFile {
+  color: color-mix(in srgb, var(--files-muted) 72%, transparent);
+
+  &:hover {
+    color: var(--files-muted);
+  }
+}
+
 .loadError {
   min-height: 48px;
   padding: 12px 16px;
