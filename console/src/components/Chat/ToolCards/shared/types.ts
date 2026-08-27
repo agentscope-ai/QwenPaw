@@ -20,6 +20,8 @@ export interface ToolCallContent {
   inputProgress?: ToolInputProgress;
   result?: unknown;
   status: ToolCallStatus;
+  /** Error status caused by an interruption rather than a tool failure. */
+  interrupted?: boolean;
 }
 
 export interface ToolCardProps<T = Record<string, unknown>> {

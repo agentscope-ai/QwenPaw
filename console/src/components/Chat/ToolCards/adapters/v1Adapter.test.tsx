@@ -21,6 +21,9 @@ const Probe = ({
   <div>
     <span data-testid="status">{content.status}</span>
     <span data-testid="streaming">{String(Boolean(isStreaming))}</span>
+    <span data-testid="interrupted">
+      {String(Boolean(content.interrupted))}
+    </span>
     <span data-testid="result">{String(content.result ?? "")}</span>
   </div>
 );
@@ -82,6 +85,7 @@ describe("v1Adapter tool status", () => {
 
     expect(screen.getByTestId("status")).toHaveTextContent("calling");
     expect(screen.getByTestId("streaming")).toHaveTextContent("true");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("false");
     expect(screen.getByTestId("result")).toHaveTextContent("");
   });
 
@@ -90,7 +94,9 @@ describe("v1Adapter tool status", () => {
 
     expect(screen.getByTestId("status")).toHaveTextContent("error");
     expect(screen.getByTestId("streaming")).toHaveTextContent("false");
-    expect(screen.getByTestId("result")).toHaveTextContent("tool.interrupted");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("true");
+    // The reason is rendered by the card shell, never faked as tool output.
+    expect(screen.getByTestId("result")).toHaveTextContent("");
   });
 
   it("reports a completed call as done regardless of turn state", () => {
@@ -98,6 +104,7 @@ describe("v1Adapter tool status", () => {
 
     expect(screen.getByTestId("status")).toHaveTextContent("done");
     expect(screen.getByTestId("streaming")).toHaveTextContent("false");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("false");
     expect(screen.getByTestId("result")).toHaveTextContent("pong");
   });
 
@@ -105,19 +112,36 @@ describe("v1Adapter tool status", () => {
     renderCard(withOutputProps("partial output", "interrupted"), true);
 
     expect(screen.getByTestId("status")).toHaveTextContent("error");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("true");
     expect(screen.getByTestId("result")).toHaveTextContent("partial output");
   });
 
-  it("closes output that stopped mid-stream when the turn ended", () => {
-    const props = withOutputProps("partial output", undefined, "in_progress");
+  it("reports a failed tool as an error but not an interruption", () => {
+    renderCard(withOutputProps("boom", "error"), true);
 
-    renderCard(props, false);
-    expect(screen.getByTestId("status")).toHaveTextContent("calling");
+    expect(screen.getByTestId("status")).toHaveTextContent("error");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("false");
+    expect(screen.getByTestId("result")).toHaveTextContent("boom");
+  });
 
-    renderCard(props, true);
-    expect(screen.getAllByTestId("status")[1]).toHaveTextContent("error");
-    expect(screen.getAllByTestId("result")[1]).toHaveTextContent(
-      "partial output",
+  it("keeps streaming output running while its turn streams", () => {
+    renderCard(
+      withOutputProps("partial output", undefined, "in_progress"),
+      false,
     );
+
+    expect(screen.getByTestId("status")).toHaveTextContent("calling");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("false");
+  });
+
+  it("closes output that stopped mid-stream when the turn ended", () => {
+    renderCard(
+      withOutputProps("partial output", undefined, "in_progress"),
+      true,
+    );
+
+    expect(screen.getByTestId("status")).toHaveTextContent("error");
+    expect(screen.getByTestId("interrupted")).toHaveTextContent("true");
+    expect(screen.getByTestId("result")).toHaveTextContent("partial output");
   });
 });

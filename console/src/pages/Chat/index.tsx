@@ -66,6 +66,7 @@ import {
   wrapChatResponseUsageStream,
 } from "./turnUsage";
 import { wrapReplayFastForward } from "./replayFastForward";
+import { ChatStreamingProvider } from "./turnEndedProvider";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
@@ -3607,11 +3608,15 @@ export default function ChatPage() {
               void openInlineFileReference(reference, trigger)
             }
           >
-            <AgentScopeRuntimeWebUI
-              ref={chatRef}
-              key={refreshKey}
-              options={options}
-            />
+            {/* Tool cards read this to tell a running call from one whose
+                turn was cut short — see turnEndedProvider. */}
+            <ChatStreamingProvider streaming={Boolean(chatLoading)}>
+              <AgentScopeRuntimeWebUI
+                ref={chatRef}
+                key={refreshKey}
+                options={options}
+              />
+            </ChatStreamingProvider>
           </RichFileReferenceInputProvider>
         </div>
 

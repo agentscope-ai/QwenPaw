@@ -3952,6 +3952,7 @@
     },
     "loading": "Carregando...",
     "interrupted": "A chamada da ferramenta foi interrompida antes de retornar um resultado.",
+    "interruptedTitle": "Interrompida",
     "rawInputPreview": "Entrada bruta em tempo real (últimos 4.096 caracteres)",
     "largeOutputOmitted": "{{count}} linhas omitidas — copie a saída disponível ou siga as instruções de recuperação",
     "largeOutputTruncated": "Saída truncada para exibição — copie a saída disponível ou siga as instruções de recuperação",

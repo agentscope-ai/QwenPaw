@@ -14,7 +14,6 @@
  */
 
 import React from "react";
-import { useTranslation } from "react-i18next";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
 import { useToolCallTurnEnded } from "../shared/ToolCallTurnContext";
 import type { BuiltinCardComponent } from "../cards";
@@ -28,6 +27,12 @@ const STREAM_INPUT_PREVIEW_CHARS = 4 * 1024;
 const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
 const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 
+interface DerivedToolStatus {
+  status: ToolCallStatus;
+  /** Error status caused by an interruption rather than a tool failure. */
+  interrupted: boolean;
+}
+
 /**
  * Derive the tool execution status from V1 message data.
  *
@@ -37,28 +42,31 @@ const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
  *
  * *turnEnded* closes dangling calls: a call with no terminal marker (no
  * result block, or output that stopped mid-stream) is only running while its
- * turn streams. Once the turn reaches a terminal status (stop / error /
- * restored history) nothing more can arrive, so the call is reported as
- * interrupted instead of spinning forever.
+ * turn streams. Once the turn ends nothing more can arrive, so the call is
+ * reported as interrupted instead of spinning forever.
  */
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
   turnEnded: boolean,
-): ToolCallStatus {
-  const unfinished: ToolCallStatus = turnEnded ? "error" : "calling";
+): DerivedToolStatus {
+  const unfinished: DerivedToolStatus = turnEnded
+    ? { status: "error", interrupted: true }
+    : { status: "calling", interrupted: false };
   if (!resultItem) return unfinished;
 
   const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
   const toolState = resultData.state as string;
   if (toolState && TOOL_ERROR_STATES.has(toolState)) {
-    return "error";
+    return { status: "error", interrupted: toolState === "interrupted" };
   }
 
   const rawStatus =
     (data.status as string) || (resultItem.status as string) || "";
-  if (rawStatus === "completed") return "done";
-  if (ERROR_STATUSES.has(rawStatus)) return "error";
+  if (rawStatus === "completed") return { status: "done", interrupted: false };
+  if (ERROR_STATUSES.has(rawStatus)) {
+    return { status: "error", interrupted: rawStatus === "canceled" };
+  }
   return unfinished;
 }
 
@@ -85,7 +93,7 @@ function deriveToolStatus(
  */
 function parseV1Props(
   v1Props: Record<string, unknown>,
-  opts: { turnEnded: boolean; interruptedText: string },
+  turnEnded: boolean,
 ): {
   content: ToolCallContent;
   isStreaming: boolean;
@@ -133,12 +141,7 @@ function parseV1Props(
 
   // Message-level status on *_call messages reflects delivery, not execution,
   // so the presence of an output block decides between running and finished.
-  const status = deriveToolStatus(resultItem, data, opts.turnEnded);
-  // An interrupted call carries no output at all; surface the reason instead
-  // of an empty error block.
-  const displayResult =
-    result ??
-    (!resultItem && status === "error" ? opts.interruptedText : undefined);
+  const { status, interrupted } = deriveToolStatus(resultItem, data, turnEnded);
 
   // Extract id — prefer call_id which carries the ToolCallBlock.id
   // (e.g. "toolu_…" / "call_…") from the AgentScope SSE stream.
@@ -157,8 +160,9 @@ function parseV1Props(
     serverLabel: (callData.server_label as string) || undefined,
     params,
     inputProgress,
-    result: displayResult,
+    result: result ?? undefined,
     status,
+    interrupted,
   };
 
   return {
@@ -182,12 +186,8 @@ export function adaptCardForV1(
   CardComponent: BuiltinCardComponent,
 ): React.FC<any> {
   const V1WrappedCard: React.FC<any> = (v1Props) => {
-    const { t } = useTranslation();
     const turnEnded = useToolCallTurnEnded();
-    const { content, isStreaming } = parseV1Props(v1Props, {
-      turnEnded,
-      interruptedText: t("tool.interrupted"),
-    });
+    const { content, isStreaming } = parseV1Props(v1Props, turnEnded);
     return <CardComponent content={content} isStreaming={isStreaming} />;
   };
 
