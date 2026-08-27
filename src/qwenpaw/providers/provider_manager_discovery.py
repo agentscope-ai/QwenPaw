@@ -193,7 +193,7 @@ class ProviderManagerDiscoveryMixin(
             return False
         candidate = provider.model_copy(deep=True)
         if error is None:
-            apply_discovery_metadata(candidate, fetched or [])
+            apply_discovery_metadata(candidate, fetched or [], synced_at or "")
             candidate.discovered_models = [
                 model.model_copy(deep=True) for model in models or []
             ]
@@ -628,8 +628,14 @@ class ProviderManagerDiscoveryMixin(
 
             payload = current.model_dump()
             overrides = set(current.config_overrides)
+            user_output_capability = current.max_output_length_source == "user"
             for field in catalog_model.model_fields_set:
                 if field in overrides:
+                    continue
+                if (
+                    field.startswith("max_output_length")
+                    and user_output_capability
+                ):
                     continue
                 if current.max_input_length_configured and field in {
                     "max_input_length",

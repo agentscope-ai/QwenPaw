@@ -98,7 +98,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     assert [m.id for m in models] == ["gpt-4o-mini", "gpt-4.1"]
     assert [m.name for m in models] == ["GPT-4o Mini", "gpt-4.1"]
     assert models[0].max_input_length_auto_detected == 128_000
-    assert models[0].max_tokens == 16_384
+    assert models[0].max_output_length == 16_384
     assert not provider.models  # should not update provider state
     close.assert_awaited_once()
 
@@ -486,19 +486,20 @@ def test_get_model_omits_unknown_max_tokens() -> None:
     assert model.parameters.max_tokens is None
 
 
-def test_get_model_uses_catalog_max_tokens() -> None:
+def test_get_model_does_not_send_discovered_output_capability() -> None:
     provider = _make_provider()
     provider.models = [
         ModelInfo(
             id="known-limit",
             name="Known Limit",
-            max_tokens=16_384,
+            max_output_length=16_384,
+            max_output_length_source="api",
         ),
     ]
 
     model = provider.get_chat_model_instance("known-limit")
 
-    assert model.parameters.max_tokens == 16_384
+    assert model.parameters.max_tokens is None
 
 
 def test_get_o_series_model_maps_configured_max_tokens() -> None:

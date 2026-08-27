@@ -12,7 +12,7 @@ function makeModel(
     supports_multimodal: false,
     supports_image: false,
     supports_video: false,
-    max_tokens: 4096,
+    max_output_length: 4096,
     max_input_length: maxInputLength,
     generate_kwargs: {},
     relay_reasoning: false,

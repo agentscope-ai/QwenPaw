@@ -10,9 +10,9 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..constant import EnvVarLoader, WORKING_DIR
 from .provider import ModelInfo
@@ -36,6 +36,38 @@ class CatalogDocument(BaseModel):
     published_at: str | None = None
     providers: dict[str, list[ModelInfo]] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_output_limits(cls, data: Any) -> Any:
+        """Read legacy catalog limits as display-only capabilities."""
+        if not isinstance(data, dict):
+            return data
+        migrated = dict(data)
+        providers = migrated.get("providers")
+        if not isinstance(providers, dict):
+            return migrated
+        migrated_providers: dict[str, Any] = {}
+        for provider_id, models in providers.items():
+            if not isinstance(models, list):
+                migrated_providers[provider_id] = models
+                continue
+            migrated_models = []
+            for model in models:
+                if not isinstance(model, dict):
+                    migrated_models.append(model)
+                    continue
+                payload = dict(model)
+                legacy_limit = payload.pop("max_tokens", None)
+                if (
+                    legacy_limit is not None
+                    and "max_output_length" not in payload
+                ):
+                    payload["max_output_length"] = legacy_limit
+                migrated_models.append(payload)
+            migrated_providers[provider_id] = migrated_models
+        migrated["providers"] = migrated_providers
+        return migrated
+
 
 def _read_document(path: Path) -> CatalogDocument:
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -45,6 +77,42 @@ def _read_document(path: Path) -> CatalogDocument:
             f"Unsupported model catalog schema: {document.schema_version}",
         )
     return document
+
+
+def _catalog_version_key(value: str) -> tuple[int, ...] | None:
+    """Return a comparable key for dotted numeric catalog versions."""
+    parts = value.split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def _is_current_catalog(candidate: str, baseline: str) -> bool:
+    """Return whether a cache version can overlay the packaged catalog."""
+    candidate_key = _catalog_version_key(candidate)
+    baseline_key = _catalog_version_key(baseline)
+    return (
+        candidate_key is not None
+        and baseline_key is not None
+        and candidate_key >= baseline_key
+    )
+
+
+def _with_output_source(
+    document: CatalogDocument,
+    source: Literal["catalog", "user"],
+) -> dict[str, list[ModelInfo]]:
+    """Attach field-level provenance to explicit output capabilities."""
+    providers: dict[str, list[ModelInfo]] = {}
+    for provider_id, models in document.providers.items():
+        providers[provider_id] = []
+        for model in models:
+            update: dict[str, Any] = {}
+            if model.max_output_length is not None:
+                update["max_output_length_source"] = source
+                update["max_output_length_updated_at"] = document.published_at
+            providers[provider_id].append(model.model_copy(update=update))
+    return providers
 
 
 def _merge_models(
@@ -76,15 +144,31 @@ def load_model_catalog(
     local_path: Path = LOCAL_CATALOG_PATH,
 ) -> dict[str, list[ModelInfo]]:
     """Load packaged, OTA, and local model catalogs in priority order."""
-    catalog = _read_document(packaged_path).providers
-    for overlay_path in (ota_path, local_path):
-        if not overlay_path.is_file():
-            continue
+    packaged = _read_document(packaged_path)
+    catalog = _with_output_source(packaged, "catalog")
+    if ota_path.is_file():
         try:
-            overlay = _read_document(overlay_path)
+            overlay = _read_document(ota_path)
         except (OSError, ValueError, json.JSONDecodeError):
-            continue
-        catalog = _merge_models(catalog, overlay.providers)
+            overlay = None
+        if overlay is not None and _is_current_catalog(
+            overlay.catalog_version,
+            packaged.catalog_version,
+        ):
+            catalog = _merge_models(
+                catalog,
+                _with_output_source(overlay, "catalog"),
+            )
+    if local_path.is_file():
+        try:
+            local = _read_document(local_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            local = None
+        if local is not None:
+            catalog = _merge_models(
+                catalog,
+                _with_output_source(local, "user"),
+            )
     return catalog
 
 
@@ -176,6 +260,7 @@ def update_model_catalog(
     expected_sha256: str | None = None,
     timeout: float = 10,
     destination: Path = OTA_CATALOG_PATH,
+    packaged_path: Path = PACKAGED_CATALOG_PATH,
 ) -> CatalogDocument:
     """Download, verify, validate, and atomically install an OTA catalog."""
     resolved_url = url or EnvVarLoader.get_str(CATALOG_URL_ENV)
@@ -188,6 +273,14 @@ def update_model_catalog(
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",
+        )
+    packaged = _read_document(packaged_path)
+    if not _is_current_catalog(
+        document.catalog_version,
+        packaged.catalog_version,
+    ):
+        raise ValueError(
+            "Model catalog version is older than the packaged catalog",
         )
 
     install_catalog_payload(

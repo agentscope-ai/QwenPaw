@@ -1156,7 +1156,7 @@ async def test_update_model_write_failure_preserves_provider_state(
     provider_path = manager._provider_config_path("openai")
     disk_before = provider_path.read_bytes()
     revision = manager._provider_revision("openai")
-    max_tokens_before = model.max_tokens
+    max_tokens_before = model.generate_kwargs.get("max_tokens")
     new_max_tokens = 1 if max_tokens_before is None else max_tokens_before + 1
 
     def fail_save(*_args, **_kwargs):
@@ -1171,9 +1171,48 @@ async def test_update_model_write_failure_preserves_provider_state(
             {"max_tokens": new_max_tokens},
         )
 
-    assert model.max_tokens == max_tokens_before
+    assert model.generate_kwargs.get("max_tokens") == max_tokens_before
     assert manager._provider_revision("openai") == revision
     assert provider_path.read_bytes() == disk_before
+
+
+def test_load_provider_migrates_legacy_output_limits_once(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    placeholder = provider.models[0]
+    configured = provider.models[1]
+    payload = provider.model_dump(exclude={"models_syncing"})
+
+    for model in payload["models"]:
+        if model["id"] not in {placeholder.id, configured.id}:
+            continue
+        model.pop("max_output_length", None)
+        model.pop("max_output_length_source", None)
+        model.pop("max_output_length_updated_at", None)
+        model["max_tokens"] = 8192
+        if model["id"] == configured.id:
+            model["config_overrides"] = ["max_tokens"]
+
+    provider_path = manager._provider_config_path("openai")
+    provider_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    reloaded = ProviderManager()
+    migrated = reloaded.get_provider("openai")
+    assert migrated is not None
+    assert "max_tokens" not in migrated.get_effective_generate_kwargs(
+        placeholder.id,
+    )
+    assert (
+        migrated.get_effective_generate_kwargs(configured.id)["max_tokens"]
+        == 8192
+    )
+
+    persisted = json.loads(provider_path.read_text(encoding="utf-8"))
+    assert persisted["snapshot_schema_version"] == 2
+    assert all("max_tokens" not in model for model in persisted["models"])
 
 
 async def test_delete_model_write_failure_preserves_provider_state(
@@ -2434,8 +2473,8 @@ async def test_discovery_applies_metadata_to_configured_model(
     provider = manager.get_provider("openai")
     assert provider is not None
     configured = provider.models[0]
-    configured.max_tokens = 1024
-    configured.config_overrides = ["max_tokens"]
+    configured.max_output_length = 1024
+    configured.max_output_length_source = "user"
 
     async def fetch_models(_self, timeout=5):
         _ = timeout
@@ -2444,7 +2483,7 @@ async def test_discovery_applies_metadata_to_configured_model(
                 id=configured.id,
                 name="API Model Name",
                 max_input_length_auto_detected=256_000,
-                max_tokens=32_768,
+                max_output_length=32_768,
                 supports_image=True,
             ),
         ]
@@ -2456,7 +2495,8 @@ async def test_discovery_applies_metadata_to_configured_model(
     assert result.success is True
     assert configured.source == "builtin"
     assert configured.max_input_length_auto_detected == 256_000
-    assert configured.max_tokens == 1024
+    assert configured.max_output_length == 1024
+    assert configured.max_output_length_source == "user"
     assert configured.supports_image is True
     assert provider.get_context_size(configured.id) == 256_000
 
@@ -2473,7 +2513,7 @@ def test_unchanged_model_config_does_not_create_overrides(
         model.id,
         {
             "generate_kwargs": dict(model.generate_kwargs),
-            "max_tokens": model.max_tokens,
+            "max_tokens": model.generate_kwargs.get("max_tokens"),
             "relay_reasoning": model.relay_reasoning,
             "thinking_enabled": model.thinking_enabled,
             "thinking_budget": model.thinking_budget,
@@ -2482,6 +2522,26 @@ def test_unchanged_model_config_does_not_create_overrides(
     )
 
     assert model.config_overrides == []
+
+
+def test_explicit_null_clears_model_request_limit(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    model = provider.models[0]
+    model.generate_kwargs = {
+        "max_tokens": 8192,
+        "temperature": 0.2,
+    }
+
+    assert provider.update_model_config(model.id, {"max_tokens": None})
+
+    assert model.generate_kwargs == {"temperature": 0.2}
+    assert "max_tokens" not in provider.get_effective_generate_kwargs(
+        model.id,
+    )
 
 
 def test_builtin_variants_do_not_share_model_instances(
@@ -2495,10 +2555,10 @@ def test_builtin_variants_do_not_share_model_instances(
     assert international is not None
     assert china.models[0] is not international.models[0]
 
-    original = international.models[0].max_tokens
-    china.models[0].max_tokens = 4096
+    original = international.models[0].max_output_length
+    china.models[0].max_output_length = 4096
 
-    assert international.models[0].max_tokens == original
+    assert international.models[0].max_output_length == original
 
 
 async def test_discovery_preserves_model_config_overrides(
@@ -2515,10 +2575,13 @@ async def test_discovery_preserves_model_config_overrides(
             source="discovered",
         ),
     ]
-    provider.discovered_models[0].max_tokens = 1234
-    provider.discovered_models[0].generate_kwargs = {"temperature": 0.2}
+    provider.discovered_models[0].max_output_length = 1234
+    provider.discovered_models[0].max_output_length_source = "user"
+    provider.discovered_models[0].generate_kwargs = {
+        "temperature": 0.2,
+        "max_tokens": 2048,
+    }
     provider.discovered_models[0].config_overrides = [
-        "max_tokens",
         "generate_kwargs",
     ]
 
@@ -2527,7 +2590,7 @@ async def test_discovery_preserves_model_config_overrides(
             ModelInfo(
                 id="remote-model",
                 name="Updated Remote Model",
-                max_tokens=8192,
+                max_output_length=8192,
                 generate_kwargs={"temperature": 1},
             ),
         ]
@@ -2540,9 +2603,13 @@ async def test_discovery_preserves_model_config_overrides(
     model = provider.get_discovered_model_info("remote-model")
     assert model is not None
     assert model.name == "Updated Remote Model"
-    assert model.max_tokens == 1234
-    assert model.generate_kwargs == {"temperature": 0.2}
-    assert set(model.config_overrides) >= {"max_tokens", "generate_kwargs"}
+    assert model.max_output_length == 1234
+    assert model.max_output_length_source == "user"
+    assert model.generate_kwargs == {
+        "temperature": 0.2,
+        "max_tokens": 2048,
+    }
+    assert set(model.config_overrides) >= {"generate_kwargs"}
 
 
 async def test_activate_provider_invalid_provider_raises(
@@ -3012,8 +3079,8 @@ async def test_remote_catalog_sync_updates_live_manager_state(
     provider.hidden_model_ids = ["hidden-model"]
     provider.removed_model_ids = ["removed-model"]
     existing = provider.models[0]
-    existing.max_tokens = 1234
-    existing.config_overrides = ["max_tokens"]
+    existing.max_output_length = 1234
+    existing.max_output_length_source = "user"
 
     monkeypatch.setattr(
         provider_manager_module.EnvVarLoader,
@@ -3037,7 +3104,7 @@ async def test_remote_catalog_sync_updates_live_manager_state(
                 ModelInfo(
                     id=existing.id,
                     name="Updated Name",
-                    max_tokens=9999,
+                    max_output_length=9999,
                 ),
                 ModelInfo(id="ota-model", name="OTA Model"),
             ],
@@ -3052,7 +3119,9 @@ async def test_remote_catalog_sync_updates_live_manager_state(
     assert provider.hidden_model_ids == ["hidden-model"]
     assert provider.removed_model_ids == ["removed-model"]
     assert provider.get_model_info(existing.id).name == "Updated Name"
-    assert provider.get_model_info(existing.id).max_tokens == 1234
+    refreshed = provider.get_model_info(existing.id)
+    assert refreshed is not None
+    assert refreshed.max_output_length == 1234
     assert provider.get_model_info("ota-model") is not None
 
 
@@ -3355,7 +3424,8 @@ async def test_add_discovered_model_copies_catalog_metadata(
             name="Remote Candidate",
             source="discovered",
             max_input_length_auto_detected=256_000,
-            max_tokens=16_384,
+            max_output_length=16_384,
+            max_output_length_source="api",
             is_free=True,
         ),
     ]
@@ -3369,7 +3439,8 @@ async def test_add_discovered_model_copies_catalog_metadata(
     added = next(m for m in info.extra_models if m.id == "remote-candidate")
     assert added.source == "user"
     assert added.max_input_length_auto_detected == 256_000
-    assert added.max_tokens == 16_384
+    assert added.max_output_length == 16_384
+    assert added.max_output_length_source == "api"
     assert added.is_free is True
 
 

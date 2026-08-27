@@ -212,7 +212,7 @@ def test_model_config_persists_generation_settings(
     assert resp.status_code == 200, resp.text
 
     entry = _models_of(app_server, provider)["base-model"]
-    assert entry["max_tokens"] == 4096, entry
+    assert entry["generate_kwargs"]["max_tokens"] == 4096, entry
     assert entry["max_input_length"] == 32768, entry
     assert entry["generate_kwargs"].get("temperature") == 0.25, entry
     assert entry["relay_reasoning"] is True, entry

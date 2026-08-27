@@ -6,9 +6,13 @@ from typing import Any
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo
 
+PROVIDER_SNAPSHOT_SCHEMA_VERSION = 2
+
 PERSISTED_MODEL_STATE_FIELDS = (
     "generate_kwargs",
-    "max_tokens",
+    "max_output_length",
+    "max_output_length_source",
+    "max_output_length_updated_at",
     "max_input_length",
     "max_input_length_configured",
     "max_input_length_auto_detected",
@@ -31,6 +35,75 @@ PERSISTED_MODEL_STATE_FIELDS = (
 )
 
 
+def _migrate_legacy_model_output_limit(
+    model: dict[str, Any],
+    *,
+    api_discovered: bool,
+    discovered_at: str | None,
+) -> None:
+    """Move a v1 output limit to capability or request configuration."""
+    legacy_limit = model.pop("max_tokens", None)
+    overrides = list(model.get("config_overrides") or [])
+    user_override = "max_tokens" in overrides
+
+    if user_override:
+        overrides = [field for field in overrides if field != "max_tokens"]
+        if "generate_kwargs" not in overrides:
+            overrides.append("generate_kwargs")
+        model["config_overrides"] = overrides
+        if legacy_limit is not None:
+            generate_kwargs = dict(model.get("generate_kwargs") or {})
+            generate_kwargs["max_tokens"] = legacy_limit
+            model["generate_kwargs"] = generate_kwargs
+        return
+
+    if legacy_limit is None or "max_output_length" in model:
+        return
+    if api_discovered:
+        model["max_output_length"] = legacy_limit
+        model["max_output_length_source"] = "api"
+        model["max_output_length_updated_at"] = discovered_at
+        return
+
+    # In schema v1, 8192 was injected as an unverified global placeholder.
+    # This numeric check is intentionally confined to the one-time migration.
+    if legacy_limit != 8192:
+        model["max_output_length"] = legacy_limit
+        model["max_output_length_source"] = "catalog"
+
+
+def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
+    """Upgrade a provider snapshot to the current output-limit schema."""
+    version = data.get("snapshot_schema_version", 1)
+    if (
+        isinstance(version, int)
+        and version >= PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    ):
+        return False
+
+    discovered_at = data.get("models_last_synced_at")
+    for collection_name in ("models", "extra_models", "discovered_models"):
+        models = data.get(collection_name)
+        if not isinstance(models, list):
+            continue
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            discovery_origin = model.get("discovery_origin")
+            api_discovered = (
+                collection_name == "discovered_models"
+                or discovery_origin in {"api", "both"}
+            )
+            _migrate_legacy_model_output_limit(
+                model,
+                api_discovered=api_discovered,
+                discovered_at=model.get("discovered_at") or discovered_at,
+            )
+
+    data["snapshot_schema_version"] = PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    return True
+
+
 def serialize_model_state(model: ModelInfo) -> dict[str, Any]:
     """Return the mutable state which must survive a manager restart."""
     state = {
@@ -47,11 +120,17 @@ def restore_model_state(model: ModelInfo, state: dict[str, Any]) -> None:
     if generate_kwargs:
         model.generate_kwargs = generate_kwargs
 
+    output_source = state.get("max_output_length_source")
+    restore_output_capability = output_source in {"api", "adapter", "user"}
     for field in PERSISTED_MODEL_STATE_FIELDS:
         if field in {
             "generate_kwargs",
             "max_input_length_configured",
         }:
+            continue
+        if field.startswith("max_output_length") and not (
+            restore_output_capability
+        ):
             continue
         value = state.get(field)
         if value is not None:
