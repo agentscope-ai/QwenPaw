@@ -1636,7 +1636,7 @@ async def test_up_recalls_queued_message_to_edit():
 
 @pytest.mark.asyncio
 async def test_multiline_prompt_sends_full_text():
-    transport = FakeTransport()
+    transport = QuietTransport()
     app = PawApp(transport)
     async with app.run_test() as pilot:
         await pilot.pause()
