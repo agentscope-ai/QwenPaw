@@ -2,9 +2,9 @@
 """Embedded ReMe application configuration for QwenPaw memory.
 
 ReMe's standalone CLI normally loads YAML such as
-``reme/config/default.yaml`` or ``reme/config/qwenpaw.yaml``.  QwenPaw embeds
-ReMe as an in-process application, so it passes an equivalent configuration
-dict directly to ``reme.application.Application`` / ``reme.reme.ReMe``.
+``reme/config/default.yaml``. QwenPaw embeds ReMe as an in-process application,
+so it passes an equivalent configuration dict directly to
+``reme.application.Application`` / ``reme.reme.ReMe``.
 """
 
 from typing import Any
