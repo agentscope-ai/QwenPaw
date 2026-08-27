@@ -20,16 +20,30 @@ from services.file_agent_runtime import (
     AgentToolCall,
     CallbackAgentChatClient,
     FileCreatorAgentRuntime,
+    FileAgentRuntimeError,
 )
 from services.file_agent_runtime.driver import (
     _ToolArgumentProgressReporter,
+    _live_operation_editing_context,
+    _remove_live_operation_scratch,
+    _require_actionable_takes,
     _specialist_tool_recovery,
     _tool_call_transport_metadata,
 )
+from services.file_agent_runtime import driver as driver_module
 from services.file_agent_runtime.prompts import render_creator_system_prompt
+from services.media_files.live_operation import (
+    LiveOperationError,
+    LiveOperationRun,
+)
+from services.media_files.live_operation import RecordedTake, TakeManifest
 from services.observability import read_trace_records
 from services.project_files.facade import CreatorFileServices
-from services.project_files.models import Project, VisualEntity
+from services.project_files.models import (
+    Project,
+    SourceAssetVersion,
+    VisualEntity,
+)
 from services.project_files.review import ReviewDecisionItem
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.models import (
@@ -239,12 +253,12 @@ def _create_project(tmp_path, *, initial_goal: str | None):
             conversation_id=CONVERSATION_ID,
             initial_goal=initial_goal,
             goal_id=GOAL_ID if initial_goal is not None else None,
-            initial_message_id="message-initial"
-            if initial_goal is not None
-            else None,
-            initial_client_message_id="client-initial"
-            if initial_goal is not None
-            else None,
+            initial_message_id=(
+                "message-initial" if initial_goal is not None else None
+            ),
+            initial_client_message_id=(
+                "client-initial" if initial_goal is not None else None
+            ),
         )
 
     project = Project.new(project_id=PROJECT_ID, name="Initial")
@@ -263,6 +277,308 @@ def _create_project(tmp_path, *, initial_goal: str | None):
     return services, snapshot
 
 
+def test_live_operation_context_gives_edit_director_verified_action_facts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project = Project.new(project_id=PROJECT_ID, name="Tutorial")
+    version = SourceAssetVersion(
+        version_id="asset-version-live-1",
+        logical_asset_id="asset-live-1",
+        name="搜索仓库",
+        file_id="file-live-1",
+        checksum="0" * 64,
+        media_kind="video",
+        media_type="video/mp4",
+        duration_seconds=4.2,
+        created_at=project.created_at,
+        metadata={
+            "sourceKind": "live_operation_take",
+            "manifestFileId": "file-manifest-1",
+        },
+    )
+    project.assets.source_versions_by_id[version.version_id] = version
+    monkeypatch.setattr(
+        driver_module,
+        "read_take_manifest",
+        lambda *_args, **_kwargs: {
+            "video": {"duration_ms": 4200},
+            "facts": [
+                {
+                    "op": "click",
+                    "t_start_ms": 1000,
+                    "t_end_ms": 1200,
+                    "target": 'get_by_role("button", name="Search")',
+                    "location": {
+                        "x": 0.5,
+                        "y": 0.2,
+                        "width": 0.3,
+                        "height": 0.08,
+                    },
+                },
+            ],
+        },
+    )
+
+    context = _live_operation_editing_context(project, tmp_path)
+
+    assert context is not None
+    assert context["schema"] == "creator.live_operation.editing_context"
+    assert context["sourceTakeCount"] == 1
+    take = context["takes"][0]
+    assert take["sourceAssetVersionId"] == version.version_id
+    assert take["durationMs"] == 4200
+    assert take["facts"] == [
+        {
+            "op": "click",
+            "tStartMs": 1000,
+            "tEndMs": 1200,
+            "target": 'get_by_role("button", name="Search")',
+            "sourceLocation": {
+                "x": 0.5,
+                "y": 0.2,
+                "width": 0.3,
+                "height": 0.08,
+            },
+        },
+    ]
+
+    second = version.model_copy(
+        update={
+            "version_id": "asset-version-live-2",
+            "logical_asset_id": "asset-live-2",
+            "file_id": "file-live-2",
+        },
+    )
+    project.assets.source_versions_by_id[second.version_id] = second
+    monkeypatch.setattr(driver_module, "_LIVE_EDIT_CONTEXT_MAX_FACTS", 1)
+    monkeypatch.setattr(driver_module, "_LIVE_EDIT_CONTEXT_MAX_RAW_FACTS", 10)
+    monkeypatch.setattr(
+        driver_module,
+        "read_take_manifest",
+        lambda *_args, **_kwargs: {
+            "video": {"duration_ms": 1000},
+            "facts": [
+                {"op": "click", "t_start_ms": 0, "t_end_ms": 1},
+            ],
+        },
+    )
+    outer_bounded = _live_operation_editing_context(project, tmp_path)
+    assert outer_bounded is not None
+    assert outer_bounded["includedTakeCount"] == 1
+    assert outer_bounded["truncated"] is True
+
+
+def test_repeated_live_operations_in_one_request_use_unique_transactions(
+    tmp_path,
+) -> None:
+    """A model may call browser_use more than once in one message.
+
+    Request identity remains the durable provenance, but each distinct tool
+    invocation needs its own transaction id or the second asset commit is
+    rejected as a replay of the first.
+    """
+    services, _snapshot = _create_project(tmp_path, initial_goal=None)
+    runtime = FileCreatorAgentRuntime(
+        services,
+        poll_interval_seconds=0.01,
+    )
+
+    def screenshot(name: str, color: str) -> LiveOperationRun:
+        path = tmp_path / name
+        Image.new("RGB", (16, 12), color=color).save(path, format="PNG")
+        outcome = LiveOperationRun()
+        outcome.screenshots = [str(path)]
+        return outcome
+
+    first = runtime._publish_live_operation_sync(
+        PROJECT_ID,
+        "same-message",
+        "operation-one",
+        screenshot("one.png", "red"),
+    )
+    second = runtime._publish_live_operation_sync(
+        PROJECT_ID,
+        "same-message",
+        "operation-two",
+        screenshot("two.png", "blue"),
+    )
+
+    assert len(first["screenshots"]) == 1
+    assert len(second["screenshots"]) == 1
+    project = services.projects.read(PROJECT_ID).project
+    assert len(project.assets.source_versions_by_id) == 2
+
+
+def _browser_runtime(tmp_path, monkeypatch, runner):
+    services, _snapshot = _create_project(tmp_path, initial_goal=None)
+    runtime = FileCreatorAgentRuntime(services, poll_interval_seconds=0.01)
+    monkeypatch.setattr(
+        driver_module,
+        "get_live_operation_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(driver_module, "run_browser_code", runner)
+    return services, runtime
+
+
+def test_tool_manifest_gates_live_operation_on_config(monkeypatch):
+    """Disabling live operation must unregister its tools entirely."""
+
+    def _names():
+        return {
+            entry["function"]["name"]
+            for entry in driver_module._creator_agent_tool_manifest()
+        }
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_live_operation_enabled",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_computer_use_enabled",
+        lambda: False,
+    )
+    assert not {"browser_use", "computer_use"} & _names()
+
+    monkeypatch.setattr(
+        driver_module,
+        "get_live_operation_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        driver_module,
+        "get_computer_use_enabled",
+        lambda: True,
+    )
+    assert {"browser_use", "computer_use"} <= _names()
+
+
+def _run_browser_tool(runtime):
+    return asyncio.run(
+        runtime._run_browser_use(
+            request=_record(1),
+            run_id="agent-run-1",
+            arguments={"code": "await Browser.connect()"},
+        ),
+    )
+
+
+def _live_operation_scratch(services):
+    return (
+        services.projects.project_root(PROJECT_ID) / "runtime/live_operation"
+    )
+
+
+def test_browser_operation_scratch_is_removed_after_publication(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def fake_run(code, *, run_root, run_id, **kwargs):
+        del code, kwargs
+        workspace = run_root / "live_operation" / run_id
+        workspace.mkdir(parents=True)
+        screenshot = workspace / "shot.png"
+        Image.new("RGB", (16, 12), color="navy").save(screenshot, format="PNG")
+        outcome = LiveOperationRun()
+        outcome.screenshots = [str(screenshot)]
+        return outcome
+
+    services, runtime = _browser_runtime(tmp_path, monkeypatch, fake_run)
+    response = _run_browser_tool(runtime)
+
+    assert len(response["screenshots"]) == 1
+    assert list(_live_operation_scratch(services).iterdir()) == []
+
+
+def test_browser_observation_without_media_is_not_completion_eligible(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def fake_run(code, *, run_root, run_id, **kwargs):
+        del code, run_root, run_id, kwargs
+        outcome = LiveOperationRun()
+        outcome.output = "two tabs observed"
+        return outcome
+
+    _services, runtime = _browser_runtime(tmp_path, monkeypatch, fake_run)
+    response = _run_browser_tool(runtime)
+
+    assert response["ok"] is True
+    assert response["observationOnly"] is True
+    assert response["completionEligible"] is False
+    assert response["takes"] == []
+    assert response["screenshots"] == []
+    assert "cannot satisfy" in response["issues"][0]
+
+
+def test_browser_operation_scratch_is_removed_after_execution_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def failing_run(code, *, run_root, run_id, **kwargs):
+        del code, kwargs
+        workspace = run_root / "live_operation" / run_id
+        workspace.mkdir(parents=True)
+        (workspace / "partial.mp4").write_bytes(b"partial")
+        raise LiveOperationError("strict locator failure")
+
+    services, runtime = _browser_runtime(tmp_path, monkeypatch, failing_run)
+    with pytest.raises(FileAgentRuntimeError, match="strict locator failure"):
+        _run_browser_tool(runtime)
+
+    assert list(_live_operation_scratch(services).iterdir()) == []
+
+
+def test_live_operation_scratch_cleanup_rejects_escape_and_symlink(
+    tmp_path,
+) -> None:
+    run_root = tmp_path / "runtime"
+    scratch_root = run_root / "live_operation"
+    scratch_root.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+
+    _remove_live_operation_scratch(run_root, "../outside")
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+    redirect = scratch_root / "agent-run-link"
+    redirect.symlink_to(outside, target_is_directory=True)
+    _remove_live_operation_scratch(run_root, redirect.name)
+    assert redirect.is_symlink()
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+    ordinary = scratch_root / "agent-run-safe"
+    ordinary.mkdir()
+    (ordinary / "partial.mp4").write_bytes(b"partial")
+    _remove_live_operation_scratch(run_root, ordinary.name)
+    assert not ordinary.exists()
+
+
+def test_factless_operation_take_is_rejected_before_publication(
+    tmp_path,
+) -> None:
+    video = tmp_path / "factless.mp4"
+    video.write_bytes(b"mp4")
+    manifest = TakeManifest(take_id="take-001", duration_ms=1000)
+    outcome = LiveOperationRun()
+    outcome.takes = [
+        RecordedTake(
+            take_id=manifest.take_id,
+            label="静止等待",
+            video_path=video,
+            manifest=manifest,
+        ),
+    ]
+
+    with pytest.raises(FileAgentRuntimeError, match="0 real actions"):
+        _require_actionable_takes(outcome, tool_name="browser_use")
+
+
 def _edit_client(*, description: str):
     turn = 0
 
@@ -275,6 +591,7 @@ def _edit_client(*, description: str):
             "patch_project",
             "ground_prompt_context",
             "ground_image_objects",
+            "browser_use",
             "elements_at",
             "delegate_to_agent",
         }
@@ -390,8 +707,6 @@ async def _run_to_idle(driver, services, seq: int = 1, *, error: bool = False):
 def _authorization_gate_modes(monkeypatch, *, authorization: str) -> None:
     """Pin the authorization gate; creation pit stops are covered by
     test_creation_checkpoints.py."""
-
-    import services.file_agent_runtime.driver as driver_module
 
     monkeypatch.setattr(
         driver_module,
@@ -592,6 +907,86 @@ def test_specialist_model_turn_has_a_wall_clock_timeout(tmp_path) -> None:
     assert f"model turn exceeded {turn_timeout:g} seconds" in (
         specialist.final_summary_text or ""
     )
+
+
+def test_run_review_feedback_allows_one_successful_repair_delegation(
+    tmp_path,
+) -> None:
+    """One review goal cannot turn into an unbounded paid-media loop."""
+
+    parent_turn = 0
+    specialist_turns = 0
+
+    async def callback(messages, tools):
+        nonlocal parent_turn, specialist_turns
+        names = {item["function"]["name"] for item in tools}
+        if "delegate_to_agent" not in names:
+            specialist_turns += 1
+            return AgentModelTurn(content="[SUCCESS] 修复产物已写入 selected output。")
+        parent_turn += 1
+        if parent_turn <= 2:
+            return _delegate_call(
+                f"delegate-review-{parent_turn}",
+                role="visual_development_agent",
+                target_refs=["asset:hero"],
+                task="修复本轮异步审阅发现并生成一次新产物",
+            )
+        assert (
+            "already has a successful repair delegation"
+            in messages[-1]["content"]
+        )
+        return AgentModelTurn(content="一次修复已完成，等待调度器处理下游。")
+
+    async def scenario():
+        services, _snapshot = _create_project(tmp_path, initial_goal=None)
+        message = services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[
+                {
+                    "type": "text",
+                    "text": "【运行审阅反馈 · 第 1/2 轮】只修复 asset:hero",
+                },
+            ],
+            source="run_review_feedback",
+            channel=MessageChannel.RUNTIME,
+            classification=MessageClassification.MUTATION_INSTRUCTION,
+            metadata={"runReview": {"round": 1}},
+        ).message
+        services.sessions.create_goal(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            root_message_seq=message.message_seq,
+            intent="修复异步审阅发现",
+            goal_id=GOAL_ID,
+        )
+        driver = _driver(services, callback)
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_consumed(services)
+        await driver.wait_until_idle(PROJECT_ID)
+        runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        await driver.stop()
+        repair_state = json.loads(
+            (
+                services.projects.project_root(PROJECT_ID)
+                / "runtime"
+                / "run-review"
+                / "repair-budget"
+                / "state.json"
+            ).read_text(encoding="utf-8"),
+        )
+        return runs, repair_state
+
+    runs, repair_state = asyncio.run(scenario())
+    assert parent_turn == 3
+    assert specialist_turns == 1
+    assert len(runs) == 1
+    assert runs[0].status.value == "SUCCEEDED"
+    assert repair_state["targets"]["asset:hero"]["attempts_started"] == 1
 
 
 def _corrupted_jq_call(*, call_id: str, etag: str) -> AgentToolCall:
@@ -935,8 +1330,6 @@ def test_creator_agent_can_call_ground_prompt_context_tool(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from services.file_agent_runtime import driver as driver_module
-
     image_buffer = io.BytesIO()
     Image.new("RGB", (8, 8), color="blue").save(image_buffer, format="WEBP")
     image_bytes = image_buffer.getvalue()
@@ -1047,8 +1440,6 @@ def test_object_grounding_generated_url_is_scoped_to_current_project(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from services.file_agent_runtime import driver as driver_module
-
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path))
     services, _snapshot = _create_project(tmp_path, initial_goal=None)
     runtime = FileCreatorAgentRuntime(services, poll_interval_seconds=0.01)

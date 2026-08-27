@@ -326,12 +326,16 @@
   [class*="bubble-start"] [class*="markdown"]:not(.x-markdown),
   [class*="bubble-assistant"] [class*="markdown"]:not(.x-markdown),
   [class*="bubble-start"] .x-markdown p,
-  [class*="bubble-start"] .x-markdown li,
-  [class*="bubble-assistant"] .x-markdown p,
-  [class*="bubble-assistant"] .x-markdown li {
+  [class*="bubble-assistant"] .x-markdown p {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: normal;
+  }
+
+  /* Keep Markdown list structure compact while preserving paragraph breaks. */
+  [class*="bubble-start"] .x-markdown li,
+  [class*="bubble-assistant"] .x-markdown li {
+    white-space: normal;
   }
 
   [class*="bubble-start"] .x-markdown pre,

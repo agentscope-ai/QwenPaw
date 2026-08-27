@@ -40,7 +40,7 @@ import logging
 import re
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, List, Mapping, Optional, Sequence
+from typing import Any, Awaitable, Callable, List, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
@@ -633,6 +633,7 @@ class PawApp:
         env: Optional[Mapping[str, str]] = None,
         external_url_env: str | None = None,
         mode_env: str | None = None,
+        on_before_start: Optional[Callable[[], Awaitable[None]]] = None,
         display_name: str | None = None,
         capabilities: Sequence[str] = (),
         required: bool = True,
@@ -652,6 +653,7 @@ class PawApp:
                 env=dict(env or {}),
                 external_url_env=external_url_env,
                 mode_env=mode_env,
+                on_before_start=on_before_start,
             ),
         )
         self._services.append(service)

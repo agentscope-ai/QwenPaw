@@ -11,20 +11,20 @@ from __future__ import annotations
 import asyncio
 import io
 
-import httpx
 from PIL import Image
 import pytest
 
 from models import config as model_config
 from models import video_model
 from models.video_capabilities import (
-    VIDEO_MODE_MATRIX,
     configured_mode_segment,
     derive_video_model_name,
     effective_video_model_name,
     validate_video_mode,
     video_backend_key,
+    video_model_capability_payload,
     video_model_prompt_guidance,
+    video_model_supported_modes,
     video_reference_capability,
 )
 from utils.exceptions import ModelError
@@ -38,23 +38,6 @@ class _FakeResponse:
 
     def json(self) -> dict:
         return {"output": {"task_id": "task-mode-1"}}
-
-
-class _ModelNotExistResponse:
-    """Provider answer when a derived model name has no such model."""
-
-    status_code = 404
-    text = '{"code":"InvalidParameter","message":"Model not exist.","request_id":"req-1"}'
-
-    def raise_for_status(self) -> None:
-        raise httpx.HTTPStatusError(
-            "404",
-            request=httpx.Request("POST", "https://bailian.example"),
-            response=httpx.Response(404, text=self.text),
-        )
-
-    def json(self) -> dict:
-        return {"code": "InvalidParameter", "message": "Model not exist."}
 
 
 class _FakeAsyncClient:
@@ -156,23 +139,23 @@ def test_effective_name_derives_wan_cross_mode_names() -> None:
     )
 
 
-def test_effective_name_keeps_legacy_wan_r2v_behaviour() -> None:
-    # The historical byte-identical contract: an r2v or mode-less configured
-    # name is submitted untouched for the default mode.
+def test_effective_name_derives_official_wan_base_for_r2v() -> None:
     assert (
         effective_video_model_name("wan2.7-r2v", "r2v", "wan") == "wan2.7-r2v"
     )
+    assert effective_video_model_name("wan2.7", "r2v", "wan") == "wan2.7-r2v"
+    # Unknown aliases stay byte-identical and fail closed in mode validation.
     assert (
         effective_video_model_name("wanx-video", "r2v", "wan") == "wanx-video"
     )
     # seedance2 always submits the configured name as-is.
     assert (
         effective_video_model_name(
-            "doubao-seedance-2.0-pro",
+            "doubao-seedance-2-0-260128",
             "r2v",
             "seedance2",
         )
-        == "doubao-seedance-2.0-pro"
+        == "doubao-seedance-2-0-260128"
     )
     # HappyHorse still derives for every mode, including the default.
     assert (
@@ -181,30 +164,113 @@ def test_effective_name_keeps_legacy_wan_r2v_behaviour() -> None:
     )
 
 
+def test_effective_name_derives_suffix_for_bare_wan_family() -> None:
+    # Bare Wan family names (no mode suffix) must derive the mode suffix for
+    # r2v mode, because DashScope only recognizes the full IDs like
+    # "wan2.7-r2v", not the bare "wan2.7".
+    assert effective_video_model_name("wan2.7", "r2v", "wan") == "wan2.7-r2v"
+    assert effective_video_model_name("wan2.6", "r2v", "wan") == "wan2.6-r2v"
+    # t2v/i2v derive from the same capability declaration.
+    assert effective_video_model_name("wan2.7", "t2v", "wan") == "wan2.7-t2v"
+    assert effective_video_model_name("wan2.7", "i2v", "wan") == "wan2.7-i2v"
+    # Names with an existing suffix are not re-derived.
+    assert (
+        effective_video_model_name("wan2.7-r2v", "r2v", "wan") == "wan2.7-r2v"
+    )
+    assert (
+        effective_video_model_name("wan2.7-i2v", "r2v", "wan") == "wan2.7-r2v"
+    )
+    # Opaque names like "wanx-video" keep the historical byte-identical
+    # behaviour (no capability declares them, so nothing derives).
+    assert (
+        effective_video_model_name("wanx-video", "r2v", "wan") == "wanx-video"
+    )
+
+
 # ── capability matrix ────────────────────────────────────────────────────────
 
 
-def test_matrix_matches_the_finalized_plan() -> None:
-    assert VIDEO_MODE_MATRIX["happyhorse"] == {
-        "r2v",
-        "t2v",
-        "i2v",
-        "video_edit",
-    }
-    assert VIDEO_MODE_MATRIX["wan"] == {"r2v", "t2v", "i2v"}
-    # Seedance documents 文生视频/首帧/全模态参考, so t2v/i2v are exposed.
-    assert VIDEO_MODE_MATRIX["seedance2"] == {"r2v", "t2v", "i2v"}
-    assert VIDEO_MODE_MATRIX["veo"] == {"r2v", "t2v", "i2v"}
-    assert VIDEO_MODE_MATRIX["kling"] == {"r2v", "t2v", "i2v"}
-    assert VIDEO_MODE_MATRIX["minimax"] == {"r2v", "t2v", "i2v"}
-    # Vidu serves reference-to-video only on both channels.
-    assert VIDEO_MODE_MATRIX["vidu"] == {"r2v"}
+@pytest.mark.parametrize(
+    ("backend", "model_name", "expected"),
+    [
+        ("wan", "wan2.7", {"r2v", "t2v", "i2v"}),
+        ("wan", "wan3.0-video", {"r2v", "t2v", "i2v"}),
+        ("wan", "happyhorse-1.1", {"r2v", "t2v", "i2v"}),
+        ("seedance2", "doubao-seedance-2-5-260628", {"r2v", "t2v", "i2v"}),
+        ("seedance2", "doubao-seedance-2-0-260128", {"r2v", "t2v", "i2v"}),
+        (
+            "seedance2",
+            "doubao-seedance-2-0-fast-260128",
+            {"r2v", "t2v", "i2v"},
+        ),
+        (
+            "seedance2",
+            "doubao-seedance-2-0-mini-260615",
+            {"r2v", "t2v", "i2v"},
+        ),
+        ("veo", "veo-3.1-generate-preview", {"r2v", "t2v", "i2v"}),
+        ("veo", "veo-3.1-fast-generate-preview", {"r2v", "t2v", "i2v"}),
+        ("veo", "veo-3.1-lite-generate-preview", {"t2v", "i2v"}),
+        ("minimax", "MiniMax-Hailuo-2.3", {"t2v", "i2v"}),
+        ("minimax", "MiniMax-Hailuo-2.3-Fast", {"i2v"}),
+        ("minimax", "MiniMax-Hailuo-02", {"t2v", "i2v"}),
+        ("minimax", "S2V-01", {"r2v"}),
+        ("kling", "kling-3.0-omni", {"r2v", "t2v", "i2v"}),
+        ("kling", "kling-2.6", {"t2v", "i2v"}),
+        ("vidu", "viduq3-mix", {"r2v"}),
+        ("vidu", "viduq3-turbo", {"r2v", "t2v", "i2v"}),
+        ("vidu", "viduq3", {"r2v"}),
+        ("vidu", "viduq2-pro", {"r2v", "i2v"}),
+        ("vidu", "viduq2", {"r2v", "t2v"}),
+    ],
+)
+def test_exact_preset_capability_matrix(backend, model_name, expected) -> None:
+    assert video_model_supported_modes(model_name, backend) == expected
+
+
+def test_hosted_single_model_capabilities_do_not_inherit_provider_union() -> (
+    None
+):
+    assert video_model_supported_modes(
+        "kling/kling-v3-video-generation",
+        "wan",
+    ) == {"t2v", "i2v"}
+    assert video_model_supported_modes(
+        "vidu/viduq3-mix_reference2video",
+        "wan",
+    ) == {"r2v"}
+    unknown = video_model_capability_payload("private-video-gateway", "wan")
+    assert unknown["known"] is False
+    assert unknown["supportedModes"] == []
+
+
+@pytest.mark.parametrize(
+    ("model_name", "wrong_protocol"),
+    [
+        ("kling-3.0-omni", "wan"),
+        ("kling/kling-v3-omni-video-generation", "kling"),
+        ("viduq3-turbo", "wan"),
+        ("vidu/viduq3-mix_reference2video", "vidu"),
+        ("veo-3.1-generate-preview", "wan"),
+        ("doubao-seedance-2-5-260628", "wan"),
+    ],
+)
+def test_model_id_on_the_wrong_protocol_fails_closed(
+    model_name,
+    wrong_protocol,
+) -> None:
+    capability = video_model_capability_payload(
+        model_name,
+        wrong_protocol,
+    )
+    assert capability["known"] is False
+    assert capability["supportedModes"] == []
 
 
 def test_backend_key_detection() -> None:
     assert video_backend_key("happyhorse-1.1-r2v") == "happyhorse"
     assert video_backend_key("wan2.7-r2v") == "wan"
-    assert video_backend_key("doubao-seedance-2.0-pro") == "seedance2"
+    assert video_backend_key("doubao-seedance-2-0-260128") == "seedance2"
     assert video_backend_key("doubao-seedance-2-5-260628") == "seedance2"
     assert video_backend_key("wan2.7-r2v", "seedance2") == "seedance2"
     assert video_backend_key("veo-3.1-generate-preview") == "veo"
@@ -224,7 +290,8 @@ def test_backend_key_detection() -> None:
 
 def test_validate_video_mode_rejects_unsupported_pairs() -> None:
     assert (
-        validate_video_mode("happyhorse", "hh", "video_edit") == "video_edit"
+        validate_video_mode("happyhorse", "happyhorse-1.0", "video_edit")
+        == "video_edit"
     )
     assert validate_video_mode("wan", "wan2.7-r2v", "") == "r2v"
     assert (
@@ -244,7 +311,7 @@ def test_validate_video_mode_rejects_unsupported_pairs() -> None:
 
 def test_happyhorse_video_edit_payload_shape(monkeypatch) -> None:
     captured: dict = {}
-    _bind(monkeypatch, "happyhorse-1.1-r2v", captured)
+    _bind(monkeypatch, "happyhorse-1.0-r2v", captured)
 
     asyncio.run(
         video_model.submit_video_task(
@@ -258,7 +325,7 @@ def test_happyhorse_video_edit_payload_shape(monkeypatch) -> None:
     )
 
     body = captured["body"]
-    assert body["model"] == "happyhorse-1.1-video-edit"
+    assert body["model"] == "happyhorse-1.0-video-edit"
     assert body["input"]["media"] == [
         {"type": "video", "url": "oss://dashscope-instant/source.mp4"},
         {
@@ -309,7 +376,7 @@ def test_i2v_requires_first_frame(monkeypatch) -> None:
 
 
 def test_video_edit_requires_video(monkeypatch) -> None:
-    _bind(monkeypatch, "happyhorse-1.1-r2v")
+    _bind(monkeypatch, "happyhorse-1.0-r2v")
     with pytest.raises(ModelError, match="requires videoRef"):
         asyncio.run(video_model.submit_video_task("prompt", mode="video_edit"))
 
@@ -326,20 +393,13 @@ def test_i2v_first_frame_must_be_an_image(monkeypatch) -> None:
         )
 
 
-def test_derived_model_not_existing_explains_the_family_mismatch(
+def test_happyhorse_11_video_edit_rejected_before_provider(
     monkeypatch,
 ) -> None:
-    """Measured case: happyhorse-1.1 has no -video-edit model upstream."""
-
     captured: dict = {}
-    _bind(
-        monkeypatch,
-        "happyhorse-1.1-r2v",
-        captured,
-        response=_ModelNotExistResponse(),
-    )
+    _bind(monkeypatch, "happyhorse-1.1-r2v", captured)
 
-    with pytest.raises(ModelError, match="happyhorse-1.1-video-edit") as info:
+    with pytest.raises(ModelError, match="不支持 mode=video_edit"):
         asyncio.run(
             video_model.submit_video_task(
                 "把场景改成黄昏",
@@ -348,9 +408,7 @@ def test_derived_model_not_existing_explains_the_family_mismatch(
                 resolution="720P",
             ),
         )
-    message = str(info.value)
-    assert "happyhorse-1.1-r2v" in message
-    assert "creator_video_model.model" in message
+    assert not captured
 
 
 # ── prompt guidance ──────────────────────────────────────────────────────────
@@ -359,16 +417,26 @@ def test_derived_model_not_existing_explains_the_family_mismatch(
 def test_guidance_describes_the_mode_matrix_per_model() -> None:
     happyhorse = video_model_prompt_guidance("happyhorse-1.1-r2v")
     assert "生成模式矩阵" in happyhorse
-    assert "video_edit" in happyhorse
-    assert "只取前 15 秒" in happyhorse
+    assert "不支持的 mode（video_edit）" in happyhorse
     assert "[Image N]" in happyhorse
     assert "1–9 张图片" in happyhorse
+
+    happyhorse_10 = video_model_prompt_guidance("happyhorse-1.0-r2v")
+    assert "video_edit：" in happyhorse_10
+    assert "只取前 15 秒" in happyhorse_10
 
     wan = video_model_prompt_guidance("wan2.7-r2v")
     assert "不支持的 mode（video_edit）" in wan
     assert "[Image N]" not in wan
 
-    seedance = video_model_prompt_guidance("doubao-seedance-2.0-pro")
+    wan3 = video_model_prompt_guidance("wan3.0-video")
+    assert "All-in-One" in wan3
+    assert "图1、图2" in wan3
+    assert "图片最多 10 张" in wan3
+    assert "视频最多 5 个" in wan3
+    assert "2–30 秒" in wan3
+
+    seedance = video_model_prompt_guidance("doubao-seedance-2-0-260128")
     assert "图片最多 9 张" in seedance
     assert "视频最多 3 个" in seedance
     assert "合计最多 12 个" in seedance
@@ -382,7 +450,7 @@ def test_guidance_describes_the_mode_matrix_per_model() -> None:
     assert "4/6/8 秒" in veo
     assert "仅支持 1–3 张图片" in veo
     veo_lite = video_model_prompt_guidance("veo-3.1-lite-generate-preview")
-    assert "官方不支持任何 r2v 参考素材" in veo_lite
+    assert "官方不支持 r2v" in veo_lite
 
     # Kling guidance follows the configured channel's contract.
     kling_bailian = video_model_prompt_guidance(
@@ -550,6 +618,67 @@ def test_wan_submit_body_keeps_prompt_extend(monkeypatch) -> None:
     )
 
     assert captured["body"]["parameters"]["prompt_extend"] is False
+
+
+@pytest.mark.parametrize("mode", ["t2v", "i2v", "r2v"])
+def test_wan3_all_in_one_payload_uses_official_shared_parameters(
+    monkeypatch,
+    mode,
+) -> None:
+    captured: dict = {}
+    _bind(monkeypatch, "wan3.0-video", captured)
+    kwargs = {
+        "mode": mode,
+        "ratio": "adaptive",
+        "duration": 30,
+        "resolution": "480p",
+        "generate_audio": False,
+    }
+    if mode == "i2v":
+        kwargs["first_frame_url"] = "/generated/storyboard.png"
+    elif mode == "r2v":
+        kwargs["reference_image_url_list"] = [
+            "/generated/storyboard.png",
+            "/generated/anchor.png",
+        ]
+
+    asyncio.run(video_model.submit_video_task("镜头缓慢推进", **kwargs))
+
+    body = captured["body"]
+    assert body["model"] == "wan3.0-video"
+    assert body["parameters"] == {
+        "resolution": "480P",
+        "ratio": "adaptive",
+        "watermark": False,
+        "duration": 30,
+        "audio": False,
+        "prompt_extend": True,
+    }
+    assert body["parameters"]["prompt_extend"] is True
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"duration": 31}, "duration must"),
+        ({"resolution": "4K"}, "resolution must"),
+        ({"ratio": "21:9"}, "ratio must"),
+    ],
+)
+def test_wan3_rejects_unsupported_parameters_before_submission(
+    monkeypatch,
+    kwargs,
+    message,
+) -> None:
+    _bind(monkeypatch, "wan3.0-video")
+    with pytest.raises(ModelError, match=message):
+        asyncio.run(
+            video_model.submit_video_task(
+                "prompt",
+                mode="t2v",
+                **kwargs,
+            ),
+        )
 
 
 def test_happyhorse_rejects_video_reference(monkeypatch) -> None:
@@ -736,17 +865,19 @@ def test_wan_reference_media_uses_dashscope_temp_upload(
 
 
 @pytest.mark.parametrize(
-    ("model_name", "expected"),
+    ("model_name", "expected", "duration_budget"),
     [
-        ("happyhorse-1.1-r2v", (9, 0, 9)),
-        ("wan2.7-r2v-2026-06-12", (5, 5, 5)),
-        ("wan2.6-r2v-flash", (5, 3, 5)),
-        ("doubao-seedance-2.0-pro", (9, 3, 12)),
+        ("happyhorse-1.1-r2v", (9, 0, 9), (None, None)),
+        ("wan3.0-video", (10, 5, 15), (15, 30)),
+        ("wan2.7-r2v-2026-06-12", (5, 5, 5), (None, None)),
+        ("wan2.6-r2v-flash", (5, 3, 5), (None, None)),
+        ("doubao-seedance-2-0-260128", (9, 3, 12), (None, None)),
     ],
 )
 def test_video_reference_capabilities_follow_official_model_limits(
     model_name,
     expected,
+    duration_budget,
 ) -> None:
     capability = video_reference_capability(model_name)
 
@@ -756,6 +887,10 @@ def test_video_reference_capabilities_follow_official_model_limits(
         capability.max_reference_videos,
         capability.max_reference_media,
     ) == expected
+    assert (
+        capability.max_reference_video_duration_seconds,
+        capability.max_input_output_duration_seconds,
+    ) == duration_budget
     assert capability.documentation_url.startswith("https://")
 
     # Unknown aliases must stay unknown instead of inheriting Wan guesses.
@@ -780,7 +915,7 @@ def test_video_reference_capabilities_follow_official_model_limits(
             "参考视频最多 3",
         ),
         (
-            "doubao-seedance-2.0-pro",
+            "doubao-seedance-2-0-260128",
             "seedance2",
             [f"https://cdn.test/video-{index}.mp4" for index in range(4)],
             "参考视频最多 3",

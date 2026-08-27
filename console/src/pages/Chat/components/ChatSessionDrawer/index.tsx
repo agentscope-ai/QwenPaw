@@ -20,6 +20,7 @@ import { useRevealActiveChatGroup } from "../../../../hooks/useRevealActiveChatG
 import { useChatGroups } from "../../../../hooks/useChatGroups";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import SessionItem from "../../../../components/SessionItem";
+import { formatSessionTime, pickSessionDisplayTime } from "./sessionTime";
 import SessionGroupHeader from "../../../../components/SessionGroupHeader";
 import SessionDateHeader from "../../../../components/SessionDateHeader";
 import {
@@ -192,9 +193,7 @@ const VirtualRow = React.memo(function VirtualRow({
           variant="drawer"
           sessionId={session.id!}
           name={session.name || "New Chat"}
-          time={formatCreatedAtCached(
-            session.updatedAt ?? session.createdAt ?? null,
-          )}
+          time={formatCreatedAtCached(pickSessionDisplayTime(session))}
           channelKey={channelKey || undefined}
           channelLabel={channelLabel}
           chatStatus={session.status}
@@ -266,20 +265,9 @@ interface ChatSessionDrawerProps {
   embedded?: boolean;
 }
 
-/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
-const formatCreatedAt = (raw: string | null | undefined): string => {
-  if (!raw) return "";
-  const date = new Date(raw);
-  if (isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
-    date.getSeconds(),
-  )}`;
-};
+/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss (sessionTime module) */
 
-/** Simple cache for formatCreatedAt to avoid re-parsing the same timestamp */
+/** Simple cache for formatSessionTime to avoid re-parsing the same timestamp */
 const formatCache = new Map<string, string>();
 const FORMAT_CACHE_MAX = 200;
 
@@ -287,7 +275,7 @@ const formatCreatedAtCached = (raw: string | null | undefined): string => {
   if (!raw) return "";
   const cached = formatCache.get(raw);
   if (cached !== undefined) return cached;
-  const result = formatCreatedAt(raw);
+  const result = formatSessionTime(raw);
   if (formatCache.size >= FORMAT_CACHE_MAX) {
     // Evict oldest entry
     const firstKey = formatCache.keys().next().value;
@@ -417,8 +405,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         const extA = a as ExtendedChatSession;
         const extB = b as ExtendedChatSession;
 
-        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        const aTime = pickSessionDisplayTime(extA) ?? "";
+        const bTime = pickSessionDisplayTime(extB) ?? "";
         if (!aTime && !bTime) return 0;
         if (!aTime) return 1;
         if (!bTime) return -1;

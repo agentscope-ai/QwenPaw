@@ -156,6 +156,19 @@ const capabilities = {
 function mountModal(
   config: ModelConfigData,
   caps: unknown = { default: "qwen3-tts-flash", models: [] },
+  videoCaps: unknown = {
+    provider: "wan",
+    model: "wan2.7-r2v",
+    known: true,
+    supportedModes: ["r2v", "t2v", "i2v"],
+    effectiveModels: {
+      r2v: "wan2.7-r2v",
+      t2v: "wan2.7-t2v",
+      i2v: "wan2.7-i2v",
+    },
+    derivesModeModel: true,
+    documentationUrl: "https://example.test/docs",
+  },
 ) {
   installMockFetch([
     {
@@ -164,6 +177,11 @@ function mountModal(
       response: { json: caps },
     },
     { match: "/models/config", method: "GET", response: { json: config } },
+    {
+      match: "/models/video-capabilities",
+      method: "GET",
+      response: { json: videoCaps },
+    },
     {
       match: "/host-providers",
       method: "GET",
@@ -380,6 +398,13 @@ describe("ModelConfigModal configuration lifecycle", () => {
 });
 
 describe("ModelConfigModal model presets", () => {
+  it("offers Wan3.0 while keeping the legacy Bailian URL as default", () => {
+    const bailian = PRESETS_BY_TYPE.video["DashScope（百炼）"];
+    expect(bailian.models).toContain("wan3.0-video");
+    expect(bailian.models).toContain("wan3.0-video-prime");
+    expect(bailian.base_url).toBe("https://dashscope.aliyuncs.com/api/v1");
+  });
+
   it("offers every preset protocol in its dropdown", () => {
     // A preset the dropdown does not list is unreachable, and a saved
     // protocol outside the list is silently reset on load — which would
@@ -423,7 +448,7 @@ describe("ModelConfigModal model presets", () => {
       return label as HTMLInputElement;
     });
     fireEvent.change(modelInput, {
-      target: { value: "doubao-seedance-2.0-pro" },
+      target: { value: "doubao-seedance-2-0-260128" },
     });
     await waitFor(() => {
       const urlInput = screen
@@ -434,6 +459,35 @@ describe("ModelConfigModal model presets", () => {
         );
       expect(urlInput).toBeTruthy();
     });
+  });
+
+  it("renders exact backend capabilities for a single Vidu model", async () => {
+    const viduConfig: ModelConfigData = {
+      ...presetsBaseConfig,
+      video: {
+        ...presetsBaseConfig.video,
+        protocol: "Vidu（官方）",
+        model_name: "viduq2-pro",
+        base_url: "https://api.vidu.com",
+      },
+    };
+    mountModal(viduConfig, undefined, {
+      provider: "vidu",
+      model: "viduq2-pro",
+      known: true,
+      supportedModes: ["r2v", "i2v"],
+      effectiveModels: { r2v: "viduq2-pro", i2v: "viduq2-pro" },
+      derivesModeModel: false,
+      documentationUrl: "https://platform.vidu.com/docs",
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /媒体生成/ }));
+    fireEvent.click(await screen.findByText("视频生成模型"));
+
+    expect(await screen.findByText("r2v 参考生视频")).toBeInTheDocument();
+    expect(screen.getByText("i2v 图生视频")).toBeInTheDocument();
+    expect(screen.queryByText("t2v 文生视频")).not.toBeInTheDocument();
+    expect(screen.getByText(/单模型能力声明/)).toBeInTheDocument();
   });
 });
 

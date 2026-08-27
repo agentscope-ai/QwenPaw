@@ -173,3 +173,91 @@ describe("useSessionListData cross-agent ownership", () => {
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
   });
 });
+
+// ---------------------------------------------------------------------------
+// switchingSessionId lifecycle — regression for #5354
+// (a stuck switchingSessionId kept the session list in a "switching" state
+// forever, blocking further interaction; the flag must always clear)
+// ---------------------------------------------------------------------------
+describe("useSessionListData switchingSessionId lifecycle (#5354)", () => {
+  const OTHER_CHAT = "44444444-bbbb-4bbb-8bbb-444444444444";
+
+  function renderWithCurrent(currentSessionId: string | undefined) {
+    const onSessionClick = vi.fn();
+    const setSessions = vi.fn();
+    const hook = renderHook(
+      ({ current }: { current: string | undefined }) =>
+        useSessionListData(
+          [makeSession(A_CHAT), makeSession(OTHER_CHAT)],
+          setSessions,
+          {
+            active: false,
+            currentSessionId: current,
+            onSessionClick,
+          },
+        ),
+      { wrapper, initialProps: { current: currentSessionId } },
+    );
+    return { hook, onSessionClick };
+  }
+
+  it("sets switchingSessionId on click and notifies the parent", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const { hook, onSessionClick } = renderWithCurrent(A_CHAT);
+
+    await act(async () => {
+      hook.result.current.handleSessionClick(OTHER_CHAT);
+    });
+
+    expect(hook.result.current.switchingSessionId).toBe(OTHER_CHAT);
+    expect(onSessionClick).toHaveBeenCalledWith(OTHER_CHAT);
+  });
+
+  it("does not enter switching state when clicking the already-active session", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const { hook, onSessionClick } = renderWithCurrent(A_CHAT);
+
+    await act(async () => {
+      hook.result.current.handleSessionClick(A_CHAT);
+    });
+
+    expect(hook.result.current.switchingSessionId).toBeNull();
+    expect(onSessionClick).not.toHaveBeenCalled();
+  });
+
+  it("clears switchingSessionId once currentSessionId settles (normal switch)", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const { hook } = renderWithCurrent(A_CHAT);
+
+    await act(async () => {
+      hook.result.current.handleSessionClick(OTHER_CHAT);
+    });
+    expect(hook.result.current.switchingSessionId).toBe(OTHER_CHAT);
+
+    // Navigation completed → URL/session id updated
+    hook.rerender({ current: OTHER_CHAT });
+    await waitFor(() =>
+      expect(hook.result.current.switchingSessionId).toBeNull(),
+    );
+  });
+
+  it("clears switchingSessionId on the sidebar-switch-done event (failure path)", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const { hook } = renderWithCurrent(A_CHAT);
+
+    await act(async () => {
+      hook.result.current.handleSessionClick(OTHER_CHAT);
+    });
+    expect(hook.result.current.switchingSessionId).toBe(OTHER_CHAT);
+
+    // Simple-mode sidebar signals completion via a DOM event even when the
+    // session id never changed (e.g. the switch failed).
+    await act(async () => {
+      window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+    });
+
+    await waitFor(() =>
+      expect(hook.result.current.switchingSessionId).toBeNull(),
+    );
+  });
+});

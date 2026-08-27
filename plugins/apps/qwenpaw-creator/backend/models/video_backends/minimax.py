@@ -19,9 +19,10 @@ Documented request fields used here: ``model``, ``prompt`` (<=2000
 characters), ``duration``, ``resolution``, ``first_frame_image``
 (image-to-video; URL or ``data:image/...;base64,`` data URL) and
 ``subject_reference`` (S2V-01 only: one character subject carrying
-exactly one image). Duration/resolution combinations follow the official
-matrix: Hailuo models render 768P at 6 or 10 seconds and 1080P at 6
-seconds only; the 01-generation models render 720P at 6 seconds.
+exactly one image; its request omits duration/resolution).
+Duration/resolution combinations follow the official matrix: Hailuo
+models render 768P at 6 or 10 seconds and 1080P at 6 seconds only; the
+01-generation models render 720P at 6 seconds.
 """
 
 from __future__ import annotations
@@ -30,9 +31,11 @@ import httpx
 
 from models.video_capabilities import (
     MINIMAX_HAILUO_RESOLUTIONS,
+    MINIMAX_HAILUO_02_RESOLUTIONS,
     MINIMAX_LEGACY_RESOLUTIONS,
     MINIMAX_MAX_PROMPT_CHARS,
     MINIMAX_SUBJECT_REFERENCE_MODEL,
+    validate_video_mode,
 )
 from utils.exceptions import ModelError
 from utils.logger import setup_logger
@@ -52,6 +55,8 @@ def _is_hailuo(model_name: str) -> bool:
 
 
 def _resolution_matrix(model_name: str) -> dict[str, tuple[int, ...]]:
+    if model_name.strip().casefold() == "minimax-hailuo-02":
+        return MINIMAX_HAILUO_02_RESOLUTIONS
     if _is_hailuo(model_name):
         return MINIMAX_HAILUO_RESOLUTIONS
     return MINIMAX_LEGACY_RESOLUTIONS
@@ -95,6 +100,11 @@ def build_submit_request(
 ) -> tuple[str, dict, dict]:
     """Render the video_generation submit request for one MiniMax task."""
 
+    try:
+        normalized_mode = validate_video_mode("minimax", model_name, mode)
+    except ValueError as exc:
+        raise ModelError(str(exc), model_name=model_name) from exc
+
     if len(prompt) > MINIMAX_MAX_PROMPT_CHARS:
         raise ModelError(
             f"MiniMax prompts must stay within {MINIMAX_MAX_PROMPT_CHARS} "
@@ -108,28 +118,35 @@ def build_submit_request(
         (item for item in media if item.get("type") == "first_frame"),
         None,
     )
-    if mode == "r2v" and model_name.strip().casefold() != (
-        MINIMAX_SUBJECT_REFERENCE_MODEL.casefold()
-    ):
-        raise ModelError(
-            "MiniMax subject reference (r2v) is only served by "
-            f"{MINIMAX_SUBJECT_REFERENCE_MODEL}; the configured model "
-            f"`{model_name}` supports t2v/i2v only",
-            model_name=model_name,
-        )
     body: dict = {
         "model": model_name,
         "prompt": prompt,
-        "duration": duration,
-        "resolution": _validated_resolution_duration(
-            resolution,
-            duration,
-            model_name,
-        ),
     }
-    if mode == "i2v" and first_frame is not None:
+    if normalized_mode != "r2v":
+        body.update(
+            {
+                "duration": duration,
+                "resolution": _validated_resolution_duration(
+                    resolution,
+                    duration,
+                    model_name,
+                ),
+            },
+        )
+    if normalized_mode == "i2v":
+        if first_frame is None:
+            raise ModelError(
+                "MiniMax i2v requires exactly one first-frame image",
+                model_name=model_name,
+            )
         body["first_frame_image"] = first_frame["url"]
-    if mode == "r2v":
+    if normalized_mode == "r2v":
+        if len(reference_items) != 1:
+            raise ModelError(
+                f"{MINIMAX_SUBJECT_REFERENCE_MODEL} requires exactly one "
+                "character reference image",
+                model_name=model_name,
+            )
         # S2V-01: a single "character" subject with exactly one image.
         body["subject_reference"] = [
             {"type": "character", "image": [reference_items[0]["url"]]},

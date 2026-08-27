@@ -117,7 +117,19 @@ def get_image_backend() -> str:
     # Persisted UI config: mirror request_tool_configs()'s protocol→backend rule
     # so background workers select the same provider an in-request call would.
     user_cfg = model_config._get_user_config().get("image", {})
-    logger.info("Image backend user_cfg: %s", user_cfg)
+    if isinstance(user_cfg, dict):
+        configured_host = ""
+        configured_url = str(user_cfg.get("base_url") or "")
+        if configured_url:
+            configured_host = urlsplit(configured_url).hostname or ""
+        logger.info(
+            "Image backend persisted config: enabled=%s protocol=%s "
+            "model=%s host=%s",
+            bool(user_cfg.get("enabled")),
+            user_cfg.get("protocol") or "",
+            user_cfg.get("model_name") or "",
+            configured_host,
+        )
     if isinstance(user_cfg, dict) and user_cfg.get("enabled"):
         protocol = str(user_cfg.get("protocol") or "").casefold()
         protocol_backend = _backend_for_protocol(protocol)

@@ -130,6 +130,36 @@ async def test_external_service_mode_never_starts_process(
 
 
 @pytest.mark.asyncio
+async def test_managed_service_calls_on_before_start_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FIXTURE_MODE", "external")
+    monkeypatch.setenv("FIXTURE_URL", "http://127.0.0.1:9123/")
+    monkeypatch.setattr(service_module, "_health_request", lambda *_: True)
+
+    calls: list[str] = []
+
+    async def hook() -> None:
+        calls.append("hook")
+        monkeypatch.setenv("FIXTURE_FROM_HOOK", "yes")
+
+    service = ManagedService(
+        ManagedServiceSpec(
+            name="fixture",
+            command=("must-not-run",),
+            external_url_env="FIXTURE_URL",
+            mode_env="FIXTURE_MODE",
+            on_before_start=hook,
+        ),
+    )
+
+    await service.start()
+    assert calls == ["hook"]
+    assert service.spec.env.get("FIXTURE_FROM_HOOK") is None
+    await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_managed_service_preserves_non_sdk_braces(
     tmp_path: Path,
 ) -> None:

@@ -154,15 +154,24 @@ class DashScopeImageModel(BaseImageModel):
             model_name=model_name,
             api_key=api_key,
             base_url=base_url,
+            # Async-task transport: the submit returns immediately and
+            # polling holds no connection, so the deadline can be
+            # generous. Field run 2026-08-24: multi-reference qwen-image
+            # renders regularly exceed 4 minutes; a 240s deadline
+            # abandoned still-running paid tasks and every retry paid
+            # for a fresh render. Other image providers keep the 240s
+            # IMAGE_TIMEOUT default on purpose: they hold a synchronous
+            # HTTP connection for the whole render, where a longer
+            # deadline only pins connections on a hung upstream.
             timeout=_configured_int(
                 "timeout",
                 "DASHSCOPE_IMAGE_TIMEOUT",
                 int(
                     os.environ.get(
                         "DASHSCOPE_IMAGE_TIMEOUT",
-                        os.environ.get("IMAGE_TIMEOUT", "240"),
+                        os.environ.get("IMAGE_TIMEOUT", "480"),
                     )
-                    or 240,
+                    or 480,
                 ),
             ),
             concurrency=_configured_int(

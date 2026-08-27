@@ -68,15 +68,33 @@ def build_appeal_system_prompt(stage: str) -> str:
 }}"""
 
 
-def build_scene_check_system_prompt() -> str:
-    """Scene-review reviewer prompt for one generated element video."""
+def build_scene_check_system_prompt(*, include_probes: bool = False) -> str:
+    """Scene-review reviewer prompt for one generated element video.
+
+    ``include_probes`` extends the output contract with the universal
+    defect-bank and plan-faithfulness ET/CT/NA arrays (the question
+    lists themselves arrive in the user turn).
+    """
     checks_block = "\n".join(
         f"- {check.key}（{check.title}）：{check.description}"
         for check in SCENE_REVIEW_CHECKS
     )
     check_keys = ", ".join(check.key for check in SCENE_REVIEW_CHECKS)
+    probe_discipline = ""
+    probe_format = ""
+    if include_probes:
+        probe_discipline = """
+6. 用户消息中若附有【固定缺陷题清单】与【计划忠实度五要素】，逐题/逐要素给出 ET/CT/NA 判定：ET=确认无此缺陷或方向一致；CT=确认存在（必须给出 evidence_timestamp_ms 与一句可执行的 suggestion）；NA=不适用（reason 必须非空，说明为什么不适用）。拿不准时判 ET，不要猜。
+7. 判定中引用的时间戳只能取自证据图列表中存在的时间戳；引用不存在的帧会被程序判为无效。"""
+        probe_format = """,
+  "defect_findings": [
+    {"probe_id": "<题库题目 id>", "verdict": "ET"/"CT"/"NA", "evidence_timestamp_ms": <int 或 null>, "reason": "<NA 必填理由；CT 填「看到了什么」>", "suggestion": "<CT 必填修订指令>"}
+  ],
+  "faithfulness_findings": [
+    {"probe_id": "<要素 key>", "verdict": "ET"/"CT"/"NA", "evidence_timestamp_ms": <int 或 null>, "reason": "<CT 填「计划要求 vs 实际画面」对照；NA 必填理由>", "suggestion": "<CT 必填修订指令>"}
+  ]"""
     return f"""你是一名严苛的场景级视频审阅专家，对一条刚生成的分镜/元素视频按上游 scene-review 六检查做证据化审阅。
-你收到的是按时间顺序抽取的证据帧（首尾帧必在其中）、客观门禁证据块（ffprobe/响度/黑帧）与画面统计数值。六检查定义（保持原义）：
+你收到的是按时间顺序抽取的证据帧（首尾帧必在其中，可能附有程序定位的聚焦帧）、客观门禁证据块（ffprobe/响度/黑帧）、画面统计数值与客观事实提示。六检查定义（保持原义）：
 
 {checks_block}
 
@@ -85,13 +103,13 @@ def build_scene_check_system_prompt() -> str:
 2. devices 检查对照给出的分镜计划上下文：计划声明的画面要素在帧上找不到即不通过。
 3. severity 判据：黑帧/主体错误/首尾帧脏（残留 UI、半截动作）/无法辨认的文字为 major；轻微构图或动感瑕疵为 minor。
 4. 门禁证据块中的 FAIL 行必须体现在 technical 检查的 finding 中，不得忽略。
-5. 这是建议不是门禁：输出只用于驱动下一轮修订，不阻断交付。
+5. 这是建议不是门禁：输出只用于驱动下一轮修订，不阻断交付。客观事实提示仅是事实而非结论，是否构成问题由你结合计划语境判断。{probe_discipline}
 
 输出格式（只输出一个 JSON 对象）：
 {{
   "findings": [
     {{"check_key": "<{check_keys} 各一条>", "passed": true/false, "severity": "minor"/"major", "evidence_timestamp_ms": <int 或 null>, "suggestion": "<修订指令，通过时可为空>"}}
-  ]
+  ]{probe_format}
 }}"""
 
 

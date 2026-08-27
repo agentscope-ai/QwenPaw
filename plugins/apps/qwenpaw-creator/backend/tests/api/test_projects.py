@@ -197,3 +197,42 @@ def test_work_graph_get_dispatch_unknown_and_missing_project(
     assert missing_project.status_code == 404
     body = missing_project.json()
     assert "message" in body.get("error", body)
+
+
+def test_project_routes_translate_store_addressing_failures(
+    app,
+    run_scenario,
+) -> None:
+    """Addressing failures keep their HTTP meaning at every route boundary.
+
+    ProjectNotFound and InvalidProjectId are ProjectStoreError subclasses
+    rather than CreatorError, so without an explicit translation a route
+    either folds them into a 503 storage fault or lets the generic handler
+    report a 500. work-graph translates the malformed id nowhere itself and
+    so covers the global fallback.
+    """
+
+    expected = {
+        "project-nonexistent-12345": (404, "NOT_FOUND"),
+        "a%20b": (400, "BAD_REQUEST"),
+    }
+
+    async def scenario(client):
+        pairs = []
+        for project_id in expected:
+            base = f"/projects/{project_id}"
+            copy_key = {"Idempotency-Key": f"addr-copy-{project_id}"}
+            export_key = {"Idempotency-Key": f"addr-export-{project_id}"}
+            for response in (
+                await client.get(f"{base}/recreate-params"),
+                await client.post(f"{base}/copy", headers=copy_key),
+                await client.get(f"{base}/export", headers=export_key),
+                await client.get(f"{base}/work-graph"),
+            ):
+                pairs.append((project_id, response))
+        return pairs
+
+    for project_id, response in run_scenario(app, scenario):
+        status_code, code = expected[project_id]
+        assert response.status_code == status_code
+        assert response.json()["code"] == code

@@ -157,9 +157,11 @@ def create_server(
                     cfg = load_config()
                 except ConfigError as exc:
                     raise ConfigError(
-                        str(exc) + "\n\n凭据未设置。请向用户询问邮箱地址（如 xxx@163.com 或 "
-                        "xxx@qq.com）和 16 位授权码（不是登录密码），然后调用 "
-                        "set_credentials 工具完成设置。",
+                        str(exc)
+                        + "\n\nCredentials are not configured. Ask the user "
+                        "for their email address (for example, xxx@163.com or "
+                        "xxx@qq.com) and the provider-specific mailbox "
+                        "credential, then call set_credentials.",
                     ) from exc
                 _config_holder[0] = cfg
                 _config_source[0] = "env"
@@ -556,13 +558,15 @@ def create_server(
         provider = PROVIDERS.get(domain)
         if provider is None:
             raise RegistrationError(
-                f"不支持的域名：{domain}，支持的域名为 "
+                f"Unsupported domain: {domain}. Supported domains are "
                 "163.com/126.com/yeah.net/qq.com/foxmail.com",
             )
         if provider.provider_type not in REGISTRATION_SUPPORTED_TYPES:
             raise RegistrationError(
-                f"域名 {domain} 已支持收发邮件，但不支持通过 create_mailbox 进行注册引导。"
-                "请自行在服务商网页完成注册并开启 IMAP/SMTP 服务后，使用 set_credentials 设置凭据。",
+                f"The {domain} domain supports sending and receiving mail, "
+                "but create_mailbox cannot guide its registration. Register "
+                "on the provider's website, enable IMAP/SMTP, and then use "
+                "set_credentials.",
             )
         if username is None:
             username = generate_random_username(domain)
@@ -576,8 +580,10 @@ def create_server(
             "format_errors": format_errors,
             "alternatives": alternatives,
             "username_taken_guidance": (
-                f"如果注册页面提示用户名 {username} 已被占用，请用 alternatives 中的备选名 "
-                f"重新调用 create_mailbox（传入 username=备选名），或直接在注册页面试用备选名。"
+                f"If the registration page says {username} is taken, call "
+                "create_mailbox again with username set to one of the names "
+                "in alternatives, or try an alternative directly on the "
+                "registration page."
             ),
             "manual_actions_required": [
                 "phone_number",
@@ -645,7 +651,10 @@ def create_server(
                 "imap_port": cfg.imap_port,
                 "smtp_host": cfg.smtp_host,
                 "smtp_port": cfg.smtp_port,
-                "next_action": "建议调用 check_auth 验证凭据能否成功登录 IMAP/SMTP",
+                "next_action": (
+                    "Call check_auth to verify that the credentials can log "
+                    "in to both IMAP and SMTP."
+                ),
             }
 
         return await _run_store_operation(_sync)
@@ -664,7 +673,9 @@ def create_server(
             return {
                 "cleared": True,
                 "note": (
-                    "凭据已清除。下次调用邮件工具时将回退到环境变量" "（如已设置），或需重新调用 set_credentials。"
+                    "Runtime credentials were cleared. The next mail tool "
+                    "call will fall back to environment variables if they "
+                    "are set; otherwise, call set_credentials again."
                 ),
             }
 
@@ -777,7 +788,10 @@ def create_server(
                         "threads": local["threads"],
                         "total": local["total"],
                         "note": (
-                            "服务商不支持 IMAP 全文搜索，已降级为本地线程" "主题匹配（仅覆盖已同步邮件头）"
+                            "The provider does not support IMAP full-text "
+                            "search. Results use local thread subject "
+                            "matching and cover only synchronized message "
+                            "headers."
                         ),
                     }
                 for msg in result["messages"]:
@@ -876,9 +890,10 @@ def create_server(
     async def delete_thread(thread_id: str) -> dict:
         """Move every message of a thread into the trash folder.
 
-        The trash folder is auto-detected (Trash / 已删除 / Deleted Messages
-        etc.). Messages already in trash are left untouched. If only some
-        moves succeed, failed messages remain indexed and ``partial`` is true.
+        The trash folder is auto-detected from provider flags and known
+        localized folder names. Messages already in trash are left untouched.
+        If only some moves succeed, failed messages remain indexed and
+        ``partial`` is true.
 
         Args:
             thread_id: Thread id from list_threads or search_threads.
@@ -892,9 +907,9 @@ def create_server(
             trash = special["trash"]
             if not trash:
                 raise ToolError(
-                    "No trash folder found (looked for Trash/已删除/Deleted "
-                    "Messages/Deleted Items/回收站). Use list_folders to inspect "
-                    "folder names.",
+                    "No trash folder was found among the provider's known "
+                    "trash folder names. Use list_folders to inspect the "
+                    "available folders.",
                 )
             moved, errors = [], []
             for m in messages:
@@ -917,11 +932,11 @@ def create_server(
                     )
             if messages and not moved and errors:
                 raise ToolError(
-                    "delete_thread 全部失败："
-                    f"{len(errors)} 封邮件均未能移入回收站。"
-                    f"首个错误: {errors[0]['error']} "
-                    "建议改用 delete_message 逐封删除，"
-                    "或在网页版邮箱手动操作。",
+                    "delete_thread failed: "
+                    f"All {len(errors)} messages failed to move to the trash "
+                    f"folder. First error: {errors[0]['error']}\nTry deleting "
+                    "the messages individually with delete_message or move "
+                    "them manually in webmail.",
                 )
             if errors:
                 # Trash is intentionally excluded from the active thread

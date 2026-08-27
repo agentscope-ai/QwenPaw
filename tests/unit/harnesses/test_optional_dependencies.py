@@ -25,7 +25,7 @@ def test_codex_and_qoder_sdks_are_optional_and_in_full() -> None:
     assert extras["codex"] == ["openai-codex==0.144.4"]
     assert extras["qoder"] == ["qoder-agent-sdk==1.0.9"]
     assert extras["full"] == [
-        "qwenpaw[hub,local,whisper,codex,qoder]",
+        "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
     ]
 
 

@@ -29,18 +29,21 @@ const mapPriority = (text: string): "low" | "normal" | "high" | "urgent" => {
 const stripExecutionTimeText = (text: string): string =>
   text.replace(/\s*duration=\d+ms\.?/gi, "").trim();
 
-const getHeartbeatSummary = (status?: string): string => {
+const getHeartbeatSummary = (
+  status: string | undefined,
+  t: TFunction,
+): string => {
   const normalizedStatus = (status || "").toLowerCase();
   if (normalizedStatus === "success") {
-    return "Heartbeat 执行成功";
+    return t("inbox.heartbeatSuccess");
   }
   if (normalizedStatus === "timeout") {
-    return "Heartbeat 执行超时";
+    return t("inbox.heartbeatTimeout");
   }
   if (normalizedStatus === "cancelled") {
-    return "Heartbeat 已取消";
+    return t("inbox.heartbeatCancelled");
   }
-  return "Heartbeat 执行失败";
+  return t("inbox.heartbeatFailed");
 };
 
 const getSkillAutoSyncSummary = (event: InboxEvent, t: TFunction): string => {
@@ -171,7 +174,7 @@ const mapEventToPushMessage = (
   let title = event.title;
   let content = stripExecutionTimeText(event.body);
   if (event.source_type === "heartbeat") {
-    content = getHeartbeatSummary(event.status);
+    content = getHeartbeatSummary(event.status, t);
   } else if (isBuiltinUpdate) {
     title = t("inbox.skillBuiltinAutoUpdateTitle");
     content = getBuiltinAutoUpdateSummary(event, t);

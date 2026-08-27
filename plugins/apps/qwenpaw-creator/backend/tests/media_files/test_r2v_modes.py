@@ -2,6 +2,7 @@
 # flake8: noqa: E501
 # pylint: disable=unused-argument
 """r2v_generation mode plumbing through the durable execution service."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +18,7 @@ from services.media_files.r2v_execution import (
     VideoModelCapabilityError,
     VideoReferenceBudgetError,
     _assert_r2v_reference_budget,
+    _resolve_reference_versions,
 )
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
@@ -38,7 +40,6 @@ from .conftest import (
     make_r2v_element,
     r2v_project_services,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -109,12 +110,42 @@ def _project_with_image_references(count: int) -> tuple[Project, list[str]]:
     return Project.model_validate(candidate), version_ids
 
 
+def _project_with_video_references(
+    durations: list[float],
+) -> tuple[Project, list[str]]:
+    project = Project.new(project_id="reference-duration", name="Duration")
+    candidate = project.model_dump(mode="json")
+    created_at = project.created_at.isoformat()
+    version_ids = [
+        f"video-reference-{index}" for index in range(len(durations))
+    ]
+    for version_id, duration in zip(version_ids, durations, strict=True):
+        url = f"https://cdn.test/{version_id}.mp4"
+        candidate["assets"]["source_versions_by_id"][version_id] = {
+            "version_id": version_id,
+            "logical_asset_id": f"asset-{version_id}",
+            "name": version_id,
+            "checksum": hashlib.sha256(url.encode()).hexdigest(),
+            "media_kind": "video",
+            "media_type": "video/mp4",
+            "duration_seconds": duration,
+            "created_at": created_at,
+            "metadata": {
+                "sourceKind": "remote_url",
+                "checksumKind": "source_url_sha256",
+                "publicSourceUrl": url,
+            },
+        }
+    return Project.model_validate(candidate), version_ids
+
+
 @pytest.mark.parametrize(
     ("model_name", "backend", "count", "limit"),
     [
         ("wan2.7-r2v", "wan", 6, 5),
+        ("wan3.0-video", "wan", 11, 10),
         ("happyhorse-1.1-r2v", "wan", 10, 9),
-        ("doubao-seedance-2.0-pro", "seedance2", 10, 9),
+        ("doubao-seedance-2-0-260128", "seedance2", 10, 9),
     ],
 )
 def test_execution_rejects_resolved_video_reference_budget(
@@ -162,8 +193,50 @@ def test_execution_fails_closed_for_unknown_video_model(
     assert captured.value.details["knownModelRequired"] is True
 
 
+@pytest.mark.parametrize(
+    ("durations", "output_duration"),
+    [([8.0, 8.0], 10), ([7.0, 8.0], 16)],
+)
+def test_wan3_rejects_reference_video_duration_over_official_limits(
+    monkeypatch,
+    durations,
+    output_duration,
+) -> None:
+    project, version_ids = _project_with_video_references(durations)
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "wan3.0-video",
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: "wan")
+
+    with pytest.raises(
+        VideoReferenceBudgetError,
+        match="VIDEO_REFERENCE_DURATION_EXCEEDED",
+    ):
+        _assert_r2v_reference_budget(
+            project,
+            version_ids,
+            output_duration_seconds=output_duration,
+        )
+
+
+def test_r2v_resolves_reference_video_versions(tmp_path) -> None:
+    project, version_ids = _project_with_video_references([5.0])
+    urls, checksums, provenance, read_set = _resolve_reference_versions(
+        project=project,
+        project_root=tmp_path,
+        version_ids=version_ids,
+    )
+
+    assert urls == ["https://cdn.test/video-reference-0.mp4"]
+    assert len(checksums) == len(provenance) == len(read_set) == 1
+
+
 def _services(tmp_path, monkeypatch, extra_creation=None):
-    elements = [make_r2v_element(ELEMENT_ID, video_prompt="动画，猫从左向右追逐老鼠，动作连续")]
+    elements = [
+        make_r2v_element(ELEMENT_ID, video_prompt="动画，猫从左向右追逐老鼠，动作连续"),
+    ]
     if extra_creation is not None:
         elements.append(
             TimelineElement(
@@ -319,6 +392,88 @@ def _register_tts_audio(services: CreatorFileServices, monkeypatch) -> str:
         ),
     )
     return result.source_asset_version_id
+
+
+def _run_semantic_tts_pair(services, monkeypatch, second_arguments):
+    from models import tts_model
+    from services.media_files.audio_execution import execute_file_tts_command
+
+    syntheses = 0
+
+    async def fake_synthesize(text, **kwargs):
+        nonlocal syntheses
+        syntheses += 1
+        return tts_model.TTSSynthesis(
+            audio_bytes=(
+                b"RIFF\x00\x00\x00\x00WAVE" + bytes([syntheses]) * 2048
+            ),
+            media_type="audio/wav",
+            model="qwen3-tts-flash",
+            voice=kwargs.get("voice") or "Cherry",
+            characters=len(text),
+        )
+
+    monkeypatch.setattr(tts_model, "synthesize", fake_synthesize)
+    first_arguments = {"text": "雨再大，也别让善意错过末班车。"}
+
+    def execute(arguments, key):
+        return asyncio.run(
+            execute_file_tts_command(
+                services,
+                project_id=PROJECT_ID,
+                target_ref=f"element:{ELEMENT_ID}",
+                arguments=arguments,
+                idempotency_key=key,
+            ),
+        )
+
+    first = execute(first_arguments, "tts-first")
+    second = execute(second_arguments, "tts-second")
+    return syntheses, first, second
+
+
+def test_tts_semantic_retry_reuses_audio_across_new_idempotency_key(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A stale agent retry must not make a second billable TTS request."""
+
+    syntheses, first, second = _run_semantic_tts_pair(
+        _services(tmp_path, monkeypatch),
+        monkeypatch,
+        {"text": "雨再大，也别让善意错过末班车。"},
+    )
+
+    assert syntheses == 1
+    assert second.replayed is True
+    assert second.source_asset_version_id == first.source_asset_version_id
+    assert second.project_generation == first.project_generation
+
+
+@pytest.mark.parametrize(
+    "second_arguments",
+    (
+        {"text": "这是另一段旁白。"},
+        {"text": "雨再大，也别让善意错过末班车。", "voice": "Serena"},
+        {"text": "雨再大，也别让善意错过末班车。", "speechRate": 1.25},
+    ),
+)
+def test_tts_semantic_retry_does_not_reuse_a_different_request(
+    tmp_path,
+    monkeypatch,
+    second_arguments,
+) -> None:
+    """Text, voice and rate all belong to the paid synthesis identity."""
+
+    syntheses, first, second = _run_semantic_tts_pair(
+        _services(tmp_path, monkeypatch),
+        monkeypatch,
+        second_arguments,
+    )
+
+    assert syntheses == 2
+    assert second.replayed is False
+    assert second.source_asset_version_id != first.source_asset_version_id
 
 
 def test_s2v_dispatch_consumes_tts_audio_and_character_image(

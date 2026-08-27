@@ -135,6 +135,7 @@ def build_review_user_text(
     audio_profile: AudioProfile,
     video_duration_seconds: float | None,
     plan_context: Mapping[str, Any],
+    objective_facts: Mapping[str, Any] | None = None,
 ) -> str:
     """Compose the user turn text preceding the evidence frame images."""
     frame_lines = [
@@ -166,6 +167,16 @@ def build_review_user_text(
         + json.dumps(edit_plan, ensure_ascii=False),
         "【音频概要（ffmpeg ebur128）】\n"
         + json.dumps(audio_payload, ensure_ascii=False),
+    ]
+    if objective_facts:
+        # Tier-0 objective operators (APE-benchmark port): facts only —
+        # the preamble inside the block repeats the "hints, not verdicts"
+        # framing so the VLM folds them into row reasoning instead of
+        # copying them as findings.
+        from services.run_review.objective import render_facts_block
+
+        sections.append(render_facts_block(objective_facts))
+    sections += [
         "【证据帧时间戳（与随后附上的图片顺序一一对应）】\n" + "\n".join(frame_lines),
         "【八行检查要点】\n"
         + "\n".join(
@@ -173,6 +184,22 @@ def build_review_user_text(
             for dimension in ReviewDimension
         ),
     ]
+    if plan_context.get("live_operation_tutorial"):
+        sections.append(
+            "【真实操作教程专项验收】\n"
+            "- 关键步骤必须出现可辨识的真实动作与结果态，不能只有旁白、标题或静态页面。\n"
+            "- 动作前有总览定位，动作时有同步聚焦，动作后保留足够时间证明结果；"
+            "连续长录屏、无焦点滚动或没有结果证明属于节奏/概念缺陷。\n"
+            "- 标注、字幕和装饰不得覆盖被点击、输入或需要阅读的目标；"
+            "同一时刻只保留一个主焦点，字幕样式应全片统一。\n"
+            "- 聚焦裁切必须保持满画布、无意外黑边；章节变化清楚，开场先给具体收益，"
+            "结尾给出明确收束而不是原始录屏硬停。\n"
+            "- 不能只靠原始录屏、底部黑框字幕、圆环和全片交叉淡化通过审美验收；"
+            "画面应存在背景舞台、真实界面、前景标注三层深度，至少两个场景有非对称构图或产品界面框，"
+            "章节运动方向一致且点击反馈像真实光标动作。\n"
+            "- 超过 10 秒的解说成片应检查音乐床/环境声的明确取舍；有旁白时音乐不能争抢语音，"
+            "只有零散 click/whoosh 不等于完整声音设计。",
+        )
     return "\n\n".join(sections)
 
 
@@ -290,17 +317,35 @@ def parse_review_report(
 
 
 def findings_feedback_payload(report: RenderReviewReport) -> dict[str, Any]:
-    """Structured findings payload injected into the next editing run."""
-    return {
+    """Structured findings payload injected into the next editing run.
+
+    Severity-weighted ordering (APE: major=2.0 / minor=1.0) is an
+    internal mechanism: the agent receives the reasoning entries
+    (evidence + suggestion) sorted most-damaging-first, never a score.
+    Confirmed near-miss challenges ride along; the eight-row findings
+    are always fully preserved (cap, don't erase).
+    """
+    ordered = sorted(
+        report.failed_findings(),
+        key=lambda item: 0 if item.severity == "major" else 1,
+    )
+    payload = {
         "type": "render_review_feedback",
         "video_ref": report.video_ref,
         "round": report.round,
         "max_rounds": MAX_REVIEW_ROUNDS,
         "verdict": report.verdict,
-        "findings": [
-            item.model_dump(mode="json") for item in report.failed_findings()
-        ],
+        "findings": [item.model_dump(mode="json") for item in ordered],
     }
+    confirmed = sorted(
+        report.confirmed_challenges(),
+        key=lambda item: 0 if item.severity == "major" else 1,
+    )
+    if confirmed:
+        payload["challenge_findings"] = [
+            item.model_dump(mode="json") for item in confirmed
+        ]
+    return payload
 
 
 __all__ = [

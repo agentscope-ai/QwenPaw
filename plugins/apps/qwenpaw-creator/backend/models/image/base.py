@@ -446,12 +446,10 @@ def _configured_int(
     )
 
 
-def _mask_key(key: str, prefix: int = 10) -> str:
+def _mask_key(key: str) -> str:
     if not key:
         return "(empty)"
-    if len(key) <= prefix:
-        return key
-    return f"{key[:prefix]}...({len(key)} chars)"
+    return "[redacted]"
 
 
 def _image_api_key(env_name: str, default: str = "") -> str:

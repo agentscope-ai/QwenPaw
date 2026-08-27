@@ -59,6 +59,8 @@ LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
 LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
 LOCAL_MAX_RECONNECT_BACKOFF_SECONDS = 60
 INSTALL_MODE_STATE_FILENAME = "chrome-extension-install.json"
+WINDOWS_MAINTENANCE_BACKUP_SUFFIX = ".qwenpaw-maintenance"
+WINDOWS_MAINTENANCE_STUB_MARKER = "QWENPAW_INSTALL_MAINTENANCE"
 NATIVE_HOST_REPAIR_INSTRUCTION = (
     "Re-run Setup from the Chrome plugin detail page, then reload the Chrome "
     "extension."
@@ -219,6 +221,42 @@ def native_host_launcher_path(
     if (platform or sys.platform) == "win32":
         name += NM_HOST_WIN_SUFFIX
     return qwenpaw_home / "bin" / name
+
+
+def recover_windows_native_host_launcher(
+    *,
+    home: Path | None = None,
+    platform: str | None = None,
+) -> bool:
+    """Recover a launcher left gated by an interrupted Windows installer."""
+    platform = platform or sys.platform
+    if platform != "win32":
+        return False
+
+    qwenpaw_home = _qwenpaw_home(home or Path.home())
+    launcher = native_host_launcher_path(qwenpaw_home, platform=platform)
+    backup = launcher.with_name(
+        launcher.name + WINDOWS_MAINTENANCE_BACKUP_SUFFIX,
+    )
+    if not backup.is_file():
+        return False
+
+    is_gate = False
+    if launcher.is_file():
+        try:
+            is_gate = (
+                WINDOWS_MAINTENANCE_STUB_MARKER.encode("ascii")
+                in launcher.read_bytes()
+            )
+        except OSError:
+            return False
+    if launcher.exists() and not is_gate:
+        backup.unlink()
+        return False
+
+    launcher.unlink(missing_ok=True)
+    backup.replace(launcher)
+    return True
 
 
 class _NoopNativeHostRegistry:
@@ -565,7 +603,14 @@ def _uninstall(
         install_mode_state_path.unlink()
     host = native_host_launcher_path(qwenpaw_home, platform=platform)
     host_impl = qwenpaw_home / "bin" / "qwenpaw-nm-host.py"
-    for path in (host, host_impl):
+    host_paths = [host, host_impl]
+    if platform == "win32":
+        host_paths.append(
+            host.with_name(
+                host.name + WINDOWS_MAINTENANCE_BACKUP_SUFFIX,
+            ),
+        )
+    for path in host_paths:
         if path.exists():
             path.unlink()
     shutil.rmtree(qwenpaw_home / "chrome-extension", ignore_errors=True)
