@@ -84,8 +84,16 @@ class PowerContextMemoryManager(BaseMemoryManager):
         try:
             await client.close()
             return True
-        except Exception:
-            logger.exception("PowerContext close failed")
+        except Exception as exc:
+            logger.warning(
+                "PowerContext close failed: %s",
+                safe_powercontext_exception_summary(
+                    exc,
+                    token=str(
+                        getattr(getattr(client, "config", None), "token", "")
+                    ),
+                ),
+            )
             return False
 
     def get_memory_config(self) -> Any:
@@ -94,6 +102,8 @@ class PowerContextMemoryManager(BaseMemoryManager):
         ).running.powercontext_memory_config
 
     def get_memory_prompt(self) -> str:
+        if self._client is None:
+            return ""
         language = (
             getattr(load_agent_config(self.agent_id), "language", "zh") or "zh"
         )
@@ -104,10 +114,12 @@ class PowerContextMemoryManager(BaseMemoryManager):
         )
 
     def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
+        if self._client is None:
+            return []
         return [self.memory_search, self.memory_remember]
 
     def get_auto_memory_interval(self) -> int:
-        return 1
+        return 1 if self._client is not None else 0
 
     async def auto_memory_search(
         self,

@@ -134,7 +134,8 @@ async def test_default_scope_is_resolved_per_agent(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_default_scope_is_rendered_in_memory_citation(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     def load_config(agent_id):
         del agent_id
@@ -345,12 +346,36 @@ async def test_auto_memory_bounds_multibyte_text_and_excludes_search(tmp_path):
     assert payload.endswith("… [truncated]")
 
 
-def test_unconfigured_backend_is_safe(tmp_path):
+@pytest.mark.asyncio
+async def test_unconfigured_backend_is_inactive(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.agents.memory.powercontext_memory_manager.load_agent_config",
+        lambda agent_id: SimpleNamespace(
+            running=SimpleNamespace(
+                powercontext_memory_config=PowerContextMemoryConfig(),
+            ),
+        ),
+    )
     manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
-    assert {tool.__name__ for tool in manager.list_memory_tools()} == {
-        "memory_search",
-        "memory_remember",
-    }
+    await manager.start()
+
+    assert not manager.list_memory_tools()
+    assert manager.get_memory_prompt() == ""
+    assert manager.get_auto_memory_interval() == 0
+
+
+@pytest.mark.asyncio
+async def test_close_redacts_token_from_client_exception(tmp_path, caplog):
+    token = "pc-secret-token-should-not-leak"
+    manager = PowerContextMemoryManager(str(tmp_path), "agent-1")
+    manager._client = SimpleNamespace(
+        config=SimpleNamespace(token=token),
+        close=AsyncMock(side_effect=RuntimeError(token)),
+    )
+
+    assert await manager.close() is False
+    assert token not in caplog.text
+    assert "<redacted>" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -50,6 +50,22 @@ describe("PowerContextConfigCard", () => {
     await expect(formInstance.validateFields()).rejects.toBeDefined();
   });
 
+  it("requires a valid PowerContext server URL", async () => {
+    renderWithProviders(<PowerContextForm />);
+    formInstance.setFieldsValue({
+      powercontext_memory_config: { base_url: "not-a-url" },
+    });
+    await expect(formInstance.validateFields()).rejects.toBeDefined();
+  });
+
+  it("rejects an empty PowerContext server URL", async () => {
+    renderWithProviders(<PowerContextForm />);
+    formInstance.setFieldsValue({
+      powercontext_memory_config: { base_url: "" },
+    });
+    await expect(formInstance.validateFields()).rejects.toBeDefined();
+  });
+
   it("rejects an injected-context budget outside the server contract", async () => {
     renderWithProviders(<PowerContextForm />);
     formInstance.setFieldsValue({

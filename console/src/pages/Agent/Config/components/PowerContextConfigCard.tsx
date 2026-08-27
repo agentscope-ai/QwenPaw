@@ -17,6 +17,7 @@ export function PowerContextConfigCard() {
       <Form.Item
         name={["powercontext_memory_config", "base_url"]}
         label={t("agentConfig.powercontextConfig.baseUrl", "Server URL")}
+        rules={[{ required: true }, { type: "url" }]}
       >
         <Input placeholder="http://127.0.0.1:8000" />
       </Form.Item>
