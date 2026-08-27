@@ -16,9 +16,9 @@ from datetime import datetime, timezone
 from typing import (
     Any,
     AsyncGenerator,
+    AsyncIterator,
     Awaitable,
     Callable,
-    Coroutine,
     Optional,
 )
 
@@ -254,7 +254,7 @@ class TaskTracker:
         self,
         run_key: str,
         payload: Any,
-        stream_fn: Callable[..., Coroutine],
+        stream_fn: Callable[[Any], AsyncIterator[str]],
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
     ) -> tuple[asyncio.Queue, bool]:

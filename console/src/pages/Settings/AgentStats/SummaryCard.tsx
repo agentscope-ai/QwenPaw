@@ -7,12 +7,18 @@ interface SummaryCardProps {
   value: number | null | undefined;
   label: string;
   tooltip: string;
+  formatValue?: (value: number | null | undefined) => string;
 }
 
-export function SummaryCard({ value, label, tooltip }: SummaryCardProps) {
+export function SummaryCard({
+  value,
+  label,
+  tooltip,
+  formatValue = (current) => formatCompact(current ?? 0),
+}: SummaryCardProps) {
   return (
     <Card className={styles.card}>
-      <div className={styles.cardValue}>{formatCompact(value ?? 0)}</div>
+      <div className={styles.cardValue}>{formatValue(value)}</div>
       <Tooltip title={tooltip} placement="bottom">
         <div className={styles.cardLabel}>{label}</div>
       </Tooltip>

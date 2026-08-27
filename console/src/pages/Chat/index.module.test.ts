@@ -81,3 +81,84 @@ describe("Chat attachment preview styles", () => {
     expect(rule).toMatch(/padding-inline:\s*6px/);
   });
 });
+
+describe("Chat mobile layout styles", () => {
+  it("releases the vendor chat minimum width on narrow viewports", () => {
+    const mobileStart = stylesSource.indexOf(
+      "/* The vendor chat layout keeps a 300px minimum width",
+    );
+    const mobileRule = stylesSource.slice(mobileStart);
+
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    expect(mobileRule).toContain("@media (max-width: 768px)");
+    expect(mobileRule).toContain(".qwenpaw-chat-anywhere-layout");
+    expect(mobileRule).toMatch(/min-width:\s*0\s*!important/);
+    expect(mobileRule).toContain("safe-area-inset-bottom");
+  });
+
+  it("keeps the history panel below the console header", () => {
+    const panelStart = stylesSource.indexOf(".historyPanel {");
+    const panelRule = stylesSource.slice(
+      panelStart,
+      stylesSource.indexOf(".suggestionLabel", panelStart),
+    );
+
+    expect(panelStart).toBeGreaterThanOrEqual(0);
+    expect(panelRule).toMatch(/top:\s*56px/);
+  });
+
+  it("keeps the mobile composer toolbar in two stable columns", () => {
+    const composerStart = stylesSource.indexOf(
+      "/* Mobile composer: keep the input row dominant",
+    );
+    const composerRule = stylesSource.slice(
+      composerStart,
+      stylesSource.indexOf("@media (max-width: 480px)", composerStart),
+    );
+
+    expect(composerStart).toBeGreaterThanOrEqual(0);
+    expect(composerRule).toContain(
+      "grid-template-columns: minmax(0, 1fr) auto",
+    );
+    expect(composerRule).toContain("min-height: 44px");
+    expect(composerRule).toContain("min-width: 44px !important");
+    expect(composerRule).toContain("flex-wrap: nowrap");
+    expect(composerRule).toContain("overflow-x: auto");
+    expect(composerRule).toContain("overflow: visible");
+  });
+
+  it("removes low-priority composer chrome on narrow phones", () => {
+    const narrowStart = stylesSource.indexOf("@media (max-width: 480px)");
+    const narrowRule = stylesSource.slice(
+      narrowStart,
+      stylesSource.indexOf(
+        "/* Mobile composer controls share one quiet visual treatment",
+        narrowStart,
+      ),
+    );
+
+    expect(narrowStart).toBeGreaterThanOrEqual(0);
+    expect(narrowRule).toContain(".senderContextAffix");
+    expect(narrowRule).toMatch(/display:\s*none/);
+  });
+
+  it("uses one quiet icon control treatment across the mobile toolbar", () => {
+    const toolbarStart = stylesSource.indexOf(
+      "/* Mobile composer controls share one quiet visual treatment",
+    );
+    const toolbarRule = stylesSource.slice(toolbarStart);
+
+    expect(toolbarStart).toBeGreaterThanOrEqual(0);
+    expect(toolbarRule).toContain(".mobileComposerControl");
+    expect(toolbarRule).toContain("width: 44px !important");
+    expect(toolbarRule).toContain("height: 44px !important");
+    expect(toolbarRule).toContain("width: 18px");
+    expect(toolbarRule).toContain("border: 0 !important");
+    expect(toolbarRule).toContain("background: transparent !important");
+    expect(toolbarRule).toContain("touch-action: manipulation");
+    expect(toolbarRule).toContain('&[aria-expanded="true"]');
+    expect(toolbarRule).toContain("&:focus-visible");
+    expect(toolbarRule).toContain('&[data-state="running"]');
+    expect(toolbarRule).toContain("var(--ant-color-success)");
+  });
+});

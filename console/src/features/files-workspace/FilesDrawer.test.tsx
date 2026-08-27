@@ -36,11 +36,21 @@ vi.mock("../../api/modules/workspace", () => ({
       content: "hello",
       etag: "etag",
     }),
+    getFileDownloadUrl: vi.fn(
+      (path: string, _root: string) => `/api/files/download/${path}`,
+    ),
+    loadFile: vi.fn().mockResolvedValue({
+      content: "profile content",
+    }),
   },
 }));
 
 vi.mock("./FilesWorkspace", () => ({
   default: () => <div data-testid="files-workspace" />,
+}));
+
+vi.mock("../../utils/downloadFileFromUrl", () => ({
+  downloadFileFromUrl: vi.fn(),
 }));
 
 describe("FilesDrawer", () => {
@@ -188,5 +198,84 @@ describe("FilesDrawer", () => {
     await waitFor(() => {
       expect(drawer.className).not.toContain("drawerResizing");
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Download button — regression for #4670
+  // Clicking the download button in the preview header must trigger the
+  // downloadFileFromUrl helper with the correct URL and filename.
+  // -------------------------------------------------------------------------
+  it("download button triggers downloadFileFromUrl on click (#4670)", async () => {
+    const { downloadFileFromUrl } = await import(
+      "../../utils/downloadFileFromUrl"
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: {
+            source: "workspace",
+            path: "docs/readme.md",
+            root: "project",
+          },
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    const downloadBtn = await screen.findByRole("button", {
+      name: /files\.download|下载/i,
+    });
+    expect(downloadBtn).toBeInTheDocument();
+
+    await user.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(downloadFileFromUrl).toHaveBeenCalledOnce();
+    });
+    // Verify the URL and filename passed to the download helper
+    expect(downloadFileFromUrl).toHaveBeenCalledWith(
+      expect.stringContaining("readme.md"),
+      "readme.md",
+      expect.objectContaining({
+        headers: expect.any(Object),
+      }),
+    );
+  });
+
+  it("does not show download button for profile source (#4670)", async () => {
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: {
+            source: "profile",
+            path: "config.yaml",
+          },
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    // Profile source should not have a download button
+    expect(
+      screen.queryByRole("button", {
+        name: /files\.download|下载/i,
+      }),
+    ).not.toBeInTheDocument();
   });
 });

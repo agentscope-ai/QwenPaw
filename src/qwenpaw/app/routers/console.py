@@ -421,6 +421,23 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
+        queue, is_new_run = await tracker.attach_or_start(
+            chat.id,
+            native_payload,
+            console_channel.stream_one,
+            owner=workspace,
+            on_finished=workspace.chat_manager.mark_chat_finished,
+        )
+        if not is_new_run:
+            await tracker.detach_subscriber(chat.id, queue)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A task is already running for this chat. Wait for it "
+                    "to finish or use a different session_id."
+                ),
+            )
+
         # Title generation is only needed when starting a new run.
         if first_text and chat.name == name:
             asyncio.create_task(
@@ -431,13 +448,6 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
-        queue, _ = await tracker.attach_or_start(
-            chat.id,
-            native_payload,
-            console_channel.stream_one,
-            owner=workspace,
-            on_finished=workspace.chat_manager.mark_chat_finished,
-        )
 
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
@@ -800,7 +810,8 @@ async def _mark_background_fork_failed(
     status_code=200,
     summary="Submit a background chat task",
 )
-async def post_console_chat_task(  # pylint: disable=too-many-statements
+# pylint: disable-next=too-many-statements
+async def post_console_chat_task(
     request_data: dict,
     request: Request,
 ) -> dict:
@@ -870,17 +881,62 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         started_at=time.time(),
     )
     timed_out = False
+    producer_error: Exception | None = None
+    producer_cancelled = False
+    tracker = workspace.task_tracker
 
+    async def _tracked_stream(payload: dict) -> AsyncGenerator[str, None]:
+        """Expose the background run to TaskTracker without hiding failures."""
+        nonlocal producer_cancelled, producer_error
+        try:
+            async for sse_line in console_channel.stream_one(payload):
+                yield sse_line
+        except asyncio.CancelledError:
+            producer_cancelled = True
+            raise
+        except Exception as exc:
+            producer_error = exc
+            raise
+
+    queue, is_new_run = await tracker.attach_or_start(
+        chat.id,
+        native_payload,
+        _tracked_stream,
+        owner=workspace,
+        on_finished=workspace.chat_manager.mark_chat_finished,
+    )
+    if not is_new_run:
+        await tracker.detach_subscriber(chat.id, queue)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A task is already running for this chat. Wait for it to "
+                "finish or use a different session_id."
+            ),
+        )
+
+    # pylint: disable-next=too-many-branches
     async def _run() -> None:
         last_response: Optional[Dict[str, Any]] = None
         finalize_started = False
         try:
-            async for sse_line in console_channel.stream_one(
-                native_payload,
-            ):
+            async for sse_line in tracker.stream_from_queue(queue, chat.id):
                 parsed = _parse_sse_payload(sse_line)
                 if parsed and parsed.get("type") != "turn_usage":
                     last_response = parsed
+
+            # ``stream_from_queue`` intentionally consumes cancellation so an
+            # aborted SSE client does not leak it.  This background consumer,
+            # however, owns the tracked run and must preserve task
+            # cancellation.
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                raise asyncio.CancelledError
+
+            if producer_cancelled:
+                raise asyncio.CancelledError
+            if producer_error is not None:
+                raise producer_error
 
             # Fork subagents: commit dirty worktree so branch tips are
             # mergeable before exposing a completed task result.
@@ -918,6 +974,8 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                     }
                     return
         except asyncio.CancelledError:
+            if is_new_run:
+                await tracker.request_stop(chat.id)
             cancel_error = _background_task_cancel_error(
                 timed_out=timed_out,
                 timeout_seconds=effective_timeout,

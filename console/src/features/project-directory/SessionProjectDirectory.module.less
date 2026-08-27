@@ -116,6 +116,15 @@
   overflow: hidden;
 }
 
+.desktopPopover {
+  z-index: 1100;
+
+  :global(.ant-popover-inner),
+  :global(.ant-popover-content) {
+    max-width: 100%;
+  }
+}
+
 .panelHeading {
   padding: 2px 2px 0;
   display: flex;
@@ -124,6 +133,7 @@
 
   > div {
     min-width: 0;
+    flex: 1;
     display: flex;
     flex-direction: column;
   }
@@ -133,6 +143,12 @@
     font-size: 14px;
     font-weight: 650;
   }
+}
+
+.panelClose {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
 }
 
 /* Bound-directory count, sitting at the end of the title row. */
@@ -603,48 +619,6 @@
       display: none;
     }
   }
-
-  .panel {
-    width: calc(100vw - 24px);
-    max-width: calc(100vw - 72px);
-    max-height: calc(100vh - 20px);
-    gap: 10px;
-  }
-
-  .splitBody {
-    height: auto;
-    min-height: 0;
-    grid-template-columns: minmax(0, 1fr);
-    overflow: auto;
-  }
-
-  /* Same specificity as the session override above, or that 110px floor
-     would win here and the stacked panes could not shrink. */
-  .panelWithList .splitBody {
-    min-height: 0;
-    flex: 1 1 auto;
-  }
-
-  .recentPane {
-    min-height: 145px;
-    max-height: 170px;
-    overflow: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--ant-color-border-secondary);
-  }
-
-  .browserPane {
-    min-height: 190px;
-    max-height: 220px;
-  }
-
-  .actions {
-    :global(.ant-btn-text) {
-      max-width: 65%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  }
 }
 
 /* ── Session scope: bound directory list ──────────────────────────────
@@ -814,4 +788,114 @@
   display: block;
   width: 0;
   height: 0;
+}
+
+.mobileDrawer {
+  .panel {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .panelHeading,
+  .pathInput,
+  .pathChip,
+  .actions {
+    flex: 0 0 auto;
+  }
+
+  .panelHeading {
+    min-height: 44px;
+  }
+
+  .panelClose {
+    margin: -4px -6px -4px 0;
+  }
+
+  .splitBody,
+  .panelWithList .splitBody {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 auto;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .recentPane {
+    min-height: 82px;
+    max-height: 104px;
+    padding: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--ant-color-border-secondary);
+  }
+
+  .browserPane {
+    min-height: 0;
+    padding: 8px;
+  }
+
+  .browserHeading {
+    flex-wrap: wrap;
+  }
+
+  .browserHeading > div:first-child {
+    flex: 1 1 100%;
+  }
+
+  .browserActions {
+    width: 100%;
+    justify-content: space-between;
+
+    :global(.ant-btn) {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .createDirectoryForm {
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+    gap: 8px;
+
+    :global(.ant-btn) {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  .recent,
+  .directories,
+  .boundList {
+    overscroll-behavior: contain;
+  }
+
+  .directories > button:not(:global(.ant-btn)) {
+    min-height: 44px;
+  }
+
+  .boundDirs {
+    flex: 0 0 auto;
+    max-height: 132px;
+  }
+
+  .boundList {
+    min-height: 44px;
+  }
+
+  .boundList li {
+    min-height: 44px;
+  }
+
+  .actions {
+    :global(.ant-btn) {
+      min-height: 44px;
+    }
+
+    :global(.ant-btn-text) {
+      max-width: 65%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
 }

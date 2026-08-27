@@ -8,12 +8,14 @@ const {
   mockBrowseDirs,
   mockCreateDirectory,
   mockGetSessionDirectory,
+  mockUseIsMobile,
   mockListProjects,
   mockSetSessionDirectory,
 } = vi.hoisted(() => ({
   mockBrowseDirs: vi.fn(),
   mockCreateDirectory: vi.fn(),
   mockGetSessionDirectory: vi.fn(),
+  mockUseIsMobile: vi.fn(() => false),
   mockListProjects: vi.fn(),
   mockSetSessionDirectory: vi.fn(),
 }));
@@ -35,6 +37,10 @@ vi.mock("../../api/modules/chatProjectDirectory", () => ({
     getProjectDirs: vi.fn(),
     setProjectDirs: vi.fn(),
   },
+}));
+
+vi.mock("../../hooks/useIsMobile", () => ({
+  useIsMobile: mockUseIsMobile,
 }));
 
 // The single-path picker these tests drive (path field, clear button,
@@ -60,6 +66,7 @@ const projects = [
 describe("SessionProjectDirectory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseIsMobile.mockReturnValue(false);
     mockGetSessionDirectory.mockResolvedValue({
       path: "/projects/agentscope",
       name: "agentscope",
@@ -84,6 +91,59 @@ describe("SessionProjectDirectory", () => {
         name: "projectDirectory.agentTitle",
       }),
     );
+
+  it("renders a single icon trigger in compact mode", async () => {
+    renderWithProviders(
+      <SessionProjectDirectory
+        className="mobile-control"
+        compact
+        scope={scope}
+      />,
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "projectDirectory.agentTitle",
+    });
+    expect(trigger).toHaveClass("mobile-control");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+    expect(trigger).not.toHaveTextContent("agentscope");
+  });
+
+  it("uses a bottom drawer on mobile without a path tooltip", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory compact scope={scope} />);
+
+    const trigger = await screen.findByRole("button", {
+      name: "projectDirectory.agentTitle",
+    });
+    await user.hover(trigger);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: "projectDirectory.agentTitle",
+      }),
+    ).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(
+      document.querySelector(".ant-popover, .qwenpaw-popover"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "common.close",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+    });
+  });
 
   it("shows a removable path chip for a selected recent project", async () => {
     const user = userEvent.setup();

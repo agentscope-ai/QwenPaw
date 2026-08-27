@@ -62,10 +62,19 @@ def _fake_workspace(
     )
 
 
+def _create_monitor(ws):
+    published = []
+    monitor = asyncio.run(
+        create_mail_monitor_service(ws, None, published.append),
+    )
+    return monitor, published
+
+
 def test_monitor_start_seeds_missing_mail_files(tmp_path):
     ws = _fake_workspace("qwenpaw", tmp_path)
-    monitor = asyncio.run(create_mail_monitor_service(ws, None))
+    monitor, published = _create_monitor(ws)
     assert monitor is not None
+    assert published == [monitor]
     triage = tmp_path / "MAIL_TRIAGE.md"
     contacts = tmp_path / "CONTACTS.md"
     assert triage.is_file()
@@ -80,14 +89,14 @@ def test_monitor_start_keeps_existing_files(tmp_path):
     existing = tmp_path / "MAIL_TRIAGE.md"
     existing.write_text("user edited triage tree", encoding="utf-8")
     ws = _fake_workspace("qwenpaw", tmp_path)
-    monitor = asyncio.run(create_mail_monitor_service(ws, None))
+    monitor, _published = _create_monitor(ws)
     assert monitor is not None
     assert existing.read_text(encoding="utf-8") == "user edited triage tree"
 
 
 def test_monitor_start_falls_back_to_en_for_unknown_language(tmp_path):
     ws = _fake_workspace("qwenpaw", tmp_path, language="fr")
-    monitor = asyncio.run(create_mail_monitor_service(ws, None))
+    monitor, _published = _create_monitor(ws)
     assert monitor is not None
     triage = tmp_path / "MAIL_TRIAGE.md"
     assert triage.is_file()
@@ -99,7 +108,8 @@ def test_monitor_start_falls_back_to_en_for_unknown_language(tmp_path):
 
 def test_guarded_backend_does_not_seed_files(tmp_path):
     ws = _fake_workspace("claude_code", tmp_path)
-    monitor = asyncio.run(create_mail_monitor_service(ws, None))
+    monitor, published = _create_monitor(ws)
     assert monitor is None
+    assert not published
     assert not (tmp_path / "MAIL_TRIAGE.md").exists()
     assert not (tmp_path / "CONTACTS.md").exists()

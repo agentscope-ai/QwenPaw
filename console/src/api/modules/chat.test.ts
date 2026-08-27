@@ -189,6 +189,32 @@ describe("chatApi CRUD", () => {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // Signal passthrough — regression for #598
+  // When getChat is called with an AbortSignal, it must be forwarded to the
+  // underlying request so callers can cancel in-flight fetches.
+  // -------------------------------------------------------------------------
+  it("getChat forwards AbortSignal to request (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", { signal: controller.signal });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChat forwards signal together with include_app_owned (#598)", async () => {
+    const controller = new AbortController();
+    await chatApi.getChat("chat-1", {
+      signal: controller.signal,
+      include_app_owned: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?include_app_owned=true",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it("updateChat sends PUT to the correct path", async () => {
     await chatApi.updateChat("chat-1", { name: "New Name" });
     expect(request).toHaveBeenCalledWith(
