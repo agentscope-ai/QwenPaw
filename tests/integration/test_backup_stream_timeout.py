@@ -84,6 +84,7 @@ async def _serve_over_tcp(app: FastAPI) -> AsyncIterator[str]:
 
 
 @pytest.mark.integration
+@pytest.mark.p1
 async def test_backup_sse_idle_timeout_ab(monkeypatch):
     """A loses an idle stream; B survives it with heartbeat bytes."""
     observed_stop_events: list[threading.Event] = []

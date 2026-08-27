@@ -762,6 +762,42 @@ def test_format_background_submission_text_includes_timeout():
     assert "[TIMEOUT: 3600s]" in text
 
 
+def test_submit_agent_chat_task_preserves_conflict_detail(monkeypatch):
+    fake_client = _FakeClient(
+        post_response=_FakeResponse(
+            json_data={
+                "detail": "A task is already running for this chat.",
+            },
+            status_code=409,
+        ),
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "create_agent_api_client",
+        lambda _base_url: fake_client,
+    )
+
+    result = agent_management.submit_agent_chat_task(
+        "http://127.0.0.1:8088",
+        {"session_id": "sid", "input": []},
+        "worker",
+        30,
+    )
+
+    assert result == {
+        "error": "A task is already running for this chat.",
+    }
+
+
+def test_format_background_submission_text_includes_server_error():
+    text = agent_management.format_background_submission_text(
+        {"error": "A task is already running for this chat."},
+        "sid-1",
+    )
+
+    assert text == "ERROR: A task is already running for this chat."
+
+
 async def test_submit_to_agent_string_timeout_reaches_submit(monkeypatch):
     captured: dict = {}
 

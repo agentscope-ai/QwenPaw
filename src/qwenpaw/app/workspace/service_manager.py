@@ -7,10 +7,10 @@ for all workspace services (MemoryManager, ChatManager, etc.).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from dataclasses import dataclass, field
-from functools import partial
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -23,6 +23,7 @@ from typing import (
     Union,
 )
 
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import sanitize_log_value
 
 if TYPE_CHECKING:
@@ -42,7 +43,10 @@ class ServiceDescriptor:
         name: Unique service identifier (e.g., 'memory_manager')
         service_class: Class to instantiate (e.g., MemoryManager)
         init_args: Callable that returns init kwargs for the service
-        post_init: Optional hook called after creation (for setup logic)
+        post_init: Optional hook called after creation (for setup logic).
+            Hooks that create a service before awaiting must call the supplied
+            publisher before that first cancellable await so the manager owns
+            the instance and can clean it up.
         start_method: Name of method to call after creation (e.g., 'start')
         stop_method: Name of method to call during shutdown (e.g., 'stop')
         reusable: Whether this service can be reused across reloads
@@ -61,10 +65,7 @@ class ServiceDescriptor:
     service_class: Optional[Union[type, Callable[["Workspace"], type]]] = None
     init_args: Optional[Callable[[Workspace], dict]] = None
     post_init: Optional[
-        Union[
-            Callable[[Workspace, Any], None],
-            Callable[[Workspace, Any], Awaitable[Any]],
-        ]
+        Callable[[Workspace, Any, Callable[[Any], None]], Any]
     ] = None
     start_method: Optional[str] = None
     stop_method: Optional[str] = None
@@ -146,7 +147,7 @@ class ServiceManager:
         if descriptor.reload_func is not None:
             try:
                 result = descriptor.reload_func(self.workspace, instance)
-                if asyncio.iscoroutine(result):
+                if inspect.isawaitable(result):
                     await result
                 logger.debug(f"Called reload_func for service '{name}'")
             except Exception as e:
@@ -204,9 +205,7 @@ class ServiceManager:
 
             # Start concurrent services in parallel
             if concurrent:
-                await asyncio.gather(
-                    *[self._start_service(desc) for desc in concurrent],
-                )
+                await self._start_concurrent_services(concurrent)
 
             # Start sequential services one by one
             for desc in sequential:
@@ -221,6 +220,34 @@ class ServiceManager:
             f"{sanitize_log_value(self.workspace.agent_id)} "
             f"in {elapsed:.3f}s",
         )
+
+    async def _start_concurrent_services(
+        self,
+        descriptors: List[ServiceDescriptor],
+    ) -> None:
+        """Start a priority group, cancelling siblings on first failure."""
+        tasks = [
+            asyncio.create_task(self._start_service(descriptor))
+            for descriptor in descriptors
+        ]
+        pending = set(tasks)
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                # Keep exception selection deterministic when several starts
+                # finish in the same event-loop iteration.
+                for task in tasks:
+                    if task in done:
+                        task.result()
+        except BaseException:
+            for task in pending:
+                task.cancel()
+            # Await every task so simultaneous failures are retrieved too.
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def _start_service(self, descriptor: ServiceDescriptor) -> None:
         """Start a single service.
@@ -266,13 +293,28 @@ class ServiceManager:
 
         except Exception as e:
             if descriptor.optional:
+                try:
+                    await self._stop_service(
+                        descriptor,
+                        final=True,
+                        preserve_reused=True,
+                    )
+                except Exception as cleanup_error:
+                    descriptor.require_clean_stop = True
+                    logger.warning(
+                        "Failed to clean up optional service '%s'; "
+                        "aborting workspace startup",
+                        name,
+                        exc_info=True,
+                    )
+                    raise cleanup_error from e
+                self.reused_services.discard(name)
+                self.services.pop(name, None)
                 logger.warning(
                     f"Optional service '{name}' failed to start for "
                     f"{sanitize_log_value(self.workspace.agent_id)} "
                     f"(continuing without it): {sanitize_log_value(e)}",
                 )
-                self.reused_services.discard(name)
-                self.services.pop(name, None)
                 return
             logger.exception(
                 f"Failed to start service '{name}' "
@@ -340,13 +382,14 @@ class ServiceManager:
         if descriptor.init_args:
             init_kwargs = descriptor.init_args(self.workspace)
 
-        # Offload synchronous constructor to thread pool to avoid blocking
-        # the event loop during background startup.
-        service = await asyncio.to_thread(
-            partial(service_cls, **init_kwargs),
-        )
-        self.services[descriptor.name] = service
-        return service
+        def create_and_register() -> Any:
+            service = service_cls(**init_kwargs)
+            self.services[descriptor.name] = service
+            return service
+
+        # Register inside the worker before it completes so cancellation can
+        # never leave a successfully constructed service unowned.
+        return await run_sync_io(create_and_register)
 
     async def _run_post_init(
         self,
@@ -367,8 +410,15 @@ class ServiceManager:
         if not descriptor.post_init:
             return service
 
-        result = descriptor.post_init(self.workspace, service)
-        if asyncio.iscoroutine(result):
+        def publish_service(instance: Any) -> None:
+            self.services[name] = instance
+
+        result = descriptor.post_init(
+            self.workspace,
+            service,
+            publish_service,
+        )
+        if inspect.isawaitable(result):
             result = await result
 
         # Capture service from post_init return value or self.services
@@ -405,23 +455,33 @@ class ServiceManager:
         if asyncio.iscoroutinefunction(start_fn):
             await start_fn()
         else:
-            await asyncio.to_thread(start_fn)
+            await run_sync_io(start_fn)
 
         logger.debug(
             f"Service '{descriptor.name}' started for "
             f"{sanitize_log_value(self.workspace.agent_id)}",
         )
 
-    async def stop_all(self, final: bool = False) -> None:
+    async def stop_all(
+        self,
+        final: bool = False,
+        preserve_reused: bool = False,
+    ) -> None:
         """Stop all services in reverse priority order.
 
         Args:
             final: If True, stop ALL services including reusable ones.
                    If False (default), skip reusable services (for reload).
+            preserve_reused: Keep services borrowed from another workspace
+                alive.  This is used when an uncommitted replacement
+                workspace must be discarded: its own services need final
+                cleanup, but entries in ``reused_services`` still belong to
+                the workspace that is serving requests.
 
         Reused services are skipped. Errors are logged while every service is
-        attempted; failures from ``require_clean_stop`` services are then
-        propagated so the workspace cannot commit a false stopped state.
+        attempted; failures from ``require_clean_stop`` services and services
+        whose startup cleanup already failed are then propagated so the
+        workspace cannot commit a false stopped state.
         """
         logger.debug(
             f"Stopping {len(self.services)} services "
@@ -438,7 +498,11 @@ class ServiceManager:
             # Stop all services in this priority group concurrently
             results = await asyncio.gather(
                 *[
-                    self._stop_service(desc, final=final)
+                    self._stop_service(
+                        desc,
+                        final=final,
+                        preserve_reused=preserve_reused,
+                    )
                     for desc in descriptors
                 ],
                 return_exceptions=True,
@@ -465,6 +529,7 @@ class ServiceManager:
         self,
         descriptor: ServiceDescriptor,
         final: bool = False,
+        preserve_reused: bool = False,
     ) -> None:
         """Stop a single service.
 
@@ -472,8 +537,18 @@ class ServiceManager:
             descriptor: Service descriptor
             final: If True, stop service even if reusable.
                    If False, skip reusable services (for reload).
+            preserve_reused: Skip a service borrowed from another workspace,
+                even during final cleanup of this workspace.
         """
         name = descriptor.name
+
+        if preserve_reused and name in self.reused_services:
+            logger.debug(
+                f"Preserved borrowed service '{name}' "
+                "while stopping "
+                f"{sanitize_log_value(self.workspace.agent_id)}",
+            )
+            return
 
         # Skip reusable services UNLESS this is final shutdown
         # (may be transferred to new instance during reload)
@@ -504,7 +579,7 @@ class ServiceManager:
                     if asyncio.iscoroutinefunction(stop_fn):
                         await stop_fn()
                     else:
-                        stop_fn()
+                        await run_sync_io(stop_fn)
                     logger.debug(
                         f"Service '{name}' stopped "
                         f"for {self.workspace.agent_id}",

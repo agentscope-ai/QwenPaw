@@ -1015,12 +1015,14 @@ async def test_extend_kill_allows_tool_past_original_budget():
     """extend_kill must keep a tool alive past its first kill budget."""
     coordinator = ToolCoordinator(offload_on_deadline=False)
     tool_call = _ToolCall(id="call-extend-e2e", name="slow_tool")
+    started = asyncio.Event()
 
     async def next_handler(
         tool_call: _ToolCall,
     ) -> AsyncGenerator[Any, None]:
         from qwenpaw.tool_calls import cancellable_wait
 
+        started.set()
         await cancellable_wait(
             asyncio.sleep(0.25),
             fallback_secs=0.08,
@@ -1029,7 +1031,7 @@ async def test_extend_kill_allows_tool_past_original_budget():
         yield _text_response(tool_call.id, "survived-extend")
 
     async def extend_soon() -> None:
-        await asyncio.sleep(0.04)
+        await started.wait()
         ok = await coordinator.extend_kill_deadline(
             "call-extend-e2e",
             seconds=1.0,
@@ -1086,7 +1088,6 @@ async def test_extend_kill_keeps_chat_style_async_collect_alive():
 
     async def extend_soon() -> None:
         await started.wait()
-        await asyncio.sleep(0.04)
         ok = await coordinator.extend_kill_deadline(
             "call-chat-extend",
             seconds=1.0,

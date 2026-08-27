@@ -293,3 +293,78 @@ describe("TabbedEditor tab context menu", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Project switch — regression for A#82628675 (open files not following project switch)
+// When the user switches projects/agents, the open file list must update
+// to reflect the new project's tabs (or be empty if the new project has
+// no open tabs). The store's clearAgent/clearProjectTabs handles this.
+// ---------------------------------------------------------------------------
+describe("TabbedEditor project switch (A#82628675)", () => {
+  const AGENT_A = "agent:alpha";
+  const AGENT_B = "agent:beta";
+
+  beforeEach(() => {
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [AGENT_A]: [
+          { path: "a1.txt", content: "a1", dirty: false },
+          { path: "a2.txt", content: "a2", dirty: false },
+        ],
+        [AGENT_B]: [{ path: "b1.txt", content: "b1", dirty: false }],
+      },
+      activeTabByAgent: {
+        [AGENT_A]: "a1.txt",
+        [AGENT_B]: "b1.txt",
+      },
+      diffsByAgent: { [AGENT_A]: {}, [AGENT_B]: {} },
+    });
+  });
+
+  it("preserves each agent's tabs independently", () => {
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent[AGENT_A].map((t) => t.path)).toEqual([
+      "a1.txt",
+      "a2.txt",
+    ]);
+    expect(state.tabsByAgent[AGENT_B].map((t) => t.path)).toEqual(["b1.txt"]);
+  });
+
+  it("clears tabs for the switched-away agent when clearAgent is called", () => {
+    useCodingTabsStore.getState().clearAgent(AGENT_A);
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent[AGENT_A]).toEqual([]);
+    expect(state.activeTabByAgent[AGENT_A]).toBe("");
+    // Agent B's tabs should be unaffected
+    expect(state.tabsByAgent[AGENT_B].map((t) => t.path)).toEqual(["b1.txt"]);
+  });
+
+  it("clears project-scoped tabs when clearProjectTabs is called", () => {
+    const projectScope = "session:proj-123";
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        ...useCodingTabsStore.getState().tabsByAgent,
+        [projectScope]: [{ path: "proj.txt", content: "proj", dirty: false }],
+      },
+      activeTabByAgent: {
+        ...useCodingTabsStore.getState().activeTabByAgent,
+        [projectScope]: "proj.txt",
+      },
+    });
+
+    useCodingTabsStore.getState().clearProjectTabs(projectScope);
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent[projectScope]).toEqual([]);
+    expect(state.activeTabByAgent[projectScope]).toBe("");
+  });
+
+  it("switching to a new agent shows that agent's tabs", () => {
+    // Simulate switching from agent A to agent B
+    const agentBTabs = useCodingTabsStore.getState().tabsByAgent[AGENT_B];
+    expect(agentBTabs).toHaveLength(1);
+    expect(agentBTabs[0].path).toBe("b1.txt");
+    expect(useCodingTabsStore.getState().activeTabByAgent[AGENT_B]).toBe(
+      "b1.txt",
+    );
+  });
+});

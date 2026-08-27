@@ -24,6 +24,7 @@ import { useDataAggregation } from "./hooks/useDataAggregation";
 import { lineChartChrome } from "./hooks/lineChartChrome";
 import { useModelTrendConfig } from "./hooks/useModelTrendConfig";
 import { useTokenTypeConfig } from "./hooks/useTokenTypeConfig";
+import { buildByDateRows } from "./tokenUsageRows";
 import styles from "./index.module.less";
 
 function TokenUsagePage() {
@@ -165,22 +166,16 @@ function TokenUsagePage() {
       model: key,
       prompt_tokens: stats.prompt_tokens,
       completion_tokens: stats.completion_tokens,
+      cache_read_tokens: stats.cache_read_tokens,
+      cache_eligible_input_tokens: stats.cache_eligible_input_tokens,
       call_count: stats.call_count,
     }));
   }, [aggregatedData?.by_model]);
 
-  const byDateData = useMemo(() => {
-    if (!aggregatedData?.by_date) return [];
-    return Object.entries(aggregatedData.by_date)
-      .map(([date, stats]) => ({
-        key: date,
-        date,
-        prompt_tokens: stats.prompt_tokens,
-        completion_tokens: stats.completion_tokens,
-        call_count: stats.call_count,
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [aggregatedData?.by_date]);
+  const byDateData = useMemo(
+    () => buildByDateRows(aggregatedData?.by_date),
+    [aggregatedData?.by_date],
+  );
 
   const byAgentData = useMemo(() => {
     if (!aggregatedData?.by_agent) return [];
@@ -199,6 +194,8 @@ function TokenUsagePage() {
           agent,
           prompt_tokens: stats.prompt_tokens,
           completion_tokens: stats.completion_tokens,
+          cache_read_tokens: stats.cache_read_tokens,
+          cache_eligible_input_tokens: stats.cache_eligible_input_tokens,
           call_count: stats.call_count,
         };
       })
@@ -257,9 +254,9 @@ function TokenUsagePage() {
                 totalCalls={aggregatedData.total_calls}
                 totalPromptTokens={aggregatedData.total_prompt_tokens}
                 totalCompletionTokens={aggregatedData.total_completion_tokens}
-                totalTokens={
-                  aggregatedData.total_prompt_tokens +
-                  aggregatedData.total_completion_tokens
+                totalCacheReadTokens={aggregatedData.total_cache_read_tokens}
+                totalCacheEligibleInputTokens={
+                  aggregatedData.total_cache_eligible_input_tokens
                 }
               />
             )}

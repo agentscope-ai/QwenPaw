@@ -4,6 +4,7 @@
 # pylint: disable=redefined-outer-name,unused-import
 # pylint: disable=protected-access,unused-argument
 import asyncio
+import inspect
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -123,6 +124,33 @@ def mock_async_client():
     )
     client.whoami = AsyncMock(return_value=whoami_resp)
     client.sync = AsyncMock(return_value=MagicMock())
+    # Give login a real signature so inspect.signature() works
+    # (MatrixChannel._password_login_kwargs_for_nio uses it to detect
+    # whether the nio version uses 'user' or 'user_id').
+    _fake_login = AsyncMock()
+    _fake_login.__signature__ = inspect.Signature(
+        parameters=[
+            inspect.Parameter(
+                "user",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ),
+            inspect.Parameter(
+                "password",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ),
+            inspect.Parameter(
+                "device_name",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default="",
+            ),
+            inspect.Parameter(
+                "device_id",
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default="",
+            ),
+        ],
+    )
+    client.login = _fake_login
     return client
 
 
@@ -992,7 +1020,7 @@ class TestMatrixChannelLoginRetry:
         matrix_channel.password = "test_password"
         matrix_channel._client = mock_async_client
         matrix_channel._save_auth_state = Mock()
-        mock_async_client.login = AsyncMock(
+        _login_mock = AsyncMock(
             side_effect=[
                 LoginError(message="unknown error"),
                 LoginResponse(
@@ -1002,6 +1030,8 @@ class TestMatrixChannelLoginRetry:
                 ),
             ],
         )
+        _login_mock.__signature__ = mock_async_client.login.__signature__
+        mock_async_client.login = _login_mock
 
         ok = await matrix_channel._login_with_password(
             "@bot:example.com",
@@ -1021,12 +1051,14 @@ class TestMatrixChannelLoginRetry:
         matrix_channel.password = "test_password"
         matrix_channel._client = mock_async_client
         matrix_channel._save_auth_state = Mock()
-        mock_async_client.login = AsyncMock(
+        _login_mock = AsyncMock(
             return_value=LoginError(
                 message="Forbidden",
                 status_code="M_FORBIDDEN",
             ),
         )
+        _login_mock.__signature__ = mock_async_client.login.__signature__
+        mock_async_client.login = _login_mock
 
         ok = await matrix_channel._login_with_password(
             "@bot:example.com",
@@ -1049,7 +1081,9 @@ class TestMatrixChannelLoginRetry:
         mock_transport = MagicMock(status=404)
         err = LoginError(message="unknown error")
         err.transport_response = mock_transport
-        mock_async_client.login = AsyncMock(return_value=err)
+        _login_mock = AsyncMock(return_value=err)
+        _login_mock.__signature__ = mock_async_client.login.__signature__
+        mock_async_client.login = _login_mock
 
         ok = await matrix_channel._login_with_password(
             "@bot:example.com",
