@@ -62,6 +62,7 @@ def _base_config() -> dict[str, Any]:
     watch_suffixes = ["md"]
 
     return {
+        "plugins": ["auto-fin", "daily-paper"],
         "service": {"backend": "http"},
         "jobs": {
             "index_update_loop": {
@@ -550,8 +551,26 @@ def _base_config() -> dict[str, Any]:
                     {"backend": "daily_paper_rank_step"},
                     {"backend": "daily_paper_select_step"},
                     {"backend": "daily_paper_analyze_step"},
-                    {"backend": "daily_paper_digest_step"},
+                    {
+                        "backend": "daily_paper_digest_step",
+                        "job_tools": ["search", "read"],
+                    },
                 ],
+            },
+            # QwenPaw schedules Daily Paper through ServiceCronJob using the
+            # per-agent cron configuration. Override the plugin's fixed 08:00
+            # CronJob so enabling its backends does not run the job twice.
+            "daily_paper_cron": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [],
+            },
+            # Auto Fin is available for explicit execution, but QwenPaw must
+            # not inherit the plugin's fixed daily schedule.
+            "auto_fin_cron": {
+                "backend": "base",
+                "enable_serve": False,
+                "steps": [],
             },
         },
         "components": _base_components(),

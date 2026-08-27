@@ -45,6 +45,7 @@ def test_reme_file_processing_is_limited_to_10_mb() -> None:
 def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
+    assert cfg["plugins"] == ["auto-fin", "daily-paper"]
     assert cfg["resource_dir"] == "resource"
     assert "resource_watch_loop" not in cfg["jobs"]
     assert "auto_resource" not in cfg["jobs"]
@@ -54,8 +55,28 @@ def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():
         {"backend": "daily_paper_rank_step"},
         {"backend": "daily_paper_select_step"},
         {"backend": "daily_paper_analyze_step"},
-        {"backend": "daily_paper_digest_step"},
+        {
+            "backend": "daily_paper_digest_step",
+            "job_tools": ["search", "read"],
+        },
     ]
+    assert cfg["jobs"]["daily_paper_cron"] == {
+        "backend": "base",
+        "enable_serve": False,
+        "steps": [],
+    }
+    assert cfg["jobs"]["auto_fin_cron"] == {
+        "backend": "base",
+        "enable_serve": False,
+        "steps": [],
+    }
+
+
+def test_reme_plugins_reuse_search_job() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert "memory_search" not in cfg["jobs"]
+    assert cfg["jobs"]["search"]["steps"][0]["backend"] == "search_step"
 
 
 def test_status_job_reports_reme_memory_usage() -> None:

@@ -39,10 +39,7 @@ from ...config.config import (
     EmbeddingModelConfig,
     RerankerConfig,
 )
-from ...utils.io_utils import (
-    run_sync_io,
-    unlink_async,
-)
+from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -79,20 +76,8 @@ def _is_successful_noop_inbox_result(name: str, response: Any) -> bool:
     if not isinstance(metadata, dict):
         return False
 
-    if name == "auto_memory":
+    if name in {"auto_memory", "auto_dream"}:
         return metadata.get("modified") is False
-
-    if name == "auto_dream":
-        dream = metadata.get("dream")
-        if not isinstance(dream, dict):
-            return False
-        # Require both fields to be present as empty lists.  This suppresses
-        # only a definitive no-op and avoids hiding results from older ReMe
-        # versions whose metadata contract may be less detailed.
-        return (
-            dream.get("changed_paths") == []
-            and dream.get("deleted_paths") == []
-        )
 
     return False
 
@@ -400,7 +385,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     "default",
                     model=tested_model,
                 )
-                store = await self._reme.update_component(
+                await self._reme.update_component(
                     "embedding_store",
                     "default",
                     enable_cache=config.enable_cache,
@@ -418,22 +403,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 embedding_vector_space_fingerprint(old_config)
                 != embedding_vector_space_fingerprint(config)
             )
-            if vector_space_changed:
-                # LocalEmbeddingStore cache keys only include dimensions, so a
-                # same-dimension model switch must explicitly invalidate it.
-                cache = getattr(store, "_cache", None)
-                if cache is not None:
-                    cache.clear()
-                if hasattr(store, "_key_suffix"):
-                    setattr(
-                        store,
-                        "_key_suffix",
-                        f"|{config.dimensions}".encode(),
-                    )
-                cache_path = getattr(store, "cache_path", None)
-                if cache_path is not None:
-                    await unlink_async(cache_path, missing_ok=True)
-
             if not await self._resume_verified_embedding(
                 rebuild=vector_space_changed,
             ):

@@ -3,7 +3,6 @@
 """Tests for ReMe embedding object hot updates."""
 
 import asyncio
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -52,7 +51,7 @@ def _config(**overrides) -> EmbeddingModelConfig:
     return EmbeddingModelConfig(**values)
 
 
-def _manager(tmp_path: Path, config: EmbeddingModelConfig):
+def _manager(config: EmbeddingModelConfig):
     manager = ReMeLightMemoryManager.__new__(ReMeLightMemoryManager)
     manager._reindex_lock = asyncio.Lock()
     manager._lifecycle_writer_lock = asyncio.Lock()
@@ -67,9 +66,6 @@ def _manager(tmp_path: Path, config: EmbeddingModelConfig):
         max_cache_size=10,
         max_input_length=100,
         max_batch_size=2,
-        _cache={"old": [1, 2, 3]},
-        _key_suffix=b"|3",
-        cache_path=tmp_path / "embedding-cache.npz",
     )
     file_store = SimpleNamespace(resume_embedding=AsyncMock(return_value=True))
     manager._reme = FakeReMe(wrapper, store, file_store)
@@ -80,12 +76,10 @@ def _manager(tmp_path: Path, config: EmbeddingModelConfig):
 
 
 @pytest.mark.asyncio
-async def test_hot_update_reuses_tested_object_without_reindex(
-    tmp_path,
-) -> None:
+async def test_hot_update_reuses_tested_object_without_reindex() -> None:
     old_config = _config(api_key="old")
     new_config = _config(api_key="new", max_input_length=9000)
-    manager, wrapper, store = _manager(tmp_path, old_config)
+    manager, wrapper, store = _manager(old_config)
     tested_model = SimpleNamespace(context_size=old_config.max_input_length)
     manager._tested_embedding = (
         embedding_config_fingerprint(new_config),
@@ -97,7 +91,6 @@ async def test_hot_update_reuses_tested_object_without_reindex(
     assert applied is True
     assert wrapper.model is tested_model
     assert tested_model.context_size == new_config.max_input_length
-    assert store._cache == {"old": [1, 2, 3]}
     assert store.health_check_timeout == new_config.health_check_timeout
     manager._reme.file_store.resume_embedding.assert_awaited_once_with(
         verified=True,
@@ -107,13 +100,10 @@ async def test_hot_update_reuses_tested_object_without_reindex(
 
 
 @pytest.mark.asyncio
-async def test_model_change_invalidates_cache_and_requests_background_rebuild(
-    tmp_path,
-) -> None:
+async def test_model_change_requests_reme_managed_background_rebuild() -> None:
     old_config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, _wrapper, store = _manager(tmp_path, old_config)
-    store.cache_path.write_bytes(b"old cache")
+    manager, _wrapper, _store = _manager(old_config)
     manager._tested_embedding = (
         embedding_config_fingerprint(new_config),
         object(),
@@ -122,8 +112,6 @@ async def test_model_change_invalidates_cache_and_requests_background_rebuild(
     applied = await manager.apply_tested_embedding(new_config)
 
     assert applied is True
-    assert store._cache == {}
-    assert not store.cache_path.exists()
     manager._reme.file_store.resume_embedding.assert_awaited_once_with(
         verified=True,
         rebuild=True,
@@ -132,9 +120,9 @@ async def test_model_change_invalidates_cache_and_requests_background_rebuild(
 
 
 @pytest.mark.asyncio
-async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
+async def test_manual_reindex_clears_persisted_requirement() -> None:
     config = _config()
-    manager, _wrapper, _store = _manager(tmp_path, config)
+    manager, _wrapper, _store = _manager(config)
     profile = AgentProfileConfig(id="bot", name="Bot")
     memory_config = profile.running.reme_light_memory_config
     memory_config.embedding_model_config = config.model_copy(deep=True)
@@ -158,12 +146,10 @@ async def test_manual_reindex_clears_persisted_requirement(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reindex_does_not_clear_a_new_vector_space_requirement(
-    tmp_path,
-) -> None:
+async def test_reindex_does_not_clear_a_new_vector_space_requirement() -> None:
     old_config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, _wrapper, _store = _manager(tmp_path, old_config)
+    manager, _wrapper, _store = _manager(old_config)
     profile = AgentProfileConfig(id="bot", name="Bot")
     memory_config = profile.running.reme_light_memory_config
     memory_config.embedding_model_config = new_config
@@ -185,21 +171,19 @@ async def test_reindex_does_not_clear_a_new_vector_space_requirement(
 
 
 @pytest.mark.asyncio
-async def test_untested_config_falls_back_to_reload(tmp_path) -> None:
+async def test_untested_config_falls_back_to_reload() -> None:
     config = _config()
-    manager, _wrapper, _store = _manager(tmp_path, config)
+    manager, _wrapper, _store = _manager(config)
     manager._tested_embedding = None
 
     assert await manager.apply_tested_embedding(config) is False
 
 
 @pytest.mark.asyncio
-async def test_partial_hot_update_reloads_inside_same_lifecycle_boundary(
-    tmp_path,
-) -> None:
+async def test_partial_hot_update_reloads_with_lifecycle_lock() -> None:
     """Compatibility fallback cannot expose a partially updated generation."""
     config = _config()
-    manager, _wrapper, _store = _manager(tmp_path, config)
+    manager, _wrapper, _store = _manager(config)
     manager._tested_embedding = (
         embedding_config_fingerprint(config),
         object(),
@@ -225,10 +209,10 @@ async def test_partial_hot_update_reloads_inside_same_lifecycle_boundary(
 
 
 @pytest.mark.asyncio
-async def test_embedding_update_waits_for_inflight_reme_job(tmp_path) -> None:
+async def test_embedding_update_waits_for_inflight_reme_job() -> None:
     config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, wrapper, _store = _manager(tmp_path, config)
+    manager, wrapper, _store = _manager(config)
     del manager._run_reme_job
     job_started = asyncio.Event()
     finish_job = asyncio.Event()
@@ -259,12 +243,10 @@ async def test_embedding_update_waits_for_inflight_reme_job(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reindex_and_embedding_update_share_lifecycle_boundary(
-    tmp_path,
-) -> None:
+async def test_reindex_and_embedding_update_share_lifecycle_boundary() -> None:
     config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, _wrapper, _store = _manager(tmp_path, config)
+    manager, _wrapper, _store = _manager(config)
     del manager._run_reme_job
     reindex_started = asyncio.Event()
     finish_reindex = asyncio.Event()
