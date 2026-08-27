@@ -1108,6 +1108,15 @@ class TestTokenRecordingModelWrapper:
     def test_session_cache_usage_uses_latest_persisted_checkpoint(self):
         """Session totals should extend the newest durable checkpoint."""
 
+        class UnreadableMessage:
+            """Fail if aggregation scans before the newest checkpoint."""
+
+            role = "assistant"
+
+            @property
+            def metadata(self):
+                raise AssertionError("scanned before latest checkpoint")
+
         def message(role, usage=None):
             metadata = (
                 {
@@ -1122,14 +1131,7 @@ class TestTokenRecordingModelWrapper:
             return MagicMock(role=role, metadata=metadata)
 
         messages = [
-            message(
-                "assistant",
-                {
-                    "cache_observed": True,
-                    "cache_read_tokens": 20,
-                    "cache_eligible_input_tokens": 100,
-                },
-            ),
+            UnreadableMessage(),
             message(
                 "assistant",
                 {

@@ -80,27 +80,27 @@ def add_session_cache_usage(
     cache_eligible = 0
     cache_observed = False
     current = find_turn_closing_assistant_in_context(messages)
-    for msg in list(messages or []):
+    for msg in reversed(messages or []):
         if msg is current:
             continue
         usage = _message_turn_usage(msg)
         if usage is None:
             continue
         if "session_cache_observed" in usage:
-            cache_read = int(
+            cache_read += int(
                 usage.get("session_cache_read_tokens", 0) or 0,
             )
-            cache_eligible = int(
+            cache_eligible += int(
                 usage.get(
                     "session_cache_eligible_input_tokens",
                     0,
                 )
                 or 0,
             )
-            cache_observed = bool(
+            cache_observed = cache_observed or bool(
                 usage.get("session_cache_observed", False),
             )
-            continue
+            break
         if not usage.get("cache_observed", False):
             continue
         cache_read += int(usage.get("cache_read_tokens", 0) or 0)
@@ -234,7 +234,7 @@ def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
     """Last assistant message after the latest user message."""
     if not messages:
         return None
-    for msg in reversed(list(messages)):
+    for msg in reversed(messages):
         role = getattr(msg, "role", None)
         if role == "user":
             break

@@ -12,6 +12,10 @@ from ..utils.model_response import safe_attr
 from .buffer import _UsageEvent
 from .manager import _usage_agent_id, get_token_usage_manager
 
+# AgentScope does not expose provider cache semantics through a public
+# capability API. These prefixes therefore depend on its concrete adapter MRO
+# module paths. Unknown or renamed paths intentionally fail closed so cache
+# metrics disappear instead of being reported with an invalid denominator.
 _CACHE_USAGE_MODEL_MODULES = (
     "agentscope.model._anthropic",
     "agentscope.model._dashscope",
