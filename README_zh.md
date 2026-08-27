@@ -60,6 +60,8 @@
 
 ## 新闻
 
+- [2026-08-28] **v2.2.0** | 新增可自托管的多用户 QwenPaw Hub、QwenPaw Mail、原生 QwenPaw Data、统一模型路由和 Creator 1.1，并全面改进应用市场、控制台、Skills、频道与运行可靠性。[v2.2.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
+
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
