@@ -975,7 +975,7 @@ def test_datablock_windows_file_uri_preserved(
     items: list = [block]
     model_factory._fixup_media_list(items)
 
-    assert items[0].source.url == "file:///C:/Temp/x.png"
+    assert items[0].source.url == "file://C:/Temp/x.png"
 
 
 def test_datablock_unix_file_uri_preserved(
@@ -1020,7 +1020,7 @@ def test_datablock_unc_file_uri_preserved(
     items: list = [block]
     model_factory._fixup_media_list(items)
 
-    assert items[0].source.url == "file://server/share/x.png"
+    assert items[0].source.url == "file:////server/share/x.png"
 
 
 @pytest.mark.asyncio

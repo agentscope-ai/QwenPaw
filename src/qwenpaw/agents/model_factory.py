@@ -1321,12 +1321,9 @@ def _reasoning_by_assistant_segment(
 
 
 def _local_path_to_file_url(path: str) -> str:
-    """Build an unescaped file URI from a decoded local path."""
-    if path.startswith("//"):
-        return f"file:{path}"
-    if len(path) >= 2 and path[0].isalpha() and path[1] == ":":
-        return f"file:///{path}"
-    return f"file://{path}"
+    """Build an unescaped file URL compatible with upstream formatters."""
+    normalized_path = path.replace("\\", "/")
+    return f"file://{normalized_path}"
 
 
 # pylint: disable=too-many-branches
