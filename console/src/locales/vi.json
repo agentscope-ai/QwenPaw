@@ -701,6 +701,8 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Cửa sổ ngữ cảnh:",
+      "cacheLabel": "Prompt Cache",
+      "cacheTokens": "trúng {{readTok}} / đầu vào {{inputTok}}",
       "manageContext": "Quản lý ngữ cảnh",
       "compact": "Nén",
       "new": "Cuộc trò chuyện mới"
@@ -1473,6 +1475,8 @@
     "byAgent": "Theo Agent",
     "agent": "Agent",
     "unattributed": "Chưa gán",
+    "cacheRead": "Token đọc từ bộ nhớ đệm",
+    "cacheHitRate": "Tỷ lệ trúng bộ nhớ đệm",
     "noData": "Chưa có dữ liệu",
     "period": "Khoảng thời gian"
   },

@@ -696,6 +696,8 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Jendela konteks:",
+      "cacheLabel": "Prompt Cache",
+      "cacheTokens": "hit {{readTok}} / input {{inputTok}}",
       "manageContext": "Kelola konteks",
       "compact": "Kompres",
       "new": "Obrolan baru"
@@ -2162,6 +2164,8 @@
     "unattributed": "Tidak teratribusi",
     "promptTokens": "Token Prompt",
     "completionTokens": "Token Completion",
+    "cacheRead": "Pembacaan Cache",
+    "cacheHitRate": "Tingkat Hit Cache",
     "byModel": "Berdasarkan Model",
     "byDate": "Berdasarkan Tanggal",
     "model": "Model",

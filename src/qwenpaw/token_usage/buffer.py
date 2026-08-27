@@ -24,6 +24,10 @@ class _UsageEvent(NamedTuple):
     completion_tokens: int
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_eligible_input_tokens: int = 0
+    cache_observed: bool = False
     agent_id: str = ""
 
 
@@ -208,12 +212,27 @@ def _apply_event(cache: dict, ev: _UsageEvent) -> None:
             "model_name": ev.model_name,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cache_eligible_input_tokens": 0,
+            "cache_observed_calls": 0,
             "call_count": 0,
             "agent_id": ev.agent_id,
         },
     )
     entry["prompt_tokens"] += ev.prompt_tokens
     entry["completion_tokens"] += ev.completion_tokens
+    entry["cache_read_tokens"] = entry.get("cache_read_tokens", 0)
+    entry["cache_read_tokens"] += ev.cache_read_tokens
+    entry["cache_write_tokens"] = entry.get("cache_write_tokens", 0)
+    entry["cache_write_tokens"] += ev.cache_write_tokens
+    entry["cache_eligible_input_tokens"] = entry.get(
+        "cache_eligible_input_tokens",
+        0,
+    )
+    entry["cache_eligible_input_tokens"] += ev.cache_eligible_input_tokens
+    entry["cache_observed_calls"] = entry.get("cache_observed_calls", 0)
+    entry["cache_observed_calls"] += int(ev.cache_observed)
     entry["call_count"] += 1
 
 

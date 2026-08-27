@@ -1539,6 +1539,8 @@
     "unattributed": "未帰属",
     "promptTokens": "入力 Token",
     "completionTokens": "出力 Token",
+    "cacheRead": "キャッシュ読み取り",
+    "cacheHitRate": "キャッシュヒット率",
     "byModel": "モデル別",
     "byDate": "日付別",
     "model": "モデル",
@@ -2675,6 +2677,8 @@
       "tok": "tok",
       "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
       "contextLabel": "コンテキストウィンドウ：",
+      "cacheLabel": "Prompt Cache",
+      "cacheTokens": "ヒット {{readTok}} / 入力 {{inputTok}}",
       "manageContext": "コンテキスト管理",
       "compact": "圧縮",
       "new": "新しい会話"

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { schedulePatchLastResponseCardUsage } from "./turnUsage";
+import {
+  readTurnUsageFromResponseCardData,
+  schedulePatchLastResponseCardUsage,
+} from "./turnUsage";
 import { useTurnUsageStore } from "./turnUsageStore";
 
 describe("schedulePatchLastResponseCardUsage", () => {
@@ -42,5 +45,24 @@ describe("schedulePatchLastResponseCardUsage", () => {
     vi.runAllTimers();
 
     expect(updateMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("readTurnUsageFromResponseCardData", () => {
+  it("keeps cache usage for a genuine cold miss", () => {
+    const snapshot = readTurnUsageFromResponseCardData({
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 10,
+        total_tokens: 110,
+        cache_read_tokens: 0,
+        cache_eligible_input_tokens: 100,
+        cache_observed: true,
+        cache_hit_rate: 0,
+      },
+    });
+
+    expect(snapshot?.usage?.cache_observed).toBe(true);
+    expect(snapshot?.usage?.cache_hit_rate).toBe(0);
   });
 });

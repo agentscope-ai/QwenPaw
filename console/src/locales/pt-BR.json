@@ -1795,6 +1795,8 @@
     "unattributed": "Não atribuído",
     "promptTokens": "Prompt Tokens",
     "completionTokens": "Completion Tokens",
+    "cacheRead": "Leitura do cache",
+    "cacheHitRate": "Taxa de acerto do cache",
     "byModel": "By Modelo",
     "byDate": "By Date",
     "provider": "Provedor",
@@ -2919,6 +2921,8 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Janela de contexto:",
+      "cacheLabel": "Prompt Cache",
+      "cacheTokens": "acerto {{readTok}} / entrada {{inputTok}}",
       "manageContext": "Gerenciar contexto",
       "compact": "Compactar",
       "new": "Nova conversa"

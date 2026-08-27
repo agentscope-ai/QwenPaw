@@ -1539,6 +1539,8 @@
     "unattributed": "Без атрибуции",
     "promptTokens": "Входные токены",
     "completionTokens": "Выходные токены",
+    "cacheRead": "Чтение из кэша",
+    "cacheHitRate": "Попадание в кэш",
     "byModel": "По модели",
     "byDate": "По дате",
     "model": "Модель",
@@ -2690,6 +2692,8 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Окно контекста:",
+      "cacheLabel": "Prompt Cache",
+      "cacheTokens": "попадание {{readTok}} / ввод {{inputTok}}",
       "manageContext": "Управление контекстом",
       "compact": "Сжать",
       "new": "Новый чат"

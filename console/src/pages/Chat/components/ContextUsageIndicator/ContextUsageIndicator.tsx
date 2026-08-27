@@ -2,6 +2,7 @@ import React from "react";
 import { Button, Popover, Progress, Space } from "antd";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
+import { cacheHitRate, formatPercent } from "../../../../utils/cacheUsage";
 import { useTurnUsageStore } from "../../turnUsageStore";
 import type { ContextUsage, TurnUsage } from "../../turnUsage";
 
@@ -10,7 +11,7 @@ const RING_STROKE = 3;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
-function ringColor(ratio: number): string {
+function contextRingColor(ratio: number): string {
   if (ratio >= 95) return "#cf1322";
   if (ratio >= 85) return "#f5222d";
   if (ratio >= 75) return "#fa8c16";
@@ -18,7 +19,13 @@ function ringColor(ratio: number): string {
   return "#52c41a";
 }
 
-function UsageRing({ ratio }: { ratio: number }) {
+function cacheRingColor(ratio: number): string {
+  if (ratio >= 90) return "#52c41a";
+  if (ratio >= 70) return "#7cb305";
+  return "#d89614";
+}
+
+function UsageRing({ ratio, color }: { ratio: number; color: string }) {
   const pct = Math.max(0, Math.min(ratio, 100));
   const cx = RING_SIZE / 2;
   return (
@@ -37,7 +44,7 @@ function UsageRing({ ratio }: { ratio: number }) {
         cy={cx}
         r={RING_R}
         fill="none"
-        stroke={ringColor(pct)}
+        stroke={color}
         strokeWidth={RING_STROKE}
         strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
         strokeDashoffset={RING_CIRC * (1 - pct / 100)}
@@ -65,6 +72,13 @@ function PopoverBody({
     : 0;
   const pctLabel =
     ratio > 0 && ratio < 1 ? `${ratio.toFixed(1)}%` : `${Math.round(ratio)}%`;
+  const cacheRate = usage?.cache_observed
+    ? usage.cache_hit_rate ??
+      cacheHitRate(
+        usage.cache_read_tokens || 0,
+        usage.cache_eligible_input_tokens || 0,
+      )
+    : null;
 
   return (
     <div style={{ width: 280, fontSize: 13, lineHeight: 1.5 }}>
@@ -108,10 +122,39 @@ function PopoverBody({
           <Progress
             percent={ratio}
             showInfo={false}
-            strokeColor={ringColor(ratio)}
+            strokeColor={contextRingColor(ratio)}
             size="small"
           />
         </>
+      )}
+      {usage?.cache_observed && (
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: "1px solid rgba(0,0,0,0.06)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: 4,
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>
+              {t("chat.turnUsagePopover.cacheLabel")}
+            </span>
+            <span style={{ fontWeight: 600 }}>{formatPercent(cacheRate)}</span>
+          </div>
+          <div style={{ opacity: 0.75, fontSize: 12 }}>
+            {t("chat.turnUsagePopover.cacheTokens", {
+              readTok: formatCompact(usage.cache_read_tokens || 0),
+              inputTok: formatCompact(usage.cache_eligible_input_tokens || 0),
+            })}
+          </div>
+        </div>
       )}
       <div
         style={{
@@ -151,6 +194,13 @@ const ContextUsageIndicator: React.FC<{
     0,
     Math.min(Number(snapshot.context_usage.context_usage_ratio) || 0, 100),
   );
+  const cacheRate = snapshot.usage?.cache_observed
+    ? snapshot.usage.cache_hit_rate ??
+      cacheHitRate(
+        snapshot.usage.cache_read_tokens || 0,
+        snapshot.usage.cache_eligible_input_tokens || 0,
+      )
+    : null;
 
   return (
     <Popover
@@ -165,10 +215,12 @@ const ContextUsageIndicator: React.FC<{
         />
       }
     >
-      <span
-        role="button"
-        tabIndex={0}
-        aria-label={t("chat.turnUsagePopover.ariaLabel")}
+      <button
+        type="button"
+        aria-label={t("chat.turnUsagePopover.ariaLabel", {
+          contextRate: formatPercent(ratio),
+          cacheRate: formatPercent(cacheRate),
+        })}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -177,10 +229,16 @@ const ContextUsageIndicator: React.FC<{
           color: "inherit",
           opacity: 0.65,
           padding: "0 4px",
+          gap: 3,
+          background: "transparent",
+          border: 0,
         }}
       >
-        <UsageRing ratio={ratio} />
-      </span>
+        <UsageRing ratio={ratio} color={contextRingColor(ratio)} />
+        {cacheRate !== null && (
+          <UsageRing ratio={cacheRate} color={cacheRingColor(cacheRate)} />
+        )}
+      </button>
     </Popover>
   );
 };

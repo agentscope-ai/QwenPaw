@@ -48,6 +48,11 @@ def _turn_from_stats(stats: dict[str, Any]) -> dict[str, Any] | None:
         "prompt_tokens": max(est - latest_out, 0),
         "completion_tokens": latest_out,
         "total_tokens": est,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_eligible_input_tokens": 0,
+        "cache_observed": False,
+        "cache_hit_rate": None,
         "estimated": True,
     }
 
