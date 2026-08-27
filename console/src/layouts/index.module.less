@@ -187,6 +187,14 @@
     flex-direction: column;
     padding: 0 8px;
 
+    :global(.qwenpaw-layout-sider-children) {
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
     .agentSelectorContainer {
       display: flex;
       justify-content: center;
@@ -881,11 +889,30 @@
 /* Collapsed nav (icon-only group list) */
 .collapsedNav {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 4px 0;
+  overflow: hidden;
+}
+
+.collapsedNavPinned {
+  width: 100%;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.collapsedNavScroll {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -943,6 +970,10 @@
   .collapsedNav {
     gap: 2px;
     padding: 2px 0;
+  }
+
+  .collapsedNavScroll {
+    gap: 2px;
   }
 
   .collapsedNavItem {
