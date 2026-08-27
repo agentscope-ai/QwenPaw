@@ -207,10 +207,9 @@ function AgentStatsPage() {
   );
 
   const agentTokenColumnConfig = useMemo(() => {
-    const inputLabel = t("agentStats.promptTokens");
+    const inputLabel = t("agentStats.totalInputTokens");
     const outputLabel = t("agentStats.completionTokens");
     const cacheHitLabel = t("tokenUsage.cacheRead");
-    const uncachedLabel = t("agentStats.uncachedInputTokens");
     const tokenData = chartData.flatMap((day) => {
       const cacheHit = Math.min(
         Math.max(day.agentCacheReadTokens, 0),
@@ -220,18 +219,21 @@ function AgentStatsPage() {
         {
           date: day.date,
           value: Math.max(day.agentPromptTokens - cacheHit, 0),
+          displayValue: day.agentPromptTokens,
           barType: inputLabel,
-          segment: uncachedLabel,
+          segment: inputLabel,
         },
         {
           date: day.date,
           value: cacheHit,
+          displayValue: cacheHit,
           barType: inputLabel,
           segment: cacheHitLabel,
         },
         {
           date: day.date,
           value: day.agentCompletionTokens,
+          displayValue: day.agentCompletionTokens,
           barType: outputLabel,
           segment: outputLabel,
         },
@@ -254,7 +256,7 @@ function AgentStatsPage() {
       legend: { position: "bottom" as const },
       scale: {
         color: {
-          range: ["#a59bb5", "#0f9f8f", "#64748b"],
+          range: ["#b8b2c2", "#0f9f8f", "#64748b"],
         },
       },
       axis: {
@@ -266,9 +268,9 @@ function AgentStatsPage() {
       tooltip: {
         title: "date",
         items: [
-          (datum: { value: number; segment: string }) => ({
+          (datum: { displayValue: number; segment: string }) => ({
             name: datum.segment,
-            value: formatCompact(datum.value),
+            value: formatCompact(datum.displayValue),
           }),
         ],
       },

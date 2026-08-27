@@ -2189,7 +2189,7 @@
     "userMessages": "Pesan Pengguna",
     "assistantMessages": "Pesan Asisten",
     "promptTokens": "Token Prompt",
-    "uncachedInputTokens": "Token Cache Miss",
+    "totalInputTokens": "Total Token Prompt",
     "completionTokens": "Token Completion",
     "toolCalls": "Panggilan Alat",
     "newSessions": "Sesi Baru",

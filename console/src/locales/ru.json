@@ -1562,7 +1562,7 @@
     "userMessages": "Сообщения пользователя",
     "assistantMessages": "Сообщения ассистента",
     "promptTokens": "Входные токены",
-    "uncachedInputTokens": "Токены без попадания в кэш",
+    "totalInputTokens": "Всего входных токенов",
     "completionTokens": "Выходные токены",
     "toolCalls": "Вызовы инструментов",
     "newSessions": "Новые сессии",

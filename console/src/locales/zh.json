@@ -1825,7 +1825,7 @@
     "userMessages": "用户消息",
     "assistantMessages": "智能体消息",
     "promptTokens": "输入 Token",
-    "uncachedInputTokens": "未命中 Token",
+    "totalInputTokens": "总输入 Token",
     "completionTokens": "输出 Token",
     "toolCalls": "工具调用",
     "newSessions": "新建会话",

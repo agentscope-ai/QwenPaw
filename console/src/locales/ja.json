@@ -1562,7 +1562,7 @@
     "userMessages": "ユーザーメッセージ",
     "assistantMessages": "アシスタントメッセージ",
     "promptTokens": "入力 Token",
-    "uncachedInputTokens": "キャッシュミス Token",
+    "totalInputTokens": "総入力 Token",
     "completionTokens": "出力 Token",
     "toolCalls": "ツール呼び出し",
     "newSessions": "新規セッション",

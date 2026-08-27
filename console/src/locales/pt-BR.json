@@ -1813,7 +1813,7 @@
     "userMessages": "Usuario Messages",
     "assistantMessages": "Assistant Messages",
     "promptTokens": "Prompt Tokens",
-    "uncachedInputTokens": "Tokens sem acerto no cache",
+    "totalInputTokens": "Total de tokens de prompt",
     "completionTokens": "Completion Tokens",
     "toolCalls": "Tool Calls",
     "newSessions": "Novo Sessoes",

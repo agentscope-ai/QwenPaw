@@ -2034,7 +2034,7 @@
     "userMessages": "User Messages",
     "assistantMessages": "Assistant Messages",
     "promptTokens": "Prompt Tokens",
-    "uncachedInputTokens": "Cache-miss Tokens",
+    "totalInputTokens": "Total Prompt Tokens",
     "completionTokens": "Completion Tokens",
     "toolCalls": "Tool Calls",
     "newSessions": "New Sessions",

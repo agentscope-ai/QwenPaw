@@ -1425,7 +1425,7 @@
     "userMessages": "Tin nhắn người dùng",
     "assistantMessages": "Tin nhắn trợ lý",
     "promptTokens": "Token đầu vào",
-    "uncachedInputTokens": "Token không trúng cache",
+    "totalInputTokens": "Tổng token đầu vào",
     "completionTokens": "Token đầu ra",
     "toolCalls": "Lời gọi công cụ",
     "newSessions": "Phiên mới",
