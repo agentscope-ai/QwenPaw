@@ -26,6 +26,22 @@ describe("turnUsageStore (#5300 上下文取 max_input_length)", () => {
   });
 
   describe("handleNewCommand 上下文重置应使用当前模型的 max_input_length", () => {
+    it("切换会话时清除上一会话的累计缓存命中率", () => {
+      useTurnUsageStore.getState().setSnapshot({
+        usage: {
+          session_cache_read_tokens: 900,
+          session_cache_eligible_input_tokens: 1000,
+          session_cache_observed: true,
+          session_cache_hit_rate: 90,
+        },
+        context_usage: null,
+      });
+
+      useTurnUsageStore.getState().invalidateTurn();
+
+      expect(useTurnUsageStore.getState().snapshot).toBeNull();
+    });
+
     it("snapshot 有 context_usage 时，新命令重置后保留原 max_input_length", () => {
       // set an initial snapshot to simulate an existing conversation turn
       useTurnUsageStore.getState().setSnapshot({
@@ -55,6 +71,7 @@ describe("turnUsageStore (#5300 上下文取 max_input_length)", () => {
       });
 
       const newSnapshot = useTurnUsageStore.getState().snapshot;
+      expect(newSnapshot!.usage).toBeNull();
       // Key assertion: after reset, max_input_length keeps the current model value, not hardcoded 131072
       expect(newSnapshot!.context_usage!.max_input_length).toBe(65536);
       expect(newSnapshot!.context_usage!.max_input_length).not.toBe(131072);

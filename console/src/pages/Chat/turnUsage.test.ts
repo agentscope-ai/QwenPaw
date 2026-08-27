@@ -59,10 +59,15 @@ describe("readTurnUsageFromResponseCardData", () => {
         cache_eligible_input_tokens: 100,
         cache_observed: true,
         cache_hit_rate: 0,
+        session_cache_read_tokens: 80,
+        session_cache_eligible_input_tokens: 200,
+        session_cache_observed: true,
+        session_cache_hit_rate: 40,
       },
     });
 
     expect(snapshot?.usage?.cache_observed).toBe(true);
     expect(snapshot?.usage?.cache_hit_rate).toBe(0);
+    expect(snapshot?.usage?.session_cache_hit_rate).toBe(40);
   });
 });

@@ -701,7 +701,7 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Cửa sổ ngữ cảnh:",
-      "cacheLabel": "Prompt Cache",
+      "cacheLabel": "Session Prompt Cache",
       "cacheTokens": "trúng {{readTok}} / đầu vào {{inputTok}}",
       "manageContext": "Quản lý ngữ cảnh",
       "compact": "Nén",

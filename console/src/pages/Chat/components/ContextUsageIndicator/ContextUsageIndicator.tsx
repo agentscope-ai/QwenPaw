@@ -72,11 +72,11 @@ function PopoverBody({
     : 0;
   const pctLabel =
     ratio > 0 && ratio < 1 ? `${ratio.toFixed(1)}%` : `${Math.round(ratio)}%`;
-  const cacheRate = usage?.cache_observed
-    ? usage.cache_hit_rate ??
+  const cacheRate = usage?.session_cache_observed
+    ? usage.session_cache_hit_rate ??
       cacheHitRate(
-        usage.cache_read_tokens || 0,
-        usage.cache_eligible_input_tokens || 0,
+        usage.session_cache_read_tokens || 0,
+        usage.session_cache_eligible_input_tokens || 0,
       )
     : null;
 
@@ -127,7 +127,7 @@ function PopoverBody({
           />
         </>
       )}
-      {usage?.cache_observed && (
+      {usage?.session_cache_observed && (
         <div
           style={{
             marginTop: 12,
@@ -150,8 +150,10 @@ function PopoverBody({
           </div>
           <div style={{ opacity: 0.75, fontSize: 12 }}>
             {t("chat.turnUsagePopover.cacheTokens", {
-              readTok: formatCompact(usage.cache_read_tokens || 0),
-              inputTok: formatCompact(usage.cache_eligible_input_tokens || 0),
+              readTok: formatCompact(usage.session_cache_read_tokens || 0),
+              inputTok: formatCompact(
+                usage.session_cache_eligible_input_tokens || 0,
+              ),
             })}
           </div>
         </div>
@@ -194,11 +196,11 @@ const ContextUsageIndicator: React.FC<{
     0,
     Math.min(Number(snapshot.context_usage.context_usage_ratio) || 0, 100),
   );
-  const cacheRate = snapshot.usage?.cache_observed
-    ? snapshot.usage.cache_hit_rate ??
+  const cacheRate = snapshot.usage?.session_cache_observed
+    ? snapshot.usage.session_cache_hit_rate ??
       cacheHitRate(
-        snapshot.usage.cache_read_tokens || 0,
-        snapshot.usage.cache_eligible_input_tokens || 0,
+        snapshot.usage.session_cache_read_tokens || 0,
+        snapshot.usage.session_cache_eligible_input_tokens || 0,
       )
     : null;
 

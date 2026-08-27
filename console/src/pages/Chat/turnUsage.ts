@@ -19,6 +19,10 @@ export interface TurnUsage {
   cache_eligible_input_tokens?: number;
   cache_observed?: boolean;
   cache_hit_rate?: number | null;
+  session_cache_read_tokens?: number;
+  session_cache_eligible_input_tokens?: number;
+  session_cache_observed?: boolean;
+  session_cache_hit_rate?: number | null;
   estimated?: boolean;
 }
 
@@ -182,6 +186,10 @@ export function patchLastResponseCardUsage(
       readNumber(snapshot.usage, "cache_read_tokens") &&
     readNumber(prev.usage, "cache_eligible_input_tokens") ===
       readNumber(snapshot.usage, "cache_eligible_input_tokens") &&
+    readNumber(prev.usage, "session_cache_read_tokens") ===
+      readNumber(snapshot.usage, "session_cache_read_tokens") &&
+    readNumber(prev.usage, "session_cache_eligible_input_tokens") ===
+      readNumber(snapshot.usage, "session_cache_eligible_input_tokens") &&
     readNumber(prev.context_usage, "estimated_tokens") ===
       readNumber(snapshot.context_usage, "estimated_tokens")
   ) {

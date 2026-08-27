@@ -3268,7 +3268,7 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Context window:",
-      "cacheLabel": "Prompt Cache",
+      "cacheLabel": "Session Prompt Cache",
       "cacheTokens": "hit {{readTok}} / input {{inputTok}}",
       "manageContext": "Manage context",
       "compact": "Compact",

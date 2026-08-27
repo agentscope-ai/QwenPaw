@@ -2921,7 +2921,7 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Janela de contexto:",
-      "cacheLabel": "Prompt Cache",
+      "cacheLabel": "Session Prompt Cache",
       "cacheTokens": "acerto {{readTok}} / entrada {{inputTok}}",
       "manageContext": "Gerenciar contexto",
       "compact": "Compactar",

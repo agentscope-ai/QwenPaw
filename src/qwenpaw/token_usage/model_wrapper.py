@@ -180,6 +180,37 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
         session_id = get_current_session_id()
         if session_id and usage:
+            previous = TokenRecordingModelWrapper._usage_by_session.get(
+                session_id,
+            )
+            if previous is None:
+                TokenRecordingModelWrapper._usage_by_session[
+                    session_id
+                ] = usage
+                return
+            for key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "cache_eligible_input_tokens",
+            ):
+                usage[key] = int(previous.get(key, 0) or 0) + int(
+                    usage.get(key, 0) or 0,
+                )
+            usage["total_tokens"] = (
+                usage["prompt_tokens"] + usage["completion_tokens"]
+            )
+            usage["cache_observed"] = bool(
+                previous.get("cache_observed", False)
+                or usage.get("cache_observed", False),
+            )
+            cache_eligible = usage["cache_eligible_input_tokens"]
+            usage["cache_hit_rate"] = (
+                usage["cache_read_tokens"] / cache_eligible * 100
+                if cache_eligible > 0
+                else None
+            )
             TokenRecordingModelWrapper._usage_by_session[session_id] = usage
 
     async def generate_structured_output(

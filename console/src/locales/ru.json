@@ -2692,7 +2692,7 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "Окно контекста:",
-      "cacheLabel": "Prompt Cache",
+      "cacheLabel": "Session Prompt Cache",
       "cacheTokens": "попадание {{readTok}} / ввод {{inputTok}}",
       "manageContext": "Управление контекстом",
       "compact": "Сжать",

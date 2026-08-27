@@ -3125,7 +3125,7 @@
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
       "contextLabel": "上下文窗口：",
-      "cacheLabel": "Prompt Cache",
+      "cacheLabel": "当前会话缓存",
       "cacheTokens": "命中 {{readTok}} / 输入 {{inputTok}}",
       "manageContext": "上下文管理",
       "compact": "压缩",

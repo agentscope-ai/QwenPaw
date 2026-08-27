@@ -30,6 +30,7 @@ from qwenpaw.token_usage.model_wrapper import (
     _cache_usage_metrics,
 )
 from qwenpaw.token_usage.storage import load_data, save_data_sync
+from qwenpaw.token_usage.turn_usage import add_session_cache_usage
 
 _EMPTY_AGENT_KEY = "\x1f".join(("", "openai", "gpt-4"))
 _NAMED_AGENT_KEY = "\x1f".join(("bot-a", "openai", "gpt-4"))
@@ -1061,6 +1062,127 @@ class TestTokenRecordingModelWrapper:
         assert stored["cache_read_tokens"] == 0
         assert stored["cache_write_tokens"] == 0
         assert stored["cache_hit_rate"] is None
+
+    def test_record_usage_accumulates_all_calls_in_turn(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A tool-heavy turn should include every successful model call."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper._cache_usage_metrics",
+            lambda _model, prompt, _read, _write: (True, prompt),
+        )
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-multi-call",
+        )
+        wrapper, _captured = self._stream_harness(tmp_path, monkeypatch)
+        first = MagicMock(
+            input_tokens=100,
+            output_tokens=10,
+            cache_input_tokens=80,
+            cache_creation_input_tokens=0,
+        )
+        second = MagicMock(
+            input_tokens=120,
+            output_tokens=20,
+            cache_input_tokens=100,
+            cache_creation_input_tokens=0,
+        )
+
+        wrapper._record_usage(first)
+        wrapper._record_usage(second)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-multi-call",
+        )
+        assert stored is not None
+        assert stored["prompt_tokens"] == 220
+        assert stored["completion_tokens"] == 30
+        assert stored["total_tokens"] == 250
+        assert stored["cache_read_tokens"] == 180
+        assert stored["cache_eligible_input_tokens"] == 220
+        assert stored["cache_hit_rate"] == pytest.approx(180 / 220 * 100)
+
+    def test_session_cache_usage_uses_latest_persisted_checkpoint(self):
+        """Session totals should extend the newest durable checkpoint."""
+
+        def message(role, usage=None):
+            metadata = (
+                {
+                    "qwenpaw_turn_usage": {
+                        "usage": usage,
+                        "context_usage": None,
+                    },
+                }
+                if usage is not None
+                else {}
+            )
+            return MagicMock(role=role, metadata=metadata)
+
+        messages = [
+            message(
+                "assistant",
+                {
+                    "cache_observed": True,
+                    "cache_read_tokens": 20,
+                    "cache_eligible_input_tokens": 100,
+                },
+            ),
+            message(
+                "assistant",
+                {
+                    "cache_observed": True,
+                    "cache_read_tokens": 80,
+                    "cache_eligible_input_tokens": 100,
+                    "session_cache_observed": True,
+                    "session_cache_read_tokens": 100,
+                    "session_cache_eligible_input_tokens": 200,
+                },
+            ),
+            message("user"),
+            message("assistant"),
+        ]
+        current_turn = {
+            "cache_observed": True,
+            "cache_read_tokens": 80,
+            "cache_eligible_input_tokens": 100,
+        }
+
+        result = add_session_cache_usage(current_turn, messages)
+
+        assert result is not None
+        assert result["session_cache_read_tokens"] == 180
+        assert result["session_cache_eligible_input_tokens"] == 300
+        assert result["session_cache_hit_rate"] == 60
+
+    def test_session_cache_usage_survives_unobserved_current_turn(self):
+        """An estimated current turn should retain the prior session rate."""
+        previous = MagicMock(
+            role="assistant",
+            metadata={
+                "qwenpaw_turn_usage": {
+                    "usage": {
+                        "session_cache_observed": True,
+                        "session_cache_read_tokens": 90,
+                        "session_cache_eligible_input_tokens": 100,
+                    },
+                    "context_usage": None,
+                },
+            },
+        )
+        current_user = MagicMock(role="user", metadata={})
+        current_assistant = MagicMock(role="assistant", metadata={})
+
+        result = add_session_cache_usage(
+            {"cache_observed": False},
+            [previous, current_user, current_assistant],
+        )
+
+        assert result is not None
+        assert result["session_cache_observed"] is True
+        assert result["session_cache_hit_rate"] == 90
 
     def test_record_usage_includes_context_and_threshold(
         self,
