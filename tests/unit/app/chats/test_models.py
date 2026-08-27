@@ -8,6 +8,7 @@ from qwenpaw.app.chats.models import (
     ChatGroup,
     ChatGroupKind,
     ChatGroupUpdate,
+    ChatHistory,
     ChatSpec,
     ChatUpdate,
     ChatsFile,
@@ -97,6 +98,13 @@ def test_chat_group_update_requires_a_field():
 # ---------------------------------------------------------------------------
 # ChatsFile
 # ---------------------------------------------------------------------------
+
+
+def test_chat_history_pagination_fields_default_to_full_history():
+    history = ChatHistory()
+    assert history.messages == []
+    assert history.total == 0
+    assert history.has_more is False
 
 
 def test_chats_file_default_empty():

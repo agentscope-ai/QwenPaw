@@ -17,6 +17,14 @@ import {
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { QWENPAW_CLIENT_MESSAGE_ID_KEY } from "../../../utils/clientMessageId";
+import {
+  DEFAULT_HISTORY_PAGE_SIZE,
+  EMPTY_HISTORY_PAGE,
+  collectOriginalIds,
+  historyPageFromMessages,
+  takeUniqueOlderMessages,
+  type HistoryPageState,
+} from "./historyWindow";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -133,6 +141,14 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   groupId?: string | null;
   parentSessionId?: string | null;
   rootSessionId?: string | null;
+  /** True when older messages exist beyond the loaded window. */
+  hasMore?: boolean;
+  /** Unwindowed backend message count. */
+  historyTotal?: number;
+  /** `metadata.original_id` of the oldest loaded source message. */
+  oldestOriginalId?: string | null;
+  /** Unique source-message ids currently loaded (oldest first). */
+  loadedOriginalIds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +680,66 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.convertedSessionCache.delete(backendId);
   }
 
+  // ---------------------------------------------------------------------------
+  // Paginated history window (limit + before cursor)
+  // ---------------------------------------------------------------------------
+
+  private historyPageListeners = new Set<() => void>();
+  private historyPages = new Map<string, HistoryPageState>();
+
+  subscribeHistoryPage(listener: () => void): () => void {
+    this.historyPageListeners.add(listener);
+    return () => {
+      this.historyPageListeners.delete(listener);
+    };
+  }
+
+  getHistoryPage(sessionId?: string | null): HistoryPageState {
+    if (!sessionId) return EMPTY_HISTORY_PAGE;
+    return this.historyPages.get(sessionId) ?? EMPTY_HISTORY_PAGE;
+  }
+
+  private emitHistoryPage(): void {
+    this.historyPageListeners.forEach((listener) => listener());
+  }
+
+  private rememberHistoryPage(
+    keys: Array<string | null | undefined>,
+    page: HistoryPageState,
+  ): void {
+    for (const key of keys) {
+      if (key) this.historyPages.set(key, page);
+    }
+    this.emitHistoryPage();
+  }
+
+  private applyHistoryPageToSession(
+    session: ExtendedSession,
+    page: HistoryPageState,
+  ): void {
+    session.hasMore = page.hasMore;
+    session.historyTotal = page.total;
+    session.oldestOriginalId = page.oldestOriginalId;
+    session.loadedOriginalIds = page.loadedOriginalIds;
+  }
+
+  private historyPageFromSession(session: ExtendedSession): HistoryPageState {
+    if (session.loadedOriginalIds && session.loadedOriginalIds.length > 0) {
+      return {
+        hasMore: !!session.hasMore,
+        loading: false,
+        total: session.historyTotal ?? 0,
+        oldestOriginalId: session.oldestOriginalId ?? null,
+        loadedOriginalIds: session.loadedOriginalIds,
+      };
+    }
+    return historyPageFromMessages(
+      [],
+      !!session.hasMore,
+      session.historyTotal ?? 0,
+    );
+  }
+
   /**
    * Pre-load a session's data. Returns the session with its realId resolved.
    * Used by handleSessionClick to load data BEFORE setting currentSessionId,
@@ -761,6 +837,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.historyPages.clear();
+    this.emitHistoryPage();
     // Reset the session list and its comparison state as well: the next
     // agent's chats can share a session_id (channel:user_id) with the old
     // list, and merging against leftover entries would transfer the previous
@@ -816,6 +894,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.historyPages.clear();
     this.sessionList = [];
     this._prevReturnedList = null;
     this.lastSelectedIds.clear();
@@ -1415,6 +1494,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         // Update mutable fields that may differ
         cached.id = displayId;
         if (listEntry?.name) cached.name = listEntry.name;
+        this.rememberHistoryPage(
+          [displayId, backendId, cached.realId],
+          this.historyPageFromSession(cached),
+        );
         this.applySessionView(cached, owner);
         return cached;
       }
@@ -1423,14 +1506,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const chatHistory = await api.getChat(backendId, {
       signal,
       include_app_owned: false,
+      limit: DEFAULT_HISTORY_PAGE_SIZE,
     });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
-    const messages = convertMessages(chatHistory.messages || []);
+    const sourceMessages = chatHistory.messages || [];
+    const messages = convertMessages(sourceMessages);
     const patchedPending = this.patchLastUserMessage(
       messages,
       generating,
       backendId,
+    );
+
+    const historyPage = historyPageFromMessages(
+      sourceMessages,
+      !!chatHistory.has_more,
+      chatHistory.total ?? sourceMessages.length,
     );
 
     const session: ExtendedSession = {
@@ -1444,12 +1535,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       realId: listEntry?.realId,
       generating,
     };
+    this.applyHistoryPageToSession(session, historyPage);
+    this.rememberHistoryPage(
+      [displayId, backendId, session.realId],
+      historyPage,
+    );
 
     // Cache non-generating sessions — only within the epoch that fetched
     // them, so a stale load cannot write into the new agent's cache.
     // A history patched with an unconfirmed pending message is NOT
     // canonical (the agent reply may still be missing): caching it would
     // keep serving the incomplete turn for the whole cache TTL.
+    // Partial windows (has_more) are cached with the pagination fields so
+    // switch-back stays cheap, but they are never treated as full history.
     if (!generating && !patchedPending && this.isActiveOwner(owner)) {
       this.setCachedConvertedSession(
         backendId,
@@ -1460,6 +1558,109 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.applySessionView(session, owner);
     return session;
+  }
+
+  /**
+   * Fetch the next older window and prepend it onto the loaded session.
+   * Uses `before = metadata.original_id` of the oldest loaded source
+   * message. A stale cursor that returns overlap is treated as exhausted
+   * rather than duplicated. Does not rewrite turn-usage or window identity.
+   */
+  async loadEarlierMessages(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<{ prepended: IAgentScopeRuntimeWebUIMessage[] }> {
+    const owner = this.getActiveOwner();
+    const listEntry = this.findSession(sessionId) as
+      | ExtendedSession
+      | undefined;
+    const backendId = listEntry?.realId || sessionId;
+    const page =
+      this.historyPages.get(sessionId) ??
+      this.historyPages.get(backendId) ??
+      EMPTY_HISTORY_PAGE;
+
+    if (!page.hasMore || page.loading || !page.oldestOriginalId) {
+      return { prepended: [] };
+    }
+
+    this.rememberHistoryPage([sessionId, backendId, listEntry?.realId], {
+      ...page,
+      loading: true,
+    });
+
+    try {
+      const chatHistory = await api.getChat(backendId, {
+        signal,
+        include_app_owned: false,
+        limit: DEFAULT_HISTORY_PAGE_SIZE,
+        before: page.oldestOriginalId,
+      });
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (!this.isActiveOwner(owner)) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
+      const uniqueOlder = takeUniqueOlderMessages(
+        chatHistory.messages || [],
+        page.loadedOriginalIds,
+      );
+      const prepended = convertMessages(uniqueOlder);
+      const olderIds = collectOriginalIds(uniqueOlder);
+      const loadedOriginalIds = [
+        ...olderIds,
+        ...page.loadedOriginalIds.filter((id) => !olderIds.includes(id)),
+      ];
+      const nextPage: HistoryPageState = {
+        hasMore: uniqueOlder.length > 0 && !!chatHistory.has_more,
+        loading: false,
+        total: chatHistory.total ?? page.total,
+        oldestOriginalId: olderIds[0] ?? page.oldestOriginalId,
+        loadedOriginalIds,
+      };
+      this.rememberHistoryPage(
+        [sessionId, backendId, listEntry?.realId],
+        nextPage,
+      );
+
+      if (prepended.length > 0) {
+        const seen = new Set<object>();
+        const prependTo = (session?: ExtendedSession) => {
+          if (!session || seen.has(session)) return;
+          seen.add(session);
+          session.messages = [...prepended, ...(session.messages || [])];
+          this.applyHistoryPageToSession(session, nextPage);
+        };
+        prependTo(
+          this.sessionResultCache.get(sessionId)?.session as
+            | ExtendedSession
+            | undefined,
+        );
+        prependTo(
+          this.sessionResultCache.get(backendId)?.session as
+            | ExtendedSession
+            | undefined,
+        );
+        if (listEntry?.realId) {
+          prependTo(
+            this.sessionResultCache.get(listEntry.realId)?.session as
+              | ExtendedSession
+              | undefined,
+          );
+        }
+        prependTo(this.convertedSessionCache.get(backendId)?.session);
+      }
+
+      return { prepended };
+    } catch (error) {
+      if (this.isActiveOwner(owner)) {
+        this.rememberHistoryPage([sessionId, backendId, listEntry?.realId], {
+          ...page,
+          loading: false,
+        });
+      }
+      throw error;
+    }
   }
 
   private async _doGetSession(
@@ -1733,4 +1934,5 @@ export const __test__ = {
   isLocalTimestamp,
   isGenerating,
   resolveRealId,
+  DEFAULT_HISTORY_PAGE_SIZE,
 };

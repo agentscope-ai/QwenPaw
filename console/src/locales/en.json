@@ -3215,6 +3215,8 @@
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
     "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "The assistant returned an empty response.",
+    "loadEarlierMessages": "Load earlier messages",
+    "loadEarlierFailed": "Failed to load earlier messages",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"

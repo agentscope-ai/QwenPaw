@@ -659,6 +659,8 @@
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh",
     "longTextUploadPrompt": "Vui lòng đọc tệp prompt đã tải lên và trả lời dựa trên nội dung đó.",
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
+    "loadEarlierMessages": "Tải tin nhắn cũ hơn",
+    "loadEarlierFailed": "Không tải được tin nhắn cũ hơn",
     "commands": {
       "clear": {
         "description": "Xóa ngữ cảnh cuộc trò chuyện"

@@ -645,6 +645,8 @@
     "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat",
     "longTextUploadPrompt": "Harap baca file prompt yang diunggah dan jawab berdasarkan isinya.",
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
+    "loadEarlierMessages": "Muat pesan sebelumnya",
+    "loadEarlierFailed": "Gagal memuat pesan sebelumnya",
     "commands": {
       "clear": {
         "description": "Bersihkan konteks percakapan"

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chatApi } from "./chat";
+import { chatApi, sessionApi } from "./chat";
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
 vi.mock("../request", () => ({ request: vi.fn() }));
@@ -212,6 +212,22 @@ describe("chatApi CRUD", () => {
     expect(request).toHaveBeenCalledWith(
       "/chats/chat-1?include_app_owned=true",
       expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("getChat sends limit and before pagination params", async () => {
+    await chatApi.getChat("chat-1", { limit: 50, before: "msg-10" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1?limit=50&before=msg-10",
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  it("getSession forwards limit and before onto GET /chats/{id}", async () => {
+    await sessionApi.getSession("sid-1", { limit: 50, before: "orig-9" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/sid-1?limit=50&before=orig-9",
+      expect.objectContaining({ signal: undefined }),
     );
   });
 

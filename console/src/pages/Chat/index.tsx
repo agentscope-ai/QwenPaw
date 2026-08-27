@@ -15,6 +15,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import LoadEarlierMessages from "./components/LoadEarlierMessages";
 import {
   getDraftStorageKey,
   parseDraft,
@@ -3622,6 +3623,10 @@ export default function ChatPage() {
               : styles.chatMessagesArea
           }
         >
+          <LoadEarlierMessages
+            chatRef={chatRef}
+            rootRef={chatMessagesAreaRef}
+          />
           <RichFileReferenceInputProvider
             onOpenReference={(reference, trigger) =>
               void openInlineFileReference(reference, trigger)

@@ -2628,6 +2628,8 @@
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド",
     "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
+    "loadEarlierMessages": "以前のメッセージを読み込む",
+    "loadEarlierFailed": "以前のメッセージの読み込みに失敗しました",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"

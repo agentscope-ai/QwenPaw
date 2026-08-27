@@ -1,0 +1,15 @@
+.bar {
+  position: absolute;
+  top: 56px;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+
+  :global(.ant-btn) {
+    pointer-events: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  }
+}

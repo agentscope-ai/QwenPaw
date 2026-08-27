@@ -224,6 +224,20 @@ class ChatHistory(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+    total: int = Field(
+        default=0,
+        description=(
+            "Total number of messages in the chat before pagination "
+            "windowing was applied."
+        ),
+    )
+    has_more: bool = Field(
+        default=False,
+        description=(
+            "True when older messages exist beyond the returned window; "
+            "clients should offer a 'load earlier messages' action."
+        ),
+    )
 
 
 class BatchFailure(BaseModel):

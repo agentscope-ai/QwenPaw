@@ -3072,6 +3072,8 @@
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令",
     "longTextUploadPrompt": "请读取已上传的提示词文件，并根据文件内容回答。",
     "emptyOutputError": "助手返回了空响应。",
+    "loadEarlierMessages": "加载更早的消息",
+    "loadEarlierFailed": "加载更早的消息失败",
     "commands": {
       "clear": {
         "description": "清空对话上下文"
