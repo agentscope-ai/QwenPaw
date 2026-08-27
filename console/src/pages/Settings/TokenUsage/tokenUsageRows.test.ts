@@ -11,6 +11,10 @@ describe("buildByDateRows (#3368)", () => {
   const stats = (p = 1, c = 2, n = 3) => ({
     prompt_tokens: p,
     completion_tokens: c,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    cache_eligible_input_tokens: 0,
+    cache_observed_calls: 0,
     call_count: n,
   });
 
@@ -52,6 +56,10 @@ describe("buildByDateRows (#3368)", () => {
       "2026-08-23": {
         prompt_tokens: 10,
         completion_tokens: 20,
+        cache_read_tokens: 8,
+        cache_write_tokens: 2,
+        cache_eligible_input_tokens: 10,
+        cache_observed_calls: 1,
         call_count: 5,
       },
     });
@@ -62,6 +70,10 @@ describe("buildByDateRows (#3368)", () => {
         date: "2026-08-23",
         prompt_tokens: 10,
         completion_tokens: 20,
+        cache_read_tokens: 8,
+        cache_write_tokens: 2,
+        cache_eligible_input_tokens: 10,
+        cache_observed_calls: 1,
         call_count: 5,
       },
     ]);
