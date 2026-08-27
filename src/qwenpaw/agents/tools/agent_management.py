@@ -377,6 +377,14 @@ def submit_agent_chat_task(
             headers=_request_headers(to_agent),
             timeout=timeout,
         )
+        if response.status_code == 409:
+            try:
+                detail = response.json().get("detail")
+            except (AttributeError, ValueError):
+                detail = None
+            return {
+                "error": detail or "A task is already running for this chat",
+            }
         response.raise_for_status()
         return response.json()
 
@@ -417,6 +425,10 @@ def format_background_submission_text(
     session_id: str,
 ) -> str:
     """Format background submission result as plain text."""
+    error = task_result.get("error")
+    if error:
+        return f"ERROR: {error}"
+
     task_id = task_result.get("task_id")
     if not task_id:
         return "ERROR: No task_id returned from server"

@@ -17,7 +17,7 @@ from qwenpaw.app.routers.console import (
     _background_task_cancel_error,
     _resolve_effective_stream_task_timeout,
 )
-from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.app.task_tracker import REPLAY_END_SSE, TaskTracker
 from qwenpaw.constant import DEFAULT_STREAM_TASK_TIMEOUT_SECONDS
 from qwenpaw.utils.timeout import parse_positive_timeout_seconds
 
@@ -122,6 +122,7 @@ def console_workspace(workspace_mock, monkeypatch):
     workspace_mock.chat_manager.get_or_create_chat = AsyncMock(
         return_value=chat,
     )
+    workspace_mock.chat_manager.mark_chat_finished = AsyncMock()
     workspace_mock.task_tracker = TaskTracker()
     workspace_mock.agent_id = "default"
     workspace_mock.workspace_dir = "/tmp/qwenpaw-test-workspace"
@@ -361,3 +362,183 @@ async def test_chat_task_manual_cancel_is_not_timeout(
     error = (last.get("result") or {}).get("error") or {}
     assert error.get("message") == "Task cancelled"
     assert "code" not in error
+
+
+async def test_chat_task_is_tracked_and_reconnectable(
+    app,
+    console_workspace,
+):
+    """Background submit must use the same tracked stream as console chat."""
+    buffered = asyncio.Event()
+    release = asyncio.Event()
+    message_sse = 'data: {"type":"message","output":[]}\n\n'
+
+    async def _controlled_stream(_payload):
+        yield message_sse
+        buffered.set()
+        await release.wait()
+
+    console_workspace.console_channel.stream_one = _controlled_stream
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as ac:
+        response = await ac.post(
+            "/api/console/chat/task",
+            json=_chat_task_body(timeout=3600),
+        )
+        assert response.status_code == 200, response.text
+        task_id = response.json()["task_id"]
+
+        await asyncio.wait_for(buffered.wait(), timeout=2.0)
+        tracker = console_workspace.task_tracker
+        assert await tracker.get_status("chat-1") == "running"
+
+        reconnect_queue = await tracker.attach("chat-1")
+        assert reconnect_queue is not None
+        assert await reconnect_queue.get() == message_sse
+        assert await reconnect_queue.get() == REPLAY_END_SSE
+
+        release.set()
+        bg = console_mod._bg_tasks[task_id]
+        assert bg.asyncio_task is not None
+        await asyncio.wait_for(bg.asyncio_task, timeout=2.0)
+
+    assert bg.status == "finished"
+    assert (bg.result or {}).get("status") == "completed"
+    assert await console_workspace.task_tracker.get_status("chat-1") == "idle"
+    console_workspace.chat_manager.mark_chat_finished.assert_awaited_once()
+
+
+async def test_chat_task_rejects_duplicate_active_run(
+    app,
+    console_workspace,
+):
+    """A new payload must not silently attach to an active chat run."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    invocation_count = 0
+
+    async def _controlled_stream(_payload):
+        nonlocal invocation_count
+        invocation_count += 1
+        entered.set()
+        await release.wait()
+        yield 'data: {"type":"message","output":[]}\n\n'
+
+    console_workspace.console_channel.stream_one = _controlled_stream
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as ac:
+        first = await ac.post(
+            "/api/console/chat/task",
+            json=_chat_task_body(timeout=3600),
+        )
+        assert first.status_code == 200, first.text
+        first_task_id = first.json()["task_id"]
+        await asyncio.wait_for(entered.wait(), timeout=2.0)
+
+        duplicate = await ac.post(
+            "/api/console/chat/task",
+            json=_chat_task_body(timeout=3600),
+        )
+        assert duplicate.status_code == 409, duplicate.text
+        assert duplicate.json()["detail"] == (
+            "A task is already running for this chat. Wait for it to finish "
+            "or use a different session_id."
+        )
+        assert invocation_count == 1
+
+        run = console_workspace.task_tracker._runs["chat-1"]
+        assert len(run.queues) == 1
+
+        release.set()
+        bg = console_mod._bg_tasks[first_task_id]
+        assert bg.asyncio_task is not None
+        await asyncio.wait_for(bg.asyncio_task, timeout=2.0)
+
+    assert (bg.result or {}).get("status") == "completed"
+
+
+async def test_chat_task_stop_through_tracker_reports_cancelled(
+    app,
+    console_workspace,
+):
+    """Console stop must cancel the background producer and polling result."""
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+    hang = asyncio.Event()
+
+    async def _hanging_stream(_payload):
+        try:
+            entered.set()
+            await hang.wait()
+            for _ in ():
+                yield ""
+        finally:
+            cancelled.set()
+
+    console_workspace.console_channel.stream_one = _hanging_stream
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as ac:
+        response = await ac.post(
+            "/api/console/chat/task",
+            json=_chat_task_body(timeout=3600),
+        )
+        assert response.status_code == 200, response.text
+        task_id = response.json()["task_id"]
+
+        await asyncio.wait_for(entered.wait(), timeout=2.0)
+        assert await console_workspace.task_tracker.request_stop("chat-1")
+        await asyncio.wait_for(cancelled.wait(), timeout=2.0)
+
+        bg = console_mod._bg_tasks[task_id]
+        assert bg.asyncio_task is not None
+        await asyncio.wait_for(bg.asyncio_task, timeout=2.0)
+
+    assert bg.status == "finished"
+    assert (bg.result or {}).get("status") == "failed"
+    error = (bg.result or {}).get("error") or {}
+    assert error == {"message": "Task cancelled"}
+
+
+async def test_chat_task_preserves_tracked_producer_failure(
+    app,
+    console_workspace,
+):
+    """Tracker's generic SSE error must not hide the polling failure."""
+
+    async def _failing_stream(_payload):
+        yield 'data: {"type":"heartbeat"}\n\n'
+        raise RuntimeError("subagent failed")
+
+    console_workspace.console_channel.stream_one = _failing_stream
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as ac:
+        response = await ac.post(
+            "/api/console/chat/task",
+            json=_chat_task_body(timeout=3600),
+        )
+        assert response.status_code == 200, response.text
+        task_id = response.json()["task_id"]
+        bg = console_mod._bg_tasks[task_id]
+        assert bg.asyncio_task is not None
+        await asyncio.wait_for(bg.asyncio_task, timeout=2.0)
+
+    assert bg.status == "finished"
+    assert (bg.result or {}).get("status") == "failed"
+    error = (bg.result or {}).get("error") or {}
+    assert error == {"message": "subagent failed"}

@@ -560,15 +560,15 @@ schema。
 - External shared service 默认禁止 mutation；
 - Chat Session scope 在 Cloud 必须从 authenticated identity 派生，不能信任 caller 自选身份。
 
-## 10. DataPaw 验证结果
+## 10. QwenPaw-Data 验证结果
 
-DataPaw 使用同一套通用 contract 实现：
+QwenPaw-Data（验证时代号 DataPaw，已随插件改名统一为 qwenpaw-data）使用同一套通用 contract 实现：
 
 ```text
-DataPaw UI
+QwenPaw-Data UI
   -> app-scoped PawApp SDK
-  -> /api/datapaw/*
-  -> DataPaw PawApp backend
+  -> /api/qwenpaw-data/*
+  -> QwenPaw-Data PawApp backend
   -> private managed Context API
   -> Graph Store + business data sources
 ```
@@ -576,10 +576,10 @@ DataPaw UI
 ### 10.1 Runtime
 
 - Context API 使用 `managed_service()`；浏览器不知道动态端口和 bearer token；
-- 支持 `DATAPAW_CONTEXT_MODE=external` 交给生产 service manager；
+- 支持 `QWENPAW_DATA_CONTEXT_MODE=external` 交给生产 service manager；
 - Graph Store 和数据源声明为 external dependency，只执行 readiness check；
-- Docker、本地数据库和图服务生命周期属于 `datapaw-cli` 或部署 owner；
-- `datapaw-context`、`datapaw-host-core`、`datapaw-cli`、`datapaw-skills` 使用独立环境，
+- Docker、本地数据库和图服务生命周期属于 `qwenpaw-data-cli` 或部署 owner；
+- `qwenpaw-data-context`、`qwenpaw-data-host-core`、`qwenpaw-data-cli`、`qwenpaw-data-skills` 使用独立环境，
   不污染 QwenPaw Python environment。
 
 ### 10.2 App UI
@@ -596,7 +596,7 @@ DataPaw UI
 
 ### 10.3 Agent
 
-- App-owned `datapaw` Agent 通过标准 Workspace Manager 启动；
+- App-owned `qwenpaw-data` Agent 通过标准 Workspace Manager 启动；
 - UI 和 Agent 使用同一个 dependency control plane；
 - Agent 只调用 read-only context/search/SQL tools 和已注册 dependency action；
 - Datasource routing directive 保留在模型 Context 中，但不作为用户 History 展示。
@@ -608,7 +608,7 @@ DataPaw UI
 - Graph optional failure 不错误覆盖健康的 business data capability；
 - Streaming assistant text、tool trace 和 SQL result；
 - UI navigation 与 reload 后恢复 History；
-- Legacy Session 原地采用；
+- Bare app-level session（无 dialogue 后缀）原地采用；
 - New Chat、Dialogue switch、独立 Context、reload persistence 和 archive；
 - App scope/path traversal 防护；
 - 浏览器公共响应不含 private service 信息。
@@ -652,7 +652,7 @@ DataPaw UI
 - Page dispose 完整且只执行一次；
 - Chat generation、History 和 Dialogue 使用同一 agent/session/user/channel；
 - History 包含结构化 tool activity，但排除内部 reasoning/hint；
-- Legacy Session 原地 adopted；新 Dialogue 获得独立 Context；
+- Bare app-level session 原地 adopted；新 Dialogue 获得独立 Context；
 - Managed service 使用动态 loopback port，通过 readiness 并在失败/关机时停止；
 - External mode 不启动子进程；
 - Dependency status 默认脱敏；

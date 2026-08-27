@@ -10,12 +10,14 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+import asyncio
 import logging
 from pathlib import Path
-from typing import Any, AsyncGenerator, Iterable, Optional
+from typing import Any, AsyncGenerator, Callable, Iterable, Optional
 
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
+from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
@@ -80,6 +82,7 @@ class Workspace:
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
         self._started = False
+        self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
@@ -376,6 +379,7 @@ class Workspace:
         def _init_local_workspace(
             ws: "Workspace",
             _service: Any,
+            _publish: Callable[[Any], None],
         ) -> "QwenPawLocalWorkspace":
             return ws._local_workspace  # pylint: disable=protected-access
 
@@ -570,6 +574,8 @@ class Workspace:
             )
             return
 
+        self._start_attempted = True
+
         logger.info(
             f"Starting workspace: {sanitize_log_value(self.agent_id)}",
         )
@@ -606,14 +612,29 @@ class Workspace:
                 f"{sanitize_log_value(self.agent_id)}",
             )
 
-        except Exception as e:
-            logger.error(
-                "Failed to start agent instance "
-                f"{sanitize_log_value(self.agent_id)}: "
-                f"{sanitize_log_value(e)}",
-            )
+        except BaseException as error:
+            if not isinstance(error, asyncio.CancelledError):
+                logger.error(
+                    "Failed to start agent instance "
+                    f"{sanitize_log_value(self.agent_id)}: "
+                    f"{sanitize_log_value(error)}",
+                )
             # Clean up partially started components
-            await self.stop()
+            try:
+                await run_async_to_completion(
+                    self.stop(final=True, preserve_reused=True),
+                )
+            except asyncio.CancelledError:
+                # A later cancellation request was delayed until cleanup
+                # completed. Preserve the original startup cancellation.
+                if not isinstance(error, asyncio.CancelledError):
+                    raise
+            except BaseException as cleanup_error:
+                logger.warning(
+                    "Failed to clean up partially started workspace "
+                    f"{sanitize_log_value(self.agent_id)}: "
+                    f"{sanitize_log_value(cleanup_error)}",
+                )
             raise
 
     def _migrate_legacy_weixin_data(self) -> None:
@@ -675,14 +696,20 @@ class Workspace:
                 sanitize_log_value(exc),
             )
 
-    async def stop(self, final: bool = True):
+    async def stop(
+        self,
+        final: bool = True,
+        preserve_reused: bool = False,
+    ):
         """Stop agent instance and clean up all resources.
 
         Args:
             final: If True (default), stop ALL services including reusable.
                    If False, skip reusable services (for reload scenario).
+            preserve_reused: Keep services borrowed from another workspace
+                alive while cleaning up this workspace.
         """
-        if not self._started:
+        if not self._started and not self._start_attempted:
             logger.debug(
                 f"Workspace not started: {sanitize_log_value(self.agent_id)}",
             )
@@ -694,13 +721,17 @@ class Workspace:
         )
 
         # Stop all services via ServiceManager (handles reuse automatically)
-        await self._service_manager.stop_all(final=final)
+        await self._service_manager.stop_all(
+            final=final,
+            preserve_reused=preserve_reused,
+        )
 
         if self._harness_runtime is not None:
             await self._harness_runtime.stop()
             self._harness_runtime = None
 
         self._started = False
+        self._start_attempted = False
         logger.info(
             f"Workspace stopped: {sanitize_log_value(self.agent_id)}",
         )
