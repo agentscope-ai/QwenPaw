@@ -1320,11 +1320,20 @@ def _reasoning_by_assistant_segment(
     return aligned
 
 
+def _local_path_to_file_url(path: str) -> str:
+    """Build an unescaped file URI from a decoded local path."""
+    if path.startswith("//"):
+        return f"file:{path}"
+    if len(path) >= 2 and path[0].isalpha() and path[1] == ":":
+        return f"file:///{path}"
+    return f"file://{path}"
+
+
 # pylint: disable=too-many-branches
 def _fixup_media_list(items: list) -> None:
     """Normalize media blocks in a list in-place.
 
-    - Strips ``file://`` prefixes from source URLs (dict blocks).
+    - Normalizes local source URLs while preserving typed ``file://`` URIs.
     - Replaces media blocks whose local file no longer exists with
       a text placeholder so the downstream formatter won't throw.
     - Converts ``file`` blocks to text placeholders — neither the
@@ -1374,9 +1383,8 @@ def _fixup_media_list(items: list) -> None:
                 )
         elif btype == "data":
             # 2.0 DataBlock — decode percent-encoded file:// URLs and
-            # check if local file still exists.  Pydantic's AnyUrl
-            # re-encodes non-ASCII chars; we must undo that before
-            # the DashScope formatter tries to open() the path.
+            # check if local file still exists. Keep the file scheme so
+            # formatters do not mistake the local path for a remote URL.
             source = getattr(block, "source", None)
             url_str = str(getattr(source, "url", "")) if source else ""
             if url_str.startswith("file://"):
@@ -1397,7 +1405,7 @@ def _fixup_media_list(items: list) -> None:
                         ),
                     )
                 elif source is not None:
-                    source.url = local_path
+                    source.url = _local_path_to_file_url(local_path)
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}
