@@ -54,25 +54,49 @@ def test_audit_close_waits_for_active_connection_user(tmp_path):
     """Closing the singleton must share its connection lock."""
     import threading
 
+    class _ObservedRLock:
+        def __init__(self):
+            self._lock = threading.RLock()
+            self.acquire_attempted = threading.Event()
+
+        def acquire(self):
+            self.acquire_attempted.set()
+            return self._lock.acquire()
+
+        def release(self):
+            self._lock.release()
+
+        def __enter__(self):
+            self.acquire()
+            return self
+
+        def __exit__(self, *_args):
+            self.release()
+
     existing = AuditLog._instance
     if existing is not None:
         existing.close()
     audit_log = AuditLog.get_instance(tmp_path)
+    observed_lock = _ObservedRLock()
+    audit_log._lock = observed_lock
     close_finished = threading.Event()
 
     def close_log():
         audit_log.close()
         close_finished.set()
 
-    audit_log._lock.acquire()
+    observed_lock.acquire()
+    observed_lock.acquire_attempted.clear()
     close_thread = threading.Thread(target=close_log)
     close_thread.start()
     try:
-        assert not close_finished.wait(timeout=0.05)
+        assert observed_lock.acquire_attempted.wait(timeout=1)
+        assert not close_finished.is_set()
     finally:
-        audit_log._lock.release()
-    close_thread.join(timeout=1)
+        observed_lock.release()
+    close_thread.join(timeout=5)
 
+    assert not close_thread.is_alive()
     assert close_finished.is_set()
     audit_log.record(
         str(tmp_path),
