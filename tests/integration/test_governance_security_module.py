@@ -132,6 +132,7 @@ def test_audit_log_record_and_query() -> None:
         events = result[0] if isinstance(result, tuple) else result
         assert len(events) >= 1
         assert events[0].tool_name == "integ_tool"
+        AuditLog.close_instance()
 
 
 @pytest.mark.integration

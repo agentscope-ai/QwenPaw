@@ -55,6 +55,8 @@ def _run_cli(*args, timeout=60):
         text=True,
         timeout=timeout,
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
 
 

@@ -27,7 +27,13 @@ def test_acp_resolve_process_command_found() -> None:
     import os
 
     resolved = _resolve_process_command("python3", dict(os.environ))
-    assert resolved.endswith("python3") or "/" in resolved
+    lowered = resolved.lower()
+    assert (
+        lowered.endswith("python3")
+        or lowered.endswith("python3.exe")
+        or "/" in resolved
+        or "\\" in resolved
+    )
 
 
 @pytest.mark.integration
