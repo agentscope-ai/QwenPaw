@@ -189,14 +189,6 @@ def build_env_context(
     parts.append(
         "- Docs: https://qwenpaw.agentscope.io/",
     )
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
     parts.append(
         f"- OS: {platform.system()} {platform.release()} "
         f"({platform.machine()})",
@@ -242,6 +234,14 @@ def build_env_context(
         parts.append(f"- User ID: {user_id}")
     if session_id is not None:
         parts.append(f"- Session ID: {session_id}")
+
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
     parts.append(
         f"- Current date: {now.strftime('%Y-%m-%d')} "
         f"{user_tz} ({now.strftime('%A')})",
