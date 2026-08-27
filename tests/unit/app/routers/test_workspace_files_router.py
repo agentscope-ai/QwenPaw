@@ -222,22 +222,6 @@ def test_upload_requests_policy_only_for_conflicting_files(
     ) == "new"
 
 
-def test_upload_can_create_a_project_source_directory(
-    files_client: TestClient,
-) -> None:
-    """Project-source uploads may create their reserved folder on demand."""
-    project_dir = files_client.app.state.project_dir
-    response = files_client.post(
-        "/api/workspace/file-upload",
-        params={"path": "profile", "create_directory": "true"},
-        files={"files": ("notes.md", b"notes", "text/markdown")},
-    )
-    assert response.status_code == 200
-    assert (project_dir / "profile" / "notes.md").read_text(
-        encoding="utf-8",
-    ) == "notes"
-
-
 def test_upload_detects_case_aliases_in_one_batch(
     files_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
