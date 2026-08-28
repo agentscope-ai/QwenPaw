@@ -48,6 +48,8 @@ class StartupCoordinator:
     def mark_ready(self, phase_name: str) -> None:
         """Mark a phase as ready."""
         phase = self._phase(phase_name)
+        if phase.status == _FAILED:
+            return
         if phase.started_ms is None:
             phase.started_ms = self._elapsed_ms()
         phase.status = _READY
@@ -57,6 +59,8 @@ class StartupCoordinator:
     def mark_failed(self, phase_name: str, error: BaseException | str) -> None:
         """Mark a phase as failed without raising into sibling workers."""
         phase = self._phase(phase_name)
+        if phase.status == _READY:
+            return
         if phase.started_ms is None:
             phase.started_ms = self._elapsed_ms()
         phase.status = _FAILED

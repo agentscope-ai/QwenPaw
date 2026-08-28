@@ -36,6 +36,11 @@ _INDEX_HEADERS = {
 
 def _load_full_app() -> FastAPI:
     """Import and return the complete QwenPaw application."""
+    from ..browser.runtime.managed_playwright import (
+        configure_desktop_playwright_cache,
+    )
+
+    configure_desktop_playwright_cache()
     module = importlib.import_module("qwenpaw.app._app")
     return module.app
 

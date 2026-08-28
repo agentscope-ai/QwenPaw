@@ -23,6 +23,17 @@ def test_phase_transitions_are_exposed() -> None:
     assert phase["error"] is None
 
 
+def test_terminal_phase_does_not_regress() -> None:
+    coordinator = StartupCoordinator(("chat_core_ready",))
+
+    coordinator.mark_ready("chat_core_ready")
+    coordinator.mark_failed("chat_core_ready", "late worker failure")
+
+    phase = coordinator.snapshot()["phases"]["chat_core_ready"]
+    assert phase["status"] == "ready"
+    assert phase["error"] is None
+
+
 @pytest.mark.asyncio
 async def test_worker_failure_is_isolated() -> None:
     coordinator = StartupCoordinator(("plugins_ready",))

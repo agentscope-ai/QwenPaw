@@ -135,6 +135,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app: FastAPI,
 ):
     startup_start_time = time.time()
+    startup_coordinator = getattr(
+        app.state,
+        "startup_coordinator",
+        None,
+    )
     add_project_file_handler(LOG_FILE_PATH)
 
     # ================================================================
@@ -358,6 +363,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         prime_bridge_token()
     except Exception:
         logger.warning("Bridge token priming failed", exc_info=True)
+    if startup_coordinator is not None:
+        startup_coordinator.mark_ready("browser_ready")
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
@@ -375,6 +382,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     startup_display = AgentStartupDisplay(read_last_api()).start()
 
     async def _background_startup():  # pylint: disable=too-many-statements
+        if startup_coordinator is not None:
+            for phase_name in (
+                "plugins_ready",
+                "channels_ready",
+                "memory_ready",
+            ):
+                startup_coordinator.mark_running(phase_name)
         try:
             # ---- Plugin System (phase 1: channel plugins) ----
             # Load channel-type plugins *before* agents start so that
@@ -416,6 +430,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 core_elapsed = time.time() - startup_start_time
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
+                if startup_coordinator is not None:
+                    for phase_name in (
+                        "chat_core_ready",
+                        "channels_ready",
+                        "memory_ready",
+                    ):
+                        startup_coordinator.mark_ready(phase_name)
 
             startup_results = (
                 await workspace_registry.start_all_configured_agents(
@@ -427,6 +448,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_failed(
                     "Default agent failed to start",
                 )
+                if startup_coordinator is not None:
+                    error = "Default agent failed to start"
+                    for phase_name in (
+                        "chat_core_ready",
+                        "channels_ready",
+                        "memory_ready",
+                    ):
+                        startup_coordinator.mark_failed(phase_name, error)
             elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
@@ -539,6 +568,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
 
+            if startup_coordinator is not None:
+                startup_coordinator.mark_ready("plugins_ready")
+
             # ---- Approval Service ----
             try:
                 default_agent = await workspace_registry.get_agent(
@@ -576,11 +608,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
 
-        except Exception:
+        except Exception as exc:
             logger.error(
                 "Background startup encountered an error",
                 exc_info=True,
             )
+            if startup_coordinator is not None:
+                for phase_name in (
+                    "chat_core_ready",
+                    "channels_ready",
+                    "memory_ready",
+                    "plugins_ready",
+                ):
+                    startup_coordinator.mark_failed(phase_name, exc)
 
     _bg_task = asyncio.create_task(_background_startup())
 

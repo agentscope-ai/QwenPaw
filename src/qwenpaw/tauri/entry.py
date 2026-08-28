@@ -223,16 +223,10 @@ def _install_certifi_env() -> None:
 
 def _install_desktop_runtime() -> None:
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
-    # Must run before importing the FastAPI app: it applies CORS middleware
-    # from qwenpaw.constant.CORS_ORIGINS at import time.
+    # CORS must be set before the deferred worker imports the full app.
     _ensure_qwenpaw_app_not_loaded()
     ensure_desktop_cors_origins()
     _sync_loaded_qwenpaw_constant_cors_origins()
-    from qwenpaw.browser.runtime.managed_playwright import (
-        configure_desktop_playwright_cache,
-    )
-
-    configure_desktop_playwright_cache()
 
 
 def _run_click_command(
@@ -312,9 +306,9 @@ def _run_backend_server(log_level: str) -> None:
     port_file = str(WORKING_DIR / "desktop_port")
     port, reused_socket = get_stable_port(port_file, host)
 
-    # Import the app instance (instead of the import string) so the desktop
-    # shutdown endpoint can reach the uvicorn server via app.state.
-    from qwenpaw.app._app import app as fastapi_app
+    # The lightweight shell serves the console while the complete app imports
+    # and initializes in its supervised background runtime.
+    from qwenpaw.tauri.deferred_app import app as fastapi_app
 
     config = uvicorn.Config(
         fastapi_app,
