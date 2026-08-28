@@ -79,6 +79,11 @@ def test_ready_time_is_stable_while_background_work_finishes() -> None:
     with patch(
         "qwenpaw.utils.startup_display.print_ready_banner",
     ):
+        console.print(display._renderable())
+        initial = output.getvalue()
+
+        output.seek(0)
+        output.truncate(0)
         display.complete(1.25, background_pending=True)
         console.print(display._renderable())
         loading = output.getvalue()
@@ -94,6 +99,8 @@ def test_ready_time_is_stable_while_background_work_finishes() -> None:
     assert "Background: Loading" in loading
     assert "Startup: 1.250s" in completed
     assert "Background: Ready 4.500s (+3.250s)" in completed
+    assert len(initial.splitlines()) == len(loading.splitlines())
+    assert len(loading.splitlines()) == len(completed.splitlines())
 
 
 def test_ready_state_does_not_regress_and_progress_is_cleared() -> None:
@@ -133,6 +140,7 @@ def test_ready_state_does_not_regress_and_progress_is_cleared() -> None:
     assert "Status:  Ready" in completed
     assert "Background: Ready 4.500s (+3.250s)" in completed
     assert "Starting custom agents" not in completed
+    assert len(loading.splitlines()) == len(completed.splitlines())
 
 
 def test_startup_display_preserves_file_logging(tmp_path) -> None:

@@ -16,6 +16,7 @@ from rich.progress import (
     TaskProgressColumn,
     TextColumn,
 )
+from rich.text import Text
 from rich.tree import Tree
 
 
@@ -185,12 +186,12 @@ class AgentStartupDisplay:
 
     def _renderable(self) -> Group:
         """Build the current fixed startup panel and optional progress."""
-        progress = (
+        progress_slot: Progress | Text = (
             self._progress
             if self._task_id is not None and not self._failed
-            else None
+            else Text(" ")
         )
-        panel_width = max(32, min(64, self._console.width - 2))
+        panel_width = max(40, min(64, self._console.width - 2))
         panel = _build_startup_panel(
             self._api_info,
             self._elapsed_seconds,
@@ -199,7 +200,7 @@ class AgentStartupDisplay:
             failed=self._failed,
             background_status=self._background_status,
             background_elapsed_seconds=self._background_elapsed_seconds,
-            progress=progress,
+            progress=progress_slot,
             width=panel_width,
         )
         return Group(panel)
@@ -282,7 +283,7 @@ def _build_startup_panel(
     failed: bool = False,
     background_status: str | None = None,
     background_elapsed_seconds: float | None = None,
-    progress: Progress | None = None,
+    progress: Progress | Text | None = None,
     width: int | None = None,
 ) -> Panel:
     """Build a startup status panel shared by Live and final output."""
@@ -303,33 +304,36 @@ def _build_startup_panel(
         tree.add(
             f"[dim]Address:[/dim] [blue underline]{url}[/blue underline]",
         )
-    if elapsed_seconds is not None:
+    if elapsed_seconds is None:
+        tree.add("[dim]Startup:[/dim] [yellow]Measuring[/yellow]")
+    else:
         tree.add(
             f"[dim]Startup:[/dim] [yellow]" f"{elapsed_seconds:.3f}s[/yellow]",
         )
-    if background_status is not None:
-        background_color = {
-            "Failed": "red",
-            "Ready": "green",
-        }.get(background_status, "yellow")
-        background_value = background_status
-        if background_elapsed_seconds is not None:
-            background_value = (
-                f"{background_value} {background_elapsed_seconds:.3f}s"
-            )
-            if elapsed_seconds is not None:
-                additional_elapsed = max(
-                    0.0,
-                    background_elapsed_seconds - elapsed_seconds,
-                )
-                background_value = (
-                    f"{background_value} (+{additional_elapsed:.3f}s)"
-                )
-        tree.add(
-            f"[dim]Background:[/dim] "
-            f"[{background_color}]{background_value}"
-            f"[/{background_color}]",
+    if background_status is None:
+        background_status = "Ready" if ready else "Pending"
+    background_color = {
+        "Failed": "red",
+        "Ready": "green",
+    }.get(background_status, "yellow")
+    background_value = background_status
+    if background_elapsed_seconds is not None:
+        background_value = (
+            f"{background_value} {background_elapsed_seconds:.3f}s"
         )
+        if elapsed_seconds is not None:
+            additional_elapsed = max(
+                0.0,
+                background_elapsed_seconds - elapsed_seconds,
+            )
+            background_value = (
+                f"{background_value} (+{additional_elapsed:.3f}s)"
+            )
+    tree.add(
+        f"[dim]Background:[/dim] "
+        f"[{background_color}]{background_value}"
+        f"[/{background_color}]",
+    )
     content = Group(tree, progress) if progress is not None else tree
     return Panel(
         content,
