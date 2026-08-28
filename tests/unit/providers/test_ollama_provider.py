@@ -89,7 +89,7 @@ def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
             captured["timeout"] = timeout
 
     monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.AsyncOpenAI",
+        "openai.AsyncOpenAI",
         FakeAsyncOpenAI,
     )
 

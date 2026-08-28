@@ -39,60 +39,73 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
 # Required channels must load; failures are raised, not skipped.
 _REQUIRED_CHANNEL_KEYS: frozenset[str] = frozenset({"console"})
 
-_BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] | None = None
+_BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel] | None] = {}
 _BUILTIN_CHANNEL_CACHE_LOCK = threading.Lock()
 
 
-def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
-    """Load built-in channels safely.
-
-    A single optional dependency failure should not break CLI startup.
-    """
-    out: dict[str, type[BaseChannel]] = {}
-    for key, (module_name, class_name) in _BUILTIN_SPECS.items():
-        try:
-            mod = importlib.import_module(module_name, package=__package__)
-            cls = getattr(mod, class_name)
-            if not (
-                isinstance(cls, type)
-                and issubclass(cls, BaseChannel)
-                and cls is not BaseChannel
-            ):
-                raise TypeError(
-                    f"{module_name}.{class_name} is not a BaseChannel subtype",
-                )
-        except Exception:
-            if key in _REQUIRED_CHANNEL_KEYS:
-                logger.error(
-                    'failed to load required built-in channel "%s"',
-                    key,
-                    exc_info=True,
-                )
-                raise
-            logger.debug(
-                "built-in channel unavailable: %s",
+def _load_builtin_channel(key: str) -> type[BaseChannel] | None:
+    """Load one built-in channel without importing unrelated transports."""
+    module_name, class_name = _BUILTIN_SPECS[key]
+    try:
+        module = importlib.import_module(module_name, package=__package__)
+        channel_class = getattr(module, class_name)
+        if not (
+            isinstance(channel_class, type)
+            and issubclass(channel_class, BaseChannel)
+            and channel_class is not BaseChannel
+        ):
+            raise TypeError(
+                f"{module_name}.{class_name} is not a BaseChannel subtype",
+            )
+    except Exception:
+        if key in _REQUIRED_CHANNEL_KEYS:
+            logger.error(
+                'failed to load required built-in channel "%s"',
                 key,
                 exc_info=True,
             )
-            continue
-        out[key] = cls
-    return out
+            raise
+        logger.debug(
+            "built-in channel unavailable: %s",
+            key,
+            exc_info=True,
+        )
+        return None
+    return channel_class
+
+
+def get_channel_class(key: str) -> type[BaseChannel] | None:
+    """Return one channel class, importing only the requested built-in."""
+    if key in _BUILTIN_SPECS:
+        with _BUILTIN_CHANNEL_CACHE_LOCK:
+            if key not in _BUILTIN_CHANNEL_CACHE:
+                _BUILTIN_CHANNEL_CACHE[key] = _load_builtin_channel(key)
+            return _BUILTIN_CHANNEL_CACHE[key]
+    return _get_plugin_channels().get(key)
+
+
+def get_channel_keys() -> tuple[str, ...]:
+    """Return discoverable keys without importing built-in channel modules."""
+    plugin_keys = tuple(
+        key for key in _get_plugin_channels() if key not in _BUILTIN_SPECS
+    )
+    return (*_BUILTIN_SPECS, *plugin_keys)
 
 
 def _get_cached_builtin_channels() -> dict[str, type[BaseChannel]]:
-    """Return cached built-in channels (loaded once per process)."""
-    global _BUILTIN_CHANNEL_CACHE
-    with _BUILTIN_CHANNEL_CACHE_LOCK:
-        if _BUILTIN_CHANNEL_CACHE is None:
-            _BUILTIN_CHANNEL_CACHE = _load_builtin_channels()
-        return dict(_BUILTIN_CHANNEL_CACHE)
+    """Return every available built-in channel for discovery commands."""
+    channels = {key: get_channel_class(key) for key in _BUILTIN_SPECS}
+    return {
+        key: channel_class
+        for key, channel_class in channels.items()
+        if channel_class is not None
+    }
 
 
 def clear_builtin_channel_cache() -> None:
     """Reset built-in channel cache. Primarily for tests."""
-    global _BUILTIN_CHANNEL_CACHE
     with _BUILTIN_CHANNEL_CACHE_LOCK:
-        _BUILTIN_CHANNEL_CACHE = None
+        _BUILTIN_CHANNEL_CACHE.clear()
 
 
 BUILTIN_CHANNEL_KEYS = frozenset(_BUILTIN_SPECS.keys())

@@ -29,16 +29,22 @@ class WorkspaceRegistry(MultiAgentManager):
         *,
         app_services: Any = None,
         bootstrap_plugins_kwargs: dict[str, Any] | None = None,
+        defer_optional_services: bool = False,
     ) -> None:
         super().__init__()
         self.app_services = app_services
         self._bootstrap_kwargs = bootstrap_plugins_kwargs or {}
+        self._defer_optional_services = defer_optional_services
 
     def _create_workspace(self, agent_id: str, workspace_dir: str) -> Any:
         """Override to run bootstrap_plugins after creation."""
         from .workspace import Workspace
 
-        workspace = Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
+        workspace = Workspace(
+            agent_id=agent_id,
+            workspace_dir=workspace_dir,
+            defer_optional_services=self._defer_optional_services,
+        )
         if self._bootstrap_kwargs:
             workspace.bootstrap_plugins(**self._bootstrap_kwargs)
         if self.app_services is not None:

@@ -31,6 +31,11 @@ def workspace(monkeypatch, tmp_path) -> Workspace:
         lambda _agent_id: SimpleNamespace(),
     )
     monkeypatch.setattr(instance, "_migrate_legacy_weixin_data", lambda: None)
+    monkeypatch.setattr(
+        instance,
+        "_require_console_chat_ready",
+        AsyncMock(),
+    )
     return instance
 
 
@@ -47,6 +52,40 @@ def _register(
             **kwargs,
         ),
     )
+
+
+def test_console_channel_manager_is_chat_critical(tmp_path) -> None:
+    workspace = Workspace("agent-1", str(tmp_path))
+    descriptor = workspace._service_manager.descriptors["channel_manager"]
+
+    assert descriptor.priority == 20
+    assert descriptor.concurrent_init is True
+
+
+@pytest.mark.asyncio
+async def test_chat_ready_requires_console_channel(tmp_path) -> None:
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager.services["chat_manager"] = object()
+    workspace._service_manager.services["channel_manager"] = SimpleNamespace(
+        get_channel=AsyncMock(return_value=None),
+    )
+
+    with pytest.raises(RuntimeError, match="Console channel is not ready"):
+        await workspace._require_console_chat_ready()
+
+
+@pytest.mark.asyncio
+async def test_chat_ready_accepts_initialized_console_path(tmp_path) -> None:
+    workspace = Workspace("agent-1", str(tmp_path))
+    workspace._service_manager.services["chat_manager"] = object()
+    get_channel = AsyncMock(return_value=object())
+    workspace._service_manager.services["channel_manager"] = SimpleNamespace(
+        get_channel=get_channel,
+    )
+
+    await workspace._require_console_chat_ready()
+
+    get_channel.assert_awaited_once_with("console")
 
 
 @pytest.mark.asyncio
@@ -131,6 +170,51 @@ async def test_workspace_cleans_up_after_partial_start_failure(workspace):
     closed.assert_awaited_once_with()
     assert not workspace._started
     assert not workspace._start_attempted
+
+
+@pytest.mark.asyncio
+async def test_desktop_workspace_defers_services_after_chat_core(
+    workspace,
+) -> None:
+    core_started = asyncio.Event()
+    deferred_started = asyncio.Event()
+    release_deferred = asyncio.Event()
+
+    class Core:
+        async def start(self):
+            core_started.set()
+
+    class Deferred:
+        async def start(self):
+            deferred_started.set()
+            await release_deferred.wait()
+
+    workspace._defer_optional_services = True
+    _register(
+        workspace,
+        "core",
+        Core,
+        start_method="start",
+        priority=20,
+    )
+    _register(
+        workspace,
+        "deferred",
+        Deferred,
+        start_method="start",
+        priority=30,
+    )
+
+    await workspace.start()
+
+    assert core_started.is_set()
+    await asyncio.wait_for(deferred_started.wait(), timeout=1)
+    assert workspace._started
+    assert workspace._deferred_start_task is not None
+    assert not workspace._deferred_start_task.done()
+
+    release_deferred.set()
+    await workspace.wait_for_deferred_services()
 
 
 @pytest.mark.asyncio

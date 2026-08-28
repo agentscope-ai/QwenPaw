@@ -396,8 +396,18 @@ def get_available_channels() -> Tuple[str, ...]:
     """
     from ..app.channels.registry import get_channel_registry
 
-    registry = get_channel_registry()
-    all_keys = tuple(registry.keys())
+    return _filter_channel_keys(tuple(get_channel_registry()))
+
+
+def get_startup_channel_keys() -> Tuple[str, ...]:
+    """Return enabled keys without importing every built-in channel."""
+    from ..app.channels.registry import get_channel_keys
+
+    return _filter_channel_keys(get_channel_keys())
+
+
+def _filter_channel_keys(all_keys: Tuple[str, ...]) -> Tuple[str, ...]:
+    """Apply process channel allow/deny environment filters."""
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:

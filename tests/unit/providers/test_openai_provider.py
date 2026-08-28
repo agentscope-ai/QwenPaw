@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from agentscope.model import OpenAIChatModel
+import openai
 import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
@@ -60,7 +61,7 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+    monkeypatch.setattr(openai, "APIError", Exception)
 
     ok, msg = await provider.check_connection(timeout=1)
 
@@ -197,7 +198,7 @@ async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+    monkeypatch.setattr(openai, "APIError", Exception)
 
     models = await provider.fetch_models(timeout=3)
 
@@ -568,7 +569,7 @@ async def test_check_model_connection_api_error_returns_false(
         chat=SimpleNamespace(completions=FakeCompletions()),
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+    monkeypatch.setattr(openai, "APIError", Exception)
 
     ok, msg = await provider.check_model_connection("gpt-4o-mini", timeout=4)
 
@@ -869,7 +870,7 @@ async def test_check_model_connection_api_type_mismatch_treated_as_ok(
         chat=SimpleNamespace(completions=FakeCompletions()),
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+    monkeypatch.setattr(openai, "APIError", Exception)
 
     # A generation model whose id does not match the non-chat patterns
     ok, msg = await provider.check_model_connection("my-video-gen", timeout=4)
@@ -890,7 +891,7 @@ async def test_connection_error_redacts_credentials(monkeypatch) -> None:
 
     fake_client = SimpleNamespace(models=FakeModels())
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+    monkeypatch.setattr(openai, "APIError", Exception)
 
     ok, message = await provider.check_connection()
 

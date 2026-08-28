@@ -188,15 +188,39 @@ class ServiceManager:
         sequential service, the event loop is yielded so HTTP requests can
         be served during background startup.
         """
+        await self._start_priorities(
+            sorted(self._group_by_priority()),
+        )
+
+    async def start_through(self, maximum_priority: int) -> None:
+        """Start services up to and including one priority boundary."""
+        priorities = [
+            priority
+            for priority in sorted(self._group_by_priority())
+            if priority <= maximum_priority
+        ]
+        await self._start_priorities(priorities)
+
+    async def start_after(self, minimum_priority: int) -> None:
+        """Start services strictly after one priority boundary."""
+        priorities = [
+            priority
+            for priority in sorted(self._group_by_priority())
+            if priority > minimum_priority
+        ]
+        await self._start_priorities(priorities)
+
+    async def _start_priorities(self, priorities: List[int]) -> None:
+        """Start selected priority groups in their declared order."""
         t0 = time.perf_counter()
         logger.debug(
-            f"Starting {len(self.descriptors)} services "
+            f"Starting service priorities {priorities} "
             f"({len(self.reused_services)} reused)",
         )
 
         priority_groups = self._group_by_priority()
 
-        for priority in sorted(priority_groups.keys()):
+        for priority in priorities:
             descriptors = priority_groups[priority]
 
             # Separate concurrent and sequential services
@@ -216,7 +240,7 @@ class ServiceManager:
 
         elapsed = time.perf_counter() - t0
         logger.debug(
-            "All services started for "
+            f"Service priorities {priorities} started for "
             f"{sanitize_log_value(self.workspace.agent_id)} "
             f"in {elapsed:.3f}s",
         )

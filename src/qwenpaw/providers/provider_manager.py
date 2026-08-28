@@ -4,13 +4,13 @@ It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 # pylint: disable=unused-import
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List
-
-from agentscope.model import ChatModelBase
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from qwenpaw.exceptions import ModelNotFoundException
 
@@ -49,6 +49,9 @@ from .provider_update_fields import (
 )
 from .plugin_provider_registry import PluginProviderRegistry
 from .provider_annotations import ProviderAnnotationService
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
 
 logger = logging.getLogger(__name__)
 

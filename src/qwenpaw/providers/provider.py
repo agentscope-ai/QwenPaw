@@ -10,7 +10,6 @@ import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
 
-from agentscope.model import ChatModelBase
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qwenpaw.exceptions import ProviderError
@@ -18,6 +17,8 @@ from qwenpaw.exceptions import ProviderError
 from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
 
 if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
+
     from .multimodal_prober import ProbeResult
 
 
