@@ -376,6 +376,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return False
 
         async with self._exclusive_reme_lifecycle("embedding-update"):
+            old_config = self._active_embedding_config
+            if old_config is not None and old_config.backend != config.backend:
+                # update_component() can replace the provider model but not the
+                # backend-specific wrapper class. Keeping the old wrapper would
+                # make ReMe's vector_space_id describe the previous provider and
+                # could reuse that provider's cache during a requested rebuild.
+                return await self._reload_embedding_config_unlocked()
+
             tested_model = staged[1]
             if hasattr(tested_model, "context_size"):
                 tested_model.context_size = config.max_input_length
@@ -398,7 +406,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 # ReMe 0.4 cannot add/remove components after initialization.
                 return await self._reload_embedding_config_unlocked()
 
-            old_config = self._active_embedding_config
             vector_space_changed = old_config is None or (
                 embedding_vector_space_fingerprint(old_config)
                 != embedding_vector_space_fingerprint(config)

@@ -120,6 +120,31 @@ async def test_model_change_requests_reme_managed_background_rebuild() -> None:
 
 
 @pytest.mark.asyncio
+async def test_backend_change_reloads_backend_specific_wrapper() -> None:
+    old_config = _config(backend="openai")
+    new_config = _config(backend="dashscope")
+    manager, wrapper, _store = _manager(old_config)
+    original_model = wrapper.model
+    manager._tested_embedding = (
+        embedding_config_fingerprint(new_config),
+        object(),
+    )
+
+    async def reload_while_locked():
+        assert manager._lifecycle_operation == "embedding-update"
+        return True
+
+    manager._reload_embedding_config_unlocked = AsyncMock(
+        side_effect=reload_while_locked,
+    )
+
+    assert await manager.apply_tested_embedding(new_config) is True
+    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
+    assert wrapper.model is original_model
+    manager._reme.file_store.resume_embedding.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_manual_reindex_clears_persisted_requirement() -> None:
     config = _config()
     manager, _wrapper, _store = _manager(config)
