@@ -72,6 +72,23 @@ def wechat_channel_up(app_server):
     )
 
 
+def _register_provider_ready(app_server, mock_url: str) -> str:
+    """Register the mock LLM and wait until pushes cannot be stolen.
+
+    Registering reloads the agent, which replaces the WeChat channel.
+    Pushing right after the reload can hand the message to the instance
+    on its way out, whose queue is already stopped, so no reply is sent
+    and the caller pays a full ``wait_for_sent_text`` timeout before its
+    retry succeeds.
+
+    Not reaching that state is not an error: the callers retry anyway,
+    so this only trades a likely timeout for a short wait.
+    """
+    provider_id = register_mock_provider(app_server, mock_url)
+    _MOCK_WX.wait_for_fresh_pollers()
+    return provider_id
+
+
 @pytest.mark.integration
 @pytest.mark.p1
 def test_wechat_channel_enabled_with_mock_base_url(
@@ -120,7 +137,7 @@ def test_wechat_text_message_roundtrip(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         replied = None
         for _ in range(4):
@@ -163,7 +180,7 @@ def test_wechat_group_message_uses_group_session(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         replied = None
         for attempt in range(4):
@@ -209,7 +226,7 @@ def test_wechat_image_message_download_path(
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
-    provider_id = register_mock_provider(app_server, mock_url)
+    provider_id = _register_provider_ready(app_server, mock_url)
     try:
         wechat_channel_up.push_image_message()
         replied = None

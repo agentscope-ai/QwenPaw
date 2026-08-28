@@ -236,7 +236,7 @@ def test_spawn_subagent_with_fork_worktree(
     Test flow:
       1. Ensure the workspace is a git repo (git_repo fixture).
       2. Force spawn_subagent with fork=True.
-      3. Assert the turn reaches a terminal state.
+      3. Wait until the fork API call itself shows up.
     """
     srv, _mock_url = mock_llm
     srv.force_tool_call = True
@@ -265,23 +265,28 @@ def test_spawn_subagent_with_fork_worktree(
         )
         assert submit.status_code == 200, app_server.logs_tail()[-2000:]
         task_id = submit.json()["task_id"]
-        # Real worktree provisioning plus a subagent run can take a
-        # few minutes; the coverage goal (fork pipeline entered) is met
-        # once the task is accepted and progressing, so accept either a
-        # finished task or one still running after a bounded wait.
+        # Waiting for the whole subagent run to finish costs minutes and
+        # then has to accept a still-running task, which says nothing
+        # beyond "the POST was accepted". What this test uniquely covers
+        # is that spawn_subagent(fork=True) reaches _call_fork_api, and
+        # that call is visible in the access log as soon as it happens.
         deadline = time.time() + 60.0
-        body = None
+        forked = False
         while time.time() < deadline:
-            poll = app_server.api_request(
-                "GET",
-                f"/api/console/chat/task/{task_id}",
-                timeout=default_http_timeout(15.0),
-            )
-            body = poll.json()
-            if body.get("status") == "finished":
+            if any("/api/fork/agent" in line for line in app_server.logs):
+                forked = True
                 break
-            time.sleep(0.5)
-        assert body is not None, "no task status returned"
+            time.sleep(0.2)
+        assert forked, (
+            "spawn_subagent(fork=True) never called the fork API: "
+            f"{app_server.logs_tail()[-3000:]}"
+        )
+        poll = app_server.api_request(
+            "GET",
+            f"/api/console/chat/task/{task_id}",
+            timeout=default_http_timeout(15.0),
+        )
+        body = poll.json()
         assert body.get("status") in ("finished", "running"), body
     finally:
         srv.force_tool_call = False

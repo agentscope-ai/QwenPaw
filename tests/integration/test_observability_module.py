@@ -210,19 +210,3 @@ def test_langfuse_client_returns_none_when_unavailable() -> None:
     if not _langfuse_available():
         client = _langfuse_client()
         assert client is None
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_observability_init_exports() -> None:
-    """Test purpose:
-    - Verify qwenpaw.observability package can be imported and has
-      expected structure.
-
-    Test flow:
-    1. Import qwenpaw.observability.
-    2. Verify import succeeds (package exists).
-    """
-    import qwenpaw.observability
-
-    assert qwenpaw.observability is not None

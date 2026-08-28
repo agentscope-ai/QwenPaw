@@ -60,6 +60,10 @@ def mattermost_channel_up(app_server):
             "enabled": True,
             "url": _MOCK_MM.url,
             "bot_token": "integ-mock-mm-token",
+            # Required by the thread-follow branch of _is_triggered;
+            # without it that branch is dead and the test below can only
+            # assert the connection is alive.
+            "thread_follow_without_mention": True,
         },
         timeout=_HTTP_TIMEOUT,
     )
@@ -278,8 +282,16 @@ def test_mattermost_thread_follow_reply(
                     followed = post
                     break
             time.sleep(0.3)
-        # thread_follow is opt-in via config; accept either outcome but
-        # assert the channel is still healthy by checking no crash.
+        # thread_follow_without_mention is enabled by the fixture, so the
+        # un-mentioned follow-up must reach the agent and be answered
+        # under the same root. Asserting it is what actually covers the
+        # thread_followed branch; dropping the result here would let the
+        # test pass while that branch stays dead.
+        assert followed is not None, (
+            f"no thread-follow reply under root {root_id}; "
+            f"posts={mattermost_channel_up.posts[before:]} logs="
+            f"{app_server.logs_tail()[-3000:]}"
+        )
         assert mattermost_channel_up.has_connection
     finally:
         unregister_mock_provider(app_server, provider_id)
@@ -311,9 +323,33 @@ def test_mattermost_bot_own_post_ignored(
             user_id=BOT_USER_ID,
             post_id="integmmselfpost0001",
         )
-        time.sleep(8.0)
-        assert (
-            len(mattermost_channel_up.posts) == before
-        ), mattermost_channel_up.posts[before:]
+        # A sentinel from a real user proves the channel kept consuming
+        # after the self-authored post, which a fixed sleep can only
+        # assume. Once its reply lands, the only new post may be that
+        # reply — the bot's own post must have produced nothing.
+        mattermost_channel_up.push_dm_post(
+            text="sentinel after self post",
+            post_id="integmmselfpost0002",
+        )
+        sentinel = None
+        deadline = time.time() + 25.0
+        while time.time() < deadline and sentinel is None:
+            # Scan only the delta: wait_for_reply matches against every
+            # post ever recorded and would be satisfied instantly by a
+            # reply from an earlier test in this module.
+            for post in mattermost_channel_up.posts[before:]:
+                if MOCK_LLM_RESPONSE.split()[0] in str(
+                    post.get("message", ""),
+                ):
+                    sentinel = post
+                    break
+            time.sleep(0.2)
+        assert sentinel is not None, (
+            "sentinel DM got no reply, cannot tell the self-post was "
+            "ignored rather than the channel being stuck: "
+            + app_server.logs_tail()[-3000:]
+        )
+        new_posts = mattermost_channel_up.posts[before:]
+        assert len(new_posts) == 1, new_posts
     finally:
         unregister_mock_provider(app_server, provider_id)

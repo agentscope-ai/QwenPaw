@@ -29,6 +29,47 @@ def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
 
 
+# Variables that select the trust store for every TLS client in the process.
+# A test that leaves one of these pointing at a scratch file breaks every
+# later test in the same worker that opens an HTTPS connection, and the
+# failure surfaces far away from the culprit.
+_TLS_ENV_VARS = (
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_tls_env_leak() -> Generator[None, None, None]:
+    """Fail the test that leaks a process-global TLS trust-store override.
+
+    ``monkeypatch.delenv(name, raising=False)`` records no undo entry when the
+    variable is absent, so production code called afterwards can write these
+    variables permanently. Comparing before/after attributes the leak to the
+    test that caused it instead of to its random victim.
+    """
+    before = {name: os.environ.get(name) for name in _TLS_ENV_VARS}
+    yield
+    leaked = {
+        name: os.environ.get(name)
+        for name in _TLS_ENV_VARS
+        if os.environ.get(name) != before[name]
+    }
+    if leaked:
+        for name, value in leaked.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = before[name] or ""
+        pytest.fail(
+            f"test leaked TLS environment overrides: {leaked}. "
+            f"Restore them with monkeypatch (setenv before delenv) so later "
+            f"tests in this worker keep a usable trust store.",
+        )
+
+
 # =============================================================================
 # Third-Party Library Mocks
 # =============================================================================

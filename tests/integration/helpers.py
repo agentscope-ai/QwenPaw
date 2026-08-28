@@ -99,6 +99,80 @@ def toggle_agent(app_server, agent_id: str, enabled: bool):
     )
 
 
+_RELOAD_STARTED = "Reloading agent (zero-downtime):"
+# Every way a reload can stop being in flight, so that each start line
+# is matched by exactly one of these. Most reloads never swap anything:
+# a config write that schedules several reloads in a row leaves the
+# earlier candidates stale, and those are discarded before the swap.
+# Of the ones that do swap, the outgoing instance is stopped right away
+# only when it has no active task -- otherwise it is kept alive and
+# cleaned up later, and stopping it can also fail outright. Keying on
+# "stopped" alone accounted for 2 of 10 reloads in one module, and the
+# 8 unmatched starts made every later call wait out its timeout.
+_RELOAD_SETTLED = (
+    "Discarding stale reload for",
+    "was removed during reload",
+    "Failed to start new workspace instance",
+    "not found in configuration",
+    "Old workspace instance stopped:",
+    "Scheduling delayed cleanup for",
+    "Failed to stop old workspace instance",
+)
+
+
+def wait_for_agent_reload_settled(
+    app_server,
+    *,
+    timeout: float = 20.0,
+) -> None:
+    """Block until no zero-downtime agent reload is still in flight.
+
+    Config writes answer 200 and only then reload the agent in the
+    background (``schedule_agent_reload``). During the swap the
+    outgoing instance still owns an inbound channel message but no
+    longer owns the channel socket, so a message pushed inside that
+    window is answered into the void -- the app logs ``Cannot send -
+    not connected`` and the caller burns its whole poll timeout before
+    a retry succeeds.
+
+    ``wait_for_agent_startup`` cannot see this: the reload builds a new
+    instance beside the live one, so ``startup_status`` never leaves
+    ``ready``. What is observable is that every reload logs one start
+    line and later one of the ``_RELOAD_SETTLED`` outcomes, so once the
+    outcomes have caught up the swap is no longer pending.
+
+    The counts are also balanced *before* a scheduled reload begins, so
+    one throwaway request is issued first: the reload task was created
+    while the previous response was being served, and the single event
+    loop runs it before accepting the next request, hence its start
+    line is already out by the time this returns.
+
+    Timing out is not an error. When the outgoing instance is kept alive
+    for a running task there is nothing to wait for, and callers already
+    cope with a lost first message by retrying -- turning that into a
+    failure would break tests this is only meant to speed up.
+    """
+    try:
+        app_server.api_request("GET", "/api/healthz")
+    except Exception:  # noqa: BLE001 - barrier is best-effort
+        return
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        lines = list(app_server.logs)
+        started = sum(1 for line in lines if _RELOAD_STARTED in line)
+        settled = sum(
+            1
+            for line in lines
+            if any(marker in line for marker in _RELOAD_SETTLED)
+        )
+        # A delayed cleanup logs both its scheduling and, later, its
+        # stop, so outcomes can outnumber starts; ">=" keeps that from
+        # deadlocking every later call.
+        if settled >= started:
+            return
+        time.sleep(0.05)
+
+
 def wait_for_agent_startup(
     app_server,
     agent_id: str,
@@ -350,7 +424,7 @@ def wait_cron_executed(app_server, job_id, deadline):
     the cron actually succeeded. See
     ``localfile/bug_report_cron_history_cache.md`` for the full report.
 
-    Fallback order:
+    Fallback order, re-evaluated on every poll iteration:
         1. HTTP poll (preferred — same shape the production console
            uses).
         2. Read ``<working_dir>/**/jobs_history/<urlquoted_id>.json``
@@ -361,17 +435,33 @@ def wait_cron_executed(app_server, job_id, deadline):
            resort and return a synthetic record. Use this only when
            the test only inspects ``status``.
 
+    Steps 1 and 2 are interleaved on purpose: once the cache is
+    poisoned the HTTP poll never recovers, so draining the whole
+    ``deadline`` budget before the first disk read makes every affected
+    test pay the full timeout even though the record is already on disk.
+
     Returns ``[]`` when none of the three signals appears before
     ``deadline``.
     """
-    records = poll_history(app_server, job_id, deadline)
-    if records:
-        return records
+    while True:
+        resp = app_server.api_request(
+            "GET",
+            f"/api/cron/jobs/{job_id}/history",
+            timeout=_CRON_HISTORY_HTTP_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            records = resp.json()
+            if isinstance(records, list) and records:
+                return records
 
-    # Disk fallback — gives the real record shape.
-    disk_records = _read_history_from_disk(app_server, job_id)
-    if disk_records:
-        return disk_records
+        # Disk fallback — gives the real record shape.
+        disk_records = _read_history_from_disk(app_server, job_id)
+        if disk_records:
+            return disk_records
+
+        if time.time() >= deadline:
+            break
+        time.sleep(1.0)
 
     # Log fallback — only carries ``status``.
     logs = app_server.logs_tail(40000)
@@ -710,6 +800,10 @@ def register_mock_provider(app_server, mock_url: str) -> str:
         },
         timeout=_HTTP_TIMEOUT,
     )
+    # The writes above reload the agent in the background. Returning
+    # here would let the caller act on a channel that is mid-swap and
+    # silently drops its reply, which costs a full poll timeout.
+    wait_for_agent_reload_settled(app_server)
     return MOCK_LLM_PROVIDER_ID
 
 

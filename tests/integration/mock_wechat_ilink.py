@@ -31,6 +31,8 @@ class MockWeChatILink:
         self._pending: list[dict[str, Any]] = []
         self._cursor = 0
         self._msg_counter = 0
+        self._poll_request_count = 0
+        self._poll_inflight: set[int] = set()
         self.sent_messages: list[dict[str, Any]] = []
         self._http_server: Optional[ThreadingHTTPServer] = None
 
@@ -115,6 +117,19 @@ class MockWeChatILink:
     # -------------------------------------------------------------- #
 
     def _take_msgs(self) -> list[dict[str, Any]]:
+        """Drain the queue for one getupdates poll."""
+        with self._lock:
+            self._poll_request_count += 1
+            poll_request = self._poll_request_count
+            self._poll_inflight.add(poll_request)
+        try:
+            return self._collect_msgs()
+        finally:
+            with self._lock:
+                self._poll_inflight.discard(poll_request)
+
+    def _collect_msgs(self) -> list[dict[str, Any]]:
+        """Body of one getupdates poll, without the bookkeeping."""
         deadline = time.time() + 2.0
         while time.time() < deadline:
             with self._lock:
@@ -240,3 +255,31 @@ class MockWeChatILink:
                     return text
             time.sleep(0.2)
         return None
+
+    def wait_for_fresh_pollers(self, *, timeout: float = 15.0) -> bool:
+        """Wait until every parked getupdates belongs to the live channel.
+
+        A config write reloads the agent and replaces the channel, but
+        the retiring one's long poll can still be parked here while its
+        replacement takes over. ``_pending`` goes to whichever poll wakes
+        first, so a message pushed during that overlap can leave on the
+        instance that is going away and be handled by a channel whose
+        queue is already stopped -- no reply is ever sent and the caller
+        pays a full ``wait_for_sent_text`` timeout before its retry.
+
+        Sequence numbers are handed out when a poll arrives, so once
+        every in-flight number is above the one observed here, no
+        pre-reload poll can steal the next push. Requiring at least one
+        in-flight poll also means the push is picked up right away
+        instead of waiting for the next round trip.
+        """
+        with self._lock:
+            mark = self._poll_request_count
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                inflight = set(self._poll_inflight)
+            if inflight and min(inflight) > mark:
+                return True
+            time.sleep(0.05)
+        return False

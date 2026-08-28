@@ -49,9 +49,13 @@ def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
 def test_install_certifi_env_sets_bundle_paths(monkeypatch, tmp_path):
     cert_file = tmp_path / "cacert.pem"
     cert_file.write_text("test cert", encoding="utf-8")
-    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
-    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
-    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+    for var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        # setenv before delenv so monkeypatch always records an undo entry:
+        # delenv on an absent variable records nothing, and the production
+        # call below writes these variables into os.environ, which would then
+        # leak a bogus cert path into every later test in this process.
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setitem(
         sys.modules,
         "certifi",

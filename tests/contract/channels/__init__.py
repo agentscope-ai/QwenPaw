@@ -67,23 +67,6 @@ class ChannelContractTest(BaseContractTest):
                 f"and must be implemented.",
             )
 
-    def test_no_abstractmethods__in_instance(self, instance):
-        """
-        CRITICAL: Instance must not have abstract methods (Python ABC check).
-
-        This catches cases where BaseChannel defines @abstractmethod
-        but subclass doesn't implement it - Python will prevent instantiation.
-        If this test runs, it means instance was created successfully.
-        """
-        # This test passing means the instance was successfully created,
-        # which implies no abstract methods remain unimplemented.
-        # If there were unimplemented abstract methods, create_instance()
-        # would have raised TypeError during fixture setup.
-        assert instance is not None, (
-            "Instance creation failed - "
-            "check for unimplemented abstract methods"
-        )
-
     # =========================================================================
     # Contract: Required Methods Implementation (Non-ABC Check)
     # =========================================================================
@@ -153,20 +136,10 @@ class ChannelContractTest(BaseContractTest):
         assert instance.channel is not None, "'channel' cannot be None"
         assert isinstance(instance.channel, str), "'channel' must be a string"
 
-    def test_has_start_method(self, instance):
-        """Contract: All channels must implement start()."""
-        assert hasattr(instance, "start"), "Missing start() method"
-        assert callable(getattr(instance, "start")), "start must be callable"
-
-    def test_has_stop_method(self, instance):
-        """Contract: All channels must implement stop()."""
-        assert hasattr(instance, "stop"), "Missing stop() method"
-        assert callable(getattr(instance, "stop")), "stop must be callable"
-
-    def test_has_send_method(self, instance):
-        """Contract: All channels must implement send()."""
-        assert hasattr(instance, "send"), "Missing send() method"
-        assert callable(getattr(instance, "send")), "send must be callable"
+    # start/stop/send/build_agent_request_from_native existence is already
+    # enforced (with a stronger "must be overridden" check) by
+    # test_required_methods_not_raising_not_implemented above, and their
+    # signatures by the compatibility tests below.
 
     def test_has_from_config_method(self, instance):
         """Contract: All channels must implement from_config()."""
@@ -178,13 +151,6 @@ class ChannelContractTest(BaseContractTest):
         assert callable(
             getattr(cls, "from_config"),
         ), "from_config must be callable"
-
-    def test_has_build_agent_request_from_native_method(self, instance):
-        """All channels must implement build_agent_request_from_native."""
-        attr_name = "build_agent_request_from_native"
-        assert hasattr(instance, attr_name), f"Missing {attr_name}"
-        method = getattr(instance, attr_name)
-        assert callable(method), f"{attr_name} must be callable"
 
     # =========================================================================
     # Contract: Method Signature Compatibility
@@ -300,14 +266,11 @@ class ChannelContractTest(BaseContractTest):
     # Contract: Policy Attributes
     # =========================================================================
 
-    def test_policy_attributes_exist(self, instance):
-        """Channels must have policy attributes for access control."""
-        assert hasattr(instance, "dm_policy"), "Missing dm_policy"
-        assert hasattr(instance, "group_policy"), "Missing group_policy"
-        assert hasattr(instance, "allow_from"), "Missing allow_from"
-
     def test_policy_attributes_types(self, instance):
-        """Contract: Policy attributes must have correct types."""
+        """Contract: Policy attributes must exist with the correct types.
+
+        Attribute access here also covers the plain existence contract.
+        """
         assert isinstance(instance.dm_policy, str), "dm_policy must be str"
         assert isinstance(
             instance.group_policy,

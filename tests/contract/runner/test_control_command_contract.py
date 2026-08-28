@@ -55,9 +55,14 @@ def _all_subclasses(cls: type) -> set[type]:
 
 
 def _concrete_handlers() -> list[type[BaseControlCommandHandler]]:
-    """Return all non-abstract subclasses of BaseControlCommandHandler."""
+    """Return all non-abstract subclasses of BaseControlCommandHandler.
+
+    Sorted by name: the set above iterates in an unstable order, which makes
+    parametrised ids differ between pytest-xdist workers and aborts the run.
+    """
     subs = _all_subclasses(BaseControlCommandHandler)
-    return [cls for cls in subs if not inspect.isabstract(cls)]
+    concrete = [cls for cls in subs if not inspect.isabstract(cls)]
+    return sorted(concrete, key=lambda cls: cls.__name__)
 
 
 def test_at_least_six_concrete_handlers_are_discoverable():

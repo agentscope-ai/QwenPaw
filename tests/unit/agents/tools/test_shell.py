@@ -1092,7 +1092,12 @@ async def test_execute_posix_host_timeout_preserves_partial_output(tmp_path):
     returncode, stdout, stderr = await _execute_posix_host(
         "printf partial-out; printf partial-err >&2; sleep 5",
         str(tmp_path),
-        0.2,
+        # The deadline has to cover spawning /bin/sh and running both
+        # printfs, otherwise a loaded machine kills the shell before it
+        # writes anything and the assertions below see empty output.
+        # Anything well under the script's own sleep still proves the
+        # process was killed mid-run.
+        1.0,
         os.environ.copy(),
         "/bin/sh",
     )

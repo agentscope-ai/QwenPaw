@@ -1813,9 +1813,15 @@ class TestSlackChannelLifecycle:
             Exception("rate_limited"),
             {"ok": True, "user_id": "Uretry"},
         ]
-        await slack_channel._fetch_bot_user_id()
+        # The retry backoff is real wall clock (2**attempt), so patch it
+        # and assert the schedule instead of sitting through it.
+        with patch(
+            "qwenpaw.app.channels.slack.channel.asyncio.sleep",
+        ) as mock_sleep:
+            await slack_channel._fetch_bot_user_id()
         assert slack_channel._bot_user_id == "Uretry"
         assert mock_slack_client.auth_test.call_count == 3
+        assert [c.args[0] for c in mock_sleep.call_args_list] == [1, 2]
 
     async def test_fetch_bot_user_id_exhausts_retries(
         self,
@@ -1824,8 +1830,15 @@ class TestSlackChannelLifecycle:
     ):
         slack_channel._client = mock_slack_client
         mock_slack_client.auth_test.side_effect = Exception("always fails")
-        with pytest.raises(RuntimeError, match="Failed to fetch bot user_id"):
-            await slack_channel._fetch_bot_user_id()
+        with patch(
+            "qwenpaw.app.channels.slack.channel.asyncio.sleep",
+        ) as mock_sleep:
+            with pytest.raises(
+                RuntimeError,
+                match="Failed to fetch bot user_id",
+            ):
+                await slack_channel._fetch_bot_user_id()
+        assert [c.args[0] for c in mock_sleep.call_args_list] == [1, 2, 4]
 
     async def test_stop_cleans_up_all_components(self, slack_channel):
         slack_channel._sender = AsyncMock()
@@ -1970,7 +1983,12 @@ class TestSlackChannelSocketModeResilience:
         slack_channel._start = AsyncMock(
             side_effect=Exception("invalid_auth"),
         )
-        await slack_channel._restart_socket_mode("test")
+        # The reconnect backoff is real wall clock; the delay itself is
+        # covered by test_restart_socket_mode_first_attempt_delay_positive.
+        with patch(
+            "qwenpaw.app.channels.slack.channel.asyncio.sleep",
+        ):
+            await slack_channel._restart_socket_mode("test")
         assert slack_channel._running is False
 
     async def test_start_sets_running_true(self, slack_channel):
@@ -2011,7 +2029,12 @@ class TestSlackChannelSocketModeResilience:
         slack_channel._socket_reconnect_attempt = 3
         slack_channel._stop_socket_mode_handler = AsyncMock()
         slack_channel._start = AsyncMock()
-        await slack_channel._restart_socket_mode("test")
+        # Attempt 3's backoff is real wall clock and the assertions below
+        # are about the state after it, not about its length.
+        with patch(
+            "qwenpaw.app.channels.slack.channel.asyncio.sleep",
+        ):
+            await slack_channel._restart_socket_mode("test")
         assert slack_channel._socket_reconnect_attempt == 0
         assert slack_channel._running is True
 
