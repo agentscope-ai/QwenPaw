@@ -83,10 +83,11 @@ class AgentStartupDisplay:
 
     def start_custom_agents(self, total: int) -> None:
         """Add the bounded custom-agent progress bar."""
-        self._phase = "Starting custom agents"
+        if self._phase != "Ready":
+            self._phase = "Starting custom agents"
         if total > 0 and self._task_id is None:
             self._task_id = self._progress.add_task(
-                "Waiting for custom agents",
+                "Starting custom agents",
                 total=total,
             )
         self._refresh()
@@ -99,15 +100,16 @@ class AgentStartupDisplay:
             self._progress.update(
                 self._task_id,
                 advance=1,
-                description=f"Starting custom agents: {agent_id}",
             )
+            _ = agent_id
             self._refresh()
         except OSError:
             self.stop()
 
     def mark_finalizing(self) -> None:
         """Show that agent startup finished and services are finalizing."""
-        self._phase = "Finalizing services"
+        if self._phase != "Ready":
+            self._phase = "Finalizing services"
         self._refresh()
 
     def mark_failed(self, status: str) -> None:
@@ -128,6 +130,8 @@ class AgentStartupDisplay:
         self._elapsed_seconds = elapsed_seconds
         self._background_status = "Loading" if background_pending else None
         self._background_elapsed_seconds = None
+        if not background_pending:
+            self._task_id = None
         if self._live is None:
             if self._background_status is None:
                 print_ready_banner(self._api_info, elapsed_seconds)
@@ -144,12 +148,14 @@ class AgentStartupDisplay:
         """Record background completion without changing ready time."""
         self._background_status = "Ready"
         self._background_elapsed_seconds = elapsed_seconds
+        self._task_id = None
         self._refresh()
 
     def fail_background(self) -> None:
         """Show a background failure without regressing chat readiness."""
         self._background_status = "Failed"
         self._background_elapsed_seconds = None
+        self._task_id = None
         self._refresh()
 
     def stop(self) -> None:
@@ -179,24 +185,24 @@ class AgentStartupDisplay:
 
     def _renderable(self) -> Group:
         """Build the current fixed startup panel and optional progress."""
-        renderables = [
-            _build_startup_panel(
-                self._api_info,
-                self._elapsed_seconds,
-                status=self._phase,
-                ready=self._phase == "Ready",
-                failed=self._failed,
-                background_status=self._background_status,
-                background_elapsed_seconds=(self._background_elapsed_seconds),
-            ),
-        ]
-        if (
-            self._task_id is not None
-            and self._phase != "Ready"
-            and not self._failed
-        ):
-            renderables.append(self._progress)
-        return Group(*renderables)
+        progress = (
+            self._progress
+            if self._task_id is not None and not self._failed
+            else None
+        )
+        panel_width = max(32, min(64, self._console.width - 2))
+        panel = _build_startup_panel(
+            self._api_info,
+            self._elapsed_seconds,
+            status=self._phase,
+            ready=self._phase == "Ready",
+            failed=self._failed,
+            background_status=self._background_status,
+            background_elapsed_seconds=self._background_elapsed_seconds,
+            progress=progress,
+            width=panel_width,
+        )
+        return Group(panel)
 
     def _refresh(self) -> None:
         """Refresh the live region without affecting startup on I/O errors."""
@@ -276,6 +282,8 @@ def _build_startup_panel(
     failed: bool = False,
     background_status: str | None = None,
     background_elapsed_seconds: float | None = None,
+    progress: Progress | None = None,
+    width: int | None = None,
 ) -> Panel:
     """Build a startup status panel shared by Live and final output."""
     status_color = "red" if failed else "green" if ready else "yellow"
@@ -322,12 +330,14 @@ def _build_startup_panel(
             f"[{background_color}]{background_value}"
             f"[/{background_color}]",
         )
+    content = Group(tree, progress) if progress is not None else tree
     return Panel(
-        tree,
+        content,
         border_style=status_color,
         box=box.ROUNDED,
         padding=(1, 2),
-        expand=False,
+        expand=width is not None,
+        width=width,
     )
 
 

@@ -31,7 +31,7 @@ def test_startup_display_renders_progress_on_terminal() -> None:
         display.stop()
         console.print(display._renderable())
         rendered = output.getvalue()
-        assert "Starting custom agents: research" in rendered
+        assert "Starting custom agents" in rendered
         assert "1/1" in rendered
         assert "http://127.0.0.1:8088" in rendered
     finally:
@@ -94,6 +94,45 @@ def test_ready_time_is_stable_while_background_work_finishes() -> None:
     assert "Background: Loading" in loading
     assert "Startup: 1.250s" in completed
     assert "Background: Ready 4.500s (+3.250s)" in completed
+
+
+def test_ready_state_does_not_regress_and_progress_is_cleared() -> None:
+    output = StringIO()
+    console = Console(
+        file=output,
+        force_terminal=True,
+        color_system=None,
+        width=100,
+    )
+    display = AgentStartupDisplay(
+        ("127.0.0.1", 8088),
+        console=console,
+    )
+
+    with patch(
+        "qwenpaw.utils.startup_display.print_ready_banner",
+    ):
+        display.complete(1.25, background_pending=True)
+        display.start_custom_agents(1)
+        display.advance("research")
+        display.mark_finalizing()
+        console.print(display._renderable())
+        loading = output.getvalue()
+
+        output.seek(0)
+        output.truncate(0)
+        display.complete_background(4.5)
+        console.print(display._renderable())
+        completed = output.getvalue()
+
+    assert "Status:  Ready" in loading
+    assert "Background: Loading" in loading
+    assert "Starting custom agents" in loading
+    assert "1/1" in loading
+    assert "Finalizing services" not in loading
+    assert "Status:  Ready" in completed
+    assert "Background: Ready 4.500s (+3.250s)" in completed
+    assert "Starting custom agents" not in completed
 
 
 def test_startup_display_preserves_file_logging(tmp_path) -> None:
