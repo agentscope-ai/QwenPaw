@@ -29,17 +29,54 @@ def _config_for_embedding(embedding: EmbeddingModelConfig) -> dict:
 def test_memory_search_indexes_only_memory_markdown() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
-    for job_name in ("index_update_loop", "reindex"):
-        job = cfg["jobs"][job_name]
-        assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
-        assert job["watch_suffixes"] == ["md"]
+    job = cfg["jobs"]["index_update_loop"]
+    assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
+    assert job["watch_suffixes"] == ["md"]
 
 
 def test_reme_file_processing_is_limited_to_10_mb() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
-    for job_name in ("index_update_loop", "reindex"):
-        assert cfg["jobs"][job_name]["max_file_bytes"] == 10 * 1024 * 1024
+    assert (
+        cfg["jobs"]["index_update_loop"]["max_file_bytes"] == 10 * 1024 * 1024
+    )
+
+
+def test_reindex_job_exposes_explicit_scopes() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    reindex = cfg["jobs"]["reindex"]
+    assert reindex["parameters"]["properties"]["scope"] == {
+        "type": "string",
+        "enum": ["all", "bm25", "embedding"],
+        "default": "all",
+    }
+    assert reindex["steps"] == [{"backend": "reindex_step"}]
+
+
+def test_pending_embedding_reindex_is_forwarded_to_file_store() -> None:
+    embedding = EmbeddingModelConfig(
+        backend="ollama",
+        model_name="nomic-embed-text",
+    )
+    agent_config = AgentProfileConfig(
+        id="agent-1",
+        name="Agent One",
+        running=AgentsRunningConfig(
+            reme_light_memory_config=ReMeLightMemoryConfig(
+                embedding_model_config=embedding,
+                needs_reindex=True,
+            ),
+        ),
+    )
+
+    cfg = get_reme_app_config(
+        working_dir="/tmp/qwenpaw-agent",
+        agent_config=agent_config,
+    )
+
+    file_store = cfg["components"]["file_store"]["default"]
+    assert file_store["embedding_rebuild_required"] is True
 
 
 def test_daily_paper_replaces_auto_resource_without_removing_resource_dir():

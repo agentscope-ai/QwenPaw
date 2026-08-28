@@ -973,6 +973,14 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    pending_reindex_embedding_config: EmbeddingModelConfig | None = Field(
+        default=None,
+        description=(
+            "Last indexed embedding configuration available for undo while "
+            "a vector-space change is pending"
+        ),
+    )
+
     memory_search_enabled: bool = Field(
         default=True,
         description="Whether to expose the memory_search tool to the agent",

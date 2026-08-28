@@ -33,6 +33,7 @@ def build_reme_app_config(
     _apply_embedding_config(
         cfg,
         reme_config.embedding_model_config,
+        embedding_rebuild_required=reme_config.needs_reindex,
     )
     cfg.update(
         {
@@ -111,23 +112,20 @@ def _base_config() -> dict[str, Any]:
             },
             "reindex": {
                 "backend": "base",
-                "max_file_bytes": _MAX_FILE_BYTES,
                 "description": (
-                    "wipe the file store and rebuild it from the existing "
-                    "files"
+                    "rebuild all, BM25, or embedding search indexes"
                 ),
-                "watch_dirs": watch_dirs,
-                "watch_suffixes": watch_suffixes,
-                "parameters": {"type": "object", "properties": {}},
-                "steps": [
-                    {"backend": "clear_store_step"},
-                    {
-                        "backend": "init_changes_step",
-                        "monitor_type": "file_store",
-                        "monitor_name": "default",
-                        "dispatch_steps": ["update_index_step"],
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["all", "bm25", "embedding"],
+                            "default": "all",
+                        },
                     },
-                ],
+                },
+                "steps": [{"backend": "reindex_step"}],
             },
             "search": {
                 "backend": "base",
@@ -662,9 +660,14 @@ def _base_components() -> dict[str, Any]:
 def _apply_embedding_config(
     cfg: dict[str, Any],
     embedding_config: EmbeddingModelConfig,
+    *,
+    embedding_rebuild_required: bool = False,
 ) -> None:
     """Map QwenPaw embedding config into ReMe component config."""
     components = cfg["components"]
+    components["file_store"]["default"][
+        "embedding_rebuild_required"
+    ] = embedding_rebuild_required
     if not _is_embedding_enabled(embedding_config):
         # Keep the explicit empty value: LocalFileStore otherwise defaults to
         # looking up embedding_store:default even when the component is absent.
@@ -673,7 +676,7 @@ def _apply_embedding_config(
         components.pop("as_embedding", None)
         return
 
-    components["as_embedding"]["default"] = _as_embedding_component_config(
+    components["as_embedding"]["default"] = build_embedding_component_config(
         embedding_config,
     )
     components["embedding_store"]["default"].update(
@@ -688,7 +691,7 @@ def _apply_embedding_config(
     components["file_store"]["default"]["embedding_store"] = "default"
 
 
-def _as_embedding_component_config(
+def build_embedding_component_config(
     embedding_config: EmbeddingModelConfig,
 ) -> dict[str, Any]:
     """Return the complete ReMe config for one embedding wrapper."""

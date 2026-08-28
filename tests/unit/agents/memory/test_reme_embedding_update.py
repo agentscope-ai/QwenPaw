@@ -88,7 +88,10 @@ def _manager(config: EmbeddingModelConfig):
         max_input_length=100,
         max_batch_size=2,
     )
-    file_store = SimpleNamespace(resume_embedding=AsyncMock(return_value=True))
+    file_store = SimpleNamespace(
+        resume_embedding=AsyncMock(return_value=True),
+        require_embedding_rebuild=AsyncMock(),
+    )
     manager._reme = FakeReMe(wrapper, store, file_store)
     manager._run_reme_job = AsyncMock(
         return_value=SimpleNamespace(success=True, answer="ok"),
@@ -115,33 +118,34 @@ async def test_hot_update_reuses_tested_object_without_reindex() -> None:
     assert store.health_check_timeout == new_config.health_check_timeout
     manager._reme.file_store.resume_embedding.assert_awaited_once_with(
         verified=True,
-        rebuild=False,
     )
     manager._run_reme_job.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_model_change_requests_reme_managed_background_rebuild() -> None:
+async def test_model_change_disables_vectors_until_manual_reindex() -> None:
     old_config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, _wrapper, _store = _manager(old_config)
+    manager, wrapper, _store = _manager(old_config)
+    tested_model = object()
     manager._tested_embedding = (
         embedding_config_fingerprint(new_config),
-        object(),
+        tested_model,
     )
 
     applied = await manager.apply_tested_embedding(new_config)
 
     assert applied is True
-    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
-        verified=True,
-        rebuild=True,
-    )
+    require_rebuild = manager._reme.file_store.require_embedding_rebuild
+    require_rebuild.assert_awaited_once_with()
+    manager._reme.file_store.resume_embedding.assert_not_awaited()
+    assert manager._active_embedding_config == old_config
+    assert wrapper.model is not tested_model
     manager._run_reme_job.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_backend_change_atomically_replaces_backend_wrapper() -> None:
+async def test_backend_change_keeps_indexed_provider_until_reindex() -> None:
     old_config = _config(backend="openai")
     new_config = _config(backend="dashscope")
     manager, old_wrapper, store = _manager(old_config)
@@ -152,40 +156,11 @@ async def test_backend_change_atomically_replaces_backend_wrapper() -> None:
     )
 
     assert await manager.apply_tested_embedding(new_config) is True
-    replacement = manager._reme.embedding_wrapper
-    assert replacement is not old_wrapper
-    assert replacement.backend == "dashscope"
-    assert replacement.model is tested_model
-    assert store.as_embedding is replacement
-    assert "pass_dimensions" not in replacement.config
-    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
-        verified=True,
-        rebuild=True,
-    )
-
-
-@pytest.mark.asyncio
-async def test_backend_change_reloads_without_replace_api() -> None:
-    old_config = _config(backend="openai")
-    new_config = _config(backend="dashscope")
-    manager, old_wrapper, _store = _manager(old_config)
-    manager._reme.replace_component = None
-    manager._tested_embedding = (
-        embedding_config_fingerprint(new_config),
-        object(),
-    )
-
-    async def reload_while_locked():
-        assert manager._lifecycle_operation == "embedding-update"
-        return True
-
-    manager._reload_embedding_config_unlocked = AsyncMock(
-        side_effect=reload_while_locked,
-    )
-
-    assert await manager.apply_tested_embedding(new_config) is True
-    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
     assert manager._reme.embedding_wrapper is old_wrapper
+    assert store.as_embedding is old_wrapper
+    assert old_wrapper.model is not tested_model
+    require_rebuild = manager._reme.file_store.require_embedding_rebuild
+    require_rebuild.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -202,41 +177,117 @@ async def test_manual_reindex_clears_persisted_requirement() -> None:
         updater(profile)
         return profile
 
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "update_agent_config_async",
-        side_effect=update_config,
-    ) as update_config_mock:
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ) as update_config_mock,
+    ):
         response = await manager.rebuild_index()
 
     assert response.success is True
     assert profile.running.reme_light_memory_config.needs_reindex is False
+    manager._run_reme_job.assert_awaited_once_with(
+        "reindex",
+        raise_on_error=True,
+        lifecycle_locked=True,
+        scope="all",
+    )
     update_config_mock.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_reindex_does_not_clear_a_new_vector_space_requirement() -> None:
-    old_config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, _wrapper, _store = _manager(old_config)
+    manager, _wrapper, _store = _manager(new_config)
     profile = AgentProfileConfig(id="bot", name="Bot")
     memory_config = profile.running.reme_light_memory_config
     memory_config.embedding_model_config = new_config
     memory_config.needs_reindex = True
 
+    newer_config = _config(model_name="newer-model")
+
     async def update_config(_agent_id, updater):
+        memory_config.embedding_model_config = newer_config
         updater(profile)
         return profile
 
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "update_agent_config_async",
-        side_effect=update_config,
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
     ):
         response = await manager.rebuild_index()
 
     assert response.success is True
     assert memory_config.needs_reindex is True
+
+
+@pytest.mark.asyncio
+async def test_failed_embedding_reindex_keeps_vector_search_disabled() -> None:
+    config = _config()
+    manager, _wrapper, _store = _manager(config)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    profile.running.reme_light_memory_config.embedding_model_config = config
+    manager._run_reme_job.return_value = SimpleNamespace(
+        success=False,
+        answer="failed",
+    )
+
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "load_agent_config_async",
+        return_value=profile,
+    ):
+        response = await manager.rebuild_index("embedding")
+
+    assert response.success is False
+    require_rebuild = manager._reme.file_store.require_embedding_rebuild
+    require_rebuild.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_undo_restores_indexed_config_under_reindex_lock() -> None:
+    indexed = _config(model_name="indexed-model")
+    pending = _config(model_name="pending-model")
+    manager, _wrapper, _store = _manager(pending)
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    memory_config.embedding_model_config = pending
+    memory_config.pending_reindex_embedding_config = indexed
+    memory_config.needs_reindex = True
+
+    async def update_config(_agent_id, updater):
+        assert manager.is_reindexing is True
+        updater(profile)
+        return profile
+
+    manager._reload_embedding_config_unlocked = AsyncMock(return_value=True)
+    with patch(
+        "qwenpaw.agents.memory.reme_light_memory_manager."
+        "update_agent_config_async",
+        side_effect=update_config,
+    ):
+        restored = await manager.undo_embedding_reindex()
+
+    assert restored == indexed
+    assert memory_config.embedding_model_config == indexed
+    assert memory_config.needs_reindex is False
+    assert memory_config.pending_reindex_embedding_config is None
+    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -246,65 +297,6 @@ async def test_untested_config_falls_back_to_reload() -> None:
     manager._tested_embedding = None
 
     assert await manager.apply_tested_embedding(config) is False
-
-
-@pytest.mark.asyncio
-async def test_partial_hot_update_reloads_with_lifecycle_lock() -> None:
-    """Compatibility fallback cannot expose a partially updated generation."""
-    config = _config()
-    manager, _wrapper, _store = _manager(config)
-    manager._tested_embedding = (
-        embedding_config_fingerprint(config),
-        object(),
-    )
-    original_update = manager._reme.update_component
-
-    async def fail_store_update(component_type, name, **kwargs):
-        if component_type == "embedding_store":
-            raise AttributeError("unsupported hot-update field")
-        return await original_update(component_type, name, **kwargs)
-
-    async def reload_while_locked():
-        assert manager._lifecycle_operation == "embedding-update"
-        return True
-
-    manager._reme.update_component = fail_store_update
-    manager._reload_embedding_config_unlocked = AsyncMock(
-        side_effect=reload_while_locked,
-    )
-
-    assert await manager.apply_tested_embedding(config) is True
-    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
-
-
-@pytest.mark.asyncio
-async def test_resume_failure_reloads_while_lifecycle_locked() -> None:
-    """A failed repair cannot expose the newly switched vector space."""
-    old_config = _config(backend="openai")
-    new_config = _config(backend="dashscope")
-    manager, _wrapper, _store = _manager(old_config)
-    manager._tested_embedding = (
-        embedding_config_fingerprint(new_config),
-        object(),
-    )
-    manager._reme.file_store.resume_embedding.side_effect = RuntimeError(
-        "repair failed",
-    )
-
-    async def reload_while_locked():
-        assert manager._lifecycle_operation == "embedding-update"
-        return True
-
-    manager._reload_embedding_config_unlocked = AsyncMock(
-        side_effect=reload_while_locked,
-    )
-
-    assert await manager.apply_tested_embedding(new_config) is True
-    manager._reme.file_store.resume_embedding.assert_awaited_once_with(
-        verified=True,
-        rebuild=True,
-    )
-    manager._reload_embedding_config_unlocked.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -343,9 +335,8 @@ async def test_embedding_update_waits_for_inflight_reme_job() -> None:
 
 @pytest.mark.asyncio
 async def test_reindex_and_embedding_update_share_lifecycle_boundary() -> None:
-    config = _config(model_name="old-model")
     new_config = _config(model_name="new-model")
-    manager, _wrapper, _store = _manager(config)
+    manager, _wrapper, _store = _manager(new_config)
     del manager._run_reme_job
     reindex_started = asyncio.Event()
     finish_reindex = asyncio.Event()
@@ -371,10 +362,17 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary() -> None:
         object(),
     )
 
-    with patch(
-        "qwenpaw.agents.memory.reme_light_memory_manager."
-        "update_agent_config_async",
-        side_effect=update_config,
+    with (
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "load_agent_config_async",
+            return_value=profile,
+        ),
+        patch(
+            "qwenpaw.agents.memory.reme_light_memory_manager."
+            "update_agent_config_async",
+            side_effect=update_config,
+        ),
     ):
         reindex = asyncio.create_task(manager.rebuild_index())
         await reindex_started.wait()
@@ -389,7 +387,7 @@ async def test_reindex_and_embedding_update_share_lifecycle_boundary() -> None:
         assert await update is True
 
     assert manager._active_embedding_config == new_config
-    assert memory_config.needs_reindex is True
+    assert memory_config.needs_reindex is False
 
 
 def test_reme_session_ids_are_fixed_length_and_collision_resistant() -> None:

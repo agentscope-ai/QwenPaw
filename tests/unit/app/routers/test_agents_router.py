@@ -603,11 +603,16 @@ def test_rebuild_memory_index_runs_reme_job(
             return_value=agent_config,
         ),
     ):
-        response = client.post("/api/agents/bot/memory/reindex")
+        response = client.post(
+            "/api/agents/bot/memory/reindex?scope=embedding",
+        )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "completed"}
-    memory_manager.rebuild_index.assert_awaited_once_with()
+    assert response.json() == {
+        "status": "completed",
+        "scope": "embedding",
+    }
+    memory_manager.rebuild_index.assert_awaited_once_with("embedding")
 
 
 def test_rebuild_memory_index_rejects_concurrent_run(
@@ -637,6 +642,37 @@ def test_rebuild_memory_index_rejects_concurrent_run(
         response = client.post("/api/agents/bot/memory/reindex")
 
     assert response.status_code == 409
+
+
+def test_undo_pending_embedding_reindex_restores_indexed_config(
+    client,
+    manager_mock,
+):
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    indexed = memory_config.embedding_model_config.model_copy(deep=True)
+    indexed.model_name = "indexed-model"
+    memory_config.embedding_model_config.model_name = "pending-model"
+    memory_config.pending_reindex_embedding_config = indexed
+    memory_config.needs_reindex = True
+    memory_manager = MagicMock(is_reindexing=False)
+    memory_manager.undo_embedding_reindex = AsyncMock(return_value=indexed)
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=profile,
+        ),
+        patch("qwenpaw.app.routers.agents.schedule_agent_reload"),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex/undo")
+
+    assert response.status_code == 200
+    assert response.json()["model_name"] == "indexed-model"
+    memory_manager.undo_embedding_reindex.assert_awaited_once_with()
 
 
 # ---------------------------------------------------------------------------

@@ -281,7 +281,7 @@ class BaseMemoryManager(ABC):
         """Return a frontend-ready memory graph when supported."""
         return None
 
-    async def rebuild_index(self) -> Any | None:
+    async def rebuild_index(self, scope: str = "all") -> Any | None:
         """Rebuild the memory search index when supported by the backend."""
         return None
 

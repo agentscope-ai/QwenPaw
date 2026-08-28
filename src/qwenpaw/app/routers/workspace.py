@@ -1789,9 +1789,30 @@ async def put_agents_running_config(
             vector_space_changed = embedding_vector_space_fingerprint(
                 old_embedding_config,
             ) != embedding_vector_space_fingerprint(new_embedding_config)
-            running_config.reme_light_memory_config.needs_reindex = (
-                old_memory_config.needs_reindex or vector_space_changed
+            new_memory_config = running_config.reme_light_memory_config
+            indexed_config = (
+                old_memory_config.pending_reindex_embedding_config
             )
+            matches_existing_index = bool(
+                old_memory_config.needs_reindex
+                and indexed_config is not None
+                and embedding_vector_space_fingerprint(new_embedding_config)
+                == embedding_vector_space_fingerprint(indexed_config)
+            )
+            if matches_existing_index:
+                new_memory_config.needs_reindex = False
+                new_memory_config.pending_reindex_embedding_config = None
+            else:
+                new_memory_config.needs_reindex = (
+                    old_memory_config.needs_reindex or vector_space_changed
+                )
+                new_memory_config.pending_reindex_embedding_config = (
+                    indexed_config
+                )
+            if vector_space_changed and not old_memory_config.needs_reindex:
+                new_memory_config.pending_reindex_embedding_config = (
+                    old_embedding_config.model_copy(deep=True)
+                )
             embedding_changed = old_embedding_config != new_embedding_config
             if (
                 embedding_changed

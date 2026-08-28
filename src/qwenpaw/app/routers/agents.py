@@ -33,6 +33,7 @@ from ...config.config import (
     AgentMailConfig,
     AgentProfileConfig,
     AgentProfileRef,
+    EmbeddingModelConfig,
     FallbackPolicyConfig,
     ModelSlotConfig,
     load_agent_config,
@@ -1303,6 +1304,7 @@ async def update_agent_model_settings(
 )
 async def rebuild_agent_memory_index(
     agentId: str = PathParam(...),
+    scope: Literal["all", "bm25", "embedding"] = "all",
     request: Request = None,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
@@ -1330,7 +1332,7 @@ async def rebuild_agent_memory_index(
         )
 
     try:
-        response = await memory_manager.rebuild_index()
+        response = await memory_manager.rebuild_index(scope)
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1344,7 +1346,44 @@ async def rebuild_agent_memory_index(
     if not response.success:
         raise HTTPException(status_code=500, detail=str(response.answer))
 
-    return {"status": "completed"}
+    return {"status": "completed", "scope": scope}
+
+
+@router.post(
+    "/{agentId}/memory/reindex/undo",
+    response_model=EmbeddingModelConfig,
+    summary="Undo a pending embedding index rebuild",
+    description="Restore the last indexed embedding configuration",
+)
+async def undo_agent_memory_reindex(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> EmbeddingModelConfig:
+    """Restore the provider configuration matching the still-valid vectors."""
+    agent_config = await run_sync_io(load_agent_config, agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Embedding index undo is only supported by ReMe Light",
+        )
+    manager = _get_multi_agent_manager(request)
+    workspace = await manager.get_agent(agentId)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    try:
+        restored = await memory_manager.undo_embedding_reindex()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        if str(exc) == "Memory index rebuild is already running":
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return restored
 
 
 @router.get(

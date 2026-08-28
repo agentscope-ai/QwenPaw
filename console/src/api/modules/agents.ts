@@ -1,4 +1,5 @@
 import { request } from "../request";
+import type { EmbeddingModelConfig } from "../types/agent";
 import type {
   AgentListResponse,
   AgentModelSettingsPatch,
@@ -97,10 +98,21 @@ export const agentsApi = {
       body: JSON.stringify(settings),
     }),
 
-  rebuildMemoryIndex: (agentId: string) =>
-    request<{ status: "completed" }>(`/agents/${agentId}/memory/reindex`, {
+  rebuildMemoryIndex: (
+    agentId: string,
+    scope: "all" | "bm25" | "embedding" = "all",
+  ) =>
+    request<{ status: "completed"; scope: string }>(
+      `/agents/${agentId}/memory/reindex?scope=${scope}`,
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    ),
+
+  undoEmbeddingReindex: (agentId: string) =>
+    request<EmbeddingModelConfig>(`/agents/${agentId}/memory/reindex/undo`, {
       method: "POST",
-      timeout: 10 * 60 * 1000,
     }),
 
   getMemoryStatus: (agentId: string, signal?: AbortSignal) => {

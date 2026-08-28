@@ -245,6 +245,13 @@ async def test_running_config_persists_before_embedding_hot_update() -> None:
     assert events == ["save", "apply"]
     assert response is new_running
     assert response.reme_light_memory_config.needs_reindex is True
+    previous = (
+        response.reme_light_memory_config.pending_reindex_embedding_config
+    )
+    assert previous is not None
+    assert previous.model_name == (
+        old_running.reme_light_memory_config.embedding_model_config.model_name
+    )
     schedule_reload.assert_called_once()
 
 
@@ -277,6 +284,52 @@ async def test_api_key_change_does_not_require_reindex() -> None:
         response = await put_agents_running_config(new_running, MagicMock())
 
     assert response.reme_light_memory_config.needs_reindex is False
+
+
+@pytest.mark.asyncio
+async def test_restoring_indexed_embedding_config_clears_reindex_requirement(
+) -> None:
+    old_running, _ = _embedding_update_configs()
+    indexed = old_running.reme_light_memory_config.embedding_model_config
+    pending_running = old_running.model_copy(deep=True)
+    pending_memory = pending_running.reme_light_memory_config
+    pending_memory.embedding_model_config.model_name = "pending-model"
+    pending_memory.needs_reindex = True
+    pending_memory.pending_reindex_embedding_config = indexed.model_copy(
+        deep=True,
+    )
+    restored_running = pending_running.model_copy(deep=True)
+    restored_running.reme_light_memory_config.embedding_model_config = (
+        indexed.model_copy(deep=True)
+    )
+    memory_manager = MagicMock()
+    memory_manager.apply_tested_embedding = AsyncMock(return_value=True)
+    workspace = SimpleNamespace(agent_id="bot", memory_manager=memory_manager)
+    agent_config = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        running=pending_running,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.workspace.get_agent_for_request",
+            AsyncMock(return_value=workspace),
+        ),
+        patch(
+            "qwenpaw.app.routers.workspace.update_agent_config_async",
+            _config_transaction(agent_config),
+        ),
+        patch("qwenpaw.app.routers.workspace.schedule_agent_reload"),
+    ):
+        response = await put_agents_running_config(
+            restored_running,
+            MagicMock(),
+        )
+
+    memory_config = response.reme_light_memory_config
+    assert memory_config.needs_reindex is False
+    assert memory_config.pending_reindex_embedding_config is None
 
 
 @pytest.mark.asyncio

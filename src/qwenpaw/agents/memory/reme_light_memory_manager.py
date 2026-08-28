@@ -26,10 +26,7 @@ from .embedding_model import (
     test_embedding_model,
 )
 from .prompts import build_memory_guidance_prompt
-from .reme_config import (
-    _as_embedding_component_config,
-    get_reme_app_config,
-)
+from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter_async
 from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
@@ -63,6 +60,46 @@ INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
+_REQUIRED_REME_VERSION = "0.4.1.10"
+
+
+class _ReMeContractError(RuntimeError):
+    """Installed ReMe does not implement QwenPaw's pinned integration API."""
+
+
+def _load_validated_reme_app() -> type:
+    """Load the single supported ReMe contract or fail with one clear error."""
+    import reme  # type: ignore
+    from reme import ReMe as ReMeApp  # type: ignore
+    from reme.components.file_store import LocalFileStore  # type: ignore
+
+    if reme.__version__ != _REQUIRED_REME_VERSION:
+        raise _ReMeContractError(
+            "QwenPaw requires "
+            f"reme-ai=={_REQUIRED_REME_VERSION}, found {reme.__version__}",
+        )
+    required = {
+        "ReMe.run_job": getattr(ReMeApp, "run_job", None),
+        "ReMe.update_component": getattr(ReMeApp, "update_component", None),
+        "LocalFileStore.require_embedding_rebuild": getattr(
+            LocalFileStore,
+            "require_embedding_rebuild",
+            None,
+        ),
+        "LocalFileStore.reindex": getattr(LocalFileStore, "reindex", None),
+        "LocalFileStore.resume_embedding": getattr(
+            LocalFileStore,
+            "resume_embedding",
+            None,
+        ),
+    }
+    missing = [name for name, value in required.items() if not callable(value)]
+    if missing:
+        raise _ReMeContractError(
+            "Installed ReMe is missing required integration APIs: "
+            + ", ".join(missing),
+        )
+    return ReMeApp
 
 
 def _is_successful_noop_inbox_result(name: str, response: Any) -> bool:
@@ -122,6 +159,7 @@ def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
 
 
 @memory_registry.register("remelight")
+# pylint: disable-next=too-many-public-methods
 class ReMeLightMemoryManager(BaseMemoryManager):
     """Memory manager backed by ReMe.
 
@@ -154,7 +192,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Build the embedded ReMe application from persisted config."""
 
         try:
-            from reme import ReMe as ReMeApp  # type: ignore
+            ReMeApp = _load_validated_reme_app()
 
             agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
             memory_config = agent_config.running.reme_light_memory_config
@@ -174,6 +212,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ),
             )
             self._install_reme_result_hook()
+        except _ReMeContractError:
+            raise
         except Exception as exc:
             logger.warning("ReMe import failed; memory disabled: %s", exc)
 
@@ -340,29 +380,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self._tested_embedding = None
         return result
 
-    async def _resume_verified_embedding(
-        self,
-        *,
-        rebuild: bool = False,
-    ) -> bool:
-        """Ask ReMe to resume vector repair without another provider probe."""
-        try:
-            file_store = await self._reme.update_component(
-                "file_store",
-                "default",
-            )
-        except KeyError:
-            return False
-        resume_embedding = getattr(file_store, "resume_embedding", None)
-        if resume_embedding is None:
-            return False
-        return bool(
-            await resume_embedding(
-                verified=True,
-                rebuild=rebuild,
-            ),
-        )
-
     async def _reload_embedding_config_unlocked(self) -> bool:
         """Recreate embedded ReMe while the caller owns the lifecycle lock."""
         await self._close_reme_unlocked()
@@ -392,33 +409,24 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         async with self._exclusive_reme_lifecycle("embedding-update"):
             old_config = self._active_embedding_config
             tested_model = staged[1]
-            if hasattr(tested_model, "context_size"):
-                tested_model.context_size = config.max_input_length
-            try:
-                backend_changed = (
-                    old_config is not None
-                    and old_config.backend != config.backend
+            vector_space_changed = old_config is None or (
+                embedding_vector_space_fingerprint(old_config)
+                != embedding_vector_space_fingerprint(config)
+            )
+            file_store = await self._reme.update_component(
+                "file_store",
+                "default",
+            )
+            if vector_space_changed:
+                await file_store.require_embedding_rebuild()
+            else:
+                if hasattr(tested_model, "context_size"):
+                    tested_model.context_size = config.max_input_length
+                await self._reme.update_component(
+                    "as_embedding",
+                    "default",
+                    model=tested_model,
                 )
-                if backend_changed:
-                    replace_component = getattr(
-                        self._reme,
-                        "replace_component",
-                        None,
-                    )
-                    if not callable(replace_component):
-                        return await self._reload_embedding_config_unlocked()
-                    await replace_component(  # pylint: disable=not-callable
-                        "as_embedding",
-                        "default",
-                        config=_as_embedding_component_config(config),
-                        runtime_updates={"model": tested_model},
-                    )
-                else:
-                    await self._reme.update_component(
-                        "as_embedding",
-                        "default",
-                        model=tested_model,
-                    )
                 await self._reme.update_component(
                     "embedding_store",
                     "default",
@@ -428,30 +436,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     max_batch_size=config.max_batch_size,
                     health_check_timeout=config.health_check_timeout,
                 )
-            except (AttributeError, KeyError):
-                # ReMe 0.4 cannot add/remove components after initialization.
-                return await self._reload_embedding_config_unlocked()
+                if not await file_store.resume_embedding(verified=True):
+                    raise RuntimeError("ReMe refused to resume embedding")
 
-            vector_space_changed = old_config is None or (
-                embedding_vector_space_fingerprint(old_config)
-                != embedding_vector_space_fingerprint(config)
-            )
-            try:
-                resumed = await self._resume_verified_embedding(
-                    rebuild=vector_space_changed,
-                )
-            except Exception:
-                logger.exception(
-                    "Embedding resume failed after hot update; reloading ReMe",
-                )
-                resumed = False
-            if not resumed:
-                # Older embedded ReMe versions permanently dropped the file
-                # store's reference after a failed probe. Recovery errors also
-                # require a reload before the lifecycle gate is released.
-                return await self._reload_embedding_config_unlocked()
-
-            self._active_embedding_config = config.model_copy(deep=True)
+            if not vector_space_changed:
+                self._active_embedding_config = config.model_copy(deep=True)
             self._tested_embedding = None
             return True
 
@@ -464,6 +453,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """
         async with self._exclusive_reme_lifecycle("embedding-reload"):
             return await self._reload_embedding_config_unlocked()
+
+    async def _require_embedding_rebuild(self) -> None:
+        """Keep vector search disabled in the active ReMe instance."""
+        file_store = await self._reme.update_component(
+            "file_store",
+            "default",
+        )
+        await file_store.require_embedding_rebuild()
 
     async def _run_reme_job(
         self,
@@ -1282,52 +1279,126 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Return the complete indexed wikilink graph for the console."""
         return await self._run_reme_job("graph_snapshot")
 
-    async def rebuild_index(self) -> "Response | None":
-        """Clear and rebuild the ReMe search index on explicit request."""
+    async def rebuild_index(self, scope: str = "all") -> "Response | None":
+        """Synchronously rebuild one explicit ReMe index scope."""
+        if scope not in {"all", "bm25", "embedding"}:
+            raise ValueError("Unsupported reindex scope")
         if self.is_reindexing:
             raise RuntimeError("Memory index rebuild is already running")
+        rebuilds_embedding = scope in {"all", "embedding"}
         async with self._reindex_lock:
             async with self._exclusive_reme_lifecycle("reindex"):
-                reindex_fingerprint = (
-                    embedding_vector_space_fingerprint(
-                        self._active_embedding_config,
+                reindex_fingerprint = None
+                if rebuilds_embedding:
+                    agent_config = await load_agent_config_async(self.agent_id)
+                    memory_config = (
+                        agent_config.running.reme_light_memory_config
                     )
-                    if self._active_embedding_config is not None
-                    else None
-                )
+                    target_config = (
+                        memory_config.embedding_model_config.model_copy(
+                            deep=True,
+                        )
+                    )
+                    reindex_fingerprint = embedding_vector_space_fingerprint(
+                        target_config,
+                    )
+                    if self._active_embedding_config != target_config:
+                        if not await self._reload_embedding_config_unlocked():
+                            return None
                 response = await self._run_reme_job(
                     "reindex",
+                    raise_on_error=True,
                     lifecycle_locked=True,
+                    scope=scope,
                 )
-            if response is not None and response.success:
+                if not rebuilds_embedding or response is None:
+                    return response
+
+                requirement_cleared = False
 
                 def clear_requirement(
                     agent_config: AgentProfileConfig,
                 ) -> None:
+                    nonlocal requirement_cleared
                     memory_config = (
                         agent_config.running.reme_light_memory_config
                     )
                     persisted_fingerprint = embedding_vector_space_fingerprint(
                         memory_config.embedding_model_config,
                     )
-                    active_fingerprint = (
-                        embedding_vector_space_fingerprint(
-                            self._active_embedding_config,
-                        )
-                        if self._active_embedding_config is not None
-                        else None
-                    )
-                    if (
-                        persisted_fingerprint == reindex_fingerprint
-                        and active_fingerprint == reindex_fingerprint
-                    ):
+                    if persisted_fingerprint == reindex_fingerprint:
                         memory_config.needs_reindex = False
+                        memory_config.pending_reindex_embedding_config = None
+                        requirement_cleared = True
+
+                if response.success:
+                    await update_agent_config_async(
+                        self.agent_id,
+                        clear_requirement,
+                    )
+                if not requirement_cleared:
+                    await self._require_embedding_rebuild()
+                return response
+
+    async def undo_embedding_reindex(self) -> EmbeddingModelConfig:
+        """Atomically restore the configuration matching persisted vectors."""
+        if self.is_reindexing:
+            raise RuntimeError("Memory index rebuild is already running")
+        async with self._reindex_lock:
+            async with self._exclusive_reme_lifecycle("embedding-undo"):
+                restored: EmbeddingModelConfig | None = None
+                pending: EmbeddingModelConfig | None = None
+
+                def restore_previous(agent_config: AgentProfileConfig) -> None:
+                    nonlocal restored, pending
+                    memory_config = (
+                        agent_config.running.reme_light_memory_config
+                    )
+                    previous = memory_config.pending_reindex_embedding_config
+                    if not memory_config.needs_reindex or previous is None:
+                        raise ValueError(
+                            "No pending embedding index change can be undone",
+                        )
+                    pending = memory_config.embedding_model_config.model_copy(
+                        deep=True,
+                    )
+                    restored = previous.model_copy(deep=True)
+                    memory_config.embedding_model_config = restored.model_copy(
+                        deep=True,
+                    )
+                    memory_config.needs_reindex = False
+                    memory_config.pending_reindex_embedding_config = None
 
                 await update_agent_config_async(
                     self.agent_id,
-                    clear_requirement,
+                    restore_previous,
                 )
-        return response
+                if not await self._reload_embedding_config_unlocked():
+
+                    def restore_pending(
+                        agent_config: AgentProfileConfig,
+                    ) -> None:
+                        memory_config = (
+                            agent_config.running.reme_light_memory_config
+                        )
+                        assert pending is not None and restored is not None
+                        memory_config.embedding_model_config = (
+                            pending.model_copy(deep=True)
+                        )
+                        memory_config.needs_reindex = True
+                        memory_config.pending_reindex_embedding_config = (
+                            restored.model_copy(deep=True)
+                        )
+
+                    await update_agent_config_async(
+                        self.agent_id,
+                        restore_pending,
+                    )
+                    raise RuntimeError(
+                        "Previous embedding configuration could not be loaded",
+                    )
+        assert restored is not None
+        return restored
 
     @property
     def is_reindexing(self) -> bool:
