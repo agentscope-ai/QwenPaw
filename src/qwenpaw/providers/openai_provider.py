@@ -241,10 +241,6 @@ class OpenAIProvider(Provider):
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(payload)
             return models
-        except APIError:
-            return []
-        except Exception:
-            return []
         finally:
             await self._close_client(client)
 
@@ -860,8 +856,6 @@ class _FreeSuffixProviderMixin:
         client = self._client(timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
-        except Exception:
-            return []
         finally:
             await self._close_client(client)
 

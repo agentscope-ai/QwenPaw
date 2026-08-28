@@ -2416,19 +2416,26 @@ async def test_removal_invalidates_inflight_discovery(
     assert provider.get_discovered_model_info("racing-model") is None
 
 
-async def test_discovery_empty_result_surfaces_connection_error(
+async def test_discovery_request_failure_preserves_last_cache(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
     manager = ProviderManager()
     provider = manager.get_provider("openai")
     assert provider is not None
+    provider.discovered_models = [
+        ModelInfo(
+            id="cached-model",
+            name="Cached Model",
+            source="discovered",
+        ),
+    ]
 
     async def fetch_models(_self, timeout=5):
-        return []
+        raise OSError("status=503: temporarily unavailable")
 
     async def check_connection(_self, timeout=5):
-        return False, "API error (status=401): invalid api key"
+        pytest.fail("Discovery failures must not trigger a second request")
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     monkeypatch.setattr(
@@ -2441,8 +2448,11 @@ async def test_discovery_empty_result_surfaces_connection_error(
 
     assert result.success is False
     assert result.used_static_fallback is True
-    assert "401" in result.error
+    assert result.error == "status=503: temporarily unavailable"
     assert provider.models_last_sync_error == result.error
+    assert [model.id for model in provider.discovered_models] == [
+        "cached-model",
+    ]
 
 
 async def test_discovery_empty_catalog_records_successful_sync(
@@ -2457,7 +2467,7 @@ async def test_discovery_empty_catalog_records_successful_sync(
         return []
 
     async def check_connection(_self, timeout=5):
-        return True, ""
+        pytest.fail("Successful empty discovery must not issue a probe")
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     monkeypatch.setattr(
@@ -3479,7 +3489,7 @@ async def test_discovery_fetch_override_saves_to_canonical_provider(
     ]
 
 
-async def test_discovery_failure_probe_uses_override_provider(
+async def test_discovery_failure_uses_override_provider(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -3495,13 +3505,10 @@ async def test_discovery_failure_probe_uses_override_provider(
     async def fetch_models(self, timeout=5):
         _ = timeout
         assert self.api_key == "temporary-key"
-        return []
+        raise PermissionError("Temporary credential rejected")
 
     async def check_connection(self, timeout=5):
-        _ = timeout
-        if self.api_key == "temporary-key":
-            return False, "Temporary credential rejected"
-        return True, ""
+        pytest.fail("Discovery failures must not trigger a second request")
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     monkeypatch.setattr(

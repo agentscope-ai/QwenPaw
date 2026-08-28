@@ -259,8 +259,6 @@ class OpenRouterProvider(Provider):
                 include_extended=include_extended,
             )
             return models
-        except APIError:
-            return []
         finally:
             await self._close_client(client)
 

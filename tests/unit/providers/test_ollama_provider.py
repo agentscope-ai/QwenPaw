@@ -103,6 +103,22 @@ def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
     }
 
 
+async def test_model_check_reports_listing_failure(monkeypatch) -> None:
+    provider = _make_provider()
+
+    async def fetch_models(_self, timeout=5):
+        raise OSError("server unavailable")
+
+    monkeypatch.setattr(OllamaProvider, "fetch_models", fetch_models)
+
+    result = await provider.check_model_connection("llama3.1")
+
+    assert result.success is False
+    assert result.error_kind == "transient_error"
+    assert result.verification == "provider_only"
+    assert "server unavailable" in result.message
+
+
 @pytest.mark.parametrize(
     "base_url",
     [

@@ -187,7 +187,7 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
     close.assert_awaited_once()
 
 
-async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
+async def test_list_model_error_propagates(monkeypatch) -> None:
     provider = _make_provider()
 
     class FakeModels:
@@ -197,11 +197,32 @@ async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    models = await provider.fetch_models(timeout=3)
+    with pytest.raises(RuntimeError, match="failed"):
+        await provider.fetch_models(timeout=3)
 
-    assert models == []
+    close.assert_awaited_once()
+
+
+async def test_kilo_list_model_error_propagates(monkeypatch) -> None:
+    provider = KiloProvider(
+        id="kilo",
+        name="Kilo Code",
+        base_url="https://api.kilo.ai/api/gateway",
+        require_api_key=False,
+    )
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            raise RuntimeError("gateway unavailable")
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    with pytest.raises(RuntimeError, match="gateway unavailable"):
+        await provider.fetch_models(timeout=3)
+
     close.assert_awaited_once()
 
 

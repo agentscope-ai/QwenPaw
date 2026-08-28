@@ -60,7 +60,18 @@ class OllamaProvider(OpenAIProvider):
         timeout: float = 5,
     ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable"""
-        models = await self.fetch_models(timeout=timeout)
+        try:
+            models = await self.fetch_models(timeout=timeout)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "Unable to list Ollama models: "
+                    f"{self.connection_error_message(exc)}"
+                ),
+                error_kind="transient_error",
+                verification="provider_only",
+            )
         if any(model.id == model_id for model in models):
             return ModelConnectionResult(
                 success=True,

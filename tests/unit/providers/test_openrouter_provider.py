@@ -7,7 +7,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import qwenpaw.providers.openrouter_provider as openrouter_provider_module
+import pytest
+
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
 from qwenpaw.providers.provider_manager import ProviderManager
 
@@ -42,11 +43,10 @@ async def test_fetch_models_closes_client_on_api_error(monkeypatch) -> None:
     models = SimpleNamespace(list=AsyncMock(side_effect=RuntimeError("boom")))
     client = SimpleNamespace(models=models, close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=30: client)
-    monkeypatch.setattr(openrouter_provider_module, "APIError", Exception)
 
-    result = await provider.fetch_models(timeout=2)
+    with pytest.raises(RuntimeError, match="boom"):
+        await provider.fetch_models(timeout=2)
 
-    assert result == []
     close.assert_awaited_once()
 
 
@@ -61,24 +61,16 @@ async def test_empty_discovery_succeeds_and_closes_clients(
     provider.api_key = "sk-or-test"
 
     fetch_close = AsyncMock()
-    probe_close = AsyncMock()
     fetch_client = SimpleNamespace(
         models=SimpleNamespace(
             list=AsyncMock(return_value=SimpleNamespace(data=[])),
         ),
         close=fetch_close,
     )
-    probe_client = SimpleNamespace(
-        models=SimpleNamespace(
-            list=AsyncMock(return_value=SimpleNamespace(data=[])),
-        ),
-        close=probe_close,
-    )
-    clients = iter((fetch_client, probe_client))
     monkeypatch.setattr(
         provider,
         "_client",
-        lambda timeout=30: next(clients),
+        lambda timeout=30: fetch_client,
     )
 
     result = await manager.discover_provider_models("openrouter")
@@ -88,4 +80,3 @@ async def test_empty_discovery_succeeds_and_closes_clients(
     assert result.discovered_count == 0
     assert result.error is None
     fetch_close.assert_awaited_once()
-    probe_close.assert_awaited_once()

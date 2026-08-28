@@ -84,28 +84,6 @@ class ProviderManagerDiscoveryMixin(
         )
         return self._provider_from_data(payload)
 
-    @staticmethod
-    async def _probe_discovery_failure_reason(
-        provider: Provider,
-        timeout: float,
-    ) -> str | None:
-        """Return the real reason an empty discovery result may hide.
-
-        ``fetch_models`` swallows transport errors and returns an empty
-        list, so an empty result is ambiguous. When the provider exposes a
-        connection check, use it to tell an authentic empty catalog apart
-        from a failed request such as an invalid API key. The probe never
-        raises, so it cannot mask the original empty result.
-        """
-        check = getattr(provider, "check_connection", None)
-        if check is None:
-            return None
-        try:
-            ok, detail = await check(timeout=timeout)
-        except Exception:  # pylint: disable=broad-exception-caught
-            return None
-        return None if ok else (detail or None)
-
     async def _save_discovery_locked(
         self,
         provider_id: str,
@@ -315,13 +293,6 @@ class ProviderManagerDiscoveryMixin(
         try:
             fetched = await fetch_provider.fetch_models(timeout=timeout)
             fetched = [model for model in fetched if model.id.strip()]
-            if not fetched:
-                reason = await self._probe_discovery_failure_reason(
-                    fetch_provider,
-                    timeout,
-                )
-                if reason:
-                    raise ValueError(reason)
             fetched = [
                 model
                 for model in fetched
