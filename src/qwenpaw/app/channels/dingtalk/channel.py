@@ -36,6 +36,7 @@ import ssl
 import aiohttp
 import certifi
 import dingtalk_stream
+import dingtalk_stream.chatbot as dingtalk_chatbot_module
 import dingtalk_stream.stream as dingtalk_stream_module
 import requests
 from dingtalk_stream import ChatbotMessage
@@ -109,12 +110,16 @@ logger = logging.getLogger(__name__)
 
 _STREAM_CONNECT_TIMEOUT_SECONDS = 10
 _STREAM_READ_TIMEOUT_SECONDS = 30
+_STREAM_HEALTH_PING_TIMEOUT_SECONDS = 3
 _STREAM_WATCHDOG_INTERVAL_SECONDS = 30
 _STREAM_WATCHDOG_STALE_SECONDS = 90
 
 
 class _DingTalkRequestsWithTimeout:
-    """Add bounded timeouts to synchronous DingTalk Stream requests."""
+    """Add bounded timeouts to synchronous DingTalk POST requests."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(requests, name)
 
     @staticmethod
     def post(*args: Any, **kwargs: Any) -> Any:
@@ -126,6 +131,9 @@ class _DingTalkRequestsWithTimeout:
             ),
         )
         return requests.post(*args, **kwargs)
+
+
+_DINGTALK_REQUESTS_WITH_TIMEOUT = _DingTalkRequestsWithTimeout()
 
 
 class DingTalkChannel(BaseChannel):
@@ -240,9 +248,9 @@ class DingTalkChannel(BaseChannel):
 
         self._client: Optional[dingtalk_stream.DingTalkStreamClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._stream_event_loop: Optional[asyncio.AbstractEventLoop] = None
         self._stream_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self._stream_watchdog_at = 0.0
         self._http: Optional[aiohttp.ClientSession] = None
 
         # DingTalk OpenAPI SDK clients
@@ -2581,6 +2589,7 @@ class DingTalkChannel(BaseChannel):
         except Exception:
             logger.exception("dingtalk stream thread failed")
         finally:
+            self._stream_event_loop = None
             self._stop_event.set()
             logger.info("dingtalk stream thread stopped")
 
@@ -2599,6 +2608,8 @@ class DingTalkChannel(BaseChannel):
         client = self._client
         if not client:
             return
+        stream_loop = asyncio.get_running_loop()
+        self._stream_event_loop = stream_loop
         main_task = asyncio.create_task(client.start())
 
         async def stop_watcher() -> None:
@@ -2625,7 +2636,6 @@ class DingTalkChannel(BaseChannel):
             via its while-True loop without exiting main_task).
             """
             last_wall = time.time()
-            self._stream_watchdog_at = last_wall
             while not self._stop_event.is_set():
                 await asyncio.sleep(_STREAM_WATCHDOG_INTERVAL_SECONDS)
                 if self._stop_event.is_set():
@@ -2633,7 +2643,6 @@ class DingTalkChannel(BaseChannel):
                 now = time.time()
                 elapsed = now - last_wall
                 last_wall = now
-                self._stream_watchdog_at = now
                 if elapsed > _STREAM_WATCHDOG_STALE_SECONDS:
                     logger.warning(
                         "dingtalk: liveness watchdog detected "
@@ -2687,6 +2696,8 @@ class DingTalkChannel(BaseChannel):
                 )
             except asyncio.TimeoutError:
                 pass
+        if self._stream_event_loop is stream_loop:
+            self._stream_event_loop = None
 
     @staticmethod
     def _is_websocket_open(websocket: Any) -> bool:
@@ -2698,8 +2709,14 @@ class DingTalkChannel(BaseChannel):
             return getattr(state, "name", None) == "OPEN"
         return not bool(getattr(websocket, "closed", True))
 
+    @staticmethod
+    async def _ping_websocket(websocket: Any) -> None:
+        """Send a WebSocket Ping and wait for its matching Pong."""
+        pong_waiter = await websocket.ping()
+        await pong_waiter
+
     async def health_check(self) -> Dict[str, Any]:
-        """Check DingTalk stream connection and event-loop liveness."""
+        """Actively verify the DingTalk Stream WebSocket connection."""
         if not self.enabled:
             return {
                 "channel": self.channel,
@@ -2707,6 +2724,7 @@ class DingTalkChannel(BaseChannel):
                 "detail": "DingTalk channel is disabled.",
             }
         issues = []
+        websocket = None
         if self._client is None:
             issues.append("Stream client not initialized")
         else:
@@ -2718,14 +2736,42 @@ class DingTalkChannel(BaseChannel):
         )
         if not stream_thread_alive:
             issues.append("Stream thread is not running")
-        watchdog_age = time.time() - self._stream_watchdog_at
+        stream_loop = self._stream_event_loop
         if stream_thread_alive and (
-            self._stream_watchdog_at <= 0
-            or watchdog_age > _STREAM_WATCHDOG_STALE_SECONDS
+            stream_loop is None or not stream_loop.is_running()
         ):
-            issues.append("Stream event loop is unresponsive")
+            issues.append("Stream event loop is not running")
         if self._http is None or self._http.closed:
             issues.append("HTTP session not available")
+        if not issues and websocket is not None and stream_loop is not None:
+            ping_coro = self._ping_websocket(websocket)
+            try:
+                ping_future = asyncio.run_coroutine_threadsafe(
+                    ping_coro,
+                    stream_loop,
+                )
+            except RuntimeError:
+                ping_coro.close()
+                issues.append("Stream event loop is not available")
+            else:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.wrap_future(ping_future),
+                        timeout=_STREAM_HEALTH_PING_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    ping_future.cancel()
+                    issues.append("WebSocket Ping timed out")
+                except asyncio.CancelledError:
+                    ping_future.cancel()
+                    current_task = asyncio.current_task()
+                    if current_task is not None and current_task.cancelling():
+                        raise
+                    issues.append("WebSocket Ping was cancelled")
+                except Exception as exc:
+                    issues.append(
+                        f"WebSocket Ping failed: {type(exc).__name__}",
+                    )
         if issues:
             return {
                 "channel": self.channel,
@@ -2735,12 +2781,13 @@ class DingTalkChannel(BaseChannel):
         return {
             "channel": self.channel,
             "status": "healthy",
-            "detail": "DingTalk stream client and HTTP session are active.",
+            "detail": "DingTalk Stream WebSocket responded to Ping.",
         }
 
     def _apply_stream_request_timeout(self) -> None:
         """Apply bounded timeouts to the SDK's synchronous HTTP calls."""
-        dingtalk_stream_module.requests = _DingTalkRequestsWithTimeout
+        dingtalk_stream_module.requests = _DINGTALK_REQUESTS_WITH_TIMEOUT
+        dingtalk_chatbot_module.requests = _DINGTALK_REQUESTS_WITH_TIMEOUT
 
     def _apply_custom_endpoint(self) -> None:
         """Monkey-patch dingtalk_stream SDK modules to use a custom endpoint.
@@ -2754,12 +2801,11 @@ class DingTalkChannel(BaseChannel):
             return
 
         import dingtalk_stream.utils as _ds_utils
-        import dingtalk_stream.chatbot as _ds_chatbot
         import dingtalk_stream.card_replier as _ds_card_replier
 
         _ds_utils.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
         dingtalk_stream_module.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
-        _ds_chatbot.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
+        dingtalk_chatbot_module.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
         _ds_card_replier.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
         dingtalk_stream_module.DingTalkStreamClient.OPEN_CONNECTION_API = (
             f"{self.endpoint}/v1.0/gateway/connections/open"
@@ -2808,7 +2854,6 @@ class DingTalkChannel(BaseChannel):
         )
 
         self._stop_event.clear()
-        self._stream_watchdog_at = time.time()
         self._stream_thread = threading.Thread(
             target=self._run_stream_forever,
             daemon=True,
@@ -2837,7 +2882,6 @@ class DingTalkChannel(BaseChannel):
         self._stop_event.set()
         if self._stream_thread:
             self._stream_thread.join(timeout=3)
-        self._stream_watchdog_at = 0.0
         for task in self._debounce_timers.values():
             if task and not task.done():
                 task.cancel()
