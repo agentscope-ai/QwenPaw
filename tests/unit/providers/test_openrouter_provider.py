@@ -7,7 +7,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import qwenpaw.providers.openrouter_provider as openrouter_provider_module
+import openai
+
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
 from qwenpaw.providers.provider_manager import ProviderManager
 
@@ -42,7 +43,7 @@ async def test_fetch_models_closes_client_on_api_error(monkeypatch) -> None:
     models = SimpleNamespace(list=AsyncMock(side_effect=RuntimeError("boom")))
     client = SimpleNamespace(models=models, close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=30: client)
-    monkeypatch.setattr(openrouter_provider_module, "APIError", Exception)
+    monkeypatch.setattr(openai, "APIError", Exception)
 
     result = await provider.fetch_models(timeout=2)
 

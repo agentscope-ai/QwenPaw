@@ -13,21 +13,21 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List
-
-from agentscope.model import ChatModelBase
+from typing import TYPE_CHECKING, Any, Dict, List
 from pydantic import Field
 
 from .provider import ModelInfo
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
-from .openai_chat_model_compat import _sanitize_nullable_tool_schemas
 from .openai_provider import (
     CODING_DASHSCOPE_BASE_URL,
     DASHSCOPE_BASE_URLS,
     TOKEN_PLAN_BASE_URL,
     OpenAIProvider,
 )
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +303,9 @@ class _DashScopeChatModelCompat:
 
     def __new__(cls, **kwargs: Any) -> Any:
         from agentscope.model import DashScopeChatModel
+        from .openai_chat_model_compat import (
+            _sanitize_nullable_tool_schemas,
+        )
 
         default_headers = kwargs.pop("default_headers", None)
         thinking_explicitly_set = kwargs.pop(

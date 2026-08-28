@@ -7,12 +7,8 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from typing import Any, List
+from typing import TYPE_CHECKING, Any, List
 
-from agentscope.model import ChatModelBase
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types as genai_types
 from pydantic import Field
 
 from qwenpaw.providers.multimodal_prober import (
@@ -31,6 +27,9 @@ from qwenpaw.providers.provider import (
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +187,9 @@ class GeminiProvider(Provider):
         return dict(self.custom_headers) if self.custom_headers else {}
 
     def _client(self, timeout: float = 10) -> Any:
+        from google import genai
+        from google.genai import types as genai_types
+
         headers = self._build_default_headers() or None
         return genai.Client(
             api_key=self.api_key,
@@ -240,6 +242,8 @@ class GeminiProvider(Provider):
 
     async def check_connection(self, timeout: float = 10) -> tuple[bool, str]:
         """Check if Google Gemini provider is reachable."""
+        from google.genai import errors as genai_errors
+
         client = None
         response = None
         try:
@@ -267,6 +271,8 @@ class GeminiProvider(Provider):
 
     async def fetch_models(self, timeout: float = 10) -> List[ModelInfo]:
         """Fetch available models from Gemini API."""
+        from google.genai import errors as genai_errors
+
         client = None
         response = None
         try:
@@ -292,6 +298,8 @@ class GeminiProvider(Provider):
         timeout: float = 10,
     ) -> ModelConnectionResult:
         """Check if a specific Gemini model is reachable/usable."""
+        from google.genai import errors as genai_errors
+
         target = (model_id or "").strip()
         if not target:
             return ModelConnectionResult(
@@ -443,6 +451,8 @@ class GeminiProvider(Provider):
         Sends a solid-red 16x16 PNG and asks the model to name the colour.
         """
         import base64
+        from google.genai import errors as genai_errors
+        from google.genai import types as genai_types
 
         log_model = sanitize_log_value(model_id)
         logger.info(
@@ -508,6 +518,9 @@ class GeminiProvider(Provider):
 
         Asks the model whether the video contains moving content.
         """
+        from google.genai import errors as genai_errors
+        from google.genai import types as genai_types
+
         log_model = sanitize_log_value(model_id)
         logger.info(
             "Video probe start: model=%s url=%s",
@@ -591,6 +604,7 @@ class _GeminiChatModelCompat:
 
     def __new__(cls, **kwargs: Any) -> Any:
         from agentscope.model import GeminiChatModel
+        from google.genai import types as genai_types
 
         default_headers = kwargs.pop("default_headers", None)
         extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}

@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from agentscope.model import ChatModelBase
-from openai import APIError, AsyncOpenAI
 from pydantic import Field
 
 from qwenpaw.exceptions import ProviderError
@@ -20,6 +18,10 @@ from qwenpaw.providers.provider import (
 from .capping_formatter import _CappingOpenAIFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .multimodal_prober import ProbeResult
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
+    from openai import AsyncOpenAI
 
 
 class OpenRouterProvider(Provider):
@@ -52,6 +54,8 @@ class OpenRouterProvider(Provider):
         return {**self._DEFAULT_HEADERS, **self.custom_headers}
 
     def _client(self, timeout: float = 30) -> AsyncOpenAI:
+        from openai import AsyncOpenAI
+
         return AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
@@ -227,6 +231,8 @@ class OpenRouterProvider(Provider):
 
     async def check_connection(self, timeout: float = 30) -> tuple[bool, str]:
         """Check if OpenRouter provider is reachable."""
+        from openai import APIError
+
         client = self._client()
         try:
             await client.models.list(timeout=timeout)
@@ -251,6 +257,8 @@ class OpenRouterProvider(Provider):
         Returns:
             List of ModelInfo (or ExtendedModelInfo if include_extended=True)
         """
+        from openai import APIError
+
         client = self._client(timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
@@ -298,6 +306,8 @@ class OpenRouterProvider(Provider):
         must raise so the provider manager does not persist false capability
         flags over previously known values.
         """
+        from openai import APIError
+
         try:
             client = self._client(timeout=timeout)
             payload = await client.models.list(timeout=timeout)

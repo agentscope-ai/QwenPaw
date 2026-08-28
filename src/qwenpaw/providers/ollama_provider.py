@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 """An Ollama provider implementation."""
 
-import os
-from typing import Any
+from __future__ import annotations
 
-from agentscope.model import ChatModelBase
-from openai import AsyncOpenAI
+import os
+from typing import TYPE_CHECKING, Any
 
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
+    from openai import AsyncOpenAI
 
 
 class OllamaProvider(OpenAIProvider):
@@ -44,6 +47,8 @@ class OllamaProvider(OpenAIProvider):
         self.base_url = self._normalize_base_url(self.base_url)
 
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
+        from openai import AsyncOpenAI
+
         kwargs: dict = {
             "base_url": self._openai_compatible_base_url(),
             "api_key": self.api_key,
