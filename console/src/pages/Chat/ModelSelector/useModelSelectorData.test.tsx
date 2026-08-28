@@ -166,6 +166,37 @@ describe("useModelSelectorData", () => {
     unmount();
   });
 
+  it("keeps valid providers when a poll returns malformed data", async () => {
+    vi.useFakeTimers();
+    const syncing = [
+      { id: "custom", name: "Custom", models_syncing: true },
+    ] as ProviderInfo[];
+    vi.mocked(modelSelectorApi.loadModelSelectorData).mockResolvedValue({
+      providers: syncing,
+      activeModels: null,
+      loadError: false,
+    });
+    vi.mocked(modelSelectorApi.loadProviders).mockResolvedValue({
+      unexpected: true,
+    } as unknown as ProviderInfo[]);
+
+    const onActiveModels = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useModelSelectorData({ agentId: "default", onActiveModels }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(result.current.providers).toEqual(syncing);
+    expect(modelSelectorApi.loadProviders).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
   it("keeps full-load active data when a provider poll finishes first", async () => {
     vi.useFakeTimers();
     const syncing = [

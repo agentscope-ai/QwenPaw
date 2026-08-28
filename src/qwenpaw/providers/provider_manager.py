@@ -157,9 +157,22 @@ class ProviderManager(
         ]
 
         provider_infos = await asyncio.gather(*tasks)
-        return list(provider_infos) + (
+        provider_infos = list(provider_infos) + (
             self._plugin_registry.list_provider_infos()
         )
+        return [
+            self._with_provider_runtime_revision(info)
+            for info in provider_infos
+        ]
+
+    def _with_provider_runtime_revision(
+        self,
+        info: ProviderInfo,
+    ) -> ProviderInfo:
+        """Expose volatile provider identity without persisting it."""
+        meta = dict(info.meta)
+        meta["provider_runtime_revision"] = self._provider_revision(info.id)
+        return info.model_copy(update={"meta": meta})
 
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
@@ -188,7 +201,10 @@ class ProviderManager(
 
     async def get_provider_info(self, provider_id: str) -> ProviderInfo | None:
         provider = self.get_provider(provider_id)
-        return await provider.get_info() if provider else None
+        if provider is None:
+            return None
+        info = await provider.get_info()
+        return self._with_provider_runtime_revision(info)
 
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.

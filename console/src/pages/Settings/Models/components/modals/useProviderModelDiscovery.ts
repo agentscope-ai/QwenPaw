@@ -38,6 +38,13 @@ function providerState(
   return "idle";
 }
 
+function providerTargetKey(provider: ProviderInfo): string {
+  const revision = provider.meta?.provider_runtime_revision;
+  const runtimeRevision =
+    typeof revision === "number" && Number.isFinite(revision) ? revision : 0;
+  return JSON.stringify([provider.id, runtimeRevision]);
+}
+
 export function useProviderModelDiscovery({
   provider,
   autoPreview,
@@ -51,6 +58,7 @@ export function useProviderModelDiscovery({
     models_last_sync_error: serverSyncError,
     models_syncing: modelsSyncing,
   } = provider;
+  const targetKey = providerTargetKey(provider);
   const [models, setModels] = useState<ExtendedModelInfo[]>(() =>
     providerModels(serverModels),
   );
@@ -59,7 +67,7 @@ export function useProviderModelDiscovery({
   );
   const [error, setError] = useState<string | null>(serverSyncError ?? null);
   const [requestRunning, setRequestRunning] = useState(false);
-  const providerIdRef = useRef(providerId);
+  const targetKeyRef = useRef(targetKey);
   const requestRevisionRef = useRef(0);
   const inFlightRef = useRef<Promise<DiscoverModelsResponse | null> | null>(
     null,
@@ -67,8 +75,8 @@ export function useProviderModelDiscovery({
   const previewAttemptedProviderRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (providerIdRef.current !== providerId) {
-      providerIdRef.current = providerId;
+    if (targetKeyRef.current !== targetKey) {
+      targetKeyRef.current = targetKey;
       requestRevisionRef.current += 1;
       inFlightRef.current = null;
       previewAttemptedProviderRef.current = null;
@@ -78,7 +86,7 @@ export function useProviderModelDiscovery({
     setModels(providerModels(serverModels));
     setState(providerState(serverModels, serverSyncedAt, serverSyncError));
     setError(serverSyncError ?? null);
-  }, [providerId, serverModels, serverSyncedAt, serverSyncError]);
+  }, [serverModels, serverSyncedAt, serverSyncError, targetKey]);
 
   useEffect(
     () => () => {
@@ -93,6 +101,7 @@ export function useProviderModelDiscovery({
     if (inFlightRef.current) return inFlightRef.current;
 
     const requestProviderId = providerId;
+    const requestTargetKey = targetKey;
     const requestRevision = ++requestRevisionRef.current;
     const request = (async (): Promise<DiscoverModelsResponse | null> => {
       setRequestRunning(true);
@@ -106,7 +115,7 @@ export function useProviderModelDiscovery({
         );
         if (
           requestRevision !== requestRevisionRef.current ||
-          requestProviderId !== providerIdRef.current
+          requestTargetKey !== targetKeyRef.current
         ) {
           return result;
         }
@@ -128,7 +137,7 @@ export function useProviderModelDiscovery({
       } catch (requestError) {
         if (
           requestRevision === requestRevisionRef.current &&
-          requestProviderId === providerIdRef.current
+          requestTargetKey === targetKeyRef.current
         ) {
           setState("failed");
           setError(
@@ -141,7 +150,7 @@ export function useProviderModelDiscovery({
       } finally {
         if (
           requestRevision === requestRevisionRef.current &&
-          requestProviderId === providerIdRef.current
+          requestTargetKey === targetKeyRef.current
         ) {
           setRequestRunning(false);
         }
@@ -157,30 +166,33 @@ export function useProviderModelDiscovery({
       },
     );
     return request;
-  }, [fallbackError, modelsSyncing, onSaved, providerId]);
+  }, [fallbackError, modelsSyncing, onSaved, providerId, targetKey]);
 
   const serverHasModels = (serverModels?.length ?? 0) > 0;
+  const hasServerOutcome = Boolean(serverSyncedAt) || Boolean(serverSyncError);
   useEffect(() => {
     if (
       !autoPreview ||
       modelsSyncing ||
       requestRunning ||
       serverHasModels ||
+      hasServerOutcome ||
       models.length > 0 ||
-      previewAttemptedProviderRef.current === providerId
+      previewAttemptedProviderRef.current === targetKey
     ) {
       return;
     }
-    previewAttemptedProviderRef.current = providerId;
+    previewAttemptedProviderRef.current = targetKey;
     void discover().catch(() => {});
   }, [
     autoPreview,
     discover,
+    hasServerOutcome,
     models.length,
     modelsSyncing,
-    providerId,
     requestRunning,
     serverHasModels,
+    targetKey,
   ]);
 
   const removeModels = useCallback((modelIds: Set<string>) => {

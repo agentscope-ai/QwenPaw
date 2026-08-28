@@ -411,6 +411,46 @@ async def test_add_custom_provider_publishes_after_persistence(
     assert not (manager.custom_path / f"{provider_id}.json").exists()
 
 
+async def test_provider_info_exposes_only_runtime_revision(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    assert "provider_runtime_revision" not in provider.meta
+
+    listed = next(
+        info
+        for info in await manager.list_provider_info()
+        if info.id == "openai"
+    )
+    detail = await manager.get_provider_info("openai")
+    assert detail is not None
+    assert listed.meta["provider_runtime_revision"] == 0
+    assert detail.meta["provider_runtime_revision"] == 0
+
+    assert await manager.update_provider_async(
+        "openai",
+        {"api_key": "updated-key"},
+    )
+
+    listed = next(
+        info
+        for info in await manager.list_provider_info()
+        if info.id == "openai"
+    )
+    detail = await manager.get_provider_info("openai")
+    assert detail is not None
+    assert listed.meta["provider_runtime_revision"] == 1
+    assert detail.meta["provider_runtime_revision"] == 1
+    assert "provider_runtime_revision" not in provider.meta
+
+    persisted = json.loads(
+        manager._provider_config_path("openai").read_text(encoding="utf-8"),
+    )
+    assert "provider_runtime_revision" not in persisted.get("meta", {})
+
+
 async def test_custom_provider_preserves_explicit_default_context_window(
     isolated_secret_dir,
 ) -> None:

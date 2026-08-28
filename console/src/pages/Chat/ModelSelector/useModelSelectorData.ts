@@ -60,6 +60,7 @@ export function useModelSelectorData({
     const requestId = ++providersRequestRef.current;
     try {
       const value = await modelSelectorApi.loadProviders();
+      if (!Array.isArray(value)) return;
       if (requestId === providersRequestRef.current) setProviders(value);
     } catch {
       return;
