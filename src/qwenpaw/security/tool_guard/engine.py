@@ -267,41 +267,6 @@ class ToolGuardEngine:
         result.guard_duration_seconds = time.monotonic() - t0
         return result
 
-    def guard_file_access(
-        self,
-        tool_name: str,
-        params: dict[str, Any],
-    ) -> ToolGuardResult:
-        """Run the independent file-protection guardian only.
-
-        File protection is configured separately from tool approval. It must
-        therefore remain active when the tool guard or approval mode is off.
-        """
-        t0 = time.monotonic()
-        result = ToolGuardResult(
-            tool_name=tool_name,
-            params=params,
-        )
-
-        for guardian in self._guardians:
-            if guardian.name != "file_path_tool_guardian":
-                continue
-            try:
-                result.findings.extend(guardian.guard(tool_name, params))
-                result.guardians_used.append(guardian.name)
-            except Exception as exc:
-                logger.warning(
-                    "File guardian failed on tool '%s': %s",
-                    tool_name,
-                    exc,
-                )
-                result.guardians_failed.append(
-                    {"name": guardian.name, "error": str(exc)},
-                )
-
-        result.guard_duration_seconds = time.monotonic() - t0
-        return result
-
 
 _engine_instance: ToolGuardEngine | None = None
 

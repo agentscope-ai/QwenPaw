@@ -8,12 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from qwenpaw.security.tool_guard.models import (
-    GuardFinding,
-    GuardSeverity,
-    GuardThreatCategory,
-    ToolGuardResult,
-)
+from qwenpaw.security.tool_guard.models import ToolGuardResult
 
 
 @pytest.mark.asyncio
@@ -55,44 +50,3 @@ async def test_guarded_permissions_offloads_engine_guard():
     to_thread.assert_awaited()
     assert to_thread.await_args.args[0] is engine.guard
     assert decision.behavior.value == "allow"
-
-
-@pytest.mark.asyncio
-async def test_off_mode_still_blocks_file_guard_findings():
-    """OFF skips tool approval but cannot bypass file protection."""
-    from qwenpaw.runtime.tool_guard import _guarded_tool_check_permissions
-
-    finding = GuardFinding(
-        id="file-guard-finding",
-        rule_id="SENSITIVE_FILE_BLOCK",
-        category=GuardThreatCategory.SENSITIVE_FILE_ACCESS,
-        severity=GuardSeverity.HIGH,
-        title="Protected file",
-        description="Protected file access",
-        tool_name="read_file",
-        guardian="file_path_tool_guardian",
-    )
-    engine = MagicMock()
-    engine.enabled = False
-    engine.guard_file_access.return_value = ToolGuardResult(
-        tool_name="read_file",
-        params={"file_path": "/protected/key"},
-        findings=[finding],
-    )
-    tool = SimpleNamespace(
-        name="read_file",
-        _resolve_execution_level=lambda: "off",
-    )
-
-    with patch(
-        "qwenpaw.security.tool_guard.engine.get_guard_engine",
-        return_value=engine,
-    ):
-        decision = await _guarded_tool_check_permissions(
-            tool,
-            {"file_path": "/protected/key"},
-        )
-
-    assert decision.behavior.value == "deny"
-    assert "File Guard blocked" in decision.message
-    engine.guard.assert_not_called()

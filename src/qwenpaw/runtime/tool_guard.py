@@ -162,42 +162,23 @@ async def _guarded_tool_check_permissions(
 
     level = self._resolve_execution_level()  # pylint: disable=protected-access
 
-    from ..security.tool_guard.engine import get_guard_engine
-    from ..security.tool_guard.execution_level import ToolExecutionLevel
-    from ..security.tool_guard.models import GuardSeverity
-    from ..security.tool_guard.utils import log_findings
-
-    # ``self`` IS the tool (GuardedFunctionTool subclasses FunctionTool).
-    tool_name = getattr(self, "name", None) or ""
-    input_data = input_data or {}
-    engine = get_guard_engine()
-
-    # File protection is independent from tool approval and the tool-guard
-    # switch. Protected paths are blocked before either bypass can apply.
-    file_guard_result = await asyncio.to_thread(
-        engine.guard_file_access,
-        tool_name,
-        input_data,
-    )
-    if file_guard_result.findings:
-        log_findings(tool_name, file_guard_result)
-        return PermissionDecision(
-            behavior=PermissionBehavior.DENY,
-            message=(
-                f"File Guard blocked tool '{tool_name}'.\n"
-                f"{_format_guard_message(tool_name, file_guard_result)}"
-            ),
-        )
-
     if level == "bypass":
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="Tool guard BYPASS — no agent_id bound.",
         )
 
-    exec_level = ToolExecutionLevel.from_config(level)
+    from ..security.tool_guard.engine import get_guard_engine
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+    from ..security.tool_guard.models import GuardSeverity
 
-    # OFF disables tool approval after independent file protection runs.
+    # ``self`` IS the tool (GuardedFunctionTool subclasses FunctionTool).
+    tool_name = getattr(self, "name", None) or ""
+    input_data = input_data or {}
+    exec_level = ToolExecutionLevel.from_config(level)
+    engine = get_guard_engine()
+
+    # OFF: bypass without engine.
     if exec_level.is_disabled() or not engine.enabled:
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
@@ -251,6 +232,8 @@ async def _guarded_tool_check_permissions(
         )
 
     # Log findings so test assertions and operators can observe them.
+    from ..security.tool_guard.utils import log_findings
+
     log_findings(tool_name, guard_result)
 
     # Auto-deny rules (HIGH-RISK rules flagged by config).

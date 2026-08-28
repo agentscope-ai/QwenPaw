@@ -637,11 +637,11 @@ When `null`, uses the global default model. Can be configured in Console (Agent 
 
 ---
 
-#### `approval_level` — Tool approval mode
+#### `approval_level` — Tool execution security level
 
 | Field            | Type   | Default  | Description                                                                                     |
 | ---------------- | ------ | -------- | ----------------------------------------------------------------------------------------------- |
-| `approval_level` | string | `"AUTO"` | Tool approval mode: `STRICT`, `SMART`, `AUTO`, or `OFF`; File Guard applies independently. See [Security](./security). |
+| `approval_level` | string | `"AUTO"` | Tool execution security level: `STRICT`, `SMART`, `AUTO`, or `OFF`. See [Security](./security). |
 
 ---
 

@@ -545,11 +545,11 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 ---
 
-#### `approval_level` — 工具审批模式
+#### `approval_level` — 工具执行安全级别
 
 | 字段             | 类型   | 默认值   | 说明                                                                          |
 | ---------------- | ------ | -------- | ----------------------------------------------------------------------------- |
-| `approval_level` | string | `"AUTO"` | 工具审批模式: `STRICT`、`SMART`、`AUTO`、`OFF`;文件防护独立生效。详见 [安全](./security)。 |
+| `approval_level` | string | `"AUTO"` | 工具执行安全级别: `STRICT`、`SMART`、`AUTO`、`OFF`。详见 [安全](./security)。 |
 
 ---
 

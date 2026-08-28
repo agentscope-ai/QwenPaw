@@ -1840,7 +1840,7 @@ class AgentsRunningConfig(BaseModel):
     approval_level: Optional[str] = Field(
         default=None,
         description=(
-            "Tool approval mode (proxied from agent profile): "
+            "Tool execution security level (proxied from agent profile): "
             "STRICT, SMART, AUTO, or OFF.  When set via running-config API, "
             "the value is written back to the agent profile."
         ),
@@ -2214,11 +2214,11 @@ class AgentProfileConfig(BaseModel):
     approval_level: str = Field(
         default="AUTO",
         description=(
-            "Tool approval mode: "
+            "Tool execution security level: "
             "STRICT (all tools need approval), "
             "SMART (low-risk auto-allowed), "
-            "AUTO (only matching tool calls need approval), "
-            "OFF (tool approval disabled; file protection still applies)"
+            "AUTO (only guarded tools), "
+            "OFF (guard disabled)"
         ),
     )
     system_prompt_files: List[str] = Field(

@@ -164,14 +164,14 @@ Each custom rule is a JSON object with the following fields:
 
 ### Execution level (approval_level)
 
-Each agent has an `approval_level` field (in `agent.json`) that controls when tool calls require approval. File Guard is independent and continues to enforce its configured rules in every mode:
+Each agent has an `approval_level` field (in `agent.json`) that controls how Tool Guard handles findings:
 
 | Level      | Behavior                                                               |
 | ---------- | ---------------------------------------------------------------------- |
 | **STRICT** | All tool calls require manual approval before execution                |
 | **SMART**  | Low-risk tool calls are auto-allowed; high-risk calls require approval |
 | **AUTO**   | Only tool calls flagged by guard rules require approval (default)      |
-| **OFF**    | Tool calls no longer request approval; File Guard rules still apply    |
+| **OFF**    | Tool Guard is disabled for this agent; all tool calls execute directly |
 
 Configure in `agent.json`:
 
@@ -189,7 +189,7 @@ In the Console under **Settings → Security → Tool Guard** tab, you can:
 
 ![tool guard](https://img.alicdn.com/imgextra/i3/O1CN015wiSQW1h8JHZb0CNX_!!6000000004232-2-tps-3822-2070.png)
 
-- **Enable/disable Tool Guard** — Controls tool-call security scanning; File Guard is unaffected
+- **Enable/disable Tool Guard** — Master switch; when disabled, all tool calls bypass checks
 - **Select guard scope** — Leave empty to guard all tools, or specify a list of tools to guard
 - **Set denied tools** — Configure tools that are unconditionally blocked and cannot be invoked at all
 - **Manage rules** — View, add, edit, and disable rules:

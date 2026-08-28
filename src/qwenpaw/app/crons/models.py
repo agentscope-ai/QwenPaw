@@ -171,11 +171,11 @@ class JobRuntimeSpec(BaseModel):
     tool_safety: bool = Field(
         default=False,
         description=(
-            "Tool approval for this cron job. "
+            "Tool execution safety for this cron job. "
             "When enabled (True), uses AUTO mode — risky tools require "
             "approval (may block unattended execution). "
-            "When disabled (False), uses OFF mode — tool calls do not "
-            "request approval, while file protection still applies."
+            "When disabled (False), uses OFF mode — all tools execute "
+            "without approval checks, suitable for trusted automated tasks."
         ),
     )
 
