@@ -441,7 +441,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
                 core_elapsed = time.time() - startup_start_time
-                startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
                 if startup_coordinator is not None:
                     for phase_name in (
@@ -464,6 +463,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         "channels_ready",
                         _wait_for_channels,
                     )
+                    ready_elapsed = (
+                        startup_coordinator.snapshot()["elapsed_ms"] / 1000
+                    )
+                    startup_display.complete(
+                        ready_elapsed,
+                        background_pending=True,
+                    )
+                else:
+                    startup_display.mark_core_ready(core_elapsed)
                 if desktop_startup_metric is not None:
                     desktop_startup_metric(
                         "default_agent_ready",
@@ -641,7 +649,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"{startup_elapsed:.3f} seconds",
             )
             if app.state.startup_ready.is_set():
-                startup_display.complete(startup_elapsed)
+                if startup_coordinator is not None:
+                    background_elapsed = (
+                        startup_coordinator.snapshot()["elapsed_ms"] / 1000
+                    )
+                    startup_display.complete_background(background_elapsed)
+                else:
+                    startup_display.complete(startup_elapsed)
 
         except Exception as exc:
             logger.error(
@@ -649,6 +663,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
             if startup_coordinator is not None:
+                if app.state.startup_ready.is_set():
+                    startup_display.fail_background()
                 for phase_name in (
                     "chat_core_ready",
                     "channels_ready",

@@ -48,6 +48,8 @@ class AgentStartupDisplay:
         self._phase = "Starting core agents"
         self._failed = False
         self._elapsed_seconds: float | None = None
+        self._background_status: str | None = None
+        self._background_elapsed_seconds: float | None = None
         self._redirected_handlers: list[
             tuple[logging.StreamHandler, object]
         ] = []
@@ -114,15 +116,41 @@ class AgentStartupDisplay:
         self._failed = True
         self._refresh()
 
-    def complete(self, elapsed_seconds: float) -> None:
+    def complete(
+        self,
+        elapsed_seconds: float,
+        *,
+        background_pending: bool = False,
+    ) -> None:
         """Keep a ready panel live, or print one for non-TTY output."""
         self._failed = False
         self._phase = "Ready"
         self._elapsed_seconds = elapsed_seconds
+        self._background_status = "Loading" if background_pending else None
+        self._background_elapsed_seconds = None
         if self._live is None:
-            print_ready_banner(self._api_info, elapsed_seconds)
+            if self._background_status is None:
+                print_ready_banner(self._api_info, elapsed_seconds)
+            else:
+                print_ready_banner(
+                    self._api_info,
+                    elapsed_seconds,
+                    background_status=self._background_status,
+                )
         else:
             self._refresh()
+
+    def complete_background(self, elapsed_seconds: float) -> None:
+        """Record background completion without changing ready time."""
+        self._background_status = "Ready"
+        self._background_elapsed_seconds = elapsed_seconds
+        self._refresh()
+
+    def fail_background(self) -> None:
+        """Show a background failure without regressing chat readiness."""
+        self._background_status = "Failed"
+        self._background_elapsed_seconds = None
+        self._refresh()
 
     def stop(self) -> None:
         """Stop rendering and restore redirected terminal log handlers."""
@@ -158,6 +186,8 @@ class AgentStartupDisplay:
                 status=self._phase,
                 ready=self._phase == "Ready",
                 failed=self._failed,
+                background_status=self._background_status,
+                background_elapsed_seconds=(self._background_elapsed_seconds),
             ),
         ]
         if (
@@ -244,6 +274,8 @@ def _build_startup_panel(
     status: str,
     ready: bool,
     failed: bool = False,
+    background_status: str | None = None,
+    background_elapsed_seconds: float | None = None,
 ) -> Panel:
     """Build a startup status panel shared by Live and final output."""
     status_color = "red" if failed else "green" if ready else "yellow"
@@ -267,6 +299,21 @@ def _build_startup_panel(
         tree.add(
             f"[dim]Startup:[/dim] [yellow]" f"{elapsed_seconds:.3f}s[/yellow]",
         )
+    if background_status is not None:
+        background_color = {
+            "Failed": "red",
+            "Ready": "green",
+        }.get(background_status, "yellow")
+        background_value = background_status
+        if background_elapsed_seconds is not None:
+            background_value = (
+                f"{background_value} " f"({background_elapsed_seconds:.3f}s)"
+            )
+        tree.add(
+            f"[dim]Background:[/dim] "
+            f"[{background_color}]{background_value}"
+            f"[/{background_color}]",
+        )
     return Panel(
         tree,
         border_style=status_color,
@@ -279,6 +326,9 @@ def _build_startup_panel(
 def print_ready_banner(
     api_info: Optional[Tuple[str, int]] = None,
     elapsed_seconds: Optional[float] = None,
+    *,
+    background_status: str | None = None,
+    background_elapsed_seconds: float | None = None,
 ) -> None:
     """Print a fancy QwenPaw ready banner with rich formatting.
 
@@ -286,6 +336,8 @@ def print_ready_banner(
         api_info: Optional tuple of (host, port) for the server URL.
                  If None, displays a generic ready message.
         elapsed_seconds: Optional startup time in seconds to display.
+        background_status: Optional state for deferred startup work.
+        background_elapsed_seconds: Optional deferred completion time.
 
     Example:
         >>> print_ready_banner(("127.0.0.1", 8088), 2.345)
@@ -303,6 +355,8 @@ def print_ready_banner(
         elapsed_seconds,
         status="Ready",
         ready=True,
+        background_status=background_status,
+        background_elapsed_seconds=background_elapsed_seconds,
     )
 
     _safe_print(console, panel)

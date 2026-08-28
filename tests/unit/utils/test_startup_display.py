@@ -63,6 +63,39 @@ def test_startup_display_prints_final_banner_without_tty() -> None:
     print_banner.assert_called_once_with(None, 2.0)
 
 
+def test_ready_time_is_stable_while_background_work_finishes() -> None:
+    output = StringIO()
+    console = Console(
+        file=output,
+        force_terminal=True,
+        color_system=None,
+        width=100,
+    )
+    display = AgentStartupDisplay(
+        ("127.0.0.1", 8088),
+        console=console,
+    )
+
+    with patch(
+        "qwenpaw.utils.startup_display.print_ready_banner",
+    ):
+        display.complete(1.25, background_pending=True)
+        console.print(display._renderable())
+        loading = output.getvalue()
+
+        output.seek(0)
+        output.truncate(0)
+        display.complete_background(4.5)
+        console.print(display._renderable())
+        completed = output.getvalue()
+
+    assert "Status:  Ready" in loading
+    assert "Startup: 1.250s" in loading
+    assert "Background: Loading" in loading
+    assert "Startup: 1.250s" in completed
+    assert "Background: Ready (4.500s)" in completed
+
+
 def test_startup_display_preserves_file_logging(tmp_path) -> None:
     terminal_output = StringIO()
     console = Console(
