@@ -32,7 +32,7 @@ import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntim
 import Images from "@agentscope-ai/chat/lib/DefaultCards/Images";
 import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
 import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
-import { Accordion, Bubble, Markdown } from "@agentscope-ai/chat";
+import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
@@ -62,6 +62,7 @@ import {
   groupResponseMessages,
 } from "./messageDisplay";
 import styles from "./HostBubbles.module.less";
+import LazyAccordion from "./LazyAccordion";
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
@@ -256,24 +257,22 @@ function DefaultHostResponseCard({
         const firstId = block.messages[0]?.id ?? index;
         const stepCount = countCollapsedSteps(block.messages);
         return (
-          <div
+          <LazyAccordion
             className={styles.collapsedSteps}
             key={getCollapsedStepRenderKey(
               firstId,
               messageDisplayMode,
               presentation.status,
             )}
-          >
-            <Accordion
-              status={presentation.status}
-              title={t(presentation.titleKey, {
-                count: stepCount,
-              })}
-              defaultOpen={presentation.defaultOpen}
-            >
+            status={presentation.status}
+            title={t(presentation.titleKey, {
+              count: stepCount,
+            })}
+            defaultOpen={presentation.defaultOpen}
+            renderChildren={() => (
               <>{block.messages.map(renderResponseMessage)}</>
-            </Accordion>
-          </div>
+            )}
+          />
         );
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
