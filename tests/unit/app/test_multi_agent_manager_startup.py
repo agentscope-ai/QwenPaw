@@ -371,7 +371,7 @@ def test_custom_startup_concurrency_supports_legacy_env() -> None:
 
 
 @pytest.mark.asyncio
-async def test_core_agents_overlap_before_custom_agents(
+async def test_default_agent_finishes_before_deferred_agents(
     monkeypatch,
 ) -> None:
     manager = MultiAgentManager()
@@ -381,17 +381,17 @@ async def test_core_agents_overlap_before_custom_agents(
         lambda: config,
     )
 
-    core_started = set()
-    both_core_started = asyncio.Event()
-    release_core = asyncio.Event()
+    default_started = asyncio.Event()
+    release_default = asyncio.Event()
+    qa_started = asyncio.Event()
     custom_started = asyncio.Event()
 
     async def get_agent(agent_id: str):
-        if agent_id in {"default", BUILTIN_QA_AGENT_ID}:
-            core_started.add(agent_id)
-            if len(core_started) == 2:
-                both_core_started.set()
-            await release_core.wait()
+        if agent_id == "default":
+            default_started.set()
+            await release_default.wait()
+        elif agent_id == BUILTIN_QA_AGENT_ID:
+            qa_started.set()
         else:
             custom_started.set()
         return SimpleNamespace()
@@ -404,9 +404,11 @@ async def test_core_agents_overlap_before_custom_agents(
         ),
     )
 
-    await asyncio.wait_for(both_core_started.wait(), timeout=1)
+    await asyncio.wait_for(default_started.wait(), timeout=1)
+    assert not qa_started.is_set()
     assert not custom_started.is_set()
-    release_core.set()
+    callback.assert_not_called()
+    release_default.set()
     result = await asyncio.wait_for(task, timeout=1)
 
     assert result == {
@@ -415,11 +417,13 @@ async def test_core_agents_overlap_before_custom_agents(
         "custom": True,
     }
     callback.assert_called_once()
+    assert qa_started.is_set()
+    assert custom_started.is_set()
 
 
 @pytest.mark.asyncio
-async def test_core_ready_waits_for_enabled_qa(monkeypatch) -> None:
-    """Ready is published only after both enabled core agents finish."""
+async def test_core_ready_does_not_wait_for_enabled_qa(monkeypatch) -> None:
+    """Default readiness is published before the deferred QA agent."""
     manager = MultiAgentManager()
     config = _config("default", BUILTIN_QA_AGENT_ID)
     monkeypatch.setattr(
@@ -440,17 +444,23 @@ async def test_core_ready_waits_for_enabled_qa(monkeypatch) -> None:
 
     manager.get_agent = AsyncMock(side_effect=get_agent)
     callback = MagicMock()
+    callback_called = asyncio.Event()
+
+    def on_core_ready(results: dict[str, bool]) -> None:
+        callback(results)
+        callback_called.set()
+
     task = asyncio.create_task(
-        manager.start_all_configured_agents(on_core_ready=callback),
+        manager.start_all_configured_agents(on_core_ready=on_core_ready),
     )
 
     await asyncio.wait_for(default_done.wait(), timeout=1)
+    await asyncio.wait_for(callback_called.wait(), timeout=1)
+    callback.assert_called_once_with({"default": True})
     await asyncio.wait_for(qa_started.wait(), timeout=1)
-    callback.assert_not_called()
 
     release_qa.set()
     await asyncio.wait_for(task, timeout=1)
-    callback.assert_called_once()
 
 
 @pytest.mark.asyncio

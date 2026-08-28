@@ -134,6 +134,51 @@ async def test_workspace_cleans_up_after_partial_start_failure(workspace):
 
 
 @pytest.mark.asyncio
+async def test_desktop_workspace_defers_services_after_chat_core(
+    workspace,
+) -> None:
+    core_started = asyncio.Event()
+    deferred_started = asyncio.Event()
+    release_deferred = asyncio.Event()
+
+    class Core:
+        async def start(self):
+            core_started.set()
+
+    class Deferred:
+        async def start(self):
+            deferred_started.set()
+            await release_deferred.wait()
+
+    workspace._defer_optional_services = True
+    _register(
+        workspace,
+        "core",
+        Core,
+        start_method="start",
+        priority=20,
+    )
+    _register(
+        workspace,
+        "deferred",
+        Deferred,
+        start_method="start",
+        priority=30,
+    )
+
+    await workspace.start()
+
+    assert core_started.is_set()
+    await asyncio.wait_for(deferred_started.wait(), timeout=1)
+    assert workspace._started
+    assert workspace._deferred_start_task is not None
+    assert not workspace._deferred_start_task.done()
+
+    release_deferred.set()
+    await workspace.wait_for_deferred_services()
+
+
+@pytest.mark.asyncio
 async def test_concurrent_failure_cancels_sibling_before_cleanup(workspace):
     slow_entered = asyncio.Event()
     slow_cancelled = asyncio.Event()

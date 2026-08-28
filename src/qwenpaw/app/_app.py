@@ -222,6 +222,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         workspace_registry = WorkspaceRegistry(
             app_services=app_services,
+            defer_optional_services=startup_coordinator is not None,
         )
         app.state.workspace_registry = workspace_registry
         logger.debug("Runtime infrastructure initialized")
@@ -445,10 +446,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 if startup_coordinator is not None:
                     for phase_name in (
                         "chat_core_ready",
-                        "channels_ready",
                         "memory_ready",
                     ):
                         startup_coordinator.mark_ready(phase_name)
+
+                    async def _wait_for_channels() -> None:
+                        default_agent = workspace_registry.get_loaded_agent(
+                            "default",
+                        )
+                        if default_agent is None:
+                            raise RuntimeError(
+                                "Default agent missing after startup",
+                            )
+                        await default_agent.wait_for_deferred_services()
+
+                    startup_coordinator.start_worker(
+                        "channels_ready",
+                        _wait_for_channels,
+                    )
                 if desktop_startup_metric is not None:
                     desktop_startup_metric(
                         "default_agent_ready",

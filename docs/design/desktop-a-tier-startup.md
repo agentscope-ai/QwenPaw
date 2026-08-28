@@ -72,8 +72,9 @@ work is limited to source validation and tests.
 - [x] Move the complete desktop app import behind a lightweight ASGI shell.
 - [x] Publish API, chat, browser, memory, channel, and plugin readiness.
 - [ ] Reduce the remaining synchronous full-app lifespan to its safe minimum.
-- [ ] Prioritize default chat-core startup.
-- [ ] Move optional capabilities into supervised background workers.
+- [x] Prioritize default chat-core startup ahead of QA/custom agents.
+- [x] Defer channel and maintenance services after chat-critical services.
+- [x] Move optional capabilities into supervised background workers.
 - [x] Render the local desktop shell without the blocking backend gate.
 - [x] Queue and replay the first chat submission while chat core starts.
 - [ ] Add Python, frontend, and Rust tests.

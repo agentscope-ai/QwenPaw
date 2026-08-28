@@ -880,14 +880,15 @@ class MultiAgentManager:
         on_core_ready: Callable[[dict[str, bool]], None] | None = None,
         startup_display: AgentStartupDisplay | None = None,
     ) -> dict[str, bool]:
-        """Start core agents, then custom agents with bounded concurrency.
+        """Start the default agent, then all deferred agents.
 
         Only agents with enabled=True will be started.
         Disabled agents are skipped to save resources.
 
-        The default and built-in QA agents form the concurrent core phase.
-        Remaining custom agents start only after that phase and are bounded
-        by ``QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY``.
+        The default agent is the chat-readiness critical path. The built-in QA
+        agent and custom agents start only after default readiness. Custom
+        agents remain bounded by
+        ``QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY``.
 
         Returns:
             dict[str, bool]: Mapping of agent_id to success status
@@ -939,15 +940,16 @@ class MultiAgentManager:
                 )
                 return (agent_id, False)
 
-        core_agent_ids = [
-            agent_id
-            for agent_id in ("default", BUILTIN_QA_AGENT_ID)
-            if agent_id in enabled_agents
-        ]
+        core_agent_ids = ["default"] if "default" in enabled_agents else []
+        deferred_builtin_ids = (
+            [BUILTIN_QA_AGENT_ID]
+            if BUILTIN_QA_AGENT_ID in enabled_agents
+            else []
+        )
         custom_agent_ids = [
             agent_id
             for agent_id in agent_ids
-            if agent_id not in core_agent_ids
+            if agent_id not in {*core_agent_ids, *deferred_builtin_ids}
         ]
 
         core_results = await asyncio.gather(
@@ -966,15 +968,19 @@ class MultiAgentManager:
                 )
 
         if core_result_map.get("default") is False:
-            custom_result_map = {
+            deferred_result_map = {
                 agent_id: agent_id in self.agents
-                for agent_id in custom_agent_ids
+                for agent_id in (
+                    *deferred_builtin_ids,
+                    *custom_agent_ids,
+                )
             }
             logger.error(
-                "Default agent failed to start; skipping %d custom agent(s)",
-                len(custom_agent_ids),
+                "Default agent failed to start; skipping %d deferred "
+                "agent(s)",
+                len(deferred_result_map),
             )
-            return {**core_result_map, **custom_result_map}
+            return {**core_result_map, **deferred_result_map}
 
         if startup_display is not None and custom_agent_ids:
             startup_display.start_custom_agents(len(custom_agent_ids))
@@ -990,12 +996,16 @@ class MultiAgentManager:
                 if startup_display is not None:
                     startup_display.advance(agent_id)
 
-        custom_results = await asyncio.gather(
+        deferred_results = await asyncio.gather(
+            *(
+                start_single_agent(agent_id)
+                for agent_id in deferred_builtin_ids
+            ),
             *(start_custom_agent(agent_id) for agent_id in custom_agent_ids),
             return_exceptions=False,
         )
 
-        results = [*core_results, *custom_results]
+        results = [*core_results, *deferred_results]
 
         # Build result mapping
         result_map = dict(results)
