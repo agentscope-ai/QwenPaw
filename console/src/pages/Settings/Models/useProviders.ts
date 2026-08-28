@@ -72,9 +72,7 @@ export function useProviders() {
     fetchAll();
   }, [fetchAll, selectedAgent]);
 
-  const modelsSyncing = providers.some(
-    (provider) => provider.models_syncing,
-  );
+  const modelsSyncing = providers.some((provider) => provider.models_syncing);
 
   useEffect(() => {
     if (!modelsSyncing) return;

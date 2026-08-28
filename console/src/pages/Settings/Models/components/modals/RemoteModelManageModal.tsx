@@ -95,8 +95,7 @@ export function RemoteModelManageModal({
     state: discoveryState,
   } = useProviderModelDiscovery({
     provider,
-    autoPreview:
-      open && adding && !isOpenRouter && supportsAutoDiscover,
+    autoPreview: open && adding && !isOpenRouter && supportsAutoDiscover,
     fallbackError: t("models.autoDiscoverModelsFailed"),
     onSaved,
   });

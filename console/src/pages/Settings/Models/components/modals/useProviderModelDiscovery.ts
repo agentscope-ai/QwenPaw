@@ -57,9 +57,7 @@ export function useProviderModelDiscovery({
   const [state, setState] = useState<ProviderDiscoveryState>(() =>
     providerState(serverModels, serverSyncedAt, serverSyncError),
   );
-  const [error, setError] = useState<string | null>(
-    serverSyncError ?? null,
-  );
+  const [error, setError] = useState<string | null>(serverSyncError ?? null);
   const [requestRunning, setRequestRunning] = useState(false);
   const providerIdRef = useRef(providerId);
   const requestRevisionRef = useRef(0);
@@ -80,12 +78,7 @@ export function useProviderModelDiscovery({
     setModels(providerModels(serverModels));
     setState(providerState(serverModels, serverSyncedAt, serverSyncError));
     setError(serverSyncError ?? null);
-  }, [
-    providerId,
-    serverModels,
-    serverSyncedAt,
-    serverSyncError,
-  ]);
+  }, [providerId, serverModels, serverSyncedAt, serverSyncError]);
 
   useEffect(
     () => () => {
@@ -191,9 +184,7 @@ export function useProviderModelDiscovery({
   ]);
 
   const removeModels = useCallback((modelIds: Set<string>) => {
-    setModels((current) =>
-      current.filter((model) => !modelIds.has(model.id)),
-    );
+    setModels((current) => current.filter((model) => !modelIds.has(model.id)));
   }, []);
 
   const isDiscovering = requestRunning || Boolean(modelsSyncing);

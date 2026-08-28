@@ -22,9 +22,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function makeProvider(
-  overrides: Partial<ProviderInfo> = {},
-): ProviderInfo {
+function makeProvider(overrides: Partial<ProviderInfo> = {}): ProviderInfo {
   return {
     id: "custom",
     name: "Custom",
