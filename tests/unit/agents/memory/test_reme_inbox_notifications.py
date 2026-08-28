@@ -107,7 +107,7 @@ def _manager() -> ReMeLightMemoryManager:
                 success=True,
                 answer="Memory catalog updated",
                 metadata={
-                    "modified": True,
+                    "modified": False,
                     "dream": {
                         "changed_paths": [],
                         "deleted_paths": ["memory/2026-08-17.md"],

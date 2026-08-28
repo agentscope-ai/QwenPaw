@@ -79,8 +79,19 @@ def _is_successful_noop_inbox_result(name: str, response: Any) -> bool:
     if not isinstance(metadata, dict):
         return False
 
-    if name in {"auto_memory", "auto_dream"}:
+    if name == "auto_memory":
         return metadata.get("modified") is False
+
+    if name == "auto_dream":
+        if metadata.get("modified") is not False:
+            return False
+        dream = metadata.get("dream")
+        # ReMe's top-level ``modified`` tracks durable digest/interest writes,
+        # while ``deleted_paths`` tracks source files removed from the dream
+        # catalog. Preserve deletion-only notifications as meaningful results.
+        return not (
+            isinstance(dream, dict) and bool(dream.get("deleted_paths"))
+        )
 
     return False
 
