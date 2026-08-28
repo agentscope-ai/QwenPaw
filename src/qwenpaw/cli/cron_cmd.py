@@ -507,9 +507,9 @@ def _build_spec_from_cli(
     default=False,
     show_default=True,
     help=(
-        "Tool execution safety check. When enabled, risky tool calls "
-        "require approval (may block unattended jobs). "
-        "When disabled, all tools execute without approval."
+        "Tool approval check. When enabled, risky tool calls require "
+        "approval (may block unattended jobs). When disabled, tool calls "
+        "do not request approval; file protection still applies."
     ),
 )
 @click.option(
@@ -851,8 +851,9 @@ def _resolve_update_spec(
     "--tool-safety/--no-tool-safety",
     default=None,
     help=(
-        "Tool execution safety check. When enabled, risky tool calls "
-        "require approval. When disabled, all tools execute without approval."
+        "Tool approval check. When enabled, risky tool calls require "
+        "approval. When disabled, tool calls do not request approval; "
+        "file protection still applies."
     ),
 )
 @click.option(

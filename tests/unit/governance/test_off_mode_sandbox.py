@@ -10,11 +10,20 @@ from __future__ import annotations
 
 # pylint: disable=protected-access
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from qwenpaw.governance import tool_adapter
+from qwenpaw.governance.policy import ToolCallSpec
 from qwenpaw.governance.resource_governor import ResourceGovernor
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
+from qwenpaw.security.tool_guard.models import (
+    GuardFinding,
+    GuardSeverity,
+    GuardThreatCategory,
+    ToolGuardResult,
+)
 
 
 class _FakeGovernor:
@@ -149,6 +158,60 @@ class TestOffModeSandbox:
         # sandbox_mode is only set AFTER a successful compile, so it stays
         # unset — the tool's own fail-closed guard then denies the call.
         assert not hasattr(tool, "_qp_sandbox_mode")
+
+
+class TestOffModeFileProtection:
+    def test_protected_file_is_denied_before_off_mode_bypass(self):
+        finding = GuardFinding(
+            id="file-guard-finding",
+            rule_id="SENSITIVE_FILE_BLOCK",
+            category=GuardThreatCategory.SENSITIVE_FILE_ACCESS,
+            severity=GuardSeverity.HIGH,
+            title="Protected file",
+            description="Protected file access",
+            tool_name="read_file",
+            guardian="file_path_tool_guardian",
+        )
+        engine = SimpleNamespace(
+            guard_file_access=lambda *_args: ToolGuardResult(
+                tool_name="read_file",
+                params={"file_path": "/protected/key"},
+                findings=[finding],
+            ),
+        )
+        audits = []
+        governor = SimpleNamespace(
+            audit=lambda spec, decision: audits.append((spec, decision)),
+        )
+        tc_spec = ToolCallSpec(
+            tool_name="Read",
+            target="/protected/key",
+            agent_id="test-agent",
+            session_id="test-session",
+            raw_params={"file_path": "/protected/key"},
+        )
+        tool = SimpleNamespace(
+            name="read_file",
+            _qp_governor=governor,
+            _qp_request_context={"approval_level": "off"},
+            _build_tc_spec=lambda: tc_spec,
+        )
+
+        with patch(
+            "qwenpaw.security.tool_guard.engine.get_guard_engine",
+            return_value=engine,
+        ):
+            decision = asyncio.run(
+                tool_adapter._policy_tool_check_permissions(
+                    tool,
+                    {"file_path": "/protected/key"},
+                ),
+            )
+
+        assert decision.behavior.value == "deny"
+        assert "File Guard blocked" in decision.message
+        assert len(audits) == 1
+        assert audits[0][1].source == "file_guard"
 
 
 class TestSandboxSwitchHotReload:

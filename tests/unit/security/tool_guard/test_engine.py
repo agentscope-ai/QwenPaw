@@ -466,6 +466,35 @@ class TestToolGuardEngineGuard:
 
         assert result.guard_duration_seconds >= 0.0
 
+    def test_file_access_guard_is_independent_from_tool_guard_switch(self):
+        finding = _make_finding(rule_id="SENSITIVE_FILE_BLOCK")
+        tool_guardian = _make_guardian("rule_guardian", findings=[finding])
+        file_guardian = _make_guardian(
+            "file_path_tool_guardian",
+            findings=[finding],
+        )
+        with (
+            patch.object(
+                ToolGuardEngine,
+                "_default_guardians",
+                return_value=[tool_guardian, file_guardian],
+            ),
+            patch.object(ToolGuardEngine, "_reload_tool_sets"),
+        ):
+            engine = ToolGuardEngine(enabled=False)
+
+        result = engine.guard_file_access(
+            "read_file",
+            {"file_path": "/protected/key"},
+        )
+
+        assert result.findings == [finding]
+        tool_guardian.guard.assert_not_called()
+        file_guardian.guard.assert_called_once_with(
+            "read_file",
+            {"file_path": "/protected/key"},
+        )
+
 
 # ===================================================================
 # TestGetGuardEngine

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Tool execution security levels for QwenPaw agent.
+"""Tool approval modes for QwenPaw agent.
 
 Defines different approval strategies for tool execution:
 - STRICT: All tools require approval
 - SMART: Low-risk tools auto-allowed, medium+ require approval
 - AUTO: Only guarded_tools require approval (backward compatible)
-- OFF: Tool guard completely disabled
+- OFF: Tool approval disabled; file protection remains independent
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from enum import Enum
 
 
 class ToolExecutionLevel(str, Enum):
-    """Tool execution security level.
+    """Tool approval mode.
 
     Controls when tools require user approval before execution.
     """
@@ -42,10 +42,10 @@ class ToolExecutionLevel(str, Enum):
     """
 
     OFF = "off"
-    """Tool guard completely disabled (no protection).
+    """Tool approval disabled.
 
     Use case: Development/testing, fully trusted environments.
-    Behavior: All tools execute immediately without any checks.
+    Behavior: Tools do not request approval. File protection still applies.
     """
 
     @classmethod
@@ -71,7 +71,7 @@ class ToolExecutionLevel(str, Enum):
         return self == ToolExecutionLevel.STRICT
 
     def is_disabled(self) -> bool:
-        """Check if tool guard is completely disabled."""
+        """Check whether tool approval is disabled."""
         return self == ToolExecutionLevel.OFF
 
     def is_smart_mode(self) -> bool:

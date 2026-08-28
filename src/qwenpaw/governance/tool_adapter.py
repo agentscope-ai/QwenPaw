@@ -9,6 +9,7 @@ Replaces the GuardedFunctionTool. Each tool call goes through two layers:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Optional
@@ -69,7 +70,7 @@ def _resolve_effective_approval_level(
          injected by the frontend (localStorage per chat, carried in each
          request). Zero I/O: already in memory.
       2. ``agent.json`` → ``AgentProfileConfig.approval_level`` — the
-         agent-level default set via the Web UI 'Tool Execution Security' card.
+         agent-level default set via the Web UI 'Tool Approval Mode' card.
       3. ``None`` — unresolvable (caller falls back to AUTO).
 
     Returns the :class:`ToolExecutionLevel` enum, or ``None``.
@@ -204,11 +205,12 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
 def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
 
-    ``approval_level=OFF`` short-circuits the policy pipeline to ALLOW-all,
-    which normally also skips the ``SANDBOX_FALLBACK`` branch that compiles a
-    ``sandbox_config`` (see :func:`_policy_tool_check_permissions`). Sandbox
-    provisioning and user approval are independent concerns: skipping "ask the
-    user" must not skip "run it in a sandbox".
+    After the independent file-protection check, ``approval_level=OFF``
+    short-circuits the approval pipeline. This normally also skips the
+    ``SANDBOX_FALLBACK`` branch that compiles a ``sandbox_config`` (see
+    :func:`_policy_tool_check_permissions`). Sandbox provisioning and user
+    approval are independent concerns: skipping "ask the user" must not skip
+    "run it in a sandbox".
 
     Only tools flagged ``requires_sandbox`` in the registry are handled — i.e.
     the REPL, which returns ``DENIED`` without a config. Fail-open shell tools
@@ -281,6 +283,41 @@ async def _policy_tool_check_permissions(
     governor = getattr(self, "_qp_governor", None)
     self._qp_raw_params = input_data or {}
 
+    # File protection is independent from tool approval. It must run before
+    # OFF-mode or disabled-tool-guard shortcuts and blocks configured paths
+    # without offering an approval bypass.
+    from ..security.tool_guard.approval import format_findings_summary
+    from ..security.tool_guard.engine import get_guard_engine
+    from ..security.tool_guard.utils import log_findings
+
+    tool_name = getattr(self, "name", None) or ""
+    file_guard_result = await asyncio.to_thread(
+        get_guard_engine().guard_file_access,
+        tool_name,
+        self._qp_raw_params,
+    )
+    if file_guard_result.findings:
+        log_findings(tool_name, file_guard_result)
+        if governor is not None:
+            tc_spec = self._build_tc_spec()
+            file_decision = GovernanceDecision(
+                action=GovernanceAction.DENY,
+                reason="File Guard blocked access to a protected path.",
+                findings=file_guard_result.findings,
+                source="file_guard",
+            )
+            self._qp_policy_decision = file_decision
+            self._qp_tc_spec = tc_spec
+            governor.audit(tc_spec, file_decision)
+        return PermissionDecision(
+            behavior=PermissionBehavior.DENY,
+            message=(
+                f"File Guard blocked tool '{tool_name}'.\n"
+                f"{format_findings_summary(file_guard_result)}"
+                f"{_NO_RETRY_INSTRUCTION}"
+            ),
+        )
+
     # ── Effective approval_level check (session > agent) ──
     request_ctx = getattr(self, "_qp_request_context", None) or {}
     effective_level = _resolve_effective_approval_level(request_ctx)
@@ -303,17 +340,13 @@ async def _policy_tool_check_permissions(
         effective_level = ToolExecutionLevel.STRICT
 
     if effective_level is not None and effective_level.is_disabled():
-        # OFF means "never ask the user" — it does NOT mean "skip the
-        # sandbox". Sandbox isolation is an execution mechanism, not an
-        # approval gate. Fail-closed tools (the REPL) return DENIED without
-        # a sandbox_config, which the guard layer then misreads as a sandbox
-        # violation and escalates to a recurring approval prompt OFF can
-        # never resolve. So we still compile+attach the sandbox here; only
-        # the "ask the user" step is skipped.
+        # OFF disables tool approval only. File protection has already run
+        # above, and sandbox isolation remains an independent execution
+        # mechanism. Fail-closed tools still need a sandbox_config.
         _prepare_off_mode_sandbox(self, governor)
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
-            message="governance: approval_level=off, all tools allowed.",
+            message=("governance: approval_level=off, tool approval skipped."),
         )
 
     # Sync effective approval_level to the governor's policy
