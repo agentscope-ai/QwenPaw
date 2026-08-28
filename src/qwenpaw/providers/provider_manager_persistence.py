@@ -34,6 +34,7 @@ from .provider_discovery import (
     DISCOVERY_MODEL_FIELDS as _DISCOVERY_MODEL_FIELDS,
 )
 from .provider_model_state import (
+    migrate_provider_snapshot,
     restore_model_state,
     serialize_model_state,
 )
@@ -542,10 +543,12 @@ class ProviderManagerPersistenceMixin(
         if saved_config_path.exists():
             try:
                 with open(saved_config_path, "r", encoding="utf-8") as handle:
-                    saved_config = decrypt_dict_fields(
-                        json.load(handle),
-                        PROVIDER_SECRET_FIELDS,
-                    )
+                    snapshot = json.load(handle)
+                snapshot_migrated = migrate_provider_snapshot(snapshot)
+                saved_config = decrypt_dict_fields(
+                    snapshot,
+                    PROVIDER_SECRET_FIELDS,
+                )
                 for field in (
                     "api_key",
                     "base_url",
@@ -573,6 +576,11 @@ class ProviderManagerPersistenceMixin(
                 provider_info.models_last_sync_error = saved_config.get(
                     "models_last_sync_error",
                 )
+                if snapshot_migrated:
+                    provider_persistence.write_snapshot_payload(
+                        snapshot,
+                        saved_config_path,
+                    )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.warning(
                     f"Failed to load saved config for {provider_id}: {exc}",
@@ -761,9 +769,13 @@ class ProviderManagerPersistenceMixin(
             with open(provider_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            needs_rewrite = self._maybe_migrate_plaintext(
-                data,
-                PROVIDER_SECRET_FIELDS,
+            needs_rewrite = migrate_provider_snapshot(data)
+            needs_rewrite = (
+                self._maybe_migrate_plaintext(
+                    data,
+                    PROVIDER_SECRET_FIELDS,
+                )
+                or needs_rewrite
             )
             data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
             provider = self._provider_from_data(data)

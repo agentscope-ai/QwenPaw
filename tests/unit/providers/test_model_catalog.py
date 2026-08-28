@@ -19,10 +19,13 @@ def _write_catalog(
     providers: dict[str, list[dict[str, object]]],
     *,
     schema_version: int = 1,
+    catalog_version: str = "2026.08.27",
+    published_at: str | None = "2026-08-27T00:00:00Z",
 ) -> bytes:
     payload = {
         "schema_version": schema_version,
-        "catalog_version": "test",
+        "catalog_version": catalog_version,
+        "published_at": published_at,
         "providers": providers,
     }
     content = json.dumps(payload).encode("utf-8")
@@ -137,7 +140,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                 {
                     "id": "model-a",
                     "name": "Packaged",
-                    "max_tokens": 100,
+                    "max_output_length": 100,
                     "supports_image": False,
                     "is_free": True,
                 },
@@ -151,7 +154,7 @@ def test_catalog_overlays_merge_fields_in_priority_order(
                 {
                     "id": "model-a",
                     "name": "OTA",
-                    "max_tokens": 200,
+                    "max_output_length": 200,
                 },
                 {"id": "model-b", "name": "Remote"},
             ],
@@ -175,9 +178,162 @@ def test_catalog_overlays_merge_fields_in_priority_order(
 
     assert [model.id for model in models] == ["model-a", "model-b"]
     assert models[0].name == "Local"
-    assert models[0].max_tokens == 200
+    assert models[0].max_output_length == 200
+    assert models[0].max_output_length_source == "catalog"
+    assert "max_tokens" not in models[0].generate_kwargs
     assert models[0].supports_image is True
     assert models[0].is_free is False
+    assert models[1].max_output_length is None
+
+
+def test_catalog_rejects_legacy_output_limit() -> None:
+    with pytest.raises(ValueError, match="ModelInfo.max_tokens"):
+        model_catalog.CatalogDocument.model_validate(
+            {
+                "catalog_version": "2026.08.27",
+                "providers": {
+                    "MODELS": [
+                        {
+                            "id": "legacy-model",
+                            "name": "Legacy Model",
+                            "max_tokens": 8192,
+                        },
+                    ],
+                },
+            },
+        )
+
+
+def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
+    payload = json.loads(
+        model_catalog.PACKAGED_CATALOG_PATH.read_text(encoding="utf-8"),
+    )
+    catalog = model_catalog.load_model_catalog()
+
+    assert all(
+        "max_tokens" not in model
+        for models in payload["providers"].values()
+        for model in models
+    )
+    assert all(
+        model.max_output_length_source == "catalog"
+        for models in catalog.values()
+        for model in models
+        if model.max_output_length is not None
+    )
+
+
+def test_stale_ota_is_ignored_but_local_override_still_applies(
+    tmp_path: Path,
+) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "local.json"
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="2026.08.27",
+    )
+    _write_catalog(
+        ota,
+        {"MODELS": [{"id": "model-a", "name": "Stale OTA"}]},
+        catalog_version="2026.08.26",
+    )
+    _write_catalog(
+        local,
+        {
+            "MODELS": [
+                {
+                    "id": "model-a",
+                    "name": "Local",
+                    "max_output_length": 8192,
+                },
+            ],
+        },
+        catalog_version="2026.08.01",
+    )
+
+    model = model_catalog.load_model_catalog(
+        packaged,
+        ota,
+        local,
+    )[
+        "MODELS"
+    ][0]
+
+    assert model.name == "Local"
+    assert model.max_output_length == 8192
+    assert model.max_output_length_source == "user"
+
+
+def test_pep440_ota_version_is_compared(tmp_path: Path) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "missing.json"
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="v1.2.2",
+        published_at=None,
+    )
+    _write_catalog(
+        ota,
+        {"MODELS": [{"id": "model-a", "name": "OTA"}]},
+        catalog_version="v1.2.3",
+        published_at=None,
+    )
+
+    model = model_catalog.load_model_catalog(packaged, ota, local)["MODELS"][0]
+
+    assert model.name == "OTA"
+
+
+def test_opaque_ota_version_uses_published_at(tmp_path: Path) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "missing.json"
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="release-2026-08-27",
+        published_at="2026-08-27T00:00:00Z",
+    )
+    _write_catalog(
+        ota,
+        {"MODELS": [{"id": "model-a", "name": "OTA"}]},
+        catalog_version="release-2026-08-28",
+        published_at="2026-08-28T00:00:00Z",
+    )
+
+    model = model_catalog.load_model_catalog(packaged, ota, local)["MODELS"][0]
+
+    assert model.name == "OTA"
+
+
+def test_incomparable_ota_is_ignored_with_warning(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "missing.json"
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="packaged-release",
+        published_at=None,
+    )
+    _write_catalog(
+        ota,
+        {"MODELS": [{"id": "model-a", "name": "OTA"}]},
+        catalog_version="remote-release",
+        published_at=None,
+    )
+
+    model = model_catalog.load_model_catalog(packaged, ota, local)["MODELS"][0]
+
+    assert model.name == "Packaged"
+    assert "cannot be compared" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -225,10 +381,16 @@ def test_catalog_update_validates_hash_and_replaces_atomically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = tmp_path / "source.json"
+    packaged = tmp_path / "packaged.json"
     destination = tmp_path / "cache" / "catalog.json"
     payload = _write_catalog(
         source,
         {"MODELS": [{"id": "model-a", "name": "Remote"}]},
+    )
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="2026.08.26",
     )
     monkeypatch.setattr(
         model_catalog,
@@ -240,11 +402,80 @@ def test_catalog_update_validates_hash_and_replaces_atomically(
         url="https://example.invalid/catalog.json",
         expected_sha256=hashlib.sha256(payload).hexdigest(),
         destination=destination,
+        packaged_path=packaged,
     )
 
-    assert document.catalog_version == "test"
+    assert document.catalog_version == "2026.08.27"
     assert destination.read_bytes() == payload
     assert not list(destination.parent.glob("*.tmp"))
+
+
+def test_catalog_update_rejects_version_older_than_packaged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.json"
+    packaged = tmp_path / "packaged.json"
+    destination = tmp_path / "catalog.json"
+    payload = _write_catalog(
+        source,
+        {"MODELS": [{"id": "model-a", "name": "Stale"}]},
+        catalog_version="2026.08.26",
+    )
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="2026.08.27",
+    )
+    monkeypatch.setattr(
+        model_catalog,
+        "_download_bytes",
+        lambda _url, _timeout: payload,
+    )
+
+    with pytest.raises(ValueError, match="older than the packaged"):
+        model_catalog.update_model_catalog(
+            url="https://example.invalid/catalog.json",
+            destination=destination,
+            packaged_path=packaged,
+        )
+
+    assert not destination.exists()
+
+
+def test_catalog_update_rejects_incomparable_versions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.json"
+    packaged = tmp_path / "packaged.json"
+    destination = tmp_path / "catalog.json"
+    payload = _write_catalog(
+        source,
+        {"MODELS": [{"id": "model-a", "name": "Remote"}]},
+        catalog_version="remote-release",
+        published_at=None,
+    )
+    _write_catalog(
+        packaged,
+        {"MODELS": [{"id": "model-a", "name": "Packaged"}]},
+        catalog_version="packaged-release",
+        published_at=None,
+    )
+    monkeypatch.setattr(
+        model_catalog,
+        "_download_bytes",
+        lambda _url, _timeout: payload,
+    )
+
+    with pytest.raises(ValueError, match="versions cannot be compared"):
+        model_catalog.update_model_catalog(
+            url="https://example.invalid/catalog.json",
+            destination=destination,
+            packaged_path=packaged,
+        )
+
+    assert not destination.exists()
 
 
 def test_catalog_update_hash_mismatch_preserves_destination(

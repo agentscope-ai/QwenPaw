@@ -105,7 +105,7 @@ def test_volcengine_agentplan_models_list() -> None:
 def test_volcengine_agentplan_model_limits() -> None:
     """Agent Plan model limits should follow the official docs."""
     limits = {
-        m.id: (m.max_input_length, m.max_tokens)
+        m.id: (m.max_input_length, m.max_output_length)
         for m in VOLCENGINE_AGENTPLAN_MODELS
     }
     assert limits["doubao-seed-2.0-lite"] == (256 * 1024, 128 * 1024)

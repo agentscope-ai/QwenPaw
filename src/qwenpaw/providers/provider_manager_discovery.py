@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal
+from typing import Any, Callable, Dict, List, Literal
 
 from ..constant import EnvVarLoader
 from ..exceptions import ProviderError
@@ -193,7 +193,7 @@ class ProviderManagerDiscoveryMixin(
             return False
         candidate = provider.model_copy(deep=True)
         if error is None:
-            apply_discovery_metadata(candidate, fetched or [])
+            apply_discovery_metadata(candidate, fetched or [], synced_at or "")
             candidate.discovered_models = [
                 model.model_copy(deep=True) for model in models or []
             ]
@@ -556,7 +556,7 @@ class ProviderManagerDiscoveryMixin(
 
     async def sync_remote_catalogs(self) -> None:
         """Update configured OTA catalogs without blocking startup."""
-        updates = []
+        updates: list[tuple[str, Callable[[], Any]]] = []
         if EnvVarLoader.get_str(model_catalog.CATALOG_URL_ENV):
             updates.append(
                 ("model", model_catalog.update_model_catalog),
@@ -628,8 +628,14 @@ class ProviderManagerDiscoveryMixin(
 
             payload = current.model_dump()
             overrides = set(current.config_overrides)
+            user_output_capability = current.max_output_length_source == "user"
             for field in catalog_model.model_fields_set:
                 if field in overrides:
+                    continue
+                if (
+                    field.startswith("max_output_length")
+                    and user_output_capability
+                ):
                     continue
                 if current.max_input_length_configured and field in {
                     "max_input_length",

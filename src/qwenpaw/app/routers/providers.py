@@ -199,10 +199,6 @@ class AddModelRequest(BaseModel):
 
 
 class ModelConfigRequest(BaseModel):
-    max_tokens: Optional[int] = Field(
-        default=None,
-        description="Maximum output tokens per response.",
-    )
     max_input_length: Optional[int] = Field(
         default=None,
         description="Maximum input context window size (tokens).",
@@ -214,6 +210,28 @@ class ModelConfigRequest(BaseModel):
             "These override provider-level generate_kwargs."
         ),
     )
+
+    @field_validator("generate_kwargs")
+    @classmethod
+    def validate_generate_kwargs(cls, value: Optional[dict]) -> Optional[dict]:
+        """Validate and normalize typed generation parameters."""
+        if value is None:
+            return None
+        normalized = dict(value)
+        max_tokens = normalized.get("max_tokens")
+        if max_tokens is None:
+            normalized.pop("max_tokens", None)
+            return normalized
+        if (
+            isinstance(max_tokens, bool)
+            or not isinstance(max_tokens, int)
+            or max_tokens < 1
+        ):
+            raise ValueError(
+                "generate_kwargs.max_tokens must be an integer >= 1",
+            )
+        return normalized
+
     relay_reasoning: Optional[bool] = Field(
         default=None,
         description="Whether to relay reasoning_content in subsequent turns.",

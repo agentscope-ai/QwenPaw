@@ -1605,6 +1605,97 @@ class TestDeepScanConfigMerge:
         assert "YAML_FALLBACK_RULE" in rule_ids
 
 
+class TestFileGuardConfigBridge:
+    """File Guard settings participate in active governance decisions."""
+
+    @staticmethod
+    def _patch_config(monkeypatch, *, enabled: bool, paths: list[str]):
+        from types import SimpleNamespace
+
+        config = SimpleNamespace(
+            security=SimpleNamespace(
+                file_guard=SimpleNamespace(
+                    enabled=enabled,
+                    sensitive_files=paths,
+                ),
+                tool_guard=SimpleNamespace(
+                    custom_rules=[],
+                    disabled_rules=[],
+                    shell_evasion_checks={},
+                ),
+            ),
+        )
+        monkeypatch.setattr("qwenpaw.config.load_config", lambda: config)
+
+    def test_read_allow_rule_cannot_override_sensitive_path(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        secret_dir = tmp_path / "protected"
+        secret_dir.mkdir()
+        secret_file = secret_dir / "credentials.json"
+        self._patch_config(
+            monkeypatch,
+            enabled=True,
+            paths=[f"{secret_dir}/"],
+        )
+        policy = _create_default_policy(str(tmp_path), str(tmp_path))
+        policy.execution_level = "smart"
+
+        decision = policy.evaluate(_tc("Read", str(secret_file)))
+
+        assert decision.action is GovernanceAction.ASK
+        assert decision.source == "sensitive_paths"
+        assert [finding.rule_id for finding in decision.findings or []] == [
+            "SENSITIVE_FILE_BLOCK",
+        ]
+
+    def test_shell_uses_file_guard_paths_from_config(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        secret_dir = tmp_path / "protected"
+        secret_dir.mkdir()
+        self._patch_config(
+            monkeypatch,
+            enabled=True,
+            paths=[f"{secret_dir}/"],
+        )
+        policy = _create_default_policy(str(tmp_path), str(tmp_path))
+        policy.execution_level = "smart"
+
+        decision = policy.evaluate(_tc("Bash", f"ls -la {secret_dir}/"))
+
+        assert decision.action is GovernanceAction.ASK
+        assert decision.source == "sensitive_paths"
+
+    def test_disabled_file_guard_does_not_scan_sensitive_paths(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        secret_dir = tmp_path / "protected"
+        secret_dir.mkdir()
+        self._patch_config(
+            monkeypatch,
+            enabled=False,
+            paths=[f"{secret_dir}/"],
+        )
+        policy = _create_default_policy(str(tmp_path), str(tmp_path))
+        policy.sensitive_paths = [f"{secret_dir}/"]
+
+        findings = policy._deep_security_scan(
+            _tc("Read", str(secret_dir / "credentials.json")),
+            "file",
+        )
+
+        assert not any(
+            finding.rule_id == "SENSITIVE_FILE_BLOCK" for finding in findings
+        )
+
+
 # ===========================================================================
 # TestShellFindingDrivenApproval — shell commands with deep-scan findings
 # honor the execution-level severity threshold (Phase 3 fix).

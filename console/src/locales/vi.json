@@ -645,6 +645,12 @@
     "newChatTooltip": "Cuộc trò chuyện mới",
     "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
+    "messageDisplay": {
+      "stepsRunning": "Đang chạy… · {{count}} bước",
+      "stepsCanceled": "Đã hủy · {{count}} bước",
+      "stepsFailed": "Thất bại · {{count}} bước",
+      "stepsCompleted": "Đã hoàn thành {{count}} bước"
+    },
     "allChats": "Tất cả cuộc trò chuyện",
     "createNewChat": "Tạo cuộc trò chuyện mới",
     "pinDrawer": "Ghim",
