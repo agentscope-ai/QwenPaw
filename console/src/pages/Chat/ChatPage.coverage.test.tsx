@@ -1024,21 +1024,32 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── handleBeforeSubmit: non-owner tab enqueues ─────────────────────────
-  it("handleBeforeSubmit returns false for non-owner tab and enqueues", async () => {
+  // ── SDK 1.2 API and immutable submission snapshot ─────────────────────
+  it("keeps the SDK queue disabled and snapshots direct-send identity", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
-    if (typeof beforeSubmit === "function") {
-      // The default mock makes the component an owner (holdOwnershipLock calls cb immediately)
-      // So beforeSubmit should return true for owner
-      const result = await beforeSubmit();
-      // Owner path: returns true
-      expect(typeof result).toBe("boolean");
-    }
+    expect(capturedOptions?.sender?.queue).toBeUndefined();
+    expect(typeof beforeSubmit).toBe("function");
+    const result = await beforeSubmit({
+      query: "hello",
+      context: { source: "sender" },
+    });
+    expect(result).toMatchObject({
+      proceed: true,
+      query: "hello",
+      session_id: "test-session",
+      context: {
+        source: "sender",
+        session_id: "test-session",
+        user_id: "test-user",
+        channel: "console",
+        agent_id: "default",
+      },
+    });
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────

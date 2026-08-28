@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUIInputData,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -90,6 +91,11 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { cancelSdkChatRequest } from "./sdkCancellation";
+import {
+  buildChatSubmissionContext,
+  resolveChatRequestSnapshot,
+} from "./sdkRequestSnapshot";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
@@ -2516,23 +2522,48 @@ export default function ChatPage() {
   );
 
   const customFetch = useCallback(
-    async (data: {
-      input?: Array<Record<string, unknown>>;
-      biz_params?: Record<string, unknown>;
-      signal?: AbortSignal;
-    }): Promise<Response> => {
+    async (
+      data: {
+        input?: Array<Record<string, unknown>>;
+        signal?: AbortSignal;
+      } & Partial<
+        Pick<
+          IAgentScopeRuntimeWebUIInputData,
+          | "session_id"
+          | "user_id"
+          | "channel"
+          | "agent_id"
+          | "context"
+          | "biz_params"
+        >
+      >,
+    ): Promise<Response> => {
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
+      // Snapshot legacy state before the first await. SDK 1.2 supplies the
+      // immutable submission route in data for direct and queued sends.
+      const fallbackIdentity = sessionApi.getSessionIdentity();
+      const fallbackLocalChatId =
+        sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const entrySnapshot = resolveChatRequestSnapshot(
+        data,
+        fallbackIdentity,
+        {},
+        selectedAgent,
+      );
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
       };
+      if (entrySnapshot.agentId) {
+        headers["X-Agent-Id"] = entrySnapshot.agentId;
+      }
 
       if (usesQwenPawBackend) {
         try {
           const activeModels = await providerApi.getActiveModels({
             scope: "effective",
-            agent_id: selectedAgent,
+            agent_id: entrySnapshot.agentId,
           });
           if (
             !activeModels?.active_llm?.provider_id ||
@@ -2553,7 +2584,7 @@ export default function ChatPage() {
       if (submittedValue !== null) {
         clearSubmittedSenderInput(submittedValue);
         pendingSenderClearRef.current = null;
-        localStorage.removeItem(getDraftStorageKey(selectedAgent));
+        localStorage.removeItem(getDraftStorageKey(entrySnapshot.agentId));
       }
 
       const { input = [], biz_params } = data;
@@ -2579,19 +2610,24 @@ export default function ChatPage() {
           ? [rewrittenLastMsg]
           : [];
 
-      const identity = sessionApi.getSessionIdentity();
+      const requestSnapshot = resolveChatRequestSnapshot(
+        data,
+        fallbackIdentity,
+        session,
+        selectedAgent,
+      );
       const usageTurn = useTurnUsageStore
         .getState()
-        .beginTurn(
-          selectedAgent,
-          identity.sessionId || session?.session_id || "",
-        );
+        .beginTurn(requestSnapshot.agentId, requestSnapshot.sessionId);
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
-        session_id: identity.sessionId || session?.session_id || "",
-        user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
-        channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
+        session_id: requestSnapshot.sessionId,
+        user_id: requestSnapshot.userId || DEFAULT_USER_ID,
+        channel: requestSnapshot.channel || DEFAULT_CHANNEL,
         stream: true,
+        ...(Object.keys(requestSnapshot.context).length > 0
+          ? { request_context: requestSnapshot.context }
+          : {}),
         ...biz_params,
       };
 
@@ -2601,7 +2637,7 @@ export default function ChatPage() {
         const next = entry.item.transform({
           payload: requestBody,
           sessionId: String(requestBody.session_id || ""),
-          selectedAgent,
+          selectedAgent: requestSnapshot.agentId,
         });
         if (next && typeof next === "object") {
           requestBody = next;
@@ -2632,12 +2668,10 @@ export default function ChatPage() {
           runningConfigApprovalLevel,
         );
         projectSessionId =
-          sessionApi.lastActiveChatId ??
-          chatIdRef.current ??
-          String(requestBody.session_id || "new");
+          fallbackLocalChatId ?? String(requestBody.session_id || "new");
         const pendingRequest = withPendingProjectDirectory(
           requestBody,
-          selectedAgent,
+          requestSnapshot.agentId,
           projectSessionId,
         );
         requestBody = pendingRequest.requestBody;
@@ -2698,10 +2732,14 @@ export default function ChatPage() {
         sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
       }
 
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const localIdToResolve = fallbackLocalChatId;
       if (response.ok && localIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
-          setPendingProjectDirectory(selectedAgent, projectSessionId, null);
+          setPendingProjectDirectory(
+            requestSnapshot.agentId,
+            projectSessionId,
+            null,
+          );
         }
         sessionApi.triggerResolve(localIdToResolve);
       }
@@ -2857,7 +2895,9 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const handleBeforeSubmit = async () => {
+    const handleBeforeSubmit = async (
+      data: IAgentScopeRuntimeWebUIInputData,
+    ) => {
       if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
@@ -2905,18 +2945,23 @@ export default function ChatPage() {
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
 
-      const textarea = getActiveSenderTextarea();
-      if (textarea) {
-        const prepared = usesQwenPawBackend
-          ? beginLoopModeSubmission(textarea.value)
-          : textarea.value;
-        if (prepared !== textarea.value) {
-          setTextareaValue(textarea, prepared);
-        }
-        pendingSenderClearRef.current = prepared;
-      }
+      const prepared = usesQwenPawBackend
+        ? beginLoopModeSubmission(data.query)
+        : data.query;
+      const identity = sessionApi.getSessionIdentity();
+      pendingSenderClearRef.current = prepared;
 
-      return true;
+      return {
+        proceed: true,
+        query: prepared,
+        session_id: identity.sessionId,
+        context: buildChatSubmissionContext(
+          data.context,
+          identity,
+          selectedAgent,
+        ),
+        biz_params: data.biz_params,
+      };
     };
 
     // ── Resolve plugin extension snapshots ────────────────────────────────
@@ -3404,14 +3449,15 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         onFileCardClick,
-        cancel(data: { session_id: string }) {
-          const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
-          if (resolvedChatId) {
-            chatApi.stopChat(resolvedChatId).catch((err) => {
-              console.error("Failed to stop chat:", err);
-            });
-          }
+        cancel(data: { session_id: string; abort?: () => void }) {
+          return cancelSdkChatRequest(data, {
+            resolveBackendSessionId: (sessionId) =>
+              sessionApi.getRealIdForSession(sessionId),
+            stopChat: (sessionId) => chatApi.stopChat(sessionId),
+            onError: (error) => {
+              console.error("Failed to stop chat:", error);
+            },
+          });
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
           const headers: Record<string, string> = {
