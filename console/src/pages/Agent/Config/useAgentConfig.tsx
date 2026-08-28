@@ -29,8 +29,15 @@ export function useAgentConfig(
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
+  const latestConfigRequestRef = useRef(0);
 
   const fetchConfig = useCallback(async () => {
+    const requestId = ++latestConfigRequestRef.current;
+    const requestedAgent = selectedAgent || "default";
+    const isCurrentRequest = () =>
+      requestId === latestConfigRequestRef.current &&
+      (useAgentStore.getState().selectedAgent || "default") === requestedAgent;
+
     setLoading(true);
     setError(null);
     try {
@@ -39,6 +46,8 @@ export function useAgentConfig(
         api.getAgentLanguage(),
         api.getUserTimezone(),
       ]);
+      if (!isCurrentRequest()) return;
+
       const loadedLevel = (
         config.approval_level || "AUTO"
       ).toUpperCase() as ToolExecutionLevel;
@@ -93,11 +102,13 @@ export function useAgentConfig(
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
     } catch (err) {
+      if (!isCurrentRequest()) return;
+
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.loadFailed");
       setError(errMsg);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
   }, [form, t, selectedAgent, onConfigLoaded]);
 

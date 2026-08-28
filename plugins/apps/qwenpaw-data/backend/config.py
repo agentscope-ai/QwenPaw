@@ -4,7 +4,9 @@
 The plugin stores all user-editable configuration in ``config.json`` and
 translates it into the runtime files the managed context service expects:
 
-* ``.env`` for Neo4j and SQL datasource environment variables.
+* ``.env`` for Neo4j and model environment variables (SQL datasource
+  credentials are registered through the context service's datasource
+  API instead).
 * ``models.json`` for LLM and embedding model settings.
 
 These files live in the app working directory so the context service can

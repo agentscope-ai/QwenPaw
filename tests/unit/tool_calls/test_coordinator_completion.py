@@ -8,12 +8,12 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
 import pytest
-from agentscope.message import TextBlock, ToolResultBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import TextBlock, ToolResultBlock, ToolResultState
+from agentscope.tool import ToolChunk, ToolResponse
 
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
 from qwenpaw.tool_calls._context import CancelReason, ToolCallContext
-from qwenpaw.tool_calls._entry import ToolCallEntry
+from qwenpaw.tool_calls._entry import ToolCallEntry, ToolCallStatus
 from qwenpaw.tool_calls._stream import ToolStream
 
 
@@ -67,6 +67,194 @@ async def _wait_for_hint(
         if hints:
             return hints[0]
         await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_parent_cancel_cooperatively_stops_background_tool():
+    coordinator = ToolCoordinator(cancel_grace_period_secs=0.2)
+    tool_call = _ToolCall(id="call-parent-stop", name="chat_with_agent")
+    started = asyncio.Event()
+    cleanup_called = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        from qwenpaw.tool_calls import cancellable_wait
+
+        async def wait_for_peer() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        try:
+            await cancellable_wait(wait_for_peer())
+        except asyncio.CancelledError:
+            cleanup_called.set()
+            raise
+        yield _text_response(tool_call.id, "should not reach")
+
+    execute_task = asyncio.create_task(
+        _collect(
+            coordinator.execute(
+                tool_call=tool_call,
+                next_handler=next_handler,
+                session_id="session-parent-stop",
+                agent_id="agent-1",
+                root_session_id="root-1",
+            ),
+        ),
+    )
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    execute_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await execute_task
+
+    entry = coordinator.get(tool_call.id)
+    assert entry is not None
+    assert cleanup_called.is_set()
+    assert entry.ctx.cancel_event.is_set()
+    assert entry.ctx.cancel_reason == CancelReason.USER
+    assert entry.background_task is not None
+    assert entry.background_task.done()
+    assert entry.status.value == "completed"
+    assert entry.end_state == "interrupted"
+    assert entry.final_response.state == ToolResultState.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_parent_cancel_after_stream_close_finalizes_interrupted():
+    coordinator = ToolCoordinator(cancel_grace_period_secs=0.2)
+    tool_call = _ToolCall(id="call-post-loop", name="post_loop_tool")
+    after_started = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        yield _text_response(tool_call.id, "done")
+
+    async def after_hook(
+        response: ToolResponse,
+        ctx: ToolCallContext,
+    ) -> ToolResponse:
+        after_started.set()
+        await ctx.cancel_event.wait()
+        return response
+
+    coordinator.hooks.register("post_loop_tool", after=after_hook)
+    execute_task = asyncio.create_task(
+        _collect(
+            coordinator.execute(
+                tool_call=tool_call,
+                next_handler=next_handler,
+                session_id="session-post-loop",
+                agent_id="agent-1",
+                root_session_id="root-1",
+            ),
+        ),
+    )
+
+    await asyncio.wait_for(after_started.wait(), timeout=1)
+    execute_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await execute_task
+
+    entry = coordinator.get(tool_call.id)
+    assert entry is not None
+    assert entry.status == ToolCallStatus.COMPLETED
+    assert entry.end_state == "interrupted"
+    assert entry.final_response.state == ToolResultState.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_generator_close_cancels_running_tool():
+    coordinator = ToolCoordinator(cancel_grace_period_secs=0.2)
+    tool_call = _ToolCall(id="call-close-running", name="streaming_tool")
+    waiting = asyncio.Event()
+    cleanup_called = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        from qwenpaw.tool_calls import cancellable_wait
+
+        yield ToolChunk(
+            is_last=False,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(type="text", text="partial")],
+        )
+        waiting.set()
+        try:
+            await cancellable_wait(asyncio.Event().wait())
+        except asyncio.CancelledError:
+            cleanup_called.set()
+            raise
+        yield _text_response(tool_call.id, "should not reach")
+
+    iterator = coordinator.execute(
+        tool_call=tool_call,
+        next_handler=next_handler,
+        session_id="session-close-running",
+        agent_id="agent-1",
+        root_session_id="root-1",
+    )
+    chunk = await asyncio.wait_for(iterator.__anext__(), timeout=1)
+    assert isinstance(chunk, ToolChunk)
+    await asyncio.wait_for(waiting.wait(), timeout=1)
+
+    await iterator.aclose()
+
+    entry = coordinator.get(tool_call.id)
+    assert entry is not None
+    assert cleanup_called.is_set()
+    assert entry.status == ToolCallStatus.COMPLETED
+    assert entry.final_response.state == ToolResultState.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_generator_close_preserves_offloaded_tool_ownership():
+    coordinator = ToolCoordinator(
+        default_timeout_secs=0.01,
+        offload_on_deadline=True,
+        cancel_grace_period_secs=0.2,
+    )
+    tool_call = _ToolCall(id="call-close-offloaded", name="slow_tool")
+    release = asyncio.Event()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        from qwenpaw.tool_calls import cancellable_wait
+
+        await cancellable_wait(
+            release.wait(),
+            fallback_secs=5.0,
+            as_kill_deadline=True,
+        )
+        yield _text_response(tool_call.id, "done")
+
+    iterator = coordinator.execute(
+        tool_call=tool_call,
+        next_handler=next_handler,
+        session_id="session-close-offloaded",
+        agent_id="agent-1",
+        root_session_id="root-1",
+    )
+    response = await asyncio.wait_for(iterator.__anext__(), timeout=1)
+    assert response.metadata.get("offloaded") is True
+
+    entry = coordinator.get(tool_call.id)
+    assert entry is not None
+    assert entry.status == ToolCallStatus.OFFLOADED
+    await iterator.aclose()
+    assert not entry.ctx.cancel_event.is_set()
+    assert entry.background_task is not None
+    assert not entry.background_task.done()
+
+    assert await coordinator.cancel(tool_call.id) is True
+    await asyncio.wait_for(
+        _wait_for_hint(coordinator, "session-close-offloaded"),
+        timeout=2,
+    )
 
 
 @pytest.mark.asyncio
