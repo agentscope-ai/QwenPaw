@@ -79,12 +79,6 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
   Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
-- [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — OAuth Mô hình Miễn phí, Chợ Plugin, Danh sách trắng MCP. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
-
 [Tất cả ghi chú phát hành →](https://qwenpaw.agentscope.io/release-notes)
 
 ---

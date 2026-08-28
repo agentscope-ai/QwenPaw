@@ -79,12 +79,6 @@
 
   На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
-- [2026-06-17] **v1.1.12 — Обновление страницы моделей и Простой режим** | Новый дизайн страницы моделей с агрегацией провайдеров; Простой режим для упрощённой навигации. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **Запуск платформы AgentScope** — Бесплатный деплой QwenPaw, обмен плагинами и маркет Skill. [Попробовать →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — Бесплатные модели OAuth, Маркет плагинов, Белый список MCP. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
-
 [Все release notes →](https://qwenpaw.agentscope.io/release-notes)
 
 ---
