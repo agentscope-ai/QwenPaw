@@ -13,18 +13,20 @@ vi.mock("@agentscope-ai/chat", () => ({
     open: boolean;
     title: string;
   }) => (
-    <div
-      className={`sdk-accordion-group sdk-accordion-group-${
-        open ? "open" : "close"
-      }`}
-    >
-      <button
-        className={`sdk-accordion-group-header-${open ? "open" : "close"}`}
-        type="button"
+    <div data-testid="vendor-shell">
+      <div
+        className={`sdk-accordion-group sdk-accordion-group-${
+          open ? "open" : "close"
+        }`}
       >
-        {title}
-      </button>
-      <div>{children}</div>
+        <button
+          className={`sdk-accordion-group-header-${open ? "open" : "close"}`}
+          type="button"
+        >
+          {title}
+        </button>
+        <div>{children}</div>
+      </div>
     </div>
   ),
 }));
@@ -42,6 +44,19 @@ describe("LazyAccordion", () => {
 
     expect(renderChildren).toHaveBeenCalledTimes(1);
     expect(screen.getByText("expensive process content")).toBeInTheDocument();
+  });
+
+  it("does not depend on the vendor group being a direct wrapper child", () => {
+    render(
+      <LazyAccordion
+        title="Wrapped group"
+        renderChildren={() => <div>wrapped content</div>}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Wrapped group" }));
+
+    expect(screen.getByText("wrapped content")).toBeInTheDocument();
   });
 
   it("unmounts process children when the group closes again", () => {

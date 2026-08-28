@@ -25,11 +25,6 @@ function isAlwaysVisible(message: IAgentScopeRuntimeMessage): boolean {
   );
 }
 
-export interface PartitionedResponseMessages {
-  visibleMessages: IAgentScopeRuntimeMessage[];
-  collapsedMessages: IAgentScopeRuntimeMessage[];
-}
-
 export type ResponseMessageBlock =
   | { kind: "message"; message: IAgentScopeRuntimeMessage }
   | { kind: "steps"; messages: IAgentScopeRuntimeMessage[] };
@@ -163,30 +158,4 @@ export function groupResponseMessages(
   });
   flushCollapsedRun();
   return blocks;
-}
-
-/** Partition response messages without mutating the runtime response. */
-export function partitionResponseMessages(
-  messages: IAgentScopeRuntimeMessage[],
-  mode: ResponseMessageDisplayMode,
-): PartitionedResponseMessages {
-  const visibleMessages: IAgentScopeRuntimeMessage[] = [];
-  const collapsedMessages: IAgentScopeRuntimeMessage[] = [];
-  groupResponseMessages(messages, mode).forEach((block) => {
-    if (block.kind === "message") {
-      visibleMessages.push(block.message);
-    } else {
-      collapsedMessages.push(...block.messages);
-    }
-  });
-
-  return { visibleMessages, collapsedMessages };
-}
-
-/** Select response messages without mutating the runtime response. */
-export function selectVisibleResponseMessages(
-  messages: IAgentScopeRuntimeMessage[],
-  mode: ResponseMessageDisplayMode,
-): IAgentScopeRuntimeMessage[] {
-  return partitionResponseMessages(messages, mode).visibleMessages;
 }

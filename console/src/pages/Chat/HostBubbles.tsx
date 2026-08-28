@@ -256,6 +256,13 @@ function DefaultHostResponseCard({
         const presentation = getCollapsedStepPresentation(groupStatus);
         const firstId = block.messages[0]?.id ?? index;
         const stepCount = countCollapsedSteps(block.messages);
+        if (stepCount === 0) {
+          return (
+            <React.Fragment key={`messages-${firstId}`}>
+              {block.messages.map(renderResponseMessage)}
+            </React.Fragment>
+          );
+        }
         return (
           <LazyAccordion
             className={styles.collapsedSteps}

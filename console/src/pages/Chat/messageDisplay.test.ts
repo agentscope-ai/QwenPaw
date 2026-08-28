@@ -12,8 +12,6 @@ import {
   getCollapsedStepRenderKey,
   getResponseMessageDisplayMode,
   groupResponseMessages,
-  partitionResponseMessages,
-  selectVisibleResponseMessages,
 } from "./messageDisplay";
 
 function message(
@@ -42,8 +40,8 @@ describe("message display mode", () => {
     ];
 
     expect(
-      selectVisibleResponseMessages(messages, "text-only").map(
-        (item) => item.id,
+      groupResponseMessages(messages, "text-only").flatMap((block) =>
+        block.kind === "message" ? [block.message.id] : [],
       ),
     ).toEqual(["first", "approval", "error", "last"]);
   });
@@ -58,8 +56,8 @@ describe("message display mode", () => {
     ];
 
     expect(
-      selectVisibleResponseMessages(messages, "result-only").map(
-        (item) => item.id,
+      groupResponseMessages(messages, "result-only").flatMap((block) =>
+        block.kind === "message" ? [block.message.id] : [],
       ),
     ).toEqual(["approval", "last", "error"]);
   });
@@ -104,8 +102,8 @@ describe("message display mode", () => {
     ];
 
     expect(
-      selectVisibleResponseMessages(messages, "result-only").map(
-        (item) => item.id,
+      groupResponseMessages(messages, "result-only").flatMap((block) =>
+        block.kind === "message" ? [block.message.id] : [],
       ),
     ).toEqual(["error"]);
   });
@@ -118,19 +116,34 @@ describe("message display mode", () => {
       message("last", AgentScopeRuntimeMessageType.MESSAGE),
     ];
 
-    const textOnly = partitionResponseMessages(messages, "text-only");
-    expect(textOnly.collapsedMessages.map((item) => item.id)).toEqual([
-      "reasoning",
-      "tool",
-    ]);
+    const collapsedIds = (mode: "text-only" | "result-only") =>
+      groupResponseMessages(messages, mode).flatMap((block) =>
+        block.kind === "steps" ? block.messages.map((item) => item.id) : [],
+      );
 
-    const resultOnly = partitionResponseMessages(messages, "result-only");
-    expect(resultOnly.collapsedMessages.map((item) => item.id)).toEqual([
-      "first",
-      "reasoning",
-      "tool",
-    ]);
-    expect(countCollapsedSteps(resultOnly.collapsedMessages)).toBe(2);
+    expect(collapsedIds("text-only")).toEqual(["reasoning", "tool"]);
+    expect(collapsedIds("result-only")).toEqual(["first", "reasoning", "tool"]);
+    expect(
+      countCollapsedSteps(
+        groupResponseMessages(messages, "result-only").flatMap((block) =>
+          block.kind === "steps" ? block.messages : [],
+        ),
+      ),
+    ).toBe(2);
+  });
+
+  it("identifies an earlier pure-text run as having no process steps", () => {
+    const blocks = groupResponseMessages(
+      [
+        message("first", AgentScopeRuntimeMessageType.MESSAGE),
+        message("last", AgentScopeRuntimeMessageType.MESSAGE),
+      ],
+      "result-only",
+    );
+
+    expect(blocks[0].kind).toBe("steps");
+    if (blocks[0].kind !== "steps") throw new Error("Expected a steps block");
+    expect(countCollapsedSteps(blocks[0].messages)).toBe(0);
   });
 
   it("groups consecutive steps around each visible text message", () => {

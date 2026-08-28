@@ -32,8 +32,10 @@ export default function LazyAccordion({
     if (!(event.target instanceof Element)) return;
     const header = event.target.closest(HEADER_SELECTOR);
 
-    // Ignore headers belonging to nested tool/reasoning accordions.
-    if (header?.parentElement?.parentElement !== event.currentTarget) return;
+    // The vendor contract exposes open/close header classes, but its wrapper
+    // depth is not stable. Only the first (outer) header controls this group;
+    // later headers belong to nested tool/reasoning accordions.
+    if (header !== event.currentTarget.querySelector(HEADER_SELECTOR)) return;
     setOpen((current) => !current);
   }, []);
 
