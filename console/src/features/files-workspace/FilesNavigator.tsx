@@ -375,7 +375,6 @@ export default function FilesNavigator({
   const [profileSearch, setProfileSearch] = useState("");
   const [source, setSource] = useState<NavigatorSource>("workspace");
   const [projectDirectory, setProjectDirectory] = useState("");
-  const [agentDefaultDirectory, setAgentDefaultDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   // Every directory bound to this session, primary first. Only session scope
@@ -513,14 +512,14 @@ export default function FilesNavigator({
   );
 
   const activeRoot = describeRoot(workspaceRoot);
-  // Compare the selected root's actual path with the Agent default. Root
-  // tokens are stable addresses, not proof that a directory is the default:
-  // a session can rebind its primary `project` root to another path.
+  // Agent sources (profile, daily, and knowledge base) belong to the Agent's
+  // internal workspace. A project directory returned by the directory API is
+  // not that workspace: it may be configured independently, so comparing the
+  // two paths would route uploads to the wrong root. Agent scope has no
+  // project-content alternative; session scope can explicitly select the
+  // internal workspace through the root switcher.
   const isAgentDirectory =
-    workspaceRoot === "workspace" ||
-    (agentDefaultDirectory
-      ? activeRoot.path === agentDefaultDirectory
-      : workspaceRoot === "project");
+    scopeKind === "agent" || workspaceRoot === "workspace";
 
   const rootMenuItems = useMemo<MenuProps["items"]>(() => {
     const items: NonNullable<MenuProps["items"]> = [];
@@ -597,7 +596,6 @@ export default function FilesNavigator({
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
-    setAgentDefaultDirectory(agentInfo.path);
     const effectiveProject = projectDirOverride
       ? projectDirOverride
       : chatId

@@ -230,6 +230,32 @@ describe("FilesNavigator system prompt interactions", () => {
     );
   });
 
+  it("uploads a knowledge-base file into the Agent digest directory", async () => {
+    mocks.listFiles.mockResolvedValue([]);
+    mocks.getSystemPromptFiles.mockResolvedValue([]);
+    const { container } = renderNavigator();
+    fireEvent.click(await screen.findByRole("tab", { name: "Knowledge Base" }));
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    const file = new File(["knowledge"], "reference.md", {
+      type: "text/markdown",
+    });
+
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(mocks.uploadFiles).toHaveBeenCalledWith(
+        [file],
+        "digest",
+        undefined,
+        undefined,
+        "workspace",
+        undefined,
+        true,
+      ),
+    );
+  });
+
   it("shows non-Markdown Agent knowledge-base files as unsupported", async () => {
     mocks.listFiles.mockResolvedValue([]);
     mocks.getSystemPromptFiles.mockResolvedValue([]);
