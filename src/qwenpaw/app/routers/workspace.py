@@ -1790,14 +1790,12 @@ async def put_agents_running_config(
                 old_embedding_config,
             ) != embedding_vector_space_fingerprint(new_embedding_config)
             new_memory_config = running_config.reme_light_memory_config
-            indexed_config = (
-                old_memory_config.pending_reindex_embedding_config
-            )
+            indexed_config = old_memory_config.pending_reindex_embedding_config
             matches_existing_index = bool(
                 old_memory_config.needs_reindex
                 and indexed_config is not None
                 and embedding_vector_space_fingerprint(new_embedding_config)
-                == embedding_vector_space_fingerprint(indexed_config)
+                == embedding_vector_space_fingerprint(indexed_config),
             )
             if matches_existing_index:
                 new_memory_config.needs_reindex = False

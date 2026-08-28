@@ -287,8 +287,7 @@ async def test_api_key_change_does_not_require_reindex() -> None:
 
 
 @pytest.mark.asyncio
-async def test_restoring_indexed_embedding_config_clears_reindex_requirement(
-) -> None:
+async def test_restoring_indexed_config_clears_reindex_requirement() -> None:
     old_running, _ = _embedding_update_configs()
     indexed = old_running.reme_light_memory_config.embedding_model_config
     pending_running = old_running.model_copy(deep=True)
