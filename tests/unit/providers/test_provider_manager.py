@@ -2095,18 +2095,6 @@ def _configure_single_startup_provider(
     return provider
 
 
-def test_prepare_startup_discovery_marks_provider_syncing(
-    isolated_secret_dir,
-) -> None:
-    manager = ProviderManager()
-    provider = _configure_single_startup_provider(manager)
-
-    provider_ids = manager.prepare_startup_provider_model_sync()
-
-    assert provider_ids == ["openai"]
-    assert provider.models_syncing is True
-
-
 @pytest.mark.parametrize("should_fail", [False, True])
 async def test_startup_discovery_clears_syncing_after_completion(
     isolated_secret_dir,
@@ -2115,18 +2103,23 @@ async def test_startup_discovery_clears_syncing_after_completion(
 ) -> None:
     manager = ProviderManager()
     provider = _configure_single_startup_provider(manager)
-    provider_ids = manager.prepare_startup_provider_model_sync()
+    provider_ids = manager.startup_sync_provider_ids()
+    calls = 0
 
-    async def discover(_provider_id: str):
-        assert provider.models_syncing is True
+    async def fetch_models(_self, timeout=5):
+        nonlocal calls
+        _ = timeout
+        calls += 1
+        assert _self.models_syncing is True
         if should_fail:
             raise RuntimeError("startup discovery failed")
-        return SimpleNamespace()
+        return [ModelInfo(id="startup-model", name="Startup Model")]
 
-    monkeypatch.setattr(manager, "discover_provider_models", discover)
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
 
     await manager.sync_startup_provider_models(provider_ids)
 
+    assert calls == 1
     assert provider.models_syncing is False
 
 
@@ -2136,18 +2129,21 @@ async def test_startup_discovery_clears_syncing_when_cancelled(
 ) -> None:
     manager = ProviderManager()
     provider = _configure_single_startup_provider(manager)
-    provider_ids = manager.prepare_startup_provider_model_sync()
+    provider_ids = manager.startup_sync_provider_ids()
     started = asyncio.Event()
 
-    async def discover(_provider_id: str):
+    async def fetch_models(_self, timeout=5):
+        _ = timeout
         started.set()
         await asyncio.Event().wait()
+        return []
 
-    monkeypatch.setattr(manager, "discover_provider_models", discover)
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     task = asyncio.create_task(
         manager.sync_startup_provider_models(provider_ids),
     )
     await started.wait()
+    assert provider.models_syncing is True
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):

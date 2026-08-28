@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import get_args, Literal
 
 from .provider import Provider
 
@@ -17,6 +17,11 @@ DiscoveryStrategy = Literal[
     "unsupported",
 ]
 ModelSyncMode = Literal["startup", "manual", "disabled"]
+CustomChatModelName = Literal[
+    "OpenAIChatModel",
+    "OpenAIResponseModel",
+    "AnthropicChatModel",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,8 +115,8 @@ CUSTOM_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "OpenAIChatModel": ProviderDiscoveryPolicy("openai_models"),
     "OpenAIResponseModel": ProviderDiscoveryPolicy("openai_models"),
     "AnthropicChatModel": ProviderDiscoveryPolicy("anthropic_models"),
-    "GeminiChatModel": ProviderDiscoveryPolicy("gemini_models"),
 }
+CUSTOM_CHAT_MODEL_NAMES = frozenset(get_args(CustomChatModelName))
 
 
 def apply_discovery_policy(provider: Provider) -> None:

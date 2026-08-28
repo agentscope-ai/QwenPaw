@@ -10,6 +10,8 @@ from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_catalog import BUILTIN_PROVIDERS
 from qwenpaw.providers.provider_discovery_policy import (
     BUILTIN_DISCOVERY_POLICIES,
+    CUSTOM_CHAT_MODEL_NAMES,
+    CUSTOM_DISCOVERY_POLICIES,
 )
 from qwenpaw.providers.provider_manager import ProviderManager
 
@@ -19,6 +21,15 @@ def test_every_builtin_provider_has_discovery_policy() -> None:
 
     assert set(BUILTIN_DISCOVERY_POLICIES) == provider_ids
     assert all(provider.discovery_strategy for provider in BUILTIN_PROVIDERS)
+
+
+def test_custom_provider_protocols_match_discovery_policies() -> None:
+    assert CUSTOM_CHAT_MODEL_NAMES == {
+        "OpenAIChatModel",
+        "OpenAIResponseModel",
+        "AnthropicChatModel",
+    }
+    assert set(CUSTOM_DISCOVERY_POLICIES) == CUSTOM_CHAT_MODEL_NAMES
 
 
 def test_catalog_only_provider_reports_reason() -> None:

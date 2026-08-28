@@ -548,37 +548,21 @@ class ProviderManagerDiscoveryMixin(
             provider_ids.append(provider.id)
         return provider_ids
 
-    def prepare_startup_provider_model_sync(self) -> list[str]:
-        """Mark startup discovery before its background task is scheduled."""
-        provider_ids = self.startup_sync_provider_ids()
-        for provider_id in provider_ids:
-            provider = self.get_provider(provider_id)
-            if provider is not None:
-                provider.models_syncing = True
-        return provider_ids
-
     async def sync_startup_provider_models(
         self,
         provider_ids: list[str] | None = None,
     ) -> None:
         """Refresh startup-enabled provider catalogs without failing boot."""
         if provider_ids is None:
-            provider_ids = self.prepare_startup_provider_model_sync()
+            provider_ids = self.startup_sync_provider_ids()
         if not provider_ids:
             return
 
-        async def sync_provider(
-            provider_id: str,
-        ) -> ProviderModelDiscoveryResult:
-            try:
-                return await self.discover_provider_models(provider_id)
-            finally:
-                provider = self.get_provider(provider_id)
-                if provider is not None:
-                    provider.models_syncing = False
-
         results = await asyncio.gather(
-            *(sync_provider(provider_id) for provider_id in provider_ids),
+            *(
+                self.discover_provider_models(provider_id)
+                for provider_id in provider_ids
+            ),
             return_exceptions=True,
         )
         for provider_id, result in zip(provider_ids, results):
